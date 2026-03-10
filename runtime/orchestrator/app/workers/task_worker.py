@@ -6,7 +6,13 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.domain.run import Run, RunFailureCategory, RunStatus
-from app.domain.task import Task, TaskBlockingReasonCategory, TaskBlockingReasonCode
+from app.domain.task import (
+    Task,
+    TaskBlockingReasonCategory,
+    TaskBlockingReasonCode,
+    TaskStatus,
+)
+from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.budget_guard_service import BudgetGuardDecision, BudgetGuardService
@@ -14,7 +20,9 @@ from app.services.context_builder_service import ContextBuilderService, TaskCont
 from app.services.cost_estimator_service import CostEstimate, CostEstimatorService
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionResult, ExecutorService
+from app.services.failure_review_service import FailureReviewService
 from app.services.run_logging_service import RunLoggingService
+from app.services.task_readiness_service import TaskReadinessService
 from app.services.task_router_service import TaskRouterService, TaskRoutingDecision
 from app.services.task_state_machine_service import (
     TaskStateMachineService,
@@ -63,6 +71,7 @@ class TaskWorker:
         context_builder_service: ContextBuilderService,
         task_router_service: TaskRouterService,
         task_state_machine_service: TaskStateMachineService,
+        failure_review_service: FailureReviewService,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -75,10 +84,13 @@ class TaskWorker:
         self.context_builder_service = context_builder_service
         self.task_router_service = task_router_service
         self.task_state_machine_service = task_state_machine_service
+        self.failure_review_service = failure_review_service
 
     def run_once(self) -> WorkerRunResult:
         """Execute one conservative worker loop."""
 
+        task: Task | None = None
+        run: Run | None = None
         log_path: str | None = None
         context_package: TaskContextPackage | None = None
         routing_decision: TaskRoutingDecision | None = None
@@ -96,11 +108,13 @@ class TaskWorker:
             )
             task = self.task_repository.claim_pending_task(routing_decision.selected_task.id)
             if task is None:
+                self.session.rollback()
                 return WorkerRunResult(
                     claimed=False,
                     message="Router selected a task, but it was no longer pending when claimed.",
                 )
 
+            self.session.commit()
             event_stream_service.publish_task_updated(
                 task=task,
                 reason=claim_transition.event_reason,
@@ -133,14 +147,13 @@ class TaskWorker:
                     },
                 )
 
-                self._log_guard_blocked(run=run, decision=guard_decision)
-                task, run = self._finalize_guard_blocked_run(
+                task, run = self._finalize_guard_blocked_path(
                     task=task,
                     run=run,
                     decision=guard_decision,
                 )
-                self._log_finalization(task=task, run=run, final_summary=run.result_summary or "")
                 self.session.commit()
+                self._record_failure_review_if_needed(task=task, run=run)
 
                 return WorkerRunResult(
                     claimed=True,
@@ -177,6 +190,7 @@ class TaskWorker:
                     "run_status": run.status.value,
                 },
             )
+            self.session.commit()
 
             context_package = self.context_builder_service.build_context_package(task=task)
             self._log_context_package(run=run, context_package=context_package)
@@ -214,6 +228,7 @@ class TaskWorker:
             self._log_finalization(task=task, run=run, final_summary=final_summary)
 
             self.session.commit()
+            self._record_failure_review_if_needed(task=task, run=run)
 
             return WorkerRunResult(
                 claimed=True,
@@ -244,6 +259,15 @@ class TaskWorker:
                 )
 
             self.session.rollback()
+            if task is not None and run is not None:
+                self._best_effort_finalize_crashed_run(
+                    task_id=task.id,
+                    run_id=run.id,
+                    exception_summary=(
+                        f"Worker raised {type(exc).__name__}: {exc}. "
+                        "Run was recovered into a failed state."
+                    ),
+                )
             raise
 
     def _initialize_run_log(self, *, task: Task, run: Run) -> Run:
@@ -254,6 +278,28 @@ class TaskWorker:
             run_id=run.id,
         )
         return self.run_repository.set_log_path(run.id, log_path)
+
+    def _finalize_guard_blocked_path(
+        self,
+        *,
+        task: Task,
+        run: Run,
+        decision: BudgetGuardDecision,
+    ) -> tuple[Task, Run]:
+        """Persist and log a blocked task/run pair when the guard rejects execution."""
+
+        self._log_guard_blocked(run=run, decision=decision)
+        updated_task, updated_run = self._finalize_guard_blocked_run(
+            task=task,
+            run=run,
+            decision=decision,
+        )
+        self._log_finalization(
+            task=updated_task,
+            run=updated_run,
+            final_summary=updated_run.result_summary or "",
+        )
+        return updated_task, updated_run
 
     def _finalize_guard_blocked_run(
         self,
@@ -285,6 +331,80 @@ class TaskWorker:
             previous_status=task.status,
         )
         return updated_task, updated_run
+
+    def _best_effort_finalize_crashed_run(
+        self,
+        *,
+        task_id: UUID,
+        run_id: UUID,
+        exception_summary: str,
+    ) -> None:
+        """Recover a crashed in-flight run into a stable failed state."""
+
+        persisted_task = self.task_repository.get_by_id(task_id)
+        persisted_run = self.run_repository.get_by_id(run_id)
+        if (
+            persisted_task is None
+            or persisted_run is None
+            or persisted_task.status != TaskStatus.RUNNING
+            or persisted_run.status != RunStatus.RUNNING
+        ):
+            return
+
+        resolution = self.task_state_machine_service.build_execution_resolution(
+            task=persisted_task,
+            execution_succeeded=False,
+            verification_present=False,
+            verification_succeeded=False,
+            verification_quality_gate_passed=False,
+            verification_failure_category=None,
+        )
+        updated_task = self._apply_task_transition(
+            task_id=task_id,
+            transition=resolution.task_transition,
+        )
+        updated_run = self.run_repository.finish_run(
+            run_id,
+            status=resolution.run_status,
+            result_summary=self._truncate_summary(exception_summary),
+            verification_summary="Verification skipped because the worker crashed.",
+            failure_category=resolution.failure_category,
+            quality_gate_passed=resolution.quality_gate_passed,
+        )
+        if updated_run.log_path is not None:
+            self.run_logging_service.append_event(
+                log_path=updated_run.log_path,
+                event="run_recovered",
+                level="error",
+                message="Worker crash was converted into a failed run.",
+                data={
+                    "task_status": updated_task.status.value,
+                    "run_status": updated_run.status.value,
+                    "failure_category": (
+                        updated_run.failure_category.value
+                        if updated_run.failure_category is not None
+                        else None
+                    ),
+                },
+            )
+
+        self._log_finalization(
+            task=updated_task,
+            run=updated_run,
+            final_summary=updated_run.result_summary or exception_summary,
+        )
+        self.session.commit()
+        event_stream_service.publish_task_updated(
+            task=updated_task,
+            reason=resolution.task_transition.event_reason,
+            previous_status=TaskStatus.RUNNING,
+        )
+        self._record_failure_review_if_needed(task=updated_task, run=updated_run)
+
+    def _record_failure_review_if_needed(self, *, task: Task, run: Run) -> None:
+        """Persist one failure review for failed, cancelled or guard-blocked runs."""
+
+        self.failure_review_service.ensure_review(task=task, run=run)
 
     def _verify_if_needed(
         self,
@@ -637,3 +757,56 @@ class TaskWorker:
             return summary
 
         return summary[: _RUN_RESULT_SUMMARY_MAX_LENGTH - 3] + "..."
+
+    @staticmethod
+    def _truncate_summary(summary: str) -> str:
+        """Trim crash summaries to the persisted `result_summary` budget."""
+
+        if len(summary) <= _RUN_RESULT_SUMMARY_MAX_LENGTH:
+            return summary
+
+        return summary[: _RUN_RESULT_SUMMARY_MAX_LENGTH - 3] + "..."
+
+
+def build_task_worker(*, session: Session) -> TaskWorker:
+    """Create the minimal worker graph for one session."""
+
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
+    budget_guard_service = BudgetGuardService(run_repository=run_repository)
+    executor_service = ExecutorService()
+    verifier_service = VerifierService(executor_service=executor_service)
+    run_logging_service = RunLoggingService()
+    cost_estimator_service = CostEstimatorService()
+    task_state_machine_service = TaskStateMachineService()
+    task_readiness_service = TaskReadinessService(
+        task_repository=task_repository,
+        run_repository=run_repository,
+    )
+    context_builder_service = ContextBuilderService(
+        run_repository=run_repository,
+        task_readiness_service=task_readiness_service,
+    )
+    task_router_service = TaskRouterService(
+        task_repository=task_repository,
+        run_repository=run_repository,
+        task_readiness_service=task_readiness_service,
+    )
+    failure_review_service = FailureReviewService(
+        failure_review_repository=FailureReviewRepository(),
+        run_logging_service=run_logging_service,
+    )
+    return TaskWorker(
+        session=session,
+        task_repository=task_repository,
+        run_repository=run_repository,
+        executor_service=executor_service,
+        verifier_service=verifier_service,
+        budget_guard_service=budget_guard_service,
+        run_logging_service=run_logging_service,
+        cost_estimator_service=cost_estimator_service,
+        context_builder_service=context_builder_service,
+        task_router_service=task_router_service,
+        task_state_machine_service=task_state_machine_service,
+        failure_review_service=failure_review_service,
+    )

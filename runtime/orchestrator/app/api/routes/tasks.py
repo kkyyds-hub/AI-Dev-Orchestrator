@@ -19,6 +19,7 @@ from app.domain.task import (
 )
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.failure_review_repository import FailureReviewRepository
 from app.services.budget_guard_service import BudgetGuardService, BudgetSnapshot
 from app.services.console_service import (
     ConsoleOverview,
@@ -26,11 +27,17 @@ from app.services.console_service import (
     ConsoleTaskDetail,
     ConsoleTaskItem,
 )
+from app.services.run_logging_service import RunLoggingService
 from app.services.context_builder_service import (
     ContextBuilderService,
     ContextRecentRunItem,
     TaskContextPackage,
 )
+from app.services.decision_replay_service import (
+    DecisionHistoryItem,
+    DecisionReplayService,
+)
+from app.services.failure_review_service import FailureReviewService
 from app.services.task_readiness_service import (
     TaskBlockingSignal,
     TaskDependencyReadinessItem,
@@ -516,6 +523,32 @@ class ConsoleOverviewResponse(BaseModel):
         )
 
 
+class DecisionHistoryItemResponse(BaseModel):
+    """Task-level summary of one historical decision trace."""
+
+    run_id: UUID
+    status: RunStatus
+    failure_category: RunFailureCategory | None = None
+    quality_gate_passed: bool | None = None
+    created_at: datetime
+    headline: str
+    stages: list[str]
+
+    @classmethod
+    def from_item(cls, item: DecisionHistoryItem) -> "DecisionHistoryItemResponse":
+        """Convert one decision history summary into an API DTO."""
+
+        return cls(
+            run_id=item.run_id,
+            status=item.status,
+            failure_category=item.failure_category,
+            quality_gate_passed=item.quality_gate_passed,
+            created_at=datetime.fromisoformat(item.created_at),
+            headline=item.headline,
+            stages=item.stages,
+        )
+
+
 def build_task_responses(tasks: list[Task]) -> list[TaskResponse]:
     """Convert a list of domain tasks into API DTOs."""
 
@@ -559,6 +592,20 @@ def get_console_service(
         run_repository=run_repository,
         budget_guard_service=budget_guard_service,
         context_builder_service=context_builder_service,
+    )
+
+
+def get_decision_replay_service() -> DecisionReplayService:
+    """Create the decision replay dependency."""
+
+    run_logging_service = RunLoggingService()
+    failure_review_service = FailureReviewService(
+        failure_review_repository=FailureReviewRepository(),
+        run_logging_service=run_logging_service,
+    )
+    return DecisionReplayService(
+        run_logging_service=run_logging_service,
+        failure_review_service=failure_review_service,
     )
 
 
@@ -644,6 +691,32 @@ def list_task_runs(
         )
 
     return [TaskConsoleRunResponse.from_run(run) for run in runs]
+
+
+@router.get(
+    "/{task_id}/decision-history",
+    response_model=list[DecisionHistoryItemResponse],
+    summary="获取任务决策回放历史",
+)
+def get_task_decision_history(
+    task_id: UUID,
+    console_service: Annotated[ConsoleService, Depends(get_console_service)],
+    decision_replay_service: Annotated[
+        DecisionReplayService,
+        Depends(get_decision_replay_service),
+    ],
+) -> list[DecisionHistoryItemResponse]:
+    """Return the replay history summaries for one task."""
+
+    runs = console_service.get_task_runs(task_id)
+    if runs is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task not found: {task_id}",
+        )
+
+    history = decision_replay_service.build_task_history(runs=runs)
+    return [DecisionHistoryItemResponse.from_item(item) for item in history]
 
 
 @router.get(

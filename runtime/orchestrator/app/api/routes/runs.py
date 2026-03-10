@@ -1,4 +1,4 @@
-"""Run log endpoints."""
+"""Run log and replay endpoints."""
 
 from typing import Annotated, Any
 from uuid import UUID
@@ -8,7 +8,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.run_repository import RunRepository
+from app.services.decision_replay_service import (
+    DecisionReplayService,
+    DecisionTrace,
+    DecisionTraceItem,
+)
+from app.services.failure_review_service import FailureReviewRecord, FailureReviewService
 from app.services.run_logging_service import RunLogEvent, RunLogReadResult, RunLoggingService
 
 
@@ -62,6 +69,126 @@ class RunLogResponse(BaseModel):
         )
 
 
+class FailureReviewResponse(BaseModel):
+    """Stored failure review summary attached to one run trace."""
+
+    review_id: str
+    task_id: UUID
+    task_title: str
+    task_status: str
+    run_id: UUID
+    run_status: str
+    created_at: str
+    failure_category: str | None = None
+    quality_gate_passed: bool | None = None
+    route_reason: str | None = None
+    result_summary: str | None = None
+    log_path: str | None = None
+    evidence_events: list[str]
+    action_summary: str
+    conclusion: str
+    storage_path: str | None = None
+
+    @classmethod
+    def from_review(cls, review: FailureReviewRecord) -> "FailureReviewResponse":
+        """Convert one stored review into an API DTO."""
+
+        return cls(
+            review_id=review.review_id,
+            task_id=review.task_id,
+            task_title=review.task_title,
+            task_status=review.task_status.value,
+            run_id=review.run_id,
+            run_status=review.run_status.value,
+            created_at=review.created_at.isoformat(),
+            failure_category=(
+                review.failure_category.value if review.failure_category is not None else None
+            ),
+            quality_gate_passed=review.quality_gate_passed,
+            route_reason=review.route_reason,
+            result_summary=review.result_summary,
+            log_path=review.log_path,
+            evidence_events=review.evidence_events,
+            action_summary=review.action_summary,
+            conclusion=review.conclusion,
+            storage_path=review.storage_path,
+        )
+
+
+class DecisionTraceItemResponse(BaseModel):
+    """One decision timeline item returned to the frontend."""
+
+    timestamp: str
+    stage: str
+    title: str
+    event: str
+    level: str
+    summary: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_item(cls, item: DecisionTraceItem) -> "DecisionTraceItemResponse":
+        """Convert one trace node into an API DTO."""
+
+        return cls(
+            timestamp=item.timestamp,
+            stage=item.stage,
+            title=item.title,
+            event=item.event,
+            level=item.level,
+            summary=item.summary,
+            data=item.data,
+        )
+
+
+class DecisionTraceResponse(BaseModel):
+    """Replay-friendly timeline for one persisted run."""
+
+    run_id: UUID
+    task_id: UUID
+    run_status: str
+    failure_category: str | None = None
+    quality_gate_passed: bool | None = None
+    trace_items: list[DecisionTraceItemResponse]
+    failure_review: FailureReviewResponse | None = None
+
+    @classmethod
+    def from_trace(cls, trace: DecisionTrace) -> "DecisionTraceResponse":
+        """Convert one replay trace into an API DTO."""
+
+        return cls(
+            run_id=trace.run_id,
+            task_id=trace.task_id,
+            run_status=trace.run_status.value,
+            failure_category=(
+                trace.failure_category.value if trace.failure_category is not None else None
+            ),
+            quality_gate_passed=trace.quality_gate_passed,
+            trace_items=[
+                DecisionTraceItemResponse.from_item(item) for item in trace.trace_items
+            ],
+            failure_review=(
+                FailureReviewResponse.from_review(trace.failure_review)
+                if trace.failure_review is not None
+                else None
+            ),
+        )
+
+
+def get_decision_replay_service() -> DecisionReplayService:
+    """Create the replay service dependency."""
+
+    run_logging_service = RunLoggingService()
+    failure_review_service = FailureReviewService(
+        failure_review_repository=FailureReviewRepository(),
+        run_logging_service=run_logging_service,
+    )
+    return DecisionReplayService(
+        run_logging_service=run_logging_service,
+        failure_review_service=failure_review_service,
+    )
+
+
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
@@ -91,3 +218,30 @@ def get_run_logs(
         limit=limit,
         result=log_result,
     )
+
+
+@router.get(
+    "/{run_id}/decision-trace",
+    response_model=DecisionTraceResponse,
+    summary="获取运行决策回放",
+)
+def get_run_decision_trace(
+    run_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    decision_replay_service: Annotated[
+        DecisionReplayService,
+        Depends(get_decision_replay_service),
+    ],
+) -> DecisionTraceResponse:
+    """Return a replay-friendly decision timeline for one run."""
+
+    run_repository = RunRepository(session)
+    run = run_repository.get_by_id(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run not found: {run_id}",
+        )
+
+    trace = decision_replay_service.build_run_trace(run=run)
+    return DecisionTraceResponse.from_trace(trace)
