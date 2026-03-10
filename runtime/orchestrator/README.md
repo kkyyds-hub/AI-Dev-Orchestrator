@@ -15,6 +15,10 @@
 - 一个任务运行历史接口 `GET /tasks/{task_id}/runs`
 - 一个任务详情聚合接口 `GET /tasks/{task_id}/detail`
 - 一个任务重试接口 `POST /tasks/{task_id}/retry`
+- 一个任务暂停接口 `POST /tasks/{task_id}/pause`
+- 一个任务恢复接口 `POST /tasks/{task_id}/resume`
+- 一个任务请求人工接口 `POST /tasks/{task_id}/request-human`
+- 一个任务人工恢复接口 `POST /tasks/{task_id}/resolve-human`
 - 一个运行日志读取接口 `GET /runs/{run_id}/logs`
 - 一个控制台实时事件流接口 `GET /events/console`
 - 一个 Worker 单轮触发接口 `POST /workers/run-once`
@@ -158,6 +162,13 @@ runtime/orchestrator/
 - `Run` 会额外记录 `route_reason` 与 `routing_score`
 - 结构化日志会新增 `task_routed` 事件，详情页和手动执行结果会展示路由原因
 
+当前 V2-A 已新增：
+
+- `TaskStateMachineService`：统一任务状态转移守卫和非法转移错误口径
+- `TaskReadinessService`：统一就绪判断与阻塞原因结构化输出
+- 显式动作接口：`retry / pause / resume / request-human / resolve-human`
+- 非法状态动作统一返回 `HTTP 409 Conflict`
+
 ## 3. 推荐运行方式
 
 由于当前 PowerShell 执行策略可能会拦截激活脚本，推荐直接使用虚拟环境中的 `python.exe`，这样最稳定。
@@ -201,6 +212,10 @@ $env:MAX_TASK_RETRIES = '2'
 - 任务运行历史：`GET http://127.0.0.1:8000/tasks/{task_id}/runs`
 - 任务详情聚合：`GET http://127.0.0.1:8000/tasks/{task_id}/detail`
 - 任务重试：`POST http://127.0.0.1:8000/tasks/{task_id}/retry`
+- 任务暂停：`POST http://127.0.0.1:8000/tasks/{task_id}/pause`
+- 任务恢复：`POST http://127.0.0.1:8000/tasks/{task_id}/resume`
+- 请求人工处理：`POST http://127.0.0.1:8000/tasks/{task_id}/request-human`
+- 人工处理完成：`POST http://127.0.0.1:8000/tasks/{task_id}/resolve-human`
 - 运行日志：`GET http://127.0.0.1:8000/runs/{run_id}/logs`
 - 实时事件流：`GET http://127.0.0.1:8000/events/console`
 - Worker 单轮触发：`POST http://127.0.0.1:8000/workers/run-once`
@@ -363,6 +378,28 @@ Invoke-RestMethod `
 Invoke-RestMethod `
   -Method Post `
   -Uri 'http://127.0.0.1:8000/tasks/<task_id>/retry'
+```
+
+如果你想手动暂停、恢复或转人工：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri 'http://127.0.0.1:8000/tasks/<task_id>/pause' `
+  -ContentType 'application/json' `
+  -Body '{"reason":"需要人工确认"}'
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri 'http://127.0.0.1:8000/tasks/<task_id>/resume'
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri 'http://127.0.0.1:8000/tasks/<task_id>/request-human'
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri 'http://127.0.0.1:8000/tasks/<task_id>/resolve-human'
 ```
 
 如果你已经拿到某次运行的 `run_id`，还可以查看结构化日志事件：
