@@ -6,6 +6,7 @@
 
 from fastapi import APIRouter
 
+from app.api.routes.console import router as console_router
 from app.api.routes.events import router as events_router
 from app.api.routes.health import router as health_router
 from app.api.routes.planning import router as planning_router
@@ -23,6 +24,10 @@ api_router.include_router(health_router)
 # 注册实时事件流路由。
 # Day 13 开始提供本地 SSE 状态流。
 api_router.include_router(events_router)
+
+# 注册控制台聚合路由。
+# V2-B / V2-C 开始把指标和槽位观测统一收敛到 console 路由。
+api_router.include_router(console_router)
 
 # 注册任务相关路由。
 # Day 4 先从任务创建接口开始，后续列表、详情等也会继续接在这里。

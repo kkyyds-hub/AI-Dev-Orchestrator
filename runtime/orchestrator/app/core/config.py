@@ -95,6 +95,7 @@ class Settings:
     daily_budget_usd: float
     session_budget_usd: float
     max_task_retries: int
+    max_concurrent_workers: int
 
 
 def load_settings() -> Settings:
@@ -122,6 +123,7 @@ def load_settings() -> Settings:
         daily_budget_usd=_read_float("DAILY_BUDGET_USD", 0.05, minimum=0.0),
         session_budget_usd=_read_float("SESSION_BUDGET_USD", 0.2, minimum=0.0),
         max_task_retries=_read_int("MAX_TASK_RETRIES", 2, minimum=0),
+        max_concurrent_workers=_read_int("MAX_CONCURRENT_WORKERS", 2, minimum=1),
     )
 
 

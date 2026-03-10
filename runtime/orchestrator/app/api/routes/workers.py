@@ -3,25 +3,16 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.domain.run import RunFailureCategory, RunStatus
 from app.domain.task import TaskStatus
-from app.repositories.run_repository import RunRepository
-from app.repositories.task_repository import TaskRepository
-from app.services.budget_guard_service import BudgetGuardService
-from app.services.context_builder_service import ContextBuilderService
-from app.services.cost_estimator_service import CostEstimatorService
-from app.services.executor_service import ExecutorService
-from app.services.run_logging_service import RunLoggingService
-from app.services.task_readiness_service import TaskReadinessService
-from app.services.task_router_service import TaskRouterService
-from app.services.task_state_machine_service import TaskStateMachineService
-from app.services.verifier_service import VerifierService
-from app.workers.task_worker import TaskWorker, WorkerRunResult
+from app.services.worker_slot_service import WorkerSlotSnapshot, WorkerSlotState, WorkerSlotStatus
+from app.workers.task_worker import TaskWorker, WorkerRunResult, build_task_worker
+from app.workers.worker_pool import WorkerPoolRunResult, worker_pool
 
 
 class WorkerRunOnceResponse(BaseModel):
@@ -83,40 +74,90 @@ def get_task_worker(
 ) -> TaskWorker:
     """Create the minimal worker graph for one request."""
 
-    task_repository = TaskRepository(session)
-    run_repository = RunRepository(session)
-    budget_guard_service = BudgetGuardService(run_repository=run_repository)
-    executor_service = ExecutorService()
-    verifier_service = VerifierService(executor_service=executor_service)
-    run_logging_service = RunLoggingService()
-    cost_estimator_service = CostEstimatorService()
-    task_state_machine_service = TaskStateMachineService()
-    task_readiness_service = TaskReadinessService(
-        task_repository=task_repository,
-        run_repository=run_repository,
-    )
-    context_builder_service = ContextBuilderService(
-        run_repository=run_repository,
-        task_readiness_service=task_readiness_service,
-    )
-    task_router_service = TaskRouterService(
-        task_repository=task_repository,
-        run_repository=run_repository,
-        task_readiness_service=task_readiness_service,
-    )
-    return TaskWorker(
-        session=session,
-        task_repository=task_repository,
-        run_repository=run_repository,
-        executor_service=executor_service,
-        verifier_service=verifier_service,
-        budget_guard_service=budget_guard_service,
-        run_logging_service=run_logging_service,
-        cost_estimator_service=cost_estimator_service,
-        context_builder_service=context_builder_service,
-        task_router_service=task_router_service,
-        task_state_machine_service=task_state_machine_service,
-    )
+    return build_task_worker(session=session)
+
+
+class WorkerSlotResponse(BaseModel):
+    """Visible state of one local worker slot."""
+
+    slot_id: int
+    state: WorkerSlotState
+    worker_name: str | None = None
+    task_id: str | None = None
+    task_title: str | None = None
+    run_id: str | None = None
+    acquired_at: str | None = None
+    last_task_id: str | None = None
+    last_task_title: str | None = None
+    last_run_id: str | None = None
+    last_released_at: str | None = None
+
+    @classmethod
+    def from_status(cls, status: WorkerSlotStatus) -> "WorkerSlotResponse":
+        """Convert one slot snapshot into an API DTO."""
+
+        return cls(
+            slot_id=status.slot_id,
+            state=status.state,
+            worker_name=status.worker_name,
+            task_id=status.task_id,
+            task_title=status.task_title,
+            run_id=status.run_id,
+            acquired_at=status.acquired_at.isoformat() if status.acquired_at else None,
+            last_task_id=status.last_task_id,
+            last_task_title=status.last_task_title,
+            last_run_id=status.last_run_id,
+            last_released_at=(
+                status.last_released_at.isoformat() if status.last_released_at else None
+            ),
+        )
+
+
+class WorkerSlotSnapshotResponse(BaseModel):
+    """Pool-wide worker-slot summary returned to the frontend."""
+
+    max_concurrent_workers: int
+    running_slots: int
+    idle_slots: int
+    slots: list[WorkerSlotResponse]
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: WorkerSlotSnapshot,
+    ) -> "WorkerSlotSnapshotResponse":
+        """Convert one slot snapshot into an API DTO."""
+
+        return cls(
+            max_concurrent_workers=snapshot.max_concurrent_workers,
+            running_slots=snapshot.running_slots,
+            idle_slots=snapshot.idle_slots,
+            slots=[WorkerSlotResponse.from_status(slot) for slot in snapshot.slots],
+        )
+
+
+class WorkerPoolRunResponse(BaseModel):
+    """API response for one local worker-pool cycle."""
+
+    requested_workers: int
+    launched_workers: int
+    claimed_runs: int
+    idle_workers: int
+    results: list[WorkerRunOnceResponse]
+    slot_snapshot: WorkerSlotSnapshotResponse
+
+    @classmethod
+    def from_result(cls, result: WorkerPoolRunResult) -> "WorkerPoolRunResponse":
+        """Convert one pool-cycle result into an API DTO."""
+
+        return cls(
+            requested_workers=result.requested_workers,
+            launched_workers=result.launched_workers,
+            claimed_runs=result.claimed_runs,
+            idle_workers=result.idle_workers,
+            results=[WorkerRunOnceResponse.from_result(item) for item in result.results],
+            slot_snapshot=WorkerSlotSnapshotResponse.from_snapshot(result.slot_snapshot),
+        )
 
 
 router = APIRouter(prefix="/workers", tags=["workers"])
@@ -134,3 +175,17 @@ def run_worker_once(
 
     result = task_worker.run_once()
     return WorkerRunOnceResponse.from_result(result)
+
+
+@router.post(
+    "/run-pool-once",
+    response_model=WorkerPoolRunResponse,
+    summary="执行一次固定槽位 Worker Pool 循环",
+)
+def run_worker_pool_once(
+    requested_workers: Annotated[int | None, Query(ge=1, le=8)] = None,
+) -> WorkerPoolRunResponse:
+    """Explicitly trigger one limited-parallel worker-pool cycle."""
+
+    result = worker_pool.run_once(requested_workers=requested_workers)
+    return WorkerPoolRunResponse.from_result(result)

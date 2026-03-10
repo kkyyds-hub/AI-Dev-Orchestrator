@@ -3,7 +3,7 @@
 import json
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.db_tables import RunTable, TaskTable
@@ -151,14 +151,24 @@ class TaskRepository:
     def claim_pending_task(self, task_id: UUID) -> Task | None:
         """Claim one specific pending task if it is still claimable."""
 
-        task_row = self.session.get(TaskTable, task_id)
-        if task_row is None or task_row.status != TaskStatus.PENDING:
+        statement = (
+            update(TaskTable)
+            .where(
+                TaskTable.id == task_id,
+                TaskTable.status == TaskStatus.PENDING,
+            )
+            .values(
+                status=TaskStatus.RUNNING,
+                updated_at=utc_now(),
+            )
+        )
+        result = self.session.execute(statement)
+        if result.rowcount == 0:
             return None
 
-        task_row.status = TaskStatus.RUNNING
-        task_row.updated_at = utc_now()
         self.session.flush()
-        return self._to_domain(task_row)
+        task_row = self.session.get(TaskTable, task_id)
+        return self._to_domain(task_row) if task_row is not None else None
 
     def set_status(self, task_id: UUID, status: TaskStatus) -> Task:
         """Update a task status and return the fresh domain model."""
