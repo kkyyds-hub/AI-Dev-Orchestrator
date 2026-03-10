@@ -22,6 +22,36 @@ export type WorkerRunOnceResponse = {
   log_path: string | null;
 };
 
+export type WorkerSlot = {
+  slot_id: number;
+  state: string;
+  worker_name: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  run_id: string | null;
+  acquired_at: string | null;
+  last_task_id: string | null;
+  last_task_title: string | null;
+  last_run_id: string | null;
+  last_released_at: string | null;
+};
+
+export type WorkerSlotSnapshot = {
+  max_concurrent_workers: number;
+  running_slots: number;
+  idle_slots: number;
+  slots: WorkerSlot[];
+};
+
+export type WorkerPoolRunResponse = {
+  requested_workers: number;
+  launched_workers: number;
+  claimed_runs: number;
+  idle_workers: number;
+  results: WorkerRunOnceResponse[];
+  slot_snapshot: WorkerSlotSnapshot;
+};
+
 export type TaskRetryResponse = {
   message: string;
   task_id: string;

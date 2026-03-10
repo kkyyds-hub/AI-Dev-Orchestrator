@@ -4,10 +4,11 @@ import { MetricCard } from "../components/MetricCard";
 import { StatusBadge } from "../components/StatusBadge";
 import { BudgetOverviewPanel } from "../features/budget/BudgetOverviewPanel";
 import { useBackendHealth, useConsoleOverview } from "../features/console/hooks";
+import { WorkerSlotPanel } from "../features/console-metrics/WorkerSlotPanel";
 import type { ConsoleTask } from "../features/console/types";
 import { useConsoleEventStream } from "../features/events/hooks";
 import { TaskDetailPanel } from "../features/task-detail/TaskDetailPanel";
-import { useRunWorkerOnce } from "../features/task-actions/hooks";
+import { useRunWorkerOnce, useRunWorkerPoolOnce } from "../features/task-actions/hooks";
 import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../lib/format";
 import { mapRunStatusTone, mapTaskStatusTone } from "../lib/status";
 
@@ -18,6 +19,7 @@ export function App() {
   });
   const healthQuery = useBackendHealth();
   const runWorkerOnceMutation = useRunWorkerOnce();
+  const runWorkerPoolOnceMutation = useRunWorkerPoolOnce();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const tasks = overviewQuery.data?.tasks ?? [];
@@ -93,8 +95,16 @@ export function App() {
               </button>
               <button
                 type="button"
+                onClick={() => runWorkerPoolOnceMutation.mutate()}
+                disabled={runWorkerPoolOnceMutation.isPending}
+                className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+              >
+                {runWorkerPoolOnceMutation.isPending ? "并行执行中..." : "执行 Worker Pool"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void handleRefresh()}
-                className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20"
+                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
               >
                 刷新控制台
               </button>
@@ -181,6 +191,37 @@ export function App() {
                 </p>
               </div>
             ) : null}
+          </section>
+        ) : null}
+
+        {runWorkerPoolOnceMutation.data || runWorkerPoolOnceMutation.isError ? (
+          <section
+            className={`rounded-2xl border p-4 ${
+              runWorkerPoolOnceMutation.isError
+                ? "border-rose-500/30 bg-rose-500/10"
+                : "border-cyan-500/30 bg-cyan-500/10"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-50">最近一次 Worker Pool 执行</h2>
+                <p
+                  className={`mt-1 text-sm ${
+                    runWorkerPoolOnceMutation.isError ? "text-rose-100" : "text-cyan-100"
+                  }`}
+                >
+                  {runWorkerPoolOnceMutation.isError
+                    ? runWorkerPoolOnceMutation.error.message
+                    : `请求 ${runWorkerPoolOnceMutation.data?.requested_workers} 个槽位，启动 ${runWorkerPoolOnceMutation.data?.launched_workers} 个 worker，实际领取 ${runWorkerPoolOnceMutation.data?.claimed_runs} 条任务。`}
+                </p>
+              </div>
+              {!runWorkerPoolOnceMutation.isError && runWorkerPoolOnceMutation.data ? (
+                <StatusBadge
+                  label={`${runWorkerPoolOnceMutation.data.slot_snapshot.running_slots} 个槽位运行中`}
+                  tone="info"
+                />
+              ) : null}
+            </div>
           </section>
         ) : null}
 
@@ -381,6 +422,8 @@ export function App() {
                 blockedTasks={overviewQuery.data.blocked_tasks}
               />
             ) : null}
+
+            <WorkerSlotPanel />
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
               <h2 className="text-lg font-semibold text-slate-50">运行概览</h2>

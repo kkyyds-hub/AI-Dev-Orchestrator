@@ -1,6 +1,7 @@
 import { requestJson } from "../../lib/http";
 
 import type {
+  WorkerPoolRunResponse,
   TaskRetryResponse,
   TaskStateActionResponse,
   WorkerRunOnceResponse,
@@ -8,6 +9,12 @@ import type {
 
 export function runWorkerOnce(): Promise<WorkerRunOnceResponse> {
   return requestJson<WorkerRunOnceResponse>("/workers/run-once", {
+    method: "POST",
+  });
+}
+
+export function runWorkerPoolOnce(): Promise<WorkerPoolRunResponse> {
+  return requestJson<WorkerPoolRunResponse>("/workers/run-pool-once", {
     method: "POST",
   });
 }

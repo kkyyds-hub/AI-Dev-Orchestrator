@@ -6,6 +6,7 @@ import {
   resolveHumanReview,
   resumeTask,
   retryTask,
+  runWorkerPoolOnce,
   runWorkerOnce,
 } from "./api";
 
@@ -17,8 +18,27 @@ export function useRunWorkerOnce() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["console-overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["worker-slots"] }),
         queryClient.invalidateQueries({ queryKey: ["task-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["run-logs"] }),
+        queryClient.invalidateQueries({ queryKey: ["decision-trace"] }),
+      ]);
+    },
+  });
+}
+
+export function useRunWorkerPoolOnce() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: runWorkerPoolOnce,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["console-overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["worker-slots"] }),
+        queryClient.invalidateQueries({ queryKey: ["task-detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["run-logs"] }),
+        queryClient.invalidateQueries({ queryKey: ["decision-trace"] }),
       ]);
     },
   });
@@ -34,6 +54,7 @@ export function useRetryTask() {
         queryClient.invalidateQueries({ queryKey: ["console-overview"] }),
         queryClient.invalidateQueries({ queryKey: ["task-detail", result.task_id] }),
         queryClient.invalidateQueries({ queryKey: ["run-logs"] }),
+        queryClient.invalidateQueries({ queryKey: ["decision-trace"] }),
       ]);
     },
   });
