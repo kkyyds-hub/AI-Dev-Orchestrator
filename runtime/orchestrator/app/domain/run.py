@@ -19,6 +19,25 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class RunFailureCategory(StrEnum):
+    """Structured failure categories exposed by the Day 14 quality gate."""
+
+    EXECUTION_FAILED = "execution_failed"
+    VERIFICATION_FAILED = "verification_failed"
+    VERIFICATION_CONFIGURATION_FAILED = "verification_configuration_failed"
+    DAILY_BUDGET_EXCEEDED = "daily_budget_exceeded"
+    SESSION_BUDGET_EXCEEDED = "session_budget_exceeded"
+    RETRY_LIMIT_EXCEEDED = "retry_limit_exceeded"
+
+
+class RunEventReason(StrEnum):
+    """Stable run event reasons published to the console stream."""
+
+    CREATED = "created"
+    LOG_PATH_SET = "log_path_set"
+    FINISHED = "finished"
+
+
 class Run(DomainModel):
     """Minimal persisted execution record."""
 
@@ -26,6 +45,8 @@ class Run(DomainModel):
     task_id: UUID
     status: RunStatus = Field(default=RunStatus.QUEUED)
     model_name: str | None = Field(default=None, max_length=100)
+    route_reason: str | None = Field(default=None, max_length=2_000)
+    routing_score: float | None = Field(default=None)
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result_summary: str | None = Field(default=None, max_length=2_000)
@@ -33,6 +54,12 @@ class Run(DomainModel):
     completion_tokens: int = Field(default=0, ge=0)
     estimated_cost: float = Field(default=0.0, ge=0.0)
     log_path: str | None = Field(default=None, max_length=500)
+    verification_mode: str | None = Field(default=None, max_length=100)
+    verification_template: str | None = Field(default=None, max_length=100)
+    verification_command: str | None = Field(default=None, max_length=500)
+    verification_summary: str | None = Field(default=None, max_length=2_000)
+    failure_category: RunFailureCategory | None = None
+    quality_gate_passed: bool | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")

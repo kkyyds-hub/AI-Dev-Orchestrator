@@ -2,11 +2,15 @@
 
 from uuid import UUID
 
+from datetime import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.db_tables import RunTable
 from app.domain._base import ensure_utc_datetime, utc_now
-from app.domain.run import Run, RunStatus
+from app.domain.run import Run, RunEventReason, RunFailureCategory, RunStatus
+from app.services.event_stream_service import event_stream_service
 
 
 class RunRepository:
@@ -20,6 +24,8 @@ class RunRepository:
         *,
         task_id: UUID,
         model_name: str | None = None,
+        route_reason: str | None = None,
+        routing_score: float | None = None,
     ) -> Run:
         """Create a new running `Run` placeholder for the worker cycle."""
 
@@ -27,6 +33,8 @@ class RunRepository:
             task_id=task_id,
             status=RunStatus.RUNNING,
             model_name=model_name,
+            route_reason=route_reason,
+            routing_score=routing_score,
             started_at=utc_now(),
         )
 
@@ -35,6 +43,8 @@ class RunRepository:
             task_id=run.task_id,
             status=run.status,
             model_name=run.model_name,
+            route_reason=run.route_reason,
+            routing_score=run.routing_score,
             started_at=run.started_at,
             finished_at=run.finished_at,
             result_summary=run.result_summary,
@@ -42,12 +52,68 @@ class RunRepository:
             completion_tokens=run.completion_tokens,
             estimated_cost=run.estimated_cost,
             log_path=run.log_path,
+            verification_mode=run.verification_mode,
+            verification_template=run.verification_template,
+            verification_command=run.verification_command,
+            verification_summary=run.verification_summary,
+            failure_category=run.failure_category,
+            quality_gate_passed=run.quality_gate_passed,
             created_at=run.created_at,
         )
 
         self.session.add(run_row)
         self.session.flush()
+        persisted_run = self._to_domain(run_row)
+        event_stream_service.publish_run_updated(
+            run=persisted_run,
+            reason=RunEventReason.CREATED,
+        )
+        return persisted_run
+
+    def get_by_id(self, run_id: UUID) -> Run | None:
+        """Return a run by ID, if it exists."""
+
+        run_row = self.session.get(RunTable, run_id)
+        if run_row is None:
+            return None
+
         return self._to_domain(run_row)
+
+    def list_by_task_id(self, task_id: UUID) -> list[Run]:
+        """Return all runs for one task ordered from newest to oldest."""
+
+        statement = (
+            select(RunTable)
+            .where(RunTable.task_id == task_id)
+            .order_by(RunTable.created_at.desc())
+        )
+        run_rows = self.session.execute(statement).scalars().all()
+        return [self._to_domain(run_row) for run_row in run_rows]
+
+    def count_execution_attempts_by_task_id(self, task_id: UUID) -> int:
+        """Return the number of non-cancelled runs recorded for one task."""
+
+        statement = select(func.count()).select_from(RunTable).where(
+            RunTable.task_id == task_id,
+            RunTable.status != RunStatus.CANCELLED,
+        )
+        return int(self.session.execute(statement).scalar_one())
+
+    def sum_estimated_cost(self) -> float:
+        """Return the cumulative estimated cost across all runs."""
+
+        statement = select(func.coalesce(func.sum(RunTable.estimated_cost), 0.0))
+        return float(self.session.execute(statement).scalar_one())
+
+    def sum_estimated_cost_since(self, started_at: datetime) -> float:
+        """Return the cumulative estimated cost since one UTC timestamp."""
+
+        statement = (
+            select(func.coalesce(func.sum(RunTable.estimated_cost), 0.0))
+            .select_from(RunTable)
+            .where(RunTable.created_at >= started_at)
+        )
+        return float(self.session.execute(statement).scalar_one())
 
     def set_log_path(self, run_id: UUID, log_path: str) -> Run:
         """Persist the relative log path for a run."""
@@ -58,7 +124,12 @@ class RunRepository:
 
         run_row.log_path = log_path
         self.session.flush()
-        return self._to_domain(run_row)
+        persisted_run = self._to_domain(run_row)
+        event_stream_service.publish_run_updated(
+            run=persisted_run,
+            reason=RunEventReason.LOG_PATH_SET,
+        )
+        return persisted_run
 
     def finish_run(
         self,
@@ -69,8 +140,14 @@ class RunRepository:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         estimated_cost: float = 0.0,
+        verification_mode: str | None = None,
+        verification_template: str | None = None,
+        verification_command: str | None = None,
+        verification_summary: str | None = None,
+        failure_category: RunFailureCategory | None = None,
+        quality_gate_passed: bool | None = None,
     ) -> Run:
-        """Finalize a run with summary, token estimate and cost."""
+        """Finalize a run with summary, token estimate, quality gate and cost."""
 
         run_row = self.session.get(RunTable, run_id)
         if run_row is None:
@@ -81,10 +158,21 @@ class RunRepository:
         run_row.prompt_tokens = prompt_tokens
         run_row.completion_tokens = completion_tokens
         run_row.estimated_cost = estimated_cost
+        run_row.verification_mode = verification_mode
+        run_row.verification_template = verification_template
+        run_row.verification_command = verification_command
+        run_row.verification_summary = verification_summary
+        run_row.failure_category = failure_category
+        run_row.quality_gate_passed = quality_gate_passed
         run_row.finished_at = utc_now()
         self.session.flush()
 
-        return self._to_domain(run_row)
+        persisted_run = self._to_domain(run_row)
+        event_stream_service.publish_run_updated(
+            run=persisted_run,
+            reason=RunEventReason.FINISHED,
+        )
+        return persisted_run
 
     @staticmethod
     def _to_domain(run_row: RunTable) -> Run:
@@ -95,6 +183,8 @@ class RunRepository:
             task_id=run_row.task_id,
             status=run_row.status,
             model_name=run_row.model_name,
+            route_reason=run_row.route_reason,
+            routing_score=run_row.routing_score,
             started_at=ensure_utc_datetime(run_row.started_at),
             finished_at=ensure_utc_datetime(run_row.finished_at),
             result_summary=run_row.result_summary,
@@ -102,5 +192,11 @@ class RunRepository:
             completion_tokens=run_row.completion_tokens,
             estimated_cost=run_row.estimated_cost,
             log_path=run_row.log_path,
+            verification_mode=run_row.verification_mode,
+            verification_template=run_row.verification_template,
+            verification_command=run_row.verification_command,
+            verification_summary=run_row.verification_summary,
+            failure_category=run_row.failure_category,
+            quality_gate_passed=run_row.quality_gate_passed,
             created_at=ensure_utc_datetime(run_row.created_at),
         )

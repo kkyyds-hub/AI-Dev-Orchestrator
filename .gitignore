@@ -56,6 +56,7 @@ pnpm-debug.log*
 *.seed
 *.out
 *.err
+.tmp/
 tmp/
 temp/
 runtime/data/

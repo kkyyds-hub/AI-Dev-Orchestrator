@@ -37,6 +37,46 @@ def _read_bool(name: str, default: bool) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _read_int(name: str, default: int, *, minimum: int | None = None) -> int:
+    """Read one integer env var and optionally validate its lower bound."""
+
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    try:
+        value = int(raw_value.strip())
+    except ValueError as exc:
+        raise ValueError(f"Environment variable {name} must be an integer.") from exc
+
+    if minimum is not None and value < minimum:
+        raise ValueError(
+            f"Environment variable {name} must be greater than or equal to {minimum}."
+        )
+
+    return value
+
+
+def _read_float(name: str, default: float, *, minimum: float | None = None) -> float:
+    """Read one float env var and optionally validate its lower bound."""
+
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    try:
+        value = float(raw_value.strip())
+    except ValueError as exc:
+        raise ValueError(f"Environment variable {name} must be a float.") from exc
+
+    if minimum is not None and value < minimum:
+        raise ValueError(
+            f"Environment variable {name} must be greater than or equal to {minimum}."
+        )
+
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """应用配置对象。
@@ -52,6 +92,9 @@ class Settings:
     sqlite_db_dir: Path
     sqlite_db_path: Path
     sqlite_db_url: str
+    daily_budget_usd: float
+    session_budget_usd: float
+    max_task_retries: int
 
 
 def load_settings() -> Settings:
@@ -76,6 +119,9 @@ def load_settings() -> Settings:
         sqlite_db_dir=sqlite_db_dir,
         sqlite_db_path=sqlite_db_path,
         sqlite_db_url=f"sqlite:///{sqlite_db_path.as_posix()}",
+        daily_budget_usd=_read_float("DAILY_BUDGET_USD", 0.05, minimum=0.0),
+        session_budget_usd=_read_float("SESSION_BUDGET_USD", 0.2, minimum=0.0),
+        max_task_retries=_read_int("MAX_TASK_RETRIES", 2, minimum=0),
     )
 
 

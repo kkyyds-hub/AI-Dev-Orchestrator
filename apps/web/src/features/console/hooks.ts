@@ -2,11 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchBackendHealth, fetchConsoleOverview } from "./api";
 
-export function useConsoleOverview() {
+export function useConsoleOverview(options?: { enablePollingFallback?: boolean }) {
   return useQuery({
     queryKey: ["console-overview"],
     queryFn: fetchConsoleOverview,
-    refetchInterval: 5_000,
+    refetchInterval: options?.enablePollingFallback === false ? false : 5_000,
   });
 }
 

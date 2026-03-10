@@ -12,9 +12,13 @@ Day 7 先提供两种最小执行模式：
 from dataclasses import dataclass
 import os
 import subprocess
+from typing import TYPE_CHECKING
 
 from app.domain.task import Task
 from app.services.task_instruction_parser import extract_prefixed_payload
+
+if TYPE_CHECKING:
+    from app.services.context_builder_service import TaskContextPackage
 
 
 _RESULT_SUMMARY_MAX_LENGTH = 2_000
@@ -34,7 +38,12 @@ class ExecutionResult:
 class ExecutorService:
     """提供 Day 7 的最小执行能力。"""
 
-    def execute_task(self, task: Task) -> ExecutionResult:
+    def execute_task(
+        self,
+        task: Task,
+        *,
+        context_package: "TaskContextPackage | None" = None,
+    ) -> ExecutionResult:
         """根据任务输入执行一次最小任务。"""
 
         input_summary = task.input_summary.strip()
@@ -43,7 +52,11 @@ class ExecutorService:
         if mode == "shell":
             return self.run_shell_command(payload)
 
-        return self._simulate_execution(task, payload)
+        return self._simulate_execution(
+            task,
+            payload,
+            context_package=context_package,
+        )
 
     def run_shell_command(self, command: str) -> ExecutionResult:
         """对外暴露最小本地命令执行能力。"""
@@ -138,13 +151,25 @@ class ExecutorService:
             exit_code=completed.returncode,
         )
 
-    def _simulate_execution(self, task: Task, payload: str) -> ExecutionResult:
+    def _simulate_execution(
+        self,
+        task: Task,
+        payload: str,
+        *,
+        context_package: "TaskContextPackage | None" = None,
+    ) -> ExecutionResult:
         """返回一个最小模拟执行结果。"""
 
         summary_body = payload if payload else task.title
+        context_suffix = (
+            f" Context package: {context_package.context_summary}"
+            if context_package is not None
+            else ""
+        )
         summary = (
             "Simulated execution succeeded. "
-            f"Task '{task.title}' was processed with summary: {summary_body}"
+            f"Task '{task.title}' was processed with summary: {summary_body}."
+            f"{context_suffix}"
         )
         return ExecutionResult(
             success=True,

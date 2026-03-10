@@ -9,11 +9,32 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import settings
 
 
+_TASK_TABLE_COLUMN_UPGRADES = {
+    "acceptance_criteria": "ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT '[]'",
+    "depends_on_task_ids": "ALTER TABLE tasks ADD COLUMN depends_on_task_ids TEXT NOT NULL DEFAULT '[]'",
+    "risk_level": "ALTER TABLE tasks ADD COLUMN risk_level TEXT NOT NULL DEFAULT 'normal'",
+    "human_status": "ALTER TABLE tasks ADD COLUMN human_status TEXT NOT NULL DEFAULT 'none'",
+    "paused_reason": "ALTER TABLE tasks ADD COLUMN paused_reason TEXT",
+}
+
 _RUN_TABLE_COLUMN_UPGRADES = {
+    "route_reason": "ALTER TABLE runs ADD COLUMN route_reason TEXT",
+    "routing_score": "ALTER TABLE runs ADD COLUMN routing_score FLOAT",
     "prompt_tokens": "ALTER TABLE runs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0",
     "completion_tokens": "ALTER TABLE runs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0",
     "estimated_cost": "ALTER TABLE runs ADD COLUMN estimated_cost FLOAT NOT NULL DEFAULT 0.0",
     "log_path": "ALTER TABLE runs ADD COLUMN log_path TEXT",
+    "verification_mode": "ALTER TABLE runs ADD COLUMN verification_mode TEXT",
+    "verification_template": "ALTER TABLE runs ADD COLUMN verification_template TEXT",
+    "verification_command": "ALTER TABLE runs ADD COLUMN verification_command TEXT",
+    "verification_summary": "ALTER TABLE runs ADD COLUMN verification_summary TEXT",
+    "failure_category": "ALTER TABLE runs ADD COLUMN failure_category TEXT",
+    "quality_gate_passed": "ALTER TABLE runs ADD COLUMN quality_gate_passed INTEGER",
+}
+
+_TABLE_COLUMN_UPGRADES = {
+    "tasks": _TASK_TABLE_COLUMN_UPGRADES,
+    "runs": _RUN_TABLE_COLUMN_UPGRADES,
 }
 
 
@@ -55,15 +76,21 @@ def migrate_database_schema() -> None:
 
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
-    if "runs" not in table_names:
-        return
+    statements: list[str] = []
 
-    existing_columns = {column["name"] for column in inspector.get_columns("runs")}
-    statements = [
-        statement
-        for column_name, statement in _RUN_TABLE_COLUMN_UPGRADES.items()
-        if column_name not in existing_columns
-    ]
+    for table_name, column_upgrades in _TABLE_COLUMN_UPGRADES.items():
+        if table_name not in table_names:
+            continue
+
+        existing_columns = {
+            column["name"] for column in inspector.get_columns(table_name)
+        }
+        statements.extend(
+            statement
+            for column_name, statement in column_upgrades.items()
+            if column_name not in existing_columns
+        )
+
     if not statements:
         return
 
