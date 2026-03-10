@@ -1,0 +1,11 @@
+*
+!.gitignore
+!artifacts/
+!artifacts/.gitkeep
+!logs/
+!logs/.gitkeep
+!memory/
+!memory/.gitkeep
+!state/
+!state/.gitkeep
+
