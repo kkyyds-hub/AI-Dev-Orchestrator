@@ -17,11 +17,19 @@ export type ConsoleBudget = {
   max_task_retries: number;
 };
 
+export type RoutingScoreItem = {
+  code: string;
+  label: string;
+  score: number;
+  detail: string;
+};
+
 export type ConsoleRun = {
   id: string;
   status: string;
   route_reason: string | null;
   routing_score: number | null;
+  routing_score_breakdown: RoutingScoreItem[];
   result_summary: string | null;
   prompt_tokens: number;
   completion_tokens: number;

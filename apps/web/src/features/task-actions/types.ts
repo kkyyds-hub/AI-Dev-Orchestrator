@@ -9,6 +9,12 @@ export type WorkerRunOnceResponse = {
   quality_gate_passed: boolean | null;
   route_reason: string | null;
   routing_score: number | null;
+  routing_score_breakdown: Array<{
+    code: string;
+    label: string;
+    score: number;
+    detail: string;
+  }>;
   result_summary: string | null;
   context_summary: string | null;
   task_id: string | null;

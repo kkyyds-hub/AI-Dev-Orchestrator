@@ -810,6 +810,32 @@ function RunNarrative(props: { run: ConsoleRun }) {
             路由分数：{props.run.routing_score}
           </p>
         ) : null}
+        {props.run.routing_score_breakdown.length > 0 ? (
+          <div className="mt-2 space-y-2">
+            {props.run.routing_score_breakdown.map((item, index) => (
+              <div
+                key={`${props.run.id}-route-score-${item.code}-${index}`}
+                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+              >
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="font-medium text-slate-100">
+                    {item.label}
+                    <span className="ml-2 text-slate-400">({item.code})</span>
+                  </span>
+                  <span
+                    className={
+                      item.score >= 0 ? "text-emerald-300" : "text-amber-300"
+                    }
+                  >
+                    {item.score >= 0 ? "+" : ""}
+                    {item.score.toFixed(1)}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-400">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div>
         <div className="text-xs uppercase tracking-[0.2em] text-slate-500">摘要</div>
