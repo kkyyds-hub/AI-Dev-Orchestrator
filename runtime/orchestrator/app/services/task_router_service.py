@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.run import RunStatus
+from app.domain.run import RunRoutingScoreItem, RunStatus
 from app.domain.task import Task, TaskHumanStatus, TaskPriority, TaskRiskLevel
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
@@ -40,6 +40,7 @@ class TaskRoutingCandidate:
     ready: bool
     routing_score: float | None
     route_reason: str
+    routing_score_breakdown: list[RunRoutingScoreItem]
     execution_attempts: int
     recent_failure_count: int
 
@@ -51,6 +52,7 @@ class TaskRoutingDecision:
     selected_task: Task | None
     routing_score: float | None
     route_reason: str | None
+    routing_score_breakdown: list[RunRoutingScoreItem]
     candidates: list[TaskRoutingCandidate]
     message: str
 
@@ -78,6 +80,7 @@ class TaskRouterService:
                 selected_task=None,
                 routing_score=None,
                 route_reason=None,
+                routing_score_breakdown=[],
                 candidates=[],
                 message="No pending tasks available for routing.",
             )
@@ -95,6 +98,7 @@ class TaskRouterService:
                 selected_task=None,
                 routing_score=None,
                 route_reason=None,
+                routing_score_breakdown=[],
                 candidates=candidates,
                 message=(
                     "Pending tasks exist, but none are currently routable. "
@@ -116,6 +120,7 @@ class TaskRouterService:
             selected_task=selected_candidate.task,
             routing_score=selected_candidate.routing_score,
             route_reason=selected_candidate.route_reason,
+            routing_score_breakdown=selected_candidate.routing_score_breakdown,
             candidates=candidates,
             message=(
                 f"Router selected '{selected_candidate.task.title}' with score "
@@ -133,12 +138,25 @@ class TaskRouterService:
 
         if not readiness.ready_for_execution:
             blocking_text = " | ".join(readiness.blocking_reasons)
+            routing_score_breakdown = [
+                RunRoutingScoreItem(
+                    code="readiness_gate",
+                    label="就绪检查",
+                    score=0.0,
+                    detail=f"task blocked by: {blocking_text}",
+                )
+            ]
             return TaskRoutingCandidate(
                 task=task,
                 readiness=readiness,
                 ready=False,
                 routing_score=None,
-                route_reason=f"Skipped because {blocking_text}",
+                route_reason=self._build_route_reason(
+                    ready=False,
+                    routing_score=None,
+                    score_breakdown=routing_score_breakdown,
+                ),
+                routing_score_breakdown=routing_score_breakdown,
                 execution_attempts=execution_attempts,
                 recent_failure_count=recent_failure_count,
             )
@@ -148,21 +166,60 @@ class TaskRouterService:
         human_adjustment = _HUMAN_STATUS_ADJUSTMENTS.get(task.human_status, 0.0)
         attempt_penalty = execution_attempts * _EXECUTION_ATTEMPT_PENALTY
         recent_failure_penalty = recent_failure_count * _RECENT_FAILURE_PENALTY
-        routing_score = (
-            priority_score
-            + risk_adjustment
-            + human_adjustment
-            - attempt_penalty
-            - recent_failure_penalty
-        )
 
-        route_reason = (
-            f"priority={task.priority.value}(+{priority_score:.0f}), "
-            f"risk={task.risk_level.value}({risk_adjustment:+.0f}), "
-            f"human={task.human_status.value}({human_adjustment:+.0f}), "
-            f"attempts={execution_attempts}(-{attempt_penalty:.0f}), "
-            f"recent_failures={recent_failure_count}(-{recent_failure_penalty:.0f}), "
-            f"readiness=yes => score={routing_score:.1f}"
+        routing_score_breakdown = [
+            RunRoutingScoreItem(
+                code="priority",
+                label="优先级",
+                score=priority_score,
+                detail=(
+                    f"priority={task.priority.value}; "
+                    f"base score={priority_score:+.1f}"
+                ),
+            ),
+            RunRoutingScoreItem(
+                code="risk_level",
+                label="风险等级",
+                score=risk_adjustment,
+                detail=(
+                    f"risk={task.risk_level.value}; "
+                    f"risk adjustment={risk_adjustment:+.1f}"
+                ),
+            ),
+            RunRoutingScoreItem(
+                code="human_status",
+                label="人工状态",
+                score=human_adjustment,
+                detail=(
+                    f"human_status={task.human_status.value}; "
+                    f"status adjustment={human_adjustment:+.1f}"
+                ),
+            ),
+            RunRoutingScoreItem(
+                code="execution_attempts_penalty",
+                label="执行次数惩罚",
+                score=-attempt_penalty,
+                detail=(
+                    f"attempts={execution_attempts}; "
+                    f"per attempt penalty={-_EXECUTION_ATTEMPT_PENALTY:.1f}"
+                ),
+            ),
+            RunRoutingScoreItem(
+                code="recent_failure_penalty",
+                label="近期失败惩罚",
+                score=-recent_failure_penalty,
+                detail=(
+                    f"recent_failures={recent_failure_count}; "
+                    f"per failure penalty={-_RECENT_FAILURE_PENALTY:.1f}"
+                ),
+            ),
+        ]
+        routing_score = round(sum(item.score for item in routing_score_breakdown), 1)
+
+        route_reason = self._build_route_reason(
+            ready=True,
+            routing_score=routing_score,
+            score_breakdown=routing_score_breakdown,
         )
         return TaskRoutingCandidate(
             task=task,
@@ -170,6 +227,27 @@ class TaskRouterService:
             ready=True,
             routing_score=routing_score,
             route_reason=route_reason,
+            routing_score_breakdown=routing_score_breakdown,
             execution_attempts=execution_attempts,
             recent_failure_count=recent_failure_count,
+        )
+
+    @staticmethod
+    def _build_route_reason(
+        *,
+        ready: bool,
+        routing_score: float | None,
+        score_breakdown: list[RunRoutingScoreItem],
+    ) -> str:
+        """Build one stable and human-readable route summary."""
+
+        parts = [f"{item.code}({item.score:+.1f})" for item in score_breakdown]
+        readiness_text = "readiness=yes" if ready else "readiness=no"
+        if routing_score is None:
+            return f"{readiness_text}; " + ", ".join(parts)
+
+        return (
+            f"{readiness_text}; "
+            + ", ".join(parts)
+            + f"; total={routing_score:.1f}"
         )

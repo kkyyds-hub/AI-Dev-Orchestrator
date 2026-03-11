@@ -209,6 +209,9 @@ def serialize_run(run: Run) -> dict[str, Any]:
         "status": run.status.value,
         "route_reason": run.route_reason,
         "routing_score": run.routing_score,
+        "routing_score_breakdown": [
+            item.model_dump() for item in run.routing_score_breakdown
+        ],
         "result_summary": run.result_summary,
         "prompt_tokens": run.prompt_tokens,
         "completion_tokens": run.completion_tokens,

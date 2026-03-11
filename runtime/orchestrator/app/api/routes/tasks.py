@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
-from app.domain.run import Run, RunFailureCategory, RunStatus
+from app.domain.run import Run, RunFailureCategory, RunRoutingScoreItem, RunStatus
 from app.domain.task import (
     Task,
     TaskHumanStatus,
@@ -200,10 +200,33 @@ class TaskStateActionResponse(BaseModel):
 class TaskConsoleRunResponse(BaseModel):
     """Run details used by the Day 10 / Day 11 console views."""
 
+    class RoutingScoreItemResponse(BaseModel):
+        """One routing-score component returned to the console."""
+
+        code: str
+        label: str
+        score: float
+        detail: str
+
+        @classmethod
+        def from_item(
+            cls,
+            item: RunRoutingScoreItem,
+        ) -> "TaskConsoleRunResponse.RoutingScoreItemResponse":
+            """Convert one domain routing-score item into an API DTO."""
+
+            return cls(
+                code=item.code,
+                label=item.label,
+                score=item.score,
+                detail=item.detail,
+            )
+
     id: UUID
     status: RunStatus
     route_reason: str | None = None
     routing_score: float | None = None
+    routing_score_breakdown: list[RoutingScoreItemResponse] = Field(default_factory=list)
     result_summary: str | None = None
     prompt_tokens: int
     completion_tokens: int
@@ -228,6 +251,10 @@ class TaskConsoleRunResponse(BaseModel):
             status=run.status,
             route_reason=run.route_reason,
             routing_score=run.routing_score,
+            routing_score_breakdown=[
+                cls.RoutingScoreItemResponse.from_item(item)
+                for item in run.routing_score_breakdown
+            ],
             result_summary=run.result_summary,
             prompt_tokens=run.prompt_tokens,
             completion_tokens=run.completion_tokens,

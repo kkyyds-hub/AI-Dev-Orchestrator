@@ -7,6 +7,8 @@ import json
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel
+
 from app.core.config import settings
 from app.domain._base import utc_now
 from app.services.event_stream_service import event_stream_service
@@ -154,6 +156,8 @@ class RunLoggingService:
 
         if isinstance(value, Enum):
             return getattr(value, "value", str(value))
+        if isinstance(value, BaseModel):
+            return cls._normalize_data(value.model_dump())
         if isinstance(value, dict):
             return {str(key): cls._normalize_data(item) for key, item in value.items()}
         if isinstance(value, list):

@@ -120,6 +120,7 @@ class RunTable(ORMBase):
     model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     route_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     routing_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    routing_score_breakdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

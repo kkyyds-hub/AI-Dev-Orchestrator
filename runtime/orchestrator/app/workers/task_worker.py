@@ -1,11 +1,11 @@
 """Single-cycle task worker used by Day 6 to Day 9."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.domain.run import Run, RunFailureCategory, RunStatus
+from app.domain.run import Run, RunFailureCategory, RunRoutingScoreItem, RunStatus
 from app.domain.task import (
     Task,
     TaskBlockingReasonCategory,
@@ -48,6 +48,7 @@ class WorkerRunResult:
     quality_gate_passed: bool | None = None
     route_reason: str | None = None
     routing_score: float | None = None
+    routing_score_breakdown: list[RunRoutingScoreItem] = field(default_factory=list)
     result_summary: str | None = None
     context_summary: str | None = None
     task: Task | None = None
@@ -129,6 +130,11 @@ class TaskWorker:
                     routing_score=(
                         routing_decision.routing_score if routing_decision else None
                     ),
+                    routing_score_breakdown=(
+                        routing_decision.routing_score_breakdown
+                        if routing_decision
+                        else []
+                    ),
                 )
                 run = self._initialize_run_log(task=task, run=run)
                 log_path = run.log_path
@@ -162,6 +168,7 @@ class TaskWorker:
                     quality_gate_passed=run.quality_gate_passed,
                     route_reason=run.route_reason,
                     routing_score=run.routing_score,
+                    routing_score_breakdown=run.routing_score_breakdown,
                     result_summary=run.result_summary,
                     task=task,
                     run=run,
@@ -172,6 +179,11 @@ class TaskWorker:
                 route_reason=routing_decision.route_reason if routing_decision else None,
                 routing_score=(
                     routing_decision.routing_score if routing_decision else None
+                ),
+                routing_score_breakdown=(
+                    routing_decision.routing_score_breakdown
+                    if routing_decision
+                    else []
                 ),
             )
             run = self._initialize_run_log(task=task, run=run)
@@ -241,6 +253,9 @@ class TaskWorker:
                 quality_gate_passed=run.quality_gate_passed if run else None,
                 route_reason=run.route_reason if run else None,
                 routing_score=run.routing_score if run else None,
+                routing_score_breakdown=(
+                    run.routing_score_breakdown if run else []
+                ),
                 result_summary=final_summary,
                 context_summary=(
                     context_package.context_summary if context_package is not None else None
@@ -650,6 +665,10 @@ class TaskWorker:
                 ),
                 "routing_score": routing_decision.routing_score,
                 "route_reason": routing_decision.route_reason,
+                "routing_score_breakdown": [
+                    item.model_dump()
+                    for item in routing_decision.routing_score_breakdown
+                ],
                 "candidates": [
                     {
                         "task_id": str(candidate.task.id),
@@ -657,6 +676,10 @@ class TaskWorker:
                         "ready": candidate.ready,
                         "routing_score": candidate.routing_score,
                         "route_reason": candidate.route_reason,
+                        "routing_score_breakdown": [
+                            item.model_dump()
+                            for item in candidate.routing_score_breakdown
+                        ],
                         "blocking_signals": [
                             {
                                 "code": signal.code.value,
@@ -691,6 +714,9 @@ class TaskWorker:
                 "estimated_cost": run.estimated_cost,
                 "route_reason": run.route_reason,
                 "routing_score": run.routing_score,
+                "routing_score_breakdown": [
+                    item.model_dump() for item in run.routing_score_breakdown
+                ],
                 "result_summary": final_summary,
                 "verification_mode": run.verification_mode,
                 "verification_template": run.verification_template,

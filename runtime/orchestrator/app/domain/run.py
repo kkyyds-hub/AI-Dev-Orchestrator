@@ -38,6 +38,15 @@ class RunEventReason(StrEnum):
     FINISHED = "finished"
 
 
+class RunRoutingScoreItem(DomainModel):
+    """One normalized routing-score contribution item."""
+
+    code: str = Field(min_length=1, max_length=100)
+    label: str = Field(min_length=1, max_length=100)
+    score: float
+    detail: str = Field(min_length=1, max_length=500)
+
+
 class Run(DomainModel):
     """Minimal persisted execution record."""
 
@@ -47,6 +56,7 @@ class Run(DomainModel):
     model_name: str | None = Field(default=None, max_length=100)
     route_reason: str | None = Field(default=None, max_length=2_000)
     routing_score: float | None = Field(default=None)
+    routing_score_breakdown: list[RunRoutingScoreItem] = Field(default_factory=list)
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result_summary: str | None = Field(default=None, max_length=2_000)

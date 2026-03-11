@@ -20,6 +20,7 @@ _TASK_TABLE_COLUMN_UPGRADES = {
 _RUN_TABLE_COLUMN_UPGRADES = {
     "route_reason": "ALTER TABLE runs ADD COLUMN route_reason TEXT",
     "routing_score": "ALTER TABLE runs ADD COLUMN routing_score FLOAT",
+    "routing_score_breakdown": "ALTER TABLE runs ADD COLUMN routing_score_breakdown TEXT",
     "prompt_tokens": "ALTER TABLE runs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0",
     "completion_tokens": "ALTER TABLE runs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0",
     "estimated_cost": "ALTER TABLE runs ADD COLUMN estimated_cost FLOAT NOT NULL DEFAULT 0.0",

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.db_tables import RunTable, TaskTable
 from app.domain._base import ensure_utc_datetime, utc_now
-from app.domain.run import Run
+from app.domain.run import Run, RunRoutingScoreItem
 from app.domain.task import Task, TaskEventReason, TaskHumanStatus, TaskStatus
 from app.services.event_stream_service import event_stream_service
 
@@ -244,6 +244,9 @@ class TaskRepository:
             model_name=latest_run_row.model_name,
             route_reason=latest_run_row.route_reason,
             routing_score=latest_run_row.routing_score,
+            routing_score_breakdown=TaskRepository._deserialize_routing_score_breakdown(
+                latest_run_row.routing_score_breakdown
+            ),
             started_at=ensure_utc_datetime(latest_run_row.started_at),
             finished_at=ensure_utc_datetime(latest_run_row.finished_at),
             result_summary=latest_run_row.result_summary,
@@ -339,3 +342,31 @@ class TaskRepository:
                 continue
 
         return normalized_ids
+
+    @staticmethod
+    def _deserialize_routing_score_breakdown(
+        raw_value: str | None,
+    ) -> list[RunRoutingScoreItem]:
+        """Read one JSON-encoded routing-score breakdown list from SQLite."""
+
+        if not raw_value:
+            return []
+
+        try:
+            decoded = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return []
+
+        if not isinstance(decoded, list):
+            return []
+
+        normalized_items: list[RunRoutingScoreItem] = []
+        for item in decoded:
+            if not isinstance(item, dict):
+                continue
+            try:
+                normalized_items.append(RunRoutingScoreItem.model_validate(item))
+            except ValueError:
+                continue
+
+        return normalized_items

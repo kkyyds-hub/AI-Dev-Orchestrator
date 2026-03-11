@@ -1,5 +1,6 @@
 """Persistence helpers for `Run` records."""
 
+import json
 from uuid import UUID
 
 from datetime import datetime
@@ -9,7 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.core.db_tables import RunTable
 from app.domain._base import ensure_utc_datetime, utc_now
-from app.domain.run import Run, RunEventReason, RunFailureCategory, RunStatus
+from app.domain.run import (
+    Run,
+    RunEventReason,
+    RunFailureCategory,
+    RunRoutingScoreItem,
+    RunStatus,
+)
 from app.services.event_stream_service import event_stream_service
 
 
@@ -26,6 +33,7 @@ class RunRepository:
         model_name: str | None = None,
         route_reason: str | None = None,
         routing_score: float | None = None,
+        routing_score_breakdown: list[RunRoutingScoreItem] | None = None,
     ) -> Run:
         """Create a new running `Run` placeholder for the worker cycle."""
 
@@ -35,6 +43,7 @@ class RunRepository:
             model_name=model_name,
             route_reason=route_reason,
             routing_score=routing_score,
+            routing_score_breakdown=routing_score_breakdown or [],
             started_at=utc_now(),
         )
 
@@ -45,6 +54,9 @@ class RunRepository:
             model_name=run.model_name,
             route_reason=run.route_reason,
             routing_score=run.routing_score,
+            routing_score_breakdown=self._serialize_routing_score_breakdown(
+                run.routing_score_breakdown
+            ),
             started_at=run.started_at,
             finished_at=run.finished_at,
             result_summary=run.result_summary,
@@ -175,6 +187,45 @@ class RunRepository:
         return persisted_run
 
     @staticmethod
+    def _serialize_routing_score_breakdown(
+        breakdown: list[RunRoutingScoreItem],
+    ) -> str:
+        """Store one routing-score breakdown list as JSON text."""
+
+        return json.dumps(
+            [item.model_dump() for item in breakdown],
+            ensure_ascii=False,
+        )
+
+    @staticmethod
+    def _deserialize_routing_score_breakdown(
+        raw_value: str | None,
+    ) -> list[RunRoutingScoreItem]:
+        """Read one routing-score breakdown list from JSON text."""
+
+        if not raw_value:
+            return []
+
+        try:
+            decoded = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return []
+
+        if not isinstance(decoded, list):
+            return []
+
+        normalized_items: list[RunRoutingScoreItem] = []
+        for item in decoded:
+            if not isinstance(item, dict):
+                continue
+            try:
+                normalized_items.append(RunRoutingScoreItem.model_validate(item))
+            except ValueError:
+                continue
+
+        return normalized_items
+
+    @staticmethod
     def _to_domain(run_row: RunTable) -> Run:
         """Convert an ORM row back into the domain model."""
 
@@ -185,6 +236,9 @@ class RunRepository:
             model_name=run_row.model_name,
             route_reason=run_row.route_reason,
             routing_score=run_row.routing_score,
+            routing_score_breakdown=RunRepository._deserialize_routing_score_breakdown(
+                run_row.routing_score_breakdown
+            ),
             started_at=ensure_utc_datetime(run_row.started_at),
             finished_at=ensure_utc_datetime(run_row.finished_at),
             result_summary=run_row.result_summary,

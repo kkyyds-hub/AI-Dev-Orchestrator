@@ -4,11 +4,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
-from app.domain.run import RunFailureCategory, RunStatus
+from app.domain.run import RunFailureCategory, RunRoutingScoreItem, RunStatus
 from app.domain.task import TaskStatus
 from app.services.worker_slot_service import WorkerSlotSnapshot, WorkerSlotState, WorkerSlotStatus
 from app.workers.task_worker import TaskWorker, WorkerRunResult, build_task_worker
@@ -17,6 +17,28 @@ from app.workers.worker_pool import WorkerPoolRunResult, worker_pool
 
 class WorkerRunOnceResponse(BaseModel):
     """API response for one explicit worker cycle."""
+
+    class RoutingScoreItemResponse(BaseModel):
+        """One routing-score component returned to the caller."""
+
+        code: str
+        label: str
+        score: float
+        detail: str
+
+        @classmethod
+        def from_item(
+            cls,
+            item: RunRoutingScoreItem,
+        ) -> "WorkerRunOnceResponse.RoutingScoreItemResponse":
+            """Convert one domain routing-score item into an API DTO."""
+
+            return cls(
+                code=item.code,
+                label=item.label,
+                score=item.score,
+                detail=item.detail,
+            )
 
     claimed: bool
     message: str
@@ -28,6 +50,7 @@ class WorkerRunOnceResponse(BaseModel):
     quality_gate_passed: bool | None = None
     route_reason: str | None = None
     routing_score: float | None = None
+    routing_score_breakdown: list[RoutingScoreItemResponse] = Field(default_factory=list)
     result_summary: str | None = None
     context_summary: str | None = None
     task_id: UUID | None = None
@@ -55,6 +78,10 @@ class WorkerRunOnceResponse(BaseModel):
             quality_gate_passed=result.quality_gate_passed,
             route_reason=result.route_reason,
             routing_score=result.routing_score,
+            routing_score_breakdown=[
+                cls.RoutingScoreItemResponse.from_item(item)
+                for item in result.routing_score_breakdown
+            ],
             result_summary=result.result_summary,
             context_summary=result.context_summary,
             task_id=result.task.id if result.task else None,
