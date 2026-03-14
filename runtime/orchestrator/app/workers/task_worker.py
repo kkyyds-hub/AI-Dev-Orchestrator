@@ -39,6 +39,7 @@ from app.services.verifier_service import VerificationResult, VerifierService
 
 
 _RUN_RESULT_SUMMARY_MAX_LENGTH = 2_000
+_CLAIM_RETRY_LIMIT = 3
 
 
 @dataclass(slots=True)
@@ -106,31 +107,43 @@ class TaskWorker:
         log_path: str | None = None
         context_package: TaskContextPackage | None = None
         routing_decision: TaskRoutingDecision | None = None
+        claim_transition: TaskStateTransition | None = None
 
         try:
-            routing_decision = self.task_router_service.route_next_task()
-            if routing_decision.selected_task is None:
-                return WorkerRunResult(
-                    claimed=False,
-                    message=routing_decision.message,
-                    budget_pressure_level=routing_decision.budget_pressure_level,
-                    budget_action=routing_decision.budget_action,
-                    budget_strategy_code=routing_decision.budget_strategy_code,
-                    budget_strategy_summary=routing_decision.budget_strategy_summary,
-                )
+            for _ in range(_CLAIM_RETRY_LIMIT):
+                routing_decision = self.task_router_service.route_next_task()
+                if routing_decision.selected_task is None:
+                    return WorkerRunResult(
+                        claimed=False,
+                        message=routing_decision.message,
+                        budget_pressure_level=routing_decision.budget_pressure_level,
+                        budget_action=routing_decision.budget_action,
+                        budget_strategy_code=routing_decision.budget_strategy_code,
+                        budget_strategy_summary=routing_decision.budget_strategy_summary,
+                    )
 
-            claim_transition = self.task_state_machine_service.build_claim_transition(
-                task=routing_decision.selected_task,
-            )
-            task = self.task_repository.claim_pending_task(routing_decision.selected_task.id)
-            if task is None:
+                claim_transition = self.task_state_machine_service.build_claim_transition(
+                    task=routing_decision.selected_task,
+                )
+                task = self.task_repository.claim_pending_task(routing_decision.selected_task.id)
+                if task is not None:
+                    break
+
                 self.session.rollback()
+            else:
                 return WorkerRunResult(
                     claimed=False,
-                    message="Router selected a task, but it was no longer pending when claimed.",
+                    message=(
+                        "Router repeatedly selected tasks that were already claimed by "
+                        "another worker."
+                    ),
                 )
 
             self.session.commit()
+            assert task is not None
+            assert routing_decision is not None
+            assert routing_decision.selected_task is not None
+            assert claim_transition is not None
             event_stream_service.publish_task_updated(
                 task=task,
                 reason=claim_transition.event_reason,

@@ -10,19 +10,29 @@ import {
   runWorkerOnce,
 } from "./api";
 
+async function invalidateOperationalQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["console-overview"] }),
+    queryClient.invalidateQueries({ queryKey: ["console-metrics-overview"] }),
+    queryClient.invalidateQueries({ queryKey: ["console-budget-health"] }),
+    queryClient.invalidateQueries({ queryKey: ["console-failure-distribution"] }),
+    queryClient.invalidateQueries({ queryKey: ["console-routing-distribution"] }),
+    queryClient.invalidateQueries({ queryKey: ["worker-slots"] }),
+    queryClient.invalidateQueries({ queryKey: ["review-clusters"] }),
+    queryClient.invalidateQueries({ queryKey: ["task-detail"] }),
+    queryClient.invalidateQueries({ queryKey: ["task-decision-history"] }),
+    queryClient.invalidateQueries({ queryKey: ["run-logs"] }),
+    queryClient.invalidateQueries({ queryKey: ["decision-trace"] }),
+  ]);
+}
+
 export function useRunWorkerOnce() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: runWorkerOnce,
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["console-overview"] }),
-        queryClient.invalidateQueries({ queryKey: ["worker-slots"] }),
-        queryClient.invalidateQueries({ queryKey: ["task-detail"] }),
-        queryClient.invalidateQueries({ queryKey: ["run-logs"] }),
-        queryClient.invalidateQueries({ queryKey: ["decision-trace"] }),
-      ]);
+      await invalidateOperationalQueries(queryClient);
     },
   });
 }
@@ -33,13 +43,7 @@ export function useRunWorkerPoolOnce() {
   return useMutation({
     mutationFn: runWorkerPoolOnce,
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["console-overview"] }),
-        queryClient.invalidateQueries({ queryKey: ["worker-slots"] }),
-        queryClient.invalidateQueries({ queryKey: ["task-detail"] }),
-        queryClient.invalidateQueries({ queryKey: ["run-logs"] }),
-        queryClient.invalidateQueries({ queryKey: ["decision-trace"] }),
-      ]);
+      await invalidateOperationalQueries(queryClient);
     },
   });
 }
