@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { MetricCard } from "../components/MetricCard";
 import { StatusBadge } from "../components/StatusBadge";
 import { BudgetOverviewPanel } from "../features/budget/BudgetOverviewPanel";
+import { ConsoleMetricsPanel } from "../features/console-metrics/ConsoleMetricsPanel";
+import { DecisionHintPanel } from "../features/console-metrics/DecisionHintPanel";
+import { FailureDistributionPanel } from "../features/console-metrics/FailureDistributionPanel";
+import { ReviewClustersPanel } from "../features/console-metrics/ReviewClustersPanel";
+import { useReviewClusters } from "../features/console-metrics/decision-hooks";
 import { useBackendHealth, useConsoleOverview } from "../features/console/hooks";
 import { WorkerSlotPanel } from "../features/console-metrics/WorkerSlotPanel";
 import type { ConsoleTask } from "../features/console/types";
@@ -17,6 +22,7 @@ export function App() {
   const overviewQuery = useConsoleOverview({
     enablePollingFallback: realtime.status !== "open",
   });
+  const reviewClustersQuery = useReviewClusters();
   const healthQuery = useBackendHealth();
   const runWorkerOnceMutation = useRunWorkerOnce();
   const runWorkerPoolOnceMutation = useRunWorkerPoolOnce();
@@ -422,6 +428,20 @@ export function App() {
                 blockedTasks={overviewQuery.data.blocked_tasks}
               />
             ) : null}
+
+            <ConsoleMetricsPanel />
+
+            <FailureDistributionPanel />
+
+            <ReviewClustersPanel
+              clusters={reviewClustersQuery.data ?? []}
+              isLoading={reviewClustersQuery.isLoading && !reviewClustersQuery.data}
+              errorMessage={
+                reviewClustersQuery.isError ? reviewClustersQuery.error.message : null
+              }
+            />
+
+            <DecisionHintPanel />
 
             <WorkerSlotPanel />
 
