@@ -5,7 +5,14 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.domain.run import Run, RunFailureCategory, RunRoutingScoreItem, RunStatus
+from app.domain.run import (
+    Run,
+    RunBudgetPressureLevel,
+    RunBudgetStrategyAction,
+    RunFailureCategory,
+    RunRoutingScoreItem,
+    RunStatus,
+)
 from app.domain.task import (
     Task,
     TaskBlockingReasonCategory,
@@ -32,6 +39,7 @@ from app.services.verifier_service import VerificationResult, VerifierService
 
 
 _RUN_RESULT_SUMMARY_MAX_LENGTH = 2_000
+_CLAIM_RETRY_LIMIT = 3
 
 
 @dataclass(slots=True)
@@ -49,6 +57,10 @@ class WorkerRunResult:
     route_reason: str | None = None
     routing_score: float | None = None
     routing_score_breakdown: list[RunRoutingScoreItem] = field(default_factory=list)
+    budget_pressure_level: RunBudgetPressureLevel | None = None
+    budget_action: RunBudgetStrategyAction | None = None
+    budget_strategy_code: str | None = None
+    budget_strategy_summary: str | None = None
     result_summary: str | None = None
     context_summary: str | None = None
     task: Task | None = None
@@ -95,27 +107,43 @@ class TaskWorker:
         log_path: str | None = None
         context_package: TaskContextPackage | None = None
         routing_decision: TaskRoutingDecision | None = None
+        claim_transition: TaskStateTransition | None = None
 
         try:
-            routing_decision = self.task_router_service.route_next_task()
-            if routing_decision.selected_task is None:
-                return WorkerRunResult(
-                    claimed=False,
-                    message=routing_decision.message,
-                )
+            for _ in range(_CLAIM_RETRY_LIMIT):
+                routing_decision = self.task_router_service.route_next_task()
+                if routing_decision.selected_task is None:
+                    return WorkerRunResult(
+                        claimed=False,
+                        message=routing_decision.message,
+                        budget_pressure_level=routing_decision.budget_pressure_level,
+                        budget_action=routing_decision.budget_action,
+                        budget_strategy_code=routing_decision.budget_strategy_code,
+                        budget_strategy_summary=routing_decision.budget_strategy_summary,
+                    )
 
-            claim_transition = self.task_state_machine_service.build_claim_transition(
-                task=routing_decision.selected_task,
-            )
-            task = self.task_repository.claim_pending_task(routing_decision.selected_task.id)
-            if task is None:
+                claim_transition = self.task_state_machine_service.build_claim_transition(
+                    task=routing_decision.selected_task,
+                )
+                task = self.task_repository.claim_pending_task(routing_decision.selected_task.id)
+                if task is not None:
+                    break
+
                 self.session.rollback()
+            else:
                 return WorkerRunResult(
                     claimed=False,
-                    message="Router selected a task, but it was no longer pending when claimed.",
+                    message=(
+                        "Router repeatedly selected tasks that were already claimed by "
+                        "another worker."
+                    ),
                 )
 
             self.session.commit()
+            assert task is not None
+            assert routing_decision is not None
+            assert routing_decision.selected_task is not None
+            assert claim_transition is not None
             event_stream_service.publish_task_updated(
                 task=task,
                 reason=claim_transition.event_reason,
@@ -169,6 +197,10 @@ class TaskWorker:
                     route_reason=run.route_reason,
                     routing_score=run.routing_score,
                     routing_score_breakdown=run.routing_score_breakdown,
+                    budget_pressure_level=guard_decision.pressure_level,
+                    budget_action=guard_decision.suggested_action,
+                    budget_strategy_code=guard_decision.strategy_code,
+                    budget_strategy_summary=guard_decision.budget.strategy_summary,
                     result_summary=run.result_summary,
                     task=task,
                     run=run,
@@ -255,6 +287,26 @@ class TaskWorker:
                 routing_score=run.routing_score if run else None,
                 routing_score_breakdown=(
                     run.routing_score_breakdown if run else []
+                ),
+                budget_pressure_level=(
+                    routing_decision.budget_pressure_level
+                    if routing_decision is not None
+                    else None
+                ),
+                budget_action=(
+                    routing_decision.budget_action
+                    if routing_decision is not None
+                    else None
+                ),
+                budget_strategy_code=(
+                    routing_decision.budget_strategy_code
+                    if routing_decision is not None
+                    else None
+                ),
+                budget_strategy_summary=(
+                    routing_decision.budget_strategy_summary
+                    if routing_decision is not None
+                    else None
                 ),
                 result_summary=final_summary,
                 context_summary=(
@@ -561,8 +613,14 @@ class TaskWorker:
                 ),
                 "daily_budget_usd": decision.budget.daily_budget_usd,
                 "daily_cost_used": decision.budget.daily_cost_used,
+                "daily_usage_ratio": decision.budget.daily_usage_ratio,
                 "session_budget_usd": decision.budget.session_budget_usd,
                 "session_cost_used": decision.budget.session_cost_used,
+                "session_usage_ratio": decision.budget.session_usage_ratio,
+                "pressure_level": decision.pressure_level.value,
+                "suggested_action": decision.suggested_action.value,
+                "strategy_code": decision.strategy_code,
+                "strategy_summary": decision.budget.strategy_summary,
                 "max_task_retries": decision.retry_status.max_task_retries,
                 "execution_attempts": decision.retry_status.execution_attempts,
                 "retries_used": decision.retry_status.retries_used,
@@ -669,6 +727,10 @@ class TaskWorker:
                     item.model_dump()
                     for item in routing_decision.routing_score_breakdown
                 ],
+                "budget_pressure_level": routing_decision.budget_pressure_level.value,
+                "budget_action": routing_decision.budget_action.value,
+                "budget_strategy_code": routing_decision.budget_strategy_code,
+                "budget_strategy_summary": routing_decision.budget_strategy_summary,
                 "candidates": [
                     {
                         "task_id": str(candidate.task.id),
@@ -690,6 +752,10 @@ class TaskWorker:
                         ],
                         "execution_attempts": candidate.execution_attempts,
                         "recent_failure_count": candidate.recent_failure_count,
+                        "budget_pressure_level": candidate.budget_pressure_level.value,
+                        "budget_action": candidate.budget_action.value,
+                        "budget_strategy_code": candidate.budget_strategy_code,
+                        "budget_score_adjustment": candidate.budget_score_adjustment,
                     }
                     for candidate in routing_decision.candidates
                 ],
@@ -817,6 +883,7 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         task_repository=task_repository,
         run_repository=run_repository,
         task_readiness_service=task_readiness_service,
+        budget_guard_service=budget_guard_service,
     )
     failure_review_service = FailureReviewService(
         failure_review_repository=FailureReviewRepository(),

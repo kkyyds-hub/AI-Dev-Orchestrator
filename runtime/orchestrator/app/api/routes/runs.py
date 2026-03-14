@@ -189,6 +189,15 @@ def get_decision_replay_service() -> DecisionReplayService:
     )
 
 
+def get_failure_review_service() -> FailureReviewService:
+    """Create the file-backed failure review service dependency."""
+
+    return FailureReviewService(
+        failure_review_repository=FailureReviewRepository(),
+        run_logging_service=RunLoggingService(),
+    )
+
+
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
@@ -245,3 +254,30 @@ def get_run_decision_trace(
 
     trace = decision_replay_service.build_run_trace(run=run)
     return DecisionTraceResponse.from_trace(trace)
+
+
+@router.get(
+    "/{run_id}/failure-review",
+    response_model=FailureReviewResponse | None,
+    summary="获取运行失败复盘记录",
+)
+def get_run_failure_review(
+    run_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    failure_review_service: Annotated[
+        FailureReviewService,
+        Depends(get_failure_review_service),
+    ],
+) -> FailureReviewResponse | None:
+    """Return one persisted failure review record by run id."""
+
+    run_repository = RunRepository(session)
+    run = run_repository.get_by_id(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run not found: {run_id}",
+        )
+
+    review = failure_review_service.get_review(run_id=run_id)
+    return FailureReviewResponse.from_review(review) if review is not None else None

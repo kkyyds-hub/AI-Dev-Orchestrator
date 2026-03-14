@@ -4,10 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.run import RunRoutingScoreItem, RunStatus
+from app.domain.run import (
+    RunBudgetPressureLevel,
+    RunBudgetStrategyAction,
+    RunRoutingScoreItem,
+    RunStatus,
+)
 from app.domain.task import Task, TaskHumanStatus, TaskPriority, TaskRiskLevel
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
+from app.services.budget_guard_service import (
+    BudgetGuardService,
+    BudgetSnapshot,
+)
 from app.services.task_readiness_service import TaskReadinessResult, TaskReadinessService
 
 
@@ -43,6 +52,10 @@ class TaskRoutingCandidate:
     routing_score_breakdown: list[RunRoutingScoreItem]
     execution_attempts: int
     recent_failure_count: int
+    budget_pressure_level: RunBudgetPressureLevel
+    budget_action: RunBudgetStrategyAction
+    budget_strategy_code: str
+    budget_score_adjustment: float
 
 
 @dataclass(slots=True, frozen=True)
@@ -55,6 +68,10 @@ class TaskRoutingDecision:
     routing_score_breakdown: list[RunRoutingScoreItem]
     candidates: list[TaskRoutingCandidate]
     message: str
+    budget_pressure_level: RunBudgetPressureLevel
+    budget_action: RunBudgetStrategyAction
+    budget_strategy_code: str
+    budget_strategy_summary: str
 
 
 class TaskRouterService:
@@ -66,14 +83,17 @@ class TaskRouterService:
         task_repository: TaskRepository,
         run_repository: RunRepository,
         task_readiness_service: TaskReadinessService,
+        budget_guard_service: BudgetGuardService,
     ) -> None:
         self.task_repository = task_repository
         self.run_repository = run_repository
         self.task_readiness_service = task_readiness_service
+        self.budget_guard_service = budget_guard_service
 
     def route_next_task(self) -> TaskRoutingDecision:
         """Return the next task the worker should claim, if any."""
 
+        budget_snapshot = self.budget_guard_service.build_budget_snapshot()
         pending_tasks = self.task_repository.list_pending()
         if not pending_tasks:
             return TaskRoutingDecision(
@@ -83,9 +103,16 @@ class TaskRouterService:
                 routing_score_breakdown=[],
                 candidates=[],
                 message="No pending tasks available for routing.",
+                budget_pressure_level=budget_snapshot.pressure_level,
+                budget_action=budget_snapshot.suggested_action,
+                budget_strategy_code=budget_snapshot.strategy_code,
+                budget_strategy_summary=budget_snapshot.strategy_summary,
             )
 
-        candidates = [self._evaluate_task(task) for task in pending_tasks]
+        candidates = [
+            self._evaluate_task(task, budget_snapshot=budget_snapshot)
+            for task in pending_tasks
+        ]
         ready_candidates = [candidate for candidate in candidates if candidate.ready]
 
         if not ready_candidates:
@@ -104,6 +131,10 @@ class TaskRouterService:
                     "Pending tasks exist, but none are currently routable. "
                     f"{blocked_text}"
                 ),
+                budget_pressure_level=budget_snapshot.pressure_level,
+                budget_action=budget_snapshot.suggested_action,
+                budget_strategy_code=budget_snapshot.strategy_code,
+                budget_strategy_summary=budget_snapshot.strategy_summary,
             )
 
         ranked_candidates = sorted(
@@ -126,15 +157,30 @@ class TaskRouterService:
                 f"Router selected '{selected_candidate.task.title}' with score "
                 f"{selected_candidate.routing_score:.1f}."
             ),
+            budget_pressure_level=budget_snapshot.pressure_level,
+            budget_action=budget_snapshot.suggested_action,
+            budget_strategy_code=budget_snapshot.strategy_code,
+            budget_strategy_summary=budget_snapshot.strategy_summary,
         )
 
-    def _evaluate_task(self, task: Task) -> TaskRoutingCandidate:
+    def _evaluate_task(
+        self,
+        task: Task,
+        *,
+        budget_snapshot: BudgetSnapshot,
+    ) -> TaskRoutingCandidate:
         """Evaluate one pending task and explain the result."""
 
         readiness = self.task_readiness_service.evaluate_task(task=task)
         execution_attempts = self.run_repository.count_execution_attempts_by_task_id(task.id)
         recent_runs = self.run_repository.list_by_task_id(task.id)[:3]
         recent_failure_count = sum(1 for run in recent_runs if run.status in _FAILED_RUN_STATUSES)
+        budget_directive = self.budget_guard_service.build_routing_directive(
+            risk_level=task.risk_level,
+            execution_attempts=execution_attempts,
+            recent_failure_count=recent_failure_count,
+            snapshot=budget_snapshot,
+        )
 
         if not readiness.ready_for_execution:
             blocking_text = " | ".join(readiness.blocking_reasons)
@@ -155,10 +201,17 @@ class TaskRouterService:
                     ready=False,
                     routing_score=None,
                     score_breakdown=routing_score_breakdown,
+                    budget_pressure_level=budget_directive.pressure_level,
+                    budget_action=budget_directive.suggested_action,
+                    budget_strategy_code=budget_directive.strategy_code,
                 ),
                 routing_score_breakdown=routing_score_breakdown,
                 execution_attempts=execution_attempts,
                 recent_failure_count=recent_failure_count,
+                budget_pressure_level=budget_directive.pressure_level,
+                budget_action=budget_directive.suggested_action,
+                budget_strategy_code=budget_directive.strategy_code,
+                budget_score_adjustment=budget_directive.score_adjustment,
             )
 
         priority_score = _PRIORITY_SCORES[task.priority]
@@ -213,6 +266,17 @@ class TaskRouterService:
                     f"per failure penalty={-_RECENT_FAILURE_PENALTY:.1f}"
                 ),
             ),
+            RunRoutingScoreItem(
+                code="budget_pressure_adjustment",
+                label="预算压力调整",
+                score=budget_directive.score_adjustment,
+                detail=(
+                    f"pressure={budget_directive.pressure_level.value}; "
+                    f"action={budget_directive.suggested_action.value}; "
+                    f"strategy={budget_directive.strategy_code}; "
+                    f"{budget_directive.detail}"
+                ),
+            ),
         ]
         routing_score = round(sum(item.score for item in routing_score_breakdown), 1)
 
@@ -220,6 +284,9 @@ class TaskRouterService:
             ready=True,
             routing_score=routing_score,
             score_breakdown=routing_score_breakdown,
+            budget_pressure_level=budget_directive.pressure_level,
+            budget_action=budget_directive.suggested_action,
+            budget_strategy_code=budget_directive.strategy_code,
         )
         return TaskRoutingCandidate(
             task=task,
@@ -230,6 +297,10 @@ class TaskRouterService:
             routing_score_breakdown=routing_score_breakdown,
             execution_attempts=execution_attempts,
             recent_failure_count=recent_failure_count,
+            budget_pressure_level=budget_directive.pressure_level,
+            budget_action=budget_directive.suggested_action,
+            budget_strategy_code=budget_directive.strategy_code,
+            budget_score_adjustment=budget_directive.score_adjustment,
         )
 
     @staticmethod
@@ -238,16 +309,23 @@ class TaskRouterService:
         ready: bool,
         routing_score: float | None,
         score_breakdown: list[RunRoutingScoreItem],
+        budget_pressure_level: RunBudgetPressureLevel,
+        budget_action: RunBudgetStrategyAction,
+        budget_strategy_code: str,
     ) -> str:
         """Build one stable and human-readable route summary."""
 
         parts = [f"{item.code}({item.score:+.1f})" for item in score_breakdown]
         readiness_text = "readiness=yes" if ready else "readiness=no"
+        budget_text = (
+            f"budget={budget_pressure_level.value}/"
+            f"{budget_action.value}[{budget_strategy_code}]"
+        )
         if routing_score is None:
-            return f"{readiness_text}; " + ", ".join(parts)
+            return f"{readiness_text}; {budget_text}; " + ", ".join(parts)
 
         return (
-            f"{readiness_text}; "
+            f"{readiness_text}; {budget_text}; "
             + ", ".join(parts)
             + f"; total={routing_score:.1f}"
         )

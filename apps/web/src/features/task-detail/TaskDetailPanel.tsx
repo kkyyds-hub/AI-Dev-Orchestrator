@@ -23,6 +23,8 @@ import {
   useResumeTask,
   useRetryTask,
 } from "../task-actions/hooks";
+import { DecisionHistoryPanel } from "../console-metrics/DecisionHistoryPanel";
+import { useTaskDecisionHistory } from "../console-metrics/decision-hooks";
 import { RunLogPanel } from "../run-log/RunLogPanel";
 import { useTaskDetail } from "./hooks";
 
@@ -68,6 +70,7 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
   );
 
   const currentTaskId = detail?.id ?? selectedTask?.id ?? null;
+  const decisionHistoryQuery = useTaskDecisionHistory(currentTaskId);
   const currentTaskStatus = detail?.status ?? selectedTask?.status ?? null;
   const canPause =
     currentTaskStatus === "pending" ||
@@ -142,7 +145,7 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
           <h2 className="text-lg font-semibold text-slate-50">任务详情</h2>
           <p className="text-sm text-slate-400">
             {selectedTask
-              ? "查看单任务的结构化上下文、质量闸门结果、最小操作入口和运行日志。"
+              ? "查看单任务的结构化上下文、决策历史、质量闸门结果、最小操作入口和运行日志。"
               : "从左侧任务列表中选择一条任务，打开 Day 15 详情侧板。"}
           </p>
         </div>
@@ -628,6 +631,15 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
               </div>
             )}
           </div>
+
+          <DecisionHistoryPanel
+            taskId={currentTaskId}
+            history={decisionHistoryQuery.data ?? []}
+            isLoading={decisionHistoryQuery.isLoading && !decisionHistoryQuery.data}
+            errorMessage={decisionHistoryQuery.isError ? decisionHistoryQuery.error.message : null}
+            selectedRunId={selectedRun?.id ?? null}
+            onSelectRun={setSelectedRunId}
+          />
 
           <RunLogPanel selectedRun={selectedRun} />
         </div>

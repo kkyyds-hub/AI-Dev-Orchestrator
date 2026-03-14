@@ -8,7 +8,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
-from app.domain.run import RunFailureCategory, RunRoutingScoreItem, RunStatus
+from app.domain.run import (
+    RunBudgetPressureLevel,
+    RunBudgetStrategyAction,
+    RunFailureCategory,
+    RunRoutingScoreItem,
+    RunStatus,
+)
 from app.domain.task import TaskStatus
 from app.services.worker_slot_service import WorkerSlotSnapshot, WorkerSlotState, WorkerSlotStatus
 from app.workers.task_worker import TaskWorker, WorkerRunResult, build_task_worker
@@ -51,6 +57,10 @@ class WorkerRunOnceResponse(BaseModel):
     route_reason: str | None = None
     routing_score: float | None = None
     routing_score_breakdown: list[RoutingScoreItemResponse] = Field(default_factory=list)
+    budget_pressure_level: RunBudgetPressureLevel | None = None
+    budget_action: RunBudgetStrategyAction | None = None
+    budget_strategy_code: str | None = None
+    budget_strategy_summary: str | None = None
     result_summary: str | None = None
     context_summary: str | None = None
     task_id: UUID | None = None
@@ -82,6 +92,10 @@ class WorkerRunOnceResponse(BaseModel):
                 cls.RoutingScoreItemResponse.from_item(item)
                 for item in result.routing_score_breakdown
             ],
+            budget_pressure_level=result.budget_pressure_level,
+            budget_action=result.budget_action,
+            budget_strategy_code=result.budget_strategy_code,
+            budget_strategy_summary=result.budget_strategy_summary,
             result_summary=result.result_summary,
             context_summary=result.context_summary,
             task_id=result.task.id if result.task else None,

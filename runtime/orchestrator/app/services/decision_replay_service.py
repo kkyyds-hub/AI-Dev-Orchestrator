@@ -21,6 +21,7 @@ _TRACE_EVENT_MAPPING = {
     "verification_skipped": ("verification", "验证跳过"),
     "cost_estimated": ("cost", "成本估算"),
     "run_finalized": ("finalize", "最终收口"),
+    "run_recovered": ("recovery", "故障恢复"),
     "worker_slot_assigned": ("parallel", "槽位分配"),
     "worker_slot_released": ("parallel", "槽位释放"),
     "worker_rolled_back": ("recovery", "异常回滚"),

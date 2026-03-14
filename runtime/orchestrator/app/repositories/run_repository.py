@@ -1,5 +1,6 @@
 """Persistence helpers for `Run` records."""
 
+from dataclasses import dataclass
 import json
 from uuid import UUID
 
@@ -18,6 +19,20 @@ from app.domain.run import (
     RunStatus,
 )
 from app.services.event_stream_service import event_stream_service
+
+
+@dataclass(slots=True, frozen=True)
+class RunMetricsAggregate:
+    """One coarse aggregate snapshot over all persisted runs."""
+
+    total_runs: int
+    total_estimated_cost: float
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    avg_estimated_cost: float
+    avg_prompt_tokens: float
+    avg_completion_tokens: float
+    latest_run_created_at: datetime | None
 
 
 class RunRepository:
@@ -117,6 +132,79 @@ class RunRepository:
         statement = select(func.coalesce(func.sum(RunTable.estimated_cost), 0.0))
         return float(self.session.execute(statement).scalar_one())
 
+    def get_metrics_aggregate(self) -> RunMetricsAggregate:
+        """Return one aggregate snapshot used by console metrics endpoints."""
+
+        statement = select(
+            func.count(RunTable.id),
+            func.coalesce(func.sum(RunTable.estimated_cost), 0.0),
+            func.coalesce(func.sum(RunTable.prompt_tokens), 0),
+            func.coalesce(func.sum(RunTable.completion_tokens), 0),
+            func.coalesce(func.avg(RunTable.estimated_cost), 0.0),
+            func.coalesce(func.avg(RunTable.prompt_tokens), 0.0),
+            func.coalesce(func.avg(RunTable.completion_tokens), 0.0),
+            func.max(RunTable.created_at),
+        )
+        (
+            total_runs,
+            total_estimated_cost,
+            total_prompt_tokens,
+            total_completion_tokens,
+            avg_estimated_cost,
+            avg_prompt_tokens,
+            avg_completion_tokens,
+            latest_run_created_at,
+        ) = self.session.execute(statement).one()
+
+        return RunMetricsAggregate(
+            total_runs=int(total_runs),
+            total_estimated_cost=float(total_estimated_cost),
+            total_prompt_tokens=int(total_prompt_tokens),
+            total_completion_tokens=int(total_completion_tokens),
+            avg_estimated_cost=float(avg_estimated_cost),
+            avg_prompt_tokens=float(avg_prompt_tokens),
+            avg_completion_tokens=float(avg_completion_tokens),
+            latest_run_created_at=ensure_utc_datetime(latest_run_created_at),
+        )
+
+    def count_runs_grouped_by_status(self) -> dict[RunStatus, int]:
+        """Return run counts grouped by run status."""
+
+        statement = (
+            select(RunTable.status, func.count(RunTable.id))
+            .group_by(RunTable.status)
+        )
+        rows = self.session.execute(statement).all()
+        return {status: int(count) for status, count in rows}
+
+    def count_failure_categories_for_failed_runs(
+        self,
+    ) -> dict[RunFailureCategory | None, int]:
+        """Return failure-category counts for failed/cancelled runs."""
+
+        statement = (
+            select(RunTable.failure_category, func.count(RunTable.id))
+            .where(RunTable.status.in_([RunStatus.FAILED, RunStatus.CANCELLED]))
+            .group_by(RunTable.failure_category)
+        )
+        rows = self.session.execute(statement).all()
+        return {failure_category: int(count) for failure_category, count in rows}
+
+    def count_runs_grouped_by_route_reason(self) -> list[tuple[str, int]]:
+        """Return run counts grouped by non-empty route reason text."""
+
+        statement = (
+            select(RunTable.route_reason, func.count(RunTable.id))
+            .where(
+                RunTable.route_reason.is_not(None),
+                func.trim(RunTable.route_reason) != "",
+            )
+            .group_by(RunTable.route_reason)
+            .order_by(func.count(RunTable.id).desc(), RunTable.route_reason.asc())
+        )
+        rows = self.session.execute(statement).all()
+        return [(str(route_reason), int(count)) for route_reason, count in rows]
+
     def sum_estimated_cost_since(self, started_at: datetime) -> float:
         """Return the cumulative estimated cost since one UTC timestamp."""
 
@@ -126,6 +214,20 @@ class RunRepository:
             .where(RunTable.created_at >= started_at)
         )
         return float(self.session.execute(statement).scalar_one())
+
+    def count_budget_blocked_runs_since(self, started_at: datetime) -> int:
+        """Return how many runs were blocked by daily/session budget since one timestamp."""
+
+        statement = select(func.count()).select_from(RunTable).where(
+            RunTable.created_at >= started_at,
+            RunTable.failure_category.in_(
+                [
+                    RunFailureCategory.DAILY_BUDGET_EXCEEDED,
+                    RunFailureCategory.SESSION_BUDGET_EXCEEDED,
+                ]
+            ),
+        )
+        return int(self.session.execute(statement).scalar_one())
 
     def set_log_path(self, run_id: UUID, log_path: str) -> Run:
         """Persist the relative log path for a run."""
