@@ -9,7 +9,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
-from app.domain.run import Run, RunFailureCategory, RunRoutingScoreItem, RunStatus
+from app.domain.run import (
+    Run,
+    RunBudgetPressureLevel,
+    RunBudgetStrategyAction,
+    RunFailureCategory,
+    RunRoutingScoreItem,
+    RunStatus,
+)
 from app.domain.task import (
     Task,
     TaskHumanStatus,
@@ -449,14 +456,23 @@ class ConsoleBudgetResponse(BaseModel):
     daily_budget_usd: float
     daily_cost_used: float
     daily_cost_remaining: float
+    daily_usage_ratio: float
     daily_budget_exceeded: bool
     daily_window_started_at: datetime
     session_budget_usd: float
     session_cost_used: float
     session_cost_remaining: float
+    session_usage_ratio: float
     session_budget_exceeded: bool
     session_started_at: datetime
     max_task_retries: int
+    pressure_level: RunBudgetPressureLevel
+    suggested_action: RunBudgetStrategyAction
+    strategy_code: str
+    strategy_label: str
+    strategy_summary: str
+    budget_blocked_runs_daily: int
+    budget_blocked_runs_session: int
 
     @classmethod
     def from_snapshot(cls, snapshot: BudgetSnapshot) -> "ConsoleBudgetResponse":
@@ -466,14 +482,23 @@ class ConsoleBudgetResponse(BaseModel):
             daily_budget_usd=snapshot.daily_budget_usd,
             daily_cost_used=snapshot.daily_cost_used,
             daily_cost_remaining=snapshot.daily_cost_remaining,
+            daily_usage_ratio=snapshot.daily_usage_ratio,
             daily_budget_exceeded=snapshot.daily_budget_exceeded,
             daily_window_started_at=snapshot.daily_window_started_at,
             session_budget_usd=snapshot.session_budget_usd,
             session_cost_used=snapshot.session_cost_used,
             session_cost_remaining=snapshot.session_cost_remaining,
+            session_usage_ratio=snapshot.session_usage_ratio,
             session_budget_exceeded=snapshot.session_budget_exceeded,
             session_started_at=snapshot.session_started_at,
             max_task_retries=snapshot.max_task_retries,
+            pressure_level=snapshot.pressure_level,
+            suggested_action=snapshot.suggested_action,
+            strategy_code=snapshot.strategy_code,
+            strategy_label=snapshot.strategy_label,
+            strategy_summary=snapshot.strategy_summary,
+            budget_blocked_runs_daily=snapshot.budget_blocked_runs_daily,
+            budget_blocked_runs_session=snapshot.budget_blocked_runs_session,
         )
 
 

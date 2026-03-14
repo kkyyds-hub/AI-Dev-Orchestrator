@@ -7,14 +7,23 @@ export type ConsoleBudget = {
   daily_budget_usd: number;
   daily_cost_used: number;
   daily_cost_remaining: number;
+  daily_usage_ratio: number;
   daily_budget_exceeded: boolean;
   daily_window_started_at: string;
   session_budget_usd: number;
   session_cost_used: number;
   session_cost_remaining: number;
+  session_usage_ratio: number;
   session_budget_exceeded: boolean;
   session_started_at: string;
   max_task_retries: number;
+  pressure_level: "normal" | "warning" | "critical" | "blocked";
+  suggested_action: "full_speed" | "conservative" | "degraded" | "block";
+  strategy_code: string;
+  strategy_label: string;
+  strategy_summary: string;
+  budget_blocked_runs_daily: number;
+  budget_blocked_runs_session: number;
 };
 
 export type RoutingScoreItem = {

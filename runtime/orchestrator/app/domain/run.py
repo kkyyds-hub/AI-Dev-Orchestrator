@@ -30,6 +30,24 @@ class RunFailureCategory(StrEnum):
     RETRY_LIMIT_EXCEEDED = "retry_limit_exceeded"
 
 
+class RunBudgetPressureLevel(StrEnum):
+    """Normalized budget-pressure level used by V2-B routing and guard decisions."""
+
+    NORMAL = "normal"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    BLOCKED = "blocked"
+
+
+class RunBudgetStrategyAction(StrEnum):
+    """Suggested action exposed by the V2-B budget strategy."""
+
+    FULL_SPEED = "full_speed"
+    CONSERVATIVE = "conservative"
+    DEGRADED = "degraded"
+    BLOCK = "block"
+
+
 class RunEventReason(StrEnum):
     """Stable run event reasons published to the console stream."""
 
