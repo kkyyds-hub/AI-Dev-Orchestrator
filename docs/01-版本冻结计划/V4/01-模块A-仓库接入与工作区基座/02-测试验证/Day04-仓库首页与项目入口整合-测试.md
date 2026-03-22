@@ -1,8 +1,8 @@
 # Day04 仓库首页与项目入口整合 - 测试与验收
 
 - 对应计划文档：`docs/01-版本冻结计划/V4/01-模块A-仓库接入与工作区基座/01-计划文档/Day04-仓库首页与项目入口整合.md`
-- 当前回填状态：**未开始**
-- 当前测试结论：**待验证**
+- 当前回填状态：**已完成**
+- 当前测试结论：**通过**
 
 ---
 
@@ -34,12 +34,15 @@
 
 ## 当前回填结果
 
-- 结果：**待验证**
-- 状态口径：当前仅完成 Day04 的计划冻结与测试骨架建档，尚未开始实现，禁止提前标记为“通过”。
+- 结果：**通过**
+- 状态口径：已按 Day04 范围完成老板入口与项目详情页的仓库入口整合，老板页/项目列表/项目详情都可查看仓库绑定、最新快照与当前变更会话；产品功能仍只读展示仓库摘要，不进入文件级编辑、验证证据视图或真实 Git 写操作。
 - 证据：
-1. 已建立对应计划文档，冻结今日目标、交付与验收边界
-2. 已建立当前测试验证文档骨架，待后续按真实实现回填
-3. 后续开始开发后，再补充实际接口、页面、脚本、构建与烟测证据
+1. 在 `runtime/orchestrator` 目录执行 `.\.venv\Scripts\python.exe -m compileall app/api/routes/console.py app/api/routes/projects.py scripts/v4a_day01_repository_binding_smoke.py scripts/v4a_day02_repository_snapshot_smoke.py scripts/v4a_day03_change_session_smoke.py scripts/v4a_day04_repository_home_smoke.py`，确认 Day04 涉及的后端路由与烟测脚本可通过编译检查
+2. 在 `runtime/orchestrator` 目录执行 `.\.venv\Scripts\python.exe scripts/v4a_day01_repository_binding_smoke.py`，确认 Day04 接入后 Day01 的仓库绑定与路径安全边界未回归
+3. 在 `runtime/orchestrator` 目录执行 `.\.venv\Scripts\python.exe scripts/v4a_day02_repository_snapshot_smoke.py`，确认 Day04 接入后 Day02 的目录快照、语言分布与项目详情快照回写未回归
+4. 在 `runtime/orchestrator` 目录执行 `.\.venv\Scripts\python.exe scripts/v4a_day03_change_session_smoke.py`，确认 Day04 接入后 Day03 的当前分支 / HEAD / 基线 / dirty workspace 会话能力未回归
+5. 在 `runtime/orchestrator` 目录执行 `.\.venv\Scripts\python.exe scripts/v4a_day04_repository_home_smoke.py`，确认已绑定 / 未绑定项目在 `/console/project-overview`、`/projects` 与 `/projects/{project_id}` 上都能返回统一仓库字段，并在老板首页聚合结果中看见最新快照与当前变更会话
+6. 在 `apps/web` 目录执行 `cmd /c npm run build`，确认 `RepositoryHomeCard`、项目总览页、项目列表仓库摘要与项目详情仓库首页组合后的 TypeScript 编译和 Vite 生产构建通过
 
 ---
 

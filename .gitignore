@@ -37,6 +37,8 @@ node_modules/
 dist/
 build/
 .vite/
+.cache/
+.eslintcache
 coverage/
 *.tsbuildinfo
 npm-debug.log*

@@ -4,8 +4,8 @@
 - 模块 / 提案：`模块A：仓库接入与工作区基座`
 - 原始日期：`2026-04-25`
 - 原始来源：`V4 正式版总纲 / 模块A：仓库接入与工作区基座 / Day04`
-- 当前回填状态：**未开始**
-- 回填口径：当前文档为 V4 冻结版计划，尚未开始实现；后续只按 Day04 范围回填，不提前跨 Day 扩 scope。
+- 当前回填状态：**已完成**
+- 回填口径：已严格按 Day04 范围完成老板入口与项目详情页的仓库入口整合，统一返回仓库绑定 / 目录快照 / 变更会话摘要，并补齐最小烟测与文档回填；未提前跨入 Day05 文件定位索引、代码上下文包、变更计划、验证证据视图或任何真实 Git 写操作。
 
 ---
 
@@ -36,14 +36,25 @@
 
 ---
 
+## 边界澄清
+
+1. Day04 只消费 Day01-Day03 已存在的仓库绑定、目录快照和变更会话读模型，不新增文件级编辑能力。
+2. Day04 的“仓库首页”是老板入口与项目详情中的最小摘要入口，不代表进入 Day05 的文件定位、代码上下文包或 AST 视图。
+3. Day04 仍不在产品功能内执行任何真实 Git 写操作；仓库侧只读取绑定信息、快照与当前会话状态。
+
+---
+
 ## 回填记录
 
-- 当前结论：**未开始**
-- 回填说明：当前仅完成 Day04 冻结版计划建档，尚未进入实现；开始开发时需严格以今日目标、当日交付和验收点为回填边界。
+- 当前结论：**已完成**
+- 回填说明：已完成老板首页仓库入口概览、项目列表仓库状态摘要、项目详情仓库首页卡片，以及 `/console/project-overview`、`/projects`、`/projects/{project_id}` 的统一字段回填；整个实现只展示仓库绑定 / 目录快照 / 变更会话摘要，不提前进入 Day05 及以后功能，也未在产品链路中加入任何真实 Git 写操作。
 - 回填证据：
-1. 已建立本文档，冻结 Day04 的目标、交付和验收范围
-2. 已建立对应测试验证骨架文件，待后续按真实实现回填
-3. 后续启动开发后，再以实际代码、页面、脚本和烟测结果替换当前占位说明
+1. `runtime/orchestrator/app/api/routes/console.py` 已为老板首页项目卡片补齐 `repository_workspace`、`latest_repository_snapshot`、`current_change_session` 三类仓库入口字段；`runtime/orchestrator/app/api/routes/projects.py` 已为项目列表与项目详情同步回填同名字段，确保接口命名一致
+2. `apps/web/src/features/repositories/RepositoryHomeCard.tsx` 已新增最小仓库首页卡片，并接入 `apps/web/src/features/projects/ProjectOverviewPage.tsx`、`apps/web/src/features/projects/components/ProjectSummaryCards.tsx`、`apps/web/src/features/projects/components/ProjectTable.tsx`、`apps/web/src/features/repositories/RepositoryOverviewPage.tsx`，让老板入口与项目详情同时可见仓库绑定状态、最新快照和当前变更会话
+3. `runtime/orchestrator/scripts/v4a_day04_repository_home_smoke.py` 已新增 Day04 烟测，覆盖已绑定 / 未绑定项目在 `/console/project-overview`、`/projects`、`/projects/{project_id}` 上的仓库字段表现
+4. 在 `runtime/orchestrator` 目录执行 `.\.venv\Scripts\python.exe -m compileall app/api/routes/console.py app/api/routes/projects.py scripts/v4a_day01_repository_binding_smoke.py scripts/v4a_day02_repository_snapshot_smoke.py scripts/v4a_day03_change_session_smoke.py scripts/v4a_day04_repository_home_smoke.py`，确认 Day04 涉及的后端路由与烟测脚本可通过编译检查
+5. 在 `runtime/orchestrator` 目录依次执行 `.\.venv\Scripts\python.exe scripts/v4a_day01_repository_binding_smoke.py`、`.\.venv\Scripts\python.exe scripts/v4a_day02_repository_snapshot_smoke.py`、`.\.venv\Scripts\python.exe scripts/v4a_day03_change_session_smoke.py`、`.\.venv\Scripts\python.exe scripts/v4a_day04_repository_home_smoke.py`，确认 Day01-Day04 仓库绑定、快照、会话与首页整合链路全部通过
+6. 在 `apps/web` 目录执行 `cmd /c npm run build`，确认老板首页、项目列表、仓库首页卡片与项目详情页的 TypeScript 编译和 Vite 生产构建通过
 
 ---
 
