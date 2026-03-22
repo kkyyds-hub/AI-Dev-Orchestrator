@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from pydantic import Field, field_validator
 
 from app.domain._base import DomainModel, utc_now
+from app.domain.project_role import ProjectRoleCode
 
 
 class TaskStatus(StrEnum):
@@ -95,6 +96,7 @@ class Task(DomainModel):
     在 Day 16 起，任务对象开始补充最小调度元数据：
 
     - `id`：任务唯一标识
+    - `project_id`：所属项目，可为空
     - `title`：任务标题
     - `status`：任务整体推进状态
     - `priority`：任务优先级
@@ -102,13 +104,18 @@ class Task(DomainModel):
     - `acceptance_criteria`：最小验收标准列表
     - `depends_on_task_ids`：前置依赖任务
     - `risk_level`：保守的风险标记
+    - `owner_role_code`：任务当前责任角色
+    - `upstream_role_code`：任务上游来源角色
+    - `downstream_role_code`：任务下游交接角色
     - `human_status`：是否需要人工接管
     - `paused_reason`：后续暂停 / 恢复能力预留说明
+    - `source_draft_id`：若任务来自规划草案，记录其草案 ID
     - `created_at`：创建时间
     - `updated_at`：更新时间
     """
 
     id: UUID = Field(default_factory=uuid4)
+    project_id: UUID | None = None
     title: str = Field(min_length=1, max_length=200)
     status: TaskStatus = Field(default=TaskStatus.PENDING)
     priority: TaskPriority = Field(default=TaskPriority.NORMAL)
@@ -116,8 +123,12 @@ class Task(DomainModel):
     acceptance_criteria: list[str] = Field(default_factory=list, max_length=10)
     depends_on_task_ids: list[UUID] = Field(default_factory=list, max_length=20)
     risk_level: TaskRiskLevel = Field(default=TaskRiskLevel.NORMAL)
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
     human_status: TaskHumanStatus = Field(default=TaskHumanStatus.NONE)
     paused_reason: str | None = Field(default=None, max_length=500)
+    source_draft_id: str | None = Field(default=None, max_length=50)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -183,6 +194,17 @@ class Task(DomainModel):
     @classmethod
     def normalize_paused_reason(cls, value: str | None) -> str | None:
         """Collapse blank pause reasons into `None`."""
+
+        if value is None:
+            return None
+
+        normalized_value = value.strip()
+        return normalized_value or None
+
+    @field_validator("source_draft_id")
+    @classmethod
+    def normalize_source_draft_id(cls, value: str | None) -> str | None:
+        """Collapse blank draft identifiers into `None`."""
 
         if value is None:
             return None

@@ -11,11 +11,13 @@ from sqlalchemy.orm import Session
 
 from app.core.db_tables import RunTable
 from app.domain._base import ensure_utc_datetime, utc_now
+from app.domain.project_role import ProjectRoleCode
 from app.domain.run import (
     Run,
     RunEventReason,
     RunFailureCategory,
     RunRoutingScoreItem,
+    RunStrategyDecision,
     RunStatus,
 )
 from app.services.event_stream_service import event_stream_service
@@ -49,6 +51,12 @@ class RunRepository:
         route_reason: str | None = None,
         routing_score: float | None = None,
         routing_score_breakdown: list[RunRoutingScoreItem] | None = None,
+        strategy_decision: RunStrategyDecision | None = None,
+        owner_role_code: ProjectRoleCode | None = None,
+        upstream_role_code: ProjectRoleCode | None = None,
+        downstream_role_code: ProjectRoleCode | None = None,
+        handoff_reason: str | None = None,
+        dispatch_status: str | None = None,
     ) -> Run:
         """Create a new running `Run` placeholder for the worker cycle."""
 
@@ -59,6 +67,12 @@ class RunRepository:
             route_reason=route_reason,
             routing_score=routing_score,
             routing_score_breakdown=routing_score_breakdown or [],
+            strategy_decision=strategy_decision,
+            owner_role_code=owner_role_code,
+            upstream_role_code=upstream_role_code,
+            downstream_role_code=downstream_role_code,
+            handoff_reason=handoff_reason,
+            dispatch_status=dispatch_status,
             started_at=utc_now(),
         )
 
@@ -72,6 +86,14 @@ class RunRepository:
             routing_score_breakdown=self._serialize_routing_score_breakdown(
                 run.routing_score_breakdown
             ),
+            strategy_decision_json=self._serialize_strategy_decision(
+                run.strategy_decision
+            ),
+            owner_role_code=run.owner_role_code,
+            upstream_role_code=run.upstream_role_code,
+            downstream_role_code=run.downstream_role_code,
+            handoff_reason=run.handoff_reason,
+            dispatch_status=run.dispatch_status,
             started_at=run.started_at,
             finished_at=run.finished_at,
             result_summary=run.result_summary,
@@ -112,6 +134,20 @@ class RunRepository:
         statement = (
             select(RunTable)
             .where(RunTable.task_id == task_id)
+            .order_by(RunTable.created_at.desc())
+        )
+        run_rows = self.session.execute(statement).scalars().all()
+        return [self._to_domain(run_row) for run_row in run_rows]
+
+    def list_by_task_ids(self, task_ids: list[UUID]) -> list[Run]:
+        """Return all runs belonging to the provided task IDs."""
+
+        if not task_ids:
+            return []
+
+        statement = (
+            select(RunTable)
+            .where(RunTable.task_id.in_(task_ids))
             .order_by(RunTable.created_at.desc())
         )
         run_rows = self.session.execute(statement).scalars().all()
@@ -328,6 +364,42 @@ class RunRepository:
         return normalized_items
 
     @staticmethod
+    def _serialize_strategy_decision(
+        strategy_decision: RunStrategyDecision | None,
+    ) -> str | None:
+        """Store one persisted strategy decision as JSON text."""
+
+        if strategy_decision is None:
+            return None
+
+        return json.dumps(
+            strategy_decision.model_dump(mode="json"),
+            ensure_ascii=False,
+        )
+
+    @staticmethod
+    def _deserialize_strategy_decision(
+        raw_value: str | None,
+    ) -> RunStrategyDecision | None:
+        """Read one persisted strategy decision from JSON text."""
+
+        if not raw_value:
+            return None
+
+        try:
+            decoded = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(decoded, dict):
+            return None
+
+        try:
+            return RunStrategyDecision.model_validate(decoded)
+        except ValueError:
+            return None
+
+    @staticmethod
     def _to_domain(run_row: RunTable) -> Run:
         """Convert an ORM row back into the domain model."""
 
@@ -341,6 +413,14 @@ class RunRepository:
             routing_score_breakdown=RunRepository._deserialize_routing_score_breakdown(
                 run_row.routing_score_breakdown
             ),
+            strategy_decision=RunRepository._deserialize_strategy_decision(
+                run_row.strategy_decision_json
+            ),
+            owner_role_code=run_row.owner_role_code,
+            upstream_role_code=run_row.upstream_role_code,
+            downstream_role_code=run_row.downstream_role_code,
+            handoff_reason=run_row.handoff_reason,
+            dispatch_status=run_row.dispatch_status,
             started_at=ensure_utc_datetime(run_row.started_at),
             finished_at=ensure_utc_datetime(run_row.finished_at),
             result_summary=run_row.result_summary,

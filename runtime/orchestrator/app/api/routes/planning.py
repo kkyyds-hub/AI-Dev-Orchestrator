@@ -9,16 +9,23 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.project_role import ProjectRoleCode
+from app.domain.project import Project, ProjectStage, ProjectStatus
 from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
+from app.repositories.project_role_repository import ProjectRoleRepository
+from app.repositories.project_repository import ProjectRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.budget_guard_service import BudgetGuardService
 from app.services.planner_service import (
     PlanApplyResult,
     PlanDraft,
+    PlannedProjectDraft,
     PlannedTaskDraft,
     PlannerService,
 )
+from app.services.project_service import ProjectService
+from app.services.role_catalog_service import RoleCatalogService
 from app.services.task_service import TaskService
 from app.services.task_state_machine_service import TaskStateMachineService
 
@@ -37,6 +44,25 @@ class PlannerDraftRequest(BaseModel):
         le=10,
         description="Maximum number of draft tasks to generate.",
     )
+
+
+class PlannerProjectDraftRequest(BaseModel):
+    """Editable project draft used by the Day03 planning flow."""
+
+    name: str = Field(min_length=1, max_length=200)
+    summary: str = Field(min_length=1, max_length=2_000)
+    status: ProjectStatus = Field(default=ProjectStatus.ACTIVE)
+    stage: ProjectStage = Field(default=ProjectStage.PLANNING)
+
+    def to_service_model(self) -> PlannedProjectDraft:
+        """Convert the API DTO into the planner service model."""
+
+        return PlannedProjectDraft(
+            name=self.name,
+            summary=self.summary,
+            status=self.status,
+            stage=self.stage,
+        )
 
 
 class PlannerTaskDraftRequest(BaseModel):
@@ -80,11 +106,42 @@ class PlannerApplyRequest(BaseModel):
         max_length=2_000,
         description="Reviewed project summary returned by the draft endpoint.",
     )
+    project_id: UUID | None = Field(
+        default=None,
+        description="Optional existing project ID used as the target project.",
+    )
+    project: PlannerProjectDraftRequest | None = Field(
+        default=None,
+        description="Optional new project draft created before mapping tasks.",
+    )
     tasks: list[PlannerTaskDraftRequest] = Field(
         min_length=1,
         max_length=10,
         description="Edited or accepted draft tasks to persist as real tasks.",
     )
+
+
+class PlannerProjectDraftResponse(BaseModel):
+    """Project draft returned by the Day03 planner entry."""
+
+    name: str
+    summary: str
+    status: ProjectStatus
+    stage: ProjectStage
+
+    @classmethod
+    def from_service_model(
+        cls,
+        project_draft: PlannedProjectDraft,
+    ) -> "PlannerProjectDraftResponse":
+        """Convert one planner-side project draft into an API DTO."""
+
+        return cls(
+            name=project_draft.name,
+            summary=project_draft.summary,
+            status=project_draft.status,
+            stage=project_draft.stage,
+        )
 
 
 class PlannerTaskDraftResponse(BaseModel):
@@ -123,6 +180,7 @@ class PlannerDraftResponse(BaseModel):
     project_summary: str
     planning_notes: list[str]
     tasks: list[PlannerTaskDraftResponse]
+    project: PlannerProjectDraftResponse | None = None
 
     @classmethod
     def from_service_model(cls, plan_draft: PlanDraft) -> "PlannerDraftResponse":
@@ -135,6 +193,33 @@ class PlannerDraftResponse(BaseModel):
                 PlannerTaskDraftResponse.from_service_model(task)
                 for task in plan_draft.tasks
             ],
+            project=(
+                PlannerProjectDraftResponse.from_service_model(plan_draft.project)
+                if plan_draft.project is not None
+                else None
+            ),
+        )
+
+
+class PlannerAppliedProjectResponse(BaseModel):
+    """Target project returned after applying one planning draft."""
+
+    id: UUID
+    name: str
+    summary: str
+    status: ProjectStatus
+    stage: ProjectStage
+
+    @classmethod
+    def from_project(cls, project: Project) -> "PlannerAppliedProjectResponse":
+        """Convert one project domain object into an API DTO."""
+
+        return cls(
+            id=project.id,
+            name=project.name,
+            summary=project.summary,
+            status=project.status,
+            stage=project.stage,
         )
 
 
@@ -143,6 +228,7 @@ class PlannerCreatedTaskResponse(BaseModel):
 
     draft_id: str
     id: UUID
+    project_id: UUID | None = None
     title: str
     status: TaskStatus
     priority: TaskPriority
@@ -150,8 +236,12 @@ class PlannerCreatedTaskResponse(BaseModel):
     acceptance_criteria: list[str]
     depends_on_task_ids: list[UUID]
     risk_level: TaskRiskLevel
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
     human_status: TaskHumanStatus
     paused_reason: str | None = None
+    source_draft_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -167,6 +257,7 @@ class PlannerCreatedTaskResponse(BaseModel):
         return cls(
             draft_id=draft_id,
             id=task.id,
+            project_id=task.project_id,
             title=task.title,
             status=task.status,
             priority=task.priority,
@@ -174,8 +265,12 @@ class PlannerCreatedTaskResponse(BaseModel):
             acceptance_criteria=task.acceptance_criteria,
             depends_on_task_ids=task.depends_on_task_ids,
             risk_level=task.risk_level,
+            owner_role_code=task.owner_role_code,
+            upstream_role_code=task.upstream_role_code,
+            downstream_role_code=task.downstream_role_code,
             human_status=task.human_status,
             paused_reason=task.paused_reason,
+            source_draft_id=task.source_draft_id,
             created_at=task.created_at,
             updated_at=task.updated_at,
         )
@@ -187,6 +282,7 @@ class PlannerApplyResponse(BaseModel):
     project_summary: str
     created_count: int
     tasks: list[PlannerCreatedTaskResponse]
+    project: PlannerAppliedProjectResponse | None = None
 
     @classmethod
     def from_service_model(cls, result: PlanApplyResult) -> "PlannerApplyResponse":
@@ -202,6 +298,11 @@ class PlannerApplyResponse(BaseModel):
                 )
                 for created_task in result.created_tasks
             ],
+            project=(
+                PlannerAppliedProjectResponse.from_project(result.project)
+                if result.project is not None
+                else None
+            ),
         )
 
 
@@ -211,15 +312,27 @@ def get_planner_service(
     """Create the planner dependency."""
 
     task_repository = TaskRepository(session)
+    project_repository = ProjectRepository(session)
+    project_role_repository = ProjectRoleRepository(session)
     run_repository = RunRepository(session)
     budget_guard_service = BudgetGuardService(run_repository=run_repository)
     task_state_machine_service = TaskStateMachineService()
+    role_catalog_service = RoleCatalogService(
+        project_repository=project_repository,
+        project_role_repository=project_role_repository,
+    )
     task_service = TaskService(
         task_repository=task_repository,
+        project_repository=project_repository,
         budget_guard_service=budget_guard_service,
         task_state_machine_service=task_state_machine_service,
+        role_catalog_service=role_catalog_service,
     )
-    return PlannerService(task_service=task_service)
+    project_service = ProjectService(project_repository=project_repository)
+    return PlannerService(
+        task_service=task_service,
+        project_service=project_service,
+    )
 
 
 router = APIRouter(prefix="/planning", tags=["planning"])
@@ -228,7 +341,7 @@ router = APIRouter(prefix="/planning", tags=["planning"])
 @router.post(
     "/drafts",
     response_model=PlannerDraftResponse,
-    summary="生成最小规划草案",
+    summary="Create planning draft",
 )
 def create_plan_draft(
     request: PlannerDraftRequest,
@@ -254,7 +367,7 @@ def create_plan_draft(
     "/apply",
     response_model=PlannerApplyResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="应用规划草案并批量创建任务",
+    summary="Apply planning draft",
 )
 def apply_plan_draft(
     request: PlannerApplyRequest,
@@ -265,6 +378,10 @@ def apply_plan_draft(
     try:
         result = planner_service.apply_plan_draft(
             project_summary=request.project_summary,
+            project_id=request.project_id,
+            project_draft=(
+                request.project.to_service_model() if request.project is not None else None
+            ),
             task_drafts=[task.to_service_model() for task in request.tasks],
         )
     except ValueError as exc:

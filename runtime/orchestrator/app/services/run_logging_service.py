@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.domain._base import utc_now
+from app.domain.project_role import ProjectRoleCode
 from app.services.event_stream_service import event_stream_service
 
 
@@ -129,6 +130,56 @@ class RunLoggingService:
             log_path=log_path,
             events=events,
             truncated=truncated,
+        )
+
+    def append_role_handoff_event(
+        self,
+        *,
+        log_path: str,
+        project_id: UUID | None,
+        owner_role_code: ProjectRoleCode | None,
+        upstream_role_code: ProjectRoleCode | None,
+        downstream_role_code: ProjectRoleCode | None,
+        dispatch_status: str | None,
+        handoff_reason: str | None,
+    ) -> None:
+        """Append one Day07 role-handoff event to the run log."""
+
+        owner_text = owner_role_code.value if owner_role_code is not None else "unassigned"
+        chain_text = owner_text
+        if upstream_role_code is not None:
+            chain_text = f"{upstream_role_code.value} -> {chain_text}"
+        if downstream_role_code is not None:
+            chain_text = f"{chain_text} -> {downstream_role_code.value}"
+        message = (
+            "记录角色接力链路："
+            f"{chain_text}"
+        )
+
+        self.append_event(
+            log_path=log_path,
+            event="role_handoff",
+            message=message,
+            data={
+                "owner_role_code": owner_role_code,
+                "upstream_role_code": upstream_role_code,
+                "downstream_role_code": downstream_role_code,
+                "dispatch_status": dispatch_status,
+                "handoff_reason": handoff_reason,
+            },
+        )
+        task_id, run_id = self._extract_ids_from_log_path(log_path)
+        event_stream_service.publish_role_handoff(
+            project_id=str(project_id) if project_id is not None else None,
+            task_id=task_id,
+            run_id=run_id,
+            log_path=log_path,
+            owner_role_code=owner_role_code,
+            upstream_role_code=upstream_role_code,
+            downstream_role_code=downstream_role_code,
+            dispatch_status=dispatch_status,
+            handoff_reason=handoff_reason,
+            message=message,
         )
 
     @staticmethod

@@ -51,6 +51,22 @@ class TaskStateTransitionError(ValueError):
 class TaskStateMachineService:
     """Validate and normalize task/run state transitions."""
 
+    _TERMINAL_STATUSES = {
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.BLOCKED,
+    }
+
+    _PROJECT_STAGE_BLOCK_MESSAGES = {
+        TaskStatus.PENDING: "任务尚未开始，当前阶段还不能收口。",
+        TaskStatus.RUNNING: "任务仍在执行中，必须先跑完当前工作。",
+        TaskStatus.PAUSED: "任务已暂停，必须先恢复或重新规划。",
+        TaskStatus.WAITING_HUMAN: "任务等待人工处理，必须先完成人工介入。",
+        TaskStatus.COMPLETED: "任务已完成。",
+        TaskStatus.FAILED: "任务执行失败，必须先重试或人工处理。",
+        TaskStatus.BLOCKED: "任务存在阻塞，必须先解除卡点。",
+    }
+
     def derive_initial_status(
         self,
         *,
@@ -291,6 +307,27 @@ class TaskStateMachineService:
                 verification_failure_category or RunFailureCategory.VERIFICATION_FAILED
             ),
             quality_gate_passed=False,
+        )
+
+    @classmethod
+    def is_terminal_status(cls, status: TaskStatus) -> bool:
+        """Return whether one task status is terminal for worker execution."""
+
+        return status in cls._TERMINAL_STATUSES
+
+    @classmethod
+    def is_project_stage_complete(cls, status: TaskStatus) -> bool:
+        """Return whether one task no longer blocks project-stage completion."""
+
+        return status == TaskStatus.COMPLETED
+
+    @classmethod
+    def build_project_stage_block_message(cls, status: TaskStatus) -> str:
+        """Return one stable blocker message for project-stage progression."""
+
+        return cls._PROJECT_STAGE_BLOCK_MESSAGES.get(
+            status,
+            f"任务当前状态为 {status.value}，还不能推进项目阶段。",
         )
 
     @staticmethod

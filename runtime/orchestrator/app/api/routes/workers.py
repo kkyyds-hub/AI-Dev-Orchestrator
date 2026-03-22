@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.project_role import ProjectRoleCode
 from app.domain.run import (
     RunBudgetPressureLevel,
     RunBudgetStrategyAction,
@@ -63,6 +64,17 @@ class WorkerRunOnceResponse(BaseModel):
     budget_strategy_summary: str | None = None
     result_summary: str | None = None
     context_summary: str | None = None
+    model_name: str | None = None
+    model_tier: str | None = None
+    selected_skill_codes: list[str] = Field(default_factory=list)
+    selected_skill_names: list[str] = Field(default_factory=list)
+    strategy_code: str | None = None
+    strategy_summary: str | None = None
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
+    handoff_reason: str | None = None
+    dispatch_status: str | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -98,6 +110,17 @@ class WorkerRunOnceResponse(BaseModel):
             budget_strategy_summary=result.budget_strategy_summary,
             result_summary=result.result_summary,
             context_summary=result.context_summary,
+            model_name=result.model_name,
+            model_tier=result.model_tier,
+            selected_skill_codes=result.selected_skill_codes,
+            selected_skill_names=result.selected_skill_names,
+            strategy_code=result.strategy_code,
+            strategy_summary=result.strategy_summary,
+            owner_role_code=result.owner_role_code,
+            upstream_role_code=result.upstream_role_code,
+            downstream_role_code=result.downstream_role_code,
+            handoff_reason=result.handoff_reason,
+            dispatch_status=result.dispatch_status,
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
             task_status=result.task.status if result.task else None,

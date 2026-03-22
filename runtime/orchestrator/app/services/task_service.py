@@ -11,6 +11,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.domain.project_role import ProjectRoleCode
+from app.repositories.project_repository import ProjectRepository
 from app.domain.task import (
     Task,
     TaskHumanStatus,
@@ -21,6 +23,7 @@ from app.domain.task import (
 from app.repositories.task_repository import TaskRepository
 from app.services.budget_guard_service import BudgetGuardService
 from app.services.event_stream_service import event_stream_service
+from app.services.role_catalog_service import RoleCatalogService
 from app.services.task_state_machine_service import (
     TaskStateMachineService,
     TaskStateTransition,
@@ -50,35 +53,48 @@ class TaskService:
     def __init__(
         self,
         task_repository: TaskRepository,
+        project_repository: ProjectRepository,
         budget_guard_service: BudgetGuardService,
         task_state_machine_service: TaskStateMachineService,
+        role_catalog_service: RoleCatalogService | None = None,
     ) -> None:
         """注入任务仓储，方便后续扩展和测试。"""
 
         self.task_repository = task_repository
+        self.project_repository = project_repository
         self.budget_guard_service = budget_guard_service
         self.task_state_machine_service = task_state_machine_service
+        self.role_catalog_service = role_catalog_service
 
     def create_task(
         self,
         *,
+        project_id: UUID | None = None,
         title: str,
         input_summary: str,
         priority: TaskPriority = TaskPriority.NORMAL,
         acceptance_criteria: list[str] | None = None,
         depends_on_task_ids: list[UUID] | None = None,
         risk_level: TaskRiskLevel = TaskRiskLevel.NORMAL,
+        owner_role_code: ProjectRoleCode | None = None,
+        upstream_role_code: ProjectRoleCode | None = None,
+        downstream_role_code: ProjectRoleCode | None = None,
         human_status: TaskHumanStatus = TaskHumanStatus.NONE,
         paused_reason: str | None = None,
+        source_draft_id: str | None = None,
     ) -> Task:
         """创建一条新任务。
 
         Day 4 的规则保持极简：
 
+        - `project_id` 可选，用于把任务挂到某个项目下
         - `status` 统一由服务端默认成 `pending`
         - `created_at / updated_at` 统一由领域模型生成
         - 客户端不允许直接传入这些服务端字段
         """
+
+        if project_id is not None and not self.project_repository.exists(project_id):
+            raise ValueError(f"Project not found: {project_id}")
 
         dependency_ids = depends_on_task_ids or []
         existing_dependency_ids = self.task_repository.get_existing_ids(dependency_ids)
@@ -93,12 +109,31 @@ class TaskService:
             )
             raise ValueError(f"Task dependencies not found: {missing_ids_text}")
 
+        dependency_tasks = list(
+            self.task_repository.get_by_ids(dependency_ids).values()
+        )
+
+        resolved_role_assignment = None
+        if self.role_catalog_service is not None:
+            resolved_role_assignment = self.role_catalog_service.resolve_task_role_assignment(
+                project_id=project_id,
+                title=title,
+                input_summary=input_summary,
+                acceptance_criteria=acceptance_criteria or [],
+                source_draft_id=source_draft_id,
+                requested_owner_role_code=owner_role_code,
+                requested_upstream_role_code=upstream_role_code,
+                requested_downstream_role_code=downstream_role_code,
+                dependency_tasks=dependency_tasks,
+            )
+
         initial_status = self.task_state_machine_service.derive_initial_status(
             human_status=human_status,
             paused_reason=paused_reason,
         )
 
         task = Task(
+            project_id=project_id,
             title=title,
             status=initial_status,
             input_summary=input_summary,
@@ -106,8 +141,24 @@ class TaskService:
             acceptance_criteria=acceptance_criteria or [],
             depends_on_task_ids=dependency_ids,
             risk_level=risk_level,
+            owner_role_code=(
+                resolved_role_assignment.owner_role_code
+                if resolved_role_assignment is not None
+                else owner_role_code
+            ),
+            upstream_role_code=(
+                resolved_role_assignment.upstream_role_code
+                if resolved_role_assignment is not None
+                else upstream_role_code
+            ),
+            downstream_role_code=(
+                resolved_role_assignment.downstream_role_code
+                if resolved_role_assignment is not None
+                else downstream_role_code
+            ),
             human_status=human_status,
             paused_reason=paused_reason,
+            source_draft_id=source_draft_id,
         )
 
         return self.task_repository.create(task)

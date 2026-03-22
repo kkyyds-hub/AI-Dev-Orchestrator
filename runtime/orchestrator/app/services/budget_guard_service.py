@@ -53,6 +53,7 @@ class BudgetSnapshot:
     strategy_code: str
     strategy_label: str
     strategy_summary: str
+    preferred_model_tier: str
     budget_blocked_runs_daily: int
     budget_blocked_runs_session: int
 
@@ -64,6 +65,7 @@ class BudgetRoutingDirective:
     pressure_level: RunBudgetPressureLevel
     suggested_action: RunBudgetStrategyAction
     strategy_code: str
+    preferred_model_tier: str
     score_adjustment: float
     detail: str
 
@@ -167,6 +169,7 @@ class BudgetGuardService:
                 pressure_level=pressure_level,
                 suggested_action=budget_snapshot.suggested_action,
                 strategy_code=budget_snapshot.strategy_code,
+                preferred_model_tier=budget_snapshot.preferred_model_tier,
                 score_adjustment=0.0,
                 detail=(
                     "budget pressure is normal; no additional routing penalty applied."
@@ -185,6 +188,7 @@ class BudgetGuardService:
                 pressure_level=pressure_level,
                 suggested_action=budget_snapshot.suggested_action,
                 strategy_code=budget_snapshot.strategy_code,
+                preferred_model_tier=budget_snapshot.preferred_model_tier,
                 score_adjustment=total_adjustment,
                 detail=(
                     "budget warning active; "
@@ -207,6 +211,7 @@ class BudgetGuardService:
                 pressure_level=pressure_level,
                 suggested_action=budget_snapshot.suggested_action,
                 strategy_code=budget_snapshot.strategy_code,
+                preferred_model_tier=budget_snapshot.preferred_model_tier,
                 score_adjustment=total_adjustment,
                 detail=(
                     "budget critical mode; "
@@ -221,6 +226,7 @@ class BudgetGuardService:
             pressure_level=pressure_level,
             suggested_action=budget_snapshot.suggested_action,
             strategy_code=budget_snapshot.strategy_code,
+            preferred_model_tier=budget_snapshot.preferred_model_tier,
             score_adjustment=-500.0,
             detail=(
                 "budget blocked mode; hard routing penalty applied. "
@@ -295,6 +301,7 @@ class BudgetGuardService:
             strategy_code=strategy.code,
             strategy_label=strategy.label,
             strategy_summary=strategy.summary,
+            preferred_model_tier=_preferred_model_tier_by_pressure_level(pressure_level),
             budget_blocked_runs_daily=budget_blocked_runs_daily,
             budget_blocked_runs_session=budget_blocked_runs_session,
         )
@@ -402,3 +409,17 @@ def _strategy_by_pressure_level(pressure_level: RunBudgetPressureLevel) -> _Budg
             "预算健康：系统按常规路由与执行策略运行。"
         ),
     )
+
+
+def _preferred_model_tier_by_pressure_level(
+    pressure_level: RunBudgetPressureLevel,
+) -> str:
+    """Return the baseline model tier implied by the current budget pressure."""
+
+    if pressure_level in {
+        RunBudgetPressureLevel.CRITICAL,
+        RunBudgetPressureLevel.BLOCKED,
+    }:
+        return "economy"
+
+    return "balanced"

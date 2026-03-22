@@ -1,0 +1,1591 @@
+"""Project endpoints."""
+
+from __future__ import annotations
+
+from collections import Counter
+from datetime import datetime
+from typing import Annotated, Any
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.core.db import get_db_session
+from app.domain._base import utc_now
+from app.domain.approval import ApprovalDecisionAction
+from app.domain.project import (
+    Project,
+    ProjectMilestone,
+    ProjectMilestoneCode,
+    ProjectStage,
+    ProjectStageBlockingTask,
+    ProjectStageGuard,
+    ProjectStageHistoryEntry,
+    ProjectStageHistoryOutcome,
+    ProjectStatus,
+    ProjectTaskStats,
+)
+from app.domain.project_role import ProjectRoleCode
+from app.api.routes.repositories import (
+    RepositorySnapshotResponse,
+    RepositoryWorkspaceResponse,
+)
+from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
+from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.deliverable_repository import DeliverableRepository
+from app.repositories.failure_review_repository import FailureReviewRepository
+from app.repositories.project_role_repository import ProjectRoleRepository
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.run_repository import RunRepository
+from app.repositories.task_repository import TaskRepository
+from app.services.approval_service import (
+    ApprovalService,
+    ApprovalTimelineEntry,
+)
+from app.services.budget_guard_service import BudgetGuardService
+from app.services.context_builder_service import ContextBuilderService
+from app.services.decision_replay_service import (
+    DecisionReplayService,
+    ProjectDecisionTimelineEntry,
+)
+from app.services.deliverable_service import (
+    DeliverableService,
+    DeliverableTimelineEntry,
+)
+from app.services.failure_review_service import FailureReviewService
+from app.services.project_memory_service import (
+    ProjectMemoryCount,
+    ProjectMemoryItem,
+    ProjectMemoryKind,
+    ProjectMemorySearchHit,
+    ProjectMemorySearchResult,
+    ProjectMemoryService,
+)
+from app.services.project_service import (
+    ProjectDetail,
+    ProjectService,
+    ProjectTaskTreeItem,
+)
+from app.services.project_stage_service import (
+    ProjectStageAdvanceResult,
+    ProjectStageService,
+    ProjectStageTransitionError,
+)
+from app.services.role_catalog_service import RoleCatalogService
+from app.services.sop_engine_service import (
+    ProjectSopSelectionResult,
+    ProjectSopSnapshot,
+    ProjectSopStageTask,
+    ProjectSopOwnerRole,
+    SopEngineService,
+    SopTemplateSummary,
+    SopTemplateStagePreview,
+)
+from app.services.task_service import TaskService
+from app.services.task_readiness_service import TaskReadinessService
+from app.services.task_state_machine_service import TaskStateMachineService
+from app.services.run_logging_service import RunLoggingService
+
+
+class ProjectCreateRequest(BaseModel):
+    """DTO for project creation requests."""
+
+    name: str = Field(
+        min_length=1,
+        max_length=200,
+        description="Project name shown in the boss/project overview.",
+    )
+    summary: str = Field(
+        min_length=1,
+        max_length=2_000,
+        description="Minimal project summary describing scope and expected outcome.",
+    )
+    status: ProjectStatus = Field(
+        default=ProjectStatus.ACTIVE,
+        description="Overall project status. Defaults to `active`.",
+    )
+    stage: ProjectStage = Field(
+        default=ProjectStage.INTAKE,
+        description="Current lifecycle stage. Defaults to `intake`.",
+    )
+
+
+class ProjectTaskStatsResponse(BaseModel):
+    """Task aggregation attached to one project response."""
+
+    total_tasks: int
+    pending_tasks: int
+    running_tasks: int
+    paused_tasks: int
+    waiting_human_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    blocked_tasks: int
+    last_task_updated_at: datetime | None = None
+
+    @classmethod
+    def from_task_stats(
+        cls,
+        task_stats: ProjectTaskStats,
+    ) -> "ProjectTaskStatsResponse":
+        """Convert the domain task stats into an API DTO."""
+
+        return cls(
+            total_tasks=task_stats.total_tasks,
+            pending_tasks=task_stats.pending_tasks,
+            running_tasks=task_stats.running_tasks,
+            paused_tasks=task_stats.paused_tasks,
+            waiting_human_tasks=task_stats.waiting_human_tasks,
+            completed_tasks=task_stats.completed_tasks,
+            failed_tasks=task_stats.failed_tasks,
+            blocked_tasks=task_stats.blocked_tasks,
+            last_task_updated_at=task_stats.last_task_updated_at,
+        )
+
+
+class ProjectResponse(BaseModel):
+    """Basic project response DTO."""
+
+    id: UUID
+    name: str
+    summary: str
+    status: ProjectStatus
+    stage: ProjectStage
+    task_stats: ProjectTaskStatsResponse
+    repository_workspace: RepositoryWorkspaceResponse | None = None
+    latest_repository_snapshot: RepositorySnapshotResponse | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_project(cls, project: Project) -> "ProjectResponse":
+        """Convert the domain project into an API DTO."""
+
+        return cls(
+            id=project.id,
+            name=project.name,
+            summary=project.summary,
+            status=project.status,
+            stage=project.stage,
+            task_stats=ProjectTaskStatsResponse.from_task_stats(project.task_stats),
+            repository_workspace=(
+                RepositoryWorkspaceResponse.from_workspace(project.repository_workspace)
+                if project.repository_workspace is not None
+                else None
+            ),
+            latest_repository_snapshot=(
+                RepositorySnapshotResponse.from_snapshot(
+                    project.latest_repository_snapshot
+                )
+                if project.latest_repository_snapshot is not None
+                else None
+            ),
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+        )
+
+
+class ProjectSopTemplateStagePreviewResponse(BaseModel):
+    """One stage preview returned by the SOP template catalog."""
+
+    stage: ProjectStage
+    title: str
+    owner_role_codes: list[ProjectRoleCode]
+
+    @classmethod
+    def from_summary(
+        cls,
+        preview: SopTemplateStagePreview,
+    ) -> "ProjectSopTemplateStagePreviewResponse":
+        """Convert one stage preview into an API DTO."""
+
+        return cls(
+            stage=preview.stage,
+            title=preview.title,
+            owner_role_codes=list(preview.owner_role_codes),
+        )
+
+
+class ProjectSopTemplateSummaryResponse(BaseModel):
+    """One selectable Day06 SOP template returned by the API."""
+
+    code: str
+    name: str
+    summary: str
+    description: str
+    is_default: bool
+    stages: list[ProjectSopTemplateStagePreviewResponse]
+
+    @classmethod
+    def from_summary(
+        cls,
+        template: SopTemplateSummary,
+    ) -> "ProjectSopTemplateSummaryResponse":
+        """Convert one SOP template summary into an API DTO."""
+
+        return cls(
+            code=template.code,
+            name=template.name,
+            summary=template.summary,
+            description=template.description,
+            is_default=template.is_default,
+            stages=[
+                ProjectSopTemplateStagePreviewResponse.from_summary(stage)
+                for stage in template.stages
+            ],
+        )
+
+
+class ProjectSopOwnerRoleResponse(BaseModel):
+    """One resolved owner role shown inside the project SOP snapshot."""
+
+    role_code: ProjectRoleCode
+    name: str
+    summary: str
+    enabled: bool
+
+    @classmethod
+    def from_item(
+        cls,
+        role: ProjectSopOwnerRole,
+    ) -> "ProjectSopOwnerRoleResponse":
+        """Convert one owner-role item into an API DTO."""
+
+        return cls(
+            role_code=role.role_code,
+            name=role.name,
+            summary=role.summary,
+            enabled=role.enabled,
+        )
+
+
+class ProjectSopStageTaskResponse(BaseModel):
+    """One current-stage SOP task shown on the project detail page."""
+
+    task_id: UUID
+    task_code: str
+    title: str
+    status: TaskStatus
+    owner_role_codes: list[ProjectRoleCode]
+    owner_role_names: list[str]
+
+    @classmethod
+    def from_item(
+        cls,
+        item: ProjectSopStageTask,
+    ) -> "ProjectSopStageTaskResponse":
+        """Convert one SOP stage task into an API DTO."""
+
+        return cls(
+            task_id=item.task_id,
+            task_code=item.task_code,
+            title=item.title,
+            status=item.status,
+            owner_role_codes=list(item.owner_role_codes),
+            owner_role_names=list(item.owner_role_names),
+        )
+
+
+class ProjectSopSnapshotResponse(BaseModel):
+    """Current Day06 SOP snapshot attached to project detail."""
+
+    project_id: UUID
+    has_template: bool
+    available_template_count: int
+    selected_template_code: str | None = None
+    selected_template_name: str | None = None
+    selected_template_summary: str | None = None
+    current_stage: ProjectStage
+    current_stage_title: str | None = None
+    current_stage_summary: str | None = None
+    next_stage: ProjectStage | None = None
+    can_advance: bool | None = None
+    blocking_reasons: list[str]
+    required_inputs: list[str]
+    expected_outputs: list[str]
+    guard_conditions: list[str]
+    owner_roles: list[ProjectSopOwnerRoleResponse]
+    stage_tasks: list[ProjectSopStageTaskResponse]
+    current_stage_task_count: int
+    current_stage_completed_task_count: int
+    all_current_stage_tasks_completed: bool
+    context_summary: str
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: ProjectSopSnapshot,
+    ) -> "ProjectSopSnapshotResponse":
+        """Convert one SOP snapshot into an API DTO."""
+
+        return cls(
+            project_id=snapshot.project_id,
+            has_template=snapshot.has_template,
+            available_template_count=snapshot.available_template_count,
+            selected_template_code=snapshot.selected_template_code,
+            selected_template_name=snapshot.selected_template_name,
+            selected_template_summary=snapshot.selected_template_summary,
+            current_stage=snapshot.current_stage,
+            current_stage_title=snapshot.current_stage_title,
+            current_stage_summary=snapshot.current_stage_summary,
+            next_stage=snapshot.next_stage,
+            can_advance=snapshot.can_advance,
+            blocking_reasons=snapshot.blocking_reasons,
+            required_inputs=snapshot.required_inputs,
+            expected_outputs=snapshot.expected_outputs,
+            guard_conditions=snapshot.guard_conditions,
+            owner_roles=[
+                ProjectSopOwnerRoleResponse.from_item(role)
+                for role in snapshot.owner_roles
+            ],
+            stage_tasks=[
+                ProjectSopStageTaskResponse.from_item(task)
+                for task in snapshot.stage_tasks
+            ],
+            current_stage_task_count=snapshot.current_stage_task_count,
+            current_stage_completed_task_count=snapshot.current_stage_completed_task_count,
+            all_current_stage_tasks_completed=snapshot.all_current_stage_tasks_completed,
+            context_summary=snapshot.context_summary,
+        )
+
+
+class ProjectTaskTreeItemResponse(BaseModel):
+    """One task node returned by the Day03 project detail endpoint."""
+
+    id: UUID
+    project_id: UUID | None = None
+    title: str
+    status: TaskStatus
+    priority: TaskPriority
+    input_summary: str
+    acceptance_criteria: list[str]
+    depends_on_task_ids: list[UUID]
+    child_task_ids: list[UUID]
+    depth: int
+    risk_level: TaskRiskLevel
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
+    human_status: TaskHumanStatus
+    paused_reason: str | None = None
+    source_draft_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_service_item(
+        cls,
+        item: ProjectTaskTreeItem,
+    ) -> "ProjectTaskTreeItemResponse":
+        """Convert one project task-tree item into an API DTO."""
+
+        return cls(
+            id=item.task.id,
+            project_id=item.task.project_id,
+            title=item.task.title,
+            status=item.task.status,
+            priority=item.task.priority,
+            input_summary=item.task.input_summary,
+            acceptance_criteria=item.task.acceptance_criteria,
+            depends_on_task_ids=item.task.depends_on_task_ids,
+            child_task_ids=item.child_task_ids,
+            depth=item.depth,
+            risk_level=item.task.risk_level,
+            owner_role_code=item.task.owner_role_code,
+            upstream_role_code=item.task.upstream_role_code,
+            downstream_role_code=item.task.downstream_role_code,
+            human_status=item.task.human_status,
+            paused_reason=item.task.paused_reason,
+            source_draft_id=item.task.source_draft_id,
+            created_at=item.task.created_at,
+            updated_at=item.task.updated_at,
+        )
+
+
+class ProjectDetailResponse(ProjectResponse):
+    """Detailed project payload enriched with task-tree data."""
+
+    tasks: list[ProjectTaskTreeItemResponse]
+    stage_guard: "ProjectStageGuardResponse | None" = None
+    stage_timeline: list["ProjectStageTimelineEntryResponse"] = Field(default_factory=list)
+    sop_snapshot: ProjectSopSnapshotResponse | None = None
+
+    @classmethod
+    def from_detail(cls, detail: ProjectDetail) -> "ProjectDetailResponse":
+        """Convert the Day03 project aggregate into an API DTO."""
+
+        return cls(
+            id=detail.project.id,
+            name=detail.project.name,
+            summary=detail.project.summary,
+            status=detail.project.status,
+            stage=detail.project.stage,
+            task_stats=ProjectTaskStatsResponse.from_task_stats(detail.project.task_stats),
+            repository_workspace=(
+                RepositoryWorkspaceResponse.from_workspace(
+                    detail.project.repository_workspace
+                )
+                if detail.project.repository_workspace is not None
+                else None
+            ),
+            latest_repository_snapshot=(
+                RepositorySnapshotResponse.from_snapshot(
+                    detail.project.latest_repository_snapshot
+                )
+                if detail.project.latest_repository_snapshot is not None
+                else None
+            ),
+            created_at=detail.project.created_at,
+            updated_at=detail.project.updated_at,
+            tasks=[
+                ProjectTaskTreeItemResponse.from_service_item(item)
+                for item in detail.task_tree
+            ],
+            stage_guard=(
+                ProjectStageGuardResponse.from_guard(detail.stage_guard)
+                if detail.stage_guard is not None
+                else None
+            ),
+            stage_timeline=[
+                ProjectStageTimelineEntryResponse.from_entry(entry)
+                for entry in (detail.stage_timeline or [])
+            ],
+            sop_snapshot=(
+                ProjectSopSnapshotResponse.from_snapshot(detail.sop_snapshot)
+                if detail.sop_snapshot is not None
+                else None
+            ),
+        )
+
+
+class ProjectMemoryCountResponse(BaseModel):
+    """One memory-category counter shown in the Day14 panel header."""
+
+    memory_type: ProjectMemoryKind
+    count: int
+
+    @classmethod
+    def from_count(cls, item: ProjectMemoryCount) -> "ProjectMemoryCountResponse":
+        return cls(
+            memory_type=item.memory_type,
+            count=item.count,
+        )
+
+
+class ProjectMemoryItemResponse(BaseModel):
+    """One project-memory record exposed to the Day14 UI."""
+
+    memory_id: str
+    memory_type: ProjectMemoryKind
+    title: str
+    summary: str
+    detail: str | None = None
+    stage: ProjectStage | None = None
+    role_code: ProjectRoleCode | None = None
+    actor_name: str | None = None
+    source_kind: str
+    source_label: str
+    task_id: UUID | None = None
+    run_id: UUID | None = None
+    approval_id: UUID | None = None
+    deliverable_id: UUID | None = None
+    deliverable_version_id: UUID | None = None
+    tags: list[str]
+    created_at: datetime
+
+    @classmethod
+    def from_item(cls, item: ProjectMemoryItem) -> "ProjectMemoryItemResponse":
+        return cls(
+            memory_id=item.memory_id,
+            memory_type=item.memory_type,
+            title=item.title,
+            summary=item.summary,
+            detail=item.detail,
+            stage=item.stage,
+            role_code=item.role_code,
+            actor_name=item.actor_name,
+            source_kind=item.source_kind.value,
+            source_label=item.source_label,
+            task_id=item.task_id,
+            run_id=item.run_id,
+            approval_id=item.approval_id,
+            deliverable_id=item.deliverable_id,
+            deliverable_version_id=item.deliverable_version_id,
+            tags=item.tags,
+            created_at=item.created_at,
+        )
+
+
+class ProjectMemorySnapshotResponse(BaseModel):
+    """Latest persisted Day14 project-memory snapshot."""
+
+    project_id: UUID
+    project_name: str
+    generated_at: datetime
+    total_memories: int
+    counts: list[ProjectMemoryCountResponse]
+    latest_items: list[ProjectMemoryItemResponse]
+
+
+class ProjectMemorySearchHitResponse(BaseModel):
+    """One lexical project-memory search hit."""
+
+    score: float
+    matched_terms: list[str]
+    item: ProjectMemoryItemResponse
+
+    @classmethod
+    def from_hit(cls, hit: ProjectMemorySearchHit) -> "ProjectMemorySearchHitResponse":
+        return cls(
+            score=hit.score,
+            matched_terms=hit.matched_terms,
+            item=ProjectMemoryItemResponse.from_item(hit.item),
+        )
+
+
+class ProjectMemorySearchResponse(BaseModel):
+    """Day14 memory-search payload returned to the frontend."""
+
+    project_id: UUID
+    query: str
+    total_matches: int
+    hits: list[ProjectMemorySearchHitResponse]
+
+    @classmethod
+    def from_result(
+        cls,
+        result: ProjectMemorySearchResult,
+    ) -> "ProjectMemorySearchResponse":
+        return cls(
+            project_id=result.project_id,
+            query=result.query,
+            total_matches=result.total_matches,
+            hits=[ProjectMemorySearchHitResponse.from_hit(hit) for hit in result.hits],
+        )
+
+
+class ProjectMemoryContextResponse(BaseModel):
+    """Preview of task-scoped memory recall built via the context builder."""
+
+    project_id: UUID
+    task_id: UUID
+    task_title: str
+    query_text: str
+    memory_count: int
+    context_summary: str
+    items: list[ProjectMemoryItemResponse]
+
+
+class ProjectStageBlockingTaskResponse(BaseModel):
+    """One task currently blocking project stage advancement."""
+
+    task_id: UUID
+    title: str
+    status: TaskStatus
+    blocking_reasons: list[str]
+
+    @classmethod
+    def from_item(
+        cls,
+        item: ProjectStageBlockingTask,
+    ) -> "ProjectStageBlockingTaskResponse":
+        """Convert one blocking-task domain object into an API DTO."""
+
+        return cls(
+            task_id=item.task_id,
+            title=item.title,
+            status=item.status,
+            blocking_reasons=item.blocking_reasons,
+        )
+
+
+class ProjectMilestoneResponse(BaseModel):
+    """One milestone shown by the Day04 project detail panel."""
+
+    code: ProjectMilestoneCode
+    title: str
+    satisfied: bool
+    summary: str
+    blocking_reasons: list[str]
+    related_task_ids: list[UUID]
+
+    @classmethod
+    def from_milestone(cls, milestone: ProjectMilestone) -> "ProjectMilestoneResponse":
+        """Convert one milestone domain object into an API DTO."""
+
+        return cls(
+            code=milestone.code,
+            title=milestone.title,
+            satisfied=milestone.satisfied,
+            summary=milestone.summary,
+            blocking_reasons=milestone.blocking_reasons,
+            related_task_ids=milestone.related_task_ids,
+        )
+
+
+class ProjectStageGuardResponse(BaseModel):
+    """Current stage-guard evaluation attached to project detail."""
+
+    current_stage: ProjectStage
+    target_stage: ProjectStage | None = None
+    can_advance: bool
+    milestones: list[ProjectMilestoneResponse]
+    blocking_reasons: list[str]
+    blocking_tasks: list[ProjectStageBlockingTaskResponse]
+    total_tasks: int
+    ready_task_count: int
+    completed_task_count: int
+    current_stage_task_count: int
+    current_stage_completed_task_count: int
+
+    @classmethod
+    def from_guard(cls, guard: ProjectStageGuard) -> "ProjectStageGuardResponse":
+        """Convert one stage-guard domain object into an API DTO."""
+
+        return cls(
+            current_stage=guard.current_stage,
+            target_stage=guard.target_stage,
+            can_advance=guard.can_advance,
+            milestones=[
+                ProjectMilestoneResponse.from_milestone(item)
+                for item in guard.milestones
+            ],
+            blocking_reasons=guard.blocking_reasons,
+            blocking_tasks=[
+                ProjectStageBlockingTaskResponse.from_item(item)
+                for item in guard.blocking_tasks
+            ],
+            total_tasks=guard.total_tasks,
+            ready_task_count=guard.ready_task_count,
+            completed_task_count=guard.completed_task_count,
+            current_stage_task_count=guard.current_stage_task_count,
+            current_stage_completed_task_count=guard.current_stage_completed_task_count,
+        )
+
+
+class ProjectStageTimelineEntryResponse(BaseModel):
+    """One auditable project stage action displayed in the Day04 timeline."""
+
+    id: UUID
+    from_stage: ProjectStage | None = None
+    to_stage: ProjectStage
+    outcome: ProjectStageHistoryOutcome
+    note: str | None = None
+    reasons: list[str]
+    created_at: datetime
+
+    @classmethod
+    def from_entry(
+        cls,
+        entry: ProjectStageHistoryEntry,
+    ) -> "ProjectStageTimelineEntryResponse":
+        """Convert one stage-history entry into an API DTO."""
+
+        return cls(
+            id=entry.id,
+            from_stage=entry.from_stage,
+            to_stage=entry.to_stage,
+            outcome=entry.outcome,
+            note=entry.note,
+            reasons=entry.reasons,
+            created_at=entry.created_at,
+        )
+
+
+class ProjectStageAdvanceRequest(BaseModel):
+    """Body accepted by the Day04 stage-advance endpoint."""
+
+    note: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional operator note appended to the stage audit trail.",
+    )
+
+
+class ProjectStageAdvanceResponse(BaseModel):
+    """Result returned after one explicit stage-advance attempt."""
+
+    project_id: UUID
+    previous_stage: ProjectStage
+    attempted_stage: ProjectStage
+    current_stage: ProjectStage
+    advanced: bool
+    message: str
+    stage_guard: ProjectStageGuardResponse
+    timeline_entry: ProjectStageTimelineEntryResponse
+
+    @classmethod
+    def from_result(
+        cls,
+        result: ProjectStageAdvanceResult,
+    ) -> "ProjectStageAdvanceResponse":
+        """Convert one stage-advance result into an API DTO."""
+
+        return cls(
+            project_id=result.project.id,
+            previous_stage=result.previous_stage,
+            attempted_stage=result.attempted_stage,
+            current_stage=result.project.stage,
+            advanced=result.advanced,
+            message=result.message,
+            stage_guard=ProjectStageGuardResponse.from_guard(result.stage_guard),
+            timeline_entry=ProjectStageTimelineEntryResponse.from_entry(
+                result.timeline_entry
+            ),
+        )
+
+
+class ProjectSopTemplateSelectRequest(BaseModel):
+    """Body accepted by the Day06 SOP template selection endpoint."""
+
+    template_code: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Stable built-in SOP template code to bind to the project.",
+    )
+
+
+class ProjectSopGeneratedTaskResponse(BaseModel):
+    """One SOP-generated task returned after template selection."""
+
+    id: UUID
+    title: str
+    status: TaskStatus
+    source_draft_id: str | None = None
+
+    @classmethod
+    def from_task(
+        cls,
+        task,
+    ) -> "ProjectSopGeneratedTaskResponse":
+        """Convert one created task into an API DTO."""
+
+        return cls(
+            id=task.id,
+            title=task.title,
+            status=task.status,
+            source_draft_id=task.source_draft_id,
+        )
+
+
+class ProjectSopTemplateSelectResponse(BaseModel):
+    """Result returned after binding a project to one SOP template."""
+
+    project_id: UUID
+    template_code: str
+    template_name: str
+    created_task_count: int
+    message: str
+    created_tasks: list[ProjectSopGeneratedTaskResponse]
+    sop_snapshot: ProjectSopSnapshotResponse
+
+    @classmethod
+    def from_result(
+        cls,
+        result: ProjectSopSelectionResult,
+    ) -> "ProjectSopTemplateSelectResponse":
+        """Convert one SOP selection result into an API DTO."""
+
+        return cls(
+            project_id=result.project.id,
+            template_code=result.template.code,
+            template_name=result.template.name,
+            created_task_count=len(result.created_tasks),
+            message=result.message,
+            created_tasks=[
+                ProjectSopGeneratedTaskResponse.from_task(task)
+                for task in result.created_tasks
+            ],
+            sop_snapshot=ProjectSopSnapshotResponse.from_snapshot(result.snapshot),
+        )
+
+
+PROJECT_TIMELINE_EVENT_TYPE_ORDER = [
+    "stage",
+    "deliverable",
+    "approval",
+    "role_handoff",
+    "decision",
+]
+
+PROJECT_TIMELINE_EVENT_TYPE_LABELS = {
+    "stage": "阶段推进",
+    "deliverable": "交付件提交",
+    "approval": "审批动作",
+    "role_handoff": "角色交接",
+    "decision": "运行决策",
+}
+
+
+class ProjectTimelineEventTypeCountResponse(BaseModel):
+    """One filter bucket shown on top of the Day11 project timeline."""
+
+    event_type: str
+    label: str
+    count: int
+
+
+class ProjectTimelineEventResponse(BaseModel):
+    """One normalized event node returned by the Day11 project timeline API."""
+
+    id: str
+    event_type: str
+    label: str
+    tone: str
+    title: str
+    summary: str
+    occurred_at: datetime
+    stage: ProjectStage | None = None
+    task_id: UUID | None = None
+    task_title: str | None = None
+    run_id: UUID | None = None
+    deliverable_id: UUID | None = None
+    deliverable_title: str | None = None
+    deliverable_version_id: UUID | None = None
+    deliverable_version_number: int | None = None
+    approval_id: UUID | None = None
+    approval_status: str | None = None
+    source_event: str | None = None
+    actor: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProjectTimelineResponse(BaseModel):
+    """Project-level cross-domain timeline returned by the Day11 endpoint."""
+
+    project_id: UUID
+    generated_at: datetime
+    total_events: int
+    event_type_counts: list[ProjectTimelineEventTypeCountResponse]
+    events: list[ProjectTimelineEventResponse]
+
+
+def _build_project_stack(session: Session) -> tuple[ProjectService, ProjectStageService, SopEngineService]:
+    """Create the shared Day06 service stack used by project endpoints."""
+
+    project_repository = ProjectRepository(session)
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
+    project_role_repository = ProjectRoleRepository(session)
+    project_memory_service = ProjectMemoryService(
+        project_repository=project_repository,
+        task_repository=task_repository,
+        run_repository=run_repository,
+        deliverable_repository=DeliverableRepository(session),
+        approval_repository=ApprovalRepository(session),
+        failure_review_service=FailureReviewService(
+            failure_review_repository=FailureReviewRepository(),
+            run_logging_service=RunLoggingService(),
+        ),
+    )
+    task_state_machine_service = TaskStateMachineService()
+    task_readiness_service = TaskReadinessService(
+        task_repository=task_repository,
+        run_repository=run_repository,
+    )
+    context_builder_service = ContextBuilderService(
+        run_repository=run_repository,
+        task_readiness_service=task_readiness_service,
+        project_memory_service=project_memory_service,
+    )
+    role_catalog_service = RoleCatalogService(
+        project_repository=project_repository,
+        project_role_repository=project_role_repository,
+    )
+    approval_service = ApprovalService(
+        approval_repository=ApprovalRepository(session),
+        deliverable_repository=DeliverableRepository(session),
+        project_repository=project_repository,
+    )
+    task_service = TaskService(
+        task_repository=task_repository,
+        project_repository=project_repository,
+        budget_guard_service=BudgetGuardService(run_repository=run_repository),
+        task_state_machine_service=task_state_machine_service,
+        role_catalog_service=role_catalog_service,
+    )
+    sop_engine_service = SopEngineService(
+        project_repository=project_repository,
+        task_repository=task_repository,
+        task_service=task_service,
+        role_catalog_service=role_catalog_service,
+        context_builder_service=context_builder_service,
+        task_state_machine_service=task_state_machine_service,
+    )
+    project_stage_service = ProjectStageService(
+        project_repository=project_repository,
+        task_repository=task_repository,
+        task_readiness_service=task_readiness_service,
+        task_state_machine_service=task_state_machine_service,
+        sop_engine_service=sop_engine_service,
+        approval_service=approval_service,
+    )
+    project_service = ProjectService(
+        project_repository=project_repository,
+        task_repository=task_repository,
+        project_stage_service=project_stage_service,
+        sop_engine_service=sop_engine_service,
+    )
+    return project_service, project_stage_service, sop_engine_service
+
+
+def _build_project_memory_stack(
+    session: Session,
+) -> tuple[TaskRepository, ContextBuilderService, ProjectMemoryService]:
+    """Create the Day14 project-memory dependencies."""
+
+    project_repository = ProjectRepository(session)
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
+    project_memory_service = ProjectMemoryService(
+        project_repository=project_repository,
+        task_repository=task_repository,
+        run_repository=run_repository,
+        deliverable_repository=DeliverableRepository(session),
+        approval_repository=ApprovalRepository(session),
+        failure_review_service=FailureReviewService(
+            failure_review_repository=FailureReviewRepository(),
+            run_logging_service=RunLoggingService(),
+        ),
+    )
+    context_builder_service = ContextBuilderService(
+        run_repository=run_repository,
+        task_readiness_service=TaskReadinessService(
+            task_repository=task_repository,
+            run_repository=run_repository,
+        ),
+        project_memory_service=project_memory_service,
+    )
+    return task_repository, context_builder_service, project_memory_service
+
+
+def _build_project_timeline_stack(
+    session: Session,
+) -> tuple[
+    ProjectRepository,
+    TaskRepository,
+    RunRepository,
+    DeliverableService,
+    ApprovalService,
+    DecisionReplayService,
+]:
+    """Create the Day11 project-timeline stack."""
+
+    project_repository = ProjectRepository(session)
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
+    deliverable_repository = DeliverableRepository(session)
+    approval_repository = ApprovalRepository(session)
+
+    deliverable_service = DeliverableService(
+        deliverable_repository=deliverable_repository,
+        project_repository=project_repository,
+        task_repository=task_repository,
+        run_repository=run_repository,
+    )
+    approval_service = ApprovalService(
+        approval_repository=approval_repository,
+        deliverable_repository=deliverable_repository,
+        project_repository=project_repository,
+    )
+    run_logging_service = RunLoggingService()
+    decision_replay_service = DecisionReplayService(
+        run_logging_service=run_logging_service,
+        failure_review_service=FailureReviewService(
+            failure_review_repository=FailureReviewRepository(),
+            run_logging_service=run_logging_service,
+        ),
+    )
+
+    return (
+        project_repository,
+        task_repository,
+        run_repository,
+        deliverable_service,
+        approval_service,
+        decision_replay_service,
+    )
+
+
+def _build_project_timeline_type_counts(
+    events: list[ProjectTimelineEventResponse],
+) -> list[ProjectTimelineEventTypeCountResponse]:
+    """Build stable filter buckets for the Day11 timeline UI."""
+
+    counter = Counter(event.event_type for event in events)
+    return [
+        ProjectTimelineEventTypeCountResponse(
+            event_type=event_type,
+            label=PROJECT_TIMELINE_EVENT_TYPE_LABELS[event_type],
+            count=counter.get(event_type, 0),
+        )
+        for event_type in PROJECT_TIMELINE_EVENT_TYPE_ORDER
+    ]
+
+
+def _build_stage_timeline_events(
+    project,
+) -> list[ProjectTimelineEventResponse]:
+    """Convert project stage-history entries into timeline events."""
+
+    events: list[ProjectTimelineEventResponse] = []
+    for entry in project.stage_history:
+        if entry.outcome == ProjectStageHistoryOutcome.APPLIED:
+            title = (
+                f"项目进入 {entry.to_stage.value} 阶段"
+                if entry.from_stage is not None
+                else f"项目以 {entry.to_stage.value} 阶段创建"
+            )
+            summary = entry.note or "记录了一次阶段推进。"
+            tone = "success"
+        else:
+            title = f"阶段推进受阻：{entry.to_stage.value}"
+            summary = entry.note or "当前阶段仍存在阻塞项，暂时无法推进。"
+            tone = "warning"
+
+        events.append(
+            ProjectTimelineEventResponse(
+                id=f"stage:{entry.id}",
+                event_type="stage",
+                label=PROJECT_TIMELINE_EVENT_TYPE_LABELS["stage"],
+                tone=tone,
+                title=title,
+                summary=summary,
+                occurred_at=entry.created_at,
+                stage=entry.to_stage,
+                metadata={
+                    "from_stage": entry.from_stage.value if entry.from_stage is not None else None,
+                    "to_stage": entry.to_stage.value,
+                    "outcome": entry.outcome.value,
+                    "reasons": list(entry.reasons),
+                },
+            )
+        )
+
+    return events
+
+
+def _build_deliverable_timeline_events(
+    entries: list[DeliverableTimelineEntry],
+    *,
+    task_title_map: dict[UUID, str],
+) -> list[ProjectTimelineEventResponse]:
+    """Convert deliverable-version submissions into timeline events."""
+
+    return [
+        ProjectTimelineEventResponse(
+            id=f"deliverable:{entry.version.id}",
+            event_type="deliverable",
+            label=PROJECT_TIMELINE_EVENT_TYPE_LABELS["deliverable"],
+            tone="info",
+            title=(
+                f"提交交付件《{entry.deliverable.title}》"
+                f" v{entry.version.version_number}"
+            ),
+            summary=entry.version.summary,
+            occurred_at=entry.version.created_at,
+            stage=entry.deliverable.stage,
+            task_id=entry.version.source_task_id,
+            task_title=(
+                task_title_map.get(entry.version.source_task_id)
+                if entry.version.source_task_id is not None
+                else None
+            ),
+            run_id=entry.version.source_run_id,
+            deliverable_id=entry.deliverable.id,
+            deliverable_title=entry.deliverable.title,
+            deliverable_version_id=entry.version.id,
+            deliverable_version_number=entry.version.version_number,
+            actor=entry.version.author_role_code.value,
+            metadata={
+                "deliverable_type": entry.deliverable.type.value,
+                "content_format": entry.version.content_format.value,
+                "author_role_code": entry.version.author_role_code.value,
+            },
+        )
+        for entry in entries
+    ]
+
+
+def _build_approval_timeline_events(
+    entries: list[ApprovalTimelineEntry],
+) -> list[ProjectTimelineEventResponse]:
+    """Convert approval requests / decisions into timeline events."""
+
+    events: list[ProjectTimelineEventResponse] = []
+    for entry in entries:
+        if entry.event_kind == "request":
+            title = (
+                f"发起审批《{entry.approval.deliverable_title}》"
+                f" v{entry.approval.deliverable_version_number}"
+            )
+            summary = entry.approval.request_note or "等待老板审批结论。"
+            tone = "danger" if entry.overdue else "warning"
+            metadata: dict[str, Any] = {
+                "event_kind": entry.event_kind,
+                "requester_role_code": entry.approval.requester_role_code.value,
+                "due_at": entry.approval.due_at.isoformat(),
+                "overdue": entry.overdue,
+            }
+            actor = entry.approval.requester_role_code.value
+            source_event = "approval_request"
+        else:
+            assert entry.decision is not None
+            title = (
+                f"审批结论：{entry.approval.deliverable_title}"
+                f" v{entry.approval.deliverable_version_number}"
+            )
+            summary = entry.decision.summary
+            if entry.decision.action == ApprovalDecisionAction.APPROVE:
+                tone = "success"
+            elif entry.decision.action == ApprovalDecisionAction.REJECT:
+                tone = "danger"
+            else:
+                tone = "warning"
+            metadata = {
+                "event_kind": entry.event_kind,
+                "action": entry.decision.action.value,
+                "comment": entry.decision.comment,
+                "highlighted_risks": list(entry.decision.highlighted_risks),
+                "requested_changes": list(entry.decision.requested_changes),
+            }
+            actor = entry.decision.actor_name
+            source_event = "approval_decision"
+
+        events.append(
+            ProjectTimelineEventResponse(
+                id=(
+                    f"approval-request:{entry.approval.id}"
+                    if entry.event_kind == "request"
+                    else f"approval-decision:{entry.decision.id}"
+                ),
+                event_type="approval",
+                label=PROJECT_TIMELINE_EVENT_TYPE_LABELS["approval"],
+                tone=tone,
+                title=title,
+                summary=summary,
+                occurred_at=entry.occurred_at,
+                stage=entry.approval.deliverable_stage,
+                deliverable_id=entry.approval.deliverable_id,
+                deliverable_title=entry.approval.deliverable_title,
+                deliverable_version_id=entry.approval.deliverable_version_id,
+                deliverable_version_number=entry.approval.deliverable_version_number,
+                approval_id=entry.approval.id,
+                approval_status=entry.approval.status.value,
+                source_event=source_event,
+                actor=actor,
+                metadata=metadata,
+            )
+        )
+
+    return events
+
+
+def _build_decision_timeline_events(
+    entries: list[ProjectDecisionTimelineEntry],
+) -> list[ProjectTimelineEventResponse]:
+    """Convert run-log replay events into Day11 timeline events."""
+
+    events: list[ProjectTimelineEventResponse] = []
+    for entry in entries:
+        if entry.timeline_type == "role_handoff":
+            title = "角色交接"
+            tone = "info"
+        else:
+            title = entry.trace_item.title
+            tone = _map_timeline_level_to_tone(entry.trace_item.level)
+
+        metadata = dict(entry.trace_item.data)
+        metadata["run_status"] = entry.run_status.value
+        events.append(
+            ProjectTimelineEventResponse(
+                id=(
+                    f"run:{entry.run_id}:{entry.trace_item.event}:"
+                    f"{entry.occurred_at.isoformat()}"
+                ),
+                event_type=entry.timeline_type,
+                label=PROJECT_TIMELINE_EVENT_TYPE_LABELS[entry.timeline_type],
+                tone=tone,
+                title=title,
+                summary=entry.trace_item.summary,
+                occurred_at=entry.occurred_at,
+                task_id=entry.task_id,
+                task_title=entry.task_title,
+                run_id=entry.run_id,
+                source_event=entry.trace_item.event,
+                actor=None,
+                metadata=metadata,
+            )
+        )
+
+    return events
+
+
+def _map_timeline_level_to_tone(level: str) -> str:
+    """Map structured log levels into UI badge tones."""
+
+    normalized_level = level.lower().strip()
+    if normalized_level in {"error", "critical"}:
+        return "danger"
+    if normalized_level in {"warning", "warn"}:
+        return "warning"
+    if normalized_level == "success":
+        return "success"
+    return "info"
+
+
+def get_project_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectService:
+    """Create the project service dependency."""
+
+    return _build_project_stack(session)[0]
+
+
+def get_project_stage_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectStageService:
+    """Create the Day04/Day06 project-stage guard dependency."""
+
+    return _build_project_stack(session)[1]
+
+
+def get_sop_engine_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> SopEngineService:
+    """Create the Day06 SOP engine dependency."""
+
+    return _build_project_stack(session)[2]
+
+
+def get_project_memory_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectMemoryService:
+    """Create the Day14 project-memory dependency."""
+
+    return _build_project_memory_stack(session)[2]
+
+
+router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+@router.post(
+    "",
+    response_model=ProjectResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create project",
+)
+def create_project(
+    request: ProjectCreateRequest,
+    project_service: Annotated[ProjectService, Depends(get_project_service)],
+) -> ProjectResponse:
+    """Create one project."""
+
+    try:
+        project = project_service.create_project(
+            name=request.name,
+            summary=request.summary,
+            status=request.status,
+            stage=request.stage,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return ProjectResponse.from_project(project)
+
+
+@router.get(
+    "",
+    response_model=list[ProjectResponse],
+    summary="List projects",
+)
+def list_projects(
+    project_service: Annotated[ProjectService, Depends(get_project_service)],
+) -> list[ProjectResponse]:
+    """Return all projects."""
+
+    projects = project_service.list_projects()
+    return [ProjectResponse.from_project(project) for project in projects]
+
+
+@router.get(
+    "/sop-templates",
+    response_model=list[ProjectSopTemplateSummaryResponse],
+    summary="List available SOP templates",
+)
+def list_sop_templates(
+    sop_engine_service: Annotated[SopEngineService, Depends(get_sop_engine_service)],
+) -> list[ProjectSopTemplateSummaryResponse]:
+    """Return the Day06 built-in SOP template catalog."""
+
+    return [
+        ProjectSopTemplateSummaryResponse.from_summary(template)
+        for template in sop_engine_service.list_template_summaries()
+    ]
+
+
+@router.put(
+    "/{project_id}/sop-template",
+    response_model=ProjectSopTemplateSelectResponse,
+    summary="Bind one project to a SOP template",
+)
+def select_project_sop_template(
+    project_id: UUID,
+    request: ProjectSopTemplateSelectRequest,
+    sop_engine_service: Annotated[SopEngineService, Depends(get_sop_engine_service)],
+) -> ProjectSopTemplateSelectResponse:
+    """Bind one project to a Day06 SOP template and sync current-stage tasks."""
+
+    try:
+        result = sop_engine_service.select_project_template(
+            project_id=project_id,
+            template_code=request.template_code,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return ProjectSopTemplateSelectResponse.from_result(result)
+
+
+@router.get(
+    "/{project_id}",
+    response_model=ProjectDetailResponse,
+    summary="Get project detail",
+)
+def get_project(
+    project_id: UUID,
+    project_service: Annotated[ProjectService, Depends(get_project_service)],
+) -> ProjectDetailResponse:
+    """Return one project by ID."""
+
+    detail = project_service.get_project_detail(project_id)
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return ProjectDetailResponse.from_detail(detail)
+
+
+@router.get(
+    "/{project_id}/memory",
+    response_model=ProjectMemorySnapshotResponse,
+    summary="Get the Day14 project-memory snapshot",
+)
+def get_project_memory_snapshot(
+    project_id: UUID,
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+    limit: int = 8,
+) -> ProjectMemorySnapshotResponse:
+    """Return the latest Day14 project-memory snapshot for one project."""
+
+    snapshot = project_memory_service.get_project_memory_snapshot(project_id=project_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return ProjectMemorySnapshotResponse(
+        project_id=snapshot.project_id,
+        project_name=snapshot.project_name,
+        generated_at=snapshot.generated_at,
+        total_memories=snapshot.total_memories,
+        counts=[ProjectMemoryCountResponse.from_count(item) for item in snapshot.counts],
+        latest_items=[
+            ProjectMemoryItemResponse.from_item(item)
+            for item in snapshot.items[: max(limit, 0)]
+        ],
+    )
+
+
+@router.get(
+    "/{project_id}/memory/search",
+    response_model=ProjectMemorySearchResponse,
+    summary="Search Day14 project memories",
+)
+def search_project_memory(
+    project_id: UUID,
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+    q: str = "",
+    limit: int = 10,
+    memory_type: ProjectMemoryKind | None = None,
+) -> ProjectMemorySearchResponse:
+    """Run a minimal lexical search across one project's Day14 memories."""
+
+    result = project_memory_service.search_project_memories(
+        project_id=project_id,
+        query=q,
+        limit=limit,
+        memory_type=memory_type,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return ProjectMemorySearchResponse.from_result(result)
+
+
+@router.get(
+    "/{project_id}/memory/context",
+    response_model=ProjectMemoryContextResponse,
+    summary="Preview task-scoped memory recall for one project task",
+)
+def get_project_memory_context(
+    project_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    task_id: UUID,
+    limit: int = 3,
+) -> ProjectMemoryContextResponse:
+    """Return the task-scoped Day14 memory recall used by context building."""
+
+    task_repository, context_builder_service, _ = _build_project_memory_stack(session)
+    task = task_repository.get_by_id(task_id)
+    if task is None or task.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task not found in project: {task_id}",
+        )
+
+    memory_context = context_builder_service.build_task_memory_context(
+        task=task,
+        limit=limit,
+    )
+    if memory_context is None:
+        return ProjectMemoryContextResponse(
+            project_id=project_id,
+            task_id=task.id,
+            task_title=task.title,
+            query_text="",
+            memory_count=0,
+            context_summary="Project memory recall is unavailable for the current task.",
+            items=[],
+        )
+
+    return ProjectMemoryContextResponse(
+        project_id=memory_context.project_id,
+        task_id=memory_context.task_id,
+        task_title=memory_context.task_title,
+        query_text=memory_context.query_text,
+        memory_count=len(memory_context.items),
+        context_summary=memory_context.context_summary,
+        items=[ProjectMemoryItemResponse.from_item(item) for item in memory_context.items],
+    )
+
+
+@router.get(
+    "/{project_id}/timeline",
+    response_model=ProjectTimelineResponse,
+    summary="Get project timeline",
+)
+def get_project_timeline(
+    project_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectTimelineResponse:
+    """Return the Day11 project-level timeline across stages, deliverables and runs."""
+
+    (
+        project_repository,
+        task_repository,
+        run_repository,
+        deliverable_service,
+        approval_service,
+        decision_replay_service,
+    ) = _build_project_timeline_stack(session)
+
+    project = project_repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    tasks = task_repository.list_by_project_id(project_id)
+    task_title_map = {task.id: task.title for task in tasks}
+    runs = run_repository.list_by_task_ids(list(task_title_map))
+
+    events: list[ProjectTimelineEventResponse] = []
+    events.extend(_build_stage_timeline_events(project))
+
+    deliverable_entries = deliverable_service.list_project_timeline_entries(project_id) or []
+    events.extend(
+        _build_deliverable_timeline_events(
+            deliverable_entries,
+            task_title_map=task_title_map,
+        )
+    )
+
+    approval_entries = approval_service.list_project_timeline_entries(project_id) or []
+    events.extend(_build_approval_timeline_events(approval_entries))
+
+    decision_entries = decision_replay_service.build_project_timeline_entries(
+        runs=runs,
+        task_titles=task_title_map,
+    )
+    events.extend(_build_decision_timeline_events(decision_entries))
+
+    events.sort(key=lambda item: (item.occurred_at, item.id), reverse=True)
+    return ProjectTimelineResponse(
+        project_id=project_id,
+        generated_at=utc_now(),
+        total_events=len(events),
+        event_type_counts=_build_project_timeline_type_counts(events),
+        events=events,
+    )
+
+
+@router.post(
+    "/{project_id}/advance-stage",
+    response_model=ProjectStageAdvanceResponse,
+    summary="Attempt to advance one project into the next stage",
+)
+def advance_project_stage(
+    project_id: UUID,
+    request: ProjectStageAdvanceRequest,
+    project_stage_service: Annotated[
+        ProjectStageService, Depends(get_project_stage_service)
+    ],
+) -> ProjectStageAdvanceResponse:
+    """Attempt one Day04 project stage promotion and record the audit entry."""
+
+    try:
+        result = project_stage_service.advance_project_stage(
+            project_id=project_id,
+            note=request.note,
+        )
+    except ProjectStageTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return ProjectStageAdvanceResponse.from_result(result)
+
+
+ProjectDetailResponse.model_rebuild()

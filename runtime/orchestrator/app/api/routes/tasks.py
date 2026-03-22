@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.project_role import ProjectRoleCode
 from app.domain.run import (
     Run,
     RunBudgetPressureLevel,
@@ -24,6 +25,8 @@ from app.domain.task import (
     TaskRiskLevel,
     TaskStatus,
 )
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
@@ -45,6 +48,7 @@ from app.services.decision_replay_service import (
     DecisionReplayService,
 )
 from app.services.failure_review_service import FailureReviewService
+from app.services.role_catalog_service import RoleCatalogService
 from app.services.task_readiness_service import (
     TaskBlockingSignal,
     TaskDependencyReadinessItem,
@@ -61,6 +65,10 @@ from app.services.task_state_machine_service import TaskStateMachineService
 class TaskCreateRequest(BaseModel):
     """DTO for task creation requests."""
 
+    project_id: UUID | None = Field(
+        default=None,
+        description="Optional owning project ID for project-level grouping.",
+    )
     title: str = Field(
         min_length=1,
         max_length=200,
@@ -89,6 +97,18 @@ class TaskCreateRequest(BaseModel):
         default=TaskRiskLevel.NORMAL,
         description="Conservative task risk flag used by future routing rules.",
     )
+    owner_role_code: ProjectRoleCode | None = Field(
+        default=None,
+        description="Optional explicit owner role for Day07 role dispatch.",
+    )
+    upstream_role_code: ProjectRoleCode | None = Field(
+        default=None,
+        description="Optional explicit upstream/source role for Day07 handoffs.",
+    )
+    downstream_role_code: ProjectRoleCode | None = Field(
+        default=None,
+        description="Optional explicit downstream/handoff role for Day07 handoffs.",
+    )
     human_status: TaskHumanStatus = Field(
         default=TaskHumanStatus.NONE,
         description="Whether this task already needs human attention.",
@@ -104,6 +124,7 @@ class TaskResponse(BaseModel):
     """Basic task response DTO."""
 
     id: UUID
+    project_id: UUID | None = None
     title: str
     status: TaskStatus
     priority: TaskPriority
@@ -111,8 +132,12 @@ class TaskResponse(BaseModel):
     acceptance_criteria: list[str]
     depends_on_task_ids: list[UUID]
     risk_level: TaskRiskLevel
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
     human_status: TaskHumanStatus
     paused_reason: str | None = None
+    source_draft_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -122,6 +147,7 @@ class TaskResponse(BaseModel):
 
         return cls(
             id=task.id,
+            project_id=task.project_id,
             title=task.title,
             status=task.status,
             priority=task.priority,
@@ -129,8 +155,12 @@ class TaskResponse(BaseModel):
             acceptance_criteria=task.acceptance_criteria,
             depends_on_task_ids=task.depends_on_task_ids,
             risk_level=task.risk_level,
+            owner_role_code=task.owner_role_code,
+            upstream_role_code=task.upstream_role_code,
+            downstream_role_code=task.downstream_role_code,
             human_status=task.human_status,
             paused_reason=task.paused_reason,
+            source_draft_id=task.source_draft_id,
             created_at=task.created_at,
             updated_at=task.updated_at,
         )
@@ -231,9 +261,16 @@ class TaskConsoleRunResponse(BaseModel):
 
     id: UUID
     status: RunStatus
+    model_name: str | None = None
     route_reason: str | None = None
     routing_score: float | None = None
     routing_score_breakdown: list[RoutingScoreItemResponse] = Field(default_factory=list)
+    strategy_decision: dict[str, object] | None = None
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
+    handoff_reason: str | None = None
+    dispatch_status: str | None = None
     result_summary: str | None = None
     prompt_tokens: int
     completion_tokens: int
@@ -256,12 +293,23 @@ class TaskConsoleRunResponse(BaseModel):
         return cls(
             id=run.id,
             status=run.status,
+            model_name=run.model_name,
             route_reason=run.route_reason,
             routing_score=run.routing_score,
             routing_score_breakdown=[
                 cls.RoutingScoreItemResponse.from_item(item)
                 for item in run.routing_score_breakdown
             ],
+            strategy_decision=(
+                run.strategy_decision.model_dump(mode="json")
+                if run.strategy_decision is not None
+                else None
+            ),
+            owner_role_code=run.owner_role_code,
+            upstream_role_code=run.upstream_role_code,
+            downstream_role_code=run.downstream_role_code,
+            handoff_reason=run.handoff_reason,
+            dispatch_status=run.dispatch_status,
             result_summary=run.result_summary,
             prompt_tokens=run.prompt_tokens,
             completion_tokens=run.completion_tokens,
@@ -290,6 +338,9 @@ class TaskConsoleItemResponse(BaseModel):
     acceptance_criteria: list[str]
     depends_on_task_ids: list[UUID]
     risk_level: TaskRiskLevel
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
     human_status: TaskHumanStatus
     paused_reason: str | None = None
     created_at: datetime
@@ -309,6 +360,9 @@ class TaskConsoleItemResponse(BaseModel):
             acceptance_criteria=item.task.acceptance_criteria,
             depends_on_task_ids=item.task.depends_on_task_ids,
             risk_level=item.task.risk_level,
+            owner_role_code=item.task.owner_role_code,
+            upstream_role_code=item.task.upstream_role_code,
+            downstream_role_code=item.task.downstream_role_code,
             human_status=item.task.human_status,
             paused_reason=item.task.paused_reason,
             created_at=item.task.created_at,
@@ -521,6 +575,9 @@ class TaskConsoleDetailResponse(TaskConsoleItemResponse):
             acceptance_criteria=detail.task.acceptance_criteria,
             depends_on_task_ids=detail.task.depends_on_task_ids,
             risk_level=detail.task.risk_level,
+            owner_role_code=detail.task.owner_role_code,
+            upstream_role_code=detail.task.upstream_role_code,
+            downstream_role_code=detail.task.downstream_role_code,
             human_status=detail.task.human_status,
             paused_reason=detail.task.paused_reason,
             created_at=detail.task.created_at,
@@ -613,13 +670,21 @@ def get_task_service(
     """Create the task service dependency."""
 
     task_repository = TaskRepository(session)
+    project_repository = ProjectRepository(session)
+    project_role_repository = ProjectRoleRepository(session)
     run_repository = RunRepository(session)
     budget_guard_service = BudgetGuardService(run_repository=run_repository)
     task_state_machine_service = TaskStateMachineService()
+    role_catalog_service = RoleCatalogService(
+        project_repository=project_repository,
+        project_role_repository=project_role_repository,
+    )
     return TaskService(
         task_repository=task_repository,
+        project_repository=project_repository,
         budget_guard_service=budget_guard_service,
         task_state_machine_service=task_state_machine_service,
+        role_catalog_service=role_catalog_service,
     )
 
 
@@ -629,6 +694,7 @@ def get_console_service(
     """Create the console service dependency."""
 
     task_repository = TaskRepository(session)
+    project_repository = ProjectRepository(session)
     run_repository = RunRepository(session)
     budget_guard_service = BudgetGuardService(run_repository=run_repository)
     task_readiness_service = TaskReadinessService(
@@ -642,6 +708,7 @@ def get_console_service(
     return ConsoleService(
         task_repository=task_repository,
         run_repository=run_repository,
+        project_repository=project_repository,
         budget_guard_service=budget_guard_service,
         context_builder_service=context_builder_service,
     )
@@ -678,12 +745,16 @@ def create_task(
 
     try:
         task = task_service.create_task(
+            project_id=request.project_id,
             title=request.title,
             input_summary=request.input_summary,
             priority=request.priority,
             acceptance_criteria=request.acceptance_criteria,
             depends_on_task_ids=request.depends_on_task_ids,
             risk_level=request.risk_level,
+            owner_role_code=request.owner_role_code,
+            upstream_role_code=request.upstream_role_code,
+            downstream_role_code=request.downstream_role_code,
             human_status=request.human_status,
             paused_reason=request.paused_reason,
         )

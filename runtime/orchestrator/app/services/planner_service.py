@@ -5,16 +5,22 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 import re
+from uuid import UUID
 
+from app.domain.project import Project, ProjectStage, ProjectStatus
 from app.domain.task import Task, TaskHumanStatus, TaskPriority, TaskRiskLevel
+from app.services.project_service import ProjectService
 from app.services.task_service import TaskService
 
 
 _DEFAULT_MAX_TASKS = 6
 _MAX_TASK_TITLE_LENGTH = 60
+_MAX_PROJECT_NAME_LENGTH = 80
 _MAX_SUMMARY_LENGTH = 240
 _SENTENCE_SPLIT_PATTERN = re.compile(r"[。！？!?；;\n]+")
-_BULLET_PATTERN = re.compile(r"^\s*(?:[-*+]|(?:\d+|[一二三四五六七八九十]+)[\.\、\)])\s*(.+)$")
+_BULLET_PATTERN = re.compile(
+    r"^\s*(?:[-*+]|(?:\d+|[一二三四五六七八九十]+)[\.\、\)])\s*(.+)$"
+)
 
 _HIGH_PRIORITY_KEYWORDS = (
     "核心",
@@ -62,12 +68,23 @@ class PlannedTaskDraft:
 
 
 @dataclass(slots=True, frozen=True)
+class PlannedProjectDraft:
+    """Minimal project draft returned by the Day03 planner entry."""
+
+    name: str
+    summary: str
+    status: ProjectStatus = ProjectStatus.ACTIVE
+    stage: ProjectStage = ProjectStage.PLANNING
+
+
+@dataclass(slots=True, frozen=True)
 class PlanDraft:
     """Draft planning result returned before persistence."""
 
     project_summary: str
     planning_notes: list[str]
     tasks: list[PlannedTaskDraft]
+    project: PlannedProjectDraft | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -84,13 +101,19 @@ class PlanApplyResult:
 
     project_summary: str
     created_tasks: list[AppliedDraftTask]
+    project: Project | None = None
 
 
 class PlannerService:
     """Turn one brief into a conservative task plan and persist it if requested."""
 
-    def __init__(self, task_service: TaskService) -> None:
+    def __init__(
+        self,
+        task_service: TaskService,
+        project_service: ProjectService,
+    ) -> None:
         self.task_service = task_service
+        self.project_service = project_service
 
     def generate_plan_draft(
         self,
@@ -107,10 +130,20 @@ class PlannerService:
         implementation_items = candidate_items[:implementation_capacity]
 
         project_summary = self._build_project_summary(normalized_brief)
+        project_draft = PlannedProjectDraft(
+            name=self._build_project_name(
+                brief=normalized_brief,
+                candidate_items=candidate_items,
+            ),
+            summary=project_summary,
+            status=ProjectStatus.ACTIVE,
+            stage=ProjectStage.PLANNING,
+        )
         planning_notes = [
             "当前使用本地启发式 Planner，不依赖外部模型。",
             "默认生成‘范围澄清 -> 子任务推进 -> 整体验证’的保守链路。",
-            "草案应用前可以人工调整标题、依赖、验收标准和风险等级。",
+            "草案应用前可以人工调整项目名称、项目摘要、任务标题、依赖、验收标准和风险等级。",
+            "草案应用只负责创建项目与映射任务，不会自动触发执行。",
         ]
 
         drafts: list[PlannedTaskDraft] = []
@@ -173,6 +206,7 @@ class PlannerService:
             project_summary=project_summary,
             planning_notes=planning_notes,
             tasks=drafts,
+            project=project_draft,
         )
 
     def apply_plan_draft(
@@ -180,15 +214,35 @@ class PlannerService:
         *,
         project_summary: str,
         task_drafts: list[PlannedTaskDraft],
+        project_draft: PlannedProjectDraft | None = None,
+        project_id: UUID | None = None,
     ) -> PlanApplyResult:
         """Persist a draft plan as actual tasks in dependency order."""
 
         if not task_drafts:
             raise ValueError("Planner draft must contain at least one task.")
+        if project_draft is not None and project_id is not None:
+            raise ValueError("Cannot create a new project draft and target an existing project at the same time.")
+
+        target_project: Project | None = None
+        target_project_id = project_id
+
+        if project_draft is not None:
+            target_project = self.project_service.create_project(
+                name=project_draft.name,
+                summary=project_draft.summary,
+                status=project_draft.status,
+                stage=project_draft.stage,
+            )
+            target_project_id = target_project.id
+        elif project_id is not None:
+            target_project = self.project_service.get_project(project_id)
+            if target_project is None:
+                raise ValueError(f"Project not found: {project_id}")
 
         draft_map = self._build_draft_map(task_drafts)
         creation_order = self._topological_order(task_drafts, draft_map)
-        created_task_ids: dict[str, str] = {}
+        created_task_ids: dict[str, UUID] = {}
         created_tasks: list[AppliedDraftTask] = []
 
         for draft in creation_order:
@@ -196,6 +250,7 @@ class PlannerService:
                 created_task_ids[draft_id] for draft_id in draft.depends_on_draft_ids
             ]
             created_task = self.task_service.create_task(
+                project_id=target_project_id,
                 title=draft.title,
                 input_summary=draft.input_summary,
                 priority=draft.priority,
@@ -204,6 +259,7 @@ class PlannerService:
                 risk_level=draft.risk_level,
                 human_status=draft.human_status,
                 paused_reason=draft.paused_reason,
+                source_draft_id=draft.draft_id,
             )
             created_task_ids[draft.draft_id] = created_task.id
             created_tasks.append(
@@ -213,9 +269,18 @@ class PlannerService:
                 )
             )
 
+        refreshed_project: Project | None = None
+        if target_project_id is not None:
+            refreshed_project = self.project_service.get_project(target_project_id)
+
+        normalized_summary = self._build_project_summary(project_summary)
+        if refreshed_project is not None:
+            normalized_summary = refreshed_project.summary
+
         return PlanApplyResult(
-            project_summary=self._build_project_summary(project_summary),
+            project_summary=normalized_summary,
             created_tasks=created_tasks,
+            project=refreshed_project,
         )
 
     @staticmethod
@@ -270,6 +335,22 @@ class PlannerService:
             normalized_items.append(item)
             seen_items.add(item)
         return normalized_items
+
+    def _build_project_name(self, *, brief: str, candidate_items: list[str]) -> str:
+        """Build a concise project draft name from one brief."""
+
+        candidate_name = candidate_items[0] if candidate_items else brief.splitlines()[0]
+        normalized_name = re.sub(r"\s+", " ", candidate_name).strip()
+        normalized_name = re.sub(r"^[：:]+", "", normalized_name).strip()
+        normalized_name = re.sub(r"[。！？!?；;]+$", "", normalized_name).strip()
+
+        if not normalized_name:
+            normalized_name = "未命名项目草案"
+
+        if len(normalized_name) <= _MAX_PROJECT_NAME_LENGTH:
+            return normalized_name
+
+        return normalized_name[: _MAX_PROJECT_NAME_LENGTH - 3].rstrip() + "..."
 
     def _build_project_summary(self, brief: str) -> str:
         """Return a compact project summary suitable for API responses."""

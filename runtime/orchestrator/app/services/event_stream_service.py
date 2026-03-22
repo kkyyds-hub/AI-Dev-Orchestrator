@@ -1,4 +1,4 @@
-"""In-process SSE event stream helpers for the Day 13 console."""
+"""In-process SSE event stream helpers for the console and Day08 role workbench."""
 
 from __future__ import annotations
 
@@ -147,6 +147,38 @@ class EventStreamService:
             },
         )
 
+    def publish_role_handoff(
+        self,
+        *,
+        project_id: str | None,
+        task_id: str | None,
+        run_id: str | None,
+        log_path: str | None,
+        owner_role_code: object,
+        upstream_role_code: object,
+        downstream_role_code: object,
+        dispatch_status: str | None,
+        handoff_reason: str | None,
+        message: str,
+    ) -> None:
+        """Publish one Day08 role handoff event for the workbench timeline."""
+
+        self.publish(
+            "role_handoff",
+            {
+                "project_id": project_id,
+                "task_id": task_id,
+                "run_id": run_id,
+                "log_path": log_path,
+                "owner_role_code": _normalize_enum_value(owner_role_code),
+                "upstream_role_code": _normalize_enum_value(upstream_role_code),
+                "downstream_role_code": _normalize_enum_value(downstream_role_code),
+                "dispatch_status": dispatch_status,
+                "handoff_reason": handoff_reason,
+                "message": message,
+            },
+        )
+
     @staticmethod
     def encode_sse(event: ConsoleStreamEvent) -> str:
         """Serialize one event to SSE wire format."""
@@ -186,6 +218,7 @@ def serialize_task(task: Task) -> dict[str, Any]:
 
     return {
         "id": str(task.id),
+        "project_id": str(task.project_id) if task.project_id else None,
         "title": task.title,
         "status": task.status.value,
         "priority": task.priority.value,
@@ -193,8 +226,16 @@ def serialize_task(task: Task) -> dict[str, Any]:
         "acceptance_criteria": task.acceptance_criteria,
         "depends_on_task_ids": [str(task_id) for task_id in task.depends_on_task_ids],
         "risk_level": task.risk_level.value,
+        "owner_role_code": task.owner_role_code.value if task.owner_role_code else None,
+        "upstream_role_code": (
+            task.upstream_role_code.value if task.upstream_role_code else None
+        ),
+        "downstream_role_code": (
+            task.downstream_role_code.value if task.downstream_role_code else None
+        ),
         "human_status": task.human_status.value,
         "paused_reason": task.paused_reason,
+        "source_draft_id": task.source_draft_id,
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat(),
     }
@@ -207,11 +248,26 @@ def serialize_run(run: Run) -> dict[str, Any]:
         "id": str(run.id),
         "task_id": str(run.task_id),
         "status": run.status.value,
+        "model_name": run.model_name,
         "route_reason": run.route_reason,
         "routing_score": run.routing_score,
         "routing_score_breakdown": [
             item.model_dump() for item in run.routing_score_breakdown
         ],
+        "strategy_decision": (
+            run.strategy_decision.model_dump(mode="json")
+            if run.strategy_decision is not None
+            else None
+        ),
+        "owner_role_code": run.owner_role_code.value if run.owner_role_code else None,
+        "upstream_role_code": (
+            run.upstream_role_code.value if run.upstream_role_code else None
+        ),
+        "downstream_role_code": (
+            run.downstream_role_code.value if run.downstream_role_code else None
+        ),
+        "handoff_reason": run.handoff_reason,
+        "dispatch_status": run.dispatch_status,
         "result_summary": run.result_summary,
         "prompt_tokens": run.prompt_tokens,
         "completion_tokens": run.completion_tokens,

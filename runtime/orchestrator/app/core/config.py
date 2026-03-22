@@ -92,6 +92,7 @@ class Settings:
     sqlite_db_dir: Path
     sqlite_db_path: Path
     sqlite_db_url: str
+    repository_workspace_root_dir: Path
     daily_budget_usd: float
     session_budget_usd: float
     max_task_retries: int
@@ -101,6 +102,7 @@ class Settings:
 def load_settings() -> Settings:
     """读取并构造应用配置。"""
 
+    repo_root = Path(__file__).resolve().parents[4]
     runtime_root = Path(__file__).resolve().parents[3]
     runtime_data_dir = Path(
         os.getenv("RUNTIME_DATA_DIR", str(runtime_root / "data"))
@@ -111,6 +113,9 @@ def load_settings() -> Settings:
     sqlite_db_path = Path(
         os.getenv("SQLITE_DB_PATH", str(sqlite_db_dir / "orchestrator.db"))
     ).resolve()
+    repository_workspace_root_dir = Path(
+        os.getenv("REPOSITORY_WORKSPACE_ROOT_DIR", str(repo_root))
+    ).resolve()
 
     return Settings(
         app_name=os.getenv("APP_NAME", "AI Dev Orchestrator Backend"),
@@ -120,6 +125,7 @@ def load_settings() -> Settings:
         sqlite_db_dir=sqlite_db_dir,
         sqlite_db_path=sqlite_db_path,
         sqlite_db_url=f"sqlite:///{sqlite_db_path.as_posix()}",
+        repository_workspace_root_dir=repository_workspace_root_dir,
         daily_budget_usd=_read_float("DAILY_BUDGET_USD", 0.05, minimum=0.0),
         session_budget_usd=_read_float("SESSION_BUDGET_USD", 0.2, minimum=0.0),
         max_task_retries=_read_int("MAX_TASK_RETRIES", 2, minimum=0),

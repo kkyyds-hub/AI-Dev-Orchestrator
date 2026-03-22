@@ -101,40 +101,46 @@ class FailureReviewService:
     def list_clusters(self, *, limit: int = 20) -> list[FailureReviewCluster]:
         """Aggregate stored reviews into coarse failure clusters."""
 
-        raw_reviews = self.failure_review_repository.list_all()
-        if not raw_reviews:
+        return self._build_clusters(
+            reviews=[
+                self._from_payload(payload)
+                for payload in self.failure_review_repository.list_all()
+            ],
+            limit=limit,
+        )
+
+    def list_reviews_for_run_ids(
+        self,
+        *,
+        run_ids: list[UUID],
+        limit: int | None = None,
+    ) -> list[FailureReviewRecord]:
+        """Return stored review records that belong to the provided run IDs."""
+
+        if not run_ids:
             return []
 
-        grouped: dict[str, list[FailureReviewRecord]] = {}
-        for payload in raw_reviews:
-            review = self._from_payload(payload)
-            cluster_key = review.failure_category.value if review.failure_category else review.run_status.value
-            grouped.setdefault(cluster_key, []).append(review)
+        reviews: list[FailureReviewRecord] = []
+        for payload in self.failure_review_repository.list_for_run_ids(run_ids=run_ids):
+            reviews.append(self._from_payload(payload))
+        reviews.sort(key=lambda item: item.created_at, reverse=True)
+        if limit is None:
+            return reviews
 
-        clusters: list[FailureReviewCluster] = []
-        for cluster_key, reviews in grouped.items():
-            ordered_reviews = sorted(reviews, key=lambda item: item.created_at, reverse=True)
-            latest_review = ordered_reviews[0]
-            sample_task_titles = list(
-                dict.fromkeys(review.task_title for review in ordered_reviews[:5])
-            )
-            clusters.append(
-                FailureReviewCluster(
-                    cluster_key=cluster_key,
-                    failure_category=cluster_key,
-                    count=len(ordered_reviews),
-                    latest_run_created_at=latest_review.created_at,
-                    route_reason_excerpt=_truncate(latest_review.route_reason, 160),
-                    sample_task_titles=sample_task_titles,
-                    run_ids=[review.run_id for review in ordered_reviews[:5]],
-                )
-            )
+        return reviews[:limit]
 
-        return sorted(
-            clusters,
-            key=lambda cluster: (cluster.count, cluster.latest_run_created_at),
-            reverse=True,
-        )[:limit]
+    def list_clusters_for_run_ids(
+        self,
+        *,
+        run_ids: list[UUID],
+        limit: int = 20,
+    ) -> list[FailureReviewCluster]:
+        """Aggregate failure reviews belonging to the provided runs."""
+
+        return self._build_clusters(
+            reviews=self.list_reviews_for_run_ids(run_ids=run_ids),
+            limit=limit,
+        )
 
     def _build_review(self, *, task: Task, run: Run) -> FailureReviewRecord:
         """Derive one minimal review from the finalized task, run and log trail."""
@@ -197,6 +203,55 @@ class FailureReviewService:
             return "The run was cancelled before it could reach successful completion."
 
         return "The run requires review because it did not reach a normal successful completion."
+
+    @staticmethod
+    def _build_clusters(
+        *,
+        reviews: list[FailureReviewRecord],
+        limit: int,
+    ) -> list[FailureReviewCluster]:
+        """Aggregate review records into coarse clusters."""
+
+        if not reviews:
+            return []
+
+        grouped: dict[str, list[FailureReviewRecord]] = {}
+        for review in reviews:
+            cluster_key = (
+                review.failure_category.value
+                if review.failure_category
+                else review.run_status.value
+            )
+            grouped.setdefault(cluster_key, []).append(review)
+
+        clusters: list[FailureReviewCluster] = []
+        for cluster_key, cluster_reviews in grouped.items():
+            ordered_reviews = sorted(
+                cluster_reviews,
+                key=lambda item: item.created_at,
+                reverse=True,
+            )
+            latest_review = ordered_reviews[0]
+            sample_task_titles = list(
+                dict.fromkeys(review.task_title for review in ordered_reviews[:5])
+            )
+            clusters.append(
+                FailureReviewCluster(
+                    cluster_key=cluster_key,
+                    failure_category=cluster_key,
+                    count=len(ordered_reviews),
+                    latest_run_created_at=latest_review.created_at,
+                    route_reason_excerpt=_truncate(latest_review.route_reason, 160),
+                    sample_task_titles=sample_task_titles,
+                    run_ids=[review.run_id for review in ordered_reviews[:5]],
+                )
+            )
+
+        return sorted(
+            clusters,
+            key=lambda cluster: (cluster.count, cluster.latest_run_created_at),
+            reverse=True,
+        )[:limit]
 
     @staticmethod
     def _to_payload(review: FailureReviewRecord) -> dict[str, Any]:

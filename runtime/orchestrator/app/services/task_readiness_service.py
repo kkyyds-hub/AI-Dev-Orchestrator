@@ -78,6 +78,11 @@ class TaskReadinessService:
             dependency_items=dependency_items,
         )
 
+    def evaluate_tasks(self, *, tasks: list[Task]) -> dict[UUID, TaskReadinessResult]:
+        """Return readiness results for multiple tasks keyed by task ID."""
+
+        return {task.id: self.evaluate_task(task=task) for task in tasks}
+
     def _build_dependency_items(
         self,
         dependency_ids: list[UUID],

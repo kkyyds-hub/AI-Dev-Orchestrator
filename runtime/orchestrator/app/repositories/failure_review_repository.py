@@ -49,15 +49,33 @@ class FailureReviewRepository:
 
         payloads: list[tuple[float, dict[str, Any]]] = []
         for absolute_path in self._base_dir.rglob("*.json"):
-            try:
-                raw_payload = json.loads(absolute_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+            payload = self._load_payload(absolute_path)
+            if payload is None:
                 continue
 
-            if not isinstance(raw_payload, dict):
+            payloads.append((absolute_path.stat().st_mtime, payload))
+
+        payloads.sort(key=lambda item: item[0], reverse=True)
+        return [payload for _, payload in payloads]
+
+    def list_for_run_ids(self, *, run_ids: list[UUID]) -> list[dict[str, Any]]:
+        """Return stored review payloads belonging to the provided run IDs."""
+
+        if not run_ids:
+            return []
+
+        expected_run_ids = {str(run_id) for run_id in run_ids}
+        payloads: list[tuple[float, dict[str, Any]]] = []
+
+        for absolute_path in self._base_dir.rglob("*.json"):
+            payload = self._load_payload(absolute_path)
+            if payload is None:
                 continue
 
-            payloads.append((absolute_path.stat().st_mtime, raw_payload))
+            if str(payload.get("run_id", "")) not in expected_run_ids:
+                continue
+
+            payloads.append((absolute_path.stat().st_mtime, payload))
 
         payloads.sort(key=lambda item: item[0], reverse=True)
         return [payload for _, payload in payloads]
@@ -67,3 +85,14 @@ class FailureReviewRepository:
 
         run_prefix = str(run_id)[:2]
         return self._base_dir / run_prefix / f"{run_id}.json"
+
+    @staticmethod
+    def _load_payload(absolute_path: Path) -> dict[str, Any] | None:
+        """Load one stored JSON payload and ignore broken files."""
+
+        try:
+            raw_payload = json.loads(absolute_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return None
+
+        return raw_payload if isinstance(raw_payload, dict) else None

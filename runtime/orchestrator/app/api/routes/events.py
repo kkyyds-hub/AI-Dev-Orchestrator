@@ -1,4 +1,4 @@
-"""SSE endpoints for the Day 13 console."""
+"""SSE endpoints shared by the console and Day08 role workbench."""
 
 from __future__ import annotations
 

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.domain.project_role import ProjectRoleCode
 from app.domain.run import (
     Run,
     RunBudgetPressureLevel,
@@ -20,7 +21,10 @@ from app.domain.task import (
     TaskStatus,
 )
 from app.repositories.failure_review_repository import FailureReviewRepository
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.run_repository import RunRepository
+from app.repositories.skill_repository import SkillRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.budget_guard_service import BudgetGuardDecision, BudgetGuardService
 from app.services.context_builder_service import ContextBuilderService, TaskContextPackage
@@ -28,7 +32,10 @@ from app.services.cost_estimator_service import CostEstimate, CostEstimatorServi
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionResult, ExecutorService
 from app.services.failure_review_service import FailureReviewService
+from app.services.role_catalog_service import RoleCatalogService
 from app.services.run_logging_service import RunLoggingService
+from app.services.skill_registry_service import SkillRegistryService
+from app.services.strategy_engine_service import StrategyEngineService
 from app.services.task_readiness_service import TaskReadinessService
 from app.services.task_router_service import TaskRouterService, TaskRoutingDecision
 from app.services.task_state_machine_service import (
@@ -63,6 +70,17 @@ class WorkerRunResult:
     budget_strategy_summary: str | None = None
     result_summary: str | None = None
     context_summary: str | None = None
+    model_name: str | None = None
+    model_tier: str | None = None
+    selected_skill_codes: list[str] = field(default_factory=list)
+    selected_skill_names: list[str] = field(default_factory=list)
+    strategy_code: str | None = None
+    strategy_summary: str | None = None
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
+    handoff_reason: str | None = None
+    dispatch_status: str | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -154,6 +172,7 @@ class TaskWorker:
             if not guard_decision.allowed:
                 run = self.run_repository.create_running_run(
                     task_id=task.id,
+                    model_name=routing_decision.model_name if routing_decision else None,
                     route_reason=routing_decision.route_reason if routing_decision else None,
                     routing_score=(
                         routing_decision.routing_score if routing_decision else None
@@ -163,11 +182,34 @@ class TaskWorker:
                         if routing_decision
                         else []
                     ),
+                    strategy_decision=(
+                        routing_decision.strategy_decision if routing_decision else None
+                    ),
+                    owner_role_code=(
+                        routing_decision.owner_role_code if routing_decision else None
+                    ),
+                    upstream_role_code=(
+                        routing_decision.upstream_role_code if routing_decision else None
+                    ),
+                    downstream_role_code=(
+                        routing_decision.downstream_role_code if routing_decision else None
+                    ),
+                    handoff_reason=(
+                        routing_decision.handoff_reason if routing_decision else None
+                    ),
+                    dispatch_status=(
+                        routing_decision.dispatch_status if routing_decision else None
+                    ),
                 )
                 run = self._initialize_run_log(task=task, run=run)
                 log_path = run.log_path
                 if routing_decision is not None:
                     self._log_routing_decision(run=run, routing_decision=routing_decision)
+                    self._log_role_handoff(
+                        task=task,
+                        run=run,
+                        routing_decision=routing_decision,
+                    )
 
                 self.run_logging_service.append_event(
                     log_path=log_path,
@@ -202,12 +244,44 @@ class TaskWorker:
                     budget_strategy_code=guard_decision.strategy_code,
                     budget_strategy_summary=guard_decision.budget.strategy_summary,
                     result_summary=run.result_summary,
+                    model_name=run.model_name,
+                    model_tier=(
+                        run.strategy_decision.model_tier
+                        if run.strategy_decision is not None
+                        else None
+                    ),
+                    selected_skill_codes=(
+                        list(run.strategy_decision.selected_skill_codes)
+                        if run.strategy_decision is not None
+                        else []
+                    ),
+                    selected_skill_names=(
+                        list(run.strategy_decision.selected_skill_names)
+                        if run.strategy_decision is not None
+                        else []
+                    ),
+                    strategy_code=(
+                        run.strategy_decision.strategy_code
+                        if run.strategy_decision is not None
+                        else None
+                    ),
+                    strategy_summary=(
+                        run.strategy_decision.summary
+                        if run.strategy_decision is not None
+                        else None
+                    ),
+                    owner_role_code=run.owner_role_code,
+                    upstream_role_code=run.upstream_role_code,
+                    downstream_role_code=run.downstream_role_code,
+                    handoff_reason=run.handoff_reason,
+                    dispatch_status=run.dispatch_status,
                     task=task,
                     run=run,
                 )
 
             run = self.run_repository.create_running_run(
                 task_id=task.id,
+                model_name=routing_decision.model_name if routing_decision else None,
                 route_reason=routing_decision.route_reason if routing_decision else None,
                 routing_score=(
                     routing_decision.routing_score if routing_decision else None
@@ -217,11 +291,34 @@ class TaskWorker:
                     if routing_decision
                     else []
                 ),
+                strategy_decision=(
+                    routing_decision.strategy_decision if routing_decision else None
+                ),
+                owner_role_code=(
+                    routing_decision.owner_role_code if routing_decision else None
+                ),
+                upstream_role_code=(
+                    routing_decision.upstream_role_code if routing_decision else None
+                ),
+                downstream_role_code=(
+                    routing_decision.downstream_role_code if routing_decision else None
+                ),
+                handoff_reason=(
+                    routing_decision.handoff_reason if routing_decision else None
+                ),
+                dispatch_status=(
+                    routing_decision.dispatch_status if routing_decision else None
+                ),
             )
             run = self._initialize_run_log(task=task, run=run)
             log_path = run.log_path
             if routing_decision is not None:
                 self._log_routing_decision(run=run, routing_decision=routing_decision)
+                self._log_role_handoff(
+                    task=task,
+                    run=run,
+                    routing_decision=routing_decision,
+                )
 
             self.run_logging_service.append_event(
                 log_path=log_path,
@@ -312,6 +409,37 @@ class TaskWorker:
                 context_summary=(
                     context_package.context_summary if context_package is not None else None
                 ),
+                model_name=run.model_name if run else None,
+                model_tier=(
+                    run.strategy_decision.model_tier
+                    if run and run.strategy_decision is not None
+                    else None
+                ),
+                selected_skill_codes=(
+                    list(run.strategy_decision.selected_skill_codes)
+                    if run and run.strategy_decision is not None
+                    else []
+                ),
+                selected_skill_names=(
+                    list(run.strategy_decision.selected_skill_names)
+                    if run and run.strategy_decision is not None
+                    else []
+                ),
+                strategy_code=(
+                    run.strategy_decision.strategy_code
+                    if run and run.strategy_decision is not None
+                    else None
+                ),
+                strategy_summary=(
+                    run.strategy_decision.summary
+                    if run and run.strategy_decision is not None
+                    else None
+                ),
+                owner_role_code=run.owner_role_code if run else None,
+                upstream_role_code=run.upstream_role_code if run else None,
+                downstream_role_code=run.downstream_role_code if run else None,
+                handoff_reason=run.handoff_reason if run else None,
+                dispatch_status=run.dispatch_status if run else None,
                 task=task,
                 run=run,
             )
@@ -723,6 +851,11 @@ class TaskWorker:
                 ),
                 "routing_score": routing_decision.routing_score,
                 "route_reason": routing_decision.route_reason,
+                "owner_role_code": routing_decision.owner_role_code,
+                "upstream_role_code": routing_decision.upstream_role_code,
+                "downstream_role_code": routing_decision.downstream_role_code,
+                "dispatch_status": routing_decision.dispatch_status,
+                "handoff_reason": routing_decision.handoff_reason,
                 "routing_score_breakdown": [
                     item.model_dump()
                     for item in routing_decision.routing_score_breakdown
@@ -731,6 +864,20 @@ class TaskWorker:
                 "budget_action": routing_decision.budget_action.value,
                 "budget_strategy_code": routing_decision.budget_strategy_code,
                 "budget_strategy_summary": routing_decision.budget_strategy_summary,
+                "project_stage": (
+                    routing_decision.project_stage.value
+                    if routing_decision.project_stage is not None
+                    else None
+                ),
+                "model_name": routing_decision.model_name,
+                "model_tier": routing_decision.model_tier,
+                "selected_skill_codes": list(routing_decision.selected_skill_codes),
+                "selected_skill_names": list(routing_decision.selected_skill_names),
+                "strategy_code": routing_decision.strategy_code,
+                "strategy_summary": routing_decision.strategy_summary,
+                "strategy_reasons": [
+                    reason.model_dump() for reason in routing_decision.strategy_reasons
+                ],
                 "candidates": [
                     {
                         "task_id": str(candidate.task.id),
@@ -738,6 +885,12 @@ class TaskWorker:
                         "ready": candidate.ready,
                         "routing_score": candidate.routing_score,
                         "route_reason": candidate.route_reason,
+                        "owner_role_code": candidate.owner_role_code,
+                        "upstream_role_code": candidate.upstream_role_code,
+                        "downstream_role_code": candidate.downstream_role_code,
+                        "dispatch_status": candidate.dispatch_status,
+                        "handoff_reason": candidate.handoff_reason,
+                        "matched_terms": list(candidate.matched_terms),
                         "routing_score_breakdown": [
                             item.model_dump()
                             for item in candidate.routing_score_breakdown
@@ -756,10 +909,46 @@ class TaskWorker:
                         "budget_action": candidate.budget_action.value,
                         "budget_strategy_code": candidate.budget_strategy_code,
                         "budget_score_adjustment": candidate.budget_score_adjustment,
+                        "project_stage": (
+                            candidate.project_stage.value
+                            if candidate.project_stage is not None
+                            else None
+                        ),
+                        "model_name": candidate.model_name,
+                        "model_tier": candidate.model_tier,
+                        "selected_skill_codes": list(candidate.selected_skill_codes),
+                        "selected_skill_names": list(candidate.selected_skill_names),
+                        "strategy_code": candidate.strategy_code,
+                        "strategy_summary": candidate.strategy_summary,
+                        "strategy_reasons": [
+                            reason.model_dump() for reason in candidate.strategy_reasons
+                        ],
                     }
                     for candidate in routing_decision.candidates
                 ],
             },
+        )
+
+    def _log_role_handoff(
+        self,
+        *,
+        task: Task,
+        run: Run,
+        routing_decision: TaskRoutingDecision,
+    ) -> None:
+        """Write the Day07 role handoff event to the JSONL log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_role_handoff_event(
+            log_path=run.log_path,
+            project_id=task.project_id,
+            owner_role_code=routing_decision.owner_role_code,
+            upstream_role_code=routing_decision.upstream_role_code,
+            downstream_role_code=routing_decision.downstream_role_code,
+            dispatch_status=routing_decision.dispatch_status,
+            handoff_reason=routing_decision.handoff_reason,
         )
 
     def _log_finalization(self, *, task: Task, run: Run, final_summary: str) -> None:
@@ -778,11 +967,22 @@ class TaskWorker:
                 "prompt_tokens": run.prompt_tokens,
                 "completion_tokens": run.completion_tokens,
                 "estimated_cost": run.estimated_cost,
+                "model_name": run.model_name,
                 "route_reason": run.route_reason,
                 "routing_score": run.routing_score,
                 "routing_score_breakdown": [
                     item.model_dump() for item in run.routing_score_breakdown
                 ],
+                "strategy_decision": (
+                    run.strategy_decision.model_dump(mode="json")
+                    if run.strategy_decision is not None
+                    else None
+                ),
+                "owner_role_code": run.owner_role_code,
+                "upstream_role_code": run.upstream_role_code,
+                "downstream_role_code": run.downstream_role_code,
+                "handoff_reason": run.handoff_reason,
+                "dispatch_status": run.dispatch_status,
                 "result_summary": final_summary,
                 "verification_mode": run.verification_mode,
                 "verification_template": run.verification_template,
@@ -879,11 +1079,27 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         run_repository=run_repository,
         task_readiness_service=task_readiness_service,
     )
+    role_catalog_service = RoleCatalogService(
+        project_repository=ProjectRepository(session),
+        project_role_repository=ProjectRoleRepository(session),
+    )
+    skill_registry_service = SkillRegistryService(
+        project_repository=ProjectRepository(session),
+        role_catalog_service=role_catalog_service,
+        skill_repository=SkillRepository(session),
+    )
+    strategy_engine_service = StrategyEngineService(
+        project_repository=ProjectRepository(session),
+        role_catalog_service=role_catalog_service,
+        skill_registry_service=skill_registry_service,
+        budget_guard_service=budget_guard_service,
+    )
     task_router_service = TaskRouterService(
         task_repository=task_repository,
         run_repository=run_repository,
         task_readiness_service=task_readiness_service,
         budget_guard_service=budget_guard_service,
+        strategy_engine_service=strategy_engine_service,
     )
     failure_review_service = FailureReviewService(
         failure_review_repository=FailureReviewRepository(),

@@ -4,9 +4,11 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel, ensure_utc_datetime, utc_now
+from app.domain.project import ProjectStage
+from app.domain.project_role import ProjectRoleCode
 
 
 class RunStatus(StrEnum):
@@ -65,6 +67,51 @@ class RunRoutingScoreItem(DomainModel):
     detail: str = Field(min_length=1, max_length=500)
 
 
+class RunStrategyReasonItem(DomainModel):
+    """One explainable reason emitted by the Day 15 strategy engine."""
+
+    code: str = Field(min_length=1, max_length=100)
+    label: str = Field(min_length=1, max_length=100)
+    detail: str = Field(min_length=1, max_length=1_000)
+    score: float | None = None
+
+
+class RunStrategyDecision(DomainModel):
+    """Persisted Day 15 strategy snapshot attached to one run."""
+
+    version: str = Field(default="day15.v1", min_length=1, max_length=40)
+    project_stage: ProjectStage | None = None
+    owner_role_code: ProjectRoleCode | None = None
+    model_tier: str | None = Field(default=None, max_length=40)
+    model_name: str | None = Field(default=None, max_length=100)
+    selected_skill_codes: list[str] = Field(default_factory=list, max_length=12)
+    selected_skill_names: list[str] = Field(default_factory=list, max_length=12)
+    budget_pressure_level: RunBudgetPressureLevel
+    budget_action: RunBudgetStrategyAction
+    strategy_code: str = Field(min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=2_000)
+    rule_codes: list[str] = Field(default_factory=list, max_length=20)
+    reasons: list[RunStrategyReasonItem] = Field(default_factory=list, max_length=20)
+
+    @field_validator("selected_skill_codes", "selected_skill_names", "rule_codes")
+    @classmethod
+    def normalize_string_lists(cls, value: list[str]) -> list[str]:
+        """Trim and deduplicate string list fields while preserving order."""
+
+        normalized_items: list[str] = []
+        seen_items: set[str] = set()
+
+        for item in value:
+            normalized_item = item.strip()
+            if not normalized_item or normalized_item in seen_items:
+                continue
+
+            normalized_items.append(normalized_item)
+            seen_items.add(normalized_item)
+
+        return normalized_items
+
+
 class Run(DomainModel):
     """Minimal persisted execution record."""
 
@@ -75,6 +122,12 @@ class Run(DomainModel):
     route_reason: str | None = Field(default=None, max_length=2_000)
     routing_score: float | None = Field(default=None)
     routing_score_breakdown: list[RunRoutingScoreItem] = Field(default_factory=list)
+    strategy_decision: RunStrategyDecision | None = None
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
+    handoff_reason: str | None = Field(default=None, max_length=1_000)
+    dispatch_status: str | None = Field(default=None, max_length=100)
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result_summary: str | None = Field(default=None, max_length=2_000)
@@ -89,6 +142,17 @@ class Run(DomainModel):
     failure_category: RunFailureCategory | None = None
     quality_gate_passed: bool | None = None
     created_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("model_name", "handoff_reason", "dispatch_status")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        """Collapse blank optional text fields into `None`."""
+
+        if value is None:
+            return None
+
+        normalized_value = value.strip()
+        return normalized_value or None
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "Run":

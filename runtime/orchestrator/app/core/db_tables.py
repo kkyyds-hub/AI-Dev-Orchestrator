@@ -3,12 +3,33 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import Uuid as SqlUuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain._base import utc_now
+from app.domain.approval import ApprovalDecisionAction, ApprovalStatus
+from app.domain.change_session import (
+    ChangeSessionGuardStatus,
+    ChangeSessionWorkspaceStatus,
+)
+from app.domain.deliverable import DeliverableContentFormat, DeliverableType
+from app.domain.project import ProjectStage, ProjectStatus
+from app.domain.project_role import ProjectRoleCode
+from app.domain.repository_snapshot import RepositorySnapshotStatus
+from app.domain.repository_workspace import RepositoryAccessMode
 from app.domain.run import RunFailureCategory, RunStatus
+from app.domain.skill import SkillBindingSource
 from app.domain.task import (
     TaskHumanStatus,
     TaskPriority,
@@ -27,12 +48,466 @@ class ORMBase(DeclarativeBase):
     """Base class for ORM tables."""
 
 
+class ProjectTable(ORMBase):
+    """Project rows."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ProjectStatus] = mapped_column(
+        Enum(
+            ProjectStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ProjectStatus.ACTIVE,
+    )
+    stage: Mapped[ProjectStage] = mapped_column(
+        Enum(
+            ProjectStage,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ProjectStage.INTAKE,
+    )
+    sop_template_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    stage_history_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    tasks: Mapped[list["TaskTable"]] = relationship(back_populates="project")
+    project_roles: Mapped[list["ProjectRoleTable"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    deliverables: Mapped[list["DeliverableTable"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    repository_workspace: Mapped["RepositoryWorkspaceTable | None"] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    repository_snapshot: Mapped["RepositorySnapshotTable | None"] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class RepositoryWorkspaceTable(ORMBase):
+    """Project-bound local repository workspace rows."""
+
+    __tablename__ = "repository_workspaces"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            name="uq_repository_workspaces_project",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    access_mode: Mapped[RepositoryAccessMode] = mapped_column(
+        Enum(
+            RepositoryAccessMode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=RepositoryAccessMode.READ_ONLY,
+    )
+    default_base_branch: Mapped[str] = mapped_column(String(200), nullable=False)
+    ignore_rule_summary_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    allowed_workspace_root: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    project: Mapped[ProjectTable] = relationship(back_populates="repository_workspace")
+    repository_snapshot: Mapped["RepositorySnapshotTable | None"] = relationship(
+        back_populates="repository_workspace",
+        uselist=False,
+    )
+
+
+class RepositorySnapshotTable(ORMBase):
+    """Latest structured workspace scan rows attached to repository bindings."""
+
+    __tablename__ = "repository_snapshots"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_repository_snapshots_project"),
+        UniqueConstraint(
+            "repository_workspace_id",
+            name="uq_repository_snapshots_workspace",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repository_workspace_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("repository_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repository_root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[RepositorySnapshotStatus] = mapped_column(
+        Enum(
+            RepositorySnapshotStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=RepositorySnapshotStatus.SUCCESS,
+    )
+    directory_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ignored_directory_names_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    language_breakdown_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    tree_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    scan_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scanned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    project: Mapped[ProjectTable] = relationship(back_populates="repository_snapshot")
+    repository_workspace: Mapped[RepositoryWorkspaceTable] = relationship(
+        back_populates="repository_snapshot"
+    )
+
+
+class ChangeSessionTable(ORMBase):
+    """Latest Day03 branch/workspace status rows attached to repository bindings."""
+
+    __tablename__ = "change_sessions"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_change_sessions_project"),
+        UniqueConstraint(
+            "repository_workspace_id",
+            name="uq_change_sessions_workspace",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repository_workspace_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("repository_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repository_root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    current_branch: Mapped[str] = mapped_column(String(200), nullable=False)
+    head_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    head_commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    baseline_branch: Mapped[str] = mapped_column(String(200), nullable=False)
+    baseline_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    baseline_commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    workspace_status: Mapped[ChangeSessionWorkspaceStatus] = mapped_column(
+        Enum(
+            ChangeSessionWorkspaceStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ChangeSessionWorkspaceStatus.CLEAN,
+    )
+    guard_status: Mapped[ChangeSessionGuardStatus] = mapped_column(
+        Enum(
+            ChangeSessionGuardStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ChangeSessionGuardStatus.READY,
+    )
+    guard_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    blocking_reasons_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    dirty_file_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dirty_files_truncated: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    dirty_files_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    project: Mapped[ProjectTable] = relationship()
+    repository_workspace: Mapped[RepositoryWorkspaceTable] = relationship()
+
+
+class ProjectRoleTable(ORMBase):
+    """Project-owned role configuration rows."""
+
+    __tablename__ = "project_roles"
+    __table_args__ = (
+        UniqueConstraint("project_id", "role_code", name="uq_project_roles_project_role"),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role_code: Mapped[ProjectRoleCode] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    responsibilities_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    input_boundary_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    output_boundary_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    default_skill_slots_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    custom_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    project: Mapped[ProjectTable] = relationship(back_populates="project_roles")
+
+
+class SkillTable(ORMBase):
+    """Registered Skill rows owned by the Day13 registry."""
+
+    __tablename__ = "skills"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    applicable_role_codes_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    current_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    versions: Mapped[list["SkillVersionTable"]] = relationship(
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
+    role_bindings: Mapped[list["ProjectRoleSkillBindingTable"]] = relationship(
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
+
+
+class SkillVersionTable(ORMBase):
+    """Version snapshot rows stored for each Skill."""
+
+    __tablename__ = "skill_versions"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "version", name="uq_skill_versions_skill_version"),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    applicable_role_codes_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    change_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    skill: Mapped[SkillTable] = relationship(back_populates="versions")
+
+
+class ProjectRoleSkillBindingTable(ORMBase):
+    """Project-role to Skill binding rows."""
+
+    __tablename__ = "project_role_skill_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "role_code",
+            "skill_id",
+            name="uq_project_role_skill_bindings_role_skill",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role_code: Mapped[ProjectRoleCode] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    skill_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    skill_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    skill_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    bound_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    binding_source: Mapped[SkillBindingSource] = mapped_column(
+        Enum(
+            SkillBindingSource,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=SkillBindingSource.MANUAL,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    skill: Mapped[SkillTable] = relationship(back_populates="role_bindings")
+
+
 class TaskTable(ORMBase):
     """Task rows."""
 
     __tablename__ = "tasks"
 
     id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[TaskStatus] = mapped_column(
         Enum(
@@ -67,6 +542,33 @@ class TaskTable(ORMBase):
         nullable=False,
         default=TaskRiskLevel.NORMAL,
     )
+    owner_role_code: Mapped[ProjectRoleCode | None] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    upstream_role_code: Mapped[ProjectRoleCode | None] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    downstream_role_code: Mapped[ProjectRoleCode | None] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
     human_status: Mapped[TaskHumanStatus] = mapped_column(
         Enum(
             TaskHumanStatus,
@@ -78,6 +580,7 @@ class TaskTable(ORMBase):
         default=TaskHumanStatus.NONE,
     )
     paused_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_draft_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -93,6 +596,10 @@ class TaskTable(ORMBase):
     runs: Mapped[list["RunTable"]] = relationship(
         back_populates="task",
         cascade="all, delete-orphan",
+    )
+    project: Mapped[ProjectTable | None] = relationship(back_populates="tasks")
+    deliverable_versions: Mapped[list["DeliverableVersionTable"]] = relationship(
+        back_populates="source_task",
     )
 
 
@@ -121,6 +628,36 @@ class RunTable(ORMBase):
     route_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     routing_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     routing_score_breakdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    strategy_decision_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_role_code: Mapped[ProjectRoleCode | None] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    upstream_role_code: Mapped[ProjectRoleCode | None] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    downstream_role_code: Mapped[ProjectRoleCode | None] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatch_status: Mapped[str | None] = mapped_column(String(100), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -149,3 +686,264 @@ class RunTable(ORMBase):
     )
 
     task: Mapped[TaskTable] = relationship(back_populates="runs")
+    deliverable_versions: Mapped[list["DeliverableVersionTable"]] = relationship(
+        back_populates="source_run",
+    )
+
+
+class DeliverableTable(ORMBase):
+    """Project artifact rows."""
+
+    __tablename__ = "deliverables"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    type: Mapped[DeliverableType] = mapped_column(
+        Enum(
+            DeliverableType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    stage: Mapped[ProjectStage] = mapped_column(
+        Enum(
+            ProjectStage,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    created_by_role_code: Mapped[ProjectRoleCode] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    current_version_number: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    project: Mapped[ProjectTable] = relationship(back_populates="deliverables")
+    versions: Mapped[list["DeliverableVersionTable"]] = relationship(
+        back_populates="deliverable",
+        cascade="all, delete-orphan",
+    )
+    approval_requests: Mapped[list["ApprovalRequestTable"]] = relationship(
+        back_populates="deliverable",
+        cascade="all, delete-orphan",
+    )
+
+
+class DeliverableVersionTable(ORMBase):
+    """Immutable deliverable snapshot rows."""
+
+    __tablename__ = "deliverable_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "deliverable_id",
+            "version_number",
+            name="uq_deliverable_versions_deliverable_version",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    deliverable_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("deliverables.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    author_role_code: Mapped[ProjectRoleCode] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_format: Mapped[DeliverableContentFormat] = mapped_column(
+        Enum(
+            DeliverableContentFormat,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=DeliverableContentFormat.MARKDOWN,
+    )
+    source_task_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_run_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    deliverable: Mapped[DeliverableTable] = relationship(back_populates="versions")
+    source_task: Mapped[TaskTable | None] = relationship(
+        back_populates="deliverable_versions"
+    )
+    source_run: Mapped[RunTable | None] = relationship(
+        back_populates="deliverable_versions"
+    )
+    approval_requests: Mapped[list["ApprovalRequestTable"]] = relationship(
+        back_populates="deliverable_version",
+    )
+
+
+class ApprovalRequestTable(ORMBase):
+    """Boss-approval request rows bound to deliverable versions."""
+
+    __tablename__ = "approval_requests"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    deliverable_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("deliverables.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    deliverable_version_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("deliverable_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deliverable_title: Mapped[str] = mapped_column(String(200), nullable=False)
+    deliverable_type: Mapped[DeliverableType] = mapped_column(
+        Enum(
+            DeliverableType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    deliverable_stage: Mapped[ProjectStage] = mapped_column(
+        Enum(
+            ProjectStage,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    deliverable_version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    requester_role_code: Mapped[ProjectRoleCode] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    request_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[ApprovalStatus] = mapped_column(
+        Enum(
+            ApprovalStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ApprovalStatus.PENDING_APPROVAL,
+    )
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    due_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    latest_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    deliverable: Mapped[DeliverableTable] = relationship(
+        back_populates="approval_requests"
+    )
+    deliverable_version: Mapped[DeliverableVersionTable | None] = relationship(
+        back_populates="approval_requests"
+    )
+    decisions: Mapped[list["ApprovalDecisionTable"]] = relationship(
+        back_populates="approval",
+        cascade="all, delete-orphan",
+    )
+
+
+class ApprovalDecisionTable(ORMBase):
+    """Structured boss-decision rows stored under one approval request."""
+
+    __tablename__ = "approval_decisions"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    approval_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("approval_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action: Mapped[ApprovalDecisionAction] = mapped_column(
+        Enum(
+            ApprovalDecisionAction,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    actor_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    highlighted_risks_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    requested_changes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    approval: Mapped[ApprovalRequestTable] = relationship(back_populates="decisions")

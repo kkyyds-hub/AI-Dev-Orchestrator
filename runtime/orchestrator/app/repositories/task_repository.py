@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.db_tables import RunTable, TaskTable
 from app.domain._base import ensure_utc_datetime, utc_now
-from app.domain.run import Run, RunRoutingScoreItem
+from app.domain.run import Run, RunRoutingScoreItem, RunStrategyDecision
 from app.domain.task import Task, TaskEventReason, TaskHumanStatus, TaskStatus
 from app.services.event_stream_service import event_stream_service
 
@@ -27,6 +27,7 @@ class TaskRepository:
 
         task_row = TaskTable(
             id=task.id,
+            project_id=task.project_id,
             title=task.title,
             status=task.status,
             priority=task.priority,
@@ -34,8 +35,12 @@ class TaskRepository:
             acceptance_criteria=self._serialize_string_list(task.acceptance_criteria),
             depends_on_task_ids=self._serialize_uuid_list(task.depends_on_task_ids),
             risk_level=task.risk_level,
+            owner_role_code=task.owner_role_code,
+            upstream_role_code=task.upstream_role_code,
+            downstream_role_code=task.downstream_role_code,
             human_status=task.human_status,
             paused_reason=task.paused_reason,
+            source_draft_id=task.source_draft_id,
             created_at=task.created_at,
             updated_at=task.updated_at,
         )
@@ -63,6 +68,17 @@ class TaskRepository:
         statement = (
             select(TaskTable)
             .where(TaskTable.status == TaskStatus.PENDING)
+            .order_by(TaskTable.created_at.asc())
+        )
+        task_rows = self.session.execute(statement).scalars().all()
+        return [self._to_domain(task_row) for task_row in task_rows]
+
+    def list_by_project_id(self, project_id: UUID) -> list[Task]:
+        """Return tasks under one project ordered from oldest to newest."""
+
+        statement = (
+            select(TaskTable)
+            .where(TaskTable.project_id == project_id)
             .order_by(TaskTable.created_at.asc())
         )
         task_rows = self.session.execute(statement).scalars().all()
@@ -212,6 +228,7 @@ class TaskRepository:
 
         return Task(
             id=task_row.id,
+            project_id=task_row.project_id,
             title=task_row.title,
             status=task_row.status,
             priority=task_row.priority,
@@ -223,8 +240,12 @@ class TaskRepository:
                 task_row.depends_on_task_ids
             ),
             risk_level=task_row.risk_level,
+            owner_role_code=task_row.owner_role_code,
+            upstream_role_code=task_row.upstream_role_code,
+            downstream_role_code=task_row.downstream_role_code,
             human_status=task_row.human_status,
             paused_reason=task_row.paused_reason,
+            source_draft_id=task_row.source_draft_id,
             created_at=ensure_utc_datetime(task_row.created_at),
             updated_at=ensure_utc_datetime(task_row.updated_at),
         )
@@ -247,6 +268,14 @@ class TaskRepository:
             routing_score_breakdown=TaskRepository._deserialize_routing_score_breakdown(
                 latest_run_row.routing_score_breakdown
             ),
+            strategy_decision=TaskRepository._deserialize_strategy_decision(
+                latest_run_row.strategy_decision_json
+            ),
+            owner_role_code=latest_run_row.owner_role_code,
+            upstream_role_code=latest_run_row.upstream_role_code,
+            downstream_role_code=latest_run_row.downstream_role_code,
+            handoff_reason=latest_run_row.handoff_reason,
+            dispatch_status=latest_run_row.dispatch_status,
             started_at=ensure_utc_datetime(latest_run_row.started_at),
             finished_at=ensure_utc_datetime(latest_run_row.finished_at),
             result_summary=latest_run_row.result_summary,
@@ -370,3 +399,25 @@ class TaskRepository:
                 continue
 
         return normalized_items
+
+    @staticmethod
+    def _deserialize_strategy_decision(
+        raw_value: str | None,
+    ) -> RunStrategyDecision | None:
+        """Read one JSON-encoded strategy decision snapshot from SQLite."""
+
+        if not raw_value:
+            return None
+
+        try:
+            decoded = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(decoded, dict):
+            return None
+
+        try:
+            return RunStrategyDecision.model_validate(decoded)
+        except ValueError:
+            return None

@@ -1,30 +1,53 @@
-"""Console aggregation endpoints introduced during V2-B and V2-C."""
+"""Console aggregation endpoints shared by boss home, role workbench and console views."""
 
 from datetime import datetime
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.routes.workers import WorkerSlotSnapshotResponse
 from app.core.db import get_db_session
-from app.domain.task import TaskStatus
+from app.domain.project import ProjectStage, ProjectStatus
+from app.domain.project_role import ProjectRoleCode
+from app.domain.run import RunStatus
+from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
+from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
+from app.services.approval_service import ApprovalService
 from app.services.budget_guard_service import BudgetGuardService, BudgetSnapshot
+from app.services.console_service import (
+    ConsoleProjectItem,
+    ConsoleProjectLatestTask,
+    ConsoleProjectOverview,
+    ConsoleProjectStageItem,
+    ConsoleRoleHandoffItem,
+    ConsoleRoleLane,
+    ConsoleRoleWorkbenchOverview,
+    ConsoleRoleWorkbenchTaskItem,
+    ConsoleService,
+)
 from app.services.console_metrics_service import (
     ConsoleFailureDistribution,
     ConsoleMetricsOverview,
     ConsoleMetricsService,
     ConsoleRoutingDistribution,
 )
+from app.services.context_builder_service import ContextBuilderService
 from app.services.failure_review_service import (
     FailureReviewCluster,
     FailureReviewService,
 )
+from app.services.role_catalog_service import RoleCatalogService
 from app.services.run_logging_service import RunLoggingService
+from app.services.task_readiness_service import TaskReadinessService
 from app.services.worker_slot_service import worker_slot_service
 
 
@@ -241,11 +264,410 @@ class ReviewClusterResponse(BaseModel):
         )
 
 
+class BossProjectTaskStatsResponse(BaseModel):
+    """Task aggregation attached to one boss-homepage project item."""
+
+    total_tasks: int
+    pending_tasks: int
+    running_tasks: int
+    paused_tasks: int
+    waiting_human_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    blocked_tasks: int
+    last_task_updated_at: datetime | None = None
+
+
+class BossProjectLatestTaskResponse(BaseModel):
+    """Minimal latest-task snapshot shown inside the project detail panel."""
+
+    task_id: str
+    title: str
+    status: TaskStatus
+    priority: TaskPriority
+    risk_level: TaskRiskLevel
+    human_status: TaskHumanStatus
+    updated_at: datetime
+    latest_run_status: RunStatus | None = None
+    latest_run_summary: str | None = None
+
+    @classmethod
+    def from_latest_task(
+        cls,
+        latest_task: ConsoleProjectLatestTask,
+    ) -> "BossProjectLatestTaskResponse":
+        """Convert one service-side latest-task snapshot into an API DTO."""
+
+        return cls(
+            task_id=str(latest_task.task.id),
+            title=latest_task.task.title,
+            status=latest_task.task.status,
+            priority=latest_task.task.priority,
+            risk_level=latest_task.task.risk_level,
+            human_status=latest_task.task.human_status,
+            updated_at=latest_task.task.updated_at,
+            latest_run_status=(
+                latest_task.latest_run.status if latest_task.latest_run is not None else None
+            ),
+            latest_run_summary=(
+                latest_task.latest_run.result_summary
+                if latest_task.latest_run is not None
+                else None
+            ),
+        )
+
+
+class BossProjectItemResponse(BaseModel):
+    """One project card/row returned to the V3 Day02 boss homepage."""
+
+    id: str
+    name: str
+    summary: str
+    status: ProjectStatus
+    stage: ProjectStage
+    task_stats: BossProjectTaskStatsResponse
+    latest_progress_summary: str
+    latest_progress_at: datetime | None = None
+    key_risk_summary: str
+    risk_level: str
+    blocked: bool
+    estimated_cost: float
+    prompt_tokens: int
+    completion_tokens: int
+    attention_task_count: int
+    high_risk_task_count: int
+    latest_task: BossProjectLatestTaskResponse | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_item(cls, item: ConsoleProjectItem) -> "BossProjectItemResponse":
+        """Convert one service-side project item into an API DTO."""
+
+        return cls(
+            id=str(item.project.id),
+            name=item.project.name,
+            summary=item.project.summary,
+            status=item.project.status,
+            stage=item.project.stage,
+            task_stats=BossProjectTaskStatsResponse(
+                total_tasks=item.project.task_stats.total_tasks,
+                pending_tasks=item.project.task_stats.pending_tasks,
+                running_tasks=item.project.task_stats.running_tasks,
+                paused_tasks=item.project.task_stats.paused_tasks,
+                waiting_human_tasks=item.project.task_stats.waiting_human_tasks,
+                completed_tasks=item.project.task_stats.completed_tasks,
+                failed_tasks=item.project.task_stats.failed_tasks,
+                blocked_tasks=item.project.task_stats.blocked_tasks,
+                last_task_updated_at=item.project.task_stats.last_task_updated_at,
+            ),
+            latest_progress_summary=item.latest_progress_summary,
+            latest_progress_at=item.latest_progress_at,
+            key_risk_summary=item.key_risk_summary,
+            risk_level=item.risk_level,
+            blocked=item.blocked,
+            estimated_cost=item.estimated_cost,
+            prompt_tokens=item.prompt_tokens,
+            completion_tokens=item.completion_tokens,
+            attention_task_count=item.attention_task_count,
+            high_risk_task_count=item.high_risk_task_count,
+            latest_task=(
+                BossProjectLatestTaskResponse.from_latest_task(item.latest_task)
+                if item.latest_task is not None
+                else None
+            ),
+            created_at=item.project.created_at,
+            updated_at=item.project.updated_at,
+        )
+
+
+class BossProjectStageDistributionResponse(BaseModel):
+    """One stage bucket displayed by the boss homepage summary cards."""
+
+    stage: ProjectStage
+    count: int
+
+    @classmethod
+    def from_item(
+        cls,
+        item: ConsoleProjectStageItem,
+    ) -> "BossProjectStageDistributionResponse":
+        """Convert one stage-distribution bucket into an API DTO."""
+
+        return cls(stage=item.stage, count=item.count)
+
+
+class BossProjectOverviewResponse(BaseModel):
+    """Project-first homepage payload returned by `/console/project-overview`."""
+
+    total_projects: int
+    active_projects: int
+    completed_projects: int
+    blocked_projects: int
+    total_project_tasks: int
+    unassigned_tasks: int
+    stage_distribution: list[BossProjectStageDistributionResponse]
+    budget: ConsoleBudgetHealthResponse
+    projects: list[BossProjectItemResponse]
+
+    @classmethod
+    def from_overview(
+        cls,
+        overview: ConsoleProjectOverview,
+    ) -> "BossProjectOverviewResponse":
+        """Convert the boss-homepage service payload into an API DTO."""
+
+        return cls(
+            total_projects=overview.total_projects,
+            active_projects=overview.active_projects,
+            completed_projects=overview.completed_projects,
+            blocked_projects=overview.blocked_projects,
+            total_project_tasks=overview.total_project_tasks,
+            unassigned_tasks=overview.unassigned_tasks,
+            stage_distribution=[
+                BossProjectStageDistributionResponse.from_item(item)
+                for item in overview.stage_distribution
+            ],
+            budget=ConsoleBudgetHealthResponse.from_snapshot(overview.budget),
+            projects=[BossProjectItemResponse.from_item(item) for item in overview.projects],
+        )
+
+
+class RoleWorkbenchTaskResponse(BaseModel):
+    """One task card rendered inside a Day08 role lane."""
+
+    task_id: str
+    project_id: str | None = None
+    project_name: str | None = None
+    title: str
+    status: TaskStatus
+    priority: TaskPriority
+    risk_level: TaskRiskLevel
+    human_status: TaskHumanStatus
+    input_summary: str
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
+    created_at: datetime
+    updated_at: datetime
+    latest_run_id: str | None = None
+    latest_run_status: RunStatus | None = None
+    latest_run_summary: str | None = None
+    latest_run_log_path: str | None = None
+
+    @classmethod
+    def from_item(cls, item: ConsoleRoleWorkbenchTaskItem) -> "RoleWorkbenchTaskResponse":
+        """Convert one role-workbench task card into an API DTO."""
+
+        return cls(
+            task_id=str(item.task.id),
+            project_id=str(item.task.project_id) if item.task.project_id is not None else None,
+            project_name=item.project.name if item.project is not None else None,
+            title=item.task.title,
+            status=item.task.status,
+            priority=item.task.priority,
+            risk_level=item.task.risk_level,
+            human_status=item.task.human_status,
+            input_summary=item.task.input_summary,
+            owner_role_code=item.task.owner_role_code,
+            upstream_role_code=item.task.upstream_role_code,
+            downstream_role_code=item.task.downstream_role_code,
+            created_at=item.task.created_at,
+            updated_at=item.task.updated_at,
+            latest_run_id=str(item.latest_run.id) if item.latest_run is not None else None,
+            latest_run_status=item.latest_run.status if item.latest_run is not None else None,
+            latest_run_summary=(
+                item.latest_run.result_summary if item.latest_run is not None else None
+            ),
+            latest_run_log_path=item.latest_run.log_path if item.latest_run is not None else None,
+        )
+
+
+class RoleWorkbenchHandoffResponse(BaseModel):
+    """One recent role handoff item shown on the Day08 timeline."""
+
+    id: str
+    timestamp: datetime
+    project_id: str | None = None
+    project_name: str | None = None
+    task_id: str
+    task_title: str
+    run_id: str | None = None
+    run_status: RunStatus | None = None
+    owner_role_code: ProjectRoleCode | None = None
+    upstream_role_code: ProjectRoleCode | None = None
+    downstream_role_code: ProjectRoleCode | None = None
+    dispatch_status: str | None = None
+    handoff_reason: str | None = None
+    message: str
+    log_path: str | None = None
+
+    @classmethod
+    def from_item(
+        cls,
+        item: ConsoleRoleHandoffItem,
+    ) -> "RoleWorkbenchHandoffResponse":
+        """Convert one service-side handoff event into an API DTO."""
+
+        return cls(
+            id=item.id,
+            timestamp=item.timestamp,
+            project_id=str(item.project.id) if item.project is not None else None,
+            project_name=item.project.name if item.project is not None else None,
+            task_id=str(item.task.id),
+            task_title=item.task.title,
+            run_id=str(item.latest_run.id) if item.latest_run is not None else None,
+            run_status=item.latest_run.status if item.latest_run is not None else None,
+            owner_role_code=item.owner_role_code,
+            upstream_role_code=item.upstream_role_code,
+            downstream_role_code=item.downstream_role_code,
+            dispatch_status=item.dispatch_status,
+            handoff_reason=item.handoff_reason,
+            message=item.message,
+            log_path=item.log_path,
+        )
+
+
+class RoleWorkbenchLaneResponse(BaseModel):
+    """One role lane returned by `/console/role-workbench`."""
+
+    role_code: ProjectRoleCode
+    role_name: str
+    role_summary: str
+    enabled: bool
+    current_task_count: int
+    blocked_task_count: int
+    running_task_count: int
+    recent_handoff_count: int
+    current_tasks: list[RoleWorkbenchTaskResponse]
+    blocked_tasks: list[RoleWorkbenchTaskResponse]
+    running_tasks: list[RoleWorkbenchTaskResponse]
+    recent_handoffs: list[RoleWorkbenchHandoffResponse]
+
+    @classmethod
+    def from_lane(cls, lane: ConsoleRoleLane) -> "RoleWorkbenchLaneResponse":
+        """Convert one service-side role lane into an API DTO."""
+
+        return cls(
+            role_code=lane.role.role_code,
+            role_name=lane.role.role_name,
+            role_summary=lane.role.role_summary,
+            enabled=lane.role.enabled,
+            current_task_count=len(lane.current_tasks),
+            blocked_task_count=len(lane.blocked_tasks),
+            running_task_count=len(lane.running_tasks),
+            recent_handoff_count=len(lane.recent_handoffs),
+            current_tasks=[
+                RoleWorkbenchTaskResponse.from_item(item) for item in lane.current_tasks
+            ],
+            blocked_tasks=[
+                RoleWorkbenchTaskResponse.from_item(item) for item in lane.blocked_tasks
+            ],
+            running_tasks=[
+                RoleWorkbenchTaskResponse.from_item(item) for item in lane.running_tasks
+            ],
+            recent_handoffs=[
+                RoleWorkbenchHandoffResponse.from_item(item)
+                for item in lane.recent_handoffs
+            ],
+        )
+
+
+class RoleWorkbenchOverviewResponse(BaseModel):
+    """Aggregated Day08 role workbench response."""
+
+    project_id: str | None = None
+    project_name: str | None = None
+    project_status: ProjectStatus | None = None
+    project_stage: ProjectStage | None = None
+    scope_label: str
+    total_roles: int
+    enabled_roles: int
+    total_tasks: int
+    active_tasks: int
+    running_tasks: int
+    blocked_tasks: int
+    unassigned_tasks: int
+    recent_handoff_count: int
+    budget: ConsoleBudgetHealthResponse
+    lanes: list[RoleWorkbenchLaneResponse]
+    recent_handoffs: list[RoleWorkbenchHandoffResponse]
+    generated_at: datetime
+
+    @classmethod
+    def from_overview(
+        cls,
+        overview: ConsoleRoleWorkbenchOverview,
+    ) -> "RoleWorkbenchOverviewResponse":
+        """Convert the service-side workbench aggregate into an API DTO."""
+
+        return cls(
+            project_id=str(overview.project.id) if overview.project is not None else None,
+            project_name=overview.project.name if overview.project is not None else None,
+            project_status=overview.project.status if overview.project is not None else None,
+            project_stage=overview.project.stage if overview.project is not None else None,
+            scope_label=overview.scope_label,
+            total_roles=overview.total_roles,
+            enabled_roles=overview.enabled_roles,
+            total_tasks=overview.total_tasks,
+            active_tasks=overview.active_tasks,
+            running_tasks=overview.running_tasks,
+            blocked_tasks=overview.blocked_tasks,
+            unassigned_tasks=overview.unassigned_tasks,
+            recent_handoff_count=overview.recent_handoff_count,
+            budget=ConsoleBudgetHealthResponse.from_snapshot(overview.budget),
+            lanes=[RoleWorkbenchLaneResponse.from_lane(item) for item in overview.lanes],
+            recent_handoffs=[
+                RoleWorkbenchHandoffResponse.from_item(item)
+                for item in overview.recent_handoffs
+            ],
+            generated_at=overview.generated_at,
+        )
+
+
 def get_failure_review_service() -> FailureReviewService:
     """Create the file-backed failure review service dependency."""
 
     return FailureReviewService(
         failure_review_repository=FailureReviewRepository(),
+        run_logging_service=RunLoggingService(),
+    )
+
+
+def get_console_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ConsoleService:
+    """Create the shared console aggregation dependency."""
+
+    task_repository = TaskRepository(session)
+    project_repository = ProjectRepository(session)
+    run_repository = RunRepository(session)
+    role_catalog_service = RoleCatalogService(
+        project_repository=project_repository,
+        project_role_repository=ProjectRoleRepository(session),
+    )
+    approval_service = ApprovalService(
+        approval_repository=ApprovalRepository(session),
+        deliverable_repository=DeliverableRepository(session),
+        project_repository=project_repository,
+    )
+    budget_guard_service = BudgetGuardService(run_repository=run_repository)
+    task_readiness_service = TaskReadinessService(
+        task_repository=task_repository,
+        run_repository=run_repository,
+    )
+    context_builder_service = ContextBuilderService(
+        run_repository=run_repository,
+        task_readiness_service=task_readiness_service,
+    )
+    return ConsoleService(
+        task_repository=task_repository,
+        run_repository=run_repository,
+        project_repository=project_repository,
+        budget_guard_service=budget_guard_service,
+        context_builder_service=context_builder_service,
+        approval_service=approval_service,
+        role_catalog_service=role_catalog_service,
         run_logging_service=RunLoggingService(),
     )
 
@@ -264,6 +686,41 @@ def get_console_metrics_service(
 
 
 router = APIRouter(prefix="/console", tags=["console"])
+
+
+@router.get(
+    "/project-overview",
+    response_model=BossProjectOverviewResponse,
+    summary="获取老板首页项目总览",
+)
+def get_project_overview(
+    console_service: Annotated[ConsoleService, Depends(get_console_service)],
+) -> BossProjectOverviewResponse:
+    """Return the V3 Day02 boss homepage payload."""
+
+    overview = console_service.get_project_overview()
+    return BossProjectOverviewResponse.from_overview(overview)
+
+
+@router.get(
+    "/role-workbench",
+    response_model=RoleWorkbenchOverviewResponse,
+    summary="获取角色工作台聚合视图",
+)
+def get_role_workbench(
+    console_service: Annotated[ConsoleService, Depends(get_console_service)],
+    project_id: UUID | None = None,
+) -> RoleWorkbenchOverviewResponse:
+    """Return the Day08 role workbench payload for one project or all projects."""
+
+    overview = console_service.get_role_workbench(project_id=project_id)
+    if overview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return RoleWorkbenchOverviewResponse.from_overview(overview)
 
 
 @router.get(
