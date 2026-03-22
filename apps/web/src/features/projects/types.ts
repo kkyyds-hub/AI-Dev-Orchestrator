@@ -1,4 +1,5 @@
 import type { ConsoleBudget } from "../console/types";
+import type { ChangeSession } from "../repositories/types";
 
 export type ProjectTaskStats = {
   total_tasks: number;
@@ -89,6 +90,9 @@ export type BossProjectItem = {
   attention_task_count: number;
   high_risk_task_count: number;
   latest_task: BossProjectLatestTask | null;
+  repository_workspace: RepositoryWorkspace | null;
+  latest_repository_snapshot: RepositorySnapshot | null;
+  current_change_session: ChangeSession | null;
   created_at: string;
   updated_at: string;
 };
@@ -243,6 +247,7 @@ export type ProjectDetail = {
   task_stats: ProjectTaskStats;
   repository_workspace: RepositoryWorkspace | null;
   latest_repository_snapshot: RepositorySnapshot | null;
+  current_change_session: ChangeSession | null;
   created_at: string;
   updated_at: string;
   tasks: ProjectDetailTaskItem[];

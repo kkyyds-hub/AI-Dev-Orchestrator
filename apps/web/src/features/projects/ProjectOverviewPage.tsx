@@ -22,6 +22,7 @@ import { SkillRegistryPage } from "../skills/SkillRegistryPage";
 import { StrategyDecisionPanel } from "../strategy/StrategyDecisionPanel";
 import { StrategyRuleEditor } from "../strategy/StrategyRuleEditor";
 import { RepositoryOverviewPage as ProjectRepositoryOverviewPage } from "../repositories/RepositoryOverviewPage";
+import { RepositoryHomeCard } from "../repositories/RepositoryHomeCard";
 import { MemorySearchPanel } from "./MemorySearchPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectCreateFlow } from "./ProjectCreateFlow";
@@ -209,13 +210,13 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
       <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
           <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
-            V3 Day02 / Day04 / Day06 / Day07 Boss Entry
+            V4 Day04 Boss Entry
           </p>
           <h1 className="text-3xl font-semibold tracking-tight text-slate-50">
-            老板首页、项目总览、规划入口、阶段守卫与 SOP 推进
+            老板首页、项目总览与仓库入口整合
           </h1>
           <p className="max-w-3xl text-sm leading-6 text-slate-300">
-            用户进入系统时先看项目全局，再下钻到任务与运行细节；Day03 已在这里补齐“从 brief 生成项目草案，再映射为项目任务”的最小规划链路，Day04 继续补上项目里程碑、阶段守卫与可回放的阶段时间线，但不扩展到角色系统或审批流。
+            用户进入系统时先看项目全局，再同步看见仓库是否已绑定、最新目录快照和当前变更会话；Day04 只把仓库视角整合进老板入口与项目详情，不扩展到文件级编辑、代码上下文包、验证证据视图或任何真实 Git 写操作。
           </p>
         </div>
 
@@ -247,6 +248,46 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
           <ProjectCreateFlow onProjectCreated={handleProjectCreated} />
 
           <ProjectSummaryCards overview={overviewQuery.data} />
+
+          {featuredProjects.length > 0 ? (
+            <section className="space-y-4">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-50">
+                    仓库入口概览
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    把项目阶段统计、任务概览和仓库摘要放在同一屏联动查看；每张卡片只展示绑定、快照和变更会话的 Day04 最小入口。
+                  </p>
+                </div>
+                <div className="text-xs text-slate-500">
+                  默认展示当前排序最靠前的 {featuredProjects.length} 个项目
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-3">
+                {featuredProjects.map((project) => (
+                  <RepositoryHomeCard
+                    key={`repository-home-${project.id}`}
+                    workspace={project.repository_workspace}
+                    snapshot={project.latest_repository_snapshot}
+                    changeSession={project.current_change_session}
+                    title={project.name}
+                    description={project.summary}
+                    variant="compact"
+                    actionLabel={
+                      project.id === selectedProjectId ? "已在详情中" : "查看项目详情"
+                    }
+                    onAction={() =>
+                      handleSelectProject(project.id, {
+                        scrollIntoDetail: true,
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           {featuredProjects.length > 0 ? (
             <section className="space-y-4">
@@ -349,10 +390,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
             >
               <h2 className="text-lg font-semibold text-slate-50">项目详情</h2>
               <p className="mt-1 text-sm text-slate-400">
-                从项目卡片或列表进入，查看老板视角的项目详情；当前已包含 Day02
-                的仓库快照摘要、任务树、草案来源、里程碑、阶段守卫时间线、Day06
-                的 SOP 模板与阶段清单、Day07 的最小角色协作链、Day09
-                的交付件仓库入口，以及 Day11 的统一项目时间线。
+                从项目卡片或列表进入，查看老板视角的项目详情；Day04 已把仓库绑定、目录快照和当前变更会话合并到同一详情视图中，仓库首页仍只保留最小入口，不扩展到文件级编辑、代码上下文包或验证证据视图。
               </p>
 
               {selectedProject || selectedProjectDetail ? (
@@ -607,6 +645,7 @@ function ProjectDetailBody(props: {
       )}
 
       <ProjectRepositoryOverviewPage
+        project={props.project}
         detail={props.detail}
         isLoading={props.isLoading}
         errorMessage={props.errorMessage}

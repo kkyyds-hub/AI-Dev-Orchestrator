@@ -1,6 +1,11 @@
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
-import type { ProjectDetail, RepositorySnapshot } from "../projects/types";
+import type {
+  BossProjectItem,
+  ProjectDetail,
+  RepositorySnapshot,
+} from "../projects/types";
+import { RepositoryHomeCard } from "./RepositoryHomeCard";
 import { ChangeSessionPanel } from "./components/ChangeSessionPanel";
 import {
   useCaptureProjectChangeSession,
@@ -10,33 +15,41 @@ import {
 import { RepositoryTreePanel } from "./components/RepositoryTreePanel";
 
 type RepositoryOverviewPageProps = {
+  project: BossProjectItem | null;
   detail: ProjectDetail | null;
   isLoading: boolean;
   errorMessage: string | null;
 };
 
 export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
-  const projectId = props.detail?.id ?? null;
+  const projectId = props.detail?.id ?? props.project?.id ?? null;
   const refreshMutation = useRefreshProjectRepositorySnapshot(projectId);
   const changeSessionQuery = useProjectChangeSession(projectId);
   const captureChangeSessionMutation = useCaptureProjectChangeSession(projectId);
-  const workspace = props.detail?.repository_workspace ?? null;
+  const workspace =
+    props.detail?.repository_workspace ?? props.project?.repository_workspace ?? null;
   const latestSnapshot =
-    refreshMutation.data ?? props.detail?.latest_repository_snapshot ?? null;
+    refreshMutation.data ??
+    props.detail?.latest_repository_snapshot ??
+    props.project?.latest_repository_snapshot ??
+    null;
   const activeChangeSession =
-    captureChangeSessionMutation.data ?? changeSessionQuery.data ?? null;
+    captureChangeSessionMutation.data ??
+    changeSessionQuery.data ??
+    props.detail?.current_change_session ??
+    props.project?.current_change_session ??
+    null;
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            仓库快照摘要
+            仓库首页入口
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-            当前页沿用 Day02 的工作区扫描、目录快照和语言分布摘要，并在 Day03
-            只补充分支会话与仓库状态快照；不进入文件定位、代码上下文包、AST
-            或真实 Git 写操作。
+            Day04 把 Day01 的仓库绑定、Day02 的目录快照和 Day03
+            的变更会话整合到项目详情页，作为 V4 第一层可见仓库能力；这里仍只展示入口摘要，不扩展到文件级编辑、代码上下文包、验证证据视图或真实 Git 写操作。
           </p>
         </div>
 
@@ -74,9 +87,15 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
         </div>
       ) : null}
 
-      {!workspace && !props.isLoading && !props.errorMessage ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-6 text-sm leading-6 text-slate-400">
-          当前项目还没有绑定主仓库入口，因此无法生成 Day02 工作区快照。
+      {!props.isLoading || props.project || props.detail ? (
+        <div className="mt-4">
+          <RepositoryHomeCard
+            workspace={workspace}
+            snapshot={latestSnapshot}
+            changeSession={activeChangeSession}
+            title="仓库首页摘要"
+            variant="full"
+          />
         </div>
       ) : null}
 
@@ -177,7 +196,7 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
               workspace={workspace}
               latestSnapshot={latestSnapshot}
               changeSession={activeChangeSession}
-              isLoading={changeSessionQuery.isLoading}
+              isLoading={changeSessionQuery.isLoading && activeChangeSession === null}
               isCapturing={captureChangeSessionMutation.isPending}
               errorMessage={
                 changeSessionQuery.isError

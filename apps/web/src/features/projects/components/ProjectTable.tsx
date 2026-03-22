@@ -46,7 +46,7 @@ export function ProjectTable({
           <table className="min-w-full border-separate border-spacing-y-3 text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-500">
-                <th className="px-4 py-2">项目</th>
+                <th className="px-4 py-2">项目 / 仓库</th>
                 <th className="px-4 py-2">阶段 / 状态</th>
                 <th className="px-4 py-2">任务聚合</th>
                 <th className="px-4 py-2">最新进度</th>
@@ -72,6 +72,26 @@ export function ProjectTable({
                       <p className="mt-2 max-w-xs text-xs leading-6 text-slate-400">
                         {project.summary}
                       </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <StatusBadge
+                          label={
+                            project.repository_workspace
+                              ? "仓库已绑定"
+                              : "待绑定仓库"
+                          }
+                          tone={
+                            project.repository_workspace ? "success" : "warning"
+                          }
+                        />
+                        <StatusBadge
+                          label={buildSnapshotLabel(project)}
+                          tone={mapSnapshotTone(project)}
+                        />
+                        <StatusBadge
+                          label={buildChangeSessionLabel(project)}
+                          tone={mapChangeSessionTone(project)}
+                        />
+                      </div>
                       <div className="mt-3 text-xs text-slate-500">
                         预估成本 {formatCurrencyUsd(project.estimated_cost)}
                       </div>
@@ -210,4 +230,64 @@ function AggregateRow(props: { label: string; value: string }) {
       <span className="font-medium text-slate-100">{props.value}</span>
     </div>
   );
+}
+
+function buildSnapshotLabel(project: BossProjectItem) {
+  if (!project.repository_workspace) {
+    return "无仓库快照";
+  }
+  if (!project.latest_repository_snapshot) {
+    return "待生成快照";
+  }
+  return project.latest_repository_snapshot.status === "success"
+    ? "快照已就绪"
+    : "快照失败";
+}
+
+function mapSnapshotTone(
+  project: BossProjectItem,
+): "neutral" | "info" | "success" | "warning" | "danger" {
+  if (!project.repository_workspace) {
+    return "neutral";
+  }
+  if (!project.latest_repository_snapshot) {
+    return "info";
+  }
+  return project.latest_repository_snapshot.status === "success"
+    ? "success"
+    : "danger";
+}
+
+function buildChangeSessionLabel(project: BossProjectItem) {
+  if (!project.repository_workspace) {
+    return "未开始会话";
+  }
+  if (!project.current_change_session) {
+    return "待记录会话";
+  }
+  if (project.current_change_session.guard_status === "blocked") {
+    return "会话阻断";
+  }
+  if (project.current_change_session.workspace_status === "dirty") {
+    return "工作区脏";
+  }
+  return "会话可复用";
+}
+
+function mapChangeSessionTone(
+  project: BossProjectItem,
+): "neutral" | "info" | "success" | "warning" | "danger" {
+  if (!project.repository_workspace) {
+    return "neutral";
+  }
+  if (!project.current_change_session) {
+    return "info";
+  }
+  if (
+    project.current_change_session.guard_status === "blocked" ||
+    project.current_change_session.workspace_status === "dirty"
+  ) {
+    return "warning";
+  }
+  return "success";
 }

@@ -17,6 +17,12 @@ export function ProjectSummaryCards({
   );
   const dailyRatio = Math.min(overview.budget.daily_usage_ratio, 1);
   const sessionRatio = Math.min(overview.budget.session_usage_ratio, 1);
+  const boundRepositoryProjects = overview.projects.filter(
+    (project) => project.repository_workspace !== null,
+  ).length;
+  const activeChangeSessionProjects = overview.projects.filter(
+    (project) => project.current_change_session !== null,
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -24,14 +30,14 @@ export function ProjectSummaryCards({
         <MetricCard
           label="项目总数"
           value={String(overview.total_projects)}
-          hint={`活跃 ${overview.active_projects} / 已完成 ${overview.completed_projects}`}
+          hint={`活跃 ${overview.active_projects} / 已完成 ${overview.completed_projects} / 已绑定仓库 ${boundRepositoryProjects}`}
           tone="info"
         />
 
         <MetricCard
           label="阻塞项目"
           value={String(overview.blocked_projects)}
-          hint="挂起、阻塞或等待人工的项目"
+          hint={`挂起、阻塞或等待人工的项目；已记录会话 ${activeChangeSessionProjects}`}
           tone={overview.blocked_projects > 0 ? "warning" : "success"}
         />
 
