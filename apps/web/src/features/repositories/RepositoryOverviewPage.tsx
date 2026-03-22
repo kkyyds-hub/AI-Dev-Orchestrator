@@ -1,10 +1,16 @@
+import { useMemo, useState } from "react";
+
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
 import type {
   BossProjectItem,
+  ChangePlanSummary,
   ProjectDetail,
+  ProjectDetailTaskItem,
   RepositorySnapshot,
 } from "../projects/types";
+import { ChangePlanDrawer } from "../projects/ChangePlanDrawer";
+import { useProjectChangePlans } from "../projects/hooks";
 import { RepositoryHomeCard } from "./RepositoryHomeCard";
 import { ChangeSessionPanel } from "./components/ChangeSessionPanel";
 import { FileLocatorPanel } from "./components/FileLocatorPanel";
@@ -14,6 +20,7 @@ import {
   useRefreshProjectRepositorySnapshot,
 } from "./hooks";
 import { RepositoryTreePanel } from "./components/RepositoryTreePanel";
+import type { CodeContextPack } from "./types";
 
 type RepositoryOverviewPageProps = {
   project: BossProjectItem | null;
@@ -24,11 +31,19 @@ type RepositoryOverviewPageProps = {
 
 export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
   const projectId = props.detail?.id ?? props.project?.id ?? null;
+  const [changePlanDrawerOpen, setChangePlanDrawerOpen] = useState(false);
+  const [selectedChangePlanTaskId, setSelectedChangePlanTaskId] = useState<string | null>(
+    null,
+  );
+  const [latestCodeContextPack, setLatestCodeContextPack] =
+    useState<CodeContextPack | null>(null);
   const refreshMutation = useRefreshProjectRepositorySnapshot(projectId);
   const changeSessionQuery = useProjectChangeSession(projectId);
   const captureChangeSessionMutation = useCaptureProjectChangeSession(projectId);
+  const changePlansQuery = useProjectChangePlans({ projectId });
   const workspace =
     props.detail?.repository_workspace ?? props.project?.repository_workspace ?? null;
+  const tasks = props.detail?.tasks ?? [];
   const latestSnapshot =
     refreshMutation.data ??
     props.detail?.latest_repository_snapshot ??
@@ -40,6 +55,15 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
     props.detail?.current_change_session ??
     props.project?.current_change_session ??
     null;
+  const changePlans = changePlansQuery.data ?? [];
+  const changePlanCountsByTask = useMemo(
+    () =>
+      changePlans.reduce<Record<string, number>>((mapping, item) => {
+        mapping[item.task_id] = (mapping[item.task_id] ?? 0) + 1;
+        return mapping;
+      }, {}),
+    [changePlans],
+  );
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -51,7 +75,8 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             Day04 把 Day01 的仓库绑定、Day02 的目录快照和 Day03
             的变更会话整合到项目详情页；Day05 在此基础上新增最小文件定位与{" "}
-            <code>CodeContextPack</code>，但仍不进入 Day06 变更计划草案、具体代码改动方案或真实 Git 写操作。
+            <code>CodeContextPack</code>，Day06 再把任务、交付件与候选文件集合整理成
+            ChangePlan 草案，但仍不进入 Day07+ 的批次、风险预检或任何真实 Git 写操作。
           </p>
         </div>
 
@@ -232,11 +257,175 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             <FileLocatorPanel
               projectId={projectId}
               workspaceRootPath={workspace.root_path}
-              tasks={props.detail?.tasks ?? []}
+              tasks={tasks}
+              onCodeContextPackReady={setLatestCodeContextPack}
+            />
+          </div>
+
+          <div className="mt-4">
+            <ChangePlanMappingPanel
+              tasks={tasks}
+              changePlans={changePlans}
+              changePlanCountsByTask={changePlanCountsByTask}
+              isLoading={changePlansQuery.isLoading}
+              errorMessage={
+                changePlansQuery.isError ? changePlansQuery.error.message : null
+              }
+              latestCodeContextPack={latestCodeContextPack}
+              onOpenTask={(taskId) => {
+                setSelectedChangePlanTaskId(taskId);
+                setChangePlanDrawerOpen(true);
+              }}
             />
           </div>
         </>
       ) : null}
+
+      <ChangePlanDrawer
+        open={changePlanDrawerOpen}
+        projectId={projectId}
+        tasks={tasks}
+        initialTaskId={selectedChangePlanTaskId}
+        codeContextPack={latestCodeContextPack}
+        changePlans={changePlans}
+        onClose={() => setChangePlanDrawerOpen(false)}
+      />
+    </section>
+  );
+}
+
+function ChangePlanMappingPanel(props: {
+  tasks: ProjectDetailTaskItem[];
+  changePlans: ChangePlanSummary[];
+  changePlanCountsByTask: Record<string, number>;
+  isLoading: boolean;
+  errorMessage: string | null;
+  latestCodeContextPack: CodeContextPack | null;
+  onOpenTask: (taskId: string) => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            Day06 变更计划草案
+          </div>
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
+            这里把项目任务、交付件与 Day05 的候选文件集合映射成结构化 ChangePlan，
+            只记录“要改什么、为什么改、改完怎么验”，不提前进入 Day07 变更批次或
+            Day08 风险预检。
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge
+            label={`草案 ${props.changePlans.length}`}
+            tone="info"
+          />
+          <StatusBadge
+            label={
+              props.latestCodeContextPack
+                ? `CodeContextPack ${props.latestCodeContextPack.included_file_count} 文件`
+                : "尚无 CodeContextPack"
+            }
+            tone={props.latestCodeContextPack ? "success" : "warning"}
+          />
+        </div>
+      </div>
+
+      {props.latestCodeContextPack ? (
+        <div className="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm leading-6 text-cyan-100">
+          当前草案来源：{props.latestCodeContextPack.source_summary}
+          <div className="mt-2 text-xs text-cyan-50/70">
+            生成于 {formatDateTime(props.latestCodeContextPack.generated_at)}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+          先在上方 Day05 FileLocator 中生成 CodeContextPack，Day06 草案会直接消费该文件集合。
+        </div>
+      )}
+
+      {props.isLoading ? (
+        <div className="mt-4 text-sm leading-6 text-slate-400">
+          正在加载变更计划映射...
+        </div>
+      ) : props.errorMessage ? (
+        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+          变更计划映射加载失败：{props.errorMessage}
+        </div>
+      ) : props.tasks.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          {props.tasks.map((task) => {
+            const plansForTask = props.changePlans.filter(
+              (item) => item.task_id === task.id,
+            );
+            const latestPlan = plansForTask[0] ?? null;
+            const canOpen =
+              plansForTask.length > 0 || props.latestCodeContextPack !== null;
+
+            return (
+              <div
+                key={task.id}
+                className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-sm font-medium text-slate-100">
+                        {task.title}
+                      </div>
+                      <StatusBadge
+                        label={`草案 ${props.changePlanCountsByTask[task.id] ?? 0}`}
+                        tone="info"
+                      />
+                      {latestPlan ? (
+                        <StatusBadge
+                          label={`最新 v${latestPlan.current_version_number}`}
+                          tone="warning"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-slate-300">
+                      {task.input_summary}
+                    </div>
+                    {latestPlan ? (
+                      <div className="mt-2 text-xs leading-5 text-slate-500">
+                        最新草案：{latestPlan.latest_version.intent_summary}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenTask(task.id)}
+                    disabled={!canOpen}
+                    className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+                  >
+                    {plansForTask.length > 0 ? "查看 / 追加草案" : "基于当前包创建草案"}
+                  </button>
+                </div>
+
+                {latestPlan ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {latestPlan.latest_version.related_deliverables.map((deliverable) => (
+                      <StatusBadge
+                        key={`${task.id}-${deliverable.deliverable_id}`}
+                        label={deliverable.title}
+                        tone="neutral"
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+          当前项目还没有任务，因此还不能生成 Day06 变更计划草案。
+        </div>
+      )}
     </section>
   );
 }

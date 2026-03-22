@@ -1,5 +1,9 @@
 import type {
   BossProjectOverview,
+  ChangePlanCreateInput,
+  ChangePlanDetail,
+  ChangePlanSummary,
+  ChangePlanDraftInput,
   ProjectDetail,
   ProjectMemoryKind,
   ProjectMemorySearchResult,
@@ -119,4 +123,51 @@ export function applyProjectPlanDraft(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function fetchProjectChangePlans(input: {
+  projectId: string;
+  taskId?: string | null;
+}): Promise<ChangePlanSummary[]> {
+  const params = new URLSearchParams();
+  if (input.taskId) {
+    params.set("task_id", input.taskId);
+  }
+
+  const query = params.toString();
+  return requestJson<ChangePlanSummary[]>(
+    `/planning/projects/${input.projectId}/change-plans${query ? `?${query}` : ""}`,
+  );
+}
+
+export function fetchChangePlanDetail(
+  changePlanId: string,
+): Promise<ChangePlanDetail> {
+  return requestJson<ChangePlanDetail>(`/planning/change-plans/${changePlanId}`);
+}
+
+export function createProjectChangePlan(input: {
+  projectId: string;
+  payload: ChangePlanCreateInput;
+}): Promise<ChangePlanDetail> {
+  return requestJson<ChangePlanDetail>(
+    `/planning/projects/${input.projectId}/change-plans`,
+    {
+      method: "POST",
+      body: JSON.stringify(input.payload),
+    },
+  );
+}
+
+export function appendChangePlanVersion(input: {
+  changePlanId: string;
+  payload: ChangePlanDraftInput;
+}): Promise<ChangePlanDetail> {
+  return requestJson<ChangePlanDetail>(
+    `/planning/change-plans/${input.changePlanId}/versions`,
+    {
+      method: "POST",
+      body: JSON.stringify(input.payload),
+    },
+  );
 }

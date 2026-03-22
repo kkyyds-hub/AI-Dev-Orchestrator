@@ -17,6 +17,7 @@ type FileLocatorPanelProps = {
   projectId: string | null;
   workspaceRootPath: string;
   tasks: ProjectDetailTaskItem[];
+  onCodeContextPackReady?: (pack: CodeContextPack | null) => void;
 };
 
 const DEFAULT_LOCATOR_LIMIT = 12;
@@ -89,12 +90,17 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
     );
   }, [locatorResult]);
 
+  useEffect(() => {
+    props.onCodeContextPackReady?.(codeContextPack);
+  }, [codeContextPack, props.onCodeContextPackReady]);
+
   const handleSearch = async () => {
     if (!hasLocatorSignals) {
       return;
     }
 
     codeContextPackMutation.reset();
+    props.onCodeContextPackReady?.(null);
     try {
       const result = await fileLocatorSearchMutation.mutateAsync({
         task_id: selectedTaskId || null,
@@ -112,6 +118,7 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
       );
     } catch {
       setSelectedPaths([]);
+      props.onCodeContextPackReady?.(null);
     }
   };
 

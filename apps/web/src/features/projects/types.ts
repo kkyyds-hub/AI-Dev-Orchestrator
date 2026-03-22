@@ -176,6 +176,74 @@ export type ProjectPlanApplyResult = {
   project: ProjectPlanApplyProject | null;
 };
 
+export type ChangePlanStatus = "draft";
+
+export type ChangePlanTargetFile = {
+  relative_path: string;
+  language: string;
+  file_type: string;
+  rationale: string | null;
+  match_reasons: string[];
+};
+
+export type ChangePlanLinkedDeliverable = {
+  deliverable_id: string;
+  title: string;
+  type: string;
+  current_version_number: number;
+};
+
+export type ChangePlanVersion = {
+  id: string;
+  version_number: number;
+  intent_summary: string;
+  source_summary: string;
+  focus_terms: string[];
+  target_files: ChangePlanTargetFile[];
+  expected_actions: string[];
+  risk_notes: string[];
+  verification_commands: string[];
+  related_deliverables: ChangePlanLinkedDeliverable[];
+  context_pack_generated_at: string | null;
+  created_at: string;
+};
+
+export type ChangePlanSummary = {
+  id: string;
+  project_id: string;
+  task_id: string;
+  task_title: string;
+  status: ChangePlanStatus;
+  title: string;
+  primary_deliverable_id: string | null;
+  current_version_number: number;
+  latest_version: ChangePlanVersion;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChangePlanDetail = ChangePlanSummary & {
+  versions: ChangePlanVersion[];
+};
+
+export type ChangePlanDraftInput = {
+  title?: string | null;
+  primary_deliverable_id?: string | null;
+  related_deliverable_ids: string[];
+  intent_summary: string;
+  source_summary: string;
+  focus_terms: string[];
+  target_files: ChangePlanTargetFile[];
+  expected_actions: string[];
+  risk_notes: string[];
+  verification_commands: string[];
+  context_pack_generated_at?: string | null;
+};
+
+export type ChangePlanCreateInput = ChangePlanDraftInput & {
+  task_id: string;
+};
+
 export type ProjectDetailTaskItem = {
   id: string;
   project_id: string | null;
