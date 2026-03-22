@@ -9,6 +9,7 @@ import { FailureDistributionPanel } from "../features/console-metrics/FailureDis
 import { ReviewClustersPanel } from "../features/console-metrics/ReviewClustersPanel";
 import { useReviewClusters } from "../features/console-metrics/decision-hooks";
 import { useBackendHealth, useConsoleOverview } from "../features/console/hooks";
+import { ProjectOverviewPage } from "../features/projects/ProjectOverviewPage";
 import { WorkerSlotPanel } from "../features/console-metrics/WorkerSlotPanel";
 import type { ConsoleTask } from "../features/console/types";
 import { useConsoleEventStream } from "../features/events/hooks";
@@ -27,6 +28,7 @@ export function App() {
   const runWorkerOnceMutation = useRunWorkerOnce();
   const runWorkerPoolOnceMutation = useRunWorkerPoolOnce();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [requestedRunId, setRequestedRunId] = useState<string | null>(null);
 
   const tasks = overviewQuery.data?.tasks ?? [];
 
@@ -41,6 +43,7 @@ export function App() {
     const hasSelection = tasks.some((task) => task.id === selectedTaskId);
     if (!selectedTaskId || !hasSelection) {
       setSelectedTaskId(tasks[0].id);
+      setRequestedRunId(null);
     }
   }, [tasks, selectedTaskId]);
 
@@ -65,9 +68,45 @@ export function App() {
     await Promise.all([overviewQuery.refetch(), healthQuery.refetch()]);
   };
 
+  const handleNavigateToTaskDetail = (
+    taskId: string,
+    options?: { runId?: string | null },
+  ) => {
+    setSelectedTaskId(taskId);
+    setRequestedRunId(options?.runId ?? null);
+
+    const targetId = options?.runId ? "task-run-log-panel" : "task-detail-panel";
+    requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const handleNavigateToDeliverable = (input: {
+    projectId: string;
+    deliverableId: string;
+  }) => {
+    window.dispatchEvent(
+      new CustomEvent("deliverable:navigate", {
+        detail: input,
+      }),
+    );
+
+    requestAnimationFrame(() => {
+      document.getElementById("deliverable-center")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+        <ProjectOverviewPage onNavigateToTask={handleNavigateToTaskDetail} />
+
         <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-slate-950/40 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
@@ -197,6 +236,47 @@ export function App() {
                 </p>
               </div>
             ) : null}
+
+            {!runWorkerOnceMutation.isError &&
+            (runWorkerOnceMutation.data?.model_name ||
+              runWorkerOnceMutation.data?.selected_skill_names.length) ? (
+              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  策略引擎结果
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <MiniInfo
+                    label="模型"
+                    value={
+                      runWorkerOnceMutation.data?.model_name
+                        ? `${runWorkerOnceMutation.data.model_name}${runWorkerOnceMutation.data.model_tier ? ` (${runWorkerOnceMutation.data.model_tier})` : ""}`
+                        : "—"
+                    }
+                  />
+                  <MiniInfo
+                    label="策略代码"
+                    value={runWorkerOnceMutation.data?.strategy_code ?? "—"}
+                  />
+                </div>
+                {runWorkerOnceMutation.data?.strategy_summary ? (
+                  <p className="mt-3 text-sm leading-6 text-slate-300">
+                    {runWorkerOnceMutation.data.strategy_summary}
+                  </p>
+                ) : null}
+                {runWorkerOnceMutation.data?.selected_skill_names.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {runWorkerOnceMutation.data.selected_skill_names.map((skillName) => (
+                      <span
+                        key={`${skillName}-${runWorkerOnceMutation.data?.run_id ?? "run"}`}
+                        className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100"
+                      >
+                        {skillName}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -322,7 +402,10 @@ export function App() {
                             <td className="py-4 pr-4">
                               <button
                                 type="button"
-                                onClick={() => setSelectedTaskId(task.id)}
+                                    onClick={() => {
+                                      setSelectedTaskId(task.id);
+                                      setRequestedRunId(null);
+                                    }}
                                 className="w-full text-left"
                               >
                                 <div className="space-y-2">
@@ -417,9 +500,13 @@ export function App() {
 
           <aside className="space-y-4">
             <TaskDetailPanel
+              panelId="task-detail-panel"
+              runLogPanelId="task-run-log-panel"
+              requestedRunId={requestedRunId}
               selectedTask={selectedTask}
               budget={overviewQuery.data?.budget ?? null}
               realtimeStatus={realtime.status}
+              onNavigateToDeliverable={handleNavigateToDeliverable}
             />
 
             {overviewQuery.data?.budget ? (

@@ -13,6 +13,7 @@ const SUPPORTED_EVENT_TYPES = [
   "task_updated",
   "run_updated",
   "log_event",
+  "role_handoff",
 ] as const;
 
 export function useConsoleEventStream(): ConsoleEventState {
@@ -51,6 +52,9 @@ export function useConsoleEventStream(): ConsoleEventState {
         queryClient.setQueryData<ConsoleOverview>(["console-overview"], (current) =>
           current ? applyConsoleEventToOverview(current, streamEvent) : current,
         );
+        queryClient.invalidateQueries({ queryKey: ["boss-project-overview"] });
+        queryClient.invalidateQueries({ queryKey: ["project-detail"] });
+        queryClient.invalidateQueries({ queryKey: ["role-workbench"] });
       }
 
       if (streamEvent.type === "task_updated") {
@@ -75,6 +79,11 @@ export function useConsoleEventStream(): ConsoleEventState {
           { queryKey: ["run-logs", streamEvent.payload.run_id] },
           (current) => (current ? applyConsoleEventToRunLogs(current, streamEvent) : current),
         );
+        return;
+      }
+
+      if (streamEvent.type === "role_handoff") {
+        queryClient.invalidateQueries({ queryKey: ["role-workbench"] });
       }
     };
 

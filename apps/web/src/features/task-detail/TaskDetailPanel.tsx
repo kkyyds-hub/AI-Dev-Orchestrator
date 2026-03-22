@@ -25,16 +25,36 @@ import {
 } from "../task-actions/hooks";
 import { DecisionHistoryPanel } from "../console-metrics/DecisionHistoryPanel";
 import { useTaskDecisionHistory } from "../console-metrics/decision-hooks";
+import { useTaskRelatedDeliverables } from "../deliverables/hooks";
+import {
+  DELIVERABLE_TYPE_LABELS,
+  type TaskRelatedDeliverable,
+} from "../deliverables/types";
 import { RunLogPanel } from "../run-log/RunLogPanel";
 import { useTaskDetail } from "./hooks";
 
 type TaskDetailPanelProps = {
+  panelId?: string;
+  runLogPanelId?: string;
+  requestedRunId?: string | null;
   selectedTask: ConsoleTask | null;
   budget: ConsoleBudget | null;
   realtimeStatus: StreamConnectionStatus;
+  onNavigateToDeliverable?: (input: {
+    projectId: string;
+    deliverableId: string;
+  }) => void;
 };
 
-export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDetailPanelProps) {
+export function TaskDetailPanel({
+  panelId,
+  runLogPanelId,
+  requestedRunId = null,
+  selectedTask,
+  budget,
+  realtimeStatus,
+  onNavigateToDeliverable,
+}: TaskDetailPanelProps) {
   const detailQuery = useTaskDetail(selectedTask?.id ?? null, {
     enablePollingFallback: realtimeStatus !== "open",
   });
@@ -61,6 +81,16 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
     }
   }, [detail, selectedRunId]);
 
+  useEffect(() => {
+    if (!requestedRunId || !detail?.runs.length) {
+      return;
+    }
+
+    if (detail.runs.some((run) => run.id === requestedRunId)) {
+      setSelectedRunId(requestedRunId);
+    }
+  }, [detail?.runs, requestedRunId]);
+
   const selectedRun = useMemo(
     () =>
       detail?.runs.find((run) => run.id === selectedRunId) ??
@@ -70,6 +100,7 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
   );
 
   const currentTaskId = detail?.id ?? selectedTask?.id ?? null;
+  const relatedDeliverablesQuery = useTaskRelatedDeliverables(currentTaskId);
   const decisionHistoryQuery = useTaskDecisionHistory(currentTaskId);
   const currentTaskStatus = detail?.status ?? selectedTask?.status ?? null;
   const canPause =
@@ -139,7 +170,10 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
     resolveHumanMutation.isPending;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section
+      id={panelId}
+      className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-50">任务详情</h2>
@@ -238,6 +272,46 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-50">关联交付件</h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  反查当前任务及其运行记录对应的 PRD、设计稿、代码计划或验收结论快照。
+                </p>
+              </div>
+              <StatusBadge
+                label={`${relatedDeliverablesQuery.data?.length ?? 0} 条关联`}
+                tone="info"
+              />
+            </div>
+
+            {relatedDeliverablesQuery.isLoading && !relatedDeliverablesQuery.data ? (
+              <p className="mt-4 text-sm leading-6 text-slate-400">
+                正在查询关联交付件...
+              </p>
+            ) : relatedDeliverablesQuery.isError ? (
+              <p className="mt-4 text-sm leading-6 text-rose-200">
+                关联交付件加载失败：{relatedDeliverablesQuery.error.message}
+              </p>
+            ) : relatedDeliverablesQuery.data &&
+              relatedDeliverablesQuery.data.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {relatedDeliverablesQuery.data.map((relatedItem) => (
+                  <RelatedDeliverableCard
+                    key={`${relatedItem.deliverable_id}-${relatedItem.matched_version.id}`}
+                    item={relatedItem}
+                    onNavigateToDeliverable={onNavigateToDeliverable}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-4 text-sm leading-6 text-slate-400">
+                当前任务或其运行记录还没有关联的交付件快照。
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
@@ -641,10 +715,75 @@ export function TaskDetailPanel({ selectedTask, budget, realtimeStatus }: TaskDe
             onSelectRun={setSelectedRunId}
           />
 
-          <RunLogPanel selectedRun={selectedRun} />
+          <RunLogPanel panelId={runLogPanelId} selectedRun={selectedRun} />
         </div>
       ) : null}
     </section>
+  );
+}
+
+function RelatedDeliverableCard(props: {
+  item: TaskRelatedDeliverable;
+  onNavigateToDeliverable?: (input: {
+    projectId: string;
+    deliverableId: string;
+  }) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-medium text-slate-50">{props.item.title}</div>
+            <StatusBadge
+              label={DELIVERABLE_TYPE_LABELS[props.item.type]}
+              tone="info"
+            />
+            <StatusBadge label={`v${props.item.matched_version.version_number}`} tone="neutral" />
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {props.item.matched_version.summary}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge label={props.item.stage} tone="neutral" />
+          {props.item.matched_version.source_run_id ? (
+            <StatusBadge label="来自运行快照" tone="success" />
+          ) : (
+            <StatusBadge label="来自任务快照" tone="warning" />
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+        <span>交付件 ID：{props.item.deliverable_id}</span>
+        <span>最新版本：v{props.item.current_version_number}</span>
+        <span>快照时间：{formatDateTime(props.item.matched_version.created_at)}</span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-3">
+        {props.onNavigateToDeliverable ? (
+          <button
+            type="button"
+            onClick={() =>
+              props.onNavigateToDeliverable?.({
+                projectId: props.item.project_id,
+                deliverableId: props.item.deliverable_id,
+              })
+            }
+            className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+          >
+            跳到交付件中心
+          </button>
+        ) : null}
+        {props.item.matched_version.source_run_id ? (
+          <code className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-400">
+            Run {props.item.matched_version.source_run_id}
+          </code>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

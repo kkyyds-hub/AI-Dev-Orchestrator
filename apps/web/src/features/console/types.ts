@@ -39,6 +39,11 @@ export type ConsoleRun = {
   route_reason: string | null;
   routing_score: number | null;
   routing_score_breakdown: RoutingScoreItem[];
+  owner_role_code: string | null;
+  upstream_role_code: string | null;
+  downstream_role_code: string | null;
+  handoff_reason: string | null;
+  dispatch_status: string | null;
   result_summary: string | null;
   prompt_tokens: number;
   completion_tokens: number;
@@ -70,6 +75,9 @@ export type ConsoleTask = {
   acceptance_criteria: string[];
   depends_on_task_ids: string[];
   risk_level: string;
+  owner_role_code: string | null;
+  upstream_role_code: string | null;
+  downstream_role_code: string | null;
   human_status: string;
   paused_reason: string | null;
   created_at: string;

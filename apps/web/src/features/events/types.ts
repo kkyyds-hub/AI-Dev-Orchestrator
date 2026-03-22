@@ -59,6 +59,23 @@ export type ConsoleStreamEvent =
       type: "log_event";
       timestamp: string;
       payload: StreamLogPayload;
+    }
+  | {
+      id: string;
+      type: "role_handoff";
+      timestamp: string;
+      payload: {
+        project_id: string | null;
+        task_id: string | null;
+        run_id: string | null;
+        log_path: string | null;
+        owner_role_code: string | null;
+        upstream_role_code: string | null;
+        downstream_role_code: string | null;
+        dispatch_status: string | null;
+        handoff_reason: string | null;
+        message: string;
+      };
     };
 
 export type ConsoleEventState = {

@@ -19,6 +19,48 @@ export function mapTaskStatusTone(status: string): BadgeTone {
   }
 }
 
+export function mapProjectStatusTone(status: string): BadgeTone {
+  switch (status) {
+    case "completed":
+      return "success";
+    case "active":
+      return "info";
+    case "on_hold":
+      return "warning";
+    case "archived":
+      return "neutral";
+    default:
+      return "neutral";
+  }
+}
+
+export function mapProjectRiskTone(level: string): BadgeTone {
+  switch (level) {
+    case "healthy":
+      return "success";
+    case "warning":
+      return "warning";
+    case "danger":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+export function mapBudgetPressureTone(level: string): BadgeTone {
+  switch (level) {
+    case "normal":
+      return "success";
+    case "warning":
+    case "critical":
+      return "warning";
+    case "blocked":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
 export function mapRunStatusTone(status: string): BadgeTone {
   switch (status) {
     case "succeeded":

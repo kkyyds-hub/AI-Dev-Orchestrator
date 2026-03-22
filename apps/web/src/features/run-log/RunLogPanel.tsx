@@ -5,15 +5,19 @@ import type { ConsoleRun } from "../console/types";
 import { useDecisionTrace, useRunLogs } from "./hooks";
 
 type RunLogPanelProps = {
+  panelId?: string;
   selectedRun: ConsoleRun | null;
 };
 
-export function RunLogPanel({ selectedRun }: RunLogPanelProps) {
+export function RunLogPanel({ panelId, selectedRun }: RunLogPanelProps) {
   const logsQuery = useRunLogs(selectedRun?.id ?? null);
   const decisionTraceQuery = useDecisionTrace(selectedRun?.id ?? null);
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+    <div
+      id={panelId}
+      className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-base font-semibold text-slate-50">日志事件</h3>
@@ -46,7 +50,7 @@ export function RunLogPanel({ selectedRun }: RunLogPanelProps) {
                 <div>
                   <h4 className="text-sm font-semibold text-slate-50">决策回放</h4>
                   <p className="mt-1 text-xs text-slate-500">
-                    基于结构化日志还原这次运行的路由、执行、验证和收口过程。
+                    基于结构化日志还原这次运行的路由、角色接力、执行、验证和收口过程。
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -151,6 +155,8 @@ function formatDecisionStage(stage: string) {
       return "路由";
     case "claim":
       return "领取";
+    case "handoff":
+      return "接力";
     case "context":
       return "上下文";
     case "guard":
