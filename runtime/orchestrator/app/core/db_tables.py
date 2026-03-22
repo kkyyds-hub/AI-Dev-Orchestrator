@@ -23,6 +23,7 @@ from app.domain.change_session import (
     ChangeSessionGuardStatus,
     ChangeSessionWorkspaceStatus,
 )
+from app.domain.change_plan import ChangePlanStatus
 from app.domain.deliverable import DeliverableContentFormat, DeliverableType
 from app.domain.project import ProjectStage, ProjectStatus
 from app.domain.project_role import ProjectRoleCode
@@ -824,6 +825,97 @@ class DeliverableVersionTable(ORMBase):
     approval_requests: Mapped[list["ApprovalRequestTable"]] = relationship(
         back_populates="deliverable_version",
     )
+
+
+class ChangePlanTable(ORMBase):
+    """Day06 change-plan head rows."""
+
+    __tablename__ = "change_plans"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    primary_deliverable_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("deliverables.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[ChangePlanStatus] = mapped_column(
+        Enum(
+            ChangePlanStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ChangePlanStatus.DRAFT,
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    current_version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    versions: Mapped[list["ChangePlanVersionTable"]] = relationship(
+        back_populates="change_plan",
+        cascade="all, delete-orphan",
+    )
+
+
+class ChangePlanVersionTable(ORMBase):
+    """Immutable Day06 change-plan draft version rows."""
+
+    __tablename__ = "change_plan_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "change_plan_id",
+            "version_number",
+            name="uq_change_plan_versions_plan_version",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    change_plan_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("change_plans.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    intent_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    source_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    focus_terms_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    target_files_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    expected_actions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    risk_notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    verification_commands_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    related_deliverable_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    context_pack_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    change_plan: Mapped[ChangePlanTable] = relationship(back_populates="versions")
 
 
 class ApprovalRequestTable(ORMBase):
