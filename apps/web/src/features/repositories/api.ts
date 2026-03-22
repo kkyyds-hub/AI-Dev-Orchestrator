@@ -1,6 +1,12 @@
 import { requestJson } from "../../lib/http";
 import type { RepositorySnapshot } from "../projects/types";
-import type { ChangeSession } from "./types";
+import type {
+  ChangeSession,
+  CodeContextPack,
+  CodeContextPackBuildInput,
+  FileLocatorResult,
+  FileLocatorSearchInput,
+} from "./types";
 
 export function fetchProjectRepositorySnapshot(
   projectId: string,
@@ -45,6 +51,29 @@ export function captureProjectChangeSession(
 ): Promise<ChangeSession> {
   return requestJson<ChangeSession>(`/repositories/projects/${projectId}/change-session`, {
     method: "POST",
+  });
+}
+
+export function searchProjectRepositoryFiles(
+  projectId: string,
+  input: FileLocatorSearchInput,
+): Promise<FileLocatorResult> {
+  return requestJson<FileLocatorResult>(
+    `/repositories/projects/${projectId}/file-locator/search`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function buildProjectCodeContextPack(
+  projectId: string,
+  input: CodeContextPackBuildInput,
+): Promise<CodeContextPack> {
+  return requestJson<CodeContextPack>(`/repositories/projects/${projectId}/context-pack`, {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }
 

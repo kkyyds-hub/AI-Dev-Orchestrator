@@ -7,6 +7,7 @@ import type {
 } from "../projects/types";
 import { RepositoryHomeCard } from "./RepositoryHomeCard";
 import { ChangeSessionPanel } from "./components/ChangeSessionPanel";
+import { FileLocatorPanel } from "./components/FileLocatorPanel";
 import {
   useCaptureProjectChangeSession,
   useProjectChangeSession,
@@ -49,7 +50,8 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             Day04 把 Day01 的仓库绑定、Day02 的目录快照和 Day03
-            的变更会话整合到项目详情页，作为 V4 第一层可见仓库能力；这里仍只展示入口摘要，不扩展到文件级编辑、代码上下文包、验证证据视图或真实 Git 写操作。
+            的变更会话整合到项目详情页；Day05 在此基础上新增最小文件定位与{" "}
+            <code>CodeContextPack</code>，但仍不进入 Day06 变更计划草案、具体代码改动方案或真实 Git 写操作。
           </p>
         </div>
 
@@ -224,6 +226,14 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
                   : "尚未生成目录快照；点击“手动刷新快照”后可查看最新结构化摘要。"}
               </div>
             )}
+          </div>
+
+          <div className="mt-4">
+            <FileLocatorPanel
+              projectId={projectId}
+              workspaceRootPath={workspace.root_path}
+              tasks={props.detail?.tasks ?? []}
+            />
           </div>
         </>
       ) : null}

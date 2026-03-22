@@ -1,4 +1,4 @@
-"""Repository workspace, snapshot and Day03 change-session endpoints."""
+"""Repository workspace, snapshot, change-session and Day05 locator endpoints."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from app.domain.change_session import (
     ChangeSessionGuardStatus,
     ChangeSessionWorkspaceStatus,
 )
+from app.domain.code_context_pack import CodeContextPack, FileLocatorResult
 from app.domain.repository_workspace import (
     RepositoryAccessMode,
     RepositoryWorkspace,
@@ -31,17 +32,30 @@ from app.domain.repository_snapshot import (
 )
 from app.repositories.change_session_repository import ChangeSessionRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.run_repository import RunRepository
 from app.repositories.repository_snapshot_repository import (
     RepositorySnapshotRepository,
 )
 from app.repositories.repository_workspace_repository import (
     RepositoryWorkspaceRepository,
 )
+from app.repositories.task_repository import TaskRepository
 from app.services.branch_session_service import (
     BranchSessionInspectionError,
     BranchSessionProjectNotFoundError,
     BranchSessionService,
     BranchSessionWorkspaceNotFoundError,
+)
+from app.services.codebase_locator_service import (
+    CodebaseLocatorProjectNotFoundError,
+    CodebaseLocatorRequestError,
+    CodebaseLocatorService,
+    CodebaseLocatorTaskNotFoundError,
+    CodebaseLocatorWorkspaceNotFoundError,
+)
+from app.services.context_builder_service import (
+    CodeContextBuildError,
+    ContextBuilderService,
 )
 from app.services.repository_scan_service import (
     RepositoryScanProjectNotFoundError,
@@ -54,6 +68,7 @@ from app.services.repository_workspace_service import (
     RepositoryWorkspaceProjectNotFoundError,
     RepositoryWorkspaceService,
 )
+from app.services.task_readiness_service import TaskReadinessService
 
 
 class RepositoryWorkspaceBindRequest(BaseModel):
@@ -289,6 +304,72 @@ class ChangeSessionResponse(BaseModel):
         )
 
 
+class FileLocatorSearchRequest(BaseModel):
+    """DTO for Day05 repository file-location search requests."""
+
+    task_id: UUID | None = Field(
+        default=None,
+        description="Optional project task ID used to derive locator keywords and summary.",
+    )
+    task_query: str | None = Field(
+        default=None,
+        max_length=2_000,
+        description="Optional planning or task brief used to derive extra locator keywords.",
+    )
+    keywords: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Optional explicit keywords merged with task-derived tokens.",
+    )
+    path_prefixes: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Optional relative path prefixes, such as runtime/orchestrator/app/services.",
+    )
+    module_names: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Optional module or folder names used as strong Day05 signals.",
+    )
+    file_types: list[str] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Optional file types such as py, tsx, markdown or yaml.",
+    )
+    limit: int = Field(
+        default=12,
+        ge=1,
+        le=50,
+        description="Maximum number of candidate files returned by the locator.",
+    )
+
+
+class CodeContextPackBuildRequest(FileLocatorSearchRequest):
+    """DTO for Day05 bounded code-context pack requests."""
+
+    selected_paths: list[str] = Field(
+        min_length=1,
+        max_length=20,
+        description="Relative repository file paths selected from the Day05 candidate list.",
+    )
+    max_total_bytes: int = Field(
+        default=12_000,
+        ge=512,
+        le=80_000,
+        description="Maximum UTF-8 byte budget for the full CodeContextPack.",
+    )
+    max_bytes_per_file: int = Field(
+        default=4_000,
+        ge=256,
+        le=20_000,
+        description="Maximum UTF-8 byte budget allocated to each selected file excerpt.",
+    )
+    selection_reasons_by_path: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Optional candidate match reasons keyed by relative path for UI round-trips.",
+    )
+
+
 def get_repository_workspace_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> RepositoryWorkspaceService:
@@ -325,6 +406,34 @@ def get_branch_session_service(
         project_repository=project_repository,
         repository_workspace_repository=RepositoryWorkspaceRepository(session),
         change_session_repository=ChangeSessionRepository(session),
+    )
+
+
+def get_codebase_locator_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> CodebaseLocatorService:
+    """Create the Day05 file-locator dependency."""
+
+    return CodebaseLocatorService(
+        project_repository=ProjectRepository(session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def get_code_context_builder_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ContextBuilderService:
+    """Create the Day05 bounded code-context builder dependency."""
+
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
+    return ContextBuilderService(
+        run_repository=run_repository,
+        task_readiness_service=TaskReadinessService(
+            task_repository=task_repository,
+            run_repository=run_repository,
+        ),
     )
 
 
@@ -562,6 +671,163 @@ def get_project_change_session(
         )
 
     return ChangeSessionResponse.from_change_session(change_session)
+
+
+@router.post(
+    "/projects/{project_id}/file-locator/search",
+    response_model=FileLocatorResult,
+    summary="Locate Day05 candidate files for one task or planning brief",
+)
+def search_project_repository_files(
+    project_id: UUID,
+    request: FileLocatorSearchRequest,
+    codebase_locator_service: Annotated[
+        CodebaseLocatorService,
+        Depends(get_codebase_locator_service),
+    ],
+) -> FileLocatorResult:
+    """Return one minimal Day05 candidate file set for a task or planning brief."""
+
+    try:
+        return codebase_locator_service.locate_files(
+            project_id,
+            task_id=request.task_id,
+            task_query=request.task_query,
+            keywords=request.keywords,
+            path_prefixes=request.path_prefixes,
+            module_names=request.module_names,
+            file_types=request.file_types,
+            limit=request.limit,
+        )
+    except (
+        CodebaseLocatorProjectNotFoundError,
+        CodebaseLocatorWorkspaceNotFoundError,
+        CodebaseLocatorTaskNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except CodebaseLocatorRequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/projects/{project_id}/context-pack",
+    response_model=CodeContextPack,
+    summary="Build one bounded Day05 CodeContextPack from selected repository files",
+)
+def build_project_code_context_pack(
+    project_id: UUID,
+    request: CodeContextPackBuildRequest,
+    codebase_locator_service: Annotated[
+        CodebaseLocatorService,
+        Depends(get_codebase_locator_service),
+    ],
+    context_builder_service: Annotated[
+        ContextBuilderService,
+        Depends(get_code_context_builder_service),
+    ],
+) -> CodeContextPack:
+    """Build one bounded Day05 `CodeContextPack` from previously selected files."""
+
+    locator_filters_present = any(
+        [
+            request.task_id is not None,
+            bool(request.task_query and request.task_query.strip()),
+            bool(request.keywords),
+            bool(request.path_prefixes),
+            bool(request.module_names),
+            bool(request.file_types),
+        ]
+    )
+
+    source_summary = "手动选择文件并生成代码上下文包。"
+    focus_terms: list[str] = []
+    derived_reason_map: dict[str, list[str]] = {}
+
+    if locator_filters_present:
+        try:
+            locator_result = codebase_locator_service.locate_files(
+                project_id,
+                task_id=request.task_id,
+                task_query=request.task_query,
+                keywords=request.keywords,
+                path_prefixes=request.path_prefixes,
+                module_names=request.module_names,
+                file_types=request.file_types,
+                limit=max(request.limit, len(request.selected_paths), 20),
+            )
+        except (
+            CodebaseLocatorProjectNotFoundError,
+            CodebaseLocatorWorkspaceNotFoundError,
+            CodebaseLocatorTaskNotFoundError,
+        ) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+        except CodebaseLocatorRequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
+        source_summary = locator_result.query.summary
+        focus_terms = locator_result.query.keywords
+        derived_reason_map = {
+            candidate.relative_path: list(candidate.match_reasons)
+            for candidate in locator_result.candidates
+        }
+
+    merged_reason_map = {
+        path: [
+            reason.strip()
+            for reason in (
+                request.selection_reasons_by_path.get(path)
+                or derived_reason_map.get(path)
+                or []
+            )
+            if reason.strip()
+        ]
+        for path in request.selected_paths
+    }
+
+    try:
+        repository_root_path = codebase_locator_service.get_project_repository_root_path(
+            project_id
+        )
+        return context_builder_service.build_code_context_pack(
+            repository_root_path=repository_root_path,
+            selected_paths=request.selected_paths,
+            source_summary=source_summary,
+            focus_terms=focus_terms,
+            selection_reasons_by_path=merged_reason_map,
+            max_total_bytes=request.max_total_bytes,
+            max_bytes_per_file=request.max_bytes_per_file,
+            project_id=project_id,
+        )
+    except (
+        CodebaseLocatorProjectNotFoundError,
+        CodebaseLocatorWorkspaceNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except CodebaseLocatorRequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except CodeContextBuildError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
 
 
 RepositoryTreeNodeResponse.model_rebuild()

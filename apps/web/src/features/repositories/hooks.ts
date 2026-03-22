@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  buildProjectCodeContextPack,
   captureProjectChangeSession,
   fetchProjectChangeSession,
   fetchProjectRepositorySnapshot,
   refreshProjectRepositorySnapshot,
+  searchProjectRepositoryFiles,
 } from "./api";
+import type { CodeContextPackBuildInput, FileLocatorSearchInput } from "./types";
 
 export function useProjectRepositorySnapshot(projectId: string | null) {
   return useQuery({
@@ -64,6 +67,30 @@ export function useCaptureProjectChangeSession(projectId: string | null) {
       await queryClient.invalidateQueries({
         queryKey: ["change-session", changeSession.project_id],
       });
+    },
+  });
+}
+
+export function useProjectFileLocatorSearch(projectId: string | null) {
+  return useMutation({
+    mutationFn: async (input: FileLocatorSearchInput) => {
+      if (!projectId) {
+        throw new Error("当前没有可定位文件的项目仓库。");
+      }
+
+      return searchProjectRepositoryFiles(projectId, input);
+    },
+  });
+}
+
+export function useBuildProjectCodeContextPack(projectId: string | null) {
+  return useMutation({
+    mutationFn: async (input: CodeContextPackBuildInput) => {
+      if (!projectId) {
+        throw new Error("当前没有可生成上下文包的项目仓库。");
+      }
+
+      return buildProjectCodeContextPack(projectId, input);
     },
   });
 }
