@@ -28,11 +28,14 @@ from app.domain.project import (
 )
 from app.domain.project_role import ProjectRoleCode
 from app.api.routes.repositories import (
+    ChangeSessionResponse,
     RepositorySnapshotResponse,
     RepositoryWorkspaceResponse,
 )
+from app.domain.change_session import ChangeSession
 from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
 from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.change_session_repository import ChangeSessionRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_role_repository import ProjectRoleRepository
@@ -155,11 +158,17 @@ class ProjectResponse(BaseModel):
     task_stats: ProjectTaskStatsResponse
     repository_workspace: RepositoryWorkspaceResponse | None = None
     latest_repository_snapshot: RepositorySnapshotResponse | None = None
+    current_change_session: ChangeSessionResponse | None = None
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_project(cls, project: Project) -> "ProjectResponse":
+    def from_project(
+        cls,
+        project: Project,
+        *,
+        current_change_session: ChangeSession | None = None,
+    ) -> "ProjectResponse":
         """Convert the domain project into an API DTO."""
 
         return cls(
@@ -179,6 +188,11 @@ class ProjectResponse(BaseModel):
                     project.latest_repository_snapshot
                 )
                 if project.latest_repository_snapshot is not None
+                else None
+            ),
+            current_change_session=(
+                ChangeSessionResponse.from_change_session(current_change_session)
+                if current_change_session is not None
                 else None
             ),
             created_at=project.created_at,
@@ -413,7 +427,7 @@ class ProjectDetailResponse(ProjectResponse):
 
     @classmethod
     def from_detail(cls, detail: ProjectDetail) -> "ProjectDetailResponse":
-        """Convert the Day03 project aggregate into an API DTO."""
+        """Convert the Day04 project aggregate into an API DTO."""
 
         return cls(
             id=detail.project.id,
@@ -436,6 +450,7 @@ class ProjectDetailResponse(ProjectResponse):
                 if detail.project.latest_repository_snapshot is not None
                 else None
             ),
+            current_change_session=None,
             created_at=detail.project.created_at,
             updated_at=detail.project.updated_at,
             tasks=[
@@ -1279,6 +1294,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 def create_project(
     request: ProjectCreateRequest,
     project_service: Annotated[ProjectService, Depends(get_project_service)],
+    session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectResponse:
     """Create one project."""
 
@@ -1295,7 +1311,11 @@ def create_project(
             detail=str(exc),
         ) from exc
 
-    return ProjectResponse.from_project(project)
+    change_session_repository = ChangeSessionRepository(session)
+    return ProjectResponse.from_project(
+        project,
+        current_change_session=change_session_repository.get_by_project_id(project.id),
+    )
 
 
 @router.get(
@@ -1305,11 +1325,19 @@ def create_project(
 )
 def list_projects(
     project_service: Annotated[ProjectService, Depends(get_project_service)],
+    session: Annotated[Session, Depends(get_db_session)],
 ) -> list[ProjectResponse]:
     """Return all projects."""
 
     projects = project_service.list_projects()
-    return [ProjectResponse.from_project(project) for project in projects]
+    change_session_repository = ChangeSessionRepository(session)
+    return [
+        ProjectResponse.from_project(
+            project,
+            current_change_session=change_session_repository.get_by_project_id(project.id),
+        )
+        for project in projects
+    ]
 
 
 @router.get(
@@ -1368,6 +1396,7 @@ def select_project_sop_template(
 def get_project(
     project_id: UUID,
     project_service: Annotated[ProjectService, Depends(get_project_service)],
+    session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDetailResponse:
     """Return one project by ID."""
 
@@ -1378,7 +1407,17 @@ def get_project(
             detail=f"Project not found: {project_id}",
         )
 
-    return ProjectDetailResponse.from_detail(detail)
+    response = ProjectDetailResponse.from_detail(detail)
+    change_session = ChangeSessionRepository(session).get_by_project_id(project_id)
+    return response.model_copy(
+        update={
+            "current_change_session": (
+                ChangeSessionResponse.from_change_session(change_session)
+                if change_session is not None
+                else None
+            )
+        }
+    )
 
 
 @router.get(

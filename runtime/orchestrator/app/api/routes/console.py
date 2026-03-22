@@ -8,12 +8,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.routes.repositories import (
+    ChangeSessionResponse,
+    RepositorySnapshotResponse,
+    RepositoryWorkspaceResponse,
+)
 from app.api.routes.workers import WorkerSlotSnapshotResponse
 from app.core.db import get_db_session
+from app.domain.change_session import ChangeSession
 from app.domain.project import ProjectStage, ProjectStatus
 from app.domain.project_role import ProjectRoleCode
 from app.domain.run import RunStatus
 from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
+from app.repositories.change_session_repository import ChangeSessionRepository
 from app.repositories.approval_repository import ApprovalRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
@@ -318,7 +325,7 @@ class BossProjectLatestTaskResponse(BaseModel):
 
 
 class BossProjectItemResponse(BaseModel):
-    """One project card/row returned to the V3 Day02 boss homepage."""
+    """One project card/row returned to the Day04 boss homepage."""
 
     id: str
     name: str
@@ -337,11 +344,19 @@ class BossProjectItemResponse(BaseModel):
     attention_task_count: int
     high_risk_task_count: int
     latest_task: BossProjectLatestTaskResponse | None = None
+    repository_workspace: RepositoryWorkspaceResponse | None = None
+    latest_repository_snapshot: RepositorySnapshotResponse | None = None
+    current_change_session: ChangeSessionResponse | None = None
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_item(cls, item: ConsoleProjectItem) -> "BossProjectItemResponse":
+    def from_item(
+        cls,
+        item: ConsoleProjectItem,
+        *,
+        current_change_session: ChangeSession | None = None,
+    ) -> "BossProjectItemResponse":
         """Convert one service-side project item into an API DTO."""
 
         return cls(
@@ -374,6 +389,23 @@ class BossProjectItemResponse(BaseModel):
             latest_task=(
                 BossProjectLatestTaskResponse.from_latest_task(item.latest_task)
                 if item.latest_task is not None
+                else None
+            ),
+            repository_workspace=(
+                RepositoryWorkspaceResponse.from_workspace(item.project.repository_workspace)
+                if item.project.repository_workspace is not None
+                else None
+            ),
+            latest_repository_snapshot=(
+                RepositorySnapshotResponse.from_snapshot(
+                    item.project.latest_repository_snapshot
+                )
+                if item.project.latest_repository_snapshot is not None
+                else None
+            ),
+            current_change_session=(
+                ChangeSessionResponse.from_change_session(current_change_session)
+                if current_change_session is not None
                 else None
             ),
             created_at=item.project.created_at,
@@ -414,6 +446,8 @@ class BossProjectOverviewResponse(BaseModel):
     def from_overview(
         cls,
         overview: ConsoleProjectOverview,
+        *,
+        current_change_sessions: dict[UUID, ChangeSession | None] | None = None,
     ) -> "BossProjectOverviewResponse":
         """Convert the boss-homepage service payload into an API DTO."""
 
@@ -429,7 +463,17 @@ class BossProjectOverviewResponse(BaseModel):
                 for item in overview.stage_distribution
             ],
             budget=ConsoleBudgetHealthResponse.from_snapshot(overview.budget),
-            projects=[BossProjectItemResponse.from_item(item) for item in overview.projects],
+            projects=[
+                BossProjectItemResponse.from_item(
+                    item,
+                    current_change_session=(
+                        current_change_sessions.get(item.project.id)
+                        if current_change_sessions is not None
+                        else None
+                    ),
+                )
+                for item in overview.projects
+            ],
         )
 
 
@@ -695,11 +739,20 @@ router = APIRouter(prefix="/console", tags=["console"])
 )
 def get_project_overview(
     console_service: Annotated[ConsoleService, Depends(get_console_service)],
+    session: Annotated[Session, Depends(get_db_session)],
 ) -> BossProjectOverviewResponse:
-    """Return the V3 Day02 boss homepage payload."""
+    """Return the Day04 boss homepage payload with repository entry summaries."""
 
     overview = console_service.get_project_overview()
-    return BossProjectOverviewResponse.from_overview(overview)
+    change_session_repository = ChangeSessionRepository(session)
+    current_change_sessions = {
+        item.project.id: change_session_repository.get_by_project_id(item.project.id)
+        for item in overview.projects
+    }
+    return BossProjectOverviewResponse.from_overview(
+        overview,
+        current_change_sessions=current_change_sessions,
+    )
 
 
 @router.get(
