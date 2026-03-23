@@ -12,6 +12,7 @@ import type {
 import { ChangePlanDrawer } from "../projects/ChangePlanDrawer";
 import { useProjectChangePlans } from "../projects/hooks";
 import { ChangeBatchBoard } from "./ChangeBatchBoard";
+import { RepositoryVerificationPanel } from "./RepositoryVerificationPanel";
 import { RepositoryHomeCard } from "./RepositoryHomeCard";
 import { ChangeSessionPanel } from "./components/ChangeSessionPanel";
 import { FileLocatorPanel } from "./components/FileLocatorPanel";
@@ -77,8 +78,9 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             Day04 把 Day01 的仓库绑定、Day02 的目录快照和 Day03
             的变更会话整合到项目详情页；Day05 在此基础上新增最小文件定位与{" "}
             <code>CodeContextPack</code>，Day06 再把任务、交付件与候选文件集合整理成
-            ChangePlan 草案；当前 Day07-Day08 已把多个草案合并成 ChangeBatch，并在执行前补上
-            风险分类、阻断与人工确认，但仍不进入 Day09+ 的验证运行或任何真实 Git 写操作。
+            ChangePlan 草案；当前 Day07-Day09 已把多个草案合并成 ChangeBatch、补上执行前
+            风险分类与人工确认，并为仓库冻结 build / test / lint / typecheck 命令基线，
+            但仍不进入 Day10+ 的验证运行、证据包或任何真实 Git 写操作。
           </p>
         </div>
 
@@ -237,6 +239,13 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
               onCapture={() => {
                 void captureChangeSessionMutation.mutateAsync();
               }}
+            />
+          </div>
+
+          <div className="mt-4">
+            <RepositoryVerificationPanel
+              projectId={projectId}
+              repositoryRootPath={workspace.root_path}
             />
           </div>
 

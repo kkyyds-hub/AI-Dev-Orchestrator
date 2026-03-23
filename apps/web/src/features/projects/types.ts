@@ -1,5 +1,8 @@
 import type { ConsoleBudget } from "../console/types";
-import type { ChangeSession } from "../repositories/types";
+import type {
+  ChangeSession,
+  RepositoryVerificationTemplateRef,
+} from "../repositories/types";
 
 export type ProjectTaskStats = {
   total_tasks: number;
@@ -203,6 +206,7 @@ export type ChangePlanVersion = {
   expected_actions: string[];
   risk_notes: string[];
   verification_commands: string[];
+  verification_templates: RepositoryVerificationTemplateRef[];
   related_deliverables: ChangePlanLinkedDeliverable[];
   context_pack_generated_at: string | null;
   created_at: string;
@@ -237,6 +241,7 @@ export type ChangePlanDraftInput = {
   expected_actions: string[];
   risk_notes: string[];
   verification_commands: string[];
+  verification_template_ids: string[];
   context_pack_generated_at?: string | null;
 };
 

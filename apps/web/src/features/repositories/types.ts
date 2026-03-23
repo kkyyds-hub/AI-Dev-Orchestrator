@@ -41,6 +41,50 @@ export type ChangeSession = {
   updated_at: string;
 };
 
+export type RepositoryVerificationCategory =
+  | "build"
+  | "test"
+  | "lint"
+  | "typecheck";
+
+export type RepositoryVerificationTemplateRef = {
+  id: string;
+  category: RepositoryVerificationCategory;
+  name: string;
+  command: string;
+  working_directory: string;
+  timeout_seconds: number;
+  enabled_by_default: boolean;
+  description: string | null;
+};
+
+export type RepositoryVerificationTemplate = RepositoryVerificationTemplateRef & {
+  project_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RepositoryVerificationBaseline = {
+  project_id: string;
+  template_count: number;
+  configured_categories: RepositoryVerificationCategory[];
+  last_updated_at: string | null;
+  templates: RepositoryVerificationTemplate[];
+};
+
+export type RepositoryVerificationBaselineInput = {
+  templates: Array<{
+    id?: string | null;
+    category: RepositoryVerificationCategory;
+    name: string;
+    command: string;
+    working_directory: string;
+    timeout_seconds: number;
+    enabled_by_default: boolean;
+    description?: string | null;
+  }>;
+};
+
 export type FileLocatorQuery = {
   task_id: string | null;
   task_title: string | null;
@@ -214,6 +258,7 @@ export type ChangeBatchTask = {
   intent_summary: string;
   expected_actions: string[];
   verification_commands: string[];
+  verification_templates: RepositoryVerificationTemplateRef[];
   related_deliverables: ChangePlanLinkedDeliverable[];
   dependencies: ChangeBatchDependency[];
   target_files: ChangePlanTargetFile[];
@@ -304,4 +349,14 @@ export const CHANGE_BATCH_RISK_CATEGORY_LABELS: Record<
   sensitive_file: "敏感文件",
   dangerous_command: "危险命令",
   wide_change: "大范围变更",
+};
+
+export const REPOSITORY_VERIFICATION_CATEGORY_LABELS: Record<
+  RepositoryVerificationCategory,
+  string
+> = {
+  build: "Build",
+  test: "Test",
+  lint: "Lint",
+  typecheck: "Typecheck",
 };

@@ -7,7 +7,9 @@ import {
   fetchChangeBatchDetail,
   fetchProjectChangeBatches,
   fetchProjectChangeSession,
+  fetchProjectRepositoryVerificationBaseline,
   fetchProjectRepositorySnapshot,
+  replaceProjectRepositoryVerificationBaseline,
   refreshProjectRepositorySnapshot,
   runChangeBatchPreflight,
   searchProjectRepositoryFiles,
@@ -16,6 +18,7 @@ import type {
   ChangeBatchPreflightInput,
   CodeContextPackBuildInput,
   FileLocatorSearchInput,
+  RepositoryVerificationBaselineInput,
 } from "./types";
 
 export function useProjectRepositorySnapshot(projectId: string | null) {
@@ -75,6 +78,50 @@ export function useCaptureProjectChangeSession(projectId: string | null) {
       await queryClient.invalidateQueries({
         queryKey: ["change-session", changeSession.project_id],
       });
+    },
+  });
+}
+
+export function useProjectRepositoryVerificationBaseline(projectId: string | null) {
+  return useQuery({
+    queryKey: ["repository-verification-baseline", projectId],
+    queryFn: () => fetchProjectRepositoryVerificationBaseline(projectId ?? ""),
+    enabled: projectId !== null,
+  });
+}
+
+export function useReplaceProjectRepositoryVerificationBaseline(
+  projectId: string | null,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: RepositoryVerificationBaselineInput) => {
+      if (!projectId) {
+        throw new Error("当前没有可配置验证基线的项目仓库。");
+      }
+
+      return replaceProjectRepositoryVerificationBaseline({
+        projectId,
+        payload,
+      });
+    },
+    onSuccess: async (baseline) => {
+      queryClient.setQueryData(
+        ["repository-verification-baseline", baseline.project_id],
+        baseline,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["repository-verification-baseline", baseline.project_id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-change-plans"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-change-batches", baseline.project_id],
+        }),
+      ]);
     },
   });
 }

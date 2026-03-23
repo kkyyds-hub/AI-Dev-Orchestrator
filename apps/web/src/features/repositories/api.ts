@@ -10,6 +10,8 @@ import type {
   CodeContextPackBuildInput,
   FileLocatorResult,
   FileLocatorSearchInput,
+  RepositoryVerificationBaseline,
+  RepositoryVerificationBaselineInput,
 } from "./types";
 
 export function fetchProjectRepositorySnapshot(
@@ -27,6 +29,27 @@ export function refreshProjectRepositorySnapshot(
     `/repositories/projects/${projectId}/snapshot/refresh`,
     {
       method: "POST",
+    },
+  );
+}
+
+export function fetchProjectRepositoryVerificationBaseline(
+  projectId: string,
+): Promise<RepositoryVerificationBaseline> {
+  return requestJson<RepositoryVerificationBaseline>(
+    `/repositories/projects/${projectId}/verification-baseline`,
+  );
+}
+
+export function replaceProjectRepositoryVerificationBaseline(input: {
+  projectId: string;
+  payload: RepositoryVerificationBaselineInput;
+}): Promise<RepositoryVerificationBaseline> {
+  return requestJson<RepositoryVerificationBaseline>(
+    `/repositories/projects/${input.projectId}/verification-baseline`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input.payload),
     },
   );
 }

@@ -15,7 +15,10 @@ import type {
   ChangeBatchSummary,
   ChangeBatchTargetFileAggregate,
 } from "./types";
-import { CHANGE_BATCH_PREFLIGHT_STATUS_LABELS } from "./types";
+import {
+  CHANGE_BATCH_PREFLIGHT_STATUS_LABELS,
+  REPOSITORY_VERIFICATION_CATEGORY_LABELS,
+} from "./types";
 
 type ChangeBatchBoardProps = {
   projectId: string | null;
@@ -497,6 +500,45 @@ function ChangeBatchDetailPanel(props: {
                         <li key={`${task.task_id}-${action}`}>• {action}</li>
                       ))}
                     </ul>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                      Day09 验证模板
+                    </div>
+                    {task.verification_templates.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {task.verification_templates.map((template) => (
+                          <StatusBadge
+                            key={`${task.task_id}-${template.id}`}
+                            label={`${REPOSITORY_VERIFICATION_CATEGORY_LABELS[template.category]} · ${template.name}`}
+                            tone="info"
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-sm leading-6 text-slate-400">
+                        当前任务未直接引用 Day09 仓库模板，仅保留手动命令基线。
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                      验证命令基线
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {task.verification_commands.map((command) => (
+                        <div
+                          key={`${task.task_id}-${command}`}
+                          className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm leading-6 text-slate-300"
+                        >
+                          {command}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

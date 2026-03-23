@@ -4,7 +4,13 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
 import { useProjectDeliverableSnapshot } from "../deliverables/hooks";
 import { DELIVERABLE_TYPE_LABELS } from "../deliverables/types";
-import type { CodeContextPack } from "../repositories/types";
+import {
+  useProjectRepositoryVerificationBaseline,
+} from "../repositories/hooks";
+import type {
+  CodeContextPack,
+} from "../repositories/types";
+import { REPOSITORY_VERIFICATION_CATEGORY_LABELS } from "../repositories/types";
 import {
   useAppendChangePlanVersion,
   useChangePlanDetail,
@@ -41,6 +47,9 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
   const [expectedActionsText, setExpectedActionsText] = useState("");
   const [riskNotesText, setRiskNotesText] = useState("");
   const [verificationCommandsText, setVerificationCommandsText] = useState("");
+  const [selectedVerificationTemplateIds, setSelectedVerificationTemplateIds] = useState<
+    string[]
+  >([]);
   const [selectedTargetPaths, setSelectedTargetPaths] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -48,8 +57,12 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
   const changePlanDetailQuery = useChangePlanDetail(
     props.open ? selectedPlanId : null,
   );
+  const verificationBaselineQuery = useProjectRepositoryVerificationBaseline(
+    props.open ? props.projectId : null,
+  );
   const selectedPlanDetail = changePlanDetailQuery.data ?? null;
   const deliverables = deliverablesQuery.data?.deliverables ?? [];
+  const verificationTemplates = verificationBaselineQuery.data?.templates ?? [];
 
   const changePlansForTask = useMemo(
     () => props.changePlans.filter((item) => item.task_id === selectedTaskId),
@@ -88,6 +101,25 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
     }
     return activeBaselineVersion?.target_files ?? [];
   }, [activeBaselineVersion, packTargetFiles, props.codeContextPack]);
+  const selectedVerificationTemplates = useMemo(
+    () =>
+      verificationTemplates.filter((template) =>
+        selectedVerificationTemplateIds.includes(template.id),
+      ),
+    [selectedVerificationTemplateIds, verificationTemplates],
+  );
+  const resolvedVerificationCommands = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...selectedVerificationTemplates.map((template) => template.command),
+            ...parseLineItems(verificationCommandsText),
+          ].filter((item) => item.trim().length > 0),
+        ),
+      ),
+    [selectedVerificationTemplates, verificationCommandsText],
+  );
 
   useEffect(() => {
     if (!props.open) {
@@ -142,6 +174,9 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
       setExpectedActionsText(latestVersion.expected_actions.join("\n"));
       setRiskNotesText(latestVersion.risk_notes.join("\n"));
       setVerificationCommandsText(latestVersion.verification_commands.join("\n"));
+      setSelectedVerificationTemplateIds(
+        latestVersion.verification_templates.map((template) => template.id),
+      );
       setSelectedTargetPaths(
         (props.codeContextPack ? packTargetFiles : latestVersion.target_files).map(
           (item) => item.relative_path,
@@ -157,6 +192,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
     setExpectedActionsText("");
     setRiskNotesText("");
     setVerificationCommandsText("");
+    setSelectedVerificationTemplateIds([]);
     setSelectedTargetPaths(packTargetFiles.map((item) => item.relative_path));
   }, [
     changePlanDetailQuery.isLoading,
@@ -242,8 +278,11 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
       setErrorMessage("请至少填写一条风险说明。");
       return;
     }
-    if (verificationCommands.length === 0) {
-      setErrorMessage("请至少填写一条验证命令。");
+    if (
+      verificationCommands.length === 0 &&
+      selectedVerificationTemplateIds.length === 0
+    ) {
+      setErrorMessage("请至少填写一条验证命令，或选择一个 Day09 验证模板。");
       return;
     }
 
@@ -258,6 +297,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
       expected_actions: expectedActions,
       risk_notes: riskNotes,
       verification_commands: verificationCommands,
+      verification_template_ids: selectedVerificationTemplateIds,
       context_pack_generated_at: activeContextPackGeneratedAt,
     };
 
@@ -592,8 +632,8 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                 </FieldBlock>
 
                 <FieldBlock
-                  label="验证命令引用"
-                  description="一行一条，例如“python -m pytest ...”或“npm run build”。"
+                  label="自定义验证命令"
+                  description="仍可补充自由命令；Day09 验证模板会在下方单独引用。"
                 >
                   <textarea
                     value={verificationCommandsText}
@@ -603,6 +643,103 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   />
                 </FieldBlock>
               </div>
+
+              <FieldBlock
+                className="mt-5"
+                label="Day09 验证模板"
+                description="可直接引用仓库级 build / test / lint / typecheck 基线；Day07 ChangeBatch 会保留这些引用，并把命令展开给 Day08 预检使用。"
+              >
+                {verificationBaselineQuery.isLoading ? (
+                  <div className="text-sm leading-6 text-slate-400">
+                    正在加载 Day09 验证模板...
+                  </div>
+                ) : verificationBaselineQuery.isError ? (
+                  <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+                    验证模板加载失败：{verificationBaselineQuery.error.message}
+                  </div>
+                ) : verificationTemplates.length > 0 ? (
+                  <div className="space-y-3">
+                    {verificationTemplates.map((template) => {
+                      const checked = selectedVerificationTemplateIds.includes(template.id);
+                      return (
+                        <label
+                          key={template.id}
+                          className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setSelectedVerificationTemplateIds((current) =>
+                                checked
+                                  ? current.filter((item) => item !== template.id)
+                                  : [...current, template.id],
+                              );
+                            }}
+                            className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-medium text-slate-100">
+                                {template.name}
+                              </div>
+                              <StatusBadge
+                                label={
+                                  REPOSITORY_VERIFICATION_CATEGORY_LABELS[
+                                    template.category
+                                  ]
+                                }
+                                tone="info"
+                              />
+                              <StatusBadge
+                                label={template.enabled_by_default ? "默认启用" : "按需启用"}
+                                tone={template.enabled_by_default ? "success" : "neutral"}
+                              />
+                              <StatusBadge
+                                label={`${template.timeout_seconds}s`}
+                                tone="warning"
+                              />
+                            </div>
+                            <div className="mt-2 text-sm leading-6 text-slate-300">
+                              {template.description ?? "未提供模板说明。"}
+                            </div>
+                            <div className="mt-2 text-xs leading-5 text-slate-500">
+                              工作目录 {template.working_directory} · {template.command}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                    当前项目尚未初始化 Day09 验证模板，请先在仓库页补齐命令基线。
+                  </div>
+                )}
+              </FieldBlock>
+
+              <FieldBlock
+                className="mt-5"
+                label="本次草案的验证基线预览"
+                description="这里合并 Day09 模板命令与当前草案补充的自定义命令，仅做基线预览，不执行任何命令。"
+              >
+                {resolvedVerificationCommands.length > 0 ? (
+                  <div className="space-y-2">
+                    {resolvedVerificationCommands.map((command) => (
+                      <div
+                        key={command}
+                        className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100"
+                      >
+                        {command}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                    尚未选择 Day09 模板，也未填写自定义验证命令。
+                  </div>
+                )}
+              </FieldBlock>
 
               <FieldBlock
                 className="mt-5"
@@ -678,11 +815,22 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                             label={`${version.verification_commands.length} 验证命令`}
                             tone="warning"
                           />
+                          <StatusBadge
+                            label={`${version.verification_templates.length} 模板`}
+                            tone="neutral"
+                          />
                         </div>
                         <div className="mt-2 text-sm leading-6 text-slate-300">
                           {version.intent_summary}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
+                          {version.verification_templates.map((template) => (
+                            <StatusBadge
+                              key={`${version.id}-${template.id}`}
+                              label={`${REPOSITORY_VERIFICATION_CATEGORY_LABELS[template.category]} · ${template.name}`}
+                              tone="info"
+                            />
+                          ))}
                           {version.related_deliverables.map((deliverable) => (
                             <StatusBadge
                               key={`${version.id}-${deliverable.deliverable_id}`}
