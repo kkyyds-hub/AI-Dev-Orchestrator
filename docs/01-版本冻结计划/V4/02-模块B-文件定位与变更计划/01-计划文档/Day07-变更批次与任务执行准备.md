@@ -4,8 +4,8 @@
 - 模块 / 提案：`模块B：文件定位与变更计划`
 - 原始日期：`2026-04-28`
 - 原始来源：`V4 正式版总纲 / 模块B：文件定位与变更计划 / Day07`
-- 当前回填状态：**未开始**
-- 回填口径：当前文档为 V4 冻结版计划，尚未开始实现；后续只按 Day07 范围回填，不提前跨 Day 扩 scope。
+- 当前回填状态：**已完成**
+- 回填口径：已严格按 Day07 范围完成 ChangeBatch 建模、聚合创建、任务顺序/依赖/文件重叠展示、仓库页接入与最小烟测；未提前跨入 Day08 风险预检、审批放行、验证证据包或任何产品内真实 Git 写操作。
 
 ---
 
@@ -36,14 +36,26 @@
 
 ---
 
+## 边界澄清
+
+1. Day07 只建立 `ChangePlan` → `ChangeBatch` 的执行准备层，不做 Day08 风险预检、人工确认或审批放行。
+2. Day07 只补批次聚合、顺序整理、重叠提醒、列表/详情/创建接口以及仓库页看板，不进入真实代码修改、验证运行、差异证据包或回退链路。
+3. Day07 不做真实 `checkout` / `commit` / `push` / `PR` / `merge`，也不把任何真实 Git 写操作暴露到产品链路中。
+4. 本次开发过程中的本地 Git commit 仅用于仓库实现收口，不代表产品内新增任何真实 Git 写操作能力。
+
+---
+
 ## 回填记录
 
-- 当前结论：**未开始**
-- 回填说明：当前仅完成 Day07 冻结版计划建档，尚未进入实现；开始开发时需严格以今日目标、当日交付和验收点为回填边界。
+- 当前结论：**已完成**
+- 回填说明：已新增 Day07 的 `ChangeBatch` 领域模型、SQLite 持久化表与仓储、服务层聚合与依赖排序逻辑，并在 `/repositories` 下补齐批次创建/列表/详情接口；前端在项目仓库页接入 `ChangeBatchBoard`，可基于多个最新 `ChangePlan` 创建批次、查看活跃批次摘要、展示任务执行顺序、依赖关系、目标文件清单、文件重叠提醒与本地时间线；整条实现严格停留在执行准备层，不进入 Day08 风险守卫、审批放行、验证证据包，也未在产品链路内加入任何真实 Git 写操作。
 - 回填证据：
-1. 已建立本文档，冻结 Day07 的目标、交付和验收范围
-2. 已建立对应测试验证骨架文件，待后续按真实实现回填
-3. 后续启动开发后，再以实际代码、页面、脚本和烟测结果替换当前占位说明
+1. `runtime/orchestrator/app/domain/change_batch.py` 已定义 `ChangeBatch`、`ChangeBatchPlanSnapshot`、`ChangeBatchLinkedDeliverable` 等 Day07 聚合对象。
+2. `runtime/orchestrator/app/core/db_tables.py` 与 `runtime/orchestrator/app/repositories/change_batch_repository.py` 已补齐 `change_batches` 表和批次持久化读写逻辑。
+3. `runtime/orchestrator/app/services/change_batch_service.py` 已把多 ChangePlan 聚合、任务依赖排序、目标文件汇总、重叠识别和批次时间线整理封装为 Day07 服务。
+4. `runtime/orchestrator/app/api/routes/repositories.py` 已新增项目级 ChangeBatch 创建、列表、详情接口，并限制同项目只有一个活跃批次。
+5. `apps/web/src/features/repositories/ChangeBatchBoard.tsx`、`apps/web/src/features/repositories/RepositoryOverviewPage.tsx`、`apps/web/src/features/repositories/api.ts`、`apps/web/src/features/repositories/hooks.ts`、`apps/web/src/features/repositories/types.ts` 已把 Day07 看板接入仓库页，展示批次摘要、任务顺序、依赖、目标文件与重叠提醒。
+6. `runtime/orchestrator/scripts/v4b_day07_change_batch_smoke.py` 已验证“Day06 ChangePlan → Day07 ChangeBatch 创建 → 列表/详情 → 活跃批次冲突阻断”的最小链路。
 
 ---
 
@@ -53,8 +65,13 @@
 2. `runtime/orchestrator/app/repositories/change_batch_repository.py`
 3. `runtime/orchestrator/app/services/change_batch_service.py`
 4. `runtime/orchestrator/app/api/routes/repositories.py`
-5. `apps/web/src/features/repositories/ChangeBatchBoard.tsx`
-6. `runtime/orchestrator/scripts/v4b_day07_change_batch_smoke.py`
+5. `runtime/orchestrator/app/core/db_tables.py`
+6. `apps/web/src/features/repositories/ChangeBatchBoard.tsx`
+7. `apps/web/src/features/repositories/RepositoryOverviewPage.tsx`
+8. `apps/web/src/features/repositories/api.ts`
+9. `apps/web/src/features/repositories/hooks.ts`
+10. `apps/web/src/features/repositories/types.ts`
+11. `runtime/orchestrator/scripts/v4b_day07_change_batch_smoke.py`
 
 ---
 
@@ -69,7 +86,8 @@
 ## 顺延与备注
 
 ### 顺延项
-1. 暂无；如 Day07 启动时发现上游能力未就绪，只在本 Day 文档内记录缺口，不提前并入下一天范围。
+1. Day08 风险守卫、人工确认、审批放行与验证证据包仍保持未开始。
 
 ### 备注
-1. Day07 只冻结变更批次和执行准备，不提前实现 Day08 的执行前风险守卫。
+1. Day07 的核心价值是把多个已确认的 `ChangePlan` 收敛成一个可执行准备的 `ChangeBatch`，让“准备改哪些文件、先后顺序是什么、哪些文件互相重叠”第一次有统一视图。
+2. 本次实现只形成批次与执行准备，不做真实代码执行，也不在产品内提供任何真实 Git 写操作能力。

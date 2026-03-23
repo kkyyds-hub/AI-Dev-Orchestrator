@@ -1,8 +1,8 @@
 # Day07 变更批次与任务执行准备 - 测试与验收
 
 - 对应计划文档：`docs/01-版本冻结计划/V4/02-模块B-文件定位与变更计划/01-计划文档/Day07-变更批次与任务执行准备.md`
-- 当前回填状态：**未开始**
-- 当前测试结论：**待验证**
+- 当前回填状态：**已完成**
+- 当前测试结论：**通过**
 
 ---
 
@@ -34,12 +34,14 @@
 
 ## 当前回填结果
 
-- 结果：**待验证**
-- 状态口径：当前仅完成 Day07 的计划冻结与测试骨架建档，尚未开始实现，禁止提前标记为“通过”。
+- 结果：**通过**
+- 状态口径：Day07 已完成 ChangeBatch 建模、聚合持久化、任务顺序/依赖/文件重叠展示、仓库页看板接入与最小烟测；实现边界严格停留在执行准备层，没有提前进入 Day08 风险预检、审批放行、验证证据包，也没有在产品内新增真实 Git 写操作。
 - 证据：
-1. 已建立对应计划文档，冻结今日目标、交付与验收边界
-2. 已建立当前测试验证文档骨架，待后续按真实实现回填
-3. 后续开始开发后，再补充实际接口、页面、脚本、构建与烟测证据
+1. 已执行 `runtime/orchestrator/.venv/Scripts/python.exe -m py_compile runtime/orchestrator/app/domain/change_batch.py runtime/orchestrator/app/repositories/change_batch_repository.py runtime/orchestrator/app/services/change_batch_service.py runtime/orchestrator/app/api/routes/repositories.py runtime/orchestrator/app/core/db_tables.py runtime/orchestrator/scripts/v4b_day07_change_batch_smoke.py`，确认 Day07 后端与烟测脚本编译通过。
+2. 已执行 `runtime/orchestrator/.venv/Scripts/python.exe runtime/orchestrator/scripts/v4b_day07_change_batch_smoke.py`，验证“多 ChangePlan 创建 Day07 ChangeBatch → 顺序/依赖/重叠详情 → 活跃批次冲突阻断”链路通过。
+3. 已执行 `runtime/orchestrator/.venv/Scripts/python.exe runtime/orchestrator/scripts/v4b_day06_change_plan_smoke.py`，确认 Day07 接入后 Day06 ChangePlan 草案能力未回归。
+4. 已执行 `cmd /c npm run build`，确认前端类型、Day07 看板与仓库页集成通过 TypeScript 与 Vite 构建。
+5. `apps/web/src/features/repositories/ChangeBatchBoard.tsx` 已在仓库页展示批次摘要、任务顺序、依赖关系、目标文件、文件重叠提醒与本地时间线，满足 Day07 验收要求。
 
 ---
 
