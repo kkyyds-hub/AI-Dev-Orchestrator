@@ -53,10 +53,15 @@ _CHANGE_BATCH_TABLE_COLUMN_UPGRADES = {
     "preflight_json": "ALTER TABLE change_batches ADD COLUMN preflight_json TEXT NOT NULL DEFAULT '{}'",
 }
 
+_CHANGE_PLAN_VERSION_TABLE_COLUMN_UPGRADES = {
+    "verification_templates_json": "ALTER TABLE change_plan_versions ADD COLUMN verification_templates_json TEXT NOT NULL DEFAULT '[]'",
+}
+
 _TABLE_COLUMN_UPGRADES = {
     "projects": _PROJECT_TABLE_COLUMN_UPGRADES,
     "tasks": _TASK_TABLE_COLUMN_UPGRADES,
     "runs": _RUN_TABLE_COLUMN_UPGRADES,
+    "change_plan_versions": _CHANGE_PLAN_VERSION_TABLE_COLUMN_UPGRADES,
     "change_batches": _CHANGE_BATCH_TABLE_COLUMN_UPGRADES,
 }
 

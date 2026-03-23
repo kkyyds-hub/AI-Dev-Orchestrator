@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.db_tables import ChangePlanTable, ChangePlanVersionTable
 from app.domain._base import ensure_utc_datetime
 from app.domain.change_plan import ChangePlan, ChangePlanTargetFile, ChangePlanVersion
+from app.domain.repository_verification import (
+    RepositoryVerificationTemplateReference,
+)
 
 
 @dataclass(slots=True, frozen=True)
@@ -164,6 +167,9 @@ class ChangePlanRepository:
             verification_commands_json=ChangePlanRepository._serialize_string_list(
                 version.verification_commands
             ),
+            verification_templates_json=ChangePlanRepository._serialize_verification_templates(
+                version.verification_templates
+            ),
             related_deliverable_ids_json=ChangePlanRepository._serialize_uuid_list(
                 version.related_deliverable_ids
             ),
@@ -211,6 +217,9 @@ class ChangePlanRepository:
             ),
             verification_commands=ChangePlanRepository._deserialize_string_list(
                 version_row.verification_commands_json
+            ),
+            verification_templates=ChangePlanRepository._deserialize_verification_templates(
+                version_row.verification_templates_json
             ),
             related_deliverable_ids=ChangePlanRepository._deserialize_uuid_list(
                 version_row.related_deliverable_ids_json
@@ -299,6 +308,17 @@ class ChangePlanRepository:
         )
 
     @staticmethod
+    def _serialize_verification_templates(
+        values: list[RepositoryVerificationTemplateReference],
+    ) -> str:
+        """Persist structured Day09 verification-template references as JSON text."""
+
+        return json.dumps(
+            [value.model_dump(mode="json") for value in values],
+            ensure_ascii=False,
+        )
+
+    @staticmethod
     def _deserialize_target_files(raw_value: str | None) -> list[ChangePlanTargetFile]:
         """Read one JSON-encoded target-file list from SQLite."""
 
@@ -319,6 +339,36 @@ class ChangePlanRepository:
                 continue
             try:
                 normalized_items.append(ChangePlanTargetFile.model_validate(item))
+            except ValidationError:
+                continue
+
+        return normalized_items
+
+    @staticmethod
+    def _deserialize_verification_templates(
+        raw_value: str | None,
+    ) -> list[RepositoryVerificationTemplateReference]:
+        """Read one JSON-encoded Day09 verification-template list from SQLite."""
+
+        if not raw_value:
+            return []
+
+        try:
+            decoded_value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return []
+
+        if not isinstance(decoded_value, list):
+            return []
+
+        normalized_items: list[RepositoryVerificationTemplateReference] = []
+        for item in decoded_value:
+            if not isinstance(item, dict):
+                continue
+            try:
+                normalized_items.append(
+                    RepositoryVerificationTemplateReference.model_validate(item)
+                )
             except ValidationError:
                 continue
 

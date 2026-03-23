@@ -29,6 +29,7 @@ from app.domain.deliverable import DeliverableContentFormat, DeliverableType
 from app.domain.project import ProjectStage, ProjectStatus
 from app.domain.project_role import ProjectRoleCode
 from app.domain.repository_snapshot import RepositorySnapshotStatus
+from app.domain.repository_verification import RepositoryVerificationCategory
 from app.domain.repository_workspace import RepositoryAccessMode
 from app.domain.run import RunFailureCategory, RunStatus
 from app.domain.skill import SkillBindingSource
@@ -905,6 +906,11 @@ class ChangePlanVersionTable(ORMBase):
     expected_actions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     risk_notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     verification_commands_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    verification_templates_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
     related_deliverable_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     context_pack_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -917,6 +923,52 @@ class ChangePlanVersionTable(ORMBase):
     )
 
     change_plan: Mapped[ChangePlanTable] = relationship(back_populates="versions")
+
+
+class RepositoryVerificationTemplateTable(ORMBase):
+    """Day09 repository verification-template rows."""
+
+    __tablename__ = "repository_verification_templates"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "category",
+            name="uq_repository_verification_templates_project_category",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    category: Mapped[RepositoryVerificationCategory] = mapped_column(
+        Enum(
+            RepositoryVerificationCategory,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    command: Mapped[str] = mapped_column(Text, nullable=False)
+    working_directory: Mapped[str] = mapped_column(String(500), nullable=False, default=".")
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=600)
+    enabled_by_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
 
 
 class ChangeBatchTable(ORMBase):

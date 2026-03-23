@@ -12,6 +12,9 @@ from app.domain.change_plan import (
     ChangePlanTargetFile,
     ChangePlanVersion,
 )
+from app.domain.repository_verification import (
+    RepositoryVerificationTemplateReference,
+)
 from app.domain.deliverable import Deliverable
 from app.domain.task import Task
 from app.repositories.change_plan_repository import (
@@ -21,6 +24,9 @@ from app.repositories.change_plan_repository import (
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
+from app.services.repository_verification_service import (
+    RepositoryVerificationService,
+)
 
 
 @dataclass(slots=True, frozen=True)
@@ -79,11 +85,13 @@ class ChangePlanService:
         project_repository: ProjectRepository,
         task_repository: TaskRepository,
         deliverable_repository: DeliverableRepository,
+        repository_verification_service: RepositoryVerificationService,
     ) -> None:
         self.change_plan_repository = change_plan_repository
         self.project_repository = project_repository
         self.task_repository = task_repository
         self.deliverable_repository = deliverable_repository
+        self.repository_verification_service = repository_verification_service
 
     def create_change_plan(
         self,
@@ -100,6 +108,7 @@ class ChangePlanService:
         expected_actions: list[str],
         risk_notes: list[str],
         verification_commands: list[str],
+        verification_template_ids: list[UUID],
         context_pack_generated_at: datetime | None = None,
     ) -> ChangePlanDetail:
         """Create one new change-plan head with its first immutable draft version."""
@@ -113,6 +122,10 @@ class ChangePlanService:
         )
         resolved_primary_deliverable_id = (
             primary_deliverable_id or resolved_related_deliverable_ids[0]
+        )
+        verification_templates = self._resolve_verification_templates(
+            project_id=project_id,
+            verification_template_ids=verification_template_ids,
         )
         timestamp = utc_now()
         change_plan = ChangePlan(
@@ -138,6 +151,7 @@ class ChangePlanService:
             expected_actions=expected_actions,
             risk_notes=risk_notes,
             verification_commands=verification_commands,
+            verification_templates=verification_templates,
             related_deliverable_ids=resolved_related_deliverable_ids,
             context_pack_generated_at=context_pack_generated_at,
             created_at=timestamp,
@@ -161,6 +175,7 @@ class ChangePlanService:
         expected_actions: list[str],
         risk_notes: list[str],
         verification_commands: list[str],
+        verification_template_ids: list[UUID],
         related_deliverable_ids: list[UUID],
         context_pack_generated_at: datetime | None = None,
     ) -> ChangePlanDetail:
@@ -192,6 +207,10 @@ class ChangePlanService:
             task=task,
             primary_deliverable=deliverable_map[resolved_primary_deliverable_id],
         )
+        verification_templates = self._resolve_verification_templates(
+            project_id=record.change_plan.project_id,
+            verification_template_ids=verification_template_ids,
+        )
         timestamp = utc_now()
         version = ChangePlanVersion(
             change_plan_id=record.change_plan.id,
@@ -203,6 +222,7 @@ class ChangePlanService:
             expected_actions=expected_actions,
             risk_notes=risk_notes,
             verification_commands=verification_commands,
+            verification_templates=verification_templates,
             related_deliverable_ids=resolved_related_deliverable_ids,
             context_pack_generated_at=context_pack_generated_at,
             created_at=timestamp,
@@ -308,6 +328,19 @@ class ChangePlanService:
                 for deliverable_id in version.related_deliverable_ids
                 if deliverable_id in deliverable_map
             ],
+        )
+
+    def _resolve_verification_templates(
+        self,
+        *,
+        project_id: UUID,
+        verification_template_ids: list[UUID],
+    ) -> list[RepositoryVerificationTemplateReference]:
+        """Resolve one ordered Day09 verification-template selection."""
+
+        return self.repository_verification_service.resolve_template_references(
+            project_id,
+            verification_template_ids,
         )
 
     def _ensure_project_exists(self, project_id: UUID) -> None:

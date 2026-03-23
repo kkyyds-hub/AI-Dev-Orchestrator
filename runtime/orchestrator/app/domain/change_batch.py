@@ -11,6 +11,9 @@ from pydantic import Field, field_validator, model_validator
 from app.domain._base import DomainModel, ensure_utc_datetime, utc_now
 from app.domain.change_plan import ChangePlanStatus, ChangePlanTargetFile
 from app.domain.deliverable import DeliverableType
+from app.domain.repository_verification import (
+    RepositoryVerificationTemplateReference,
+)
 from app.domain.task import TaskPriority, TaskRiskLevel
 
 
@@ -340,6 +343,10 @@ class ChangeBatchPlanSnapshot(DomainModel):
         min_length=1,
         max_length=20,
     )
+    verification_templates: list[RepositoryVerificationTemplateReference] = Field(
+        default_factory=list,
+        max_length=4,
+    )
     related_deliverables: list[ChangeBatchLinkedDeliverable] = Field(
         default_factory=list,
         max_length=10,
@@ -440,6 +447,26 @@ class ChangeBatchPlanSnapshot(DomainModel):
 
             normalized_items.append(value)
             seen_ids.add(value.deliverable_id)
+
+        return normalized_items
+
+    @field_validator("verification_templates")
+    @classmethod
+    def normalize_verification_templates(
+        cls,
+        values: list[RepositoryVerificationTemplateReference],
+    ) -> list[RepositoryVerificationTemplateReference]:
+        """Deduplicate embedded verification-template references by ID."""
+
+        normalized_items: list[RepositoryVerificationTemplateReference] = []
+        seen_ids: set[UUID] = set()
+
+        for value in values:
+            if value.id in seen_ids:
+                continue
+
+            normalized_items.append(value)
+            seen_ids.add(value.id)
 
         return normalized_items
 

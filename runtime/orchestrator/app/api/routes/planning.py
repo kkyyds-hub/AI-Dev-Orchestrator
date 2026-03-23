@@ -18,11 +18,20 @@ from app.domain.change_plan import (
 from app.domain.deliverable import Deliverable
 from app.domain.project_role import ProjectRoleCode
 from app.domain.project import Project, ProjectStage, ProjectStatus
+from app.domain.repository_verification import (
+    RepositoryVerificationTemplateReference,
+)
 from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
 from app.repositories.change_plan_repository import ChangePlanRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.repository_verification_repository import (
+    RepositoryVerificationRepository,
+)
+from app.repositories.repository_workspace_repository import (
+    RepositoryWorkspaceRepository,
+)
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.budget_guard_service import BudgetGuardService
@@ -44,6 +53,9 @@ from app.services.planner_service import (
     PlannerService,
 )
 from app.services.project_service import ProjectService
+from app.services.repository_verification_service import (
+    RepositoryVerificationService,
+)
 from app.services.role_catalog_service import RoleCatalogService
 from app.services.task_service import TaskService
 from app.services.task_state_machine_service import TaskStateMachineService
@@ -383,7 +395,8 @@ class ChangePlanDraftRequest(BaseModel):
     target_files: list[ChangePlanTargetFileRequest] = Field(min_length=1, max_length=30)
     expected_actions: list[str] = Field(min_length=1, max_length=20)
     risk_notes: list[str] = Field(min_length=1, max_length=20)
-    verification_commands: list[str] = Field(min_length=1, max_length=20)
+    verification_commands: list[str] = Field(default_factory=list, max_length=20)
+    verification_template_ids: list[UUID] = Field(default_factory=list, max_length=4)
     context_pack_generated_at: datetime | None = None
 
 
@@ -420,6 +433,37 @@ class ChangePlanLinkedDeliverableResponse(BaseModel):
         )
 
 
+class RepositoryVerificationTemplateReferenceResponse(BaseModel):
+    """One Day09 repository verification-template reference returned in Day06 views."""
+
+    id: UUID
+    category: str
+    name: str
+    command: str
+    working_directory: str
+    timeout_seconds: int
+    enabled_by_default: bool
+    description: str | None = None
+
+    @classmethod
+    def from_reference(
+        cls,
+        template: RepositoryVerificationTemplateReference,
+    ) -> "RepositoryVerificationTemplateReferenceResponse":
+        """Convert one Day09 template reference into an API DTO."""
+
+        return cls(
+            id=template.id,
+            category=template.category.value,
+            name=template.name,
+            command=template.command,
+            working_directory=template.working_directory,
+            timeout_seconds=template.timeout_seconds,
+            enabled_by_default=template.enabled_by_default,
+            description=template.description,
+        )
+
+
 class ChangePlanVersionResponse(BaseModel):
     """One immutable Day06 change-plan version returned by the API."""
 
@@ -432,6 +476,7 @@ class ChangePlanVersionResponse(BaseModel):
     expected_actions: list[str]
     risk_notes: list[str]
     verification_commands: list[str]
+    verification_templates: list[RepositoryVerificationTemplateReferenceResponse]
     related_deliverables: list[ChangePlanLinkedDeliverableResponse]
     context_pack_generated_at: datetime | None = None
     created_at: datetime
@@ -456,6 +501,12 @@ class ChangePlanVersionResponse(BaseModel):
             expected_actions=list(item.version.expected_actions),
             risk_notes=list(item.version.risk_notes),
             verification_commands=list(item.version.verification_commands),
+            verification_templates=[
+                RepositoryVerificationTemplateReferenceResponse.from_reference(
+                    template
+                )
+                for template in item.version.verification_templates
+            ],
             related_deliverables=[
                 ChangePlanLinkedDeliverableResponse.from_deliverable(deliverable)
                 for deliverable in item.related_deliverables
@@ -568,11 +619,17 @@ def get_change_plan_service(
 ) -> ChangePlanService:
     """Create the Day06 change-plan dependency."""
 
+    repository_verification_service = RepositoryVerificationService(
+        project_repository=ProjectRepository(session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
+        repository_verification_repository=RepositoryVerificationRepository(session),
+    )
     return ChangePlanService(
         change_plan_repository=ChangePlanRepository(session),
         project_repository=ProjectRepository(session),
         task_repository=TaskRepository(session),
         deliverable_repository=DeliverableRepository(session),
+        repository_verification_service=repository_verification_service,
     )
 
 
@@ -666,6 +723,7 @@ def create_project_change_plan(
             expected_actions=request.expected_actions,
             risk_notes=request.risk_notes,
             verification_commands=request.verification_commands,
+            verification_template_ids=request.verification_template_ids,
             context_pack_generated_at=request.context_pack_generated_at,
         )
     except (
@@ -770,6 +828,7 @@ def append_change_plan_version(
             expected_actions=request.expected_actions,
             risk_notes=request.risk_notes,
             verification_commands=request.verification_commands,
+            verification_template_ids=request.verification_template_ids,
             context_pack_generated_at=request.context_pack_generated_at,
         )
     except (

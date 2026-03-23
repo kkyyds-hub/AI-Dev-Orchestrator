@@ -10,6 +10,9 @@ from uuid import UUID, uuid4
 from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel, ensure_utc_datetime, utc_now
+from app.domain.repository_verification import (
+    RepositoryVerificationTemplateReference,
+)
 
 
 class ChangePlanStatus(StrEnum):
@@ -95,7 +98,11 @@ class ChangePlanVersion(DomainModel):
     target_files: list[ChangePlanTargetFile] = Field(default_factory=list, min_length=1, max_length=30)
     expected_actions: list[str] = Field(default_factory=list, min_length=1, max_length=20)
     risk_notes: list[str] = Field(default_factory=list, min_length=1, max_length=20)
-    verification_commands: list[str] = Field(default_factory=list, min_length=1, max_length=20)
+    verification_commands: list[str] = Field(default_factory=list, max_length=20)
+    verification_templates: list[RepositoryVerificationTemplateReference] = Field(
+        default_factory=list,
+        max_length=4,
+    )
     related_deliverable_ids: list[UUID] = Field(default_factory=list, min_length=1, max_length=10)
     context_pack_generated_at: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
@@ -166,6 +173,26 @@ class ChangePlanVersion(DomainModel):
 
         return normalized_items
 
+    @field_validator("verification_templates")
+    @classmethod
+    def normalize_verification_templates(
+        cls,
+        values: list[RepositoryVerificationTemplateReference],
+    ) -> list[RepositoryVerificationTemplateReference]:
+        """Deduplicate verification-template references by ID."""
+
+        normalized_items: list[RepositoryVerificationTemplateReference] = []
+        seen_ids: set[UUID] = set()
+
+        for value in values:
+            if value.id in seen_ids:
+                continue
+
+            normalized_items.append(value)
+            seen_ids.add(value.id)
+
+        return normalized_items
+
     @model_validator(mode="after")
     def validate_version_state(self) -> "ChangePlanVersion":
         """Normalize UTC-aware timestamps for persisted version snapshots."""
@@ -176,6 +203,10 @@ class ChangePlanVersion(DomainModel):
             "context_pack_generated_at",
             ensure_utc_datetime(self.context_pack_generated_at),
         )
+        if not self.verification_commands and not self.verification_templates:
+            raise ValueError(
+                "Change-plan version requires at least one verification command or template."
+            )
         return self
 
 

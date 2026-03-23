@@ -18,6 +18,9 @@ from app.domain.change_batch import (
     ChangeBatchStatus,
 )
 from app.domain.change_plan import ChangePlanTargetFile, ChangePlanVersion
+from app.domain.repository_verification import (
+    RepositoryVerificationTemplateReference,
+)
 from app.domain.repository_workspace import RepositoryWorkspace
 from app.domain.task import Task
 from app.repositories.change_batch_repository import ChangeBatchRepository
@@ -56,6 +59,7 @@ class ChangeBatchTaskView:
     intent_summary: str
     expected_actions: list[str]
     verification_commands: list[str]
+    verification_templates: list[RepositoryVerificationTemplateReference]
     related_deliverables: list[ChangeBatchLinkedDeliverable]
     dependencies: list[ChangeBatchDependencyView]
     target_files: list[ChangePlanTargetFile]
@@ -328,6 +332,7 @@ class ChangeBatchService:
                     intent_summary=snapshot.intent_summary,
                     expected_actions=list(snapshot.expected_actions),
                     verification_commands=list(snapshot.verification_commands),
+                    verification_templates=list(snapshot.verification_templates),
                     related_deliverables=list(snapshot.related_deliverables),
                     dependencies=dependencies,
                     target_files=list(snapshot.target_files),
@@ -376,6 +381,10 @@ class ChangeBatchService:
                 )
             related_deliverables.append(deliverable_map[deliverable_id])
 
+        resolved_verification_commands = self._build_resolved_verification_commands(
+            latest_version
+        )
+
         return ChangeBatchPlanSnapshot(
             change_plan_id=record.change_plan.id,
             change_plan_title=record.change_plan.title,
@@ -393,11 +402,37 @@ class ChangeBatchService:
             target_files=list(latest_version.target_files),
             expected_actions=list(latest_version.expected_actions),
             risk_notes=list(latest_version.risk_notes),
-            verification_commands=list(latest_version.verification_commands),
+            verification_commands=resolved_verification_commands,
+            verification_templates=list(latest_version.verification_templates),
             related_deliverables=related_deliverables,
             context_pack_generated_at=latest_version.context_pack_generated_at,
             captured_at=latest_version.created_at,
         )
+
+    @staticmethod
+    def _build_resolved_verification_commands(
+        latest_version: ChangePlanVersion,
+    ) -> list[str]:
+        """Merge manual commands with Day09 template commands for batch/preflight reuse."""
+
+        resolved_commands: list[str] = []
+        seen_commands: set[str] = set()
+
+        for command in [
+            *latest_version.verification_commands,
+            *[
+                template.command
+                for template in latest_version.verification_templates
+            ],
+        ]:
+            normalized_command = command.strip()
+            if not normalized_command or normalized_command in seen_commands:
+                continue
+
+            resolved_commands.append(normalized_command)
+            seen_commands.add(normalized_command)
+
+        return resolved_commands
 
     @staticmethod
     def _require_latest_version(
