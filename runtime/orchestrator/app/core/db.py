@@ -49,10 +49,15 @@ _PROJECT_TABLE_COLUMN_UPGRADES = {
     "stage_history_json": "ALTER TABLE projects ADD COLUMN stage_history_json TEXT NOT NULL DEFAULT '[]'",
 }
 
+_CHANGE_BATCH_TABLE_COLUMN_UPGRADES = {
+    "preflight_json": "ALTER TABLE change_batches ADD COLUMN preflight_json TEXT NOT NULL DEFAULT '{}'",
+}
+
 _TABLE_COLUMN_UPGRADES = {
     "projects": _PROJECT_TABLE_COLUMN_UPGRADES,
     "tasks": _TASK_TABLE_COLUMN_UPGRADES,
     "runs": _RUN_TABLE_COLUMN_UPGRADES,
+    "change_batches": _CHANGE_BATCH_TABLE_COLUMN_UPGRADES,
 }
 
 

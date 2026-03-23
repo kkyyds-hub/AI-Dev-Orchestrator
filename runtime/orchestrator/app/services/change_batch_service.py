@@ -1,4 +1,4 @@
-"""Business services for Day07 change-batch execution preparation."""
+"""Business services for Day07-Day08 change-batch execution preparation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,10 @@ from app.domain._base import utc_now
 from app.domain.change_batch import (
     ChangeBatch,
     ChangeBatchLinkedDeliverable,
+    ChangeBatchManualConfirmationAction,
+    ChangeBatchManualConfirmationStatus,
     ChangeBatchPlanSnapshot,
+    ChangeBatchPreflightStatus,
     ChangeBatchStatus,
 )
 from app.domain.change_plan import ChangePlanTargetFile, ChangePlanVersion
@@ -144,7 +147,7 @@ class ChangeBatchDeliverableNotFoundError(ChangeBatchError):
 
 
 class ChangeBatchService:
-    """Create and query Day07 change batches without entering Day08 preflight."""
+    """Create and query change batches together with Day08 preflight state."""
 
     def __init__(
         self,
@@ -570,7 +573,7 @@ class ChangeBatchService:
 
     @staticmethod
     def _build_timeline(change_batch: ChangeBatch) -> list[ChangeBatchTimelineEntry]:
-        """Build one Day07-local timeline without entering global Day11 event aggregation."""
+        """Build one local batch timeline, including Day08 preflight and confirmation."""
 
         entries = [
             ChangeBatchTimelineEntry(
@@ -592,6 +595,60 @@ class ChangeBatchService:
             )
             for snapshot in change_batch.plan_snapshots
         )
+        preflight = change_batch.preflight
+        if (
+            preflight.status != ChangeBatchPreflightStatus.NOT_STARTED
+            and preflight.evaluated_at is not None
+            and preflight.summary
+        ):
+            if preflight.status == ChangeBatchPreflightStatus.READY_FOR_EXECUTION:
+                label = "执行前预检通过"
+            elif preflight.status == ChangeBatchPreflightStatus.MANUAL_CONFIRMED:
+                label = "执行前预检已获人工放行"
+            elif preflight.status == ChangeBatchPreflightStatus.MANUAL_REJECTED:
+                label = "执行前预检被人工驳回"
+            else:
+                label = "执行前预检阻断并转入人工确认"
+
+            entries.append(
+                ChangeBatchTimelineEntry(
+                    entry_type="change_batch_preflight",
+                    label=label,
+                    summary=preflight.summary,
+                    occurred_at=preflight.evaluated_at,
+                )
+            )
+
+        if (
+            preflight.manual_confirmation_status
+            == ChangeBatchManualConfirmationStatus.PENDING
+            and preflight.requested_at is not None
+            and preflight.summary
+        ):
+            entries.append(
+                ChangeBatchTimelineEntry(
+                    entry_type="manual_confirmation_requested",
+                    label="等待人工确认",
+                    summary=preflight.summary,
+                    occurred_at=preflight.requested_at,
+                )
+            )
+
+        for decision in preflight.decision_history:
+            label = (
+                "人工确认已放行"
+                if decision.action == ChangeBatchManualConfirmationAction.APPROVE
+                else "人工确认已驳回"
+            )
+            entries.append(
+                ChangeBatchTimelineEntry(
+                    entry_type="manual_confirmation_decision",
+                    label=label,
+                    summary=decision.summary,
+                    occurred_at=decision.created_at,
+                )
+            )
+
         return sorted(
             entries,
             key=lambda item: (item.occurred_at, item.label),

@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.db_tables import ChangeBatchTable
 from app.domain._base import ensure_utc_datetime
-from app.domain.change_batch import ChangeBatch, ChangeBatchPlanSnapshot, ChangeBatchStatus
+from app.domain.change_batch import (
+    ChangeBatch,
+    ChangeBatchPlanSnapshot,
+    ChangeBatchPreflight,
+    ChangeBatchStatus,
+)
 
 
 class ChangeBatchRepository:
@@ -31,10 +36,34 @@ class ChangeBatchRepository:
             title=change_batch.title,
             summary=change_batch.summary,
             plan_snapshots_json=self._serialize_plan_snapshots(change_batch.plan_snapshots),
+            preflight_json=self._serialize_preflight(change_batch.preflight),
             created_at=change_batch.created_at,
             updated_at=change_batch.updated_at,
         )
         self.session.add(change_batch_row)
+        self.session.commit()
+        self.session.refresh(change_batch_row)
+        return self._to_change_batch(change_batch_row)
+
+    def update(self, change_batch: ChangeBatch) -> ChangeBatch:
+        """Persist one updated change batch, including Day08 preflight state."""
+
+        change_batch_row = self.session.get(ChangeBatchTable, change_batch.id)
+        if change_batch_row is None:
+            raise ValueError(f"Change batch not found: {change_batch.id}")
+
+        change_batch_row.project_id = change_batch.project_id
+        change_batch_row.repository_workspace_id = change_batch.repository_workspace_id
+        change_batch_row.status = change_batch.status
+        change_batch_row.title = change_batch.title
+        change_batch_row.summary = change_batch.summary
+        change_batch_row.plan_snapshots_json = self._serialize_plan_snapshots(
+            change_batch.plan_snapshots
+        )
+        change_batch_row.preflight_json = self._serialize_preflight(change_batch.preflight)
+        change_batch_row.created_at = change_batch.created_at
+        change_batch_row.updated_at = change_batch.updated_at
+
         self.session.commit()
         self.session.refresh(change_batch_row)
         return self._to_change_batch(change_batch_row)
@@ -90,6 +119,9 @@ class ChangeBatchRepository:
             plan_snapshots=ChangeBatchRepository._deserialize_plan_snapshots(
                 change_batch_row.plan_snapshots_json
             ),
+            preflight=ChangeBatchRepository._deserialize_preflight(
+                change_batch_row.preflight_json
+            ),
             created_at=ensure_utc_datetime(change_batch_row.created_at),
             updated_at=ensure_utc_datetime(change_batch_row.updated_at),
         )
@@ -102,6 +134,12 @@ class ChangeBatchRepository:
             [value.model_dump(mode="json") for value in values],
             ensure_ascii=False,
         )
+
+    @staticmethod
+    def _serialize_preflight(value: ChangeBatchPreflight) -> str:
+        """Persist one structured Day08 preflight result as JSON text."""
+
+        return json.dumps(value.model_dump(mode="json"), ensure_ascii=False)
 
     @staticmethod
     def _deserialize_plan_snapshots(raw_value: str | None) -> list[ChangeBatchPlanSnapshot]:
@@ -129,3 +167,23 @@ class ChangeBatchRepository:
                 continue
 
         return normalized_items
+
+    @staticmethod
+    def _deserialize_preflight(raw_value: str | None) -> ChangeBatchPreflight:
+        """Read one JSON-encoded Day08 preflight object from SQLite."""
+
+        if not raw_value:
+            return ChangeBatchPreflight()
+
+        try:
+            decoded_value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return ChangeBatchPreflight()
+
+        if not isinstance(decoded_value, dict):
+            return ChangeBatchPreflight()
+
+        try:
+            return ChangeBatchPreflight.model_validate(decoded_value)
+        except ValidationError:
+            return ChangeBatchPreflight()

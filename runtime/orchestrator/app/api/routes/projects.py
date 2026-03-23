@@ -35,6 +35,7 @@ from app.api.routes.repositories import (
 from app.domain.change_session import ChangeSession
 from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
 from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.change_batch_repository import ChangeBatchRepository
 from app.repositories.change_session_repository import ChangeSessionRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
@@ -57,6 +58,10 @@ from app.services.deliverable_service import (
     DeliverableTimelineEntry,
 )
 from app.services.failure_review_service import FailureReviewService
+from app.services.change_risk_guard_service import (
+    ChangeBatchPreflightTimelineEntry,
+    ChangeRiskGuardService,
+)
 from app.services.project_memory_service import (
     ProjectMemoryCount,
     ProjectMemoryItem,
@@ -819,6 +824,7 @@ class ProjectSopTemplateSelectResponse(BaseModel):
 PROJECT_TIMELINE_EVENT_TYPE_ORDER = [
     "stage",
     "deliverable",
+    "preflight",
     "approval",
     "role_handoff",
     "decision",
@@ -827,6 +833,7 @@ PROJECT_TIMELINE_EVENT_TYPE_ORDER = [
 PROJECT_TIMELINE_EVENT_TYPE_LABELS = {
     "stage": "阶段推进",
     "deliverable": "交付件提交",
+    "preflight": "执行前预检",
     "approval": "审批动作",
     "role_handoff": "角色交接",
     "decision": "运行决策",
@@ -983,6 +990,7 @@ def _build_project_timeline_stack(
     RunRepository,
     DeliverableService,
     ApprovalService,
+    ChangeRiskGuardService,
     DecisionReplayService,
 ]:
     """Create the Day11 project-timeline stack."""
@@ -1004,6 +1012,10 @@ def _build_project_timeline_stack(
         deliverable_repository=deliverable_repository,
         project_repository=project_repository,
     )
+    change_risk_guard_service = ChangeRiskGuardService(
+        change_batch_repository=ChangeBatchRepository(session),
+        project_repository=project_repository,
+    )
     run_logging_service = RunLoggingService()
     decision_replay_service = DecisionReplayService(
         run_logging_service=run_logging_service,
@@ -1019,6 +1031,7 @@ def _build_project_timeline_stack(
         run_repository,
         deliverable_service,
         approval_service,
+        change_risk_guard_service,
         decision_replay_service,
     )
 
@@ -1191,6 +1204,63 @@ def _build_approval_timeline_events(
                 source_event=source_event,
                 actor=actor,
                 metadata=metadata,
+            )
+        )
+
+    return events
+
+
+def _build_preflight_timeline_events(
+    entries: list[ChangeBatchPreflightTimelineEntry],
+) -> list[ProjectTimelineEventResponse]:
+    """Convert Day08 preflight and manual-confirmation events into timeline events."""
+
+    events: list[ProjectTimelineEventResponse] = []
+    for entry in entries:
+        if entry.event_kind == "manual_confirmation_approved":
+            title = f"人工放行变更批次《{entry.change_batch_title}》"
+            tone = "success"
+        elif entry.event_kind == "manual_confirmation_rejected":
+            title = f"人工驳回变更批次《{entry.change_batch_title}》"
+            tone = "danger"
+        elif entry.event_kind == "manual_confirmation_requested":
+            title = f"等待人工确认《{entry.change_batch_title}》"
+            tone = "warning"
+        else:
+            title = f"执行前预检《{entry.change_batch_title}》"
+            tone = (
+                "success"
+                if entry.preflight_status == "ready_for_execution"
+                else "warning"
+            )
+
+        severity_value = (
+            entry.overall_severity.value
+            if entry.overall_severity is not None
+            else None
+        )
+        events.append(
+            ProjectTimelineEventResponse(
+                id=f"preflight:{entry.change_batch_id}:{entry.event_kind}:{entry.occurred_at.isoformat()}",
+                event_type="preflight",
+                label=PROJECT_TIMELINE_EVENT_TYPE_LABELS["preflight"],
+                tone=tone,
+                title=title,
+                summary=entry.summary,
+                occurred_at=entry.occurred_at,
+                actor=(
+                    "老板"
+                    if entry.event_kind.startswith("manual_confirmation_")
+                    else "执行前守卫"
+                ),
+                metadata={
+                    "change_batch_id": str(entry.change_batch_id),
+                    "change_batch_title": entry.change_batch_title,
+                    "event_kind": entry.event_kind,
+                    "preflight_status": entry.preflight_status.value,
+                    "manual_confirmation_status": entry.manual_confirmation_status.value,
+                    "overall_severity": severity_value,
+                },
             )
         )
 
@@ -1549,6 +1619,7 @@ def get_project_timeline(
         run_repository,
         deliverable_service,
         approval_service,
+        change_risk_guard_service,
         decision_replay_service,
     ) = _build_project_timeline_stack(session)
 
@@ -1576,6 +1647,9 @@ def get_project_timeline(
 
     approval_entries = approval_service.list_project_timeline_entries(project_id) or []
     events.extend(_build_approval_timeline_events(approval_entries))
+
+    preflight_entries = change_risk_guard_service.list_project_timeline_entries(project_id)
+    events.extend(_build_preflight_timeline_events(preflight_entries))
 
     decision_entries = decision_replay_service.build_project_timeline_entries(
         runs=runs,

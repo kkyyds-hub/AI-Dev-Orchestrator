@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.domain.change_batch import (
     ChangeBatchLinkedDeliverable,
+    ChangeBatchPreflight,
     ChangeBatchStatus,
 )
 from app.domain.change_session import (
@@ -52,7 +53,9 @@ from app.services.change_batch_service import (
     ChangeBatchActiveConflictError,
     ChangeBatchDependencyView,
     ChangeBatchDetail,
+    ChangeBatchDeliverableNotFoundError,
     ChangeBatchNotFoundError,
+    ChangeBatchPlanNotFoundError,
     ChangeBatchPlanTaskConflictError,
     ChangeBatchProjectNotFoundError,
     ChangeBatchService,
@@ -61,8 +64,11 @@ from app.services.change_batch_service import (
     ChangeBatchTaskView,
     ChangeBatchTimelineEntry,
     ChangeBatchWorkspaceNotFoundError,
-    ChangeBatchPlanNotFoundError,
-    ChangeBatchDeliverableNotFoundError,
+)
+from app.services.change_risk_guard_service import (
+    ChangeRiskGuardBatchNotFoundError,
+    ChangeRiskGuardProjectNotFoundError,
+    ChangeRiskGuardService,
 )
 from app.services.branch_session_service import (
     BranchSessionInspectionError,
@@ -405,6 +411,19 @@ class ChangeBatchCreateRequest(BaseModel):
     )
 
 
+class ChangeBatchPreflightRequest(BaseModel):
+    """Optional command text inspected by the Day08 execution-preflight guard."""
+
+    candidate_commands: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Optional command text inspected by Day08 before any real execution. "
+            "Commands are only classified, never executed."
+        ),
+    )
+
+
 class ChangeBatchTargetFileResponse(BaseModel):
     """One target file rendered inside a Day07 change-batch task."""
 
@@ -606,6 +625,7 @@ class ChangeBatchSummaryResponse(BaseModel):
     overlap_file_count: int
     dependency_count: int
     verification_command_count: int
+    preflight: ChangeBatchPreflight = Field(default_factory=ChangeBatchPreflight)
     created_at: datetime
     updated_at: datetime
 
@@ -630,6 +650,7 @@ class ChangeBatchSummaryResponse(BaseModel):
             overlap_file_count=item.overlap_file_count,
             dependency_count=item.dependency_count,
             verification_command_count=item.verification_command_count,
+            preflight=item.change_batch.preflight,
             created_at=item.change_batch.created_at,
             updated_at=item.change_batch.updated_at,
         )
@@ -665,6 +686,7 @@ class ChangeBatchDetailResponse(ChangeBatchSummaryResponse):
             overlap_file_count=summary.overlap_file_count,
             dependency_count=summary.dependency_count,
             verification_command_count=summary.verification_command_count,
+            preflight=summary.change_batch.preflight,
             created_at=summary.change_batch.created_at,
             updated_at=summary.change_batch.updated_at,
             tasks=[ChangeBatchTaskResponse.from_view(item) for item in detail.tasks],
@@ -762,6 +784,17 @@ def get_change_batch_service(
         repository_workspace_repository=RepositoryWorkspaceRepository(session),
         task_repository=TaskRepository(session),
         deliverable_repository=DeliverableRepository(session),
+    )
+
+
+def get_change_risk_guard_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ChangeRiskGuardService:
+    """Create the Day08 preflight risk-guard dependency."""
+
+    return ChangeRiskGuardService(
+        change_batch_repository=ChangeBatchRepository(session),
+        project_repository=ProjectRepository(session),
     )
 
 
@@ -1130,6 +1163,44 @@ def get_change_batch_detail(
     try:
         detail = change_batch_service.get_change_batch_detail(change_batch_id)
     except ChangeBatchNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return ChangeBatchDetailResponse.from_detail(detail)
+
+
+@router.post(
+    "/change-batches/{change_batch_id}/preflight",
+    response_model=ChangeBatchDetailResponse,
+    summary="Run one Day08 execution-preflight guard for a change batch",
+)
+def run_change_batch_preflight(
+    change_batch_id: UUID,
+    request: ChangeBatchPreflightRequest,
+    change_risk_guard_service: Annotated[
+        ChangeRiskGuardService,
+        Depends(get_change_risk_guard_service),
+    ],
+    change_batch_service: Annotated[
+        ChangeBatchService,
+        Depends(get_change_batch_service),
+    ],
+) -> ChangeBatchDetailResponse:
+    """Classify Day08 risks before execution and persist the preflight result."""
+
+    try:
+        change_risk_guard_service.run_preflight(
+            change_batch_id=change_batch_id,
+            candidate_commands=request.candidate_commands,
+        )
+        detail = change_batch_service.get_change_batch_detail(change_batch_id)
+    except (
+        ChangeRiskGuardBatchNotFoundError,
+        ChangeRiskGuardProjectNotFoundError,
+        ChangeBatchNotFoundError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),

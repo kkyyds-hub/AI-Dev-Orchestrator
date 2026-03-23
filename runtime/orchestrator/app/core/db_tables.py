@@ -948,6 +948,7 @@ class ChangeBatchTable(ORMBase):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     plan_snapshots_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    preflight_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

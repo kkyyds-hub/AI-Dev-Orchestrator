@@ -13,14 +13,24 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.domain._base import utc_now
 from app.domain.approval import ApprovalDecisionAction, ApprovalStatus
+from app.domain.change_batch import (
+    ChangeBatchManualConfirmationAction,
+    ChangeBatchPreflight,
+    ChangeBatchPreflightStatus,
+)
 from app.domain.deliverable import DeliverableType
 from app.domain.project import ProjectStage
 from app.domain.project_role import ProjectRoleCode
 from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.change_batch_repository import ChangeBatchRepository
+from app.repositories.change_plan_repository import ChangePlanRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.run_repository import RunRepository
+from app.repositories.repository_workspace_repository import (
+    RepositoryWorkspaceRepository,
+)
 from app.repositories.task_repository import TaskRepository
 from app.services.approval_service import (
     ApprovalDetail,
@@ -30,6 +40,20 @@ from app.services.approval_service import (
     ApprovalReworkCycle,
     ApprovalService,
     ProjectApprovalInbox,
+)
+from app.services.change_batch_service import (
+    ChangeBatchDetail,
+    ChangeBatchNotFoundError,
+    ChangeBatchProjectNotFoundError,
+    ChangeBatchSummary,
+    ChangeBatchService,
+)
+from app.services.change_risk_guard_service import (
+    ChangeRiskGuardBatchNotFoundError,
+    ChangeRiskGuardManualConfirmationError,
+    ChangeRiskGuardPreflightMissingError,
+    ChangeRiskGuardProjectNotFoundError,
+    ChangeRiskGuardService,
 )
 from app.services.decision_replay_service import (
     DecisionReplayService,
@@ -203,6 +227,90 @@ class ProjectApprovalInboxResponse(BaseModel):
             approvals=[
                 ApprovalSummaryResponse.from_queue_item(item) for item in inbox.approvals
             ],
+        )
+
+
+class RepositoryPreflightApprovalSummaryResponse(BaseModel):
+    """One Day08 repository-preflight item shown in the approvals area."""
+
+    change_batch_id: UUID
+    project_id: UUID
+    title: str
+    summary: str
+    task_count: int
+    target_file_count: int
+    overlap_file_count: int
+    preflight: ChangeBatchPreflight = Field(default_factory=ChangeBatchPreflight)
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_change_batch_summary(
+        cls,
+        item: ChangeBatchSummary,
+    ) -> "RepositoryPreflightApprovalSummaryResponse":
+        """Convert one change-batch summary into its Day08 approval-panel DTO."""
+
+        return cls(
+            change_batch_id=item.change_batch.id,
+            project_id=item.change_batch.project_id,
+            title=item.change_batch.title,
+            summary=item.change_batch.summary,
+            task_count=item.task_count,
+            target_file_count=item.target_file_count,
+            overlap_file_count=item.overlap_file_count,
+            preflight=item.change_batch.preflight,
+            created_at=item.change_batch.created_at,
+            updated_at=item.change_batch.updated_at,
+        )
+
+
+class ProjectRepositoryPreflightInboxResponse(BaseModel):
+    """Project-scoped repository-preflight queue returned by Day08."""
+
+    project_id: UUID
+    total_batches: int
+    pending_confirmations: int
+    ready_batches: int
+    rejected_batches: int
+    generated_at: datetime
+    items: list[RepositoryPreflightApprovalSummaryResponse]
+
+
+class RepositoryPreflightApprovalDetailResponse(BaseModel):
+    """One detailed Day08 repository-preflight record used by the approvals panel."""
+
+    change_batch_id: UUID
+    project_id: UUID
+    title: str
+    summary: str
+    task_titles: list[str]
+    target_files: list[str]
+    overlap_files: list[str]
+    preflight: ChangeBatchPreflight = Field(default_factory=ChangeBatchPreflight)
+    timeline: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_change_batch_detail(
+        cls,
+        detail: ChangeBatchDetail,
+    ) -> "RepositoryPreflightApprovalDetailResponse":
+        """Convert one change-batch detail into a Day08 approval-panel DTO."""
+
+        return cls(
+            change_batch_id=detail.summary.change_batch.id,
+            project_id=detail.summary.change_batch.project_id,
+            title=detail.summary.change_batch.title,
+            summary=detail.summary.change_batch.summary,
+            task_titles=[item.task_title for item in detail.tasks],
+            target_files=[item.relative_path for item in detail.target_files],
+            overlap_files=[item.relative_path for item in detail.overlap_files],
+            preflight=detail.summary.change_batch.preflight,
+            timeline=[item.label for item in detail.timeline],
+            created_at=detail.summary.change_batch.created_at,
+            updated_at=detail.summary.change_batch.updated_at,
         )
 
 
@@ -454,6 +562,16 @@ class ApprovalActionRequest(BaseModel):
     requested_changes: list[str] = Field(default_factory=list, max_length=10)
 
 
+class RepositoryPreflightActionRequest(BaseModel):
+    """Body accepted when one Day08 manual-confirmation decision is applied."""
+
+    action: ChangeBatchManualConfirmationAction
+    actor_name: str = Field(default="老板", min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=500)
+    comment: str | None = Field(default=None, max_length=2_000)
+    highlighted_risks: list[str] = Field(default_factory=list, max_length=20)
+
+
 def get_approval_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ApprovalService:
@@ -464,6 +582,32 @@ def get_approval_service(
         approval_repository=ApprovalRepository(session),
         deliverable_repository=DeliverableRepository(session),
         project_repository=project_repository,
+    )
+
+
+def get_change_batch_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ChangeBatchService:
+    """Create the shared change-batch service used by Day08 approval panels."""
+
+    return ChangeBatchService(
+        change_batch_repository=ChangeBatchRepository(session),
+        change_plan_repository=ChangePlanRepository(session),
+        project_repository=ProjectRepository(session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
+        task_repository=TaskRepository(session),
+        deliverable_repository=DeliverableRepository(session),
+    )
+
+
+def get_change_risk_guard_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ChangeRiskGuardService:
+    """Create the Day08 preflight risk-guard dependency."""
+
+    return ChangeRiskGuardService(
+        change_batch_repository=ChangeBatchRepository(session),
+        project_repository=ProjectRepository(session),
     )
 
 
@@ -601,6 +745,139 @@ def get_project_approval_inbox(
         )
 
     return ProjectApprovalInboxResponse.from_inbox(inbox)
+
+
+@router.get(
+    "/projects/{project_id}/repository-preflight",
+    response_model=ProjectRepositoryPreflightInboxResponse,
+    summary="Get the Day08 repository-preflight manual-confirmation queue",
+)
+def get_project_repository_preflight_inbox(
+    project_id: UUID,
+    change_batch_service: Annotated[
+        ChangeBatchService,
+        Depends(get_change_batch_service),
+    ],
+) -> ProjectRepositoryPreflightInboxResponse:
+    """Return the project-scoped Day08 repository-preflight results and pending queue."""
+
+    try:
+        change_batch_summaries = change_batch_service.list_change_batches(project_id)
+    except ChangeBatchProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    items = [
+        RepositoryPreflightApprovalSummaryResponse.from_change_batch_summary(item)
+        for item in change_batch_summaries
+        if item.change_batch.preflight.status != ChangeBatchPreflightStatus.NOT_STARTED
+    ]
+    pending_confirmations = sum(
+        1
+        for item in items
+        if item.preflight.status == ChangeBatchPreflightStatus.BLOCKED_REQUIRES_CONFIRMATION
+    )
+    ready_batches = sum(
+        1
+        for item in items
+        if item.preflight.status
+        in {
+            ChangeBatchPreflightStatus.READY_FOR_EXECUTION,
+            ChangeBatchPreflightStatus.MANUAL_CONFIRMED,
+        }
+    )
+    rejected_batches = sum(
+        1
+        for item in items
+        if item.preflight.status == ChangeBatchPreflightStatus.MANUAL_REJECTED
+    )
+
+    return ProjectRepositoryPreflightInboxResponse(
+        project_id=project_id,
+        total_batches=len(items),
+        pending_confirmations=pending_confirmations,
+        ready_batches=ready_batches,
+        rejected_batches=rejected_batches,
+        generated_at=utc_now(),
+        items=items,
+    )
+
+
+@router.get(
+    "/repository-preflight/{change_batch_id}",
+    response_model=RepositoryPreflightApprovalDetailResponse,
+    summary="Get one Day08 repository-preflight detail",
+)
+def get_repository_preflight_detail(
+    change_batch_id: UUID,
+    change_batch_service: Annotated[
+        ChangeBatchService,
+        Depends(get_change_batch_service),
+    ],
+) -> RepositoryPreflightApprovalDetailResponse:
+    """Return one change batch together with its Day08 preflight detail."""
+
+    try:
+        detail = change_batch_service.get_change_batch_detail(change_batch_id)
+    except ChangeBatchNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RepositoryPreflightApprovalDetailResponse.from_change_batch_detail(detail)
+
+
+@router.post(
+    "/repository-preflight/{change_batch_id}/actions",
+    response_model=RepositoryPreflightApprovalDetailResponse,
+    summary="Apply one Day08 manual-confirmation decision",
+)
+def apply_repository_preflight_action(
+    change_batch_id: UUID,
+    request: RepositoryPreflightActionRequest,
+    change_risk_guard_service: Annotated[
+        ChangeRiskGuardService,
+        Depends(get_change_risk_guard_service),
+    ],
+    change_batch_service: Annotated[
+        ChangeBatchService,
+        Depends(get_change_batch_service),
+    ],
+) -> RepositoryPreflightApprovalDetailResponse:
+    """Persist one Day08 manual-confirmation decision and return the latest detail."""
+
+    try:
+        change_risk_guard_service.apply_manual_confirmation(
+            change_batch_id=change_batch_id,
+            action=request.action,
+            actor_name=request.actor_name,
+            summary=request.summary,
+            comment=request.comment,
+            highlighted_risks=request.highlighted_risks,
+        )
+        detail = change_batch_service.get_change_batch_detail(change_batch_id)
+    except (
+        ChangeRiskGuardBatchNotFoundError,
+        ChangeRiskGuardProjectNotFoundError,
+        ChangeBatchNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except (
+        ChangeRiskGuardPreflightMissingError,
+        ChangeRiskGuardManualConfirmationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return RepositoryPreflightApprovalDetailResponse.from_change_batch_detail(detail)
 
 
 @router.get(
