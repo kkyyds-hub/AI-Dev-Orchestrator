@@ -1,6 +1,9 @@
 import { requestJson } from "../../lib/http";
 import type { RepositorySnapshot } from "../projects/types";
 import type {
+  ChangeBatchCreateInput,
+  ChangeBatchDetail,
+  ChangeBatchSummary,
   ChangeSession,
   CodeContextPack,
   CodeContextPackBuildInput,
@@ -75,6 +78,35 @@ export function buildProjectCodeContextPack(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function fetchProjectChangeBatches(
+  projectId: string,
+): Promise<ChangeBatchSummary[]> {
+  return requestJson<ChangeBatchSummary[]>(
+    `/repositories/projects/${projectId}/change-batches`,
+  );
+}
+
+export function fetchChangeBatchDetail(
+  changeBatchId: string,
+): Promise<ChangeBatchDetail> {
+  return requestJson<ChangeBatchDetail>(
+    `/repositories/change-batches/${changeBatchId}`,
+  );
+}
+
+export function createProjectChangeBatch(input: {
+  projectId: string;
+  payload: ChangeBatchCreateInput;
+}): Promise<ChangeBatchDetail> {
+  return requestJson<ChangeBatchDetail>(
+    `/repositories/projects/${input.projectId}/change-batches`,
+    {
+      method: "POST",
+      body: JSON.stringify(input.payload),
+    },
+  );
 }
 
 async function buildErrorMessage(response: Response): Promise<string> {

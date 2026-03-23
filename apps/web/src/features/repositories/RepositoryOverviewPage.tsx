@@ -11,6 +11,7 @@ import type {
 } from "../projects/types";
 import { ChangePlanDrawer } from "../projects/ChangePlanDrawer";
 import { useProjectChangePlans } from "../projects/hooks";
+import { ChangeBatchBoard } from "./ChangeBatchBoard";
 import { RepositoryHomeCard } from "./RepositoryHomeCard";
 import { ChangeSessionPanel } from "./components/ChangeSessionPanel";
 import { FileLocatorPanel } from "./components/FileLocatorPanel";
@@ -76,7 +77,8 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             Day04 把 Day01 的仓库绑定、Day02 的目录快照和 Day03
             的变更会话整合到项目详情页；Day05 在此基础上新增最小文件定位与{" "}
             <code>CodeContextPack</code>，Day06 再把任务、交付件与候选文件集合整理成
-            ChangePlan 草案，但仍不进入 Day07+ 的批次、风险预检或任何真实 Git 写操作。
+            ChangePlan 草案；当前 Day07 已把多个草案合并成 ChangeBatch 并展示任务顺序、
+            依赖与文件重叠提醒，但仍不进入 Day08 风险预检或任何真实 Git 写操作。
           </p>
         </div>
 
@@ -276,6 +278,17 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
                 setSelectedChangePlanTaskId(taskId);
                 setChangePlanDrawerOpen(true);
               }}
+            />
+          </div>
+
+          <div className="mt-4">
+            <ChangeBatchBoard
+              projectId={projectId}
+              changePlans={changePlans}
+              isLoadingChangePlans={changePlansQuery.isLoading}
+              changePlanErrorMessage={
+                changePlansQuery.isError ? changePlansQuery.error.message : null
+              }
             />
           </div>
         </>

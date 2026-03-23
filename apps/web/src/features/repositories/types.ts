@@ -1,3 +1,8 @@
+import type {
+  ChangePlanLinkedDeliverable,
+  ChangePlanTargetFile,
+} from "../projects/types";
+
 export type ChangeSessionWorkspaceStatus = "clean" | "dirty";
 
 export type ChangeSessionGuardStatus = "ready" | "blocked";
@@ -119,4 +124,82 @@ export type CodeContextPackBuildInput = FileLocatorSearchInput & {
   max_total_bytes?: number;
   max_bytes_per_file?: number;
   selection_reasons_by_path?: Record<string, string[]>;
+};
+
+export type ChangeBatchStatus = "preparing" | "superseded";
+
+export type ChangeBatchDependency = {
+  task_id: string;
+  task_title: string;
+  in_batch: boolean;
+  missing: boolean;
+  order_index: number | null;
+};
+
+export type ChangeBatchTask = {
+  order_index: number;
+  task_id: string;
+  task_title: string;
+  task_priority: string;
+  task_risk_level: string;
+  change_plan_id: string;
+  change_plan_title: string;
+  selected_version_number: number;
+  intent_summary: string;
+  expected_actions: string[];
+  verification_commands: string[];
+  related_deliverables: ChangePlanLinkedDeliverable[];
+  dependencies: ChangeBatchDependency[];
+  target_files: ChangePlanTargetFile[];
+  overlap_file_paths: string[];
+};
+
+export type ChangeBatchTargetFileAggregate = {
+  relative_path: string;
+  language: string;
+  file_type: string;
+  match_reasons: string[];
+  rationales: string[];
+  task_ids: string[];
+  task_titles: string[];
+  change_plan_ids: string[];
+  change_plan_titles: string[];
+  overlap_count: number;
+};
+
+export type ChangeBatchTimelineEntry = {
+  entry_type: string;
+  label: string;
+  summary: string;
+  occurred_at: string;
+};
+
+export type ChangeBatchSummary = {
+  id: string;
+  project_id: string;
+  repository_workspace_id: string | null;
+  status: ChangeBatchStatus;
+  title: string;
+  summary: string;
+  active: boolean;
+  change_plan_count: number;
+  task_count: number;
+  target_file_count: number;
+  overlap_file_count: number;
+  dependency_count: number;
+  verification_command_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChangeBatchDetail = ChangeBatchSummary & {
+  tasks: ChangeBatchTask[];
+  target_files: ChangeBatchTargetFileAggregate[];
+  overlap_files: ChangeBatchTargetFileAggregate[];
+  timeline: ChangeBatchTimelineEntry[];
+};
+
+export type ChangeBatchCreateInput = {
+  title?: string | null;
+  change_plan_ids: string[];
 };

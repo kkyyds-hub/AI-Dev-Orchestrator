@@ -3,6 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   buildProjectCodeContextPack,
   captureProjectChangeSession,
+  createProjectChangeBatch,
+  fetchChangeBatchDetail,
+  fetchProjectChangeBatches,
   fetchProjectChangeSession,
   fetchProjectRepositorySnapshot,
   refreshProjectRepositorySnapshot,
@@ -91,6 +94,52 @@ export function useBuildProjectCodeContextPack(projectId: string | null) {
       }
 
       return buildProjectCodeContextPack(projectId, input);
+    },
+  });
+}
+
+export function useProjectChangeBatches(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-change-batches", projectId],
+    queryFn: () => fetchProjectChangeBatches(projectId ?? ""),
+    enabled: projectId !== null,
+  });
+}
+
+export function useChangeBatchDetail(changeBatchId: string | null) {
+  return useQuery({
+    queryKey: ["change-batch-detail", changeBatchId],
+    queryFn: () => fetchChangeBatchDetail(changeBatchId ?? ""),
+    enabled: changeBatchId !== null,
+  });
+}
+
+export function useCreateProjectChangeBatch(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: {
+      title?: string | null;
+      change_plan_ids: string[];
+    }) => {
+      if (!projectId) {
+        throw new Error("当前没有可创建变更批次的项目仓库。");
+      }
+
+      return createProjectChangeBatch({
+        projectId,
+        payload,
+      });
+    },
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-change-batches", result.project_id],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["change-batch-detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+      ]);
+      queryClient.setQueryData(["change-batch-detail", result.id], result);
     },
   });
 }
