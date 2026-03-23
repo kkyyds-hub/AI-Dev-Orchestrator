@@ -19,6 +19,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain._base import utc_now
 from app.domain.approval import ApprovalDecisionAction, ApprovalStatus
+from app.domain.change_batch import ChangeBatchStatus
 from app.domain.change_session import (
     ChangeSessionGuardStatus,
     ChangeSessionWorkspaceStatus,
@@ -916,6 +917,48 @@ class ChangePlanVersionTable(ORMBase):
     )
 
     change_plan: Mapped[ChangePlanTable] = relationship(back_populates="versions")
+
+
+class ChangeBatchTable(ORMBase):
+    """Day07 execution-preparation batch rows."""
+
+    __tablename__ = "change_batches"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repository_workspace_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("repository_workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[ChangeBatchStatus] = mapped_column(
+        Enum(
+            ChangeBatchStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ChangeBatchStatus.PREPARING,
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    plan_snapshots_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
 
 
 class ApprovalRequestTable(ORMBase):
