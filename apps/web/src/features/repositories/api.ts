@@ -3,6 +3,7 @@ import type { RepositorySnapshot } from "../projects/types";
 import type {
   ChangeBatchCreateInput,
   ChangeBatchDetail,
+  ChangeBatchPreflightInput,
   ChangeBatchSummary,
   ChangeSession,
   CodeContextPack,
@@ -105,6 +106,19 @@ export function createProjectChangeBatch(input: {
     {
       method: "POST",
       body: JSON.stringify(input.payload),
+    },
+  );
+}
+
+export function runChangeBatchPreflight(input: {
+  changeBatchId: string;
+  payload?: ChangeBatchPreflightInput;
+}): Promise<ChangeBatchDetail> {
+  return requestJson<ChangeBatchDetail>(
+    `/repositories/change-batches/${input.changeBatchId}/preflight`,
+    {
+      method: "POST",
+      body: JSON.stringify(input.payload ?? {}),
     },
   );
 }

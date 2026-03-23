@@ -461,6 +461,7 @@ export type ProjectSopTemplateSelectResult = {
 export type ProjectTimelineEventType =
   | "stage"
   | "deliverable"
+  | "preflight"
   | "approval"
   | "role_handoff"
   | "decision";
@@ -564,6 +565,7 @@ export const PROJECT_TIMELINE_EVENT_TYPE_LABELS: Record<
 > = {
   stage: "阶段推进",
   deliverable: "交付件提交",
+  preflight: "执行前预检",
   approval: "审批动作",
   role_handoff: "角色交接",
   decision: "运行决策",

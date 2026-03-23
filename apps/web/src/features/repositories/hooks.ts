@@ -9,9 +9,14 @@ import {
   fetchProjectChangeSession,
   fetchProjectRepositorySnapshot,
   refreshProjectRepositorySnapshot,
+  runChangeBatchPreflight,
   searchProjectRepositoryFiles,
 } from "./api";
-import type { CodeContextPackBuildInput, FileLocatorSearchInput } from "./types";
+import type {
+  ChangeBatchPreflightInput,
+  CodeContextPackBuildInput,
+  FileLocatorSearchInput,
+} from "./types";
 
 export function useProjectRepositorySnapshot(projectId: string | null) {
   return useQuery({
@@ -140,6 +145,47 @@ export function useCreateProjectChangeBatch(projectId: string | null) {
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
       ]);
       queryClient.setQueryData(["change-batch-detail", result.id], result);
+    },
+  });
+}
+
+export function useRunChangeBatchPreflight(
+  projectId: string | null,
+  changeBatchId: string | null,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload?: ChangeBatchPreflightInput) => {
+      if (!changeBatchId) {
+        throw new Error("当前没有可执行预检的变更批次。");
+      }
+
+      return runChangeBatchPreflight({
+        changeBatchId,
+        payload,
+      });
+    },
+    onSuccess: async (result) => {
+      queryClient.setQueryData(["change-batch-detail", result.id], result);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-change-batches", result.project_id],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["change-batch-detail", result.id] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+        queryClient.invalidateQueries({ queryKey: ["project-timeline", result.project_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["approvals", "repository-preflight", result.project_id],
+        }),
+        ...(projectId
+          ? [
+              queryClient.invalidateQueries({
+                queryKey: ["project-detail", projectId],
+              }),
+            ]
+          : []),
+      ]);
     },
   });
 }

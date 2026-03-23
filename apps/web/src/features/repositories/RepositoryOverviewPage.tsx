@@ -77,8 +77,8 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             Day04 把 Day01 的仓库绑定、Day02 的目录快照和 Day03
             的变更会话整合到项目详情页；Day05 在此基础上新增最小文件定位与{" "}
             <code>CodeContextPack</code>，Day06 再把任务、交付件与候选文件集合整理成
-            ChangePlan 草案；当前 Day07 已把多个草案合并成 ChangeBatch 并展示任务顺序、
-            依赖与文件重叠提醒，但仍不进入 Day08 风险预检或任何真实 Git 写操作。
+            ChangePlan 草案；当前 Day07-Day08 已把多个草案合并成 ChangeBatch，并在执行前补上
+            风险分类、阻断与人工确认，但仍不进入 Day09+ 的验证运行或任何真实 Git 写操作。
           </p>
         </div>
 
@@ -325,8 +325,8 @@ function ChangePlanMappingPanel(props: {
           </div>
           <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
             这里把项目任务、交付件与 Day05 的候选文件集合映射成结构化 ChangePlan，
-            只记录“要改什么、为什么改、改完怎么验”，不提前进入 Day07 变更批次或
-            Day08 风险预检。
+            只记录“要改什么、为什么改、改完怎么验”；后续是否进入 ChangeBatch 与 Day08
+            风险预检，仍在下方批次区单独处理。
           </p>
         </div>
 

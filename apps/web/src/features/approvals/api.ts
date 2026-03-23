@@ -3,16 +3,27 @@
 import type {
   ApprovalDetail,
   ApprovalHistory,
+  ApplyRepositoryPreflightActionInput,
   ApplyApprovalActionInput,
   CreateApprovalRequestInput,
+  ProjectRepositoryPreflightInbox,
   ProjectApprovalInbox,
   ProjectApprovalRetrospective,
+  RepositoryPreflightApprovalDetail,
 } from "./types";
 
 export function fetchProjectApprovalInbox(
   projectId: string,
 ): Promise<ProjectApprovalInbox> {
   return requestJson<ProjectApprovalInbox>(`/approvals/projects/${projectId}`);
+}
+
+export function fetchProjectRepositoryPreflightInbox(
+  projectId: string,
+): Promise<ProjectRepositoryPreflightInbox> {
+  return requestJson<ProjectRepositoryPreflightInbox>(
+    `/approvals/projects/${projectId}/repository-preflight`,
+  );
 }
 
 export function fetchProjectApprovalRetrospective(
@@ -25,6 +36,14 @@ export function fetchProjectApprovalRetrospective(
 
 export function fetchApprovalDetail(approvalId: string): Promise<ApprovalDetail> {
   return requestJson<ApprovalDetail>(`/approvals/${approvalId}`);
+}
+
+export function fetchRepositoryPreflightDetail(
+  changeBatchId: string,
+): Promise<RepositoryPreflightApprovalDetail> {
+  return requestJson<RepositoryPreflightApprovalDetail>(
+    `/approvals/repository-preflight/${changeBatchId}`,
+  );
 }
 
 export function fetchApprovalHistory(approvalId: string): Promise<ApprovalHistory> {
@@ -48,4 +67,17 @@ export function applyApprovalAction(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function applyRepositoryPreflightAction(
+  changeBatchId: string,
+  input: ApplyRepositoryPreflightActionInput,
+): Promise<RepositoryPreflightApprovalDetail> {
+  return requestJson<RepositoryPreflightApprovalDetail>(
+    `/approvals/repository-preflight/${changeBatchId}/actions`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
 }

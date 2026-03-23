@@ -3,16 +3,19 @@ import { useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
 import type { ChangePlanSummary } from "../projects/types";
+import { PreflightChecklist } from "./components/PreflightChecklist";
 import {
   useChangeBatchDetail,
   useCreateProjectChangeBatch,
   useProjectChangeBatches,
+  useRunChangeBatchPreflight,
 } from "./hooks";
 import type {
   ChangeBatchDetail,
   ChangeBatchSummary,
   ChangeBatchTargetFileAggregate,
 } from "./types";
+import { CHANGE_BATCH_PREFLIGHT_STATUS_LABELS } from "./types";
 
 type ChangeBatchBoardProps = {
   projectId: string | null;
@@ -64,6 +67,7 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
   }, [activeBatch?.id, batchSummaries, selectedBatchId]);
 
   const detailQuery = useChangeBatchDetail(selectedBatchId);
+  const preflightMutation = useRunChangeBatchPreflight(props.projectId, selectedBatchId);
   const selectedBatchSummary =
     batchSummaries.find((item) => item.id === selectedBatchId) ??
     activeBatch ??
@@ -95,8 +99,8 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
           </div>
           <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
             这里把多个已确认的 ChangePlan 合并成可推进的 ChangeBatch，明确任务顺序、
-            依赖关系与文件重叠风险；当前仍严格停留在执行准备层，不提前进入 Day08
-            风险预检、审批放行或任何产品内真实 Git 写操作。
+            依赖关系与文件重叠风险；当前已补上 Day08 的执行前风险预检与人工确认，
+            但仍不进入 Day09+ 的验证运行、证据包或任何产品内真实 Git 写操作。
           </p>
         </div>
 
@@ -127,6 +131,9 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
       ) : null}
       {detailQuery.isError ? (
         <Alert tone="danger" message={`批次详情加载失败：${detailQuery.error.message}`} />
+      ) : null}
+      {preflightMutation.isError ? (
+        <Alert tone="danger" message={`执行前预检失败：${preflightMutation.error.message}`} />
       ) : null}
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
@@ -265,8 +272,7 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
         <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
           <div className="text-sm font-semibold text-slate-50">批次列表</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
-            这里展示当前项目的 Day07 批次摘要。创建后会自动回写到仓库页视图，并在下方
-            形成本地时间线。
+            这里展示当前项目的 ChangeBatch 摘要；Day08 预检状态也会同步回写到列表、详情与时间线。
           </div>
 
           {batchesQuery.isLoading && batchSummaries.length === 0 ? (
@@ -298,6 +304,19 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
                     <StatusBadge
                       label={`重叠 ${item.overlap_file_count}`}
                       tone={item.overlap_file_count > 0 ? "warning" : "success"}
+                    />
+                    <StatusBadge
+                      label={CHANGE_BATCH_PREFLIGHT_STATUS_LABELS[item.preflight.status]}
+                      tone={
+                        item.preflight.status === "ready_for_execution" ||
+                        item.preflight.status === "manual_confirmed"
+                          ? "success"
+                          : item.preflight.status === "blocked_requires_confirmation"
+                            ? "warning"
+                            : item.preflight.status === "manual_rejected"
+                              ? "danger"
+                              : "neutral"
+                      }
                     />
                   </div>
                 </button>
@@ -338,10 +357,16 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
         {detailQuery.isLoading && selectedBatchSummary ? (
           <div className="mt-4 text-sm leading-6 text-slate-400">正在加载批次详情...</div>
         ) : selectedBatchDetail ? (
-          <ChangeBatchDetailPanel detail={selectedBatchDetail} />
+          <ChangeBatchDetailPanel
+            detail={selectedBatchDetail}
+            onRunPreflight={() => {
+              void preflightMutation.mutateAsync({});
+            }}
+            isRunningPreflight={preflightMutation.isPending}
+          />
         ) : (
           <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 px-4 py-3 text-sm leading-6 text-slate-400">
-            请选择一条批次摘要，或先创建新的 Day07 ChangeBatch。
+            请选择一条批次摘要，或先创建新的 ChangeBatch。
           </div>
         )}
       </div>
@@ -349,7 +374,11 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
   );
 }
 
-function ChangeBatchDetailPanel(props: { detail: ChangeBatchDetail }) {
+function ChangeBatchDetailPanel(props: {
+  detail: ChangeBatchDetail;
+  onRunPreflight: () => void;
+  isRunningPreflight: boolean;
+}) {
   return (
     <div className="mt-4 space-y-4">
       <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm leading-6 text-cyan-100">
@@ -359,6 +388,17 @@ function ChangeBatchDetailPanel(props: { detail: ChangeBatchDetail }) {
           {formatDateTime(props.detail.updated_at)}
         </div>
       </div>
+
+      <PreflightChecklist
+        title={props.detail.title}
+        preflight={props.detail.preflight}
+        targetFileCount={props.detail.target_file_count}
+        taskCount={props.detail.task_count}
+        overlapFileCount={props.detail.overlap_file_count}
+        onRunPreflight={props.onRunPreflight}
+        isRunning={props.isRunningPreflight}
+        helperText="Day08 在这里执行风险分类与人工确认预检；即使结果为“可进入执行”，当前也不会扩展到验证运行、证据包或真实 Git 写操作。"
+      />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="任务数" value={String(props.detail.task_count)} />
@@ -378,7 +418,7 @@ function ChangeBatchDetailPanel(props: { detail: ChangeBatchDetail }) {
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="text-sm font-semibold text-slate-50">任务执行顺序</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
-            任务顺序由批次内依赖自动排序，确保 Day07 只做执行准备，不直接运行代码修改。
+            任务顺序由批次内依赖自动排序；Day08 只在执行前做风险分类和人工确认，不直接运行代码修改。
           </div>
 
           <div className="mt-4 space-y-3">
@@ -479,11 +519,11 @@ function ChangeBatchDetailPanel(props: { detail: ChangeBatchDetail }) {
         </section>
 
         <section className="space-y-4">
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-            <div className="text-sm font-semibold text-slate-50">文件重叠风险</div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">
-              只提示同一批次内多个 ChangePlan 指向同一文件的情况，不提前做 Day08 风险预检。
-            </div>
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+          <div className="text-sm font-semibold text-slate-50">文件重叠风险</div>
+          <div className="mt-2 text-sm leading-6 text-slate-400">
+              这里继续提示同一批次内多个 ChangePlan 指向同一文件的情况；Day08 的更高风险分类会在上方预检区统一展示。
+          </div>
 
             {props.detail.overlap_files.length > 0 ? (
               <div className="mt-4 space-y-3">
@@ -522,7 +562,7 @@ function ChangeBatchDetailPanel(props: { detail: ChangeBatchDetail }) {
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
             <div className="text-sm font-semibold text-slate-50">批次时间线</div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
-              Day07 先在仓库页本地沉淀批次摘要与事件时间线，供后续 Day08+ 继续扩展。
+              这里会同时沉淀 ChangeBatch 创建、Day08 预检结果和人工确认结论，仍不扩展到 Day09+ 的验证与证据链路。
             </div>
 
             <div className="mt-4 space-y-3">

@@ -128,6 +128,72 @@ export type CodeContextPackBuildInput = FileLocatorSearchInput & {
 
 export type ChangeBatchStatus = "preparing" | "superseded";
 
+export type ChangeBatchRiskCategory =
+  | "sensitive_directory"
+  | "sensitive_file"
+  | "dangerous_command"
+  | "wide_change";
+
+export type ChangeBatchRiskSeverity = "low" | "medium" | "high" | "critical";
+
+export type ChangeBatchPreflightStatus =
+  | "not_started"
+  | "ready_for_execution"
+  | "blocked_requires_confirmation"
+  | "manual_confirmed"
+  | "manual_rejected";
+
+export type ChangeBatchManualConfirmationStatus =
+  | "not_required"
+  | "pending"
+  | "approved"
+  | "rejected";
+
+export type ChangeBatchManualConfirmationAction = "approve" | "reject";
+
+export type ChangeBatchRiskFinding = {
+  category: ChangeBatchRiskCategory;
+  severity: ChangeBatchRiskSeverity;
+  code: string;
+  title: string;
+  summary: string;
+  affected_paths: string[];
+  related_commands: string[];
+};
+
+export type ChangeBatchManualConfirmationDecision = {
+  action: ChangeBatchManualConfirmationAction;
+  actor_name: string;
+  summary: string;
+  comment: string | null;
+  highlighted_risks: string[];
+  created_at: string;
+};
+
+export type ChangeBatchPreflight = {
+  status: ChangeBatchPreflightStatus;
+  summary: string | null;
+  overall_severity: ChangeBatchRiskSeverity | null;
+  blocked: boolean;
+  ready_for_execution: boolean;
+  findings: ChangeBatchRiskFinding[];
+  finding_count: number;
+  critical_risk_count: number;
+  high_risk_count: number;
+  medium_risk_count: number;
+  low_risk_count: number;
+  scanned_target_file_count: number;
+  unique_directory_count: number;
+  inspected_command_count: number;
+  inspected_commands: string[];
+  manual_confirmation_required: boolean;
+  manual_confirmation_status: ChangeBatchManualConfirmationStatus;
+  requested_at: string | null;
+  evaluated_at: string | null;
+  decided_at: string | null;
+  decision_history: ChangeBatchManualConfirmationDecision[];
+};
+
 export type ChangeBatchDependency = {
   task_id: string;
   task_title: string;
@@ -188,6 +254,7 @@ export type ChangeBatchSummary = {
   overlap_file_count: number;
   dependency_count: number;
   verification_command_count: number;
+  preflight: ChangeBatchPreflight;
   created_at: string;
   updated_at: string;
 };
@@ -202,4 +269,39 @@ export type ChangeBatchDetail = ChangeBatchSummary & {
 export type ChangeBatchCreateInput = {
   title?: string | null;
   change_plan_ids: string[];
+};
+
+export type ChangeBatchPreflightInput = {
+  candidate_commands?: string[];
+};
+
+export const CHANGE_BATCH_PREFLIGHT_STATUS_LABELS: Record<
+  ChangeBatchPreflightStatus,
+  string
+> = {
+  not_started: "未预检",
+  ready_for_execution: "可进入执行",
+  blocked_requires_confirmation: "已阻断待人工确认",
+  manual_confirmed: "人工已放行",
+  manual_rejected: "人工已驳回",
+};
+
+export const CHANGE_BATCH_RISK_SEVERITY_LABELS: Record<
+  ChangeBatchRiskSeverity,
+  string
+> = {
+  low: "低风险",
+  medium: "中风险",
+  high: "高风险",
+  critical: "严重风险",
+};
+
+export const CHANGE_BATCH_RISK_CATEGORY_LABELS: Record<
+  ChangeBatchRiskCategory,
+  string
+> = {
+  sensitive_directory: "敏感目录",
+  sensitive_file: "敏感文件",
+  dangerous_command: "危险命令",
+  wide_change: "大范围变更",
 };

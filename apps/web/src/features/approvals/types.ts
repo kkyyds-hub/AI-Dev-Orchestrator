@@ -1,4 +1,9 @@
-﻿export type ApprovalStatus =
+import type {
+  ChangeBatchManualConfirmationAction,
+  ChangeBatchPreflight,
+} from "../repositories/types";
+
+export type ApprovalStatus =
   | "pending_approval"
   | "approved"
   | "rejected"
@@ -54,6 +59,43 @@ export type ProjectApprovalInbox = {
   approvals: ApprovalQueueItem[];
 };
 
+export type RepositoryPreflightApprovalSummary = {
+  change_batch_id: string;
+  project_id: string;
+  title: string;
+  summary: string;
+  task_count: number;
+  target_file_count: number;
+  overlap_file_count: number;
+  preflight: ChangeBatchPreflight;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectRepositoryPreflightInbox = {
+  project_id: string;
+  total_batches: number;
+  pending_confirmations: number;
+  ready_batches: number;
+  rejected_batches: number;
+  generated_at: string;
+  items: RepositoryPreflightApprovalSummary[];
+};
+
+export type RepositoryPreflightApprovalDetail = {
+  change_batch_id: string;
+  project_id: string;
+  title: string;
+  summary: string;
+  task_titles: string[];
+  target_files: string[];
+  overlap_files: string[];
+  preflight: ChangeBatchPreflight;
+  timeline: string[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type CreateApprovalRequestInput = {
   deliverable_id: string;
   requester_role_code: string;
@@ -68,6 +110,14 @@ export type ApplyApprovalActionInput = {
   comment?: string | null;
   highlighted_risks?: string[];
   requested_changes?: string[];
+};
+
+export type ApplyRepositoryPreflightActionInput = {
+  action: ChangeBatchManualConfirmationAction;
+  actor_name: string;
+  summary: string;
+  comment?: string | null;
+  highlighted_risks?: string[];
 };
 
 export type ApprovalHistoryEventKind =
@@ -191,45 +241,45 @@ export type ProjectApprovalRetrospective = {
 };
 
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
-  pending_approval: "待审批",
-  approved: "已批准",
-  rejected: "已驳回",
-  changes_requested: "待补充",
+  pending_approval: "???",
+  approved: "???",
+  rejected: "???",
+  changes_requested: "???",
 };
 
 export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
-  approve: "批准",
-  reject: "驳回",
-  request_changes: "要求补充",
+  approve: "??",
+  reject: "??",
+  request_changes: "????",
 };
 
 export const APPROVAL_HISTORY_EVENT_LABELS: Record<
   ApprovalHistoryEventKind,
   string
 > = {
-  approval_requested: "提交审批",
-  approval_decided: "审批结论",
-  rework_version_submitted: "重做版本",
+  approval_requested: "????",
+  approval_decided: "????",
+  rework_version_submitted: "????",
 };
 
 export const APPROVAL_REWORK_STATUS_LABELS: Record<
   ApprovalHistoryReworkStatus,
   string
 > = {
-  clean: "无需返工",
-  pending_approval: "等待审批",
-  rework_required: "待返工",
-  reworking: "返工中",
-  resubmitted: "已重提",
-  approved_after_rework: "返工后通过",
+  clean: "????",
+  pending_approval: "????",
+  rework_required: "???",
+  reworking: "???",
+  resubmitted: "???",
+  approved_after_rework: "?????",
 };
 
 export const PROJECT_APPROVAL_CYCLE_STATUS_LABELS: Record<
   ProjectApprovalCycleStatus,
   string
 > = {
-  rework_required: "待返工",
-  reworking: "返工中",
-  resubmitted_pending_approval: "已重提待审批",
-  approved_after_rework: "返工后通过",
+  rework_required: "???",
+  reworking: "???",
+  resubmitted_pending_approval: "??????",
+  approved_after_rework: "?????",
 };
