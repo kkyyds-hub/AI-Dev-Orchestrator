@@ -52,3 +52,58 @@ export type DecisionTraceResponse = {
   trace_items: DecisionTraceItem[];
   failure_review: FailureReview | null;
 };
+
+export type VerificationRunStatus = "passed" | "failed" | "skipped";
+
+export type VerificationRunCommandSource = "template" | "manual";
+
+export type VerificationRunFailureCategory =
+  | "command_failed"
+  | "command_timeout"
+  | "configuration_error"
+  | "precheck_blocked"
+  | "manually_skipped"
+  | "workspace_unavailable";
+
+export type VerificationRun = {
+  id: string;
+  project_id: string;
+  repository_workspace_id: string;
+  repository_root_path: string;
+  repository_display_name: string | null;
+  change_plan_id: string;
+  change_plan_title: string;
+  change_batch_id: string;
+  change_batch_title: string;
+  task_title: string | null;
+  verification_template_id: string | null;
+  verification_template_name: string | null;
+  verification_template_category:
+    | "build"
+    | "test"
+    | "lint"
+    | "typecheck"
+    | null;
+  command_source: VerificationRunCommandSource;
+  command: string;
+  working_directory: string;
+  status: VerificationRunStatus;
+  failure_category: VerificationRunFailureCategory | null;
+  duration_seconds: number;
+  output_summary: string;
+  started_at: string;
+  finished_at: string;
+  created_at: string;
+};
+
+export type VerificationRunFeed = {
+  project_id: string;
+  repository_workspace_id: string;
+  repository_root_path: string;
+  repository_display_name: string | null;
+  change_batch_id: string | null;
+  total_runs: number;
+  status_counts: Record<VerificationRunStatus, number>;
+  latest_run: VerificationRun | null;
+  runs: VerificationRun[];
+};
