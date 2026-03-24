@@ -4,8 +4,8 @@
 - 模块 / 提案：`模块D：提交候选、审批放行与验收收口`
 - 原始日期：`2026-05-04`
 - 原始来源：`V4 正式版总纲 / 模块D：提交候选、审批放行与验收收口 / Day13`
-- 当前回填状态：**未开始**
-- 回填口径：当前文档为 V4 冻结版计划，尚未开始实现；后续只按 Day13 范围回填，不提前跨 Day 扩 scope。
+- 当前回填状态：**已完成**
+- 回填口径：Day13 已按冻结边界完成 `CommitCandidate` 草案生成、修订历史持久化、仓库页展示与烟测验证；仅停留在可审阅草案层，不提前进入 Day14+。
 
 ---
 
@@ -46,12 +46,14 @@
 
 ## 回填记录
 
-- 当前结论：**未开始**
-- 回填说明：当前仅完成 Day13 冻结版计划建档，尚未进入实现；开始开发时需严格以今日目标、当日交付和验收点为回填边界。
+- 当前结论：**已完成**
+- 回填说明：已落地 Day13 后端领域模型、仓储、服务与接口；前端新增提交草案面板并接入仓库总览页；同一批次重复生成会追加新版本而非覆盖旧版。
 - 回填证据：
-1. 已建立本文档，冻结 Day13 的目标、交付和验收范围
-2. 已建立对应测试验证骨架文件，待后续按真实实现回填
-3. 后续启动开发后，再以实际代码、页面、脚本和烟测结果替换当前占位说明
+1. 后端新增 `CommitCandidate` 全链路：`runtime/orchestrator/app/domain/commit_candidate.py`、`runtime/orchestrator/app/repositories/commit_candidate_repository.py`、`runtime/orchestrator/app/services/commit_candidate_service.py`，并在 `runtime/orchestrator/app/core/db_tables.py` 增加 `commit_candidates` 表
+2. `runtime/orchestrator/app/api/routes/repositories.py` 新增 Day13 列表/查询/生成接口：`GET /repositories/projects/{project_id}/commit-candidates`、`GET /repositories/change-batches/{change_batch_id}/commit-candidate`、`POST /repositories/change-batches/{change_batch_id}/commit-candidate`
+3. 前端新增 `apps/web/src/features/repositories/CommitDraftPanel.tsx`，并通过 `apps/web/src/features/repositories/types.ts`、`api.ts`、`hooks.ts` 与 `RepositoryOverviewPage.tsx` 完成接线
+4. 新增烟测脚本 `runtime/orchestrator/scripts/v4d_day13_commit_candidate_smoke.py`，验证“预检通过 + 验证通过 + 证据包可用 -> 草案生成与修订历史”，并断言 `head_unchanged=true`
+5. Day13 明确不触发真实 Git 写操作：服务侧仅生成可审阅草案，不调用 `git commit` / `push` / `PR` / `merge`
 
 ---
 
