@@ -1,8 +1,8 @@
 # Day14 审批闸门与放行检查单 - 测试与验收
 
 - 对应计划文档：`docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/01-计划文档/Day14-审批闸门与放行检查单.md`
-- 当前回填状态：**未开始**
-- 当前测试结论：**待验证**
+- 当前回填状态：**已完成**
+- 当前测试结论：**通过**
 
 ---
 
@@ -16,30 +16,38 @@
 
 ---
 
-## 建议验证动作
+## 实际验证动作
 
-1. 核对以下关键文件/目录是否存在并与计划目标一致：
-2.    - `runtime/orchestrator/app/services/repository_release_gate_service.py`
-3.    - `runtime/orchestrator/app/api/routes/approvals.py`
-4.    - `runtime/orchestrator/app/api/routes/repositories.py`
-5.    - `apps/web/src/features/approvals/RepositoryReleaseChecklist.tsx`
-6.    - `apps/web/src/features/approvals/ApprovalGatePage.tsx`
-7.    - `runtime/orchestrator/scripts/v4d_day14_release_gate_smoke.py`
-
-8. 检查后端路由、服务或项目流程是否已按计划接通。
-9. 检查前端页面、卡片、抽屉或时间线是否能展示对应信息。
-10. 若当日涉及扫描、差异、审批、验证命令或回退链路，补一次最小烟测验证关键路径。
+1. 核对关键产物与接线路径已落地：
+   - `runtime/orchestrator/app/services/repository_release_gate_service.py`
+   - `runtime/orchestrator/app/api/routes/approvals.py`
+   - `runtime/orchestrator/app/api/routes/repositories.py`
+   - `apps/web/src/features/approvals/RepositoryReleaseChecklist.tsx`
+   - `apps/web/src/features/approvals/RepositoryReleaseGatePanel.tsx`
+   - `apps/web/src/features/approvals/ApprovalInboxPage.tsx`
+   - `apps/web/src/features/approvals/ApprovalGatePage.tsx`
+   - `runtime/orchestrator/scripts/v4d_day14_release_gate_smoke.py`
+2. 后端语法检查：
+   - `python -m py_compile runtime/orchestrator/app/services/repository_release_gate_service.py runtime/orchestrator/app/api/routes/approvals.py runtime/orchestrator/app/api/routes/repositories.py runtime/orchestrator/scripts/v4d_day14_release_gate_smoke.py`
+   - 结果：通过。
+3. 前端构建验证：
+   - `cmd /c npm run build`（工作目录：`apps/web`）
+   - 结果：通过（Vite 构建完成，仅保留 chunk size warning，不影响 Day14 功能验收）。
+4. Day14 烟测脚本：
+   - `runtime/orchestrator/.venv/Scripts/python.exe scripts/v4d_day14_release_gate_smoke.py`（工作目录：`runtime/orchestrator`）
+   - 结果：通过；关键输出包含 `blocked_before=true`、`approve_blocked_status_code=409`、`final_status=approved`、`decision_actions=["request_changes","reject","approve"]`、`head_unchanged=true`、`git_write_actions_triggered=false`，验证缺口阻断、审批动作记录与“通过不自动写 Git”口径。
 
 ---
 
 ## 当前回填结果
 
-- 结果：**待验证**
-- 状态口径：当前仅完成 Day14 的计划冻结与测试骨架建档，尚未开始实现，禁止提前标记为“通过”；“审批通过”在本阶段只表示放行判断成立，不代表真实 Git 动作已经触发。
+- 结果：**通过**
+- 状态口径：Day14 范围内后端放行检查单、阻断策略、审批记录与前端展示/动作均已接通；“审批通过”仅表示放行资格成立，不代表真实 Git 动作触发。
 - 证据：
-1. 已建立对应计划文档，冻结今日目标、交付与验收边界
-2. 已建立当前测试验证文档骨架，待后续按真实实现回填
-3. 后续开始开发后，再补充实际接口、页面、脚本、构建与烟测证据
+1. `GET /approvals/projects/{project_id}/repository-release-gate`、`GET /approvals/repository-release-gate/{change_batch_id}`、`POST /approvals/repository-release-gate/{change_batch_id}/actions` 已接通，支持通过/驳回/补证据动作和原因沉淀
+2. `GET /repositories/projects/{project_id}/release-gates`、`GET /repositories/change-batches/{change_batch_id}/release-checklist` 已接通，确保与仓库链路兼容
+3. 烟测中先验证阻断（缺失提交草案时 `409`），再验证三类动作记录，最终 `head_unchanged=true` 与 `git_write_actions_triggered=false` 证明未触发真实 Git 写操作
+4. 前端构建通过，Day14 面板可展示检查单、缺口与审批记录，并可提交三类审批动作
 
 ---
 
