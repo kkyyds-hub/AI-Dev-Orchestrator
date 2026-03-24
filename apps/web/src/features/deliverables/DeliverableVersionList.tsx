@@ -2,6 +2,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
 import { ROLE_CODE_LABELS } from "../roles/types";
+import { ChangeEvidencePanel } from "./ChangeEvidencePanel";
 import { DeliverableDiffPanel } from "./DeliverableDiffPanel";
 import {
   DELIVERABLE_CONTENT_FORMAT_LABELS,
@@ -101,6 +102,8 @@ export function DeliverableVersionList(props: DeliverableVersionListProps) {
             detail={props.detail}
             onNavigateToTask={props.onNavigateToTask}
           />
+
+          <ChangeEvidencePanel deliverableId={deliverable.id} />
         </>
       ) : (
         <p className="text-sm leading-6 text-slate-400">

@@ -2,6 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "re
 
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
+import { ChangeEvidencePanel } from "../deliverables/ChangeEvidencePanel";
 import { DELIVERABLE_TYPE_LABELS } from "../deliverables/types";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
 import { ROLE_CODE_LABELS } from "../roles/types";
@@ -351,6 +352,12 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                   </div>
                 )}
               </section>
+
+              <ChangeEvidencePanel
+                approvalId={props.approvalId}
+                deliverableId={detail?.deliverable_id ?? null}
+                open={props.open}
+              />
 
               <ApprovalHistoryPanel approvalId={props.approvalId} open={props.open} />
 

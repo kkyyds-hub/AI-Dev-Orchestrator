@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  fetchApprovalChangeEvidence,
+  fetchDeliverableChangeEvidence,
   fetchDeliverableDetail,
+  fetchProjectChangeEvidence,
+  fetchDeliverableVersionDiff,
   fetchProjectDeliverableSnapshot,
   fetchTaskRelatedDeliverables,
-  fetchDeliverableVersionDiff,
 } from "./api";
 
 export function useProjectDeliverableSnapshot(projectId: string | null) {
@@ -54,5 +57,36 @@ export function useDeliverableVersionDiff(input: {
       Boolean(input.deliverableId) &&
       input.baseVersion !== null &&
       input.targetVersion !== null,
+  });
+}
+
+export function useProjectChangeEvidence(
+  projectId: string | null,
+  changeBatchId?: string | null,
+) {
+  return useQuery({
+    queryKey: ["change-evidence", "project", projectId, changeBatchId ?? null],
+    queryFn: () =>
+      fetchProjectChangeEvidence(projectId as string, changeBatchId ?? null),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useDeliverableChangeEvidence(deliverableId: string | null) {
+  return useQuery({
+    queryKey: ["change-evidence", "deliverable", deliverableId],
+    queryFn: () => fetchDeliverableChangeEvidence(deliverableId as string),
+    enabled: Boolean(deliverableId),
+  });
+}
+
+export function useApprovalChangeEvidence(
+  approvalId: string | null,
+  open = true,
+) {
+  return useQuery({
+    queryKey: ["change-evidence", "approval", approvalId],
+    queryFn: () => fetchApprovalChangeEvidence(approvalId as string),
+    enabled: open && Boolean(approvalId),
   });
 }
