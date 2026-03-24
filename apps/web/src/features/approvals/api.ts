@@ -9,6 +9,7 @@ import type {
   ProjectRepositoryPreflightInbox,
   ProjectApprovalInbox,
   ProjectApprovalRetrospective,
+  ProjectChangeRework,
   RepositoryPreflightApprovalDetail,
 } from "./types";
 
@@ -31,6 +32,14 @@ export function fetchProjectApprovalRetrospective(
 ): Promise<ProjectApprovalRetrospective> {
   return requestJson<ProjectApprovalRetrospective>(
     `/approvals/projects/${projectId}/retrospective`,
+  );
+}
+
+export function fetchProjectChangeRework(
+  projectId: string,
+): Promise<ProjectChangeRework> {
+  return requestJson<ProjectChangeRework>(
+    `/approvals/projects/${projectId}/change-rework`,
   );
 }
 

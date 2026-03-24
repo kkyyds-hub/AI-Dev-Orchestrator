@@ -240,6 +240,93 @@ export type ProjectApprovalRetrospective = {
   recent_failures: ProjectRetrospectiveFailureRun[];
 };
 
+export type ChangeReworkStepStage =
+  | "plan"
+  | "verification"
+  | "decision"
+  | "failure"
+  | "rework";
+
+export type ChangeReworkRecommendation = "rework" | "rollback" | "replan";
+
+export type ChangeReworkSource = "approval_rework" | "verification_rework";
+
+export type ChangeReworkChainStep = {
+  step_id: string;
+  stage: ChangeReworkStepStage;
+  label: string;
+  summary: string;
+  occurred_at: string;
+  metadata: Record<string, unknown>;
+};
+
+export type ProjectChangeReworkItem = {
+  rework_id: string;
+  project_id: string;
+  chain_source: ChangeReworkSource;
+  status: string;
+  recommendation: ChangeReworkRecommendation;
+  closed: boolean;
+  occurred_at: string;
+  change_batch_id: string | null;
+  change_batch_title: string | null;
+  evidence_package_key: string | null;
+  deliverable_id: string | null;
+  deliverable_title: string | null;
+  approval_id: string | null;
+  approval_status: ApprovalStatus | null;
+  decision_action: ApprovalAction | null;
+  reason_summary: string;
+  reason_comment: string | null;
+  requested_changes: string[];
+  highlighted_risks: string[];
+  latest_failure_category: string | null;
+  verification_total_runs: number;
+  verification_failed_runs: number;
+  linked_task_ids: string[];
+  linked_run_ids: string[];
+  steps: ChangeReworkChainStep[];
+};
+
+export type ProjectChangeReworkSummary = {
+  total_items: number;
+  approval_rework_items: number;
+  verification_rework_items: number;
+  rollback_recommendations: number;
+  replan_recommendations: number;
+  open_items: number;
+  closed_items: number;
+};
+
+export type ProjectChangeRework = {
+  project_id: string;
+  generated_at: string;
+  summary: ProjectChangeReworkSummary;
+  items: ProjectChangeReworkItem[];
+};
+
+export const CHANGE_REWORK_STAGE_LABELS: Record<ChangeReworkStepStage, string> = {
+  plan: "计划",
+  verification: "验证",
+  decision: "结论",
+  failure: "失败复盘",
+  rework: "回退重做",
+};
+
+export const CHANGE_REWORK_RECOMMENDATION_LABELS: Record<
+  ChangeReworkRecommendation,
+  string
+> = {
+  rework: "继续重做",
+  rollback: "先回退",
+  replan: "重新规划",
+};
+
+export const CHANGE_REWORK_SOURCE_LABELS: Record<ChangeReworkSource, string> = {
+  approval_rework: "审批驳回链路",
+  verification_rework: "验证失败链路",
+};
+
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   pending_approval: "???",
   approved: "???",

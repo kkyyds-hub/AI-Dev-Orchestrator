@@ -6,6 +6,7 @@ import {
   createApprovalRequest,
   fetchApprovalDetail,
   fetchApprovalHistory,
+  fetchProjectChangeRework,
   fetchProjectApprovalInbox,
   fetchProjectRepositoryPreflightInbox,
   fetchProjectApprovalRetrospective,
@@ -37,6 +38,14 @@ export function useProjectApprovalRetrospective(projectId: string | null) {
   return useQuery({
     queryKey: ["approvals", "retrospective", projectId],
     queryFn: () => fetchProjectApprovalRetrospective(projectId as string),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useProjectChangeRework(projectId: string | null) {
+  return useQuery({
+    queryKey: ["approvals", "change-rework", projectId],
+    queryFn: () => fetchProjectChangeRework(projectId as string),
     enabled: Boolean(projectId),
   });
 }

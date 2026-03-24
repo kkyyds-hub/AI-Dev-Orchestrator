@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
+import { ChangeReworkPanel } from "../approvals/ChangeReworkPanel";
 import { APPROVAL_STATUS_LABELS } from "../approvals/types";
 import { DELIVERABLE_TYPE_LABELS } from "../deliverables/types";
 import { ROLE_CODE_LABELS } from "../roles/types";
@@ -68,13 +69,13 @@ export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
       <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
           <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
-            V3 Day11 Project Timeline
+            V4 Day12 Timeline & Rework Closure
           </p>
           <h2 className="text-3xl font-semibold tracking-tight text-slate-50">
-            项目时间线与交付件对比视图
+            项目时间线与回退重做链路
           </h2>
           <p className="max-w-3xl text-sm leading-6 text-slate-300">
-            以项目为单位汇总阶段推进、交付件版本、审批动作、角色交接和运行决策，方便从“过程”快速跳回“任务、运行、审批、交付件”。
+            以项目为单位汇总计划、验证、审批、失败与重做路径，支持从“时间线事件”反查到 Day12 的回退重做收口视图。
           </p>
         </div>
 
@@ -101,12 +102,19 @@ export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
         </div>
       ) : (
         <>
+          <ChangeReworkPanel
+            projectId={props.projectId}
+            projectName={props.projectName}
+            onNavigateToApproval={props.onNavigateToApproval}
+            onNavigateToDeliverable={props.onNavigateToDeliverable}
+          />
+
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-slate-50">事件筛选</h3>
                 <p className="mt-1 text-sm text-slate-400">
-                  支持按最小事件类型过滤，帮助老板快速聚焦“阶段 / 交付件 / 审批 / 角色交接 / 运行决策”。
+                  支持按最小事件类型过滤，帮助老板快速聚焦“计划 / 验证 / 审批 / 失败 / 回退重做”相关节点。
                 </p>
               </div>
               <div className="text-sm text-slate-400">
