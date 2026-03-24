@@ -305,6 +305,92 @@ export type ProjectChangeRework = {
   items: ProjectChangeReworkItem[];
 };
 
+export type RepositoryReleaseChecklistItemStatus = "passed" | "missing";
+
+export type RepositoryReleaseGateStatus =
+  | "blocked"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "changes_requested";
+
+export type RepositoryReleaseChecklistItem = {
+  key: string;
+  title: string;
+  required: boolean;
+  status: RepositoryReleaseChecklistItemStatus;
+  summary: string;
+  gap_reason: string | null;
+  evidence_key: string | null;
+  checked_at: string | null;
+};
+
+export type RepositoryReleaseGateDecision = {
+  id: string;
+  change_batch_id: string;
+  action: ApprovalAction;
+  actor_name: string;
+  summary: string;
+  comment: string | null;
+  highlighted_risks: string[];
+  requested_changes: string[];
+  created_at: string;
+};
+
+export type RepositoryReleaseGateSummary = {
+  change_batch_id: string;
+  change_batch_title: string;
+  generated_at: string;
+  status: RepositoryReleaseGateStatus;
+  blocked: boolean;
+  missing_item_count: number;
+  decision_count: number;
+  release_qualification_established: boolean;
+  latest_decision: RepositoryReleaseGateDecision | null;
+};
+
+export type ProjectRepositoryReleaseGateInbox = {
+  project_id: string;
+  generated_at: string;
+  total_batches: number;
+  blocked_batches: number;
+  pending_batches: number;
+  approved_batches: number;
+  rejected_batches: number;
+  changes_requested_batches: number;
+  items: RepositoryReleaseGateSummary[];
+};
+
+export type RepositoryReleaseGateDetail = {
+  project_id: string;
+  change_batch_id: string;
+  change_batch_title: string;
+  generated_at: string;
+  snapshot_age_minutes: number | null;
+  required_item_count: number;
+  passed_item_count: number;
+  checklist_items: RepositoryReleaseChecklistItem[];
+  missing_item_keys: string[];
+  gap_reasons: string[];
+  blocked: boolean;
+  status: RepositoryReleaseGateStatus;
+  approval_status: ApprovalStatus | null;
+  release_qualification_established: boolean;
+  git_write_actions_triggered: boolean;
+  decision_count: number;
+  latest_decision: RepositoryReleaseGateDecision | null;
+  decisions: RepositoryReleaseGateDecision[];
+};
+
+export type ApplyRepositoryReleaseGateActionInput = {
+  action: ApprovalAction;
+  actor_name: string;
+  summary: string;
+  comment?: string | null;
+  highlighted_risks?: string[];
+  requested_changes?: string[];
+};
+
 export const CHANGE_REWORK_STAGE_LABELS: Record<ChangeReworkStepStage, string> = {
   plan: "计划",
   verification: "验证",
@@ -369,4 +455,23 @@ export const PROJECT_APPROVAL_CYCLE_STATUS_LABELS: Record<
   reworking: "???",
   resubmitted_pending_approval: "??????",
   approved_after_rework: "?????",
+};
+
+export const REPOSITORY_RELEASE_GATE_STATUS_LABELS: Record<
+  RepositoryReleaseGateStatus,
+  string
+> = {
+  blocked: "检查单阻断",
+  pending_approval: "待审批",
+  approved: "已通过",
+  rejected: "已驳回",
+  changes_requested: "待补证据",
+};
+
+export const REPOSITORY_RELEASE_CHECKLIST_ITEM_STATUS_LABELS: Record<
+  RepositoryReleaseChecklistItemStatus,
+  string
+> = {
+  passed: "通过",
+  missing: "缺失",
 };

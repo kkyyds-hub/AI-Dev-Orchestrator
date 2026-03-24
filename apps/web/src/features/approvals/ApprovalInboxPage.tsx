@@ -11,6 +11,7 @@ import { PROJECT_STAGE_LABELS } from "../projects/types";
 import { ROLE_CODE_LABELS } from "../roles/types";
 import { ApprovalActionDrawer } from "./ApprovalActionDrawer";
 import { RepositoryPreflightPanel } from "./RepositoryPreflightPanel";
+import { RepositoryReleaseGatePanel } from "./RepositoryReleaseGatePanel";
 import { useCreateApprovalRequest, useProjectApprovalInbox } from "./hooks";
 import type { ApprovalQueueItem } from "./types";
 import { APPROVAL_STATUS_LABELS } from "./types";
@@ -394,6 +395,11 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
       />
 
       <RepositoryPreflightPanel
+        projectId={props.projectId}
+        projectName={props.projectName ?? null}
+      />
+
+      <RepositoryReleaseGatePanel
         projectId={props.projectId}
         projectName={props.projectName ?? null}
       />

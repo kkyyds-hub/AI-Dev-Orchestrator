@@ -4,12 +4,15 @@ import type {
   ApprovalDetail,
   ApprovalHistory,
   ApplyRepositoryPreflightActionInput,
+  ApplyRepositoryReleaseGateActionInput,
   ApplyApprovalActionInput,
   CreateApprovalRequestInput,
+  ProjectRepositoryReleaseGateInbox,
   ProjectRepositoryPreflightInbox,
   ProjectApprovalInbox,
   ProjectApprovalRetrospective,
   ProjectChangeRework,
+  RepositoryReleaseGateDetail,
   RepositoryPreflightApprovalDetail,
 } from "./types";
 
@@ -24,6 +27,14 @@ export function fetchProjectRepositoryPreflightInbox(
 ): Promise<ProjectRepositoryPreflightInbox> {
   return requestJson<ProjectRepositoryPreflightInbox>(
     `/approvals/projects/${projectId}/repository-preflight`,
+  );
+}
+
+export function fetchProjectRepositoryReleaseGateInbox(
+  projectId: string,
+): Promise<ProjectRepositoryReleaseGateInbox> {
+  return requestJson<ProjectRepositoryReleaseGateInbox>(
+    `/approvals/projects/${projectId}/repository-release-gate`,
   );
 }
 
@@ -59,6 +70,14 @@ export function fetchApprovalHistory(approvalId: string): Promise<ApprovalHistor
   return requestJson<ApprovalHistory>(`/approvals/${approvalId}/history`);
 }
 
+export function fetchRepositoryReleaseGateDetail(
+  changeBatchId: string,
+): Promise<RepositoryReleaseGateDetail> {
+  return requestJson<RepositoryReleaseGateDetail>(
+    `/approvals/repository-release-gate/${changeBatchId}`,
+  );
+}
+
 export function createApprovalRequest(
   input: CreateApprovalRequestInput,
 ): Promise<ApprovalDetail> {
@@ -84,6 +103,19 @@ export function applyRepositoryPreflightAction(
 ): Promise<RepositoryPreflightApprovalDetail> {
   return requestJson<RepositoryPreflightApprovalDetail>(
     `/approvals/repository-preflight/${changeBatchId}/actions`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function applyRepositoryReleaseGateAction(
+  changeBatchId: string,
+  input: ApplyRepositoryReleaseGateActionInput,
+): Promise<RepositoryReleaseGateDetail> {
+  return requestJson<RepositoryReleaseGateDetail>(
+    `/approvals/repository-release-gate/${changeBatchId}/actions`,
     {
       method: "POST",
       body: JSON.stringify(input),
