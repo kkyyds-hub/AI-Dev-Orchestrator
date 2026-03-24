@@ -4,8 +4,8 @@
 - 模块 / 提案：`模块C：验证基线与证据沉淀`
 - 原始日期：`2026-05-02`
 - 原始来源：`V4 正式版总纲 / 模块C：验证基线与证据沉淀 / Day11`
-- 当前回填状态：**未开始**
-- 回填口径：当前文档为 V4 冻结版计划，尚未开始实现；后续只按 Day11 范围回填，不提前跨 Day 扩 scope。
+- 当前回填状态：**已完成**
+- 回填口径：Day11 已按冻结边界完成代码差异视图与验收证据包落地；仅覆盖差异汇总、验证结果汇总、交付件/审批反查与快照对比，不提前进入 Day12+。
 
 ---
 
@@ -38,12 +38,18 @@
 
 ## 回填记录
 
-- 当前结论：**未开始**
-- 回填说明：当前仅完成 Day11 冻结版计划建档，尚未进入实现；开始开发时需严格以今日目标、当日交付和验收点为回填边界。
+- 当前结论：**已完成**
+- 回填说明：已完成后端 DiffSummaryService 与证据包接口、前端差异视图与证据面板，并在项目页、交付件页、审批抽屉三处接通反查入口，范围严格收口在 Day11。
 - 回填证据：
-1. 已建立本文档，冻结 Day11 的目标、交付和验收范围
-2. 已建立对应测试验证骨架文件，待后续按真实实现回填
-3. 后续启动开发后，再以实际代码、页面、脚本和烟测结果替换当前占位说明
+1. 新增 `runtime/orchestrator/app/domain/change_evidence.py`，定义 Day11 证据包领域模型，覆盖差异摘要、计划快照、验证汇总、交付件引用、审批上下文、版本快照与反查索引。
+2. 新增 `runtime/orchestrator/app/services/diff_summary_service.py`，按文件维度聚合 Git 差异（增删改统计、关键文件、脏工作区）并整合 ChangeBatch / VerificationRun / Deliverable / Approval 生成证据包。
+3. 扩展 `runtime/orchestrator/app/api/routes/deliverables.py`，新增项目、交付件、审批三个维度的 `change-evidence` 查询接口，并补充 404 错误映射。
+4. 新增 `apps/web/src/features/repositories/DiffSummaryPage.tsx` 与 `apps/web/src/features/deliverables/ChangeEvidencePanel.tsx`，并在 `RepositoryOverviewPage`、`DeliverableVersionList`、`ApprovalActionDrawer` 完成展示接入。
+5. 新增 `runtime/orchestrator/scripts/v4c_day11_change_evidence_smoke.py`，覆盖差异聚合、证据包结构完整性、项目/交付件/审批反查和版本快照断言。
+6. 已执行并通过：
+   - `python -m py_compile runtime/orchestrator/app/domain/change_evidence.py runtime/orchestrator/app/services/diff_summary_service.py runtime/orchestrator/app/api/routes/deliverables.py runtime/orchestrator/scripts/v4c_day11_change_evidence_smoke.py`
+   - `cmd /c npm run build`（`apps/web`）
+   - `.\\.venv\\Scripts\\python scripts/v4c_day11_change_evidence_smoke.py`（`runtime/orchestrator`）
 
 ---
 
