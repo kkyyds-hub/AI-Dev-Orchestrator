@@ -39,6 +39,11 @@ from app.domain.task import (
     TaskRiskLevel,
     TaskStatus,
 )
+from app.domain.verification_run import (
+    VerificationRunCommandSource,
+    VerificationRunFailureCategory,
+    VerificationRunStatus,
+)
 
 
 def _enum_values(enum_type: type) -> list[str]:
@@ -1011,6 +1016,97 @@ class ChangeBatchTable(ORMBase):
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
+    )
+
+
+class VerificationRunTable(ORMBase):
+    """Day10 repository verification-run rows."""
+
+    __tablename__ = "verification_runs"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repository_workspace_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("repository_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    change_plan_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("change_plans.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    change_batch_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("change_batches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    verification_template_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("repository_verification_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    verification_template_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    verification_template_category: Mapped[RepositoryVerificationCategory | None] = (
+        mapped_column(
+            Enum(
+                RepositoryVerificationCategory,
+                native_enum=False,
+                values_callable=_enum_values,
+                validate_strings=True,
+            ),
+            nullable=True,
+        )
+    )
+    command_source: Mapped[VerificationRunCommandSource] = mapped_column(
+        Enum(
+            VerificationRunCommandSource,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    command: Mapped[str] = mapped_column(Text, nullable=False)
+    working_directory: Mapped[str] = mapped_column(String(500), nullable=False, default=".")
+    status: Mapped[VerificationRunStatus] = mapped_column(
+        Enum(
+            VerificationRunStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    failure_category: Mapped[VerificationRunFailureCategory | None] = mapped_column(
+        Enum(
+            VerificationRunFailureCategory,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    output_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    finished_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
     )
 
 
