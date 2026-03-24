@@ -20,6 +20,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from app.domain._base import utc_now
 from app.domain.approval import ApprovalDecisionAction, ApprovalStatus
 from app.domain.change_batch import ChangeBatchStatus
+from app.domain.commit_candidate import CommitCandidateStatus
 from app.domain.change_session import (
     ChangeSessionGuardStatus,
     ChangeSessionWorkspaceStatus,
@@ -1006,6 +1007,54 @@ class ChangeBatchTable(ORMBase):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     plan_snapshots_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     preflight_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class CommitCandidateTable(ORMBase):
+    """Day13 commit-candidate draft rows."""
+
+    __tablename__ = "commit_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "change_batch_id",
+            name="uq_commit_candidates_change_batch",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    change_batch_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("change_batches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    change_batch_title: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[CommitCandidateStatus] = mapped_column(
+        Enum(
+            CommitCandidateStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=CommitCandidateStatus.DRAFT,
+    )
+    current_version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    versions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
