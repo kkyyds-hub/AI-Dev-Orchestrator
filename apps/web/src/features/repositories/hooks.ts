@@ -5,10 +5,13 @@ import {
   captureProjectChangeSession,
   createProjectChangeBatch,
   fetchChangeBatchDetail,
+  fetchChangeBatchCommitCandidate,
   fetchProjectChangeBatches,
+  fetchProjectCommitCandidates,
   fetchProjectChangeSession,
   fetchProjectRepositoryVerificationBaseline,
   fetchProjectRepositorySnapshot,
+  generateChangeBatchCommitCandidate,
   replaceProjectRepositoryVerificationBaseline,
   refreshProjectRepositorySnapshot,
   runChangeBatchPreflight,
@@ -16,6 +19,7 @@ import {
 } from "./api";
 import type {
   ChangeBatchPreflightInput,
+  CommitCandidateDraftInput,
   CodeContextPackBuildInput,
   FileLocatorSearchInput,
   RepositoryVerificationBaselineInput,
@@ -225,6 +229,65 @@ export function useRunChangeBatchPreflight(
         queryClient.invalidateQueries({
           queryKey: ["approvals", "repository-preflight", result.project_id],
         }),
+        ...(projectId
+          ? [
+              queryClient.invalidateQueries({
+                queryKey: ["project-detail", projectId],
+              }),
+            ]
+          : []),
+      ]);
+    },
+  });
+}
+
+export function useProjectCommitCandidates(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-commit-candidates", projectId],
+    queryFn: () => fetchProjectCommitCandidates(projectId ?? ""),
+    enabled: projectId !== null,
+  });
+}
+
+export function useChangeBatchCommitCandidate(changeBatchId: string | null) {
+  return useQuery({
+    queryKey: ["change-batch-commit-candidate", changeBatchId],
+    queryFn: () => fetchChangeBatchCommitCandidate(changeBatchId ?? ""),
+    enabled: changeBatchId !== null,
+    retry: false,
+  });
+}
+
+export function useGenerateChangeBatchCommitCandidate(
+  projectId: string | null,
+  changeBatchId: string | null,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload?: CommitCandidateDraftInput) => {
+      if (!changeBatchId) {
+        throw new Error("当前没有可生成提交草案的变更批次。");
+      }
+
+      return generateChangeBatchCommitCandidate({
+        changeBatchId,
+        payload,
+      });
+    },
+    onSuccess: async (result) => {
+      queryClient.setQueryData(
+        ["change-batch-commit-candidate", result.change_batch_id],
+        result,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-commit-candidates", result.project_id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["change-batch-commit-candidate", result.change_batch_id],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
         ...(projectId
           ? [
               queryClient.invalidateQueries({

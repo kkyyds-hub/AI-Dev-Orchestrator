@@ -320,6 +320,72 @@ export type ChangeBatchPreflightInput = {
   candidate_commands?: string[];
 };
 
+export type CommitCandidateStatus = "draft";
+
+export type CommitCandidateVerificationSummary = {
+  total_runs: number;
+  passed_runs: number;
+  failed_runs: number;
+  skipped_runs: number;
+  latest_finished_at: string | null;
+  highlights: string[];
+};
+
+export type CommitCandidateLinkedDeliverable = {
+  deliverable_id: string;
+  title: string;
+  type: string;
+  stage: string;
+  current_version_number: number;
+  latest_version_summary: string | null;
+};
+
+export type CommitCandidateVersion = {
+  id: string;
+  commit_candidate_id: string;
+  version_number: number;
+  message_title: string;
+  message_body: string | null;
+  impact_scope: string[];
+  related_files: string[];
+  verification_summary: CommitCandidateVerificationSummary;
+  related_deliverables: CommitCandidateLinkedDeliverable[];
+  evidence_package_key: string;
+  evidence_summary: string;
+  revision_note: string | null;
+  created_at: string;
+};
+
+export type CommitCandidateSummary = {
+  id: string;
+  project_id: string;
+  change_batch_id: string;
+  change_batch_title: string;
+  status: CommitCandidateStatus;
+  current_version_number: number;
+  revision_count: number;
+  related_file_count: number;
+  deliverable_count: number;
+  verification_total_runs: number;
+  verification_passed: boolean;
+  evidence_package_key: string;
+  created_at: string;
+  updated_at: string;
+  latest_version: CommitCandidateVersion;
+};
+
+export type CommitCandidateDetail = CommitCandidateSummary & {
+  versions: CommitCandidateVersion[];
+};
+
+export type CommitCandidateDraftInput = {
+  message_title?: string | null;
+  message_body?: string | null;
+  impact_scope?: string[];
+  related_files?: string[];
+  revision_note?: string | null;
+};
+
 export const CHANGE_BATCH_PREFLIGHT_STATUS_LABELS: Record<
   ChangeBatchPreflightStatus,
   string

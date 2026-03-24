@@ -13,6 +13,7 @@ import { ChangePlanDrawer } from "../projects/ChangePlanDrawer";
 import { useProjectChangePlans } from "../projects/hooks";
 import { VerificationRunPanel } from "../run-log/VerificationRunPanel";
 import { ChangeBatchBoard } from "./ChangeBatchBoard";
+import { CommitDraftPanel } from "./CommitDraftPanel";
 import { DiffSummaryPage } from "./DiffSummaryPage";
 import { RepositoryVerificationPanel } from "./RepositoryVerificationPanel";
 import { RepositoryHomeCard } from "./RepositoryHomeCard";
@@ -82,8 +83,8 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             <code>CodeContextPack</code>，Day06 再把任务、交付件与候选文件集合整理成
             ChangePlan 草案；当前 Day07-Day10 已把多个草案合并成 ChangeBatch、补上执行前
             风险分类与人工确认、冻结 build / test / lint / typecheck 命令基线，并沉淀结构化
-            <code>VerificationRun</code> 记录；Day11 再补齐按文件聚合的差异视图与验收证据包，
-            但仍不进入 Day12+ 的回退重做、提交候选或任何产品内真实 Git 写操作。
+            <code>VerificationRun</code> 记录；Day11-Day13 再补齐差异证据包、回退重做链路
+            和提交草案修订历史，但仍不执行任何产品内真实 Git 写操作。
           </p>
         </div>
 
@@ -310,6 +311,10 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
 
           <div className="mt-4">
             <DiffSummaryPage projectId={projectId} />
+          </div>
+
+          <div className="mt-4">
+            <CommitDraftPanel projectId={projectId} />
           </div>
         </>
       ) : null}

@@ -3,6 +3,9 @@ import type { RepositorySnapshot } from "../projects/types";
 import type {
   ChangeBatchCreateInput,
   ChangeBatchDetail,
+  CommitCandidateDetail,
+  CommitCandidateDraftInput,
+  CommitCandidateSummary,
   ChangeBatchPreflightInput,
   ChangeBatchSummary,
   ChangeSession,
@@ -139,6 +142,49 @@ export function runChangeBatchPreflight(input: {
 }): Promise<ChangeBatchDetail> {
   return requestJson<ChangeBatchDetail>(
     `/repositories/change-batches/${input.changeBatchId}/preflight`,
+    {
+      method: "POST",
+      body: JSON.stringify(input.payload ?? {}),
+    },
+  );
+}
+
+export function fetchProjectCommitCandidates(
+  projectId: string,
+): Promise<CommitCandidateSummary[]> {
+  return requestJson<CommitCandidateSummary[]>(
+    `/repositories/projects/${projectId}/commit-candidates`,
+  );
+}
+
+export async function fetchChangeBatchCommitCandidate(
+  changeBatchId: string,
+): Promise<CommitCandidateDetail | null> {
+  const response = await fetch(
+    `/repositories/change-batches/${changeBatchId}/commit-candidate`,
+    {
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(await buildErrorMessage(response));
+  }
+
+  return (await response.json()) as CommitCandidateDetail;
+}
+
+export function generateChangeBatchCommitCandidate(input: {
+  changeBatchId: string;
+  payload?: CommitCandidateDraftInput;
+}): Promise<CommitCandidateDetail> {
+  return requestJson<CommitCandidateDetail>(
+    `/repositories/change-batches/${input.changeBatchId}/commit-candidate`,
     {
       method: "POST",
       body: JSON.stringify(input.payload ?? {}),
