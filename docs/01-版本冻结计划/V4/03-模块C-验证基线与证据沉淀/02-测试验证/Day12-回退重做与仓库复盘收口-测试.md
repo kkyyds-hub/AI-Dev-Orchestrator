@@ -1,8 +1,8 @@
 # Day12 回退重做与仓库复盘收口 - 测试与验收
 
 - 对应计划文档：`docs/01-版本冻结计划/V4/03-模块C-验证基线与证据沉淀/01-计划文档/Day12-回退重做与仓库复盘收口.md`
-- 当前回填状态：**未开始**
-- 当前测试结论：**待验证**
+- 当前回填状态：**已完成**
+- 当前测试结论：**通过**
 
 ---
 
@@ -34,12 +34,32 @@
 
 ## 当前回填结果
 
-- 结果：**待验证**
-- 状态口径：当前仅完成 Day12 的计划冻结与测试骨架建档，尚未开始实现，禁止提前标记为“通过”。
+- 结果：**通过**
+- 状态口径：Day12 范围内后端聚合服务、接口、前端面板、时间线接入与烟测已闭环；未扩展到 Day13+ 提交候选与放行动作。
 - 证据：
-1. 已建立对应计划文档，冻结今日目标、交付与验收边界
-2. 已建立当前测试验证文档骨架，待后续按真实实现回填
-3. 后续开始开发后，再补充实际接口、页面、脚本、构建与烟测证据
+1. 关键产物已落地并接线：
+   - `runtime/orchestrator/app/services/change_rework_service.py`
+   - `runtime/orchestrator/app/services/decision_replay_service.py`
+   - `runtime/orchestrator/app/api/routes/approvals.py`
+   - `apps/web/src/features/approvals/ChangeReworkPanel.tsx`
+   - `apps/web/src/features/projects/ProjectTimelinePage.tsx`
+   - `runtime/orchestrator/scripts/v4c_day12_change_rework_smoke.py`
+2. 后端检查：
+   - `D:\\AI-Dev-Orchestrator\\runtime\\orchestrator\\.venv\\Scripts\\python.exe -X utf8 -m py_compile app/services/change_rework_service.py app/services/decision_replay_service.py app/api/routes/approvals.py scripts/v4c_day12_change_rework_smoke.py`
+   - 结果：通过。
+3. 前端构建：
+   - `D:\\AI-Dev-Orchestrator\\apps\\web> npm.cmd run build`
+   - 结果：通过（仅有 Vite chunk size warning，属于既有告警，不影响 Day12 功能验收）。
+4. Day12 烟测：
+   - `D:\\AI-Dev-Orchestrator\\runtime\\orchestrator\\.venv\\Scripts\\python.exe -X utf8 scripts/v4c_day12_change_rework_smoke.py`
+   - 结果：通过。
+   - 关键断言：
+     - `change_rework_total_items=1`
+     - `approval_item_recommendation=rollback`
+     - `approval_item_status=rework_required`
+     - `approval_item_evidence_package_key` 非空
+     - `timeline_event_types` 包含 `deliverable/preflight/approval`
+     - `retrospective_negative_cycles=1`
 
 ---
 

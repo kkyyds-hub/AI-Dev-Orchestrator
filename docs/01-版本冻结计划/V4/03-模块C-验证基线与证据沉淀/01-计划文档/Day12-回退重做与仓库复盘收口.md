@@ -4,8 +4,8 @@
 - 模块 / 提案：`模块C：验证基线与证据沉淀`
 - 原始日期：`2026-05-03`
 - 原始来源：`V4 正式版总纲 / 模块C：验证基线与证据沉淀 / Day12`
-- 当前回填状态：**未开始**
-- 回填口径：当前文档为 V4 冻结版计划，尚未开始实现；后续只按 Day12 范围回填，不提前跨 Day 扩 scope。
+- 当前回填状态：**已完成**
+- 回填口径：已按 Day12 冻结边界完成“验证失败 / 审批驳回 -> 回退重做 -> 复盘收口”闭环，仅覆盖 Day12，不提前进入 Day13+ 提交候选与放行阶段。
 
 ---
 
@@ -38,12 +38,18 @@
 
 ## 回填记录
 
-- 当前结论：**未开始**
-- 回填说明：当前仅完成 Day12 冻结版计划建档，尚未进入实现；开始开发时需严格以今日目标、当日交付和验收点为回填边界。
+- 当前结论：**已完成**
+- 回填说明：
+1. 新增 `change_rework_service.py`，将 ChangeBatch、VerificationRun、审批返工回路与失败复盘聚合为 Day12 回退重做快照，显式输出重做/回退/重规划建议，并保留原批次与驳回原因关联。
+2. 扩展 `approvals.py`，新增 `/approvals/projects/{project_id}/change-rework` 接口，返回项目级“计划 -> 验证 -> 驳回/失败 -> 回退重做”链路数据。
+3. 扩展 `decision_replay_service.py`，补充按任务索引失败历史能力，供 Day12 回退链路构建复用，同时保持 V3 复盘口径兼容。
+4. 前端新增 `ChangeReworkPanel.tsx` 并接入 `ProjectTimelinePage.tsx`，在时间线页直接展示回退重做链路与证据包键反查入口。
+5. 新增 `v4c_day12_change_rework_smoke.py`，覆盖批次预检驳回、验证失败、审批驳回、回退聚合接口、项目时间线与复盘接口联动断言。
 - 回填证据：
-1. 已建立本文档，冻结 Day12 的目标、交付和验收范围
-2. 已建立对应测试验证骨架文件，待后续按真实实现回填
-3. 后续启动开发后，再以实际代码、页面、脚本和烟测结果替换当前占位说明
+1. `D:\\AI-Dev-Orchestrator\\runtime\\orchestrator\\.venv\\Scripts\\python.exe -X utf8 -m py_compile app/services/change_rework_service.py app/services/decision_replay_service.py app/api/routes/approvals.py scripts/v4c_day12_change_rework_smoke.py`（通过）
+2. `D:\\AI-Dev-Orchestrator\\apps\\web> npm.cmd run build`（通过；保留既有 chunk size warning，不影响 Day12 验收）
+3. `D:\\AI-Dev-Orchestrator\\runtime\\orchestrator\\.venv\\Scripts\\python.exe -X utf8 scripts/v4c_day12_change_rework_smoke.py`（通过）
+   - 关键结果：`change_rework_total_items=1`、`approval_item_recommendation=rollback`、`approval_item_status=rework_required`、`approval_item_evidence_package_key` 非空、`timeline_event_types` 包含 `deliverable/preflight/approval`、`retrospective_negative_cycles=1`。
 
 ---
 

@@ -63,3 +63,4 @@ tmp/
 temp/
 runtime/data/
 runtime/orchestrator/tmp/
+runtime/orchestrator/tmp/*-smoke/
