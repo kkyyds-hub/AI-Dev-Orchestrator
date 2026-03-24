@@ -24,9 +24,13 @@ from app.domain.project_role import ProjectRoleCode
 from app.repositories.approval_repository import ApprovalRepository
 from app.repositories.change_batch_repository import ChangeBatchRepository
 from app.repositories.change_plan_repository import ChangePlanRepository
+from app.repositories.commit_candidate_repository import CommitCandidateRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.repository_snapshot_repository import (
+    RepositorySnapshotRepository,
+)
 from app.repositories.run_repository import RunRepository
 from app.repositories.repository_workspace_repository import (
     RepositoryWorkspaceRepository,
@@ -69,6 +73,19 @@ from app.services.decision_replay_service import (
 )
 from app.services.diff_summary_service import DiffSummaryService
 from app.services.failure_review_service import FailureReviewCluster, FailureReviewService
+from app.services.repository_release_gate_service import (
+    ProjectRepositoryReleaseGateInbox,
+    RepositoryReleaseChecklistItem,
+    RepositoryReleaseChecklistItemStatus,
+    RepositoryReleaseGate,
+    RepositoryReleaseGateActionValidationError,
+    RepositoryReleaseGateBlockedError,
+    RepositoryReleaseGateChangeBatchNotFoundError,
+    RepositoryReleaseGateDecision,
+    RepositoryReleaseGateProjectNotFoundError,
+    RepositoryReleaseGateService,
+    RepositoryReleaseGateStatus,
+)
 from app.services.run_logging_service import RunLoggingService
 
 
@@ -697,6 +714,197 @@ class ProjectChangeReworkResponse(BaseModel):
         )
 
 
+class RepositoryReleaseGateDecisionResponse(BaseModel):
+    """One Day14 release-gate decision row."""
+
+    id: UUID
+    change_batch_id: UUID
+    action: ApprovalDecisionAction
+    actor_name: str
+    summary: str
+    comment: str | None = None
+    highlighted_risks: list[str]
+    requested_changes: list[str]
+    created_at: datetime
+
+    @classmethod
+    def from_decision(
+        cls,
+        decision: RepositoryReleaseGateDecision,
+    ) -> "RepositoryReleaseGateDecisionResponse":
+        """Convert one release-gate decision into an API DTO."""
+
+        return cls(
+            id=decision.id,
+            change_batch_id=decision.change_batch_id,
+            action=decision.action,
+            actor_name=decision.actor_name,
+            summary=decision.summary,
+            comment=decision.comment,
+            highlighted_risks=list(decision.highlighted_risks),
+            requested_changes=list(decision.requested_changes),
+            created_at=decision.created_at,
+        )
+
+
+class RepositoryReleaseChecklistItemResponse(BaseModel):
+    """One Day14 release-checklist item shown in approval pages."""
+
+    key: str
+    title: str
+    required: bool
+    status: RepositoryReleaseChecklistItemStatus
+    summary: str
+    gap_reason: str | None = None
+    evidence_key: str | None = None
+    checked_at: datetime | None = None
+
+    @classmethod
+    def from_item(
+        cls,
+        item: RepositoryReleaseChecklistItem,
+    ) -> "RepositoryReleaseChecklistItemResponse":
+        """Convert one checklist item into an API DTO."""
+
+        return cls(
+            key=item.key,
+            title=item.title,
+            required=item.required,
+            status=item.status,
+            summary=item.summary,
+            gap_reason=item.gap_reason,
+            evidence_key=item.evidence_key,
+            checked_at=item.checked_at,
+        )
+
+
+class RepositoryReleaseGateSummaryResponse(BaseModel):
+    """Project-scoped Day14 release-gate summary row."""
+
+    change_batch_id: UUID
+    change_batch_title: str
+    generated_at: datetime
+    status: RepositoryReleaseGateStatus
+    blocked: bool
+    missing_item_count: int
+    decision_count: int
+    release_qualification_established: bool
+    latest_decision: RepositoryReleaseGateDecisionResponse | None = None
+
+
+class ProjectRepositoryReleaseGateInboxResponse(BaseModel):
+    """Project-scoped Day14 release-gate inbox payload."""
+
+    project_id: UUID
+    generated_at: datetime
+    total_batches: int
+    blocked_batches: int
+    pending_batches: int
+    approved_batches: int
+    rejected_batches: int
+    changes_requested_batches: int
+    items: list[RepositoryReleaseGateSummaryResponse]
+
+    @classmethod
+    def from_inbox(
+        cls,
+        inbox: ProjectRepositoryReleaseGateInbox,
+    ) -> "ProjectRepositoryReleaseGateInboxResponse":
+        """Convert one release-gate inbox snapshot into an API DTO."""
+
+        return cls(
+            project_id=inbox.project_id,
+            generated_at=inbox.generated_at,
+            total_batches=inbox.total_batches,
+            blocked_batches=inbox.blocked_batches,
+            pending_batches=inbox.pending_batches,
+            approved_batches=inbox.approved_batches,
+            rejected_batches=inbox.rejected_batches,
+            changes_requested_batches=inbox.changes_requested_batches,
+            items=[
+                RepositoryReleaseGateSummaryResponse(
+                    change_batch_id=item.change_batch_id,
+                    change_batch_title=item.change_batch_title,
+                    generated_at=item.generated_at,
+                    status=item.status,
+                    blocked=item.blocked,
+                    missing_item_count=item.missing_item_count,
+                    decision_count=item.decision_count,
+                    release_qualification_established=item.release_qualification_established,
+                    latest_decision=(
+                        RepositoryReleaseGateDecisionResponse.from_decision(
+                            item.latest_decision
+                        )
+                        if item.latest_decision is not None
+                        else None
+                    ),
+                )
+                for item in inbox.items
+            ],
+        )
+
+
+class RepositoryReleaseGateDetailResponse(BaseModel):
+    """Full Day14 release-gate detail for one change batch."""
+
+    project_id: UUID
+    change_batch_id: UUID
+    change_batch_title: str
+    generated_at: datetime
+    snapshot_age_minutes: int | None = None
+    required_item_count: int
+    passed_item_count: int
+    checklist_items: list[RepositoryReleaseChecklistItemResponse]
+    missing_item_keys: list[str]
+    gap_reasons: list[str]
+    blocked: bool
+    status: RepositoryReleaseGateStatus
+    approval_status: ApprovalStatus | None = None
+    release_qualification_established: bool
+    git_write_actions_triggered: bool
+    decision_count: int
+    latest_decision: RepositoryReleaseGateDecisionResponse | None = None
+    decisions: list[RepositoryReleaseGateDecisionResponse]
+
+    @classmethod
+    def from_gate(
+        cls,
+        gate: RepositoryReleaseGate,
+    ) -> "RepositoryReleaseGateDetailResponse":
+        """Convert one release-gate detail snapshot into an API DTO."""
+
+        return cls(
+            project_id=gate.project_id,
+            change_batch_id=gate.change_batch_id,
+            change_batch_title=gate.change_batch_title,
+            generated_at=gate.generated_at,
+            snapshot_age_minutes=gate.snapshot_age_minutes,
+            required_item_count=gate.required_item_count,
+            passed_item_count=gate.passed_item_count,
+            checklist_items=[
+                RepositoryReleaseChecklistItemResponse.from_item(item)
+                for item in gate.checklist_items
+            ],
+            missing_item_keys=list(gate.missing_item_keys),
+            gap_reasons=list(gate.gap_reasons),
+            blocked=gate.blocked,
+            status=gate.status,
+            approval_status=gate.approval_status,
+            release_qualification_established=gate.release_qualification_established,
+            git_write_actions_triggered=gate.git_write_actions_triggered,
+            decision_count=gate.decision_count,
+            latest_decision=(
+                RepositoryReleaseGateDecisionResponse.from_decision(gate.latest_decision)
+                if gate.latest_decision is not None
+                else None
+            ),
+            decisions=[
+                RepositoryReleaseGateDecisionResponse.from_decision(item)
+                for item in gate.decisions
+            ],
+        )
+
+
 class ApprovalCreateRequest(BaseModel):
     """Body accepted by the approval-request creation endpoint."""
 
@@ -725,6 +933,17 @@ class RepositoryPreflightActionRequest(BaseModel):
     summary: str = Field(min_length=1, max_length=500)
     comment: str | None = Field(default=None, max_length=2_000)
     highlighted_risks: list[str] = Field(default_factory=list, max_length=20)
+
+
+class RepositoryReleaseGateActionRequest(BaseModel):
+    """Body accepted when one Day14 release-gate decision is applied."""
+
+    action: ApprovalDecisionAction
+    actor_name: str = Field(default="老板", min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=500)
+    comment: str | None = Field(default=None, max_length=2_000)
+    highlighted_risks: list[str] = Field(default_factory=list, max_length=20)
+    requested_changes: list[str] = Field(default_factory=list, max_length=20)
 
 
 def get_approval_service(
@@ -763,6 +982,34 @@ def get_change_risk_guard_service(
     return ChangeRiskGuardService(
         change_batch_repository=ChangeBatchRepository(session),
         project_repository=ProjectRepository(session),
+    )
+
+
+def get_repository_release_gate_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> RepositoryReleaseGateService:
+    """Create the Day14 repository release-gate dependency."""
+
+    project_repository = ProjectRepository(session)
+    repository_workspace_repository = RepositoryWorkspaceRepository(session)
+    change_batch_repository = ChangeBatchRepository(session)
+    commit_candidate_repository = CommitCandidateRepository(session)
+    verification_run_repository = VerificationRunRepository(session)
+    return RepositoryReleaseGateService(
+        project_repository=project_repository,
+        repository_workspace_repository=repository_workspace_repository,
+        repository_snapshot_repository=RepositorySnapshotRepository(session),
+        change_batch_repository=change_batch_repository,
+        commit_candidate_repository=commit_candidate_repository,
+        verification_run_repository=verification_run_repository,
+        diff_summary_service=DiffSummaryService(
+            project_repository=project_repository,
+            repository_workspace_repository=repository_workspace_repository,
+            change_batch_repository=change_batch_repository,
+            deliverable_repository=DeliverableRepository(session),
+            approval_repository=ApprovalRepository(session),
+            verification_run_repository=verification_run_repository,
+        ),
     )
 
 
@@ -1075,6 +1322,106 @@ def apply_repository_preflight_action(
         ) from exc
 
     return RepositoryPreflightApprovalDetailResponse.from_change_batch_detail(detail)
+
+
+@router.get(
+    "/projects/{project_id}/repository-release-gate",
+    response_model=ProjectRepositoryReleaseGateInboxResponse,
+    summary="Get the Day14 repository release-gate inbox",
+)
+def get_project_repository_release_gate_inbox(
+    project_id: UUID,
+    repository_release_gate_service: Annotated[
+        RepositoryReleaseGateService,
+        Depends(get_repository_release_gate_service),
+    ],
+) -> ProjectRepositoryReleaseGateInboxResponse:
+    """Return project-scoped Day14 release-gate summaries."""
+
+    try:
+        inbox = repository_release_gate_service.list_project_release_gates(project_id)
+    except RepositoryReleaseGateProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return ProjectRepositoryReleaseGateInboxResponse.from_inbox(inbox)
+
+
+@router.get(
+    "/repository-release-gate/{change_batch_id}",
+    response_model=RepositoryReleaseGateDetailResponse,
+    summary="Get one Day14 repository release-gate detail",
+)
+def get_repository_release_gate_detail(
+    change_batch_id: UUID,
+    repository_release_gate_service: Annotated[
+        RepositoryReleaseGateService,
+        Depends(get_repository_release_gate_service),
+    ],
+) -> RepositoryReleaseGateDetailResponse:
+    """Return one Day14 release checklist and decision history by change batch."""
+
+    try:
+        gate = repository_release_gate_service.get_release_gate(change_batch_id)
+    except (
+        RepositoryReleaseGateProjectNotFoundError,
+        RepositoryReleaseGateChangeBatchNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RepositoryReleaseGateDetailResponse.from_gate(gate)
+
+
+@router.post(
+    "/repository-release-gate/{change_batch_id}/actions",
+    response_model=RepositoryReleaseGateDetailResponse,
+    summary="Apply one Day14 release-gate decision",
+)
+def apply_repository_release_gate_action(
+    change_batch_id: UUID,
+    request: RepositoryReleaseGateActionRequest,
+    repository_release_gate_service: Annotated[
+        RepositoryReleaseGateService,
+        Depends(get_repository_release_gate_service),
+    ],
+) -> RepositoryReleaseGateDetailResponse:
+    """Persist one Day14 release-gate decision and return the updated snapshot."""
+
+    try:
+        gate = repository_release_gate_service.apply_release_gate_action(
+            change_batch_id=change_batch_id,
+            action=request.action,
+            actor_name=request.actor_name,
+            summary=request.summary,
+            comment=request.comment,
+            highlighted_risks=request.highlighted_risks,
+            requested_changes=request.requested_changes,
+        )
+    except (
+        RepositoryReleaseGateProjectNotFoundError,
+        RepositoryReleaseGateChangeBatchNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except RepositoryReleaseGateBlockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except RepositoryReleaseGateActionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return RepositoryReleaseGateDetailResponse.from_gate(gate)
 
 
 @router.get(
