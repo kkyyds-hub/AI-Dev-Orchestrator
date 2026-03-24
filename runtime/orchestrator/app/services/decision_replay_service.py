@@ -202,7 +202,7 @@ class DecisionReplayService:
         *,
         runs: list[Run],
         task_titles: dict[UUID, str] | None = None,
-        limit: int = 10,
+        limit: int | None = 10,
     ) -> list[ProjectFailureRetrospectiveItem]:
         """Return recent failed / cancelled runs for the Day12 retrospective view."""
 
@@ -232,7 +232,34 @@ class DecisionReplayService:
                 )
             )
 
-        return history_items[:limit]
+        if limit is None:
+            return history_items
+
+        return history_items[: max(limit, 0)]
+
+    def index_project_failures_by_task(
+        self,
+        *,
+        runs: list[Run],
+        task_titles: dict[UUID, str] | None = None,
+        limit_per_task: int | None = 3,
+    ) -> dict[UUID, list[ProjectFailureRetrospectiveItem]]:
+        """Group failed / cancelled project runs by task for Day12 rework linking."""
+
+        failure_items = self.build_project_failure_history(
+            runs=runs,
+            task_titles=task_titles,
+            limit=None,
+        )
+        indexed_items: dict[UUID, list[ProjectFailureRetrospectiveItem]] = {}
+        for item in failure_items:
+            bucket = indexed_items.setdefault(item.task_id, [])
+            if limit_per_task is not None and len(bucket) >= max(limit_per_task, 0):
+                continue
+
+            bucket.append(item)
+
+        return indexed_items
 
     @staticmethod
     def _to_trace_item(event: RunLogEvent) -> DecisionTraceItem:

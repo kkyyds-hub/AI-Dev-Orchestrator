@@ -32,6 +32,7 @@ from app.repositories.repository_workspace_repository import (
     RepositoryWorkspaceRepository,
 )
 from app.repositories.task_repository import TaskRepository
+from app.repositories.verification_run_repository import VerificationRunRepository
 from app.services.approval_service import (
     ApprovalDetail,
     ApprovalHistory,
@@ -55,10 +56,18 @@ from app.services.change_risk_guard_service import (
     ChangeRiskGuardProjectNotFoundError,
     ChangeRiskGuardService,
 )
+from app.services.change_rework_service import (
+    ChangeReworkChainStep,
+    ChangeReworkItem,
+    ChangeReworkService,
+    ProjectChangeReworkSnapshot,
+    ProjectChangeReworkSummary,
+)
 from app.services.decision_replay_service import (
     DecisionReplayService,
     ProjectFailureRetrospectiveItem,
 )
+from app.services.diff_summary_service import DiffSummaryService
 from app.services.failure_review_service import FailureReviewCluster, FailureReviewService
 from app.services.run_logging_service import RunLoggingService
 
@@ -542,6 +551,152 @@ class ProjectRetrospectiveResponse(BaseModel):
     recent_failures: list[ProjectRetrospectiveFailureRunResponse]
 
 
+class ChangeReworkChainStepResponse(BaseModel):
+    """One chain node shown in the Day12 change-rework panel."""
+
+    step_id: str
+    stage: str
+    label: str
+    summary: str
+    occurred_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_step(
+        cls,
+        step: ChangeReworkChainStep,
+    ) -> "ChangeReworkChainStepResponse":
+        """Convert one service-level chain step into an API DTO."""
+
+        return cls(
+            step_id=step.step_id,
+            stage=step.stage,
+            label=step.label,
+            summary=step.summary,
+            occurred_at=step.occurred_at,
+            metadata=dict(step.metadata),
+        )
+
+
+class ChangeReworkItemResponse(BaseModel):
+    """One Day12 rework closure item with all backward references."""
+
+    rework_id: str
+    project_id: UUID
+    chain_source: str
+    status: str
+    recommendation: str
+    closed: bool
+    occurred_at: datetime
+    change_batch_id: UUID | None = None
+    change_batch_title: str | None = None
+    evidence_package_key: str | None = None
+    deliverable_id: UUID | None = None
+    deliverable_title: str | None = None
+    approval_id: UUID | None = None
+    approval_status: ApprovalStatus | None = None
+    decision_action: ApprovalDecisionAction | None = None
+    reason_summary: str
+    reason_comment: str | None = None
+    requested_changes: list[str]
+    highlighted_risks: list[str]
+    latest_failure_category: str | None = None
+    verification_total_runs: int
+    verification_failed_runs: int
+    linked_task_ids: list[UUID]
+    linked_run_ids: list[UUID]
+    steps: list[ChangeReworkChainStepResponse]
+
+    @classmethod
+    def from_item(
+        cls,
+        item: ChangeReworkItem,
+    ) -> "ChangeReworkItemResponse":
+        """Convert one service-level rework item into an API DTO."""
+
+        return cls(
+            rework_id=item.rework_id,
+            project_id=item.project_id,
+            chain_source=item.chain_source,
+            status=item.status,
+            recommendation=item.recommendation,
+            closed=item.closed,
+            occurred_at=item.occurred_at,
+            change_batch_id=item.change_batch_id,
+            change_batch_title=item.change_batch_title,
+            evidence_package_key=item.evidence_package_key,
+            deliverable_id=item.deliverable_id,
+            deliverable_title=item.deliverable_title,
+            approval_id=item.approval_id,
+            approval_status=item.approval_status,
+            decision_action=item.decision_action,
+            reason_summary=item.reason_summary,
+            reason_comment=item.reason_comment,
+            requested_changes=list(item.requested_changes),
+            highlighted_risks=list(item.highlighted_risks),
+            latest_failure_category=item.latest_failure_category,
+            verification_total_runs=item.verification_total_runs,
+            verification_failed_runs=item.verification_failed_runs,
+            linked_task_ids=list(item.linked_task_ids),
+            linked_run_ids=list(item.linked_run_ids),
+            steps=[
+                ChangeReworkChainStepResponse.from_step(step) for step in item.steps
+            ],
+        )
+
+
+class ProjectChangeReworkSummaryResponse(BaseModel):
+    """Top-level counters for Day12 change-rework closure."""
+
+    total_items: int
+    approval_rework_items: int
+    verification_rework_items: int
+    rollback_recommendations: int
+    replan_recommendations: int
+    open_items: int
+    closed_items: int
+
+    @classmethod
+    def from_summary(
+        cls,
+        summary: ProjectChangeReworkSummary,
+    ) -> "ProjectChangeReworkSummaryResponse":
+        """Convert one service-level summary into an API DTO."""
+
+        return cls(
+            total_items=summary.total_items,
+            approval_rework_items=summary.approval_rework_items,
+            verification_rework_items=summary.verification_rework_items,
+            rollback_recommendations=summary.rollback_recommendations,
+            replan_recommendations=summary.replan_recommendations,
+            open_items=summary.open_items,
+            closed_items=summary.closed_items,
+        )
+
+
+class ProjectChangeReworkResponse(BaseModel):
+    """Project-scoped Day12 rework closure payload."""
+
+    project_id: UUID
+    generated_at: datetime
+    summary: ProjectChangeReworkSummaryResponse
+    items: list[ChangeReworkItemResponse]
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: ProjectChangeReworkSnapshot,
+    ) -> "ProjectChangeReworkResponse":
+        """Convert one service-level snapshot into an API DTO."""
+
+        return cls(
+            project_id=snapshot.project_id,
+            generated_at=snapshot.generated_at,
+            summary=ProjectChangeReworkSummaryResponse.from_summary(snapshot.summary),
+            items=[ChangeReworkItemResponse.from_item(item) for item in snapshot.items],
+        )
+
+
 class ApprovalCreateRequest(BaseModel):
     """Body accepted by the approval-request creation endpoint."""
 
@@ -608,6 +763,48 @@ def get_change_risk_guard_service(
     return ChangeRiskGuardService(
         change_batch_repository=ChangeBatchRepository(session),
         project_repository=ProjectRepository(session),
+    )
+
+
+def get_change_rework_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ChangeReworkService:
+    """Create the Day12 change-rework aggregation dependency."""
+
+    project_repository = ProjectRepository(session)
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
+    run_logging_service = RunLoggingService()
+    failure_review_service = FailureReviewService(
+        failure_review_repository=FailureReviewRepository(),
+        run_logging_service=run_logging_service,
+    )
+    decision_replay_service = DecisionReplayService(
+        run_logging_service=run_logging_service,
+        failure_review_service=failure_review_service,
+    )
+    approval_service = ApprovalService(
+        approval_repository=ApprovalRepository(session),
+        deliverable_repository=DeliverableRepository(session),
+        project_repository=project_repository,
+    )
+    diff_summary_service = DiffSummaryService(
+        project_repository=project_repository,
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
+        change_batch_repository=ChangeBatchRepository(session),
+        deliverable_repository=DeliverableRepository(session),
+        approval_repository=ApprovalRepository(session),
+        verification_run_repository=VerificationRunRepository(session),
+    )
+    return ChangeReworkService(
+        project_repository=project_repository,
+        change_batch_repository=ChangeBatchRepository(session),
+        verification_run_repository=VerificationRunRepository(session),
+        task_repository=task_repository,
+        run_repository=run_repository,
+        approval_service=approval_service,
+        decision_replay_service=decision_replay_service,
+        diff_summary_service=diff_summary_service,
     )
 
 
@@ -899,6 +1096,30 @@ def get_project_retrospective(
         )
 
     return payload
+
+
+@router.get(
+    "/projects/{project_id}/change-rework",
+    response_model=ProjectChangeReworkResponse,
+    summary="Get the Day12 project change-rework closure snapshot",
+)
+def get_project_change_rework(
+    project_id: UUID,
+    change_rework_service: Annotated[
+        ChangeReworkService,
+        Depends(get_change_rework_service),
+    ],
+) -> ProjectChangeReworkResponse:
+    """Return project-scoped plan -> verification -> reject/failure -> rework chains."""
+
+    snapshot = change_rework_service.get_project_change_rework_snapshot(project_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return ProjectChangeReworkResponse.from_snapshot(snapshot)
 
 
 @router.get(
