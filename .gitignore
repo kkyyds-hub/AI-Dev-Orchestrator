@@ -63,5 +63,7 @@ tmp/
 temp/
 runtime/data/
 runtime/orchestrator/runtime-data/
+runtime/orchestrator/runtime-data/repository-release-gates/
 runtime/orchestrator/tmp/
 runtime/orchestrator/tmp/*-smoke/
+runtime/orchestrator/tmp/v4-day14-release-gate-smoke/
