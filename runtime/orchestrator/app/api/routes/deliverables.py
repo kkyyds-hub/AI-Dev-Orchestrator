@@ -9,13 +9,20 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.change_evidence import ChangeEvidencePackage
 from app.domain.deliverable import DeliverableContentFormat, DeliverableType
 from app.domain.project import ProjectStage
 from app.domain.project_role import ProjectRoleCode
+from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.change_batch_repository import ChangeBatchRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.repository_workspace_repository import (
+    RepositoryWorkspaceRepository,
+)
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.verification_run_repository import VerificationRunRepository
 from app.services.deliverable_service import (
     DeliverableDetail,
     DeliverableDiffLine,
@@ -24,6 +31,14 @@ from app.services.deliverable_service import (
     DeliverableVersionDiff,
     ProjectDeliverableSnapshot,
     TaskRelatedDeliverable,
+)
+from app.services.diff_summary_service import (
+    DiffSummaryApprovalNotFoundError,
+    DiffSummaryChangeBatchNotFoundError,
+    DiffSummaryDeliverableNotFoundError,
+    DiffSummaryProjectNotFoundError,
+    DiffSummaryService,
+    DiffSummaryWorkspaceNotFoundError,
 )
 
 
@@ -319,6 +334,21 @@ def get_deliverable_service(
     )
 
 
+def get_diff_summary_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> DiffSummaryService:
+    """Create the shared Day11 diff-summary / evidence-package dependency."""
+
+    return DiffSummaryService(
+        project_repository=ProjectRepository(session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
+        change_batch_repository=ChangeBatchRepository(session),
+        deliverable_repository=DeliverableRepository(session),
+        approval_repository=ApprovalRepository(session),
+        verification_run_repository=VerificationRunRepository(session),
+    )
+
+
 router = APIRouter(prefix="/deliverables", tags=["deliverables"])
 
 
@@ -382,6 +412,37 @@ def get_project_deliverable_snapshot(
 
 
 @router.get(
+    "/projects/{project_id}/change-evidence",
+    response_model=ChangeEvidencePackage,
+    summary="获取项目维度的代码差异摘要与验收证据包",
+)
+def get_project_change_evidence(
+    project_id: UUID,
+    diff_summary_service: Annotated[
+        DiffSummaryService,
+        Depends(get_diff_summary_service),
+    ],
+    change_batch_id: UUID | None = None,
+) -> ChangeEvidencePackage:
+    """Return the Day11 acceptance evidence package for one project."""
+
+    try:
+        return diff_summary_service.get_project_change_evidence(
+            project_id,
+            change_batch_id=change_batch_id,
+        )
+    except (
+        DiffSummaryProjectNotFoundError,
+        DiffSummaryWorkspaceNotFoundError,
+        DiffSummaryChangeBatchNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
     "/tasks/{task_id}",
     response_model=list[RelatedTaskDeliverableResponse],
     summary="获取任务及其运行记录关联的交付件",
@@ -405,6 +466,32 @@ def list_task_related_deliverables(
         RelatedTaskDeliverableResponse.from_related_item(item)
         for item in related_items
     ]
+
+
+@router.get(
+    "/approvals/{approval_id}/change-evidence",
+    response_model=ChangeEvidencePackage,
+    summary="获取审批维度的代码差异摘要与验收证据包",
+)
+def get_approval_change_evidence(
+    approval_id: UUID,
+    diff_summary_service: Annotated[
+        DiffSummaryService,
+        Depends(get_diff_summary_service),
+    ],
+) -> ChangeEvidencePackage:
+    """Return the Day11 evidence package anchored to one approval item."""
+
+    try:
+        return diff_summary_service.get_approval_change_evidence(approval_id)
+    except (
+        DiffSummaryApprovalNotFoundError,
+        DiffSummaryWorkspaceNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(
@@ -441,6 +528,32 @@ def compare_deliverable_versions(
         )
 
     return DeliverableVersionDiffResponse.from_diff(diff)
+
+
+@router.get(
+    "/{deliverable_id}/change-evidence",
+    response_model=ChangeEvidencePackage,
+    summary="获取交付件维度的代码差异摘要与验收证据包",
+)
+def get_deliverable_change_evidence(
+    deliverable_id: UUID,
+    diff_summary_service: Annotated[
+        DiffSummaryService,
+        Depends(get_diff_summary_service),
+    ],
+) -> ChangeEvidencePackage:
+    """Return the Day11 evidence package anchored to one deliverable."""
+
+    try:
+        return diff_summary_service.get_deliverable_change_evidence(deliverable_id)
+    except (
+        DiffSummaryDeliverableNotFoundError,
+        DiffSummaryWorkspaceNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(
