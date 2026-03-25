@@ -4,8 +4,8 @@
 - 模块 / 提案：`模块D：提交候选、审批放行与验收收口`
 - 原始日期：`2026-05-06`
 - 原始来源：`V4 正式版总纲 / 模块D：提交候选、审批放行与验收收口 / Day15`
-- 当前回填状态：**未开始**
-- 回填口径：当前文档为 V4 冻结版计划，尚未开始实现；后续只按 Day15 范围回填，不提前跨 Day 扩 scope。
+- 当前回填状态：**已完成**
+- 回填口径：Day15 已按冻结边界完成最小闭环演示：在本地场景串联 Day01~Day14，并新增 Day15 只读聚合视图与烟测；闭环终点保持“可审阅、可解释、可拒绝”，不触发真实 Git 写操作。
 
 ---
 
@@ -47,12 +47,15 @@
 
 ## 回填记录
 
-- 当前结论：**未开始**
-- 回填说明：当前仅完成 Day15 冻结版计划建档，尚未进入实现；开始开发时需严格以今日目标、当日交付和验收点为回填边界。
+- 当前结论：**已完成**
+- 回填说明：已在 Day15 范围内接通“绑定仓库 -> 刷新快照 -> 生成变更计划 -> 建立批次 -> 预检 -> 记录验证 -> 生成证据包 -> 形成提交草案 -> 展示放行判断”的最小闭环。后端新增 Day15 聚合接口、前端三处页面新增 Day15 闭环状态展示、并补齐 Day15 专用烟测脚本；演示全程保持只读，不执行真实 Git 写操作。
 - 回填证据：
-1. 已建立本文档，冻结 Day15 的目标、交付和验收范围
-2. 已建立对应测试验证骨架文件，待后续按真实实现回填
-3. 后续启动开发后，再以实际代码、页面、脚本和烟测结果替换当前占位说明
+1. `runtime/orchestrator/app/api/routes/repositories.py` 新增 `GET /repositories/projects/{project_id}/day15-flow`，按步骤聚合 Day01~Day14 状态并输出 Day15 闭环快照
+2. `runtime/orchestrator/app/api/routes/projects.py` 新增 `GET /projects/{project_id}/day15-repository-flow`，提供老板视角 Day15 总览状态
+3. `runtime/orchestrator/app/api/routes/approvals.py` 新增 `GET /approvals/projects/{project_id}/day15-release-judgement`，输出 Day15 放行判断汇总
+4. 前端在 `ProjectOverviewPage.tsx`、`DiffSummaryPage.tsx`、`CommitDraftPanel.tsx` 接入 Day15 状态卡片，分别展示闭环总览、证据步骤状态与放行判断状态
+5. 新增烟测脚本 `runtime/orchestrator/scripts/v4d_day15_repository_flow_smoke.py`，覆盖完整闭环与三条 Day15 聚合接口，并验证 `git_write_actions_triggered=false` 与 `head_unchanged=true`
+6. Day15 范围明确收口：未进入 Day16+，未实现或触发真实 `git commit` / `push` / `PR` / `merge`
 
 ---
 

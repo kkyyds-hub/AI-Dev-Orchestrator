@@ -1,8 +1,8 @@
 # Day15 仓库接入最小闭环演示 - 测试与验收
 
 - 对应计划文档：`docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/01-计划文档/Day15-仓库接入最小闭环演示.md`
-- 当前回填状态：**未开始**
-- 当前测试结论：**待验证**
+- 当前回填状态：**已完成**
+- 当前测试结论：**通过**
 
 ---
 
@@ -16,31 +16,37 @@
 
 ---
 
-## 建议验证动作
+## 实际验证动作
 
-1. 核对以下关键文件/目录是否存在并与计划目标一致：
-2.    - `runtime/orchestrator/scripts/v4d_day15_repository_flow_smoke.py`
-3.    - `runtime/orchestrator/app/api/routes/repositories.py`
-4.    - `runtime/orchestrator/app/api/routes/projects.py`
-5.    - `runtime/orchestrator/app/api/routes/approvals.py`
-6.    - `apps/web/src/features/projects/ProjectOverviewPage.tsx`
-7.    - `apps/web/src/features/repositories/DiffSummaryPage.tsx`
-8.    - `apps/web/src/features/repositories/CommitDraftPanel.tsx`
-
-9. 检查后端路由、服务或项目流程是否已按计划接通。
-10. 检查前端页面、卡片、抽屉或时间线是否能展示对应信息。
-11. 若当日涉及扫描、差异、审批、验证命令或回退链路，补一次最小烟测验证关键路径。
+1. 核对关键产物与接线路径已落地：
+   - `runtime/orchestrator/scripts/v4d_day15_repository_flow_smoke.py`
+   - `runtime/orchestrator/app/api/routes/repositories.py`
+   - `runtime/orchestrator/app/api/routes/projects.py`
+   - `runtime/orchestrator/app/api/routes/approvals.py`
+   - `apps/web/src/features/projects/ProjectOverviewPage.tsx`
+   - `apps/web/src/features/repositories/DiffSummaryPage.tsx`
+   - `apps/web/src/features/repositories/CommitDraftPanel.tsx`
+2. 后端语法检查：
+   - `python -m py_compile runtime/orchestrator/app/api/routes/repositories.py runtime/orchestrator/app/api/routes/projects.py runtime/orchestrator/app/api/routes/approvals.py runtime/orchestrator/scripts/v4d_day15_repository_flow_smoke.py`
+   - 结果：通过。
+3. 前端构建验证：
+   - `cmd /c npm run build`（工作目录：`apps/web`）
+   - 结果：通过（Vite 构建完成，仅保留 chunk size warning，不影响 Day15 功能验收）。
+4. Day15 烟测脚本：
+   - `.venv/Scripts/python.exe scripts/v4d_day15_repository_flow_smoke.py`（工作目录：`runtime/orchestrator`）
+   - 结果：通过；关键输出包含 `repository_day15_status=\"ready_for_review\"`、`project_day15_status=\"ready_for_review\"`、`approvals_day15_selected_status=\"approved\"`、`blocked_before=true`、`approve_blocked_status_code=409`、`head_unchanged=true`、`git_write_actions_triggered=false`，验证闭环链路打通且未触发真实 Git 写动作。
 
 ---
 
 ## 当前回填结果
 
-- 结果：**待验证**
-- 状态口径：当前仅完成 Day15 的计划冻结与测试骨架建档，尚未开始实现，禁止提前标记为“通过”；本文件中的“闭环演示”只代表链路可见，不代表真实 Git 自动执行。
+- 结果：**通过**
+- 状态口径：Day15 范围内后端三条聚合接口、前端三处状态展示和 Day15 烟测脚本均已接通；闭环演示止于“可审阅、可解释、可拒绝”，不代表真实 Git 自动执行能力。
 - 证据：
-1. 已建立对应计划文档，冻结今日目标、交付与验收边界
-2. 已建立当前测试验证文档骨架，待后续按真实实现回填
-3. 后续开始开发后，再补充实际接口、页面、脚本、构建与烟测证据
+1. `/repositories/projects/{project_id}/day15-flow`、`/projects/{project_id}/day15-repository-flow`、`/approvals/projects/{project_id}/day15-release-judgement` 已接通，能输出 Day15 闭环总览与放行判断
+2. Day15 烟测已显式覆盖“证据包 -> 提交草案 -> 放行判断”后段链路，并验证阻断场景（缺失 `commit_draft` 时审批 `409`）
+3. 最终输出 `head_unchanged=true` 与 `git_write_actions_triggered=false`，确认演示未触发真实 Git 写动作
+4. 前端构建通过，老板总览/差异页/提交草案页均可显示 Day15 闭环状态卡片
 
 ---
 
