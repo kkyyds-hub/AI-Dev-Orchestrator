@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
+import { requestJson } from "../../lib/http";
 import {
   useChangeBatchCommitCandidate,
   useGenerateChangeBatchCommitCandidate,
@@ -14,9 +16,37 @@ type CommitDraftPanelProps = {
   projectId: string | null;
 };
 
+type Day15ReleaseJudgement = {
+  selected_status:
+    | "blocked"
+    | "pending_approval"
+    | "approved"
+    | "rejected"
+    | "changes_requested"
+    | null;
+  selected_blocked: boolean;
+  selected_decision_count: number;
+  selected_gap_reasons: string[];
+  release_qualification_established: boolean;
+  git_write_actions_triggered: boolean;
+  summary: string;
+};
+
+function useDay15ReleaseJudgement(projectId: string | null) {
+  return useQuery({
+    queryKey: ["day15-release-judgement", projectId],
+    queryFn: () =>
+      requestJson<Day15ReleaseJudgement>(
+        `/approvals/projects/${projectId}/day15-release-judgement`,
+      ),
+    enabled: Boolean(projectId),
+  });
+}
+
 export function CommitDraftPanel(props: CommitDraftPanelProps) {
   const batchesQuery = useProjectChangeBatches(props.projectId);
   const candidatesQuery = useProjectCommitCandidates(props.projectId);
+  const releaseJudgementQuery = useDay15ReleaseJudgement(props.projectId);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
 
   const batchSummaries = batchesQuery.data ?? [];
@@ -106,6 +136,57 @@ export function CommitDraftPanel(props: CommitDraftPanelProps) {
       ) : null}
       {generateMutation.isError ? (
         <Alert message={`生成提交草案失败：${generateMutation.error.message}`} />
+      ) : null}
+
+      {releaseJudgementQuery.data ? (
+        <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge
+              label={`放行判断 ${renderReleaseStatusLabel(releaseJudgementQuery.data.selected_status)}`}
+              tone={mapReleaseTone(releaseJudgementQuery.data.selected_status)}
+            />
+            <StatusBadge
+              label={`决策 ${releaseJudgementQuery.data.selected_decision_count}`}
+              tone="info"
+            />
+            <StatusBadge
+              label={
+                releaseJudgementQuery.data.release_qualification_established
+                  ? "放行资格已成立"
+                  : "放行资格未成立"
+              }
+              tone={
+                releaseJudgementQuery.data.release_qualification_established
+                  ? "success"
+                  : "warning"
+              }
+            />
+            <StatusBadge
+              label={`Git写动作 ${releaseJudgementQuery.data.git_write_actions_triggered ? "已触发" : "未触发"}`}
+              tone={
+                releaseJudgementQuery.data.git_write_actions_triggered
+                  ? "danger"
+                  : "neutral"
+              }
+            />
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {releaseJudgementQuery.data.summary}
+          </p>
+          {releaseJudgementQuery.data.selected_gap_reasons.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {releaseJudgementQuery.data.selected_gap_reasons.map((reason) => (
+                <StatusBadge key={reason} label={reason} tone="warning" />
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : releaseJudgementQuery.isLoading && props.projectId ? (
+        <div className="mt-4 text-sm leading-6 text-slate-500">
+          正在读取 Day15 放行判断...
+        </div>
+      ) : releaseJudgementQuery.isError ? (
+        <Alert message={`Day15 放行判断加载失败：${releaseJudgementQuery.error.message}`} />
       ) : null}
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
@@ -357,4 +438,40 @@ function mapPreflightTone(
   }
 
   return "neutral";
+}
+
+function mapReleaseTone(
+  status: Day15ReleaseJudgement["selected_status"],
+): "success" | "warning" | "danger" | "info" | "neutral" {
+  if (status === "approved") {
+    return "success";
+  }
+  if (status === "blocked" || status === "rejected") {
+    return "danger";
+  }
+  if (status === "changes_requested") {
+    return "warning";
+  }
+  if (status === "pending_approval") {
+    return "info";
+  }
+  return "neutral";
+}
+
+function renderReleaseStatusLabel(status: Day15ReleaseJudgement["selected_status"]) {
+  if (status === null) {
+    return "未形成";
+  }
+  switch (status) {
+    case "approved":
+      return "已通过";
+    case "blocked":
+      return "检查单阻断";
+    case "rejected":
+      return "已驳回";
+    case "changes_requested":
+      return "待补证据";
+    default:
+      return "待审批";
+  }
 }

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { StatusBadge } from "../../components/StatusBadge";
+import { requestJson } from "../../lib/http";
 import {
   formatCurrencyUsd,
   formatDateTime,
@@ -53,6 +55,33 @@ type ProjectOverviewPageProps = {
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
 };
 
+type ProjectDay15FlowOverview = {
+  project_id: string;
+  project_name: string;
+  generated_at: string;
+  overall_status: "in_progress" | "blocked" | "ready_for_review";
+  summary: string;
+  completed_step_count: number;
+  total_step_count: number;
+  blocked_step_count: number;
+  selected_change_batch_id: string | null;
+  selected_change_batch_title: string | null;
+  release_status: string | null;
+  release_qualification_established: boolean;
+  git_write_actions_triggered: boolean;
+};
+
+function useProjectDay15FlowOverview(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-day15-repository-flow", projectId],
+    queryFn: () =>
+      requestJson<ProjectDay15FlowOverview>(
+        `/projects/${projectId}/day15-repository-flow`,
+      ),
+    enabled: Boolean(projectId),
+  });
+}
+
 export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const overviewQuery = useBossProjectOverview();
   const detailRef = useRef<HTMLElement | null>(null);
@@ -92,6 +121,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   );
   const projectDetailQuery = useProjectDetail(selectedProjectId);
   const advanceStageMutation = useAdvanceProjectStage(selectedProjectId);
+  const day15FlowOverviewQuery = useProjectDay15FlowOverview(selectedProjectId);
   const selectedProjectDetail = projectDetailQuery.data ?? null;
 
   const featuredProjects = useMemo(() => projects.slice(0, 3), [projects]);
@@ -230,6 +260,72 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
           <span>最近刷新：{lastUpdatedText}</span>
         </div>
       </header>
+
+      {selectedProjectId ? (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-[0.2em] text-cyan-300">
+                V4 Day15 仓库接入最小闭环演示
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                串联 Day01~Day14，终点保持在“可审阅 / 可解释 / 可拒绝”；不触发真实 Git
+                写操作。
+              </p>
+            </div>
+            {day15FlowOverviewQuery.data ? (
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge
+                  label={renderDay15OverallStatusLabel(
+                    day15FlowOverviewQuery.data.overall_status,
+                  )}
+                  tone={mapDay15OverviewTone(day15FlowOverviewQuery.data.overall_status)}
+                />
+                <StatusBadge
+                  label={`完成 ${day15FlowOverviewQuery.data.completed_step_count}/${day15FlowOverviewQuery.data.total_step_count}`}
+                  tone="info"
+                />
+                <StatusBadge
+                  label={`阻断 ${day15FlowOverviewQuery.data.blocked_step_count}`}
+                  tone={
+                    day15FlowOverviewQuery.data.blocked_step_count > 0
+                      ? "danger"
+                      : "success"
+                  }
+                />
+                {day15FlowOverviewQuery.data.release_status ? (
+                  <StatusBadge
+                    label={`放行 ${day15FlowOverviewQuery.data.release_status}`}
+                    tone="neutral"
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          {day15FlowOverviewQuery.isLoading && !day15FlowOverviewQuery.data ? (
+            <p className="mt-3 text-sm leading-6 text-slate-400">
+              正在加载 Day15 闭环总览...
+            </p>
+          ) : day15FlowOverviewQuery.isError ? (
+            <p className="mt-3 text-sm leading-6 text-rose-200">
+              Day15 闭环总览加载失败：{day15FlowOverviewQuery.error.message}
+            </p>
+          ) : day15FlowOverviewQuery.data ? (
+            <>
+              <p className="mt-3 text-sm leading-6 text-slate-200">
+                {day15FlowOverviewQuery.data.summary}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                当前批次：
+                {day15FlowOverviewQuery.data.selected_change_batch_title ?? "未建立"}；真实
+                Git 写动作触发：
+                {day15FlowOverviewQuery.data.git_write_actions_triggered ? "是" : "否"}。
+              </p>
+            </>
+          ) : null}
+        </section>
+      ) : null}
 
       {overviewQuery.isLoading && !overviewQuery.data ? (
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 text-sm text-slate-400">
@@ -876,4 +972,29 @@ function ProjectTaskTreeRow(props: { task: ProjectDetailTaskItem }) {
       ) : null}
     </div>
   );
+}
+
+function mapDay15OverviewTone(
+  status: ProjectDay15FlowOverview["overall_status"],
+): "success" | "warning" | "danger" {
+  if (status === "ready_for_review") {
+    return "success";
+  }
+  if (status === "blocked") {
+    return "danger";
+  }
+  return "warning";
+}
+
+function renderDay15OverallStatusLabel(
+  status: ProjectDay15FlowOverview["overall_status"],
+) {
+  switch (status) {
+    case "ready_for_review":
+      return "闭环可审阅";
+    case "blocked":
+      return "闭环阻断";
+    default:
+      return "闭环进行中";
+  }
 }

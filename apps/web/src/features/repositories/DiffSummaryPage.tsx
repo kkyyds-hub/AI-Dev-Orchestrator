@@ -1,14 +1,46 @@
+import { useQuery } from "@tanstack/react-query";
+
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
+import { requestJson } from "../../lib/http";
 import { useProjectChangeEvidence } from "../deliverables/hooks";
 
 type DiffSummaryPageProps = {
   projectId: string | null;
 };
 
+type RepositoryDay15FlowStep = {
+  key: string;
+  title: string;
+  status: "completed" | "pending" | "blocked";
+  summary: string;
+  evidence_key: string | null;
+};
+
+type RepositoryDay15Flow = {
+  overall_status: "in_progress" | "blocked" | "ready_for_review";
+  completed_step_count: number;
+  total_step_count: number;
+  blocked_step_count: number;
+  selected_change_batch_title: string | null;
+  steps: RepositoryDay15FlowStep[];
+};
+
+function useRepositoryDay15Flow(projectId: string | null) {
+  return useQuery({
+    queryKey: ["repository-day15-flow", projectId],
+    queryFn: () =>
+      requestJson<RepositoryDay15Flow>(`/repositories/projects/${projectId}/day15-flow`),
+    enabled: Boolean(projectId),
+  });
+}
+
 export function DiffSummaryPage(props: DiffSummaryPageProps) {
   const evidenceQuery = useProjectChangeEvidence(props.projectId);
+  const flowQuery = useRepositoryDay15Flow(props.projectId);
   const evidence = evidenceQuery.data ?? null;
+  const flow = flowQuery.data ?? null;
+  const evidenceStep = flow?.steps.find((item) => item.key === "diff_evidence") ?? null;
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
@@ -46,6 +78,39 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
           </div>
         ) : null}
       </header>
+
+      {flow ? (
+        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge
+              label={`Day15 ${renderDay15FlowLabel(flow.overall_status)}`}
+              tone={mapDay15FlowTone(flow.overall_status)}
+            />
+            <StatusBadge
+              label={`完成 ${flow.completed_step_count}/${flow.total_step_count}`}
+              tone="info"
+            />
+            <StatusBadge
+              label={`阻断 ${flow.blocked_step_count}`}
+              tone={flow.blocked_step_count > 0 ? "danger" : "success"}
+            />
+            {flow.selected_change_batch_title ? (
+              <StatusBadge label={`批次 ${flow.selected_change_batch_title}`} tone="neutral" />
+            ) : null}
+          </div>
+          {evidenceStep ? (
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              证据包状态：{renderStepLabel(evidenceStep.status)}；{evidenceStep.summary}
+            </p>
+          ) : null}
+        </div>
+      ) : flowQuery.isLoading && props.projectId ? (
+        <div className="mt-4 text-sm text-slate-500">正在读取 Day15 闭环状态...</div>
+      ) : flowQuery.isError ? (
+        <div className="mt-4 text-sm text-rose-200">
+          Day15 闭环状态读取失败：{flowQuery.error.message}
+        </div>
+      ) : null}
 
       {!props.projectId ? (
         <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/50 px-4 py-8 text-center text-sm text-slate-400">
@@ -255,4 +320,37 @@ function mapDiffTone(kind: string): "success" | "danger" | "warning" | "info" {
     default:
       return "info";
   }
+}
+
+function mapDay15FlowTone(
+  status: RepositoryDay15Flow["overall_status"],
+): "success" | "warning" | "danger" {
+  if (status === "ready_for_review") {
+    return "success";
+  }
+  if (status === "blocked") {
+    return "danger";
+  }
+  return "warning";
+}
+
+function renderDay15FlowLabel(status: RepositoryDay15Flow["overall_status"]) {
+  switch (status) {
+    case "ready_for_review":
+      return "闭环可审阅";
+    case "blocked":
+      return "闭环阻断";
+    default:
+      return "闭环进行中";
+  }
+}
+
+function renderStepLabel(status: RepositoryDay15FlowStep["status"]) {
+  if (status === "completed") {
+    return "已完成";
+  }
+  if (status === "blocked") {
+    return "阻断";
+  }
+  return "待补齐";
 }
