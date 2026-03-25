@@ -905,6 +905,42 @@ class RepositoryReleaseGateDetailResponse(BaseModel):
         )
 
 
+class Day15ReleaseJudgementItemResponse(BaseModel):
+    """Compact Day15 release-judgement row for one change batch."""
+
+    change_batch_id: UUID
+    change_batch_title: str
+    status: RepositoryReleaseGateStatus
+    blocked: bool
+    missing_item_count: int
+    decision_count: int
+    release_qualification_established: bool
+    latest_decision_action: ApprovalDecisionAction | None = None
+    latest_decision_summary: str | None = None
+
+
+class Day15ReleaseJudgementResponse(BaseModel):
+    """Project-scoped Day15 release-judgement snapshot."""
+
+    project_id: UUID
+    generated_at: datetime
+    total_batches: int
+    blocked_batches: int
+    reviewable_batches: int
+    selected_change_batch_id: UUID | None = None
+    selected_change_batch_title: str | None = None
+    selected_status: RepositoryReleaseGateStatus | None = None
+    selected_blocked: bool
+    selected_missing_item_keys: list[str]
+    selected_gap_reasons: list[str]
+    selected_decision_count: int
+    selected_decision_actions: list[ApprovalDecisionAction]
+    release_qualification_established: bool
+    git_write_actions_triggered: bool
+    summary: str
+    items: list[Day15ReleaseJudgementItemResponse]
+
+
 class ApprovalCreateRequest(BaseModel):
     """Body accepted by the approval-request creation endpoint."""
 
@@ -1422,6 +1458,139 @@ def apply_repository_release_gate_action(
         ) from exc
 
     return RepositoryReleaseGateDetailResponse.from_gate(gate)
+
+
+@router.get(
+    "/projects/{project_id}/day15-release-judgement",
+    response_model=Day15ReleaseJudgementResponse,
+    summary="Get the Day15 release-judgement snapshot for one project",
+)
+def get_project_day15_release_judgement(
+    project_id: UUID,
+    repository_release_gate_service: Annotated[
+        RepositoryReleaseGateService,
+        Depends(get_repository_release_gate_service),
+    ],
+    change_batch_id: UUID | None = None,
+) -> Day15ReleaseJudgementResponse:
+    """Return one Day15 read-only release-judgement view for boss review."""
+
+    try:
+        inbox = repository_release_gate_service.list_project_release_gates(project_id)
+    except RepositoryReleaseGateProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    summary_items = [
+        Day15ReleaseJudgementItemResponse(
+            change_batch_id=item.change_batch_id,
+            change_batch_title=item.change_batch_title,
+            status=item.status,
+            blocked=item.blocked,
+            missing_item_count=item.missing_item_count,
+            decision_count=item.decision_count,
+            release_qualification_established=item.release_qualification_established,
+            latest_decision_action=(
+                item.latest_decision.action if item.latest_decision is not None else None
+            ),
+            latest_decision_summary=(
+                item.latest_decision.summary if item.latest_decision is not None else None
+            ),
+        )
+        for item in inbox.items
+    ]
+
+    selected_item = None
+    if change_batch_id is not None:
+        selected_item = next(
+            (item for item in inbox.items if item.change_batch_id == change_batch_id),
+            None,
+        )
+        if selected_item is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "Change batch not found in Day15 release judgement scope: "
+                    f"{change_batch_id}"
+                ),
+            )
+    else:
+        selected_item = (
+            next((item for item in inbox.items if item.blocked), None)
+            or next(
+                (
+                    item
+                    for item in inbox.items
+                    if item.status == RepositoryReleaseGateStatus.PENDING_APPROVAL
+                ),
+                None,
+            )
+            or next(iter(inbox.items), None)
+        )
+
+    selected_gate = (
+        repository_release_gate_service.get_release_gate(selected_item.change_batch_id)
+        if selected_item is not None
+        else None
+    )
+    reviewable_batches = sum(1 for item in inbox.items if not item.blocked)
+
+    if selected_gate is None:
+        summary = "当前项目尚无可用于放行判断的变更批次。"
+    elif selected_gate.blocked:
+        summary = (
+            "放行检查单存在缺口："
+            + "；".join(selected_gate.gap_reasons or selected_gate.missing_item_keys)
+        )
+    else:
+        summary = (
+            f"当前放行状态为 {selected_gate.status.value}，"
+            f"累计决策 {selected_gate.decision_count} 条。"
+        )
+
+    return Day15ReleaseJudgementResponse(
+        project_id=project_id,
+        generated_at=utc_now(),
+        total_batches=inbox.total_batches,
+        blocked_batches=inbox.blocked_batches,
+        reviewable_batches=reviewable_batches,
+        selected_change_batch_id=(
+            selected_gate.change_batch_id if selected_gate is not None else None
+        ),
+        selected_change_batch_title=(
+            selected_gate.change_batch_title if selected_gate is not None else None
+        ),
+        selected_status=selected_gate.status if selected_gate is not None else None,
+        selected_blocked=selected_gate.blocked if selected_gate is not None else False,
+        selected_missing_item_keys=(
+            list(selected_gate.missing_item_keys) if selected_gate is not None else []
+        ),
+        selected_gap_reasons=(
+            list(selected_gate.gap_reasons) if selected_gate is not None else []
+        ),
+        selected_decision_count=(
+            selected_gate.decision_count if selected_gate is not None else 0
+        ),
+        selected_decision_actions=(
+            [item.action for item in selected_gate.decisions]
+            if selected_gate is not None
+            else []
+        ),
+        release_qualification_established=(
+            selected_gate.release_qualification_established
+            if selected_gate is not None
+            else False
+        ),
+        git_write_actions_triggered=(
+            selected_gate.git_write_actions_triggered
+            if selected_gate is not None
+            else False
+        ),
+        summary=summary,
+        items=summary_items,
+    )
 
 
 @router.get(

@@ -29,20 +29,31 @@ from app.domain.project import (
 from app.domain.project_role import ProjectRoleCode
 from app.api.routes.repositories import (
     ChangeSessionResponse,
+    RepositoryDay15FlowStatus,
     RepositorySnapshotResponse,
     RepositoryWorkspaceResponse,
+    build_repository_day15_flow_snapshot,
 )
 from app.domain.change_session import ChangeSession
 from app.domain.task import TaskHumanStatus, TaskPriority, TaskRiskLevel, TaskStatus
 from app.repositories.approval_repository import ApprovalRepository
 from app.repositories.change_batch_repository import ChangeBatchRepository
+from app.repositories.change_plan_repository import ChangePlanRepository
 from app.repositories.change_session_repository import ChangeSessionRepository
+from app.repositories.commit_candidate_repository import CommitCandidateRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.repository_snapshot_repository import (
+    RepositorySnapshotRepository,
+)
+from app.repositories.repository_workspace_repository import (
+    RepositoryWorkspaceRepository,
+)
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.verification_run_repository import VerificationRunRepository
 from app.services.approval_service import (
     ApprovalService,
     ApprovalTimelineEntry,
@@ -53,6 +64,7 @@ from app.services.decision_replay_service import (
     DecisionReplayService,
     ProjectDecisionTimelineEntry,
 )
+from app.services.diff_summary_service import DiffSummaryService
 from app.services.deliverable_service import (
     DeliverableService,
     DeliverableTimelineEntry,
@@ -81,6 +93,11 @@ from app.services.project_stage_service import (
     ProjectStageTransitionError,
 )
 from app.services.role_catalog_service import RoleCatalogService
+from app.services.repository_release_gate_service import (
+    RepositoryReleaseGateChangeBatchNotFoundError,
+    RepositoryReleaseGateProjectNotFoundError,
+    RepositoryReleaseGateService,
+)
 from app.services.sop_engine_service import (
     ProjectSopSelectionResult,
     ProjectSopSnapshot,
@@ -203,6 +220,24 @@ class ProjectResponse(BaseModel):
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
+
+
+class ProjectDay15FlowOverviewResponse(BaseModel):
+    """Boss-level Day15 minimum closed-loop overview attached to one project."""
+
+    project_id: UUID
+    project_name: str
+    generated_at: datetime
+    overall_status: RepositoryDay15FlowStatus
+    summary: str
+    completed_step_count: int
+    total_step_count: int
+    blocked_step_count: int
+    selected_change_batch_id: UUID | None = None
+    selected_change_batch_title: str | None = None
+    release_status: str | None = None
+    release_qualification_established: bool
+    git_write_actions_triggered: bool
 
 
 class ProjectSopTemplateStagePreviewResponse(BaseModel):
@@ -1352,6 +1387,34 @@ def get_project_memory_service(
     return _build_project_memory_stack(session)[2]
 
 
+def get_repository_release_gate_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> RepositoryReleaseGateService:
+    """Create the Day14 release-gate dependency used by the Day15 overview."""
+
+    project_repository = ProjectRepository(session)
+    repository_workspace_repository = RepositoryWorkspaceRepository(session)
+    change_batch_repository = ChangeBatchRepository(session)
+    commit_candidate_repository = CommitCandidateRepository(session)
+    verification_run_repository = VerificationRunRepository(session)
+    return RepositoryReleaseGateService(
+        project_repository=project_repository,
+        repository_workspace_repository=repository_workspace_repository,
+        repository_snapshot_repository=RepositorySnapshotRepository(session),
+        change_batch_repository=change_batch_repository,
+        commit_candidate_repository=commit_candidate_repository,
+        verification_run_repository=verification_run_repository,
+        diff_summary_service=DiffSummaryService(
+            project_repository=project_repository,
+            repository_workspace_repository=repository_workspace_repository,
+            change_batch_repository=change_batch_repository,
+            deliverable_repository=DeliverableRepository(session),
+            approval_repository=ApprovalRepository(session),
+            verification_run_repository=verification_run_repository,
+        ),
+    )
+
+
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
@@ -1487,6 +1550,62 @@ def get_project(
                 else None
             )
         }
+    )
+
+
+@router.get(
+    "/{project_id}/day15-repository-flow",
+    response_model=ProjectDay15FlowOverviewResponse,
+    summary="Get the Day15 minimum closed-loop overview for one project",
+)
+def get_project_day15_repository_flow(
+    project_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    repository_release_gate_service: Annotated[
+        RepositoryReleaseGateService,
+        Depends(get_repository_release_gate_service),
+    ],
+) -> ProjectDay15FlowOverviewResponse:
+    """Return a boss-facing Day15 read-only closed-loop overview."""
+
+    try:
+        flow = build_repository_day15_flow_snapshot(
+            project_id=project_id,
+            project_repository=ProjectRepository(session),
+            change_plan_repository=ChangePlanRepository(session),
+            change_batch_repository=ChangeBatchRepository(session),
+            repository_release_gate_service=repository_release_gate_service,
+        )
+    except (
+        RepositoryReleaseGateProjectNotFoundError,
+        RepositoryReleaseGateChangeBatchNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if flow.overall_status == RepositoryDay15FlowStatus.BLOCKED:
+        summary = "闭环存在缺口，当前可审阅并可拒绝，但不满足放行条件。"
+    elif flow.overall_status == RepositoryDay15FlowStatus.READY_FOR_REVIEW:
+        summary = "闭环链路已齐备，可审阅、可解释、可拒绝。"
+    else:
+        summary = "闭环链路进行中，仍有步骤待补齐。"
+
+    return ProjectDay15FlowOverviewResponse(
+        project_id=flow.project_id,
+        project_name=flow.project_name,
+        generated_at=flow.generated_at,
+        overall_status=flow.overall_status,
+        summary=summary,
+        completed_step_count=flow.completed_step_count,
+        total_step_count=flow.total_step_count,
+        blocked_step_count=flow.blocked_step_count,
+        selected_change_batch_id=flow.selected_change_batch_id,
+        selected_change_batch_title=flow.selected_change_batch_title,
+        release_status=flow.release_status.value if flow.release_status else None,
+        release_qualification_established=flow.release_qualification_established,
+        git_write_actions_triggered=flow.git_write_actions_triggered,
     )
 
 

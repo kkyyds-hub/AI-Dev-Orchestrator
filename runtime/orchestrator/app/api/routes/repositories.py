@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
@@ -11,10 +12,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain._base import utc_now
 from app.domain.approval import ApprovalDecisionAction, ApprovalStatus
 from app.domain.change_batch import (
     ChangeBatchLinkedDeliverable,
     ChangeBatchPreflight,
+    ChangeBatchPreflightStatus,
     ChangeBatchStatus,
 )
 from app.domain.commit_candidate import (
@@ -1261,6 +1264,371 @@ class RepositoryReleaseGateDetailResponse(BaseModel):
         )
 
 
+class RepositoryDay15FlowStepStatus(StrEnum):
+    """Progress status used by the Day15 minimum closed-loop demo timeline."""
+
+    COMPLETED = "completed"
+    PENDING = "pending"
+    BLOCKED = "blocked"
+
+
+class RepositoryDay15FlowStatus(StrEnum):
+    """Overall status of the Day15 minimum closed-loop demo."""
+
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    READY_FOR_REVIEW = "ready_for_review"
+
+
+class RepositoryDay15FlowStepResponse(BaseModel):
+    """One Day15 step row aggregated from Day01-Day14 capabilities."""
+
+    key: str
+    title: str
+    status: RepositoryDay15FlowStepStatus
+    summary: str
+    evidence_key: str | None = None
+
+
+class RepositoryDay15FlowResponse(BaseModel):
+    """Project-scoped Day15 minimum closed-loop demo snapshot."""
+
+    project_id: UUID
+    project_name: str
+    generated_at: datetime
+    selected_change_batch_id: UUID | None = None
+    selected_change_batch_title: str | None = None
+    overall_status: RepositoryDay15FlowStatus
+    completed_step_count: int
+    total_step_count: int
+    blocked_step_count: int
+    change_plan_count: int
+    change_batch_count: int
+    release_status: RepositoryReleaseGateStatus | None = None
+    release_qualification_established: bool
+    git_write_actions_triggered: bool
+    steps: list[RepositoryDay15FlowStepResponse]
+
+
+def build_repository_day15_flow_snapshot(
+    *,
+    project_id: UUID,
+    project_repository: ProjectRepository,
+    change_plan_repository: ChangePlanRepository,
+    change_batch_repository: ChangeBatchRepository,
+    repository_release_gate_service: RepositoryReleaseGateService,
+) -> RepositoryDay15FlowResponse:
+    """Aggregate Day01-Day14 state into one read-only Day15 flow snapshot."""
+
+    project = project_repository.get_by_id(project_id)
+    if project is None:
+        raise RepositoryReleaseGateProjectNotFoundError(f"Project not found: {project_id}")
+
+    change_plan_count = len(change_plan_repository.list_records_by_project_id(project_id))
+    change_batches = change_batch_repository.list_by_project_id(project_id)
+    selected_change_batch = change_batch_repository.get_active_by_project_id(
+        project_id
+    ) or next(iter(change_batches), None)
+
+    selected_gate: RepositoryReleaseGate | None = None
+    checklist_by_key: dict[str, RepositoryReleaseChecklistItem] = {}
+    if selected_change_batch is not None:
+        selected_gate = repository_release_gate_service.get_release_gate(
+            selected_change_batch.id
+        )
+        checklist_by_key = {
+            item.key: item for item in selected_gate.checklist_items
+        }
+
+    def _step_from_checklist(
+        *,
+        key: str,
+        title: str,
+        pending_summary: str,
+    ) -> RepositoryDay15FlowStepResponse:
+        item = checklist_by_key.get(key)
+        if item is None:
+            return RepositoryDay15FlowStepResponse(
+                key=key,
+                title=title,
+                status=RepositoryDay15FlowStepStatus.PENDING,
+                summary=pending_summary,
+            )
+
+        if item.status == RepositoryReleaseChecklistItemStatus.PASSED:
+            return RepositoryDay15FlowStepResponse(
+                key=key,
+                title=title,
+                status=RepositoryDay15FlowStepStatus.COMPLETED,
+                summary=item.summary,
+                evidence_key=item.evidence_key,
+            )
+
+        return RepositoryDay15FlowStepResponse(
+            key=key,
+            title=title,
+            status=RepositoryDay15FlowStepStatus.BLOCKED,
+            summary=item.gap_reason or item.summary,
+            evidence_key=item.evidence_key,
+        )
+
+    if selected_gate is not None:
+        repository_binding_step = _step_from_checklist(
+            key="repository_binding",
+            title="绑定仓库",
+            pending_summary="尚未收集仓库绑定状态。",
+        )
+    elif project.repository_workspace is not None:
+        repository_binding_step = RepositoryDay15FlowStepResponse(
+            key="repository_binding",
+            title="绑定仓库",
+            status=RepositoryDay15FlowStepStatus.COMPLETED,
+            summary=(
+                "已绑定本地仓库："
+                f"{project.repository_workspace.display_name}"
+            ),
+        )
+    else:
+        repository_binding_step = RepositoryDay15FlowStepResponse(
+            key="repository_binding",
+            title="绑定仓库",
+            status=RepositoryDay15FlowStepStatus.BLOCKED,
+            summary="尚未绑定本地仓库，闭环链路无法推进。",
+        )
+
+    if selected_gate is not None:
+        snapshot_step = _step_from_checklist(
+            key="snapshot_freshness",
+            title="刷新快照",
+            pending_summary="尚未收集快照状态。",
+        )
+    elif project.repository_workspace is None:
+        snapshot_step = RepositoryDay15FlowStepResponse(
+            key="snapshot_freshness",
+            title="刷新快照",
+            status=RepositoryDay15FlowStepStatus.BLOCKED,
+            summary="未绑定仓库，无法生成快照。",
+        )
+    elif project.latest_repository_snapshot is None:
+        snapshot_step = RepositoryDay15FlowStepResponse(
+            key="snapshot_freshness",
+            title="刷新快照",
+            status=RepositoryDay15FlowStepStatus.PENDING,
+            summary="尚未生成仓库快照，请先执行 Day02 刷新。",
+        )
+    elif project.latest_repository_snapshot.status == RepositorySnapshotStatus.SUCCESS:
+        snapshot_step = RepositoryDay15FlowStepResponse(
+            key="snapshot_freshness",
+            title="刷新快照",
+            status=RepositoryDay15FlowStepStatus.COMPLETED,
+            summary="仓库快照已刷新并可用于后续链路。",
+        )
+    else:
+        snapshot_step = RepositoryDay15FlowStepResponse(
+            key="snapshot_freshness",
+            title="刷新快照",
+            status=RepositoryDay15FlowStepStatus.BLOCKED,
+            summary=(
+                project.latest_repository_snapshot.scan_error
+                or "最近一次仓库快照刷新失败。"
+            ),
+        )
+
+    if selected_gate is not None:
+        change_plan_step = _step_from_checklist(
+            key="change_plan",
+            title="生成变更计划",
+            pending_summary="尚未收集变更计划状态。",
+        )
+    elif change_plan_count > 0:
+        change_plan_step = RepositoryDay15FlowStepResponse(
+            key="change_plan",
+            title="生成变更计划",
+            status=RepositoryDay15FlowStepStatus.COMPLETED,
+            summary=f"已沉淀 {change_plan_count} 份变更计划草案。",
+        )
+    else:
+        change_plan_step = RepositoryDay15FlowStepResponse(
+            key="change_plan",
+            title="生成变更计划",
+            status=RepositoryDay15FlowStepStatus.PENDING,
+            summary="尚未生成变更计划草案。",
+        )
+
+    if selected_change_batch is not None:
+        change_batch_step = RepositoryDay15FlowStepResponse(
+            key="change_batch",
+            title="建立批次",
+            status=RepositoryDay15FlowStepStatus.COMPLETED,
+            summary=(
+                f"已建立变更批次《{selected_change_batch.title}》"
+                "并进入 Day07-Day14 链路。"
+            ),
+        )
+    elif change_plan_count > 0:
+        change_batch_step = RepositoryDay15FlowStepResponse(
+            key="change_batch",
+            title="建立批次",
+            status=RepositoryDay15FlowStepStatus.PENDING,
+            summary=f"已有 {change_plan_count} 份计划，尚未归并为批次。",
+        )
+    else:
+        change_batch_step = RepositoryDay15FlowStepResponse(
+            key="change_batch",
+            title="建立批次",
+            status=RepositoryDay15FlowStepStatus.PENDING,
+            summary="暂无可归并的变更计划。",
+        )
+
+    if selected_gate is not None:
+        preflight_step = _step_from_checklist(
+            key="risk_preflight",
+            title="执行预检",
+            pending_summary="尚未收集执行前预检状态。",
+        )
+    elif selected_change_batch is None:
+        preflight_step = RepositoryDay15FlowStepResponse(
+            key="risk_preflight",
+            title="执行预检",
+            status=RepositoryDay15FlowStepStatus.PENDING,
+            summary="请先建立变更批次后再执行 Day08 预检。",
+        )
+    elif selected_change_batch.preflight.status in {
+        ChangeBatchPreflightStatus.READY_FOR_EXECUTION,
+        ChangeBatchPreflightStatus.MANUAL_CONFIRMED,
+    }:
+        preflight_step = RepositoryDay15FlowStepResponse(
+            key="risk_preflight",
+            title="执行预检",
+            status=RepositoryDay15FlowStepStatus.COMPLETED,
+            summary=selected_change_batch.preflight.summary
+            or "执行前预检已通过。",
+        )
+    elif selected_change_batch.preflight.status in {
+        ChangeBatchPreflightStatus.BLOCKED_REQUIRES_CONFIRMATION,
+        ChangeBatchPreflightStatus.MANUAL_REJECTED,
+    }:
+        preflight_step = RepositoryDay15FlowStepResponse(
+            key="risk_preflight",
+            title="执行预检",
+            status=RepositoryDay15FlowStepStatus.BLOCKED,
+            summary=selected_change_batch.preflight.summary
+            or "执行前预检处于阻断状态。",
+        )
+    else:
+        preflight_step = RepositoryDay15FlowStepResponse(
+            key="risk_preflight",
+            title="执行预检",
+            status=RepositoryDay15FlowStepStatus.PENDING,
+            summary="当前批次尚未执行 Day08 预检。",
+        )
+
+    verification_step = _step_from_checklist(
+        key="verification_results",
+        title="记录验证",
+        pending_summary="尚未收集验证结果。",
+    )
+    evidence_step = _step_from_checklist(
+        key="diff_evidence",
+        title="生成证据包",
+        pending_summary="尚未生成 Day11 差异证据包。",
+    )
+    commit_draft_step = _step_from_checklist(
+        key="commit_draft",
+        title="形成提交草案",
+        pending_summary="尚未生成 Day13 提交草案。",
+    )
+
+    if selected_gate is None:
+        release_step = RepositoryDay15FlowStepResponse(
+            key="release_judgement",
+            title="展示放行判断",
+            status=RepositoryDay15FlowStepStatus.PENDING,
+            summary="尚未建立可用于放行判断的批次。",
+        )
+    elif selected_gate.blocked:
+        release_step = RepositoryDay15FlowStepResponse(
+            key="release_judgement",
+            title="展示放行判断",
+            status=RepositoryDay15FlowStepStatus.BLOCKED,
+            summary=(
+                "放行检查单仍有缺口："
+                + "；".join(selected_gate.gap_reasons or selected_gate.missing_item_keys)
+            ),
+        )
+    else:
+        release_step = RepositoryDay15FlowStepResponse(
+            key="release_judgement",
+            title="展示放行判断",
+            status=RepositoryDay15FlowStepStatus.COMPLETED,
+            summary=(
+                f"放行状态：{selected_gate.status.value}；"
+                f"累计决策 {selected_gate.decision_count} 条。"
+            ),
+        )
+
+    steps = [
+        repository_binding_step,
+        snapshot_step,
+        change_plan_step,
+        change_batch_step,
+        preflight_step,
+        verification_step,
+        evidence_step,
+        commit_draft_step,
+        release_step,
+    ]
+    completed_step_count = sum(
+        1
+        for item in steps
+        if item.status == RepositoryDay15FlowStepStatus.COMPLETED
+    )
+    blocked_step_count = sum(
+        1
+        for item in steps
+        if item.status == RepositoryDay15FlowStepStatus.BLOCKED
+    )
+    overall_status = (
+        RepositoryDay15FlowStatus.BLOCKED
+        if blocked_step_count > 0
+        else (
+            RepositoryDay15FlowStatus.READY_FOR_REVIEW
+            if completed_step_count == len(steps)
+            else RepositoryDay15FlowStatus.IN_PROGRESS
+        )
+    )
+
+    return RepositoryDay15FlowResponse(
+        project_id=project.id,
+        project_name=project.name,
+        generated_at=utc_now(),
+        selected_change_batch_id=(
+            selected_change_batch.id if selected_change_batch is not None else None
+        ),
+        selected_change_batch_title=(
+            selected_change_batch.title if selected_change_batch is not None else None
+        ),
+        overall_status=overall_status,
+        completed_step_count=completed_step_count,
+        total_step_count=len(steps),
+        blocked_step_count=blocked_step_count,
+        change_plan_count=change_plan_count,
+        change_batch_count=len(change_batches),
+        release_status=selected_gate.status if selected_gate is not None else None,
+        release_qualification_established=(
+            selected_gate.release_qualification_established
+            if selected_gate is not None
+            else False
+        ),
+        git_write_actions_triggered=(
+            selected_gate.git_write_actions_triggered
+            if selected_gate is not None
+            else False
+        ),
+        steps=steps,
+    )
+
+
 def get_repository_workspace_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> RepositoryWorkspaceService:
@@ -1951,6 +2319,39 @@ def get_change_batch_release_checklist(
         ) from exc
 
     return RepositoryReleaseGateDetailResponse.from_gate(gate)
+
+
+@router.get(
+    "/projects/{project_id}/day15-flow",
+    response_model=RepositoryDay15FlowResponse,
+    summary="Get the Day15 minimum closed-loop repository demo snapshot",
+)
+def get_project_day15_flow(
+    project_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    repository_release_gate_service: Annotated[
+        RepositoryReleaseGateService,
+        Depends(get_repository_release_gate_service),
+    ],
+) -> RepositoryDay15FlowResponse:
+    """Aggregate Day01-Day14 into one Day15 read-only closed-loop snapshot."""
+
+    try:
+        return build_repository_day15_flow_snapshot(
+            project_id=project_id,
+            project_repository=ProjectRepository(session),
+            change_plan_repository=ChangePlanRepository(session),
+            change_batch_repository=ChangeBatchRepository(session),
+            repository_release_gate_service=repository_release_gate_service,
+        )
+    except (
+        RepositoryReleaseGateProjectNotFoundError,
+        RepositoryReleaseGateChangeBatchNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(
