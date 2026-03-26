@@ -1,8 +1,8 @@
 # Day16 V4端到端验收与文档收口 - 测试与验收
 
 - 对应计划文档：`docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/01-计划文档/Day16-V4端到端验收与文档收口.md`
-- 当前回填状态：**未开始**
-- 当前测试结论：**待验证**
+- 当前回填状态：**已完成**
+- 当前测试结论：**通过**
 
 ---
 
@@ -16,31 +16,37 @@
 
 ---
 
-## 建议验证动作
+## 实际验证动作
 
-1. 核对以下关键文件/目录是否存在并与计划目标一致：
-2.    - `runtime/orchestrator/scripts/v4d_day16_v4_e2e_smoke.py`
-3.    - `docs/01-版本冻结计划/00-总计划/00-总计划.md`
-4.    - `docs/01-版本冻结计划/V4/00-V4总纲.md`
-5.    - `docs/01-版本冻结计划/V4/00-V4总览.md`
-6.    - `docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/00-模块说明.md`
-7.    - `docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/01-计划文档/Day16-V4端到端验收与文档收口.md`
-8.    - `docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/02-测试验证/Day16-V4端到端验收与文档收口-测试.md`
-
-9. 检查后端路由、服务或项目流程是否已按计划接通。
-10. 检查前端页面、卡片、抽屉或时间线是否能展示对应信息。
-11. 若当日涉及扫描、差异、审批、验证命令或回退链路，补一次最小烟测验证关键路径。
+1. 核对 Day16 关键产物与文档回填路径已落地：
+   - `runtime/orchestrator/scripts/v4d_day16_v4_e2e_smoke.py`
+   - `docs/01-版本冻结计划/00-总计划/00-总计划.md`
+   - `docs/01-版本冻结计划/V4/00-V4总纲.md`
+   - `docs/01-版本冻结计划/V4/00-V4总览.md`
+   - `docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/00-模块说明.md`
+   - `docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/01-计划文档/Day16-V4端到端验收与文档收口.md`
+   - `docs/01-版本冻结计划/V4/04-模块D-提交候选、审批放行与验收收口/02-测试验证/Day16-V4端到端验收与文档收口-测试.md`
+2. 后端语法检查：
+   - `D:/AI-Dev-Orchestrator/runtime/orchestrator/.venv/Scripts/python.exe -X utf8 -m py_compile app/api/routes/repositories.py app/api/routes/projects.py app/api/routes/approvals.py scripts/v4d_day16_v4_e2e_smoke.py`
+   - 结果：通过。
+3. 前端构建验证：
+   - `D:/AI-Dev-Orchestrator/apps/web> npm.cmd run build`
+   - 结果：通过（Vite 构建完成，仅保留 chunk size warning，不影响 Day16 验收）。
+4. Day16 端到端烟测脚本：
+   - `D:/AI-Dev-Orchestrator/runtime/orchestrator/.venv/Scripts/python.exe -X utf8 scripts/v4d_day16_v4_e2e_smoke.py`
+   - 结果：通过；关键输出包含 `preflight_status="manual_confirmed"`、`repository_day15_status="ready_for_review"`、`project_day15_status="ready_for_review"`、`approvals_day15_selected_status="approved"`、`release_checklist_status="approved"`、`blocked_before=true`、`approve_blocked_status_code=409`、`head_unchanged=true`、`git_write_actions_triggered=false`，并生成 `report_path="D:\\AI-Dev-Orchestrator\\runtime\\orchestrator\\tmp\\v4-day16-v4-e2e-smoke\\v4-day16-e2e-report.json"`。
 
 ---
 
 ## 当前回填结果
 
-- 结果：**待验证**
-- 状态口径：当前仅完成 Day16 的计划冻结与测试骨架建档，尚未开始实现，禁止提前标记为“通过”。
+- 结果：**通过**
+- 状态口径：Day16 已在冻结边界内完成 V4 端到端验收与文档收口；未新增产品功能，未进入 V5，未触发真实 Git 自动写动作。
 - 证据：
-1. 已建立对应计划文档，冻结今日目标、交付与验收边界
-2. 已建立当前测试验证文档骨架，待后续按真实实现回填
-3. 后续开始开发后，再补充实际接口、页面、脚本、构建与烟测证据
+1. Day16 烟测链路已覆盖：仓库绑定 -> 快照 -> 变更会话 -> 文件定位/上下文包 -> 变更计划/批次 -> 预检 -> 验证 -> 证据包 -> 提交草案 -> 放行审批 -> Day15 聚合视图
+2. 烟测中先验证缺口阻断（缺失 `commit_draft` 时审批动作返回 `409`），再生成提交草案并审批通过，证明闸门链路有效且可审计
+3. 最终输出 `head_unchanged=true` 与 `git_write_actions_triggered=false`，确认 Day16 验收不触发真实 Git 写动作
+4. 总计划、V4 总纲、V4 总览、模块D说明与 Day16 文档状态已统一回填为完成口径
 
 ---
 

@@ -4,8 +4,8 @@
 - 模块 / 提案：`模块D：提交候选、审批放行与验收收口`
 - 原始日期：`2026-05-07`
 - 原始来源：`V4 正式版总纲 / 模块D：提交候选、审批放行与验收收口 / Day16`
-- 当前回填状态：**未开始**
-- 回填口径：当前文档为 V4 冻结版计划，尚未开始实现；后续只按 Day16 范围回填，不提前跨 Day 扩 scope。
+- 当前回填状态：**已完成**
+- 回填口径：Day16 已按冻结边界完成“最小端到端验收链路 + 文档状态回填收口”；未新增产品功能，未进入 V5，未触发真实 Git 写动作。
 
 ---
 
@@ -39,12 +39,15 @@
 
 ## 回填记录
 
-- 当前结论：**未开始**
-- 回填说明：当前仅完成 Day16 冻结版计划建档，尚未进入实现；开始开发时需严格以今日目标、当日交付和验收点为回填边界。
+- 当前结论：**已完成**
+- 回填说明：
+  1. 新增 `runtime/orchestrator/scripts/v4d_day16_v4_e2e_smoke.py`，固定一条 V4 最小端到端验收链路，覆盖仓库绑定、快照、变更会话、文件定位/上下文包、变更计划/批次、预检、验证、证据包、提交草案、放行审批与 Day15 聚合视图。
+  2. Day16 烟测明确校验“审批通过仅代表放行资格成立”，关键输出包含 `head_unchanged=true` 与 `git_write_actions_triggered=false`，确认未触发真实 `git commit` / `push` / `PR` / `merge` 自动执行。
+  3. 已同步回填 `总计划 / V4总纲 / V4总览 / 模块D说明 / Day16 计划与测试` 文档状态，确保文档口径与脚本证据一致，完成 V4 Day01-Day16 正式收口。
 - 回填证据：
-1. 已建立本文档，冻结 Day16 的目标、交付和验收范围
-2. 已建立对应测试验证骨架文件，待后续按真实实现回填
-3. 后续启动开发后，再以实际代码、页面、脚本和烟测结果替换当前占位说明
+1. `D:/AI-Dev-Orchestrator/runtime/orchestrator/.venv/Scripts/python.exe -X utf8 -m py_compile app/api/routes/repositories.py app/api/routes/projects.py app/api/routes/approvals.py scripts/v4d_day16_v4_e2e_smoke.py`（通过）
+2. `D:/AI-Dev-Orchestrator/runtime/orchestrator/.venv/Scripts/python.exe -X utf8 scripts/v4d_day16_v4_e2e_smoke.py`（通过，输出 `preflight_status="manual_confirmed"`、`repository_day15_status="ready_for_review"`、`approvals_day15_selected_status="approved"`、`release_checklist_status="approved"`、`evidence_changed_file_count=7`、`head_unchanged=true`、`git_write_actions_triggered=false`）
+3. `D:/AI-Dev-Orchestrator/apps/web> npm.cmd run build`（通过，仅保留 chunk size warning，不影响 Day16 验收）
 
 ---
 
