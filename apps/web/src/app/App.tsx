@@ -15,6 +15,8 @@ import type { ConsoleTask } from "../features/console/types";
 import { useConsoleEventStream } from "../features/events/hooks";
 import { TaskDetailPanel } from "../features/task-detail/TaskDetailPanel";
 import { useRunWorkerOnce, useRunWorkerPoolOnce } from "../features/task-actions/hooks";
+import { WorkerMemoryRecallCard } from "../features/task-actions/WorkerMemoryRecallCard";
+import { WorkerProviderPromptTokenCard } from "../features/task-actions/WorkerProviderPromptTokenCard";
 import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../lib/format";
 import { mapRunStatusTone, mapTaskStatusTone } from "../lib/status";
 
@@ -276,6 +278,14 @@ export function App() {
                   </div>
                 ) : null}
               </div>
+            ) : null}
+
+            {!runWorkerOnceMutation.isError && runWorkerOnceMutation.data ? (
+              <WorkerProviderPromptTokenCard {...runWorkerOnceMutation.data} />
+            ) : null}
+
+            {!runWorkerOnceMutation.isError && runWorkerOnceMutation.data ? (
+              <WorkerMemoryRecallCard {...runWorkerOnceMutation.data} />
             ) : null}
           </section>
         ) : null}

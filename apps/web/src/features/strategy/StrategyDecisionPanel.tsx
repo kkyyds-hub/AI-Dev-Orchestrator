@@ -1,9 +1,7 @@
 import { StatusBadge } from "../../components/StatusBadge";
-import {
-  mapBudgetPressureTone,
-} from "../../lib/status";
-import { ROLE_CODE_LABELS } from "../roles/types";
+import { mapBudgetPressureTone } from "../../lib/status";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
+import { ROLE_CODE_LABELS } from "../roles/types";
 import { useProjectStrategyPreview } from "./hooks";
 
 type StrategyDecisionPanelProps = {
@@ -23,10 +21,10 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
     return (
       <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-          Day15 策略决策预览
+          Strategy Preview
         </div>
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          请选择一个项目后查看角色 / 模型 / Skill 路由预览。
+          请选择一个项目后查看角色、模型和 Skill 的路由预览。
         </p>
       </section>
     );
@@ -36,10 +34,10 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
     return (
       <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-          Day15 策略决策预览
+          Strategy Preview
         </div>
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          正在计算当前项目的策略决策...
+          正在计算当前项目的策略预览...
         </p>
       </section>
     );
@@ -49,13 +47,11 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
     return (
       <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
         <div className="text-xs uppercase tracking-[0.2em] text-rose-200">
-          Day15 策略决策预览
+          Strategy Preview
         </div>
         <p className="mt-3 text-sm leading-6 text-rose-100">
           策略预览加载失败：
-          {previewQuery.error instanceof Error
-            ? previewQuery.error.message
-            : "未知错误"}
+          {previewQuery.error instanceof Error ? previewQuery.error.message : "未知错误"}
         </p>
       </section>
     );
@@ -68,7 +64,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day15 策略决策预览
+            Strategy Preview
           </div>
           <h3 className="mt-2 text-lg font-semibold text-slate-50">
             {preview.project_name}
@@ -113,11 +109,47 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
           value={
             preview.model_name
               ? `${preview.model_name}${preview.strategy_code ? ` · ${preview.strategy_code}` : ""}`
-              : "尚未选择模型"
+              : "尚未选出模型"
           }
           extra={preview.budget_strategy_summary}
         />
       </div>
+
+      {preview.owner_role_code || preview.model_tier || preview.model_name ? (
+        <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+          <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+            Role Model Policy 命中
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            当前策略预览已经把“责任角色 → 模型层级 → 最终模型”收敛成最小运行时结果；
+            Worker 真正执行时会沿用同一条策略主链。
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <InfoCard
+              label="责任角色"
+              value={
+                preview.owner_role_code
+                  ? ROLE_CODE_LABELS[preview.owner_role_code] ?? preview.owner_role_code
+                  : "未分配"
+              }
+            />
+            <InfoCard
+              label="命中层级"
+              value={
+                preview.model_tier
+                  ? MODEL_TIER_LABELS[preview.model_tier] ?? preview.model_tier
+                  : "未命中"
+              }
+            />
+            <InfoCard label="最终模型" value={preview.model_name ?? "未选择"} />
+            <InfoCard
+              label="策略代码"
+              value={preview.strategy_code ?? "未生成"}
+              extra={preview.dispatch_status ?? undefined}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {preview.route_reason ? (
         <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
@@ -219,16 +251,10 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
 
                   <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
                     <span>
-                      分数{" "}
-                      {candidate.routing_score !== null
-                        ? candidate.routing_score.toFixed(1)
-                        : "—"}
+                      分数 {candidate.routing_score !== null ? candidate.routing_score.toFixed(1) : "-"}
                     </span>
                     <span>
-                      责任角色{" "}
-                      {candidate.owner_role_code
-                        ? ROLE_CODE_LABELS[candidate.owner_role_code] ?? candidate.owner_role_code
-                        : "未分配"}
+                      责任角色 {candidate.owner_role_code ? ROLE_CODE_LABELS[candidate.owner_role_code] ?? candidate.owner_role_code : "未分配"}
                     </span>
                     <span>模型 {candidate.model_name ?? "未选择"}</span>
                     <span>重试 {candidate.execution_attempts}</span>
@@ -254,10 +280,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
 
                   {candidate.blocking_signals.length > 0 ? (
                     <div className="mt-2 text-xs text-amber-200">
-                      阻塞：
-                      {candidate.blocking_signals
-                        .map((signal) => signal.message)
-                        .join("；")}
+                      阻塞：{candidate.blocking_signals.map((signal) => signal.message).join("；")}
                     </div>
                   ) : null}
                 </div>
@@ -272,7 +295,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
       </div>
 
       <div className="mt-4 text-xs text-slate-500">
-        预览会每 5 秒刷新一次，用于展示当前预算压力、阶段、角色和 Skill 绑定对路由结果的影响。
+        预览会每 5 秒刷新一次，用于展示预算压力、阶段、角色和 Skill 绑定对路由结果的影响。
       </div>
     </section>
   );
@@ -286,9 +309,7 @@ function InfoCard(props: { label: string; value: string; extra?: string }) {
       </div>
       <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
       {props.extra ? (
-        <div className="mt-2 text-xs leading-5 text-slate-500">
-          {props.extra}
-        </div>
+        <div className="mt-2 text-xs leading-5 text-slate-500">{props.extra}</div>
       ) : null}
     </div>
   );

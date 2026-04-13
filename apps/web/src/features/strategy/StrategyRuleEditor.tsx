@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { StatusBadge } from "../../components/StatusBadge";
+import { PROJECT_STAGE_LABELS } from "../projects/types";
+import { ROLE_CODE_LABELS } from "../roles/types";
 import { useStrategyRules, useUpdateStrategyRules } from "./hooks";
 
 type StrategyRuleEditorProps = {
   projectId: string | null;
+};
+
+const MODEL_TIER_LABELS: Record<string, string> = {
+  economy: "经济",
+  balanced: "均衡",
+  premium: "高质量",
 };
 
 export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
@@ -23,9 +31,9 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
 
   const helperLines = useMemo(
     () => [
-      "可编辑关键项：budget_model_tiers、stage_role_boosts、stage_skill_preferences、stage_model_tier_overrides。",
-      "修改后会立即影响项目级策略预览和后续 Worker 路由。",
-      "建议先在预览面板核对结果，再执行 Worker。",
+      "可编辑关键项：budget_model_tiers、role_model_tier_preferences、stage_model_tier_overrides、stage_skill_preferences。",
+      "保存后会立即影响项目策略预览，以及后续 Worker 的模型路由选择。",
+      "建议先看上方策略预览，再回到这里调整 Role Model Policy。",
     ],
     [],
   );
@@ -52,13 +60,14 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day15 策略规则编辑器
+            Strategy Rule Editor
           </div>
           <h3 className="mt-2 text-lg font-semibold text-slate-50">
-            最小配置化规则集
+            策略规则与 Role Model Policy
           </h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            通过一份集中规则集控制“预算 → 模型层级、阶段 → 角色加权、阶段 → Skill 偏好”，避免把策略散落到多个服务里。
+            这里保留完整 JSON 编辑入口，同时把 Role Model Policy 的最小控制面显式展开，
+            避免只剩“能改 JSON，但看不见当前策略口径”。
           </p>
         </div>
 
@@ -82,6 +91,64 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
         </div>
       </div>
 
+      {rulesQuery.data?.role_model_policy ? (
+        <section className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+          <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+            Role Model Policy
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            该摘要由 <code>/strategy/rules</code> 显式返回，代表当前保存态的角色模型策略；
+            修改并保存 JSON 后，这里的摘要会与策略预览一起刷新。
+          </p>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                角色默认层级
+              </div>
+              <div className="mt-3 space-y-3">
+                {rulesQuery.data.role_model_policy.role_preferences.length ? (
+                  rulesQuery.data.role_model_policy.role_preferences.map((item) => (
+                    <PolicyRow
+                      key={item.role_code}
+                      title={ROLE_CODE_LABELS[item.role_code] ?? item.role_code}
+                      modelTier={item.model_tier}
+                      modelLabel={item.model_label}
+                      modelName={item.model_name}
+                      summary={item.summary}
+                    />
+                  ))
+                ) : (
+                  <EmptyState text="当前没有显式角色默认层级，运行时会优先回退到预算基线模型层级。" />
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                阶段覆盖
+              </div>
+              <div className="mt-3 space-y-3">
+                {rulesQuery.data.role_model_policy.stage_overrides.length ? (
+                  rulesQuery.data.role_model_policy.stage_overrides.map((item) => (
+                    <PolicyRow
+                      key={`${item.stage}-${item.role_code}`}
+                      title={`${PROJECT_STAGE_LABELS[item.stage] ?? item.stage} / ${ROLE_CODE_LABELS[item.role_code] ?? item.role_code}`}
+                      modelTier={item.model_tier}
+                      modelLabel={item.model_label}
+                      modelName={item.model_name}
+                      summary={item.summary}
+                    />
+                  ))
+                ) : (
+                  <EmptyState text="当前没有阶段级覆盖，运行时会继续沿用角色默认层级。" />
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-300">
         {helperLines.map((line) => (
           <li
@@ -95,8 +162,7 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
 
       {rulesQuery.isError ? (
         <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
-          规则读取失败：
-          {rulesQuery.error instanceof Error ? rulesQuery.error.message : "未知错误"}
+          规则读取失败：{rulesQuery.error instanceof Error ? rulesQuery.error.message : "未知错误"}
         </div>
       ) : null}
 
@@ -149,5 +215,40 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
         </button>
       </div>
     </section>
+  );
+}
+
+function PolicyRow(props: {
+  title: string;
+  modelTier: string;
+  modelLabel: string | null;
+  modelName: string | null;
+  summary: string | null;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm font-medium text-slate-100">{props.title}</div>
+        <StatusBadge
+          label={MODEL_TIER_LABELS[props.modelTier] ?? props.modelTier}
+          tone="info"
+        />
+      </div>
+      <div className="mt-2 text-sm text-slate-300">
+        {props.modelLabel ?? "未命名层级"}
+        {props.modelName ? ` · ${props.modelName}` : ""}
+      </div>
+      {props.summary ? (
+        <p className="mt-2 text-xs leading-5 text-slate-500">{props.summary}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function EmptyState(props: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-3 py-4 text-sm leading-6 text-slate-400">
+      {props.text}
+    </div>
   );
 }

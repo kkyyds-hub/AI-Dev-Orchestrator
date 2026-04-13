@@ -6,6 +6,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.domain.project_role import ProjectRoleCode
+from app.domain.prompt_contract import BuiltPromptEnvelope
+from app.domain.prompt_contract import TokenAccountingSnapshot
 from app.domain.run import (
     Run,
     RunBudgetPressureLevel,
@@ -26,12 +28,18 @@ from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.skill_repository import SkillRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.deliverable_repository import DeliverableRepository
 from app.services.budget_guard_service import BudgetGuardDecision, BudgetGuardService
 from app.services.context_builder_service import ContextBuilderService, TaskContextPackage
 from app.services.cost_estimator_service import CostEstimate, CostEstimatorService
 from app.services.event_stream_service import event_stream_service
-from app.services.executor_service import ExecutionResult, ExecutorService
+from app.services.executor_service import ExecutionPlan, ExecutionResult, ExecutorService
 from app.services.failure_review_service import FailureReviewService
+from app.services.model_routing_service import ModelRoutingService
+from app.services.prompt_builder_service import PromptBuilderService
+from app.services.prompt_registry_service import PromptRegistryService
+from app.services.project_memory_service import ProjectMemoryService
 from app.services.role_catalog_service import RoleCatalogService
 from app.services.run_logging_service import RunLoggingService
 from app.services.skill_registry_service import SkillRegistryService
@@ -42,6 +50,7 @@ from app.services.task_state_machine_service import (
     TaskStateMachineService,
     TaskStateTransition,
 )
+from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult, VerifierService
 
 
@@ -81,6 +90,10 @@ class WorkerRunResult:
     downstream_role_code: ProjectRoleCode | None = None
     handoff_reason: str | None = None
     dispatch_status: str | None = None
+    project_memory_enabled: bool | None = None
+    project_memory_query_text: str | None = None
+    project_memory_item_count: int | None = None
+    project_memory_context_summary: str | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -101,6 +114,10 @@ class TaskWorker:
         cost_estimator_service: CostEstimatorService,
         context_builder_service: ContextBuilderService,
         task_router_service: TaskRouterService,
+        model_routing_service: ModelRoutingService,
+        prompt_registry_service: PromptRegistryService,
+        prompt_builder_service: PromptBuilderService,
+        token_accounting_service: TokenAccountingService,
         task_state_machine_service: TaskStateMachineService,
         failure_review_service: FailureReviewService,
     ) -> None:
@@ -114,6 +131,10 @@ class TaskWorker:
         self.cost_estimator_service = cost_estimator_service
         self.context_builder_service = context_builder_service
         self.task_router_service = task_router_service
+        self.model_routing_service = model_routing_service
+        self.prompt_registry_service = prompt_registry_service
+        self.prompt_builder_service = prompt_builder_service
+        self.token_accounting_service = token_accounting_service
         self.task_state_machine_service = task_state_machine_service
         self.failure_review_service = failure_review_service
 
@@ -333,12 +354,39 @@ class TaskWorker:
             )
             self.session.commit()
 
-            context_package = self.context_builder_service.build_context_package(task=task)
+            context_package = self.context_builder_service.build_context_package(
+                task=task,
+                include_project_memory=True,
+            )
             self._log_context_package(run=run, context_package=context_package)
+            routing_contract = self.model_routing_service.build_contract_from_strategy_decision(
+                routing_decision.strategy_decision if routing_decision is not None else None
+            )
+            execution_plan = self.executor_service.build_execution_plan(
+                task=task,
+                routing_contract=routing_contract,
+            )
+            self._log_execution_plan(
+                run=run,
+                execution_plan=execution_plan,
+            )
+            prompt_envelope = self.prompt_builder_service.build_execution_prompt(
+                task=task,
+                context_package=context_package,
+                execution_plan=execution_plan,
+                routing_contract=routing_contract,
+            )
+            self._log_prompt_contract(
+                run=run,
+                execution_plan=execution_plan,
+                prompt_envelope=prompt_envelope,
+            )
 
             execution = self.executor_service.execute_task(
                 task,
                 context_package=context_package,
+                routing_contract=routing_contract,
+                prompt_envelope=prompt_envelope,
             )
             self._log_execution_result(run=run, execution=execution)
 
@@ -352,10 +400,27 @@ class TaskWorker:
                 verification=verification,
             )
 
+            token_accounting = self.token_accounting_service.build_snapshot(
+                prompt_envelope=prompt_envelope,
+                completion_text="\n".join(
+                    part
+                    for part in (
+                        execution.summary.strip(),
+                        verification.summary.strip() if verification is not None else "",
+                    )
+                    if part
+                ),
+                execution_mode=execution.mode,
+                provider_usage_receipt=execution.provider_usage_receipt,
+            )
+            self._log_token_accounting(run=run, token_accounting=token_accounting)
+
             cost_estimate = self.cost_estimator_service.estimate_run_cost(
                 task=task,
                 execution=execution,
                 verification=verification,
+                prompt_envelope=prompt_envelope,
+                token_accounting_snapshot=token_accounting,
             )
             self._log_cost_estimate(run=run, cost_estimate=cost_estimate)
 
@@ -365,6 +430,8 @@ class TaskWorker:
                 execution=execution,
                 verification=verification,
                 cost_estimate=cost_estimate,
+                prompt_envelope=prompt_envelope,
+                token_accounting=token_accounting,
             )
             self._log_finalization(task=task, run=run, final_summary=final_summary)
 
@@ -408,6 +475,26 @@ class TaskWorker:
                 result_summary=final_summary,
                 context_summary=(
                     context_package.context_summary if context_package is not None else None
+                ),
+                project_memory_enabled=(
+                    context_package.project_memory_enabled
+                    if context_package is not None
+                    else None
+                ),
+                project_memory_query_text=(
+                    context_package.project_memory_query_text
+                    if context_package is not None
+                    else None
+                ),
+                project_memory_item_count=(
+                    context_package.project_memory_item_count
+                    if context_package is not None
+                    else None
+                ),
+                project_memory_context_summary=(
+                    context_package.project_memory_context_summary
+                    if context_package is not None
+                    else None
                 ),
                 model_name=run.model_name if run else None,
                 model_tier=(
@@ -625,6 +712,8 @@ class TaskWorker:
         execution: ExecutionResult,
         verification: VerificationResult | None,
         cost_estimate: CostEstimate,
+        prompt_envelope: BuiltPromptEnvelope,
+        token_accounting: TokenAccountingSnapshot,
     ) -> tuple[Task, Run, str]:
         """Persist final task/run statuses plus Day 9 / Day 14 metadata."""
 
@@ -659,6 +748,14 @@ class TaskWorker:
             run.id,
             status=resolution.run_status,
             result_summary=final_summary,
+            provider_key=token_accounting.provider_key,
+            prompt_template_key=prompt_envelope.template_ref.prompt_key,
+            prompt_template_version=prompt_envelope.template_ref.version,
+            prompt_char_count=prompt_envelope.prompt_char_count,
+            token_accounting_mode=token_accounting.accounting_mode.value,
+            provider_receipt_id=token_accounting.provider_receipt_id,
+            total_tokens=token_accounting.total_tokens,
+            token_pricing_source=token_accounting.pricing_source,
             prompt_tokens=cost_estimate.prompt_tokens,
             completion_tokens=cost_estimate.completion_tokens,
             estimated_cost=cost_estimate.estimated_cost,
@@ -708,6 +805,8 @@ class TaskWorker:
                 "success": execution.success,
                 "command": execution.command,
                 "exit_code": execution.exit_code,
+                "prompt_key": execution.prompt_key,
+                "prompt_char_count": execution.prompt_char_count,
             },
         )
 
@@ -808,6 +907,51 @@ class TaskWorker:
             event="cost_estimated",
             message="Worker recorded the Day 9 heuristic token and cost estimate.",
             data=asdict(cost_estimate),
+        )
+
+    def _log_prompt_contract(
+        self,
+        *,
+        run: Run,
+        execution_plan: ExecutionPlan,
+        prompt_envelope: BuiltPromptEnvelope,
+    ) -> None:
+        """Write the Day06-Step1 prompt contract snapshot to the JSONL log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event="prompt_contract_built",
+            message="Worker prepared the Day06-Step1 prompt contract skeleton.",
+            data={
+                "execution_mode": execution_plan.mode,
+                "prompt_key": prompt_envelope.template_ref.prompt_key,
+                "prompt_version": prompt_envelope.template_ref.version,
+                "provider_key": prompt_envelope.provider_key,
+                "model_name": prompt_envelope.model_name,
+                "prompt_char_count": prompt_envelope.prompt_char_count,
+                "section_keys": [section.key for section in prompt_envelope.sections],
+            },
+        )
+
+    def _log_token_accounting(
+        self,
+        *,
+        run: Run,
+        token_accounting: TokenAccountingSnapshot,
+    ) -> None:
+        """Write the Day06-Step2 token snapshot to the JSONL log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event="token_accounting_ready",
+            message="Worker recorded the Day06-Step2 token accounting snapshot.",
+            data=token_accounting.model_dump(mode="json"),
         )
 
     def _log_context_package(
@@ -926,6 +1070,50 @@ class TaskWorker:
                     }
                     for candidate in routing_decision.candidates
                 ],
+            },
+        )
+
+    def _log_execution_plan(self, *, run: Run, execution_plan: ExecutionPlan) -> None:
+        """Write the executor plan and consumed routing contract to the JSONL log."""
+
+        if run.log_path is None:
+            return
+
+        routing_contract = execution_plan.routing_contract
+        primary_target = routing_contract.primary_target if routing_contract is not None else None
+        strategy_hint = routing_contract.strategy_hint if routing_contract is not None else None
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event="execution_plan_ready",
+            level="info",
+            message=(
+                "Executor prepared the merged execution plan."
+                if routing_contract is None
+                else "Executor prepared a provider-routed execution plan."
+            ),
+            data={
+                "mode": execution_plan.mode,
+                "has_routing_contract": routing_contract is not None,
+                "provider_key": (
+                    primary_target.provider_key if primary_target is not None else None
+                ),
+                "provider_model_name": (
+                    primary_target.model_name if primary_target is not None else None
+                ),
+                "provider_api_family": (
+                    primary_target.api_family if primary_target is not None else None
+                ),
+                "fallback_mode": (
+                    routing_contract.implicit_fallback_mode.value
+                    if routing_contract is not None
+                    else None
+                ),
+                "strategy_code": (
+                    strategy_hint.strategy_code if strategy_hint is not None else None
+                ),
+                "route_reason": (
+                    routing_contract.route_reason if routing_contract is not None else None
+                ),
             },
         )
 
@@ -1068,6 +1256,12 @@ def build_task_worker(*, session: Session) -> TaskWorker:
     budget_guard_service = BudgetGuardService(run_repository=run_repository)
     executor_service = ExecutorService()
     verifier_service = VerifierService(executor_service=executor_service)
+    model_routing_service = ModelRoutingService()
+    prompt_registry_service = PromptRegistryService()
+    prompt_builder_service = PromptBuilderService(
+        prompt_registry_service=prompt_registry_service,
+    )
+    token_accounting_service = TokenAccountingService()
     run_logging_service = RunLoggingService()
     cost_estimator_service = CostEstimatorService()
     task_state_machine_service = TaskStateMachineService()
@@ -1075,9 +1269,22 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         task_repository=task_repository,
         run_repository=run_repository,
     )
+    failure_review_service = FailureReviewService(
+        failure_review_repository=FailureReviewRepository(),
+        run_logging_service=run_logging_service,
+    )
+    project_memory_service = ProjectMemoryService(
+        project_repository=ProjectRepository(session),
+        task_repository=task_repository,
+        run_repository=run_repository,
+        deliverable_repository=DeliverableRepository(session),
+        approval_repository=ApprovalRepository(session),
+        failure_review_service=failure_review_service,
+    )
     context_builder_service = ContextBuilderService(
         run_repository=run_repository,
         task_readiness_service=task_readiness_service,
+        project_memory_service=project_memory_service,
     )
     role_catalog_service = RoleCatalogService(
         project_repository=ProjectRepository(session),
@@ -1101,10 +1308,6 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         budget_guard_service=budget_guard_service,
         strategy_engine_service=strategy_engine_service,
     )
-    failure_review_service = FailureReviewService(
-        failure_review_repository=FailureReviewRepository(),
-        run_logging_service=run_logging_service,
-    )
     return TaskWorker(
         session=session,
         task_repository=task_repository,
@@ -1116,6 +1319,10 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         cost_estimator_service=cost_estimator_service,
         context_builder_service=context_builder_service,
         task_router_service=task_router_service,
+        model_routing_service=model_routing_service,
+        prompt_registry_service=prompt_registry_service,
+        prompt_builder_service=prompt_builder_service,
+        token_accounting_service=token_accounting_service,
         task_state_machine_service=task_state_machine_service,
         failure_review_service=failure_review_service,
     )

@@ -1,16 +1,17 @@
-"""Heuristic token and cost estimation for Day 9."""
+"""Heuristic token and cost estimation for Day 9 / Day06-Step1 contracts."""
 
 from dataclasses import dataclass
-from math import ceil
 
+from app.domain.prompt_contract import (
+    BuiltPromptEnvelope,
+    PromptRenderMode,
+    PromptTemplateRef,
+    TokenAccountingSnapshot,
+)
 from app.domain.task import Task
 from app.services.executor_service import ExecutionResult
+from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult
-
-
-_CHARS_PER_TOKEN = 4
-_PROMPT_COST_PER_1K_TOKENS_USD = 0.0015
-_COMPLETION_COST_PER_1K_TOKENS_USD = 0.0030
 
 
 @dataclass(slots=True, frozen=True)
@@ -25,43 +26,67 @@ class CostEstimate:
 class CostEstimatorService:
     """Estimate token usage and cost before real provider accounting exists."""
 
+    def __init__(
+        self,
+        *,
+        token_accounting_service: TokenAccountingService | None = None,
+    ) -> None:
+        self.token_accounting_service = token_accounting_service or TokenAccountingService()
+
     def estimate_run_cost(
         self,
         *,
         task: Task,
         execution: ExecutionResult,
         verification: VerificationResult | None,
+        prompt_envelope: BuiltPromptEnvelope | None = None,
+        token_accounting_snapshot: TokenAccountingSnapshot | None = None,
     ) -> CostEstimate:
         """Build a heuristic cost snapshot from task input and run output."""
+        if token_accounting_snapshot is not None:
+            return CostEstimate(
+                prompt_tokens=token_accounting_snapshot.prompt_tokens,
+                completion_tokens=token_accounting_snapshot.completion_tokens,
+                estimated_cost=token_accounting_snapshot.estimated_cost_usd,
+            )
 
-        prompt_text = "\n".join(
-            part for part in (task.title.strip(), task.input_summary.strip()) if part
-        )
         completion_parts = [execution.summary.strip()]
         if verification is not None:
             completion_parts.append(verification.summary.strip())
 
         completion_text = "\n".join(part for part in completion_parts if part)
-        prompt_tokens = self._estimate_tokens(prompt_text)
-        completion_tokens = self._estimate_tokens(completion_text)
-        estimated_cost = round(
-            (prompt_tokens / 1_000) * _PROMPT_COST_PER_1K_TOKENS_USD
-            + (completion_tokens / 1_000) * _COMPLETION_COST_PER_1K_TOKENS_USD,
-            6,
+        effective_prompt_envelope = prompt_envelope or self._build_fallback_prompt_envelope(task)
+        token_snapshot = self.token_accounting_service.build_snapshot(
+            prompt_envelope=effective_prompt_envelope,
+            completion_text=completion_text,
+            execution_mode=execution.mode,
+            provider_usage_receipt=execution.provider_usage_receipt,
         )
 
         return CostEstimate(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            estimated_cost=estimated_cost,
+            prompt_tokens=token_snapshot.prompt_tokens,
+            completion_tokens=token_snapshot.completion_tokens,
+            estimated_cost=token_snapshot.estimated_cost_usd,
         )
 
     @staticmethod
-    def _estimate_tokens(text: str) -> int:
-        """Approximate token usage with a simple text-length heuristic."""
+    def _build_fallback_prompt_envelope(task: Task) -> BuiltPromptEnvelope:
+        """Preserve legacy accounting when Day06 prompt build has not yet run."""
 
-        normalized = text.strip()
-        if not normalized:
-            return 0
+        fallback_prompt_text = "\n".join(
+            part for part in (task.title.strip(), task.input_summary.strip()) if part
+        ).strip()
+        if not fallback_prompt_text:
+            fallback_prompt_text = task.title.strip()
 
-        return max(1, ceil(len(normalized) / _CHARS_PER_TOKEN))
+        return BuiltPromptEnvelope(
+            template_ref=PromptTemplateRef(
+                prompt_key="task_execution.legacy_fallback",
+                version="day06.step1",
+                description="Fallback prompt basis derived from task title and input summary.",
+            ),
+            render_mode=PromptRenderMode.EXECUTION,
+            sections=[],
+            prompt_text=fallback_prompt_text,
+            prompt_char_count=len(fallback_prompt_text),
+        )

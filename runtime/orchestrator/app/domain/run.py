@@ -131,6 +131,14 @@ class Run(DomainModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result_summary: str | None = Field(default=None, max_length=2_000)
+    provider_key: str | None = Field(default=None, max_length=50)
+    prompt_template_key: str | None = Field(default=None, max_length=100)
+    prompt_template_version: str | None = Field(default=None, max_length=40)
+    prompt_char_count: int = Field(default=0, ge=0)
+    token_accounting_mode: str | None = Field(default=None, max_length=40)
+    provider_receipt_id: str | None = Field(default=None, max_length=100)
+    total_tokens: int = Field(default=0, ge=0)
+    token_pricing_source: str | None = Field(default=None, max_length=100)
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     estimated_cost: float = Field(default=0.0, ge=0.0)
@@ -143,7 +151,17 @@ class Run(DomainModel):
     quality_gate_passed: bool | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
-    @field_validator("model_name", "handoff_reason", "dispatch_status")
+    @field_validator(
+        "model_name",
+        "handoff_reason",
+        "dispatch_status",
+        "provider_key",
+        "prompt_template_key",
+        "prompt_template_version",
+        "token_accounting_mode",
+        "provider_receipt_id",
+        "token_pricing_source",
+    )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         """Collapse blank optional text fields into `None`."""

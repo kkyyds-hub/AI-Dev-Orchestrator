@@ -20,6 +20,10 @@ export type WorkerRunOnceResponse = {
   downstream_role_code: string | null;
   handoff_reason: string | null;
   dispatch_status: string | null;
+  project_memory_enabled: boolean | null;
+  project_memory_query_text: string | null;
+  project_memory_item_count: number | null;
+  project_memory_context_summary: string | null;
   result_summary: string | null;
   context_summary: string | null;
   model_name: string | null;
@@ -33,6 +37,14 @@ export type WorkerRunOnceResponse = {
   task_status: string | null;
   run_id: string | null;
   run_status: string | null;
+  provider_key: string | null;
+  prompt_template_key: string | null;
+  prompt_template_version: string | null;
+  prompt_char_count: number | null;
+  token_accounting_mode: string | null;
+  provider_receipt_id: string | null;
+  total_tokens: number | null;
+  token_pricing_source: string | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
   estimated_cost: number | null;
