@@ -242,12 +242,124 @@ class ProjectStrategyPreviewResponse(BaseModel):
         )
 
 
+class RoleModelPolicyPreferenceResponse(BaseModel):
+    """One default role->model-tier preference exposed to the control surface."""
+
+    role_code: str
+    model_tier: str
+    model_label: str | None = None
+    model_name: str | None = None
+    summary: str | None = None
+
+
+class RoleModelPolicyStageOverrideResponse(BaseModel):
+    """One stage-specific role->model-tier override exposed to the control surface."""
+
+    stage: str
+    role_code: str
+    model_tier: str
+    model_label: str | None = None
+    model_name: str | None = None
+    summary: str | None = None
+
+
+class RoleModelPolicyResponse(BaseModel):
+    """Explicit Role Model Policy summary returned alongside the raw rule JSON."""
+
+    role_preferences: list[RoleModelPolicyPreferenceResponse] = Field(
+        default_factory=list
+    )
+    stage_overrides: list[RoleModelPolicyStageOverrideResponse] = Field(
+        default_factory=list
+    )
+
+    @classmethod
+    def from_rules(cls, rules: dict[str, Any]) -> "RoleModelPolicyResponse":
+        """Extract the minimal Role Model Policy surface from one rule snapshot."""
+
+        raw_model_profiles = rules.get("model_profiles")
+        raw_role_preferences = rules.get("role_model_tier_preferences")
+        raw_stage_overrides = rules.get("stage_model_tier_overrides")
+
+        model_profiles = raw_model_profiles if isinstance(raw_model_profiles, dict) else {}
+        role_preferences = (
+            raw_role_preferences if isinstance(raw_role_preferences, dict) else {}
+        )
+        stage_overrides = (
+            raw_stage_overrides if isinstance(raw_stage_overrides, dict) else {}
+        )
+
+        def resolve_tier_snapshot(tier: str) -> tuple[str | None, str | None, str | None]:
+            """Resolve one model tier into label/name/summary metadata."""
+
+            raw_profile = model_profiles.get(tier)
+            if not isinstance(raw_profile, dict):
+                return None, None, None
+
+            model_label = raw_profile.get("label")
+            model_name = raw_profile.get("model_name")
+            summary = raw_profile.get("summary")
+            return (
+                model_label if isinstance(model_label, str) else None,
+                model_name if isinstance(model_name, str) else None,
+                summary if isinstance(summary, str) else None,
+            )
+
+        preference_items: list[RoleModelPolicyPreferenceResponse] = []
+        for role_code in sorted(role_preferences):
+            tier = role_preferences.get(role_code)
+            if not isinstance(role_code, str) or not isinstance(tier, str):
+                continue
+
+            model_label, model_name, summary = resolve_tier_snapshot(tier)
+            preference_items.append(
+                RoleModelPolicyPreferenceResponse(
+                    role_code=role_code,
+                    model_tier=tier,
+                    model_label=model_label,
+                    model_name=model_name,
+                    summary=summary,
+                )
+            )
+
+        stage_override_items: list[RoleModelPolicyStageOverrideResponse] = []
+        for stage in sorted(stage_overrides):
+            raw_stage_rule = stage_overrides.get(stage)
+            if not isinstance(stage, str) or not isinstance(raw_stage_rule, dict):
+                continue
+
+            for role_code in sorted(raw_stage_rule):
+                tier = raw_stage_rule.get(role_code)
+                if not isinstance(role_code, str) or not isinstance(tier, str):
+                    continue
+
+                model_label, model_name, summary = resolve_tier_snapshot(tier)
+                stage_override_items.append(
+                    RoleModelPolicyStageOverrideResponse(
+                        stage=stage,
+                        role_code=role_code,
+                        model_tier=tier,
+                        model_label=model_label,
+                        model_name=model_name,
+                        summary=summary,
+                    )
+                )
+
+        return cls(
+            role_preferences=preference_items,
+            stage_overrides=stage_override_items,
+        )
+
+
 class StrategyRulesResponse(BaseModel):
     """Editable rule-set payload returned to the frontend."""
 
     source: str
     storage_path: str
     rules: dict[str, Any]
+    role_model_policy: RoleModelPolicyResponse = Field(
+        default_factory=RoleModelPolicyResponse
+    )
 
     @classmethod
     def from_snapshot(
@@ -260,6 +372,7 @@ class StrategyRulesResponse(BaseModel):
             source=snapshot.source,
             storage_path=snapshot.storage_path,
             rules=snapshot.rules,
+            role_model_policy=RoleModelPolicyResponse.from_rules(snapshot.rules),
         )
 
 

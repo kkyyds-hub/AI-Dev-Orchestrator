@@ -67,6 +67,10 @@ class TaskContextPackage:
     dependency_items: list[TaskDependencyReadinessItem]
     recent_runs: list[ContextRecentRunItem]
     context_summary: str
+    project_memory_enabled: bool = False
+    project_memory_query_text: str | None = None
+    project_memory_item_count: int = 0
+    project_memory_context_summary: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -180,6 +184,22 @@ class ContextBuilderService:
             dependency_items=readiness.dependency_items,
             recent_runs=recent_runs,
             context_summary=context_summary,
+            project_memory_enabled=include_project_memory,
+            project_memory_query_text=(
+                project_memory_context.query_text
+                if project_memory_context is not None
+                else None
+            ),
+            project_memory_item_count=(
+                len(project_memory_context.items)
+                if project_memory_context is not None
+                else 0
+            ),
+            project_memory_context_summary=(
+                project_memory_context.context_summary
+                if project_memory_context is not None
+                else None
+            ),
         )
 
     def build_task_memory_context(

@@ -97,6 +97,14 @@ class RunRepository:
             started_at=run.started_at,
             finished_at=run.finished_at,
             result_summary=run.result_summary,
+            provider_key=run.provider_key,
+            prompt_template_key=run.prompt_template_key,
+            prompt_template_version=run.prompt_template_version,
+            prompt_char_count=run.prompt_char_count,
+            token_accounting_mode=run.token_accounting_mode,
+            provider_receipt_id=run.provider_receipt_id,
+            total_tokens=run.total_tokens,
+            token_pricing_source=run.token_pricing_source,
             prompt_tokens=run.prompt_tokens,
             completion_tokens=run.completion_tokens,
             estimated_cost=run.estimated_cost,
@@ -287,6 +295,14 @@ class RunRepository:
         *,
         status: RunStatus,
         result_summary: str,
+        provider_key: str | None = None,
+        prompt_template_key: str | None = None,
+        prompt_template_version: str | None = None,
+        prompt_char_count: int = 0,
+        token_accounting_mode: str | None = None,
+        provider_receipt_id: str | None = None,
+        total_tokens: int = 0,
+        token_pricing_source: str | None = None,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         estimated_cost: float = 0.0,
@@ -305,6 +321,14 @@ class RunRepository:
 
         run_row.status = status
         run_row.result_summary = result_summary
+        run_row.provider_key = provider_key
+        run_row.prompt_template_key = prompt_template_key
+        run_row.prompt_template_version = prompt_template_version
+        run_row.prompt_char_count = prompt_char_count
+        run_row.token_accounting_mode = token_accounting_mode
+        run_row.provider_receipt_id = provider_receipt_id
+        run_row.total_tokens = total_tokens
+        run_row.token_pricing_source = token_pricing_source
         run_row.prompt_tokens = prompt_tokens
         run_row.completion_tokens = completion_tokens
         run_row.estimated_cost = estimated_cost
@@ -424,6 +448,14 @@ class RunRepository:
             started_at=ensure_utc_datetime(run_row.started_at),
             finished_at=ensure_utc_datetime(run_row.finished_at),
             result_summary=run_row.result_summary,
+            provider_key=run_row.provider_key,
+            prompt_template_key=run_row.prompt_template_key,
+            prompt_template_version=run_row.prompt_template_version,
+            prompt_char_count=run_row.prompt_char_count,
+            token_accounting_mode=run_row.token_accounting_mode,
+            provider_receipt_id=run_row.provider_receipt_id,
+            total_tokens=run_row.total_tokens,
+            token_pricing_source=run_row.token_pricing_source,
             prompt_tokens=run_row.prompt_tokens,
             completion_tokens=run_row.completion_tokens,
             estimated_cost=run_row.estimated_cost,
