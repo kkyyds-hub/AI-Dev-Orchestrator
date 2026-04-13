@@ -67,3 +67,7 @@ runtime/orchestrator/runtime-data/repository-release-gates/
 runtime/orchestrator/tmp/
 runtime/orchestrator/tmp/*-smoke/
 runtime/orchestrator/tmp/v4-day14-release-gate-smoke/
+
+# Local one-off probes
+.tmp_test_utf8.txt
+__codex_write_probe__.txt
