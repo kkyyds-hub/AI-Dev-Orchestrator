@@ -75,8 +75,31 @@ export type ProjectStrategyPreview = {
   candidates: StrategyCandidate[];
 };
 
+export type RoleModelPolicyPreference = {
+  role_code: string;
+  model_tier: string;
+  model_label: string | null;
+  model_name: string | null;
+  summary: string | null;
+};
+
+export type RoleModelPolicyStageOverride = {
+  stage: string;
+  role_code: string;
+  model_tier: string;
+  model_label: string | null;
+  model_name: string | null;
+  summary: string | null;
+};
+
+export type RoleModelPolicySnapshot = {
+  role_preferences: RoleModelPolicyPreference[];
+  stage_overrides: RoleModelPolicyStageOverride[];
+};
+
 export type StrategyRulesSnapshot = {
   source: string;
   storage_path: string;
   rules: Record<string, unknown>;
+  role_model_policy: RoleModelPolicySnapshot;
 };
