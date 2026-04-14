@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage V5 Plan & Freeze Docs"
+  short_description: "Maintain V5 freeze docs, slices, and handoffs"
+  default_prompt: "Use $manage-v5-plan-and-freeze-docs to turn the V5 mother plan into formal freeze docs, honest progress updates, execution-ready work-package slices, and next-thread handoff notes."

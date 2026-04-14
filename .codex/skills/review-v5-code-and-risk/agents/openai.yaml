@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review V5 Code & Risk"
+  short_description: "Review one V5 implementation slice for structural and delivery risk"
+  default_prompt: "Use $review-v5-code-and-risk to review one V5 implementation slice for architecture fit, schema and compatibility risk, main-chain wiring, contract alignment, and concrete handoff recommendations."

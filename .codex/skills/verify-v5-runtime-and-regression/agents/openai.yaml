@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify V5 Runtime & Regression"
+  short_description: "Confirm one V5 runtime claim with concrete evidence"
+  default_prompt: "Use $verify-v5-runtime-and-regression to confirm one V5 runtime claim with concrete evidence, bounded scope, regression awareness, and explicit handoff recommendations."

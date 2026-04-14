@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write V5 Runtime Backend"
+  short_description: "Land one V5 backend work package inside runtime/orchestrator"
+  default_prompt: "Use $write-v5-runtime-backend to land one V5 backend work package inside runtime/orchestrator with clear file-level changes, compatibility checks, minimal verification, and sibling-skill handoff notes."

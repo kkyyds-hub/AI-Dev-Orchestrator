@@ -1,0 +1,4 @@
+interface:
+  display_name: "Drive V5 Orchestrator Delivery"
+  short_description: "Drive one cross-surface V5 delivery slice across backend, web, docs, and verify"
+  default_prompt: "Use $drive-v5-orchestrator-delivery to drive one cross-surface V5 delivery slice across backend, web, docs, and verify with clear scope, owner routing, honest status, and handoff packaging."

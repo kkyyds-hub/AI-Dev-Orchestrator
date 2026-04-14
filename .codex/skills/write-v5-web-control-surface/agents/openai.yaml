@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write V5 Web Control Surface"
+  short_description: "Land one V5 frontend control-surface work package inside apps/web"
+  default_prompt: "Use $write-v5-web-control-surface to land one V5 frontend control-surface work package inside apps/web with clear feature ownership, contract alignment, state feedback, minimal validation, and sibling-skill handoff notes."
