@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
     "/projects",
     "/roles",
     "/skills",
+    "/provider-settings",
     "/planning",
     "/deliverables",
     "/approvals",

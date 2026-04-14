@@ -98,6 +98,18 @@ export type BossProjectLatestTask = {
   latest_run_role_model_policy_stage_override_applied: boolean;
 };
 
+export type BossDrilldownSource =
+  | "home_latest_run"
+  | "home_manual_run"
+  | "project_latest_run";
+
+export type BossDrilldownContext = {
+  source: BossDrilldownSource;
+  project_id: string | null;
+  task_id: string;
+  run_id: string | null;
+};
+
 export type BossProjectItem = {
   id: string;
   name: string;

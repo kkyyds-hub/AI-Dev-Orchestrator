@@ -1,11 +1,22 @@
 import { StatusBadge } from "../../components/StatusBadge";
+import {
+  buildLatestRunRuntimeFields,
+  buildRoleModelPolicyRuntimeFields,
+  hasRoleModelPolicyRuntimeData,
+} from "../../lib/latestRunRuntimeContract";
 import { mapBudgetPressureTone } from "../../lib/status";
+import type {
+  BossDrilldownContext,
+  BossProjectLatestTask,
+} from "../projects/types";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
 import { ROLE_CODE_LABELS } from "../roles/types";
 import { useProjectStrategyPreview } from "./hooks";
 
 type StrategyDecisionPanelProps = {
   projectId: string | null;
+  drilldownContext?: BossDrilldownContext | null;
+  latestRunTaskSample?: BossProjectLatestTask | null;
 };
 
 const MODEL_TIER_LABELS: Record<string, string> = {
@@ -16,6 +27,38 @@ const MODEL_TIER_LABELS: Record<string, string> = {
 
 export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
   const previewQuery = useProjectStrategyPreview(props.projectId);
+  const latestRunRuntimeInput = props.latestRunTaskSample
+    ? {
+        providerKey: props.latestRunTaskSample.latest_run_provider_key,
+        promptTemplateKey: props.latestRunTaskSample.latest_run_prompt_template_key,
+        promptTemplateVersion: props.latestRunTaskSample.latest_run_prompt_template_version,
+        tokenAccountingMode: props.latestRunTaskSample.latest_run_token_accounting_mode,
+        tokenPricingSource: props.latestRunTaskSample.latest_run_token_pricing_source,
+        promptCharCount: props.latestRunTaskSample.latest_run_prompt_char_count,
+        promptTokens: props.latestRunTaskSample.latest_run_prompt_tokens,
+        completionTokens: props.latestRunTaskSample.latest_run_completion_tokens,
+        totalTokens: props.latestRunTaskSample.latest_run_total_tokens,
+        estimatedCost: props.latestRunTaskSample.latest_run_estimated_cost,
+        providerReceiptId: props.latestRunTaskSample.latest_run_provider_receipt_id,
+        roleModelPolicySource: props.latestRunTaskSample.latest_run_role_model_policy_source,
+        roleModelPolicyDesiredTier:
+          props.latestRunTaskSample.latest_run_role_model_policy_desired_tier,
+        roleModelPolicyAdjustedTier:
+          props.latestRunTaskSample.latest_run_role_model_policy_adjusted_tier,
+        roleModelPolicyFinalTier: props.latestRunTaskSample.latest_run_role_model_policy_final_tier,
+        roleModelPolicyStageOverrideApplied:
+          props.latestRunTaskSample.latest_run_role_model_policy_stage_override_applied,
+      }
+    : null;
+  const latestRunRuntimeFields = latestRunRuntimeInput
+    ? buildLatestRunRuntimeFields(latestRunRuntimeInput)
+    : [];
+  const latestRunPolicyFields = latestRunRuntimeInput
+    ? buildRoleModelPolicyRuntimeFields(latestRunRuntimeInput)
+    : [];
+  const hasLatestRunPolicyData = latestRunRuntimeInput
+    ? hasRoleModelPolicyRuntimeData(latestRunRuntimeInput)
+    : false;
 
   if (!props.projectId) {
     return (
@@ -58,9 +101,21 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
   }
 
   const preview = previewQuery.data;
+  const drilldownTaskMatchesRuntimeSample =
+    !props.drilldownContext?.task_id ||
+    !props.latestRunTaskSample?.task_id ||
+    props.drilldownContext.task_id === props.latestRunTaskSample.task_id;
+  const drilldownRunMatchesLatest =
+    !props.drilldownContext?.run_id ||
+    !props.latestRunTaskSample?.latest_run_id ||
+    props.drilldownContext.run_id === props.latestRunTaskSample.latest_run_id;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section
+      id="strategy-preview-panel"
+      data-testid="strategy-preview-panel"
+      className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+    >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
@@ -114,6 +169,58 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
           extra={preview.budget_strategy_summary}
         />
       </div>
+
+      {props.drilldownContext ? (
+        <div
+          className={`mt-4 rounded-xl border p-3 text-xs ${
+            drilldownTaskMatchesRuntimeSample && drilldownRunMatchesLatest
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+              : "border-amber-500/30 bg-amber-500/10 text-amber-100"
+          }`}
+        >
+          <div className="font-medium">
+            {drilldownTaskMatchesRuntimeSample && drilldownRunMatchesLatest
+              ? "Strategy preview is aligned with the current drill-down context."
+              : "Strategy preview context differs from the incoming drill-down sample."}
+          </div>
+          <div className="mt-1">
+            source={props.drilldownContext.source}; task={props.drilldownContext.task_id}; run=
+            {props.drilldownContext.run_id ?? "n/a"}
+          </div>
+        </div>
+      ) : null}
+
+      {props.latestRunTaskSample ? (
+        <div
+          data-testid="strategy-preview-runtime-context"
+          className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4"
+        >
+          <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+            Linked Latest Run Runtime Context
+          </div>
+          <p className="mt-2 text-xs text-slate-300">
+            Task {props.latestRunTaskSample.task_id}; Run{" "}
+            {props.latestRunTaskSample.latest_run_id ?? "n/a"}
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {latestRunRuntimeFields.map((field) => (
+              <InfoCard key={field.key} label={field.label} value={field.value} />
+            ))}
+          </div>
+          {hasLatestRunPolicyData ? (
+            <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
+                Linked Role Model Policy Runtime
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {latestRunPolicyFields.map((field) => (
+                  <InfoCard key={field.key} label={field.label} value={field.value} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {preview.owner_role_code || preview.model_tier || preview.model_name ? (
         <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">

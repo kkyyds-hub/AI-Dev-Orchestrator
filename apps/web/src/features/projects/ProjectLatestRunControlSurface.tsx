@@ -1,9 +1,19 @@
-import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../../lib/format";
+import {
+  formatDateTime,
+  formatNullableText,
+} from "../../lib/format";
+import {
+  buildLatestRunRuntimeFields,
+  buildRoleModelPolicyRuntimeFields,
+  hasRoleModelPolicyRuntimeData,
+} from "../../lib/latestRunRuntimeContract";
 
-import type { BossProjectLatestTask } from "./types";
+import type { BossDrilldownContext, BossProjectLatestTask } from "./types";
 
 type ProjectLatestRunControlSurfaceProps = {
   latestTask: BossProjectLatestTask;
+  drilldownContext?: BossDrilldownContext | null;
+  onNavigateToStrategyPreview?: (() => void) | null;
 };
 
 export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSurfaceProps) {
@@ -11,34 +21,84 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
     return null;
   }
 
-  const promptCharsText =
-    props.latestTask.latest_run_prompt_char_count === null
-      ? "n/a"
-      : String(props.latestTask.latest_run_prompt_char_count);
-  const tokenBreakdownText =
-    props.latestTask.latest_run_prompt_tokens === null &&
-    props.latestTask.latest_run_completion_tokens === null &&
-    props.latestTask.latest_run_total_tokens === null
-      ? "n/a"
-      : `${formatTokenCount(props.latestTask.latest_run_prompt_tokens ?? 0)} / ${formatTokenCount(
-          props.latestTask.latest_run_completion_tokens ?? 0,
-        )} / ${formatTokenCount(props.latestTask.latest_run_total_tokens ?? 0)}`;
-  const estimatedCostText =
-    props.latestTask.latest_run_estimated_cost === null
-      ? "n/a"
-      : formatCurrencyUsd(props.latestTask.latest_run_estimated_cost);
+  const runtimeContractInput = {
+    providerKey: props.latestTask.latest_run_provider_key,
+    promptTemplateKey: props.latestTask.latest_run_prompt_template_key,
+    promptTemplateVersion: props.latestTask.latest_run_prompt_template_version,
+    tokenAccountingMode: props.latestTask.latest_run_token_accounting_mode,
+    tokenPricingSource: props.latestTask.latest_run_token_pricing_source,
+    promptCharCount: props.latestTask.latest_run_prompt_char_count,
+    promptTokens: props.latestTask.latest_run_prompt_tokens,
+    completionTokens: props.latestTask.latest_run_completion_tokens,
+    totalTokens: props.latestTask.latest_run_total_tokens,
+    estimatedCost: props.latestTask.latest_run_estimated_cost,
+    providerReceiptId: props.latestTask.latest_run_provider_receipt_id,
+    roleModelPolicySource: props.latestTask.latest_run_role_model_policy_source,
+    roleModelPolicyDesiredTier: props.latestTask.latest_run_role_model_policy_desired_tier,
+    roleModelPolicyAdjustedTier: props.latestTask.latest_run_role_model_policy_adjusted_tier,
+    roleModelPolicyFinalTier: props.latestTask.latest_run_role_model_policy_final_tier,
+    roleModelPolicyStageOverrideApplied:
+      props.latestTask.latest_run_role_model_policy_stage_override_applied,
+  };
+  const runtimeFields = buildLatestRunRuntimeFields(runtimeContractInput);
+  const roleModelPolicyFields = buildRoleModelPolicyRuntimeFields(runtimeContractInput);
+  const hasRoleModelPolicyData = hasRoleModelPolicyRuntimeData(runtimeContractInput);
+  const hasDrilldownContext = Boolean(props.drilldownContext);
+  const drilldownMatchesTask =
+    props.drilldownContext?.task_id === props.latestTask.task_id;
+  const drilldownMatchesRun =
+    !props.drilldownContext?.run_id ||
+    props.drilldownContext.run_id === props.latestTask.latest_run_id;
+  const drilldownFullyMatched = Boolean(drilldownMatchesTask && drilldownMatchesRun);
 
   return (
-    <section className="mt-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
-      <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
-        Latest Run Control Surface
+    <section
+      id="project-latest-run-control-surface"
+      data-testid="project-latest-run-control-surface"
+      className="mt-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+          Latest Run Control Surface
+        </div>
+        {props.onNavigateToStrategyPreview ? (
+          <button
+            type="button"
+            data-testid="goto-strategy-preview-from-latest-run"
+            onClick={props.onNavigateToStrategyPreview}
+            className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+          >
+            Drill-down to Strategy Preview
+          </button>
+        ) : null}
       </div>
+
+      {hasDrilldownContext ? (
+        <div
+          className={`mt-3 rounded-xl border p-3 text-xs ${
+            drilldownFullyMatched
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+              : "border-amber-500/30 bg-amber-500/10 text-amber-100"
+          }`}
+        >
+          <div className="font-medium">
+            {drilldownFullyMatched
+              ? "Current run matches the drill-down context."
+              : "Current run sample differs from the drill-down context."}
+          </div>
+          <div className="mt-1">
+            source={props.drilldownContext?.source ?? "unknown"}; task=
+            {props.drilldownContext?.task_id ?? "n/a"}; run=
+            {props.drilldownContext?.run_id ?? "n/a"}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <InfoItem label="Run ID" value={props.latestTask.latest_run_id} />
         <InfoItem
           label="Run Status"
-          value={props.latestTask.latest_run_status ?? "n/a"}
+          value={formatNullableText(props.latestTask.latest_run_status)}
         />
         <InfoItem
           label="Model"
@@ -54,57 +114,22 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
         />
         <InfoItem
           label="Strategy"
-          value={props.latestTask.latest_run_strategy_code ?? "n/a"}
-        />
-        <InfoItem
-          label="Provider"
-          value={props.latestTask.latest_run_provider_key ?? "n/a"}
+          value={formatNullableText(props.latestTask.latest_run_strategy_code)}
         />
       </div>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <InfoItem
-          label="Prompt Template"
-          value={
-            props.latestTask.latest_run_prompt_template_key
-              ? `${props.latestTask.latest_run_prompt_template_key}${
-                  props.latestTask.latest_run_prompt_template_version
-                    ? ` @${props.latestTask.latest_run_prompt_template_version}`
-                    : ""
-                }`
-              : "n/a"
-          }
-        />
-        <InfoItem
-          label="Accounting Mode"
-          value={props.latestTask.latest_run_token_accounting_mode ?? "n/a"}
-        />
-        <InfoItem
-          label="Pricing Source"
-          value={props.latestTask.latest_run_token_pricing_source ?? "n/a"}
-        />
-        <InfoItem
-          label="Prompt Chars"
-          value={promptCharsText}
-        />
+      <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-3">
+        <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+          Latest Run Runtime
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {runtimeFields.map((field) => (
+            <InfoItem key={field.key} label={field.label} value={field.value} />
+          ))}
+        </div>
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <InfoItem
-          label="Token P/C/T"
-          value={tokenBreakdownText}
-        />
-        <InfoItem
-          label="Provider Receipt"
-          value={props.latestTask.latest_run_provider_receipt_id ?? "n/a"}
-        />
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <InfoItem
-          label="Estimated Cost"
-          value={estimatedCostText}
-        />
         <InfoItem
           label="Created At"
           value={
@@ -123,36 +148,15 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
         />
       </div>
 
-      {props.latestTask.latest_run_role_model_policy_source ? (
+      {hasRoleModelPolicyData ? (
         <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
           <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
             Role Model Policy Runtime
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <InfoItem
-              label="Source"
-              value={props.latestTask.latest_run_role_model_policy_source}
-            />
-            <InfoItem
-              label="Desired Tier"
-              value={props.latestTask.latest_run_role_model_policy_desired_tier ?? "n/a"}
-            />
-            <InfoItem
-              label="Adjusted Tier"
-              value={props.latestTask.latest_run_role_model_policy_adjusted_tier ?? "n/a"}
-            />
-            <InfoItem
-              label="Final Tier"
-              value={props.latestTask.latest_run_role_model_policy_final_tier ?? "n/a"}
-            />
-            <InfoItem
-              label="Stage Override"
-              value={
-                props.latestTask.latest_run_role_model_policy_stage_override_applied
-                  ? "yes"
-                  : "no"
-              }
-            />
+            {roleModelPolicyFields.map((field) => (
+              <InfoItem key={field.key} label={field.label} value={field.value} />
+            ))}
           </div>
         </div>
       ) : null}

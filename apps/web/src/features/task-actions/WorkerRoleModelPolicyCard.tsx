@@ -1,4 +1,8 @@
 import type { WorkerRunOnceResponse } from "./types";
+import {
+  buildRoleModelPolicyRuntimeFields,
+  hasRoleModelPolicyRuntimeData,
+} from "../../lib/latestRunRuntimeContract";
 
 type WorkerRoleModelPolicyCardProps = Pick<
   WorkerRunOnceResponse,
@@ -10,9 +14,20 @@ type WorkerRoleModelPolicyCardProps = Pick<
 >;
 
 export function WorkerRoleModelPolicyCard(props: WorkerRoleModelPolicyCardProps) {
-  if (!props.role_model_policy_source) {
+  const runtimeContractInput = {
+    roleModelPolicySource: props.role_model_policy_source,
+    roleModelPolicyDesiredTier: props.role_model_policy_desired_tier,
+    roleModelPolicyAdjustedTier: props.role_model_policy_adjusted_tier,
+    roleModelPolicyFinalTier: props.role_model_policy_final_tier,
+    roleModelPolicyStageOverrideApplied: props.role_model_policy_stage_override_applied,
+  };
+  const hasRoleModelPolicyData = hasRoleModelPolicyRuntimeData(runtimeContractInput);
+
+  if (!hasRoleModelPolicyData) {
     return null;
   }
+
+  const roleModelPolicyFields = buildRoleModelPolicyRuntimeFields(runtimeContractInput);
 
   return (
     <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
@@ -20,23 +35,9 @@ export function WorkerRoleModelPolicyCard(props: WorkerRoleModelPolicyCardProps)
         Role Model Policy Runtime
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <InfoItem label="Source" value={props.role_model_policy_source} />
-        <InfoItem
-          label="Desired Tier"
-          value={props.role_model_policy_desired_tier ?? "n/a"}
-        />
-        <InfoItem
-          label="Adjusted Tier"
-          value={props.role_model_policy_adjusted_tier ?? "n/a"}
-        />
-        <InfoItem
-          label="Final Tier"
-          value={props.role_model_policy_final_tier ?? "n/a"}
-        />
-        <InfoItem
-          label="Stage Override"
-          value={props.role_model_policy_stage_override_applied ? "yes" : "no"}
-        />
+        {roleModelPolicyFields.map((field) => (
+          <InfoItem key={field.key} label={field.label} value={field.value} />
+        ))}
       </div>
     </div>
   );

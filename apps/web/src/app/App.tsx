@@ -18,8 +18,43 @@ import { useRunWorkerOnce, useRunWorkerPoolOnce } from "../features/task-actions
 import { WorkerMemoryRecallCard } from "../features/task-actions/WorkerMemoryRecallCard";
 import { WorkerProviderPromptTokenCard } from "../features/task-actions/WorkerProviderPromptTokenCard";
 import { WorkerRoleModelPolicyCard } from "../features/task-actions/WorkerRoleModelPolicyCard";
-import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../lib/format";
+import {
+  formatCurrencyUsd,
+  formatDateTime,
+  formatNullableCurrencyUsd,
+  formatTokenCount,
+} from "../lib/format";
+import {
+  buildLatestRunRuntimeFields,
+  buildRoleModelPolicyRuntimeFields,
+  hasRoleModelPolicyRuntimeData,
+} from "../lib/latestRunRuntimeContract";
 import { mapRunStatusTone, mapTaskStatusTone } from "../lib/status";
+
+type BossDrilldownNavigateDetail = {
+  source: "home_latest_run" | "home_manual_run";
+  taskId: string;
+  runId?: string | null;
+};
+
+function dispatchBossDrilldownNavigation(detail: BossDrilldownNavigateDetail) {
+  const params = new URLSearchParams();
+  params.set("source", detail.source);
+  params.set("taskId", detail.taskId);
+  if (detail.runId) {
+    params.set("runId", detail.runId);
+  }
+  window.location.hash = `boss-drilldown?${params.toString()}`;
+  window.dispatchEvent(
+    new CustomEvent("boss:drilldown-navigate", {
+      detail: {
+        source: detail.source,
+        taskId: detail.taskId,
+        runId: detail.runId ?? null,
+      },
+    }),
+  );
+}
 
 export function App() {
   const realtime = useConsoleEventStream();
@@ -99,6 +134,16 @@ export function App() {
 
     requestAnimationFrame(() => {
       document.getElementById("deliverable-center")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const handleNavigateToProjectDrilldown = (detail: BossDrilldownNavigateDetail) => {
+    dispatchBossDrilldownNavigation(detail);
+    requestAnimationFrame(() => {
+      document.getElementById("project-detail")?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
@@ -216,14 +261,6 @@ export function App() {
                   value={runWorkerOnceMutation.data.run_status ?? "—"}
                 />
                 <MiniInfo
-                  label="估算成本"
-                  value={
-                    runWorkerOnceMutation.data.estimated_cost === null
-                      ? "n/a"
-                      : formatCurrencyUsd(runWorkerOnceMutation.data.estimated_cost)
-                  }
-                />
-                <MiniInfo
                   label="路由分数"
                   value={
                     runWorkerOnceMutation.data.routing_score !== null
@@ -244,6 +281,27 @@ export function App() {
                   label="结束时间"
                   value={formatDateTime(runWorkerOnceMutation.data.run_finished_at)}
                 />
+              </div>
+            ) : null}
+
+            {!runWorkerOnceMutation.isError &&
+            runWorkerOnceMutation.data?.task_id &&
+            runWorkerOnceMutation.data?.run_id ? (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  data-testid="home-manual-run-drilldown"
+                  onClick={() =>
+                    handleNavigateToProjectDrilldown({
+                      source: "home_manual_run",
+                      taskId: runWorkerOnceMutation.data?.task_id as string,
+                      runId: runWorkerOnceMutation.data?.run_id,
+                    })
+                  }
+                  className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20"
+                >
+                  Drill-down to Project Detail and Strategy Preview
+                </button>
               </div>
             ) : null}
 
@@ -413,7 +471,7 @@ export function App() {
                       <th className="py-3 pr-4 font-medium">任务</th>
                       <th className="py-3 pr-4 font-medium">任务状态</th>
                       <th className="py-3 pr-4 font-medium">最新运行</th>
-                      <th className="py-3 pr-4 font-medium">成本</th>
+                      <th className="py-3 pr-4 font-medium">Estimated Cost</th>
                       <th className="py-3 pr-4 font-medium">日志</th>
                       <th className="py-3 font-medium">更新时间</th>
                     </tr>
@@ -471,53 +529,43 @@ export function App() {
                                     label={task.latest_run.status}
                                     tone={mapRunStatusTone(task.latest_run.status)}
                                   />
+                                  <TaskLatestRunRuntimeSummary run={task.latest_run} />
                                   <div className="text-xs text-slate-400">
                                     <div>
-                                      token：{formatTokenCount(task.latest_run.prompt_tokens)} /{" "}
-                                      {formatTokenCount(task.latest_run.completion_tokens)}
-                                    </div>
-                                    <div>
-                                      total token：
-                                      {formatTokenCount(task.latest_run.total_tokens ?? 0)}
-                                    </div>
-                                    <div>
-                                      provider：{task.latest_run.provider_key ?? "n/a"}
-                                    </div>
-                                    <div>
-                                      prompt：
-                                      {task.latest_run.prompt_template_key
-                                        ? `${task.latest_run.prompt_template_key}${
-                                            task.latest_run.prompt_template_version
-                                              ? ` @${task.latest_run.prompt_template_version}`
-                                              : ""
-                                          }`
-                                        : "n/a"}
-                                    </div>
-                                    <div>
-                                      accounting：{task.latest_run.token_accounting_mode ?? "n/a"}
-                                    </div>
-                                    <div>
-                                      role policy：{task.latest_run.role_model_policy_source ?? "n/a"}
-                                    </div>
-                                    <div>
-                                      闸门：
+                                      Quality Gate:{" "}
                                       {task.latest_run.quality_gate_passed === true
-                                        ? "放行"
+                                        ? "passed"
                                         : task.latest_run.quality_gate_passed === false
-                                          ? "拦截"
-                                          : "未知"}
+                                          ? "blocked"
+                                          : "unknown"}
                                     </div>
                                     {task.latest_run.failure_category ? (
-                                      <div>失败分类：{task.latest_run.failure_category}</div>
+                                      <div>
+                                        Failure Category: {task.latest_run.failure_category}
+                                      </div>
                                     ) : null}
                                     <div>
-                                      run：{task.latest_run.id} @{" "}
+                                      Run: {task.latest_run.id} @{" "}
                                       {formatDateTime(task.latest_run.created_at)}
                                     </div>
                                     <div className="max-w-xs">
-                                      {task.latest_run.result_summary ?? "暂无运行摘要"}
+                                      {task.latest_run.result_summary ?? "n/a"}
                                     </div>
                                   </div>
+                                  <button
+                                    type="button"
+                                    data-testid={`home-task-latest-run-drilldown-${task.id}`}
+                                    onClick={() =>
+                                      handleNavigateToProjectDrilldown({
+                                        source: "home_latest_run",
+                                        taskId: task.id,
+                                        runId: task.latest_run?.id ?? null,
+                                      })
+                                    }
+                                    className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-500/20"
+                                  >
+                                    Drill-down chain
+                                  </button>
                                 </div>
                               ) : (
                                 <span className="text-xs text-slate-500">尚未运行</span>
@@ -525,8 +573,8 @@ export function App() {
                             </td>
                             <td className="py-4 pr-4 text-slate-200">
                               {task.latest_run
-                                ? formatCurrencyUsd(task.latest_run.estimated_cost)
-                                : formatCurrencyUsd(0)}
+                                ? formatNullableCurrencyUsd(task.latest_run.estimated_cost)
+                                : "n/a"}
                             </td>
                             <td className="py-4 pr-4">
                               {task.latest_run?.log_path ? (
@@ -640,6 +688,69 @@ export function App() {
         </section>
       </div>
     </main>
+  );
+}
+
+function TaskLatestRunRuntimeSummary(props: {
+  run: NonNullable<ConsoleTask["latest_run"]>;
+}) {
+  const runtimeContractInput = {
+    providerKey: props.run.provider_key,
+    promptTemplateKey: props.run.prompt_template_key,
+    promptTemplateVersion: props.run.prompt_template_version,
+    tokenAccountingMode: props.run.token_accounting_mode,
+    tokenPricingSource: props.run.token_pricing_source,
+    promptCharCount: props.run.prompt_char_count,
+    promptTokens: props.run.prompt_tokens,
+    completionTokens: props.run.completion_tokens,
+    totalTokens: props.run.total_tokens,
+    estimatedCost: props.run.estimated_cost,
+    providerReceiptId: props.run.provider_receipt_id,
+    roleModelPolicySource: props.run.role_model_policy_source,
+    roleModelPolicyDesiredTier: props.run.role_model_policy_desired_tier,
+    roleModelPolicyAdjustedTier: props.run.role_model_policy_adjusted_tier,
+    roleModelPolicyFinalTier: props.run.role_model_policy_final_tier,
+    roleModelPolicyStageOverrideApplied: props.run.role_model_policy_stage_override_applied,
+  };
+  const runtimeFields = buildLatestRunRuntimeFields(runtimeContractInput).filter(
+    (field) => field.key !== "estimated_cost",
+  );
+  const roleModelPolicyFields = buildRoleModelPolicyRuntimeFields(runtimeContractInput);
+  const hasRoleModelPolicyData = hasRoleModelPolicyRuntimeData(runtimeContractInput);
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-cyan-300">
+        Latest Run Runtime
+      </div>
+      <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
+        {runtimeFields.map((field) => (
+          <ContractLine key={field.key} label={field.label} value={field.value} />
+        ))}
+      </div>
+
+      {hasRoleModelPolicyData ? (
+        <div className="mt-3 border-t border-slate-800 pt-3">
+          <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-300">
+            Role Model Policy Runtime
+          </div>
+          <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
+            {roleModelPolicyFields.map((field) => (
+              <ContractLine key={field.key} label={field.label} value={field.value} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ContractLine(props: { label: string; value: string }) {
+  return (
+    <div className="leading-5">
+      <span className="text-slate-500">{props.label}: </span>
+      <span className="text-slate-200">{props.value}</span>
+    </div>
   );
 }
 
