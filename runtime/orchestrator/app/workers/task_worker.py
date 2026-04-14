@@ -138,8 +138,12 @@ class TaskWorker:
         self.task_state_machine_service = task_state_machine_service
         self.failure_review_service = failure_review_service
 
-    def run_once(self) -> WorkerRunResult:
-        """Execute one conservative worker loop."""
+    def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
+        """Execute one conservative worker loop.
+
+        When ``project_id`` is provided, routing is scoped to pending tasks
+        under that project only.
+        """
 
         task: Task | None = None
         run: Run | None = None
@@ -150,7 +154,9 @@ class TaskWorker:
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
-                routing_decision = self.task_router_service.route_next_task()
+                routing_decision = self.task_router_service.route_next_task(
+                    project_id=project_id
+                )
                 if routing_decision.selected_task is None:
                     return WorkerRunResult(
                         claimed=False,

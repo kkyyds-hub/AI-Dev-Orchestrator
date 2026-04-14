@@ -90,6 +90,11 @@ class RunStrategyDecision(DomainModel):
     budget_action: RunBudgetStrategyAction
     strategy_code: str = Field(min_length=1, max_length=100)
     summary: str = Field(min_length=1, max_length=2_000)
+    role_model_policy_source: str | None = Field(default=None, max_length=40)
+    role_model_policy_desired_tier: str | None = Field(default=None, max_length=40)
+    role_model_policy_adjusted_tier: str | None = Field(default=None, max_length=40)
+    role_model_policy_final_tier: str | None = Field(default=None, max_length=40)
+    role_model_policy_stage_override_applied: bool = False
     rule_codes: list[str] = Field(default_factory=list, max_length=20)
     reasons: list[RunStrategyReasonItem] = Field(default_factory=list, max_length=20)
 

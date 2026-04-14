@@ -17,6 +17,7 @@ import { TaskDetailPanel } from "../features/task-detail/TaskDetailPanel";
 import { useRunWorkerOnce, useRunWorkerPoolOnce } from "../features/task-actions/hooks";
 import { WorkerMemoryRecallCard } from "../features/task-actions/WorkerMemoryRecallCard";
 import { WorkerProviderPromptTokenCard } from "../features/task-actions/WorkerProviderPromptTokenCard";
+import { WorkerRoleModelPolicyCard } from "../features/task-actions/WorkerRoleModelPolicyCard";
 import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../lib/format";
 import { mapRunStatusTone, mapTaskStatusTone } from "../lib/status";
 
@@ -205,7 +206,7 @@ export function App() {
             </div>
 
             {!runWorkerOnceMutation.isError && runWorkerOnceMutation.data?.task_title ? (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <MiniInfo
                   label="任务"
                   value={runWorkerOnceMutation.data.task_title}
@@ -216,7 +217,11 @@ export function App() {
                 />
                 <MiniInfo
                   label="估算成本"
-                  value={formatCurrencyUsd(runWorkerOnceMutation.data.estimated_cost ?? 0)}
+                  value={
+                    runWorkerOnceMutation.data.estimated_cost === null
+                      ? "n/a"
+                      : formatCurrencyUsd(runWorkerOnceMutation.data.estimated_cost)
+                  }
                 />
                 <MiniInfo
                   label="路由分数"
@@ -226,6 +231,18 @@ export function App() {
                       ? String(runWorkerOnceMutation.data.routing_score)
                       : "—"
                   }
+                />
+                <MiniInfo
+                  label="Run ID"
+                  value={runWorkerOnceMutation.data.run_id ?? "—"}
+                />
+                <MiniInfo
+                  label="创建时间"
+                  value={formatDateTime(runWorkerOnceMutation.data.run_created_at)}
+                />
+                <MiniInfo
+                  label="结束时间"
+                  value={formatDateTime(runWorkerOnceMutation.data.run_finished_at)}
                 />
               </div>
             ) : null}
@@ -278,6 +295,10 @@ export function App() {
                   </div>
                 ) : null}
               </div>
+            ) : null}
+
+            {!runWorkerOnceMutation.isError && runWorkerOnceMutation.data ? (
+              <WorkerRoleModelPolicyCard {...runWorkerOnceMutation.data} />
             ) : null}
 
             {!runWorkerOnceMutation.isError && runWorkerOnceMutation.data ? (
@@ -456,6 +477,29 @@ export function App() {
                                       {formatTokenCount(task.latest_run.completion_tokens)}
                                     </div>
                                     <div>
+                                      total token：
+                                      {formatTokenCount(task.latest_run.total_tokens ?? 0)}
+                                    </div>
+                                    <div>
+                                      provider：{task.latest_run.provider_key ?? "n/a"}
+                                    </div>
+                                    <div>
+                                      prompt：
+                                      {task.latest_run.prompt_template_key
+                                        ? `${task.latest_run.prompt_template_key}${
+                                            task.latest_run.prompt_template_version
+                                              ? ` @${task.latest_run.prompt_template_version}`
+                                              : ""
+                                          }`
+                                        : "n/a"}
+                                    </div>
+                                    <div>
+                                      accounting：{task.latest_run.token_accounting_mode ?? "n/a"}
+                                    </div>
+                                    <div>
+                                      role policy：{task.latest_run.role_model_policy_source ?? "n/a"}
+                                    </div>
+                                    <div>
                                       闸门：
                                       {task.latest_run.quality_gate_passed === true
                                         ? "放行"
@@ -466,6 +510,10 @@ export function App() {
                                     {task.latest_run.failure_category ? (
                                       <div>失败分类：{task.latest_run.failure_category}</div>
                                     ) : null}
+                                    <div>
+                                      run：{task.latest_run.id} @{" "}
+                                      {formatDateTime(task.latest_run.created_at)}
+                                    </div>
                                     <div className="max-w-xs">
                                       {task.latest_run.result_summary ?? "暂无运行摘要"}
                                     </div>
@@ -608,7 +656,7 @@ function MiniInfo(props: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
       <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div className="mt-2 break-all text-sm font-medium text-slate-100">{props.value}</div>
     </div>
   );
 }

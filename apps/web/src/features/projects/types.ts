@@ -73,6 +73,29 @@ export type BossProjectLatestTask = {
   updated_at: string;
   latest_run_status: string | null;
   latest_run_summary: string | null;
+  latest_run_id: string | null;
+  latest_run_log_path: string | null;
+  latest_run_model_name: string | null;
+  latest_run_model_tier: string | null;
+  latest_run_strategy_code: string | null;
+  latest_run_provider_key: string | null;
+  latest_run_prompt_template_key: string | null;
+  latest_run_prompt_template_version: string | null;
+  latest_run_prompt_char_count: number | null;
+  latest_run_token_accounting_mode: string | null;
+  latest_run_token_pricing_source: string | null;
+  latest_run_provider_receipt_id: string | null;
+  latest_run_prompt_tokens: number | null;
+  latest_run_completion_tokens: number | null;
+  latest_run_total_tokens: number | null;
+  latest_run_estimated_cost: number | null;
+  latest_run_created_at: string | null;
+  latest_run_finished_at: string | null;
+  latest_run_role_model_policy_source: string | null;
+  latest_run_role_model_policy_desired_tier: string | null;
+  latest_run_role_model_policy_adjusted_tier: string | null;
+  latest_run_role_model_policy_final_tier: string | null;
+  latest_run_role_model_policy_stage_override_applied: boolean;
 };
 
 export type BossProjectItem = {

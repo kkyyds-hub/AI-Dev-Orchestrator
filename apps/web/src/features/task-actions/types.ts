@@ -32,11 +32,18 @@ export type WorkerRunOnceResponse = {
   selected_skill_names: string[];
   strategy_code: string | null;
   strategy_summary: string | null;
+  role_model_policy_source: string | null;
+  role_model_policy_desired_tier: string | null;
+  role_model_policy_adjusted_tier: string | null;
+  role_model_policy_final_tier: string | null;
+  role_model_policy_stage_override_applied: boolean;
   task_id: string | null;
   task_title: string | null;
   task_status: string | null;
   run_id: string | null;
   run_status: string | null;
+  run_created_at: string | null;
+  run_finished_at: string | null;
   provider_key: string | null;
   prompt_template_key: string | null;
   prompt_template_version: string | null;

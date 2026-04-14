@@ -151,6 +151,37 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
         </div>
       ) : null}
 
+      {preview.role_model_policy_runtime.source ? (
+        <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+          <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
+            Role Model Policy Runtime Trace
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <InfoCard
+              label="Policy Source"
+              value={preview.role_model_policy_runtime.source}
+            />
+            <InfoCard
+              label="Desired Tier"
+              value={preview.role_model_policy_runtime.desired_tier ?? "n/a"}
+            />
+            <InfoCard
+              label="Adjusted Tier"
+              value={preview.role_model_policy_runtime.adjusted_tier ?? "n/a"}
+            />
+            <InfoCard
+              label="Final Tier"
+              value={preview.role_model_policy_runtime.final_tier ?? "n/a"}
+              extra={
+                preview.role_model_policy_runtime.stage_override_applied
+                  ? "Stage override applied"
+                  : "No stage override"
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
       {preview.route_reason ? (
         <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">

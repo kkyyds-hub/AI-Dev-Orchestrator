@@ -124,6 +124,19 @@ class ResolvedTaskStrategy:
     strategy_decision: RunStrategyDecision
 
 
+@dataclass(slots=True, frozen=True)
+class RoleModelPolicyRuntimeTrace:
+    """Explain how role-model policy was applied for one routing decision."""
+
+    source: str
+    desired_tier: str
+    adjusted_tier: str
+    selected_tier: str
+    stage_override_applied: bool
+    stage_key: str
+    role_key: str
+
+
 def _default_rule_set() -> StrategyRuleSet:
     """Return the built-in Day 15 rule set."""
 
@@ -371,6 +384,7 @@ class StrategyEngineService:
             model_rule_codes,
             model_score,
             model_reason,
+            role_model_policy_trace,
         ) = self._select_model_profile(
             project_stage=project_stage,
             owner_role_code=role_assignment.owner_role_code,
@@ -424,6 +438,18 @@ class StrategyEngineService:
                 label="模型选择",
                 detail=model_reason,
                 score=model_score,
+            ),
+            RunStrategyReasonItem(
+                code="role_model_policy_runtime",
+                label="Role Model Policy Runtime",
+                detail=(
+                    f"source={role_model_policy_trace.source}; "
+                    f"desired={role_model_policy_trace.desired_tier}; "
+                    f"adjusted={role_model_policy_trace.adjusted_tier}; "
+                    f"selected={role_model_policy_trace.selected_tier}; "
+                    f"stage_override={role_model_policy_trace.stage_override_applied}."
+                ),
+                score=None,
             ),
         ]
 
@@ -480,6 +506,13 @@ class StrategyEngineService:
             budget_action=snapshot.suggested_action,
             strategy_code=strategy_code,
             summary=strategy_summary,
+            role_model_policy_source=role_model_policy_trace.source,
+            role_model_policy_desired_tier=role_model_policy_trace.desired_tier,
+            role_model_policy_adjusted_tier=role_model_policy_trace.adjusted_tier,
+            role_model_policy_final_tier=role_model_policy_trace.selected_tier,
+            role_model_policy_stage_override_applied=(
+                role_model_policy_trace.stage_override_applied
+            ),
             rule_codes=list(rule_codes),
             reasons=strategy_reasons,
         )
@@ -513,8 +546,7 @@ class StrategyEngineService:
             return StrategyRuleSet.model_validate(raw_payload), "runtime_override"
         except (OSError, json.JSONDecodeError, ValidationError):
             return _default_rule_set(), "default_fallback"
-
-    def _select_skills(
+    def _select_skills(
         self,
         *,
         project_id,
@@ -525,18 +557,33 @@ class StrategyEngineService:
         """Pick the most relevant bound Skills for the current stage and role."""
 
         if project_id is None or owner_role_code is None:
-            return [], (), 0.0, "任务未挂接项目角色，当前不追加项目级 Skill 绑定。"
+            return (
+                [],
+                (),
+                0.0,
+                "Task has no scoped project/owner role, so project-level Skill bindings are skipped.",
+            )
 
         snapshot = self.skill_registry_service.get_project_skill_bindings(project_id)
         if snapshot is None:
-            return [], (), 0.0, "当前项目尚未初始化 Skill 绑定快照。"
+            return (
+                [],
+                (),
+                0.0,
+                "Project Skill bindings are not initialized yet.",
+            )
 
         role_group = next(
             (role for role in snapshot.roles if role.role_code == owner_role_code),
             None,
         )
         if role_group is None:
-            return [], (), 0.0, "当前责任角色在项目 Skill 绑定中还没有可用配置。"
+            return (
+                [],
+                (),
+                0.0,
+                f"Role {owner_role_code.value} has no available project Skill bindings.",
+            )
 
         enabled_skills = [skill for skill in role_group.skills if skill.registry_enabled]
         stage_key = project_stage.value if project_stage is not None else "unscoped"
@@ -560,9 +607,11 @@ class StrategyEngineService:
                 (f"skills:{stage_key}:{owner_role_code.value}",),
                 score,
                 (
-                    f"阶段 {stage_key} 为角色 {owner_role_code.value} 设定了优先 Skill："
-                    f"{', '.join(preferred_codes[:4])}；当前选中 "
-                    f"{', '.join(skill.skill_name for skill in selected_skills)}。"
+                    f"Stage {stage_key} configured preferred Skills for role "
+                    f"{owner_role_code.value}: {', '.join(preferred_codes[:4])}; "
+                    "selected "
+                    + ", ".join(skill.skill_name for skill in selected_skills)
+                    + "."
                 ),
             )
 
@@ -573,9 +622,9 @@ class StrategyEngineService:
                 (f"skills:fallback:{owner_role_code.value}",),
                 score,
                 (
-                    "项目中没有命中当前阶段优先 Skill，回退到该角色已绑定的通用 Skill："
+                    "No stage-specific preferred Skills matched; using role-level enabled Skills: "
                     + ", ".join(skill.skill_name for skill in selected_skills)
-                    + "。"
+                    + "."
                 ),
             )
 
@@ -584,8 +633,8 @@ class StrategyEngineService:
             (f"skills:missing:{owner_role_code.value}",),
             -8.0,
             (
-                f"责任角色 {owner_role_code.value} 当前没有可用 Skill 绑定，"
-                "因此路由得分被保守下调。"
+                f"Role {owner_role_code.value} currently has no usable Skill bindings; "
+                "routing score is conservatively reduced."
             ),
         )
 
@@ -600,7 +649,14 @@ class StrategyEngineService:
         budget_action: RunBudgetStrategyAction,
         budget_preferred_model_tier: str,
         rules: StrategyRuleSet,
-    ) -> tuple[str, StrategyModelProfile, tuple[str, ...], float, str]:
+    ) -> tuple[
+        str,
+        StrategyModelProfile,
+        tuple[str, ...],
+        float,
+        str,
+        RoleModelPolicyRuntimeTrace,
+    ]:
         """Select the model profile under stage / role / budget constraints."""
 
         stage_key = project_stage.value if project_stage is not None else "unscoped"
@@ -610,6 +666,15 @@ class StrategyEngineService:
             budget_preferred_model_tier,
         )
         stage_override = rules.stage_model_tier_overrides.get(stage_key, {}).get(role_key)
+        policy_source = (
+            "stage_override"
+            if stage_override
+            else (
+                "role_preference"
+                if role_key in rules.role_model_tier_preferences
+                else "budget_fallback"
+            )
+        )
         if stage_override:
             desired_tier = stage_override
 
@@ -635,6 +700,15 @@ class StrategyEngineService:
             risk_level=risk_level,
             priority=priority,
         )
+        role_model_policy_trace = RoleModelPolicyRuntimeTrace(
+            source=policy_source,
+            desired_tier=desired_tier,
+            adjusted_tier=adjusted_tier,
+            selected_tier=selected_tier,
+            stage_override_applied=bool(stage_override),
+            stage_key=stage_key,
+            role_key=role_key,
+        )
 
         return (
             selected_tier,
@@ -647,10 +721,11 @@ class StrategyEngineService:
             score,
             (
                 f"预算动作 {budget_action.value} 下的基线模型层级是 "
-                f"{budget_preferred_model_tier}；角色/阶段期望层级为 {desired_tier}，"
+                f"{budget_preferred_model_tier}；角色/阶段期望层级是 {desired_tier}；"
                 f"风险与优先级调整后为 {adjusted_tier}，最终选用 {selected_tier} -> "
                 f"{model_profile.model_name}。"
             ),
+            role_model_policy_trace,
         )
 
     @staticmethod

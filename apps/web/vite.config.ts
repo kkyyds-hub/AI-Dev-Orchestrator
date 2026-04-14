@@ -4,20 +4,31 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const backendTarget = env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
-  const proxyConfig = {
-    "/health": {
-      target: backendTarget,
-      changeOrigin: true,
-    },
-    "/tasks": {
-      target: backendTarget,
-      changeOrigin: true,
-    },
-    "/workers": {
-      target: backendTarget,
-      changeOrigin: true,
-    },
-  };
+  const proxyPrefixes = [
+    "/health",
+    "/tasks",
+    "/workers",
+    "/console",
+    "/strategy",
+    "/projects",
+    "/roles",
+    "/skills",
+    "/planning",
+    "/deliverables",
+    "/approvals",
+    "/runs",
+    "/repositories",
+    "/events",
+  ];
+  const proxyConfig = Object.fromEntries(
+    proxyPrefixes.map((prefix) => [
+      prefix,
+      {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+    ]),
+  );
 
   return {
     plugins: [react()],

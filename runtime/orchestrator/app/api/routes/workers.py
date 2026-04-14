@@ -1,5 +1,6 @@
 """Worker endpoints."""
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -70,6 +71,11 @@ class WorkerRunOnceResponse(BaseModel):
     selected_skill_names: list[str] = Field(default_factory=list)
     strategy_code: str | None = None
     strategy_summary: str | None = None
+    role_model_policy_source: str | None = None
+    role_model_policy_desired_tier: str | None = None
+    role_model_policy_adjusted_tier: str | None = None
+    role_model_policy_final_tier: str | None = None
+    role_model_policy_stage_override_applied: bool = False
     owner_role_code: ProjectRoleCode | None = None
     upstream_role_code: ProjectRoleCode | None = None
     downstream_role_code: ProjectRoleCode | None = None
@@ -84,6 +90,8 @@ class WorkerRunOnceResponse(BaseModel):
     task_status: TaskStatus | None = None
     run_id: UUID | None = None
     run_status: RunStatus | None = None
+    run_created_at: datetime | None = None
+    run_finished_at: datetime | None = None
     provider_key: str | None = None
     prompt_template_key: str | None = None
     prompt_template_version: str | None = None
@@ -128,6 +136,31 @@ class WorkerRunOnceResponse(BaseModel):
             selected_skill_names=result.selected_skill_names,
             strategy_code=result.strategy_code,
             strategy_summary=result.strategy_summary,
+            role_model_policy_source=(
+                result.run.strategy_decision.role_model_policy_source
+                if result.run and result.run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_desired_tier=(
+                result.run.strategy_decision.role_model_policy_desired_tier
+                if result.run and result.run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_adjusted_tier=(
+                result.run.strategy_decision.role_model_policy_adjusted_tier
+                if result.run and result.run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_final_tier=(
+                result.run.strategy_decision.role_model_policy_final_tier
+                if result.run and result.run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_stage_override_applied=(
+                result.run.strategy_decision.role_model_policy_stage_override_applied
+                if result.run and result.run.strategy_decision is not None
+                else False
+            ),
             owner_role_code=result.owner_role_code,
             upstream_role_code=result.upstream_role_code,
             downstream_role_code=result.downstream_role_code,
@@ -142,6 +175,8 @@ class WorkerRunOnceResponse(BaseModel):
             task_status=result.task.status if result.task else None,
             run_id=result.run.id if result.run else None,
             run_status=result.run.status if result.run else None,
+            run_created_at=result.run.created_at if result.run else None,
+            run_finished_at=result.run.finished_at if result.run else None,
             provider_key=result.run.provider_key if result.run else None,
             prompt_template_key=result.run.prompt_template_key if result.run else None,
             prompt_template_version=result.run.prompt_template_version if result.run else None,
@@ -258,10 +293,14 @@ router = APIRouter(prefix="/workers", tags=["workers"])
 )
 def run_worker_once(
     task_worker: Annotated[TaskWorker, Depends(get_task_worker)],
+    project_id: Annotated[UUID | None, Query(description="Optional project scope.")] = None,
 ) -> WorkerRunOnceResponse:
-    """Explicitly trigger one worker cycle."""
+    """Explicitly trigger one worker cycle.
 
-    result = task_worker.run_once()
+    When ``project_id`` is provided, the worker routes only within that project.
+    """
+
+    result = task_worker.run_once(project_id=project_id)
     return WorkerRunOnceResponse.from_result(result)
 
 

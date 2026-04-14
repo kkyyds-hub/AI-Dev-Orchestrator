@@ -12,6 +12,14 @@ export type StrategyRoutingScoreItem = {
   detail: string;
 };
 
+export type RoleModelPolicyRuntime = {
+  source: string | null;
+  desired_tier: string | null;
+  adjusted_tier: string | null;
+  final_tier: string | null;
+  stage_override_applied: boolean;
+};
+
 export type StrategyCandidate = {
   task_id: string;
   title: string;
@@ -32,6 +40,7 @@ export type StrategyCandidate = {
   strategy_code: string;
   strategy_summary: string;
   strategy_reasons: StrategyReasonItem[];
+  role_model_policy_runtime: RoleModelPolicyRuntime;
   routing_score_breakdown: StrategyRoutingScoreItem[];
   execution_attempts: number;
   recent_failure_count: number;
@@ -69,6 +78,7 @@ export type ProjectStrategyPreview = {
   strategy_code: string | null;
   strategy_summary: string | null;
   strategy_reasons: StrategyReasonItem[];
+  role_model_policy_runtime: RoleModelPolicyRuntime;
   routing_score: number | null;
   route_reason: string | null;
   routing_score_breakdown: StrategyRoutingScoreItem[];

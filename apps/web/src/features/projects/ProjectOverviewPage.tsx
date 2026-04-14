@@ -26,6 +26,7 @@ import { StrategyRuleEditor } from "../strategy/StrategyRuleEditor";
 import { RepositoryOverviewPage as ProjectRepositoryOverviewPage } from "../repositories/RepositoryOverviewPage";
 import { RepositoryHomeCard } from "../repositories/RepositoryHomeCard";
 import { MemorySearchPanel } from "./MemorySearchPanel";
+import { ProjectLatestRunControlSurface } from "./ProjectLatestRunControlSurface";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectCreateFlow } from "./ProjectCreateFlow";
 import { ProjectRetrospectivePanel } from "./ProjectRetrospectivePanel";
@@ -822,6 +823,7 @@ function ProjectDetailBody(props: {
                 运行摘要：{props.project.latest_task.latest_run_summary}
               </p>
             ) : null}
+            <ProjectLatestRunControlSurface latestTask={props.project.latest_task} />
           </div>
         ) : props.detail && projectTasks.length > 0 ? (
           <p className="mt-3 text-sm leading-6 text-slate-300">

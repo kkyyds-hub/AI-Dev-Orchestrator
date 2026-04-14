@@ -16,6 +16,7 @@ from app.domain.run import (
     RunBudgetPressureLevel,
     RunBudgetStrategyAction,
     RunRoutingScoreItem,
+    RunStrategyDecision,
     RunStrategyReasonItem,
 )
 from app.repositories.project_repository import ProjectRepository
@@ -80,6 +81,36 @@ class StrategyReasonItemResponse(BaseModel):
         )
 
 
+class RoleModelPolicyRuntimeResponse(BaseModel):
+    """Runtime trace showing how Role Model Policy selected the final model tier."""
+
+    source: str | None = None
+    desired_tier: str | None = None
+    adjusted_tier: str | None = None
+    final_tier: str | None = None
+    stage_override_applied: bool = False
+
+    @classmethod
+    def from_strategy_decision(
+        cls,
+        strategy_decision: RunStrategyDecision | None,
+    ) -> "RoleModelPolicyRuntimeResponse":
+        """Build one runtime trace DTO from the persisted strategy decision."""
+
+        if strategy_decision is None:
+            return cls()
+
+        return cls(
+            source=strategy_decision.role_model_policy_source,
+            desired_tier=strategy_decision.role_model_policy_desired_tier,
+            adjusted_tier=strategy_decision.role_model_policy_adjusted_tier,
+            final_tier=strategy_decision.role_model_policy_final_tier,
+            stage_override_applied=(
+                strategy_decision.role_model_policy_stage_override_applied
+            ),
+        )
+
+
 class StrategyCandidateResponse(BaseModel):
     """One candidate row returned under the project strategy preview."""
 
@@ -102,6 +133,9 @@ class StrategyCandidateResponse(BaseModel):
     strategy_code: str
     strategy_summary: str
     strategy_reasons: list[StrategyReasonItemResponse] = Field(default_factory=list)
+    role_model_policy_runtime: RoleModelPolicyRuntimeResponse = Field(
+        default_factory=RoleModelPolicyRuntimeResponse
+    )
     routing_score_breakdown: list[StrategyRoutingScoreItemResponse] = Field(default_factory=list)
     execution_attempts: int
     recent_failure_count: int
@@ -143,6 +177,9 @@ class StrategyCandidateResponse(BaseModel):
                 StrategyReasonItemResponse.from_item(item)
                 for item in candidate.strategy_reasons
             ],
+            role_model_policy_runtime=RoleModelPolicyRuntimeResponse.from_strategy_decision(
+                candidate.strategy_decision
+            ),
             routing_score_breakdown=[
                 StrategyRoutingScoreItemResponse.from_item(item)
                 for item in candidate.routing_score_breakdown
@@ -189,6 +226,9 @@ class ProjectStrategyPreviewResponse(BaseModel):
     strategy_code: str | None = None
     strategy_summary: str | None = None
     strategy_reasons: list[StrategyReasonItemResponse] = Field(default_factory=list)
+    role_model_policy_runtime: RoleModelPolicyRuntimeResponse = Field(
+        default_factory=RoleModelPolicyRuntimeResponse
+    )
     routing_score: float | None = None
     route_reason: str | None = None
     routing_score_breakdown: list[StrategyRoutingScoreItemResponse] = Field(default_factory=list)
@@ -229,6 +269,9 @@ class ProjectStrategyPreviewResponse(BaseModel):
                 StrategyReasonItemResponse.from_item(item)
                 for item in decision.strategy_reasons
             ],
+            role_model_policy_runtime=RoleModelPolicyRuntimeResponse.from_strategy_decision(
+                decision.strategy_decision
+            ),
             routing_score=decision.routing_score,
             route_reason=decision.route_reason,
             routing_score_breakdown=[

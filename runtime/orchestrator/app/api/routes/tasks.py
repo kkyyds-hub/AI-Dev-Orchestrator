@@ -272,6 +272,19 @@ class TaskConsoleRunResponse(BaseModel):
     handoff_reason: str | None = None
     dispatch_status: str | None = None
     result_summary: str | None = None
+    provider_key: str | None = None
+    prompt_template_key: str | None = None
+    prompt_template_version: str | None = None
+    prompt_char_count: int | None = None
+    token_accounting_mode: str | None = None
+    provider_receipt_id: str | None = None
+    total_tokens: int | None = None
+    token_pricing_source: str | None = None
+    role_model_policy_source: str | None = None
+    role_model_policy_desired_tier: str | None = None
+    role_model_policy_adjusted_tier: str | None = None
+    role_model_policy_final_tier: str | None = None
+    role_model_policy_stage_override_applied: bool = False
     prompt_tokens: int
     completion_tokens: int
     estimated_cost: float
@@ -311,6 +324,39 @@ class TaskConsoleRunResponse(BaseModel):
             handoff_reason=run.handoff_reason,
             dispatch_status=run.dispatch_status,
             result_summary=run.result_summary,
+            provider_key=run.provider_key,
+            prompt_template_key=run.prompt_template_key,
+            prompt_template_version=run.prompt_template_version,
+            prompt_char_count=run.prompt_char_count,
+            token_accounting_mode=run.token_accounting_mode,
+            provider_receipt_id=run.provider_receipt_id,
+            total_tokens=run.total_tokens,
+            token_pricing_source=run.token_pricing_source,
+            role_model_policy_source=(
+                run.strategy_decision.role_model_policy_source
+                if run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_desired_tier=(
+                run.strategy_decision.role_model_policy_desired_tier
+                if run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_adjusted_tier=(
+                run.strategy_decision.role_model_policy_adjusted_tier
+                if run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_final_tier=(
+                run.strategy_decision.role_model_policy_final_tier
+                if run.strategy_decision is not None
+                else None
+            ),
+            role_model_policy_stage_override_applied=(
+                run.strategy_decision.role_model_policy_stage_override_applied
+                if run.strategy_decision is not None
+                else False
+            ),
             prompt_tokens=run.prompt_tokens,
             completion_tokens=run.completion_tokens,
             estimated_cost=run.estimated_cost,

@@ -297,6 +297,29 @@ class BossProjectLatestTaskResponse(BaseModel):
     updated_at: datetime
     latest_run_status: RunStatus | None = None
     latest_run_summary: str | None = None
+    latest_run_id: str | None = None
+    latest_run_log_path: str | None = None
+    latest_run_model_name: str | None = None
+    latest_run_model_tier: str | None = None
+    latest_run_strategy_code: str | None = None
+    latest_run_provider_key: str | None = None
+    latest_run_prompt_template_key: str | None = None
+    latest_run_prompt_template_version: str | None = None
+    latest_run_prompt_char_count: int | None = None
+    latest_run_token_accounting_mode: str | None = None
+    latest_run_token_pricing_source: str | None = None
+    latest_run_provider_receipt_id: str | None = None
+    latest_run_prompt_tokens: int | None = None
+    latest_run_completion_tokens: int | None = None
+    latest_run_total_tokens: int | None = None
+    latest_run_estimated_cost: float | None = None
+    latest_run_created_at: datetime | None = None
+    latest_run_finished_at: datetime | None = None
+    latest_run_role_model_policy_source: str | None = None
+    latest_run_role_model_policy_desired_tier: str | None = None
+    latest_run_role_model_policy_adjusted_tier: str | None = None
+    latest_run_role_model_policy_final_tier: str | None = None
+    latest_run_role_model_policy_stage_override_applied: bool = False
 
     @classmethod
     def from_latest_task(
@@ -320,6 +343,128 @@ class BossProjectLatestTaskResponse(BaseModel):
                 latest_task.latest_run.result_summary
                 if latest_task.latest_run is not None
                 else None
+            ),
+            latest_run_id=(
+                str(latest_task.latest_run.id)
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_log_path=(
+                latest_task.latest_run.log_path
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_model_name=(
+                latest_task.latest_run.model_name
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_model_tier=(
+                latest_task.latest_run.strategy_decision.model_tier
+                if latest_task.latest_run is not None
+                and latest_task.latest_run.strategy_decision is not None
+                else None
+            ),
+            latest_run_strategy_code=(
+                latest_task.latest_run.strategy_decision.strategy_code
+                if latest_task.latest_run is not None
+                and latest_task.latest_run.strategy_decision is not None
+                else None
+            ),
+            latest_run_provider_key=(
+                latest_task.latest_run.provider_key
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_prompt_template_key=(
+                latest_task.latest_run.prompt_template_key
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_prompt_template_version=(
+                latest_task.latest_run.prompt_template_version
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_prompt_char_count=(
+                latest_task.latest_run.prompt_char_count
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_token_accounting_mode=(
+                latest_task.latest_run.token_accounting_mode
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_token_pricing_source=(
+                latest_task.latest_run.token_pricing_source
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_provider_receipt_id=(
+                latest_task.latest_run.provider_receipt_id
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_prompt_tokens=(
+                latest_task.latest_run.prompt_tokens
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_completion_tokens=(
+                latest_task.latest_run.completion_tokens
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_total_tokens=(
+                latest_task.latest_run.total_tokens
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_estimated_cost=(
+                latest_task.latest_run.estimated_cost
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_created_at=(
+                latest_task.latest_run.created_at
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_finished_at=(
+                latest_task.latest_run.finished_at
+                if latest_task.latest_run is not None
+                else None
+            ),
+            latest_run_role_model_policy_source=(
+                latest_task.latest_run.strategy_decision.role_model_policy_source
+                if latest_task.latest_run is not None
+                and latest_task.latest_run.strategy_decision is not None
+                else None
+            ),
+            latest_run_role_model_policy_desired_tier=(
+                latest_task.latest_run.strategy_decision.role_model_policy_desired_tier
+                if latest_task.latest_run is not None
+                and latest_task.latest_run.strategy_decision is not None
+                else None
+            ),
+            latest_run_role_model_policy_adjusted_tier=(
+                latest_task.latest_run.strategy_decision.role_model_policy_adjusted_tier
+                if latest_task.latest_run is not None
+                and latest_task.latest_run.strategy_decision is not None
+                else None
+            ),
+            latest_run_role_model_policy_final_tier=(
+                latest_task.latest_run.strategy_decision.role_model_policy_final_tier
+                if latest_task.latest_run is not None
+                and latest_task.latest_run.strategy_decision is not None
+                else None
+            ),
+            latest_run_role_model_policy_stage_override_applied=(
+                latest_task.latest_run.strategy_decision.role_model_policy_stage_override_applied
+                if latest_task.latest_run is not None
+                and latest_task.latest_run.strategy_decision is not None
+                else False
             ),
         )
 
