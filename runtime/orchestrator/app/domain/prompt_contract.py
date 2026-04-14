@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel
 
@@ -21,6 +21,14 @@ class TokenAccountingMode(StrEnum):
 
     HEURISTIC = "heuristic"
     PROVIDER_REPORTED = "provider_reported"
+    PROVIDER_MOCK = "provider_mock"
+
+
+class ProviderReceiptSource(StrEnum):
+    """Source category for one provider-like usage receipt."""
+
+    REAL_PROVIDER = "real_provider"
+    PROVIDER_MOCK = "provider_mock"
 
 
 class PromptTemplateRef(DomainModel):
@@ -108,6 +116,7 @@ class ProviderUsageReceipt(DomainModel):
     provider_key: str = Field(min_length=1, max_length=50)
     model_name: str = Field(min_length=1, max_length=100)
     receipt_id: str = Field(min_length=1, max_length=100)
+    receipt_source: ProviderReceiptSource = ProviderReceiptSource.REAL_PROVIDER
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
     total_tokens: int = Field(ge=0)
@@ -123,6 +132,15 @@ class ProviderUsageReceipt(DomainModel):
         if not normalized_value:
             raise ValueError("Provider usage receipt fields cannot be blank.")
         return normalized_value
+
+    @model_validator(mode="after")
+    def normalize_total_tokens(self) -> "ProviderUsageReceipt":
+        """Keep total tokens aligned with prompt/completion token counts."""
+
+        minimum_total_tokens = self.prompt_tokens + self.completion_tokens
+        if self.total_tokens < minimum_total_tokens:
+            self.total_tokens = minimum_total_tokens
+        return self
 
 
 class TokenAccountingSnapshot(DomainModel):
@@ -151,3 +169,12 @@ class TokenAccountingSnapshot(DomainModel):
         if not normalized_value:
             raise ValueError("Token accounting text fields cannot be blank.")
         return normalized_value
+
+    @model_validator(mode="after")
+    def normalize_total_tokens(self) -> "TokenAccountingSnapshot":
+        """Keep snapshot total tokens aligned with prompt/completion tokens."""
+
+        minimum_total_tokens = self.prompt_tokens + self.completion_tokens
+        if self.total_tokens < minimum_total_tokens:
+            self.total_tokens = minimum_total_tokens
+        return self

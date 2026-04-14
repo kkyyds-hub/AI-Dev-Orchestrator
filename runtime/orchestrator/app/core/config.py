@@ -77,6 +77,20 @@ def _read_float(name: str, default: float, *, minimum: float | None = None) -> f
     return value
 
 
+def _read_optional_str(name: str) -> str | None:
+    """Read one optional env var and normalize blank values as missing."""
+
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return None
+
+    normalized_value = raw_value.strip()
+    if not normalized_value:
+        return None
+
+    return normalized_value
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """应用配置对象。
@@ -97,6 +111,9 @@ class Settings:
     session_budget_usd: float
     max_task_retries: int
     max_concurrent_workers: int
+    openai_api_key: str | None
+    openai_base_url: str
+    openai_timeout_seconds: int
 
 
 def load_settings() -> Settings:
@@ -130,6 +147,10 @@ def load_settings() -> Settings:
         session_budget_usd=_read_float("SESSION_BUDGET_USD", 0.2, minimum=0.0),
         max_task_retries=_read_int("MAX_TASK_RETRIES", 2, minimum=0),
         max_concurrent_workers=_read_int("MAX_CONCURRENT_WORKERS", 2, minimum=1),
+        openai_api_key=_read_optional_str("OPENAI_API_KEY"),
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
+        or "https://api.openai.com/v1",
+        openai_timeout_seconds=_read_int("OPENAI_TIMEOUT_SECONDS", 30, minimum=1),
     )
 
 

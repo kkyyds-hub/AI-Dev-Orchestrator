@@ -7,7 +7,11 @@ from math import ceil
 from typing import TYPE_CHECKING
 
 from app.domain.model_policy import ExecutorModelRoutingContract
-from app.domain.prompt_contract import BuiltPromptEnvelope, ProviderUsageReceipt
+from app.domain.prompt_contract import (
+    BuiltPromptEnvelope,
+    ProviderReceiptSource,
+    ProviderUsageReceipt,
+)
 from app.domain.task import Task
 
 if TYPE_CHECKING:
@@ -84,6 +88,7 @@ class MockProviderExecutorService:
             provider_key=target.provider_key,
             model_name=target.model_name,
             receipt_id=f"mock-receipt-{task.id.hex[:12]}",
+            receipt_source=ProviderReceiptSource.PROVIDER_MOCK,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,

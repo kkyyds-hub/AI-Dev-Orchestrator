@@ -439,7 +439,12 @@ class TaskWorker:
                 prompt_envelope=prompt_envelope,
                 token_accounting=token_accounting,
             )
-            self._log_finalization(task=task, run=run, final_summary=final_summary)
+            self._log_finalization(
+                task=task,
+                run=run,
+                final_summary=final_summary,
+                execution=execution,
+            )
 
             self.session.commit()
             self._record_failure_review_if_needed(task=task, run=run)
@@ -762,8 +767,8 @@ class TaskWorker:
             provider_receipt_id=token_accounting.provider_receipt_id,
             total_tokens=token_accounting.total_tokens,
             token_pricing_source=token_accounting.pricing_source,
-            prompt_tokens=cost_estimate.prompt_tokens,
-            completion_tokens=cost_estimate.completion_tokens,
+            prompt_tokens=token_accounting.prompt_tokens,
+            completion_tokens=token_accounting.completion_tokens,
             estimated_cost=cost_estimate.estimated_cost,
             verification_mode=verification_mode,
             verification_template=verification_template,
@@ -813,6 +818,14 @@ class TaskWorker:
                 "exit_code": execution.exit_code,
                 "prompt_key": execution.prompt_key,
                 "prompt_char_count": execution.prompt_char_count,
+                "requested_provider_key": execution.requested_provider_key,
+                "actual_execution_mode": (
+                    execution.actual_execution_mode or execution.mode
+                ),
+                "fallback_applied": execution.fallback_applied,
+                "fallback_reason_category": execution.fallback_reason_category,
+                "fallback_from": execution.fallback_from,
+                "fallback_to": execution.fallback_to,
             },
         )
 
@@ -1145,7 +1158,14 @@ class TaskWorker:
             handoff_reason=routing_decision.handoff_reason,
         )
 
-    def _log_finalization(self, *, task: Task, run: Run, final_summary: str) -> None:
+    def _log_finalization(
+        self,
+        *,
+        task: Task,
+        run: Run,
+        final_summary: str,
+        execution: ExecutionResult | None = None,
+    ) -> None:
         """Write the final persisted state to the JSONL log."""
 
         if run.log_path is None:
@@ -1185,6 +1205,24 @@ class TaskWorker:
                     run.failure_category.value if run.failure_category else None
                 ),
                 "quality_gate_passed": run.quality_gate_passed,
+                "requested_provider_key": (
+                    execution.requested_provider_key if execution is not None else None
+                ),
+                "actual_execution_mode": (
+                    (execution.actual_execution_mode or execution.mode)
+                    if execution is not None
+                    else None
+                ),
+                "fallback_applied": (
+                    execution.fallback_applied if execution is not None else False
+                ),
+                "fallback_reason_category": (
+                    execution.fallback_reason_category if execution is not None else None
+                ),
+                "fallback_from": (
+                    execution.fallback_from if execution is not None else None
+                ),
+                "fallback_to": execution.fallback_to if execution is not None else None,
             },
         )
 

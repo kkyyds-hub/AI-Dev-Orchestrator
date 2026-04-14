@@ -55,7 +55,11 @@ class CostEstimatorService:
             completion_parts.append(verification.summary.strip())
 
         completion_text = "\n".join(part for part in completion_parts if part)
-        effective_prompt_envelope = prompt_envelope or self._build_fallback_prompt_envelope(task)
+        effective_prompt_envelope = self._resolve_effective_prompt_envelope(
+            task=task,
+            prompt_envelope=prompt_envelope,
+            execution=execution,
+        )
         token_snapshot = self.token_accounting_service.build_snapshot(
             prompt_envelope=effective_prompt_envelope,
             completion_text=completion_text,
@@ -68,6 +72,21 @@ class CostEstimatorService:
             completion_tokens=token_snapshot.completion_tokens,
             estimated_cost=token_snapshot.estimated_cost_usd,
         )
+
+    @staticmethod
+    def _resolve_effective_prompt_envelope(
+        *,
+        task: Task,
+        prompt_envelope: BuiltPromptEnvelope | None,
+        execution: ExecutionResult,
+    ) -> BuiltPromptEnvelope | None:
+        """Prefer real provider receipts over synthetic prompt fallback envelopes."""
+
+        if prompt_envelope is not None:
+            return prompt_envelope
+        if execution.provider_usage_receipt is not None:
+            return None
+        return CostEstimatorService._build_fallback_prompt_envelope(task)
 
     @staticmethod
     def _build_fallback_prompt_envelope(task: Task) -> BuiltPromptEnvelope:

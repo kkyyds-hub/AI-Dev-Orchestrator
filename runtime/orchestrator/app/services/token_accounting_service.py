@@ -7,6 +7,7 @@ from math import ceil
 from app.domain.model_policy import ExecutorRouteMode
 from app.domain.prompt_contract import (
     BuiltPromptEnvelope,
+    ProviderReceiptSource,
     PromptTemplateRef,
     ProviderUsageReceipt,
     TokenAccountingMode,
@@ -23,6 +24,7 @@ _HEURISTIC_PRICING_SOURCE_BY_MODE = {
     ExecutorRouteMode.SIMULATE.value: "heuristic.simulate.char_count.v1",
 }
 _DEFAULT_HEURISTIC_PRICING_SOURCE = "heuristic.char_count.v1"
+_PROVIDER_REPORTED_COST_FALLBACK_SOURCE_SUFFIX = "estimated_cost_fallback.v1"
 
 
 class TokenAccountingService:
@@ -39,6 +41,11 @@ class TokenAccountingService:
         """Build one token accounting snapshot from prompt and completion text."""
 
         if provider_usage_receipt is not None:
+            if provider_usage_receipt.receipt_source == ProviderReceiptSource.PROVIDER_MOCK:
+                return self._build_provider_mock_snapshot(
+                    prompt_envelope=prompt_envelope,
+                    provider_usage_receipt=provider_usage_receipt,
+                )
             return self._build_provider_reported_snapshot(
                 prompt_envelope=prompt_envelope,
                 provider_usage_receipt=provider_usage_receipt,
@@ -119,6 +126,9 @@ class TokenAccountingService:
                 raise ValueError("provider_usage_receipt.provider_key does not match prompt.")
             if prompt_envelope.model_name != provider_usage_receipt.model_name:
                 raise ValueError("provider_usage_receipt.model_name does not match prompt.")
+        normalized_receipt = self._normalize_provider_usage_receipt(
+            provider_usage_receipt=provider_usage_receipt
+        )
 
         template_ref = (
             prompt_envelope.template_ref
@@ -132,14 +142,110 @@ class TokenAccountingService:
         return TokenAccountingSnapshot(
             accounting_mode=TokenAccountingMode.PROVIDER_REPORTED,
             template_ref=template_ref,
-            provider_key=provider_usage_receipt.provider_key,
-            model_name=provider_usage_receipt.model_name,
-            provider_receipt_id=provider_usage_receipt.receipt_id,
+            provider_key=normalized_receipt.provider_key,
+            model_name=normalized_receipt.model_name,
+            provider_receipt_id=normalized_receipt.receipt_id,
+            prompt_tokens=normalized_receipt.prompt_tokens,
+            completion_tokens=normalized_receipt.completion_tokens,
+            total_tokens=normalized_receipt.total_tokens,
+            estimated_cost_usd=normalized_receipt.estimated_cost_usd,
+            pricing_source=normalized_receipt.pricing_source,
+        )
+
+    def _build_provider_mock_snapshot(
+        self,
+        *,
+        prompt_envelope: BuiltPromptEnvelope | None,
+        provider_usage_receipt: ProviderUsageReceipt,
+    ) -> TokenAccountingSnapshot:
+        """Record mock-provider receipts without polluting real provider semantics."""
+
+        if prompt_envelope is not None:
+            if prompt_envelope.provider_key != provider_usage_receipt.provider_key:
+                raise ValueError("provider_usage_receipt.provider_key does not match prompt.")
+            if prompt_envelope.model_name != provider_usage_receipt.model_name:
+                raise ValueError("provider_usage_receipt.model_name does not match prompt.")
+        normalized_receipt = self._normalize_provider_usage_receipt(
+            provider_usage_receipt=provider_usage_receipt
+        )
+
+        template_ref = (
+            prompt_envelope.template_ref
+            if prompt_envelope is not None
+            else PromptTemplateRef(
+                prompt_key="task_execution.provider_mock_receipt_fallback",
+                version="day06.riskfix",
+                description="Fallback prompt ref when only provider_mock usage receipt exists.",
+            )
+        )
+        return TokenAccountingSnapshot(
+            accounting_mode=TokenAccountingMode.PROVIDER_MOCK,
+            template_ref=template_ref,
+            provider_key=normalized_receipt.provider_key,
+            model_name=normalized_receipt.model_name,
+            provider_receipt_id=normalized_receipt.receipt_id,
+            prompt_tokens=normalized_receipt.prompt_tokens,
+            completion_tokens=normalized_receipt.completion_tokens,
+            total_tokens=normalized_receipt.total_tokens,
+            estimated_cost_usd=normalized_receipt.estimated_cost_usd,
+            pricing_source=normalized_receipt.pricing_source,
+        )
+
+    def _normalize_provider_usage_receipt(
+        self,
+        *,
+        provider_usage_receipt: ProviderUsageReceipt,
+    ) -> ProviderUsageReceipt:
+        """Normalize one provider receipt with a minimal cost fallback when needed."""
+
+        if provider_usage_receipt.estimated_cost_usd > 0:
+            return provider_usage_receipt
+
+        if (
+            provider_usage_receipt.prompt_tokens <= 0
+            and provider_usage_receipt.completion_tokens <= 0
+        ):
+            return provider_usage_receipt
+
+        estimated_cost = self._estimate_provider_reported_cost(
             prompt_tokens=provider_usage_receipt.prompt_tokens,
             completion_tokens=provider_usage_receipt.completion_tokens,
-            total_tokens=provider_usage_receipt.total_tokens,
-            estimated_cost_usd=provider_usage_receipt.estimated_cost_usd,
-            pricing_source=provider_usage_receipt.pricing_source,
+        )
+        if estimated_cost <= 0:
+            return provider_usage_receipt
+
+        return ProviderUsageReceipt.model_validate(
+            {
+                **provider_usage_receipt.model_dump(mode="python"),
+                "estimated_cost_usd": estimated_cost,
+                "pricing_source": self._resolve_provider_cost_pricing_source(
+                    provider_usage_receipt.pricing_source
+                ),
+            }
+        )
+
+    @staticmethod
+    def _estimate_provider_reported_cost(
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> float:
+        """Estimate provider-reported cost from provider token usage."""
+
+        return round(
+            (prompt_tokens / 1_000) * _PROMPT_COST_PER_1K_TOKENS_USD
+            + (completion_tokens / 1_000) * _COMPLETION_COST_PER_1K_TOKENS_USD,
+            6,
+        )
+
+    @staticmethod
+    def _resolve_provider_cost_pricing_source(pricing_source: str) -> str:
+        """Append a stable suffix when provider usage needs local cost fallback."""
+
+        if pricing_source.endswith(_PROVIDER_REPORTED_COST_FALLBACK_SOURCE_SUFFIX):
+            return pricing_source
+        return (
+            f"{pricing_source}+{_PROVIDER_REPORTED_COST_FALLBACK_SOURCE_SUFFIX}"
         )
 
     def _resolve_heuristic_provider_binding(

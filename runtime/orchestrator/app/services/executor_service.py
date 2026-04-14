@@ -11,6 +11,11 @@ from app.domain.model_policy import ExecutorModelRoutingContract, ExecutorRouteM
 from app.domain.prompt_contract import BuiltPromptEnvelope, ProviderUsageReceipt
 from app.domain.task import Task
 from app.services.mock_provider_executor_service import MockProviderExecutorService
+from app.services.openai_provider_executor_service import (
+    OpenAIProviderExecutionError,
+    OpenAIProviderExecutorService,
+)
+from app.services.provider_config_service import ProviderConfigService
 from app.services.task_instruction_parser import extract_prefixed_payload
 
 if TYPE_CHECKING:
@@ -32,6 +37,12 @@ class ExecutionResult:
     prompt_key: str | None = None
     prompt_char_count: int = 0
     provider_usage_receipt: ProviderUsageReceipt | None = None
+    requested_provider_key: str | None = None
+    actual_execution_mode: str | None = None
+    fallback_applied: bool = False
+    fallback_reason_category: str | None = None
+    fallback_from: str | None = None
+    fallback_to: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -52,6 +63,14 @@ class ExecutionPlan:
     routing_contract: ExecutorModelRoutingContract | None = None
 
 
+@dataclass(slots=True, frozen=True)
+class ProviderFallbackReason:
+    """Machine-friendly provider fallback reason used in execution summaries."""
+
+    code: str
+    message: str
+
+
 class ExecutorService:
     """Provide shell/simulate execution while reserving a provider-routing seam."""
 
@@ -59,12 +78,16 @@ class ExecutorService:
         self,
         *,
         mock_provider_executor_service: MockProviderExecutorService | None = None,
+        openai_provider_executor_service: OpenAIProviderExecutorService | None = None,
+        provider_config_service: ProviderConfigService | None = None,
     ) -> None:
         """Initialize the minimal executor graph for Day05 Step6."""
 
         self.mock_provider_executor_service = (
             mock_provider_executor_service or MockProviderExecutorService()
         )
+        self.openai_provider_executor_service = openai_provider_executor_service
+        self.provider_config_service = provider_config_service or ProviderConfigService()
 
     def execute_task(
         self,
@@ -109,7 +132,7 @@ class ExecutorService:
         prompt_envelope: BuiltPromptEnvelope | None,
         context_package: "TaskContextPackage | None" = None,
     ) -> ExecutionResult:
-        """Execute the provider path through the local mock provider service."""
+        """Execute provider mode via OpenAI real path with safe fallback chain."""
 
         if routing_contract is None or prompt_envelope is None:
             return self._simulate_provider_fallback(
@@ -118,7 +141,128 @@ class ExecutorService:
                 routing_contract=routing_contract,
                 prompt_envelope=prompt_envelope,
                 context_package=context_package,
+                fallback_reason=ProviderFallbackReason(
+                    code="missing_contract_or_prompt",
+                    message="Provider mode requires both routing contract and prompt envelope.",
+                ),
             )
+
+        primary_target = routing_contract.primary_target
+        if primary_target is None:
+            return self._simulate_provider_fallback(
+                task=task,
+                payload=payload,
+                routing_contract=routing_contract,
+                prompt_envelope=prompt_envelope,
+                context_package=context_package,
+                fallback_reason=ProviderFallbackReason(
+                    code="missing_primary_target",
+                    message="Provider routing contract has no primary target.",
+                ),
+            )
+
+        provider_key = primary_target.provider_key.strip().lower()
+        if provider_key == "openai":
+            openai_provider_executor_service = self._resolve_openai_provider_executor_service()
+            if not openai_provider_executor_service.is_enabled:
+                return self._execute_provider_mock_with_fallback(
+                    task=task,
+                    payload=payload,
+                    routing_contract=routing_contract,
+                    prompt_envelope=prompt_envelope,
+                    context_package=context_package,
+                    fallback_reason=ProviderFallbackReason(
+                        code="missing_api_key",
+                        message=(
+                            "OpenAI API key is not configured in provider settings "
+                            "or OPENAI_API_KEY environment variable."
+                        ),
+                    ),
+                )
+
+            try:
+                provider_response = openai_provider_executor_service.execute(
+                    task=task,
+                    payload=payload,
+                    routing_contract=routing_contract,
+                    prompt_envelope=prompt_envelope,
+                )
+            except OpenAIProviderExecutionError as exc:
+                return self._execute_provider_mock_with_fallback(
+                    task=task,
+                    payload=payload,
+                    routing_contract=routing_contract,
+                    prompt_envelope=prompt_envelope,
+                    context_package=context_package,
+                    fallback_reason=ProviderFallbackReason(
+                        code=exc.category,
+                        message=exc.message,
+                    ),
+                )
+            except Exception as exc:
+                return self._execute_provider_mock_with_fallback(
+                    task=task,
+                    payload=payload,
+                    routing_contract=routing_contract,
+                    prompt_envelope=prompt_envelope,
+                    context_package=context_package,
+                    fallback_reason=ProviderFallbackReason(
+                        code="openai_unexpected_error",
+                        message=f"{type(exc).__name__}: {exc}",
+                    ),
+                )
+
+            return ExecutionResult(
+                success=provider_response.success,
+                mode=provider_response.mode,
+                summary=self._truncate_summary(provider_response.summary),
+                prompt_key=provider_response.prompt_key,
+                prompt_char_count=provider_response.prompt_char_count,
+                provider_usage_receipt=provider_response.provider_usage_receipt,
+                requested_provider_key=provider_key,
+                actual_execution_mode=provider_response.mode,
+                fallback_applied=False,
+            )
+
+        return self._execute_provider_mock_with_fallback(
+            task=task,
+            payload=payload,
+            routing_contract=routing_contract,
+            prompt_envelope=prompt_envelope,
+            context_package=context_package,
+            fallback_reason=ProviderFallbackReason(
+                code="provider_not_supported",
+                message=(
+                    f"Provider '{primary_target.provider_key}' has no real adapter in Day05, "
+                    "so execution falls back to provider_mock."
+                ),
+            ),
+            )
+
+    def _resolve_openai_provider_executor_service(self) -> OpenAIProviderExecutorService:
+        """Build one OpenAI executor using the latest effective provider config."""
+
+        if self.openai_provider_executor_service is not None:
+            return self.openai_provider_executor_service
+
+        runtime_config = self.provider_config_service.resolve_openai_runtime_config()
+        return OpenAIProviderExecutorService(
+            api_key=runtime_config.api_key,
+            base_url=runtime_config.base_url,
+            timeout_seconds=runtime_config.timeout_seconds,
+        )
+
+    def _execute_provider_mock_with_fallback(
+        self,
+        *,
+        task: Task,
+        payload: str,
+        routing_contract: ExecutorModelRoutingContract,
+        prompt_envelope: BuiltPromptEnvelope,
+        context_package: "TaskContextPackage | None",
+        fallback_reason: ProviderFallbackReason,
+    ) -> ExecutionResult:
+        """Fallback to provider_mock first, then simulate if mock path fails."""
 
         try:
             provider_response = self.mock_provider_executor_service.execute(
@@ -128,22 +272,42 @@ class ExecutorService:
                 prompt_envelope=prompt_envelope,
                 context_package=context_package,
             )
-        except Exception:
+        except Exception as exc:
             return self._simulate_provider_fallback(
                 task,
                 payload,
                 routing_contract=routing_contract,
                 prompt_envelope=prompt_envelope,
                 context_package=context_package,
+                fallback_from="provider_mock",
+                fallback_reason=ProviderFallbackReason(
+                    code="provider_mock_failed",
+                    message=(
+                        f"Mock provider failed after fallback reason '{fallback_reason.code}'. "
+                        f"{type(exc).__name__}: {exc}"
+                    ),
+                ),
             )
 
+        summary = (
+            "Provider fallback applied "
+            f"[{fallback_reason.code}]: {fallback_reason.message} "
+            "Fell back to provider_mock. "
+            f"{provider_response.summary}"
+        )
         return ExecutionResult(
             success=provider_response.success,
             mode=provider_response.mode,
-            summary=self._truncate_summary(provider_response.summary),
+            summary=self._truncate_summary(summary),
             prompt_key=provider_response.prompt_key,
             prompt_char_count=provider_response.prompt_char_count,
             provider_usage_receipt=provider_response.provider_usage_receipt,
+            requested_provider_key=routing_contract.primary_target.provider_key,
+            actual_execution_mode=provider_response.mode,
+            fallback_applied=True,
+            fallback_reason_category=fallback_reason.code,
+            fallback_from=ExecutorRouteMode.PROVIDER.value,
+            fallback_to=provider_response.mode,
         )
 
     def build_execution_plan(
@@ -235,6 +399,7 @@ class ExecutorService:
                 prompt_char_count=(
                     prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
                 ),
+                actual_execution_mode=ExecutorRouteMode.SHELL.value,
             )
 
         try:
@@ -259,6 +424,7 @@ class ExecutorService:
                 prompt_char_count=(
                     prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
                 ),
+                actual_execution_mode=ExecutorRouteMode.SHELL.value,
             )
         except Exception as exc:
             return ExecutionResult(
@@ -274,6 +440,7 @@ class ExecutorService:
                 prompt_char_count=(
                     prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
                 ),
+                actual_execution_mode=ExecutorRouteMode.SHELL.value,
             )
 
         output_parts = [completed.stdout.strip(), completed.stderr.strip()]
@@ -297,6 +464,7 @@ class ExecutorService:
                 prompt_char_count=(
                     prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
                 ),
+                actual_execution_mode=ExecutorRouteMode.SHELL.value,
             )
 
         summary = (
@@ -317,6 +485,7 @@ class ExecutorService:
             prompt_char_count=(
                 prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
             ),
+            actual_execution_mode=ExecutorRouteMode.SHELL.value,
         )
 
     def _simulate_execution(
@@ -350,6 +519,7 @@ class ExecutorService:
             prompt_char_count=(
                 prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
             ),
+            actual_execution_mode=ExecutorRouteMode.SIMULATE.value,
         )
 
     def _simulate_provider_fallback(
@@ -360,8 +530,10 @@ class ExecutorService:
         routing_contract: ExecutorModelRoutingContract | None,
         prompt_envelope: BuiltPromptEnvelope | None,
         context_package: "TaskContextPackage | None" = None,
+        fallback_from: str = ExecutorRouteMode.PROVIDER.value,
+        fallback_reason: ProviderFallbackReason | None = None,
     ) -> ExecutionResult:
-        """Keep Step1 provider routing safe by falling back to simulate execution."""
+        """Keep provider routing safe by falling back to simulate execution."""
 
         summary_body = payload if payload else task.title
         context_suffix = (
@@ -369,6 +541,12 @@ class ExecutorService:
             if context_package is not None
             else ""
         )
+        fallback_suffix = ""
+        if fallback_reason is not None:
+            fallback_suffix = (
+                " Provider fallback reason "
+                f"[{fallback_reason.code}]: {fallback_reason.message}."
+            )
         routing_suffix = ""
         if routing_contract is not None and routing_contract.primary_target is not None:
             routing_suffix = (
@@ -386,9 +564,8 @@ class ExecutorService:
             )
 
         summary = (
-            "Simulated execution succeeded. "
-            "Day05 Step1 currently lands only the provider/model routing contract skeleton,"
-            " so executor keeps simulate fallback."
+            "Simulated execution succeeded after provider fallback."
+            f"{fallback_suffix}"
             f"{routing_suffix}{prompt_suffix} Task '{task.title}' was processed with summary: {summary_body}."
             f"{context_suffix}"
         )
@@ -402,6 +579,18 @@ class ExecutorService:
             prompt_char_count=(
                 prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
             ),
+            requested_provider_key=(
+                routing_contract.primary_target.provider_key
+                if routing_contract is not None and routing_contract.primary_target is not None
+                else None
+            ),
+            actual_execution_mode=ExecutorRouteMode.SIMULATE.value,
+            fallback_applied=True,
+            fallback_reason_category=(
+                fallback_reason.code if fallback_reason is not None else None
+            ),
+            fallback_from=fallback_from,
+            fallback_to=ExecutorRouteMode.SIMULATE.value,
         )
 
     @staticmethod
