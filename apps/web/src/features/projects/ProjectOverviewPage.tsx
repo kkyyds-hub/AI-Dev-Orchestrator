@@ -791,6 +791,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
                       : null
                   }
                   onNavigateToStrategyPreview={handleNavigateToStrategyPreview}
+                  onNavigateToTask={props.onNavigateToTask}
                   onAdvanceStage={handleAdvanceStage}
                   isAdvancing={advanceStageMutation.isPending}
                   stageActionFeedback={stageActionFeedback}
@@ -897,6 +898,7 @@ function ProjectDetailBody(props: {
   drilldownContext: BossDrilldownContext | null;
   activeDrilldownTaskSample: BossProjectLatestTask | null;
   onNavigateToStrategyPreview: (context: BossDrilldownContext) => void;
+  onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onAdvanceStage: (note: string | null) => Promise<void> | void;
   isAdvancing: boolean;
   stageActionFeedback: {
@@ -1076,6 +1078,7 @@ function ProjectDetailBody(props: {
         projectId={projectId}
         drilldownContext={props.drilldownContext}
         latestRunTaskSample={runtimeTaskSample}
+        onNavigateToTaskDetail={props.onNavigateToTask}
       />
 
       <StrategyRuleEditor projectId={projectId} />

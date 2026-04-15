@@ -4,6 +4,11 @@ import type { ReactNode } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../../lib/format";
 import {
+  buildLatestRunRuntimeFields,
+  buildRoleModelPolicyRuntimeFields,
+  hasRoleModelPolicyRuntimeData,
+} from "../../lib/latestRunRuntimeContract";
+import {
   mapFailureCategoryTone,
   mapQualityGateTone,
   mapRunStatusTone,
@@ -98,6 +103,36 @@ export function TaskDetailPanel({
       null,
     [detail, selectedRunId],
   );
+  const selectedRunRuntimeContractInput = selectedRun
+    ? {
+        providerKey: selectedRun.provider_key,
+        promptTemplateKey: selectedRun.prompt_template_key,
+        promptTemplateVersion: selectedRun.prompt_template_version,
+        tokenAccountingMode: selectedRun.token_accounting_mode,
+        tokenPricingSource: selectedRun.token_pricing_source,
+        promptCharCount: selectedRun.prompt_char_count,
+        promptTokens: selectedRun.prompt_tokens,
+        completionTokens: selectedRun.completion_tokens,
+        totalTokens: selectedRun.total_tokens,
+        estimatedCost: selectedRun.estimated_cost,
+        providerReceiptId: selectedRun.provider_receipt_id,
+        roleModelPolicySource: selectedRun.role_model_policy_source,
+        roleModelPolicyDesiredTier: selectedRun.role_model_policy_desired_tier,
+        roleModelPolicyAdjustedTier: selectedRun.role_model_policy_adjusted_tier,
+        roleModelPolicyFinalTier: selectedRun.role_model_policy_final_tier,
+        roleModelPolicyStageOverrideApplied:
+          selectedRun.role_model_policy_stage_override_applied,
+      }
+    : null;
+  const selectedRunRuntimeFields = selectedRunRuntimeContractInput
+    ? buildLatestRunRuntimeFields(selectedRunRuntimeContractInput)
+    : [];
+  const selectedRunRoleModelPolicyFields = selectedRunRuntimeContractInput
+    ? buildRoleModelPolicyRuntimeFields(selectedRunRuntimeContractInput)
+    : [];
+  const hasSelectedRunRoleModelPolicyData = selectedRunRuntimeContractInput
+    ? hasRoleModelPolicyRuntimeData(selectedRunRuntimeContractInput)
+    : false;
 
   const currentTaskId = detail?.id ?? selectedTask?.id ?? null;
   const relatedDeliverablesQuery = useTaskRelatedDeliverables(currentTaskId);
@@ -638,6 +673,60 @@ export function TaskDetailPanel({
             isSelected={detail.latest_run?.id === selectedRun?.id}
             onViewLog={(run) => setSelectedRunId(run.id)}
           />
+
+          {selectedRun ? (
+            <div
+              data-testid="task-detail-runtime-context"
+              className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-50">
+                    Task Detail Runtime Contract
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-300">
+                    Task {detail.id}; Run {selectedRun.id}
+                  </p>
+                </div>
+                <StatusBadge
+                  label={selectedRun.status}
+                  tone={mapRunStatusTone(selectedRun.status)}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <DetailField label="Task ID" value={detail.id} />
+                <DetailField label="Run ID" value={selectedRun.id} />
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {selectedRunRuntimeFields.map((field) => (
+                  <DetailField
+                    key={`task-runtime-${field.key}`}
+                    label={field.label}
+                    value={field.value}
+                  />
+                ))}
+              </div>
+
+              {hasSelectedRunRoleModelPolicyData ? (
+                <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
+                    Task Detail Role Model Policy Runtime
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                    {selectedRunRoleModelPolicyFields.map((field) => (
+                      <DetailField
+                        key={`task-policy-${field.key}`}
+                        label={field.label}
+                        value={field.value}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
             <div className="flex items-center justify-between gap-4">

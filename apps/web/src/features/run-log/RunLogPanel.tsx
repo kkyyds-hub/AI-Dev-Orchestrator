@@ -1,5 +1,10 @@
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
+import {
+  buildLatestRunRuntimeFields,
+  buildRoleModelPolicyRuntimeFields,
+  hasRoleModelPolicyRuntimeData,
+} from "../../lib/latestRunRuntimeContract";
 import { mapLogLevelTone } from "../../lib/status";
 import type { ConsoleRun } from "../console/types";
 import { useDecisionTrace, useRunLogs } from "./hooks";
@@ -12,6 +17,36 @@ type RunLogPanelProps = {
 export function RunLogPanel({ panelId, selectedRun }: RunLogPanelProps) {
   const logsQuery = useRunLogs(selectedRun?.id ?? null);
   const decisionTraceQuery = useDecisionTrace(selectedRun?.id ?? null);
+  const runtimeContractInput = selectedRun
+    ? {
+        providerKey: selectedRun.provider_key,
+        promptTemplateKey: selectedRun.prompt_template_key,
+        promptTemplateVersion: selectedRun.prompt_template_version,
+        tokenAccountingMode: selectedRun.token_accounting_mode,
+        tokenPricingSource: selectedRun.token_pricing_source,
+        promptCharCount: selectedRun.prompt_char_count,
+        promptTokens: selectedRun.prompt_tokens,
+        completionTokens: selectedRun.completion_tokens,
+        totalTokens: selectedRun.total_tokens,
+        estimatedCost: selectedRun.estimated_cost,
+        providerReceiptId: selectedRun.provider_receipt_id,
+        roleModelPolicySource: selectedRun.role_model_policy_source,
+        roleModelPolicyDesiredTier: selectedRun.role_model_policy_desired_tier,
+        roleModelPolicyAdjustedTier: selectedRun.role_model_policy_adjusted_tier,
+        roleModelPolicyFinalTier: selectedRun.role_model_policy_final_tier,
+        roleModelPolicyStageOverrideApplied:
+          selectedRun.role_model_policy_stage_override_applied,
+      }
+    : null;
+  const runtimeFields = runtimeContractInput
+    ? buildLatestRunRuntimeFields(runtimeContractInput)
+    : [];
+  const roleModelPolicyFields = runtimeContractInput
+    ? buildRoleModelPolicyRuntimeFields(runtimeContractInput)
+    : [];
+  const hasRoleModelPolicyData = runtimeContractInput
+    ? hasRoleModelPolicyRuntimeData(runtimeContractInput)
+    : false;
 
   return (
     <div
@@ -44,6 +79,40 @@ export function RunLogPanel({ panelId, selectedRun }: RunLogPanelProps) {
         </div>
       ) : (
         <div className="mt-4 space-y-3">
+          <div
+            data-testid="run-log-runtime-context"
+            className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4"
+          >
+            <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+              Run Log Runtime Context
+            </div>
+            <p className="mt-2 text-xs text-slate-300">Run {selectedRun.id}</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <InfoRow label="Run ID" value={selectedRun.id} />
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              {runtimeFields.map((field) => (
+                <InfoRow key={`run-log-runtime-${field.key}`} label={field.label} value={field.value} />
+              ))}
+            </div>
+            {hasRoleModelPolicyData ? (
+              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
+                  Run Log Role Model Policy Runtime
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  {roleModelPolicyFields.map((field) => (
+                    <InfoRow
+                      key={`run-log-policy-${field.key}`}
+                      label={field.label}
+                      value={field.value}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           {decisionTraceQuery.data ? (
             <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
               <div className="flex items-start justify-between gap-4">

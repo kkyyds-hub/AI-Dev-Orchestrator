@@ -17,6 +17,10 @@ type StrategyDecisionPanelProps = {
   projectId: string | null;
   drilldownContext?: BossDrilldownContext | null;
   latestRunTaskSample?: BossProjectLatestTask | null;
+  onNavigateToTaskDetail?: (
+    taskId: string,
+    options?: { runId?: string | null },
+  ) => void;
 };
 
 const MODEL_TIER_LABELS: Record<string, string> = {
@@ -202,6 +206,25 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
             Task {props.latestRunTaskSample.task_id}; Run{" "}
             {props.latestRunTaskSample.latest_run_id ?? "n/a"}
           </p>
+          {props.onNavigateToTaskDetail ? (
+            <div className="mt-3">
+              <button
+                type="button"
+                data-testid="goto-task-detail-from-strategy-preview"
+                onClick={() => {
+                  if (!props.latestRunTaskSample) {
+                    return;
+                  }
+                  props.onNavigateToTaskDetail?.(props.latestRunTaskSample.task_id, {
+                    runId: props.latestRunTaskSample.latest_run_id ?? null,
+                  });
+                }}
+                className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+              >
+                Drill-down to Task Detail / Run Log
+              </button>
+            </div>
+          ) : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {latestRunRuntimeFields.map((field) => (
               <InfoCard key={field.key} label={field.label} value={field.value} />
