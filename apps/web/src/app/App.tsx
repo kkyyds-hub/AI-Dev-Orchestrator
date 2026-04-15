@@ -1,14 +1,14 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 
-import { MetricCard } from "../components/MetricCard";
 import { useReviewClusters } from "../features/console-metrics/decision-hooks";
 import { useBackendHealth, useConsoleOverview } from "../features/console/hooks";
 import type { ConsoleTask } from "../features/console/types";
 import { useConsoleEventStream } from "../features/events/hooks";
 import { ProjectOverviewPage } from "../features/projects/ProjectOverviewPage";
 import { useRunWorkerOnce, useRunWorkerPoolOnce } from "../features/task-actions/hooks";
-import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../lib/format";
+import { formatDateTime } from "../lib/format";
 import { HomeHeaderSection } from "./sections/HomeHeaderSection";
+import { HomeMetricsSection } from "./sections/HomeMetricsSection";
 import { ManualRunResultSection } from "./sections/ManualRunResultSection";
 import { RightSidebarOverviewSection } from "./sections/RightSidebarOverviewSection";
 import { TaskTableSection } from "./sections/TaskTableSection";
@@ -80,10 +80,6 @@ export function App() {
 
     return formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString());
   }, [overviewQuery.dataUpdatedAt]);
-
-  const totalTokens =
-    (overviewQuery.data?.total_prompt_tokens ?? 0) +
-    (overviewQuery.data?.total_completion_tokens ?? 0);
 
   const handleRefresh = async () => {
     await Promise.all([overviewQuery.refetch(), healthQuery.refetch()]);
@@ -167,37 +163,18 @@ export function App() {
           errorMessage={runWorkerPoolOnceMutation.isError ? runWorkerPoolOnceMutation.error.message : null}
         />
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <MetricCard
-            label="浠诲姟鎬绘暟"
-            value={String(overviewQuery.data?.total_tasks ?? 0)}
-            hint="褰撳墠绯荤粺鍐呭凡鍒涘缓鐨勪换鍔℃暟"
-          />
-          <MetricCard
-            label="杩愯涓?/ 寰呭鐞?"
-            value={`${overviewQuery.data?.running_tasks ?? 0} / ${overviewQuery.data?.pending_tasks ?? 0}`}
-            hint="鏈€灏?Worker 褰撳墠鍙鐨勫伐浣滈噺"
-            tone="info"
-          />
-          <MetricCard
-            label="鏆傚仠 / 寰呬汉宸?"
-            value={`${overviewQuery.data?.paused_tasks ?? 0} / ${overviewQuery.data?.waiting_human_tasks ?? 0}`}
-            hint="鏄惧紡鏆傚仠鍜屼汉宸ヤ粙鍏ョ姸鎬?"
-            tone="warning"
-          />
-          <MetricCard
-            label="宸插畬鎴?/ 澶辫触"
-            value={`${overviewQuery.data?.completed_tasks ?? 0} / ${overviewQuery.data?.failed_tasks ?? 0}`}
-            hint="鎴愬姛涓庡け璐ヤ换鍔℃暟閲?"
-            tone="success"
-          />
-          <MetricCard
-            label="绱浼扮畻鎴愭湰"
-            value={formatCurrencyUsd(overviewQuery.data?.total_estimated_cost ?? 0)}
-            hint={`鎬?token锛?${formatTokenCount(totalTokens)}`}
-            tone="warning"
-          />
-        </section>
+        <HomeMetricsSection
+          totalTasks={overviewQuery.data?.total_tasks ?? 0}
+          runningTasks={overviewQuery.data?.running_tasks ?? 0}
+          pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
+          pausedTasks={overviewQuery.data?.paused_tasks ?? 0}
+          waitingHumanTasks={overviewQuery.data?.waiting_human_tasks ?? 0}
+          completedTasks={overviewQuery.data?.completed_tasks ?? 0}
+          failedTasks={overviewQuery.data?.failed_tasks ?? 0}
+          totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
+          totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
+          totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
+        />
 
         <section className="grid gap-4 lg:grid-cols-[1.45fr_1fr]">
           <TaskTableSection
