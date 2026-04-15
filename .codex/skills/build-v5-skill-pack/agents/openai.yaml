@@ -1,4 +1,4 @@
 interface:
   display_name: "Build V5 Skill Pack"
-  short_description: "Create, refine, and formalize one V5 workflow skill at a time"
-  default_prompt: "Use $build-v5-skill-pack to create, refine, or formalize one V5 workflow skill at a time with clear owner boundaries, packaging, references, and consistency with the existing V5 skill pack."
+  short_description: "Health-check, repair, harden, and formalize one V5 skill-pack slice without drifting into business delivery"
+  default_prompt: "Use $build-v5-skill-pack to health-check, repair, harden, or formalize one V5 skill-pack slice at a time. Focus on `.codex/skills/` packaging and owner routing: fix unreadable or garbled files, strengthen workflow-owner boundaries, sync `SKILL.md` + `agents/openai.yaml` + minimal `references/playbooks/templates`, and clarify handoffs with $write-v5-web-control-surface, $govern-v5-web-structure, $drive-v5-orchestrator-delivery, and $verify-v5-runtime-and-regression. Do not drift into `apps/web`, `runtime/orchestrator`, freeze-doc updates, or runtime verification unless the thread owner explicitly changes."

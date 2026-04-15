@@ -1,4 +1,4 @@
 interface:
   display_name: "Write V5 Web Control Surface"
-  short_description: "Land one V5 frontend control-surface work package inside apps/web"
-  default_prompt: "Use $write-v5-web-control-surface to land one V5 frontend control-surface work package inside apps/web with clear feature ownership, contract alignment, state feedback, minimal validation, and sibling-skill handoff notes."
+  short_description: "Land one V5 frontend control-surface work package inside apps/web, while preventing structural sprawl and yielding to govern-v5-web-structure when the main problem becomes frontend governance."
+  default_prompt: "Use $write-v5-web-control-surface to land one V5 frontend control-surface work package inside apps/web with clear feature ownership, contract alignment, honest state feedback, minimal validation, and explicit handoff notes. Before implementation, decide whether this is still a control-surface delivery task; if the main problem is page-owner boundaries, large-file slimming, section extraction, or stable test anchors, stop and hand off to $govern-v5-web-structure instead of bloating App.tsx or ProjectOverviewPage.tsx."

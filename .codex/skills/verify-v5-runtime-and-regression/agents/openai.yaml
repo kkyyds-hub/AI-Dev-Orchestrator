@@ -1,4 +1,4 @@
 interface:
   display_name: "Verify V5 Runtime & Regression"
-  short_description: "Confirm one V5 runtime claim with concrete evidence"
-  default_prompt: "Use $verify-v5-runtime-and-regression to confirm one V5 runtime claim with concrete evidence, bounded scope, regression awareness, and explicit handoff recommendations."
+  short_description: "Confirm one V5 runtime/build/page/regression claim with evidence"
+  default_prompt: "Use $verify-v5-runtime-and-regression to confirm one V5 claim with explicit scenario selection (backend startup/API/worker, frontend build/page/interaction, frontend structure-governance impact, or test-anchor sync), bounded scope, evidence grading, minimal regression checks, and explicit handoff recommendations. Do not turn the thread into implementation, structural refactor, milestone acceptance, or skill-pack maintenance."

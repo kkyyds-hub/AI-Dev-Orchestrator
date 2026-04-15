@@ -1,4 +1,4 @@
 interface:
   display_name: "Accept V5 Milestone Gate"
-  short_description: "Decide whether one V5 slice or milestone is pass, partial, or blocked"
-  default_prompt: "Use $accept-v5-milestone-gate to decide whether one V5 slice, work package, or milestone is Pass, Partial, or Blocked based on scope closure, review, verification, and explicit carry-over items."
+  short_description: "Decide whether one V5 slice, work package, or milestone is Pass, Partial, Blocked, or not yet judgeable"
+  default_prompt: "Use $accept-v5-milestone-gate to decide whether one V5 slice, work package, or milestone should be classified as Pass, Partial, Blocked, or not yet judgeable based on explicit scope, completion definition, review findings, verification evidence, remaining risks, and carry-over items. Keep the judgment honest, bounded, and V5-specific; if the main problem is still skill-pack repair, frontend implementation, structure governance, cross-surface delivery, or runtime verification, hand off to $build-v5-skill-pack, $write-v5-web-control-surface, $govern-v5-web-structure, $drive-v5-orchestrator-delivery, or $verify-v5-runtime-and-regression instead of faking a gate decision."
