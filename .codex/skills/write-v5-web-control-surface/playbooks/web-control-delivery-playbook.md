@@ -1,40 +1,37 @@
 # V5 前端控制面交付 playbook
 
-## 1. 目标
+## 1. 目的
 
-把一个 V5 前端工作包收敛成**一个真实控制面切片**，并在实现过程中主动防止前端结构继续长歪。
+把一次 V5 前端工作包，收敛成 **feature owner 清楚、字段契约清楚、状态反馈完整、最小验证可复述** 的控制面交付切片。
 
-本 playbook 不是“前端随便做点页面”的操作手册，而是：
+这个 playbook 只服务于前端控制面功能落地，不负责前端结构治理、后端实现、运行验证或阶段裁定。
 
-- 先判 owner
-- 再判落位
-- 再判合同与状态
-- 最后才动代码
+## 2. 进入前先判断什么
 
-## 2. 标准执行顺序
+开始前先回答：
 
-### 第 1 步：判定主 owner
+1. 这次主目标是新增 / 补完控制能力，还是先治理结构风险？
+2. 现有 feature owner 是否已经明确？
+3. 若直接动手，是否会把 `App.tsx`、`ProjectOverviewPage.tsx` 或其他聚合页继续做胖？
+4. 当前问题是控制面 feature 缺口，还是其实已经变成结构落位和边界治理问题？
 
-先回答：
+如果主问题偏向页面 owner、拆分边界、大文件瘦身或稳定锚点，先让位给 `govern-v5-web-structure`。
 
-1. 这次主目标是新增 / 补完控制能力，还是先治理结构风险
-2. 现有 feature owner 是否明确
-3. 直接做会不会把 `App.tsx` / `ProjectOverviewPage.tsx` 或某个聚合页继续做胖
+## 3. 最小执行步骤
 
-如果主问题偏向结构治理，立刻转 `govern-v5-web-structure`，不要硬做。
-
-### 第 2 步：把请求翻译成一个控制面切片
+### 步骤 1：把请求翻译成一个控制面切片
 
 至少写清：
 
-- 对应的 V5 Phase / 工作包
-- 本轮只做哪一个页面 / 面板 / 抽屉 / 表单 / 观察区
+- 属于哪个 V5 Phase / 工作包
+- 对应哪个 feature
+- 本轮只做哪个页面 / 面板 / 抽屉 / 表单 / 观察区
 - 依赖哪些后端字段 / 接口 / 动作
 - 本轮明确不做什么
 
-### 第 3 步：锁定安全落位
+### 步骤 2：先决定安全落位
 
-优先选择现有 feature：
+优先复用现有 feature 边界，例如：
 
 - `projects`
 - `roles`
@@ -45,66 +42,59 @@
 - `console-metrics`
 - `run-log`
 
-若现有 feature 明显装不下：
+只有在现有 feature 明显装不下、且 owner 归属仍清楚时，才新增落位。
 
-- 先解释为什么装不下
-- 再判断 owner 是否清楚
-- 如果 owner 仍不清楚，转 `govern-v5-web-structure`
+### 步骤 3：先做 contract 与状态面检查
 
-### 第 4 步：完成状态面与合同检查
+动手前至少核对：
 
-动手前至少确认：
-
-- loading / empty / error / disabled / submit feedback
 - hooks / api / types / page 是否同步
-- 文案是否夸大真实状态
-- 是否存在后端合同缺口
+- loading / empty / error / disabled / submit feedback 是否有落点
+- 文案是否夸大“已接入 / 已完成 / 可用 / 推荐”
+- 是否已有明确的后端字段与接口合同
 
-### 第 5 步：实现控制面切片
+### 步骤 4：实现控制面切片
 
 实现时遵守：
 
-- 先复用已有 feature 边界
-- 不把大段实现继续塞进聚合页
-- 不把复杂字段转换散落在大页面
-- 不拿静态假数据伪装“已接入”
-- 对依赖前提做诚实说明
+- 优先沿现有 feature 边界扩展
+- 不把复杂状态逻辑继续塞回聚合页
+- 不用静态假数据伪装“真实接入”
+- 对依赖前提和缺口做诚实说明
 
-### 第 6 步：做最小验证
+### 步骤 5：做最小验证
 
-最低建议：
+最低要求至少说明：
 
-- 能跑就跑 `npm run build`
-- 说明手工验证路径
-- 说明未验证项与原因
-- 说明是否触发了 `govern-v5-web-structure` 的后续接力
+- 是否运行 `npm run build`
+- 推荐的手工验证路径
+- 未验证项与原因
+- 是否需要后续 `verify-v5-runtime-and-regression` 接棒
 
-### 第 7 步：明确交接路线
+## 4. 执行时重点检查什么
 
-至少回答：
+- feature owner 是否清楚，是否落在正确页面 / feature
+- 字段名、枚举值、状态文案是否与后端合同一致
+- loading / empty / error / disabled / submit pending / success feedback 是否完整
+- 是否把结构问题伪装成控制面实现继续硬做
+- 是否已经出现需要 `govern-v5-web-structure` 先接手的结构信号
 
-- 这次谁是 owner
-- 下一棒是谁
-- 需要 backend / verify / review / docs / acceptance 哪一类接力
-- 如果结构已承压，是否应先交给 `govern-v5-web-structure`
+## 5. 完成后怎么输出
 
-## 3. 交付最小清单
+结束时至少输出：
 
-一轮合格的控制面交付，至少应包含：
+- 本轮控制面切片归属：Phase / 工作包 / feature
+- 本轮改了哪些页面、hooks、types、api 或组件
+- 合同与状态反馈是否已覆盖
+- 已做的最小验证、未做的验证与原因
+- 当前切片已完成什么、明确没完成什么
+- 下一线程建议 skill
 
-- 一个明确的控制面切片
-- 明确的 feature owner 与落位说明
-- 真实状态反馈
-- 合同与文案口径自检
-- 最小验证或缺证说明
-- 下一线程交接建议
+## 6. 什么时候应该让位给兄弟 skill
 
-## 4. 失败信号
-
-出现下面情况，说明这轮还不合格：
-
-- 做的是静态页，不是真实控制面
-- 只有 happy path，没有失败态 / 禁用态
-- 把后端未提供的东西假装成已接入
-- 明显应该先做结构治理，却仍在硬塞实现
-- 没有写清下一线程该接给谁
+- 页面 owner、落位、拆分边界、大文件瘦身、稳定锚点问题更突出 → `govern-v5-web-structure`
+- 后端字段、接口、动作缺口阻断当前切片 → `write-v5-runtime-backend`
+- 需要 build / 页面打开 / 联调 / 回归证据 → `verify-v5-runtime-and-regression`
+- 需要前后端字段契约、边界或风险审查 → `review-v5-code-and-risk`
+- 线程已经自然跨 backend / web / docs / verify 多面推进 → `drive-v5-orchestrator-delivery`
+- 需要阶段通过 / 部分通过 / 阻塞裁定 → `accept-v5-milestone-gate`

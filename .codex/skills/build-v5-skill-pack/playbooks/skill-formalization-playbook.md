@@ -1,85 +1,86 @@
-# V5 skill 正式化与补强 playbook
+# V5 skill 正式化与修复 playbook
 
-## 1. 目标
+## 1. 目的
 
-把一个 V5 草案 skill、损坏 skill 或半成品 skill-pack，推进成 **可直接调用、可重复维护、可稳定交接** 的正式 owner 包。
+把一个 V5 skill 或 skill-pack 配套文件，从 **乱码、损坏、边界失真、包装残缺** 恢复为可直接调用的正式 skill 包。
 
-## 2. 适用场景
+这个 playbook 只负责修 skill 本体，不负责推进 `apps/web`、`runtime/orchestrator`、验证线程或阶段裁定。
 
-适用于以下维护类型：
+## 2. 进入前先判断什么
 
-1. 体检：先查清当前 skill 是否还能带路
-2. 修复：修乱码、缺章、失真 prompt、残缺 packaging
-3. 补强：补边界、路由、references、playbook、template
-4. 正式化：把草案转成正式 `.codex/skills/<skill>/...` 结构
-5. 联动治理：澄清与兄弟 skill 的 owner 分工
+开始前先回答：
 
-## 3. 标准步骤
+1. 当前主问题是 skill 文件不可读、边界不清、prompt 失真、配套缺失吗？
+2. 还是其实已经明确属于前端控制面、前端结构治理、跨层交付、运行验证、文档治理或阶段裁定？
+3. 如果不先修 skill，本轮后续线程是否还会被错误 owner 带偏？
 
-### 第一步：锁定维护对象
+如果根因已经是业务交付本身，而不是 skill 本体损坏，就不要继续留在 `build-v5-skill-pack`。
 
-先写清：
+## 3. 最小执行步骤
 
-- 当前要维护哪个 skill
-- 本轮属于哪种维护类型
-- 为什么此时应该先调 `build-v5-skill-pack`
-
-### 第二步：做最小体检
+### 步骤 1：先做 inventory
 
 至少检查：
 
-- 文件是否可读
-- owner 与边界是否清楚
-- 开始入口与工作流是否完整
-- packaging 是否同步
-- 与兄弟 skill 的路由是否失真
+- `SKILL.md` 是否可读、结构是否完整
+- `agents/openai.yaml` 是否存在、是否与 skill 名称匹配
+- `references/*`、`playbooks/*`、`templates/*` 是否可读可用
+- `SKILL.md` 中引用的配套文件是否真实存在
 
-### 第三步：先判是不是业务 owner 选错了
+### 步骤 2：锁定维护类型
 
-如果问题根因其实已经是：
+把本轮明确归类为：
 
-- 前端控制面实现
-- 前端结构治理
-- 跨层交付
-- 运行验证
+- 体检
+- 修复
+- 补强
+- 正式化
+- 联动治理
 
-就不要继续留在 skill-pack 线程；只有 skill 本身失真时才继续维护。
+如果只是修乱码和损坏，默认按“最小修复”执行，不扩范围。
 
-### 第四步：修正文，再修 packaging
+### 步骤 3：先修可读性，再修 packaging
 
 优先顺序：
 
-1. 修 `SKILL.md`
-2. 修 `agents/openai.yaml`
-3. 补最小必要 references
-4. 如需重复复用，再修 playbook / template
+1. 修文档可读性与编码
+2. 修 owner 与边界语义
+3. 修引用关系与配套文件完整性
+4. 最后补最小必要的 playbook / template 可执行语义
 
-### 第五步：补联动治理
+### 步骤 4：核对兄弟 skill 路由
 
-当目标 skill 与兄弟 skill 容易混淆时，补：
+只核对与目标 skill 最容易冲突的兄弟 skill，确认：
 
-- 明确路由矩阵
-- 明确切换条件
-- 明确不要越权的面
+- 当前 owner 是否清楚
+- 什么时候应切给兄弟 skill
+- 是否存在越权抢活的描述
 
-### 第六步：输出 handoff
+## 4. 执行时重点检查什么
 
-最后用模板写清：
+- 是否仍有乱码、问号占位、断裂语义
+- 是否还能一句话说清“它负责什么 / 不负责什么”
+- `SKILL.md`、agent、references、playbook、template 是否同步
+- routing、开始入口、标准步骤、交接规则是否完整
+- 是否借修 skill 之名扩大到了业务实现或验证
 
-- 本轮修了什么
-- 边界如何更清楚了
-- 后续哪些情况应该先调 `build-v5-skill-pack`
-- 如果继续推进业务，应切到哪个 owner
+## 5. 完成后怎么输出
 
-## 4. 完成标准
+结束时至少输出：
 
-这份 playbook 走完后，至少应得到：
+- 本轮维护对象与维护类型
+- 发现了哪些损坏点
+- 修了哪些文件、每个文件补了什么
+- 与哪些兄弟 skill 的边界更清楚了
+- 之后哪些情况应该先调用 `build-v5-skill-pack`
+- 如果继续推进业务，应切到哪个 owner skill
 
-- 可读、可调用的正式 skill 文件
-- 同步好的 prompt 与 references
-- 可复用的 handoff 说明
-- 更稳定的兄弟 skill 路由关系
+## 6. 什么时候应该让位给兄弟 skill
 
-## 5. 一句话纪律
-
-**正式化与补强的终点不是“看起来更完整”，而是“下一线程真的能拿来用”。**
+- 主问题是前端控制面功能落地 → `write-v5-web-control-surface`
+- 主问题是前端结构治理与锚点稳定 → `govern-v5-web-structure`
+- 主问题是跨 backend / web / docs / verify 的整链推进 → `drive-v5-orchestrator-delivery`
+- 主问题是运行事实、build、页面、API、回归验证 → `verify-v5-runtime-and-regression`
+- 主问题是文档冻结、状态回填与交接治理 → `manage-v5-plan-and-freeze-docs`
+- 主问题是代码与合同风险审查 → `review-v5-code-and-risk`
+- 主问题是阶段 Pass / Partial / Blocked 裁定 → `accept-v5-milestone-gate`
