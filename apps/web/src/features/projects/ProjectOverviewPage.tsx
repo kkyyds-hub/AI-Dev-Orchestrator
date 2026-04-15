@@ -10,7 +10,6 @@ import { DeliverableCenterPage } from "../deliverables/DeliverableCenterPage";
 import { RoleCatalogPage } from "../roles/RoleCatalogPage";
 import { RoleWorkbenchPage } from "../roles/RoleWorkbenchPage";
 import { SkillRegistryPage } from "../skills/SkillRegistryPage";
-import { RepositoryHomeCard } from "../repositories/RepositoryHomeCard";
 import { MemorySearchPanel } from "./MemorySearchPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectCreateFlow } from "./ProjectCreateFlow";
@@ -21,6 +20,7 @@ import { ProjectDeliverySnapshotCard } from "./components/ProjectDeliverySnapsho
 import { ProjectTable } from "./components/ProjectTable";
 import { ProjectDetailSection } from "./sections/ProjectDetailSection";
 import { FeaturedProjectsSection } from "./sections/FeaturedProjectsSection";
+import { RepositoryOverviewSection } from "./sections/RepositoryOverviewSection";
 import {
   useAdvanceProjectStage,
   useBossProjectOverview,
@@ -534,43 +534,13 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
           <ProjectSummaryCards overview={overviewQuery.data} />
 
           {featuredProjects.length > 0 ? (
-            <section className="space-y-4">
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-50">
-                    仓库入口概览
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    把项目阶段统计、任务概览和仓库摘要放在同一屏联动查看；每张卡片只展示绑定、快照和变更会话的 Day04 最小入口。
-                  </p>
-                </div>
-                <div className="text-xs text-slate-500">
-                  默认展示当前排序最靠前的 {featuredProjects.length} 个项目
-                </div>
-              </div>
-
-              <div className="grid gap-4 xl:grid-cols-3">
-                {featuredProjects.map((project) => (
-                  <RepositoryHomeCard
-                    key={`repository-home-${project.id}`}
-                    workspace={project.repository_workspace}
-                    snapshot={project.latest_repository_snapshot}
-                    changeSession={project.current_change_session}
-                    title={project.name}
-                    description={project.summary}
-                    variant="compact"
-                    actionLabel={
-                      project.id === selectedProjectId ? "已在详情中" : "查看项目详情"
-                    }
-                    onAction={() =>
-                      handleSelectProject(project.id, {
-                        scrollIntoDetail: true,
-                      })
-                    }
-                  />
-                ))}
-              </div>
-            </section>
+            <RepositoryOverviewSection
+              featuredProjects={featuredProjects}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={(projectId) =>
+                handleSelectProject(projectId, { scrollIntoDetail: true })
+              }
+            />
           ) : null}
 
           {featuredProjects.length > 0 ? (
