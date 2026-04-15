@@ -1,0 +1,4 @@
+interface:
+  display_name: "Govern V5 Web Structure"
+  short_description: "Govern V5 frontend structure, slim oversized files, control integration risk, and enforce stable test anchors without doing visual redesign."
+  default_prompt: "Use $govern-v5-web-structure to govern V5 frontend structure inside apps/web: slim oversized files, enforce page-owner boundaries, control integration/test/doc impacts, and add stable test anchors without doing visual redesign."
