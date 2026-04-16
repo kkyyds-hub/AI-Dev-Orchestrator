@@ -210,7 +210,7 @@ function TaskLatestRunRuntimeSummary(props: {
           <ContractLine
             key={field.key}
             testId={`home-task-runtime-field-${props.taskId}-${field.key}`}
-            label={field.label}
+            label={toDay07RuntimeLabel(field.label)}
             value={field.value}
           />
         ))}
@@ -223,6 +223,13 @@ function TaskLatestRunRuntimeSummary(props: {
         >
           <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-300">
             Role Model Policy Runtime
+          </div>
+          <div className="mt-2">
+            <ContractLine
+              testId={`home-task-policy-field-${props.taskId}-contract-source`}
+              label="role policy"
+              value={runtimeContractInput.roleModelPolicySource ?? "-"}
+            />
           </div>
           <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
             {roleModelPolicyFields.map((field) => (
@@ -238,6 +245,20 @@ function TaskLatestRunRuntimeSummary(props: {
       ) : null}
     </div>
   );
+}
+
+function toDay07RuntimeLabel(label: string) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === "provider") {
+    return "provider";
+  }
+  if (normalized.startsWith("prompt")) {
+    return "prompt";
+  }
+  if (normalized.includes("accounting")) {
+    return "accounting";
+  }
+  return label;
 }
 
 function ContractLine(props: { label: string; value: string; testId?: string }) {
