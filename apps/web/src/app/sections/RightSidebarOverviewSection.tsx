@@ -15,6 +15,11 @@ type RightSidebarOverviewSectionProps = {
   budget: ConsoleBudget | null;
   blockedTasks: number;
   realtimeStatus: StreamConnectionStatus;
+  onNavigateToProjectDrilldown: (detail: {
+    source: "home_latest_run" | "home_manual_run";
+    taskId: string;
+    runId?: string | null;
+  }) => void;
   onNavigateToDeliverable: (input: { projectId: string; deliverableId: string }) => void;
   reviewClusters: Parameters<typeof ReviewClustersPanel>[0]["clusters"];
   reviewClustersIsLoading: boolean;
@@ -39,6 +44,13 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
         budget={props.budget}
         realtimeStatus={props.realtimeStatus}
         onNavigateToDeliverable={props.onNavigateToDeliverable}
+        onNavigateToStrategyPreview={({ taskId, runId }) =>
+          props.onNavigateToProjectDrilldown({
+            source: "home_latest_run",
+            taskId,
+            runId,
+          })
+        }
       />
 
       {props.budget ? (

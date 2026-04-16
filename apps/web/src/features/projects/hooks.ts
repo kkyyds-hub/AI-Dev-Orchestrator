@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -6,6 +7,7 @@ import {
   applyProjectPlanDraft,
   createProjectChangePlan,
   createProjectPlanDraft,
+  fetchTaskOwnership,
   fetchChangePlanDetail,
   fetchBossProjectOverview,
   fetchProjectChangePlans,
@@ -16,7 +18,19 @@ import {
   searchProjectMemory,
   selectProjectSopTemplate,
 } from "./api";
-import type { ChangePlanCreateInput, ChangePlanDraftInput, ProjectMemoryKind } from "./types";
+import {
+  buildBossDrilldownHash,
+  parseBossDrilldownHash,
+} from "./lib/bossDrilldown";
+import type {
+  BossDrilldownContext,
+  BossDrilldownEventDetail,
+  BossDrilldownFeedback,
+  BossProjectItem,
+  ChangePlanCreateInput,
+  ChangePlanDraftInput,
+  ProjectMemoryKind,
+} from "./types";
 
 export function useBossProjectOverview(options?: { enablePolling?: boolean }) {
   return useQuery({
@@ -32,6 +46,191 @@ export function useProjectDetail(projectId: string | null) {
     queryFn: () => fetchProjectDetail(projectId ?? ""),
     enabled: projectId !== null,
   });
+}
+
+export function useBossProjectDrilldown(input: {
+  projects: BossProjectItem[];
+  refetchOverview: () => Promise<{ data?: { projects: BossProjectItem[] } }>;
+  onSelectProject: (
+    projectId: string,
+    options?: {
+      scrollIntoDetail?: boolean;
+      preserveDrilldownContext?: boolean;
+    },
+  ) => void;
+}) {
+  const lastAppliedDrilldownHashRef = useRef<string | null>(null);
+  const [drilldownContext, setDrilldownContext] =
+    useState<BossDrilldownContext | null>(null);
+  const [drilldownFeedback, setDrilldownFeedback] =
+    useState<BossDrilldownFeedback | null>(null);
+
+  const navigateToDrilldown = async (detail: BossDrilldownEventDetail) => {
+    if (!detail.taskId) {
+      return;
+    }
+
+    let resolvedProjectId: string | null = null;
+    try {
+      const task = await fetchTaskOwnership(detail.taskId);
+      resolvedProjectId = task.project_id ?? null;
+    } catch (error) {
+      setDrilldownFeedback({
+        tone: "warning",
+        text:
+          error instanceof Error
+            ? `Unable to resolve authoritative project ownership for task ${detail.taskId}: ${error.message}`
+            : `Unable to resolve authoritative project ownership for task ${detail.taskId}.`,
+      });
+      return;
+    }
+
+    if (!resolvedProjectId) {
+      setDrilldownFeedback({
+        tone: "warning",
+        text:
+          "Unable to resolve authoritative project ownership for this task. Drill-down was not applied.",
+      });
+      return;
+    }
+
+    let availableProjects = input.projects;
+    if (!availableProjects.some((project) => project.id === resolvedProjectId)) {
+      const refreshedOverview = await input.refetchOverview();
+      availableProjects = refreshedOverview.data?.projects ?? availableProjects;
+    }
+
+    if (!availableProjects.some((project) => project.id === resolvedProjectId)) {
+      setDrilldownFeedback({
+        tone: "warning",
+        text: `Task ${detail.taskId} belongs to project ${resolvedProjectId}, but that project is not available in current homepage overview.`,
+      });
+      return;
+    }
+
+    const nextContext: BossDrilldownContext = {
+      source: detail.source ?? "home_latest_run",
+      project_id: resolvedProjectId,
+      task_id: detail.taskId,
+      run_id: detail.runId ?? null,
+    };
+
+    setDrilldownContext(nextContext);
+    setDrilldownFeedback({
+      tone: "success",
+      text:
+        detail.projectId && detail.projectId !== resolvedProjectId
+          ? `Drill-down context active with authoritative project override (${detail.projectId} -> ${resolvedProjectId}): task ${nextContext.task_id}, run ${nextContext.run_id ?? "n/a"}.`
+          : `Drill-down context active: task ${nextContext.task_id}, run ${nextContext.run_id ?? "n/a"}.`,
+    });
+
+    const nextHash = buildBossDrilldownHash(nextContext);
+    window.location.hash = nextHash;
+    lastAppliedDrilldownHashRef.current = nextHash;
+
+    input.onSelectProject(resolvedProjectId, {
+      scrollIntoDetail: true,
+      preserveDrilldownContext: true,
+    });
+
+    requestAnimationFrame(() => {
+      document.getElementById("project-latest-run-control-surface")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const navigateToStrategyPreview = (context: BossDrilldownContext) => {
+    setDrilldownContext(context);
+    setDrilldownFeedback({
+      tone: "success",
+      text: `Continue drill-down to Strategy Preview with run ${context.run_id ?? "n/a"}.`,
+    });
+
+    const nextHash = buildBossDrilldownHash(context);
+    window.location.hash = nextHash;
+    lastAppliedDrilldownHashRef.current = nextHash;
+
+    requestAnimationFrame(() => {
+      document.getElementById("strategy-preview-panel")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const navigateToProjectLatestRun = (context: BossDrilldownContext) => {
+    const nextContext: BossDrilldownContext = {
+      ...context,
+      source: "strategy_preview",
+    };
+    setDrilldownContext(nextContext);
+    setDrilldownFeedback({
+      tone: "success",
+      text: `Return to Project Latest Run with run ${nextContext.run_id ?? "n/a"}.`,
+    });
+
+    const nextHash = buildBossDrilldownHash(nextContext);
+    window.location.hash = nextHash;
+    lastAppliedDrilldownHashRef.current = nextHash;
+
+    requestAnimationFrame(() => {
+      document.getElementById("project-latest-run-control-surface")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  useEffect(() => {
+    const handleDrilldownNavigation = (event: Event) => {
+      const detail = (event as CustomEvent<BossDrilldownEventDetail>).detail;
+      void navigateToDrilldown(detail);
+    };
+
+    window.addEventListener(
+      "boss:drilldown-navigate",
+      handleDrilldownNavigation as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "boss:drilldown-navigate",
+        handleDrilldownNavigation as EventListener,
+      );
+    };
+  }, [input.projects, input.refetchOverview, input.onSelectProject]);
+
+  useEffect(() => {
+    const applyHashDrilldown = () => {
+      if (window.location.hash === lastAppliedDrilldownHashRef.current) {
+        return;
+      }
+
+      const parsed = parseBossDrilldownHash(window.location.hash);
+      if (!parsed?.taskId) {
+        return;
+      }
+      void navigateToDrilldown(parsed);
+    };
+
+    applyHashDrilldown();
+    window.addEventListener("hashchange", applyHashDrilldown);
+
+    return () => {
+      window.removeEventListener("hashchange", applyHashDrilldown);
+    };
+  }, [input.projects, input.refetchOverview, input.onSelectProject]);
+
+  return {
+    drilldownContext,
+    drilldownFeedback,
+    setDrilldownContext,
+    setDrilldownFeedback,
+    navigateToStrategyPreview,
+    navigateToProjectLatestRun,
+  };
 }
 
 export function useProjectMemorySnapshot(projectId: string | null) {

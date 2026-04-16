@@ -9,6 +9,7 @@ import type {
   ProjectMemorySearchResult,
   ProjectMemorySnapshot,
   ProjectTimeline,
+  TaskOwnershipResponse,
   ProjectSopTemplateSelectResult,
   ProjectSopTemplateSummary,
   ProjectStageAdvanceResult,
@@ -23,6 +24,10 @@ export function fetchBossProjectOverview(): Promise<BossProjectOverview> {
 
 export function fetchProjectDetail(projectId: string): Promise<ProjectDetail> {
   return requestJson<ProjectDetail>(`/projects/${projectId}`);
+}
+
+export function fetchTaskOwnership(taskId: string): Promise<TaskOwnershipResponse> {
+  return requestJson<TaskOwnershipResponse>(`/tasks/${taskId}`);
 }
 
 export function fetchProjectMemorySnapshot(

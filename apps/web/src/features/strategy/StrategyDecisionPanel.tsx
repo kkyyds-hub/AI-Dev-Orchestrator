@@ -17,6 +17,7 @@ type StrategyDecisionPanelProps = {
   projectId: string | null;
   drilldownContext?: BossDrilldownContext | null;
   latestRunTaskSample?: BossProjectLatestTask | null;
+  onNavigateToProjectLatestRun?: (() => void) | null;
   onNavigateToTaskDetail?: (
     taskId: string,
     options?: { runId?: string | null },
@@ -176,6 +177,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
 
       {props.drilldownContext ? (
         <div
+          data-testid="strategy-preview-drilldown-status"
           className={`mt-4 rounded-xl border p-3 text-xs ${
             drilldownTaskMatchesRuntimeSample && drilldownRunMatchesLatest
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
@@ -206,8 +208,18 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
             Task {props.latestRunTaskSample.task_id}; Run{" "}
             {props.latestRunTaskSample.latest_run_id ?? "n/a"}
           </p>
-          {props.onNavigateToTaskDetail ? (
-            <div className="mt-3">
+          {props.onNavigateToProjectLatestRun || props.onNavigateToTaskDetail ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {props.onNavigateToProjectLatestRun ? (
+                <button
+                  type="button"
+                  data-testid="goto-project-latest-run-from-strategy-preview"
+                  onClick={props.onNavigateToProjectLatestRun}
+                  className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                >
+                  Back to Project Latest Run
+                </button>
+              ) : null}
               <button
                 type="button"
                 data-testid="goto-task-detail-from-strategy-preview"
@@ -223,21 +235,54 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
               >
                 Drill-down to Task Detail / Run Log
               </button>
+              {props.latestRunTaskSample.latest_run_id ? (
+                <button
+                  type="button"
+                  data-testid="goto-run-log-from-strategy-preview"
+                  onClick={() => {
+                    if (!props.latestRunTaskSample?.latest_run_id) {
+                      return;
+                    }
+                    props.onNavigateToTaskDetail?.(props.latestRunTaskSample.task_id, {
+                      runId: props.latestRunTaskSample.latest_run_id,
+                    });
+                  }}
+                  className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                >
+                  Drill-down to Run Log
+                </button>
+              ) : null}
             </div>
           ) : null}
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div
+            data-testid="strategy-preview-runtime-card"
+            className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+          >
             {latestRunRuntimeFields.map((field) => (
-              <InfoCard key={field.key} label={field.label} value={field.value} />
+              <InfoCard
+                key={field.key}
+                testId={`strategy-preview-runtime-field-${field.key}`}
+                label={field.label}
+                value={field.value}
+              />
             ))}
           </div>
           {hasLatestRunPolicyData ? (
-            <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <div
+              data-testid="strategy-preview-policy-card"
+              className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3"
+            >
               <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
                 Linked Role Model Policy Runtime
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 {latestRunPolicyFields.map((field) => (
-                  <InfoCard key={field.key} label={field.label} value={field.value} />
+                  <InfoCard
+                    key={field.key}
+                    testId={`strategy-preview-policy-field-${field.key}`}
+                    label={field.label}
+                    value={field.value}
+                  />
                 ))}
               </div>
             </div>
@@ -462,13 +507,23 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
   );
 }
 
-function InfoCard(props: { label: string; value: string; extra?: string }) {
+function InfoCard(props: {
+  label: string;
+  value: string;
+  extra?: string;
+  testId?: string;
+}) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div
+      data-testid={props.testId}
+      className="rounded-xl border border-slate-800 bg-slate-900/70 p-4"
+    >
+      <div data-slot="label" className="text-xs uppercase tracking-[0.2em] text-slate-500">
         {props.label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div data-slot="value" className="mt-2 text-sm font-medium text-slate-100">
+        {props.value}
+      </div>
       {props.extra ? (
         <div className="mt-2 text-xs leading-5 text-slate-500">{props.extra}</div>
       ) : null}

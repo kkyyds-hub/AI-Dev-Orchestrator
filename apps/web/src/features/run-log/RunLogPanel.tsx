@@ -11,10 +11,20 @@ import { useDecisionTrace, useRunLogs } from "./hooks";
 
 type RunLogPanelProps = {
   panelId?: string;
+  taskId?: string | null;
   selectedRun: ConsoleRun | null;
+  onNavigateToStrategyPreview?: (input: {
+    taskId: string;
+    runId?: string | null;
+  }) => void;
 };
 
-export function RunLogPanel({ panelId, selectedRun }: RunLogPanelProps) {
+export function RunLogPanel({
+  panelId,
+  taskId,
+  selectedRun,
+  onNavigateToStrategyPreview,
+}: RunLogPanelProps) {
   const logsQuery = useRunLogs(selectedRun?.id ?? null);
   const decisionTraceQuery = useDecisionTrace(selectedRun?.id ?? null);
   const runtimeContractInput = selectedRun
@@ -87,12 +97,38 @@ export function RunLogPanel({ panelId, selectedRun }: RunLogPanelProps) {
               Run Log Runtime Context
             </div>
             <p className="mt-2 text-xs text-slate-300">Run {selectedRun.id}</p>
+            {taskId && onNavigateToStrategyPreview ? (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  data-testid="goto-strategy-preview-from-run-log"
+                  onClick={() =>
+                    onNavigateToStrategyPreview({
+                      taskId,
+                      runId: selectedRun.id,
+                    })
+                  }
+                  className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                >
+                  Back to Strategy Preview
+                </button>
+              </div>
+            ) : null}
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <InfoRow label="Run ID" value={selectedRun.id} />
+              <InfoRow
+                testId="run-log-runtime-field-run_id"
+                label="Run ID"
+                value={selectedRun.id}
+              />
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               {runtimeFields.map((field) => (
-                <InfoRow key={`run-log-runtime-${field.key}`} label={field.label} value={field.value} />
+                <InfoRow
+                  key={`run-log-runtime-${field.key}`}
+                  testId={`run-log-runtime-field-${field.key}`}
+                  label={field.label}
+                  value={field.value}
+                />
               ))}
             </div>
             {hasRoleModelPolicyData ? (
@@ -104,6 +140,7 @@ export function RunLogPanel({ panelId, selectedRun }: RunLogPanelProps) {
                   {roleModelPolicyFields.map((field) => (
                     <InfoRow
                       key={`run-log-policy-${field.key}`}
+                      testId={`run-log-policy-field-${field.key}`}
                       label={field.label}
                       value={field.value}
                     />
@@ -247,11 +284,18 @@ function formatDecisionStage(stage: string) {
   }
 }
 
-function InfoRow(props: { label: string; value: string }) {
+function InfoRow(props: { label: string; value: string; testId?: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 break-all text-sm font-medium text-slate-100">{props.value}</div>
+    <div
+      data-testid={props.testId}
+      className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3"
+    >
+      <div data-slot="label" className="text-xs uppercase tracking-[0.2em] text-slate-500">
+        {props.label}
+      </div>
+      <div data-slot="value" className="mt-2 break-all text-sm font-medium text-slate-100">
+        {props.value}
+      </div>
     </div>
   );
 }

@@ -42,6 +42,7 @@ export function ProjectDetailSection(props: {
   drilldownContext: BossDrilldownContext | null;
   activeDrilldownTaskSample: BossProjectLatestTask | null;
   onNavigateToStrategyPreview: (context: BossDrilldownContext) => void;
+  onNavigateToProjectLatestRun: (context: BossDrilldownContext) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onAdvanceStage: (note: string | null) => Promise<void> | void;
   isAdvancing: boolean;
@@ -73,6 +74,31 @@ export function ProjectDetailSection(props: {
   const runtimeTaskSample = props.drilldownContext
     ? props.activeDrilldownTaskSample
     : props.project?.latest_task ?? null;
+  const handleNavigateToTaskDetailFromLatestRun = () => {
+    if (!runtimeTaskSample) {
+      return;
+    }
+    props.onNavigateToTask?.(runtimeTaskSample.task_id, {
+      runId: runtimeTaskSample.latest_run_id,
+    });
+    requestAnimationFrame(() => {
+      document.getElementById("task-detail-panel")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+  const handleNavigateToProjectLatestRunFromStrategyPreview = () => {
+    if (!projectId || !runtimeTaskSample) {
+      return;
+    }
+    props.onNavigateToProjectLatestRun({
+      source: "strategy_preview",
+      project_id: projectId,
+      task_id: runtimeTaskSample.task_id,
+      run_id: runtimeTaskSample.latest_run_id ?? null,
+    });
+  };
 
   return (
     <div data-testid="project-detail-section" className="mt-4 space-y-5">
@@ -222,6 +248,7 @@ export function ProjectDetailSection(props: {
         projectId={projectId}
         drilldownContext={props.drilldownContext}
         latestRunTaskSample={runtimeTaskSample}
+        onNavigateToProjectLatestRun={handleNavigateToProjectLatestRunFromStrategyPreview}
         onNavigateToTaskDetail={props.onNavigateToTask}
       />
 
@@ -289,10 +316,21 @@ export function ProjectDetailSection(props: {
                 projectId && runtimeTaskSample?.latest_run_id
                   ? () =>
                       props.onNavigateToStrategyPreview({
-                        source: props.drilldownContext?.source ?? "project_latest_run",
+                        source: "project_latest_run",
                         project_id: projectId,
                         task_id: runtimeTaskSample.task_id,
                         run_id: runtimeTaskSample.latest_run_id,
+                      })
+                  : null
+              }
+              onNavigateToTaskDetail={
+                runtimeTaskSample?.task_id ? handleNavigateToTaskDetailFromLatestRun : null
+              }
+              onNavigateToRunLog={
+                runtimeTaskSample?.latest_run_id
+                  ? () =>
+                      props.onNavigateToTask?.(runtimeTaskSample.task_id, {
+                        runId: runtimeTaskSample.latest_run_id,
                       })
                   : null
               }

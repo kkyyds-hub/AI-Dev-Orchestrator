@@ -20,17 +20,14 @@ import { ProjectDetailSection } from "./sections/ProjectDetailSection";
 import { FeaturedProjectsSection } from "./sections/FeaturedProjectsSection";
 import { ProjectOverviewHeroSection } from "./sections/ProjectOverviewHeroSection";
 import { RepositoryOverviewSection } from "./sections/RepositoryOverviewSection";
+import { buildTaskSampleFromDetail } from "./lib/bossDrilldown";
 import {
   useAdvanceProjectStage,
+  useBossProjectDrilldown,
   useBossProjectOverview,
   useProjectDetail,
 } from "./hooks";
-import type {
-  BossDrilldownContext,
-  BossDrilldownSource,
-  BossProjectItem,
-  BossProjectLatestTask,
-} from "./types";
+import type { BossProjectItem, BossProjectLatestTask } from "./types";
 import type { TaskDetail } from "../task-detail/types";
 
 type ProjectOverviewPageProps = {
@@ -53,101 +50,6 @@ type ProjectDay15FlowOverview = {
   git_write_actions_triggered: boolean;
 };
 
-type BossDrilldownEventDetail = {
-  source?: BossDrilldownSource;
-  projectId?: string | null;
-  taskId?: string | null;
-  runId?: string | null;
-};
-
-type TaskOwnershipResponse = {
-  project_id: string | null;
-};
-
-function buildBossDrilldownHash(detail: BossDrilldownContext): string {
-  const params = new URLSearchParams();
-  params.set("source", detail.source);
-  params.set("taskId", detail.task_id);
-  if (detail.project_id) {
-    params.set("projectId", detail.project_id);
-  }
-  if (detail.run_id) {
-    params.set("runId", detail.run_id);
-  }
-  return `#boss-drilldown?${params.toString()}`;
-}
-
-function parseBossDrilldownHash(hashValue: string): BossDrilldownEventDetail | null {
-  if (!hashValue.startsWith("#boss-drilldown")) {
-    return null;
-  }
-  const queryIndex = hashValue.indexOf("?");
-  const searchValue = queryIndex >= 0 ? hashValue.slice(queryIndex + 1) : "";
-  const params = new URLSearchParams(searchValue);
-  const taskId = params.get("taskId");
-  if (!taskId) {
-    return null;
-  }
-
-  return {
-    source: (params.get("source") as BossDrilldownSource | null) ?? "home_latest_run",
-    projectId: params.get("projectId"),
-    taskId,
-    runId: params.get("runId"),
-  };
-}
-
-function buildTaskSampleFromDetail(
-  detail: TaskDetail,
-  preferredRunId: string | null,
-): BossProjectLatestTask | null {
-  const matchedRun =
-    (preferredRunId
-      ? detail.runs.find((run) => run.id === preferredRunId)
-      : null) ?? detail.latest_run;
-  if (!matchedRun) {
-    return null;
-  }
-
-  return {
-    task_id: detail.id,
-    title: detail.title,
-    status: detail.status,
-    priority: detail.priority,
-    risk_level: detail.risk_level,
-    human_status: detail.human_status,
-    updated_at: detail.updated_at,
-    latest_run_status: matchedRun.status,
-    latest_run_summary: matchedRun.result_summary,
-    latest_run_id: matchedRun.id,
-    latest_run_log_path: matchedRun.log_path,
-    latest_run_model_name: null,
-    latest_run_model_tier: null,
-    latest_run_strategy_code: null,
-    latest_run_provider_key: matchedRun.provider_key,
-    latest_run_prompt_template_key: matchedRun.prompt_template_key,
-    latest_run_prompt_template_version: matchedRun.prompt_template_version,
-    latest_run_prompt_char_count: matchedRun.prompt_char_count,
-    latest_run_token_accounting_mode: matchedRun.token_accounting_mode,
-    latest_run_token_pricing_source: matchedRun.token_pricing_source,
-    latest_run_provider_receipt_id: matchedRun.provider_receipt_id,
-    latest_run_prompt_tokens: matchedRun.prompt_tokens,
-    latest_run_completion_tokens: matchedRun.completion_tokens,
-    latest_run_total_tokens: matchedRun.total_tokens,
-    latest_run_estimated_cost: matchedRun.estimated_cost,
-    latest_run_created_at: matchedRun.created_at,
-    latest_run_finished_at: matchedRun.finished_at,
-    latest_run_role_model_policy_source: matchedRun.role_model_policy_source,
-    latest_run_role_model_policy_desired_tier:
-      matchedRun.role_model_policy_desired_tier,
-    latest_run_role_model_policy_adjusted_tier:
-      matchedRun.role_model_policy_adjusted_tier,
-    latest_run_role_model_policy_final_tier: matchedRun.role_model_policy_final_tier,
-    latest_run_role_model_policy_stage_override_applied:
-      matchedRun.role_model_policy_stage_override_applied,
-  };
-}
-
 function useProjectDay15FlowOverview(projectId: string | null) {
   return useQuery({
     queryKey: ["project-day15-repository-flow", projectId],
@@ -162,7 +64,6 @@ function useProjectDay15FlowOverview(projectId: string | null) {
 export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const overviewQuery = useBossProjectOverview();
   const detailRef = useRef<HTMLElement | null>(null);
-  const lastAppliedDrilldownHashRef = useRef<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
   );
@@ -174,13 +75,6 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     null,
   );
   const [requestedApprovalId, setRequestedApprovalId] = useState<string | null>(null);
-  const [drilldownContext, setDrilldownContext] = useState<BossDrilldownContext | null>(
-    null,
-  );
-  const [drilldownFeedback, setDrilldownFeedback] = useState<{
-    tone: "success" | "warning";
-    text: string;
-  } | null>(null);
 
   const projects = overviewQuery.data?.projects ?? [];
 
@@ -208,33 +102,11 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const advanceStageMutation = useAdvanceProjectStage(selectedProjectId);
   const day15FlowOverviewQuery = useProjectDay15FlowOverview(selectedProjectId);
   const selectedProjectDetail = projectDetailQuery.data ?? null;
-  const drilldownTaskDetailQuery = useQuery({
-    queryKey: ["project-drilldown-task-detail", drilldownContext?.task_id],
-    queryFn: () =>
-      requestJson<TaskDetail>(`/tasks/${drilldownContext?.task_id ?? ""}/detail`),
-    enabled: Boolean(drilldownContext?.task_id),
-  });
-  const activeDrilldownTaskSample = useMemo<BossProjectLatestTask | null>(() => {
-    if (!drilldownContext || !drilldownTaskDetailQuery.data) {
-      return null;
-    }
-    return buildTaskSampleFromDetail(
-      drilldownTaskDetailQuery.data,
-      drilldownContext.run_id,
-    );
-  }, [drilldownContext, drilldownTaskDetailQuery.data]);
 
   const featuredProjects = useMemo(() => projects.slice(0, 3), [projects]);
   const lastUpdatedText = overviewQuery.dataUpdatedAt
     ? formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString())
     : "尚未刷新";
-
-  const resolveProjectOwnershipByTaskId = async (
-    taskId: string,
-  ): Promise<string | null> => {
-    const task = await requestJson<TaskOwnershipResponse>(`/tasks/${taskId}`);
-    return task.project_id ?? null;
-  };
 
   const handleSelectProject = (
     projectId: string,
@@ -267,6 +139,34 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const handleProjectCreated = (projectId: string) => {
     handleSelectProject(projectId, { scrollIntoDetail: true });
   };
+
+  const {
+    drilldownContext,
+    drilldownFeedback,
+    navigateToStrategyPreview,
+    navigateToProjectLatestRun,
+    setDrilldownContext,
+    setDrilldownFeedback,
+  } = useBossProjectDrilldown({
+    projects,
+    refetchOverview: overviewQuery.refetch,
+    onSelectProject: handleSelectProject,
+  });
+  const drilldownTaskDetailQuery = useQuery({
+    queryKey: ["project-drilldown-task-detail", drilldownContext?.task_id],
+    queryFn: () =>
+      requestJson<TaskDetail>(`/tasks/${drilldownContext?.task_id ?? ""}/detail`),
+    enabled: Boolean(drilldownContext?.task_id),
+  });
+  const activeDrilldownTaskSample = useMemo<BossProjectLatestTask | null>(() => {
+    if (!drilldownContext || !drilldownTaskDetailQuery.data) {
+      return null;
+    }
+    return buildTaskSampleFromDetail(
+      drilldownTaskDetailQuery.data,
+      drilldownContext.run_id,
+    );
+  }, [drilldownContext, drilldownTaskDetailQuery.data]);
 
   const handleNavigateToDeliverable = (input: {
     projectId: string;
@@ -302,97 +202,6 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     });
   };
 
-  const handleBossDrilldownNavigate = async (input: BossDrilldownEventDetail) => {
-    if (!input.taskId) {
-      return;
-    }
-
-    let resolvedProjectId: string | null = null;
-    try {
-      resolvedProjectId = await resolveProjectOwnershipByTaskId(input.taskId);
-    } catch (error) {
-      setDrilldownFeedback({
-        tone: "warning",
-        text:
-          error instanceof Error
-            ? `Unable to resolve authoritative project ownership for task ${input.taskId}: ${error.message}`
-            : `Unable to resolve authoritative project ownership for task ${input.taskId}.`,
-      });
-      return;
-    }
-
-    if (!resolvedProjectId) {
-      setDrilldownFeedback({
-        tone: "warning",
-        text:
-          "Unable to resolve authoritative project ownership for this task. Drill-down was not applied.",
-      });
-      return;
-    }
-
-    let availableProjects = projects;
-    if (!availableProjects.some((project) => project.id === resolvedProjectId)) {
-      const refreshedOverview = await overviewQuery.refetch();
-      availableProjects = refreshedOverview.data?.projects ?? availableProjects;
-    }
-    if (!availableProjects.some((project) => project.id === resolvedProjectId)) {
-      setDrilldownFeedback({
-        tone: "warning",
-        text: `Task ${input.taskId} belongs to project ${resolvedProjectId}, but that project is not available in current homepage overview.`,
-      });
-      return;
-    }
-
-    const nextContext: BossDrilldownContext = {
-      source: input.source ?? "home_latest_run",
-      project_id: resolvedProjectId,
-      task_id: input.taskId,
-      run_id: input.runId ?? null,
-    };
-
-    setDrilldownContext(nextContext);
-    setDrilldownFeedback({
-      tone: "success",
-      text:
-        input.projectId && input.projectId !== resolvedProjectId
-          ? `Drill-down context active with authoritative project override (${input.projectId} -> ${resolvedProjectId}): task ${nextContext.task_id}, run ${nextContext.run_id ?? "n/a"}.`
-          : `Drill-down context active: task ${nextContext.task_id}, run ${nextContext.run_id ?? "n/a"}.`,
-    });
-    const nextHash = buildBossDrilldownHash(nextContext);
-    window.location.hash = nextHash;
-    lastAppliedDrilldownHashRef.current = nextHash;
-
-    handleSelectProject(resolvedProjectId, {
-      scrollIntoDetail: true,
-      preserveDrilldownContext: true,
-    });
-
-    requestAnimationFrame(() => {
-      document.getElementById("project-latest-run-control-surface")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
-  };
-
-  const handleNavigateToStrategyPreview = (context: BossDrilldownContext) => {
-    setDrilldownContext(context);
-    setDrilldownFeedback({
-      tone: "success",
-      text: `Continue drill-down to Strategy Preview with run ${context.run_id ?? "n/a"}.`,
-    });
-    const nextHash = buildBossDrilldownHash(context);
-    window.location.hash = nextHash;
-    lastAppliedDrilldownHashRef.current = nextHash;
-
-    requestAnimationFrame(() => {
-      document.getElementById("strategy-preview-panel")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
-  };
-
   useEffect(() => {
     const handleDeliverableNavigation = (event: Event) => {
       const detail = (event as CustomEvent<{
@@ -421,46 +230,6 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
       );
     };
   }, []);
-
-  useEffect(() => {
-    const handleDrilldownNavigation = (event: Event) => {
-      const detail = (event as CustomEvent<BossDrilldownEventDetail>).detail;
-      void handleBossDrilldownNavigate(detail);
-    };
-
-    window.addEventListener(
-      "boss:drilldown-navigate",
-      handleDrilldownNavigation as EventListener,
-    );
-
-    return () => {
-      window.removeEventListener(
-        "boss:drilldown-navigate",
-        handleDrilldownNavigation as EventListener,
-      );
-    };
-  }, [projects]);
-
-  useEffect(() => {
-    const applyHashDrilldown = () => {
-      if (window.location.hash === lastAppliedDrilldownHashRef.current) {
-        return;
-      }
-
-      const parsed = parseBossDrilldownHash(window.location.hash);
-      if (!parsed?.taskId) {
-        return;
-      }
-      void handleBossDrilldownNavigate(parsed);
-    };
-
-    applyHashDrilldown();
-    window.addEventListener("hashchange", applyHashDrilldown);
-
-    return () => {
-      window.removeEventListener("hashchange", applyHashDrilldown);
-    };
-  }, [projects]);
 
   const handleAdvanceStage = async (note: string | null) => {
     try {
@@ -556,6 +325,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
 
               {drilldownFeedback ? (
                 <div
+                  data-testid="project-detail-drilldown-feedback"
                   className={`mt-3 rounded-xl border p-3 text-xs ${
                     drilldownFeedback.tone === "success"
                       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
@@ -583,7 +353,8 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
                       ? activeDrilldownTaskSample
                       : null
                   }
-                  onNavigateToStrategyPreview={handleNavigateToStrategyPreview}
+                  onNavigateToStrategyPreview={navigateToStrategyPreview}
+                  onNavigateToProjectLatestRun={navigateToProjectLatestRun}
                   onNavigateToTask={props.onNavigateToTask}
                   onAdvanceStage={handleAdvanceStage}
                   isAdvancing={advanceStageMutation.isPending}

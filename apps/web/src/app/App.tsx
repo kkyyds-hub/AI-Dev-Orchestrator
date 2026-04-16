@@ -195,6 +195,7 @@ export function App() {
             budget={overviewQuery.data?.budget ?? null}
             blockedTasks={overviewQuery.data?.blocked_tasks ?? 0}
             realtimeStatus={realtime.status}
+            onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
             onNavigateToDeliverable={handleNavigateToDeliverable}
             reviewClusters={reviewClustersQuery.data ?? []}
             reviewClustersIsLoading={reviewClustersQuery.isLoading && !reviewClustersQuery.data}

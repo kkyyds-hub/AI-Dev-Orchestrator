@@ -49,6 +49,10 @@ type TaskDetailPanelProps = {
     projectId: string;
     deliverableId: string;
   }) => void;
+  onNavigateToStrategyPreview?: (input: {
+    taskId: string;
+    runId?: string | null;
+  }) => void;
 };
 
 export function TaskDetailPanel({
@@ -59,6 +63,7 @@ export function TaskDetailPanel({
   budget,
   realtimeStatus,
   onNavigateToDeliverable,
+  onNavigateToStrategyPreview,
 }: TaskDetailPanelProps) {
   const detailQuery = useTaskDetail(selectedTask?.id ?? null, {
     enablePollingFallback: realtimeStatus !== "open",
@@ -694,15 +699,42 @@ export function TaskDetailPanel({
                 />
               </div>
 
+              {onNavigateToStrategyPreview ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    data-testid="goto-strategy-preview-from-task-detail"
+                    onClick={() =>
+                      onNavigateToStrategyPreview({
+                        taskId: detail.id,
+                        runId: selectedRun.id,
+                      })
+                    }
+                    className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                  >
+                    Back to Strategy Preview
+                  </button>
+                </div>
+              ) : null}
+
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <DetailField label="Task ID" value={detail.id} />
-                <DetailField label="Run ID" value={selectedRun.id} />
+                <DetailField
+                  testId="task-detail-runtime-field-task_id"
+                  label="Task ID"
+                  value={detail.id}
+                />
+                <DetailField
+                  testId="task-detail-runtime-field-run_id"
+                  label="Run ID"
+                  value={selectedRun.id}
+                />
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 {selectedRunRuntimeFields.map((field) => (
                   <DetailField
                     key={`task-runtime-${field.key}`}
+                    testId={`task-detail-runtime-field-${field.key}`}
                     label={field.label}
                     value={field.value}
                   />
@@ -718,6 +750,7 @@ export function TaskDetailPanel({
                     {selectedRunRoleModelPolicyFields.map((field) => (
                       <DetailField
                         key={`task-policy-${field.key}`}
+                        testId={`task-detail-policy-field-${field.key}`}
                         label={field.label}
                         value={field.value}
                       />
@@ -804,7 +837,12 @@ export function TaskDetailPanel({
             onSelectRun={setSelectedRunId}
           />
 
-          <RunLogPanel panelId={runLogPanelId} selectedRun={selectedRun} />
+          <RunLogPanel
+            panelId={runLogPanelId}
+            taskId={detail.id}
+            selectedRun={selectedRun}
+            onNavigateToStrategyPreview={onNavigateToStrategyPreview}
+          />
         </div>
       ) : null}
     </section>
@@ -916,11 +954,18 @@ function ErrorPanel(props: { message: string }) {
   );
 }
 
-function DetailField(props: { label: string; value: ReactNode }) {
+function DetailField(props: { label: string; value: ReactNode; testId?: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+    <div
+      data-testid={props.testId}
+      className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3"
+    >
+      <div data-slot="label" className="text-xs uppercase tracking-[0.2em] text-slate-500">
+        {props.label}
+      </div>
+      <div data-slot="value" className="mt-2 text-sm font-medium text-slate-100">
+        {props.value}
+      </div>
     </div>
   );
 }

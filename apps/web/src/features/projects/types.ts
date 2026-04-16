@@ -101,13 +101,30 @@ export type BossProjectLatestTask = {
 export type BossDrilldownSource =
   | "home_latest_run"
   | "home_manual_run"
-  | "project_latest_run";
+  | "project_latest_run"
+  | "strategy_preview";
 
 export type BossDrilldownContext = {
   source: BossDrilldownSource;
   project_id: string | null;
   task_id: string;
   run_id: string | null;
+};
+
+export type BossDrilldownEventDetail = {
+  source?: BossDrilldownSource;
+  projectId?: string | null;
+  taskId?: string | null;
+  runId?: string | null;
+};
+
+export type BossDrilldownFeedback = {
+  tone: "success" | "warning";
+  text: string;
+};
+
+export type TaskOwnershipResponse = {
+  project_id: string | null;
 };
 
 export type BossProjectItem = {
