@@ -354,6 +354,17 @@ test("capture budget_fallback manual run evidence on homepage", async ({
       `${evidenceDir}/14-home-budget-fallback-visible-frame.png`,
     );
 
+    // The manual-run result card is mutation-scoped; capture post-trigger evidence before reload.
+    await page.waitForTimeout(1200);
+    await captureLocatorScreenshot(
+      resultSection,
+      `${evidenceDir}/15-home-budget-fallback-result-card-after-trigger.png`,
+    );
+    await captureViewportScreenshot(
+      page,
+      `${evidenceDir}/16-home-budget-fallback-stable-frame.png`,
+    );
+
     await page.reload({ waitUntil: "domcontentloaded" });
     const taskListSection = page
       .locator("section")
@@ -369,16 +380,6 @@ test("capture budget_fallback manual run evidence on homepage", async ({
     await latestRunRow.screenshot({
       path: `${evidenceDir}/17-home-budget-fallback-task-row-contract.png`,
     });
-
-    await page.waitForTimeout(1200);
-    await captureLocatorScreenshot(
-      resultSection,
-      `${evidenceDir}/15-home-budget-fallback-result-card-after-trigger.png`,
-    );
-    await captureViewportScreenshot(
-      page,
-      `${evidenceDir}/16-home-budget-fallback-stable-frame.png`,
-    );
 
     await context.close();
     if (pageVideo) {
