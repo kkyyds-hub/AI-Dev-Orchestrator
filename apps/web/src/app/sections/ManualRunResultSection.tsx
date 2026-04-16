@@ -34,7 +34,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold text-slate-50">鏈€杩戜竴娆℃墜鍔ㄦ墽琛?</h2>
+          <h2 className="text-sm font-semibold text-slate-50">最近一次手动执行</h2>
           <p
             className={`mt-1 text-sm ${
               props.isError
@@ -49,7 +49,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
         </div>
         {!props.isError && props.data ? (
           <StatusBadge
-            label={props.data.claimed ? "宸插鐞嗕换鍔?" : "鏈鍙栦换鍔?"}
+            label={props.data.claimed ? "已处理任务" : "未领取任务"}
             tone={props.data.claimed ? "success" : "warning"}
           />
         ) : null}
@@ -57,19 +57,19 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
 
       {!props.isError && props.data?.task_title ? (
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <MiniInfo label="浠诲姟" value={props.data.task_title} />
-          <MiniInfo label="杩愯鐘舵€?" value={props.data.run_status ?? "鈥?"} />
+          <MiniInfo label="任务" value={props.data.task_title} />
+          <MiniInfo label="运行状态" value={props.data.run_status ?? "-"} />
           <MiniInfo
-            label="璺敱鍒嗘暟"
+            label="路由分数"
             value={
               props.data.routing_score !== null && props.data.routing_score !== undefined
                 ? String(props.data.routing_score)
-                : "鈥?"
+                : "-"
             }
           />
-          <MiniInfo label="Run ID" value={props.data.run_id ?? "鈥?"} />
-          <MiniInfo label="鍒涘缓鏃堕棿" value={formatDateTime(props.data.run_created_at)} />
-          <MiniInfo label="缁撴潫鏃堕棿" value={formatDateTime(props.data.run_finished_at)} />
+          <MiniInfo label="Run ID" value={props.data.run_id ?? "-"} />
+          <MiniInfo label="创建时间" value={formatDateTime(props.data.run_created_at)} />
+          <MiniInfo label="结束时间" value={formatDateTime(props.data.run_finished_at)} />
         </div>
       ) : null}
 
@@ -94,24 +94,24 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
 
       {!props.isError && props.data?.route_reason ? (
         <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">璺敱鍘熷洜</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">路由原因</div>
           <p className="mt-2 text-sm leading-6 text-slate-300">{props.data.route_reason}</p>
         </div>
       ) : null}
 
       {!props.isError && (props.data?.model_name || props.data?.selected_skill_names.length) ? (
         <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">绛栫暐寮曟搸缁撴灉</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">策略引擎结果</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <MiniInfo
-              label="妯″瀷"
+              label="模型"
               value={
                 props.data?.model_name
                   ? `${props.data.model_name}${props.data.model_tier ? ` (${props.data.model_tier})` : ""}`
-                  : "鈥?"
+                  : "-"
               }
             />
-            <MiniInfo label="绛栫暐浠ｇ爜" value={props.data?.strategy_code ?? "鈥?"} />
+            <MiniInfo label="策略代码" value={props.data?.strategy_code ?? "-"} />
           </div>
           {props.data?.strategy_summary ? (
             <p className="mt-3 text-sm leading-6 text-slate-300">{props.data.strategy_summary}</p>
@@ -132,6 +132,12 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
       ) : null}
 
       {!props.isError && props.data ? <WorkerRoleModelPolicyCard {...props.data} /> : null}
+
+      {!props.isError && props.data ? (
+        <div className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-300">
+          Provider / Prompt / Token
+        </div>
+      ) : null}
       {!props.isError && props.data ? <WorkerProviderPromptTokenCard {...props.data} /> : null}
       {!props.isError && props.data ? <WorkerMemoryRecallCard {...props.data} /> : null}
     </section>

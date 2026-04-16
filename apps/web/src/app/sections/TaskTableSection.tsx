@@ -1,9 +1,6 @@
 ﻿import { StatusBadge } from "../../components/StatusBadge";
 import type { ConsoleTask } from "../../features/console/types";
-import {
-  formatDateTime,
-  formatNullableCurrencyUsd,
-} from "../../lib/format";
+import { formatDateTime, formatNullableCurrencyUsd } from "../../lib/format";
 import {
   buildLatestRunRuntimeFields,
   buildRoleModelPolicyRuntimeFields,
@@ -32,32 +29,32 @@ export function TaskTableSection(props: TaskTableSectionProps) {
     >
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">浠诲姟鍒楄〃</h2>
+          <h2 className="text-lg font-semibold text-slate-50">任务列表</h2>
           <p className="text-sm text-slate-400">
-            灞曠ず浠诲姟鐘舵€併€佹渶鏂拌繍琛岀姸鎬侊紝骞舵敮鎸佺洿鎺ユ墦寮€璇︽儏銆佹棩蹇椾笌浠诲姟鎿嶄綔渚ф澘銆?
+            展示任务状态、最新运行状态，并支持直接打开详情、日志与任务操作侧栏。
           </p>
         </div>
         <StatusBadge
-          label={props.overviewIsLoading ? "鍔犺浇涓?" : props.overviewIsError ? "鍔犺浇澶辫触" : "鏁版嵁宸插氨缁?"}
+          label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "数据已就绪"}
           tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "success"}
         />
       </div>
 
       {props.overviewIsError ? (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
-          鏃犳硶鍔犺浇鎺у埗鍙伴椤垫暟鎹紝璇风‘璁ゅ悗绔凡鍚姩骞跺彲璁块棶 `GET /tasks/console`銆?
+          无法加载控制台首页数据，请确认后端已启动并可访问 `GET /tasks/console`。
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-800 text-sm">
             <thead className="text-left text-slate-400">
               <tr>
-                <th className="py-3 pr-4 font-medium">浠诲姟</th>
+                <th className="py-3 pr-4 font-medium">任务</th>
                 <th className="py-3 pr-4 font-medium">Task Status</th>
                 <th className="py-3 pr-4 font-medium">Latest Run</th>
                 <th className="py-3 pr-4 font-medium">Estimated Cost</th>
-                <th className="py-3 pr-4 font-medium">鏃ュ織</th>
-                <th className="py-3 font-medium">鏇存柊鏃堕棿</th>
+                <th className="py-3 pr-4 font-medium">日志</th>
+                <th className="py-3 font-medium">更新时间</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80">
@@ -68,6 +65,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                   return (
                     <tr
                       key={task.id}
+                      data-testid={`home-task-row-${task.id}`}
                       className={`align-top transition ${
                         isSelected ? "bg-slate-950/60" : "hover:bg-slate-950/40"
                       }`}
@@ -84,11 +82,11 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                                     : "bg-slate-800 text-slate-400"
                                 }`}
                               >
-                                {isSelected ? "璇︽儏涓?" : "鏌ョ湅璇︽儏"}
+                                {isSelected ? "详情中" : "查看详情"}
                               </span>
                             </div>
                             <div className="text-xs uppercase tracking-wide text-slate-500">
-                              浼樺厛绾э細{task.priority}
+                              优先级：{task.priority}
                             </div>
                             <div className="max-w-md text-xs leading-5 text-slate-400">{task.input_summary}</div>
                           </div>
@@ -104,7 +102,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                               label={task.latest_run.status}
                               tone={mapRunStatusTone(task.latest_run.status)}
                             />
-                            <TaskLatestRunRuntimeSummary run={task.latest_run} />
+                            <TaskLatestRunRuntimeSummary taskId={task.id} run={task.latest_run} />
                             <div className="text-xs text-slate-400">
                               <div>
                                 Quality Gate:{" "}
@@ -138,17 +136,20 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-500">灏氭湭杩愯</span>
+                          <span className="text-xs text-slate-500">尚未运行</span>
                         )}
                       </td>
-                      <td className="py-4 pr-4 text-slate-200">
+                      <td
+                        data-testid={`home-task-estimated-cost-${task.id}`}
+                        className="py-4 pr-4 text-slate-200"
+                      >
                         {task.latest_run ? formatNullableCurrencyUsd(task.latest_run.estimated_cost) : "n/a"}
                       </td>
                       <td className="py-4 pr-4">
                         {task.latest_run?.log_path ? (
                           <code className="break-all text-xs text-cyan-200">{task.latest_run.log_path}</code>
                         ) : (
-                          <span className="text-xs text-slate-500">鏆傛棤鏃ュ織</span>
+                          <span className="text-xs text-slate-500">暂无日志</span>
                         )}
                       </td>
                       <td className="py-4 text-slate-400">{formatDateTime(task.updated_at)}</td>
@@ -158,7 +159,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
               ) : (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-sm text-slate-500">
-                    褰撳墠杩樻病鏈変换鍔°€傚厛鍦ㄥ悗绔垱寤轰换鍔★紝鍐嶅洖鍒版帶鍒跺彴鏌ョ湅鐘舵€併€佹垚鏈€佹棩蹇楀拰璇︽儏涓婁笅鏂囥€?
+                    当前还没有任务。先在后端创建任务，再回到控制台查看状态、成本、日志和详情上下文。
                   </td>
                 </tr>
               )}
@@ -171,6 +172,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
 }
 
 function TaskLatestRunRuntimeSummary(props: {
+  taskId: string;
   run: NonNullable<ConsoleTask["latest_run"]>;
 }) {
   const runtimeContractInput = {
@@ -198,22 +200,38 @@ function TaskLatestRunRuntimeSummary(props: {
   const hasRoleModelPolicyData = hasRoleModelPolicyRuntimeData(runtimeContractInput);
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+    <div
+      data-testid={`home-task-runtime-summary-${props.taskId}`}
+      className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300"
+    >
       <div className="text-[11px] uppercase tracking-[0.16em] text-cyan-300">Latest Run Runtime</div>
       <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
         {runtimeFields.map((field) => (
-          <ContractLine key={field.key} label={field.label} value={field.value} />
+          <ContractLine
+            key={field.key}
+            testId={`home-task-runtime-field-${props.taskId}-${field.key}`}
+            label={field.label}
+            value={field.value}
+          />
         ))}
       </div>
 
       {hasRoleModelPolicyData ? (
-        <div className="mt-3 border-t border-slate-800 pt-3">
+        <div
+          data-testid={`home-task-policy-card-${props.taskId}`}
+          className="mt-3 border-t border-slate-800 pt-3"
+        >
           <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-300">
             Role Model Policy Runtime
           </div>
           <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
             {roleModelPolicyFields.map((field) => (
-              <ContractLine key={field.key} label={field.label} value={field.value} />
+              <ContractLine
+                key={field.key}
+                testId={`home-task-policy-field-${props.taskId}-${field.key}`}
+                label={field.label}
+                value={field.value}
+              />
             ))}
           </div>
         </div>
@@ -222,11 +240,15 @@ function TaskLatestRunRuntimeSummary(props: {
   );
 }
 
-function ContractLine(props: { label: string; value: string }) {
+function ContractLine(props: { label: string; value: string; testId?: string }) {
   return (
-    <div className="leading-5">
-      <span className="text-slate-500">{props.label}: </span>
-      <span className="text-slate-200">{props.value}</span>
+    <div data-testid={props.testId} className="leading-5">
+      <span data-slot="label" className="text-slate-500">
+        {props.label}：
+      </span>{" "}
+      <span data-slot="value" className="text-slate-200">
+        {props.value}
+      </span>
     </div>
   );
 }
