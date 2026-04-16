@@ -12,6 +12,22 @@ test.use({
   viewport: { width: 1720, height: 1400 },
 });
 
+async function captureViewportScreenshot(page, path) {
+  await page.screenshot({
+    path,
+    animations: "disabled",
+  });
+}
+
+async function captureLocatorScreenshot(locator, path) {
+  await locator.waitFor({ state: "visible", timeout: 20000 });
+  await locator.scrollIntoViewIfNeeded();
+  await locator.screenshot({
+    path,
+    animations: "disabled",
+  });
+}
+
 async function requestJson(request, method, path, data) {
   const response = await request.fetch(`${appOrigin}${path}`, {
     method,
@@ -209,17 +225,18 @@ test("capture manual worker run card interaction evidence", async ({
   const runButton = page.getByRole("button", { name: "执行 Worker 一次" });
   await runButton.waitFor({ state: "visible", timeout: 20000 });
 
-  await page.screenshot({
-    path: `${evidenceDir}/04-home-manual-run-before-trigger.png`,
-    fullPage: true,
-  });
+  const headerSection = page.getByTestId("home-header-section");
+  await captureLocatorScreenshot(
+    headerSection,
+    `${evidenceDir}/04-home-manual-run-before-trigger.png`,
+  );
 
   await runButton.click();
   await page.waitForTimeout(250);
-  await page.screenshot({
-    path: `${evidenceDir}/07-home-manual-run-transition-frame.png`,
-    fullPage: true,
-  });
+  await captureViewportScreenshot(
+    page,
+    `${evidenceDir}/07-home-manual-run-transition-frame.png`,
+  );
 
   const resultHeading = page.getByRole("heading", { name: "最近一次手动执行" });
   await resultHeading.waitFor({ state: "visible", timeout: 30000 });
@@ -230,23 +247,24 @@ test("capture manual worker run card interaction evidence", async ({
   await expect(resultSection.getByText("结束时间")).toBeVisible();
   await expect(resultSection.getByText("Provider / Prompt / Token")).toBeVisible();
   await expect(resultSection.getByText("Role Model Policy Runtime")).toBeVisible();
-  await page.screenshot({
-    path: `${evidenceDir}/08-home-manual-run-visible-frame.png`,
-    fullPage: true,
-  });
+  await captureLocatorScreenshot(
+    resultSection,
+    `${evidenceDir}/08-home-manual-run-visible-frame.png`,
+  );
 
   await page.waitForTimeout(1200);
-  await page.screenshot({
-    path: `${evidenceDir}/05-home-manual-run-result-card-after-trigger.png`,
-    fullPage: true,
-  });
-  await resultSection.screenshot({
-    path: `${evidenceDir}/06-home-manual-run-result-card-focus.png`,
-  });
-  await page.screenshot({
-    path: `${evidenceDir}/09-home-manual-run-stable-frame.png`,
-    fullPage: true,
-  });
+  await captureLocatorScreenshot(
+    resultSection,
+    `${evidenceDir}/05-home-manual-run-result-card-after-trigger.png`,
+  );
+  await captureLocatorScreenshot(
+    resultSection,
+    `${evidenceDir}/06-home-manual-run-result-card-focus.png`,
+  );
+  await captureViewportScreenshot(
+    page,
+    `${evidenceDir}/09-home-manual-run-stable-frame.png`,
+  );
 
   await page.reload({ waitUntil: "domcontentloaded" });
   const taskListSection = page
@@ -311,17 +329,18 @@ test("capture budget_fallback manual run evidence on homepage", async ({
     const runButton = page.getByRole("button", { name: "执行 Worker 一次" });
     await runButton.waitFor({ state: "visible", timeout: 20000 });
 
-    await page.screenshot({
-      path: `${evidenceDir}/12-home-budget-fallback-before-trigger.png`,
-      fullPage: true,
-    });
+    const headerSection = page.getByTestId("home-header-section");
+    await captureLocatorScreenshot(
+      headerSection,
+      `${evidenceDir}/12-home-budget-fallback-before-trigger.png`,
+    );
 
     await runButton.click();
     await page.waitForTimeout(250);
-    await page.screenshot({
-      path: `${evidenceDir}/13-home-budget-fallback-transition-frame.png`,
-      fullPage: true,
-    });
+    await captureViewportScreenshot(
+      page,
+      `${evidenceDir}/13-home-budget-fallback-transition-frame.png`,
+    );
 
     const resultHeading = page.getByRole("heading", { name: "最近一次手动执行" });
     await resultHeading.waitFor({ state: "visible", timeout: 30000 });
@@ -330,10 +349,10 @@ test("capture budget_fallback manual run evidence on homepage", async ({
     await expect(resultSection.getByText(fixture.taskTitle).first()).toBeVisible();
     await expect(resultSection.getByText("Role Model Policy Runtime")).toBeVisible();
     await expect(resultSection.getByText("budget_fallback").first()).toBeVisible();
-    await page.screenshot({
-      path: `${evidenceDir}/14-home-budget-fallback-visible-frame.png`,
-      fullPage: true,
-    });
+    await captureLocatorScreenshot(
+      resultSection,
+      `${evidenceDir}/14-home-budget-fallback-visible-frame.png`,
+    );
 
     await page.reload({ waitUntil: "domcontentloaded" });
     const taskListSection = page
@@ -352,14 +371,14 @@ test("capture budget_fallback manual run evidence on homepage", async ({
     });
 
     await page.waitForTimeout(1200);
-    await page.screenshot({
-      path: `${evidenceDir}/15-home-budget-fallback-result-card-after-trigger.png`,
-      fullPage: true,
-    });
-    await page.screenshot({
-      path: `${evidenceDir}/16-home-budget-fallback-stable-frame.png`,
-      fullPage: true,
-    });
+    await captureLocatorScreenshot(
+      resultSection,
+      `${evidenceDir}/15-home-budget-fallback-result-card-after-trigger.png`,
+    );
+    await captureViewportScreenshot(
+      page,
+      `${evidenceDir}/16-home-budget-fallback-stable-frame.png`,
+    );
 
     await context.close();
     if (pageVideo) {
@@ -401,37 +420,38 @@ test("capture no-routable manual run evidence on homepage", async ({
   const runButton = page.getByRole("button", { name: "执行 Worker 一次" });
   await runButton.waitFor({ state: "visible", timeout: 20000 });
 
-  await page.screenshot({
-    path: `${evidenceDir}/19-home-no-routable-before-trigger.png`,
-    fullPage: true,
-  });
+  const headerSection = page.getByTestId("home-header-section");
+  await captureLocatorScreenshot(
+    headerSection,
+    `${evidenceDir}/19-home-no-routable-before-trigger.png`,
+  );
 
   await runButton.click();
   await page.waitForTimeout(250);
-  await page.screenshot({
-    path: `${evidenceDir}/20-home-no-routable-transition-frame.png`,
-    fullPage: true,
-  });
+  await captureViewportScreenshot(
+    page,
+    `${evidenceDir}/20-home-no-routable-transition-frame.png`,
+  );
 
   const resultHeading = page.getByRole("heading", { name: "最近一次手动执行" });
   await resultHeading.waitFor({ state: "visible", timeout: 30000 });
   const resultSection = page.locator("section").filter({ has: resultHeading }).first();
   await expect(resultSection).toContainText("none are currently routable");
   await expect(resultSection.getByText("未领取任务")).toBeVisible();
-  await page.screenshot({
-    path: `${evidenceDir}/21-home-no-routable-visible-frame.png`,
-    fullPage: true,
-  });
+  await captureLocatorScreenshot(
+    resultSection,
+    `${evidenceDir}/21-home-no-routable-visible-frame.png`,
+  );
 
   await page.waitForTimeout(1200);
-  await page.screenshot({
-    path: `${evidenceDir}/22-home-no-routable-result-card-after-trigger.png`,
-    fullPage: true,
-  });
-  await page.screenshot({
-    path: `${evidenceDir}/23-home-no-routable-stable-frame.png`,
-    fullPage: true,
-  });
+  await captureLocatorScreenshot(
+    resultSection,
+    `${evidenceDir}/22-home-no-routable-result-card-after-trigger.png`,
+  );
+  await captureViewportScreenshot(
+    page,
+    `${evidenceDir}/23-home-no-routable-stable-frame.png`,
+  );
 
   await page.reload({ waitUntil: "domcontentloaded" });
   const taskListSection = page
