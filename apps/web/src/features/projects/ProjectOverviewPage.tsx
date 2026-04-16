@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { StatusBadge } from "../../components/StatusBadge";
 import { requestJson } from "../../lib/http";
 import { formatDateTime } from "../../lib/format";
-import { mapBudgetPressureTone } from "../../lib/status";
 import { ApprovalInboxPage } from "../approvals/ApprovalInboxPage";
 import { DeliverableCenterPage } from "../deliverables/DeliverableCenterPage";
 import { RoleCatalogPage } from "../roles/RoleCatalogPage";
@@ -20,6 +18,7 @@ import { ProjectDeliverySnapshotCard } from "./components/ProjectDeliverySnapsho
 import { ProjectTable } from "./components/ProjectTable";
 import { ProjectDetailSection } from "./sections/ProjectDetailSection";
 import { FeaturedProjectsSection } from "./sections/FeaturedProjectsSection";
+import { ProjectOverviewHeroSection } from "./sections/ProjectOverviewHeroSection";
 import { RepositoryOverviewSection } from "./sections/RepositoryOverviewSection";
 import {
   useAdvanceProjectStage,
@@ -481,29 +480,11 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
 
   return (
     <section className="space-y-6 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40">
-      <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-2">
-          <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
-            V4 Day04 Boss Entry
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-50">
-            老板首页、项目总览与仓库入口整合
-          </h1>
-          <p className="max-w-3xl text-sm leading-6 text-slate-300">
-            用户进入系统时先看项目全局，再同步看见仓库是否已绑定、最新目录快照和当前变更会话；Day04 只把仓库视角整合进老板入口与项目详情，不扩展到文件级编辑、代码上下文包、验证证据视图或任何真实 Git 写操作。
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          <StatusBadge
-            label={overviewQuery.data?.budget.strategy_label ?? "预算快照"}
-            tone={mapBudgetPressureTone(
-              overviewQuery.data?.budget.pressure_level ?? "normal",
-            )}
-          />
-          <span>最近刷新：{lastUpdatedText}</span>
-        </div>
-      </header>
+      <ProjectOverviewHeroSection
+        budgetStrategyLabel={overviewQuery.data?.budget.strategy_label}
+        budgetPressureLevel={overviewQuery.data?.budget.pressure_level}
+        lastUpdatedText={lastUpdatedText}
+      />
 
       {selectedProjectId ? (
         <ProjectDeliverySnapshotCard
