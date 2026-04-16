@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -1444,10 +1445,16 @@ def create_project(
             detail=str(exc),
         ) from exc
 
-    change_session_repository = ChangeSessionRepository(session)
+    current_change_session: ChangeSession | None = None
+    try:
+        # Keep project creation resilient even if Day03 change-session storage is unavailable.
+        current_change_session = ChangeSessionRepository(session).get_by_project_id(project.id)
+    except SQLAlchemyError:
+        session.rollback()
+
     return ProjectResponse.from_project(
         project,
-        current_change_session=change_session_repository.get_by_project_id(project.id),
+        current_change_session=current_change_session,
     )
 
 

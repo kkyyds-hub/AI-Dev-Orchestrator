@@ -544,7 +544,7 @@ class StrategyEngineService:
         try:
             raw_payload = json.loads(self.rules_path.read_text(encoding="utf-8"))
             return StrategyRuleSet.model_validate(raw_payload), "runtime_override"
-        except (OSError, json.JSONDecodeError, ValidationError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError):
             return _default_rule_set(), "default_fallback"
     def _select_skills(
         self,
