@@ -8,6 +8,7 @@ import { DeliverableCenterPage } from "../deliverables/DeliverableCenterPage";
 import { ProjectDeliverySnapshotCard } from "./components/ProjectDeliverySnapshotCard";
 import {
   PROJECT_OVERVIEW_NAVIGATION_ITEMS,
+  type ProjectOverviewPageView,
 } from "./lib/overviewNavigation";
 import { buildTaskSampleFromDetail } from "./lib/bossDrilldown";
 import { useProjectOverviewNavigationState } from "./hooks/useProjectOverviewNavigationState";
@@ -29,8 +30,13 @@ import type { TaskDetail } from "../task-detail/types";
 type ProjectOverviewPageProps = {
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   routeProjectId?: string | null;
+  routeProjectView?: Exclude<ProjectOverviewPageView, "overview"> | null;
   routeRequestedDeliverableId?: string | null;
   routeRequestedApprovalId?: string | null;
+  onNavigateToProjectView?: (
+    view: ProjectOverviewPageView,
+    options?: { projectId?: string | null },
+  ) => boolean | void;
 };
 
 type ProjectDay15FlowOverview = {
@@ -101,6 +107,8 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
       requestedApprovalId,
       requestedDeliverableId,
       selectedProjectId,
+      routeProjectView: props.routeProjectView ?? null,
+      onNavigateToRouteView: props.onNavigateToProjectView,
     });
 
   const projects = overviewQuery.data?.projects ?? [];
@@ -174,6 +182,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
       requestedDeliverableId?: string | null;
       requestedApprovalId?: string | null;
       preserveDrilldownContext?: boolean;
+      syncRoute?: boolean;
     },
   ) => {
     setSelectedProjectId(projectId);
@@ -185,8 +194,12 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
       setDrilldownFeedback(null);
     }
 
+    if (options?.syncRoute !== false && props.routeProjectId) {
+      props.onNavigateToProjectView?.(activeView, { projectId });
+    }
+
     if (options?.scrollIntoDetail) {
-      navigateToOverviewSection("project-detail");
+      navigateToOverviewSection("project-detail", { projectId });
     }
   };
 
@@ -230,9 +243,12 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   }) => {
     handleSelectProject(input.projectId, {
       requestedDeliverableId: input.deliverableId,
+      syncRoute: false,
     });
 
-    navigateToOverviewPage("deliverable-center", "deliverable-center");
+    navigateToOverviewPage("deliverable-center", "deliverable-center", {
+      projectId: input.projectId,
+    });
   };
 
   const handleNavigateToApproval = (input: {
@@ -241,9 +257,12 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   }) => {
     handleSelectProject(input.projectId, {
       requestedApprovalId: input.approvalId,
+      syncRoute: false,
     });
 
-    navigateToOverviewPage("approval-inbox", "approval-inbox");
+    navigateToOverviewPage("approval-inbox", "approval-inbox", {
+      projectId: input.projectId,
+    });
   };
 
   useEffect(() => {

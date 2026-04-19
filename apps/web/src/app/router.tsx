@@ -29,6 +29,26 @@ export const router = createBrowserRouter([
         element: <ProjectsPage />,
       },
       {
+        path: "projects/:projectId/timeline",
+        element: <ProjectsPage />,
+      },
+      {
+        path: "projects/:projectId/collaboration",
+        element: <ProjectsPage />,
+      },
+      {
+        path: "projects/:projectId/governance",
+        element: <ProjectsPage />,
+      },
+      {
+        path: "projects/:projectId/deliverables",
+        element: <ProjectsPage />,
+      },
+      {
+        path: "projects/:projectId/approvals",
+        element: <ProjectsPage />,
+      },
+      {
         path: "tasks",
         element: <TasksPage />,
       },

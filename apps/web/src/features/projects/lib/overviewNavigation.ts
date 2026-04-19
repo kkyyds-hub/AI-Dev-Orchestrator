@@ -1,10 +1,17 @@
-﻿export type ProjectOverviewPageView =
+export type ProjectOverviewPageView =
   | "overview"
   | "timeline-retrospective"
   | "collaboration-control"
   | "memory-role-governance"
   | "deliverable-center"
   | "approval-inbox";
+
+export type ProjectOverviewRouteSegment =
+  | "timeline"
+  | "collaboration"
+  | "governance"
+  | "deliverables"
+  | "approvals";
 
 type ProjectOverviewSectionNavigationItem = {
   kind: "section";
@@ -34,6 +41,26 @@ const PROJECT_OVERVIEW_VIEWS: readonly ProjectOverviewPageView[] = [
   "deliverable-center",
   "approval-inbox",
 ];
+
+const PROJECT_OVERVIEW_ROUTE_SEGMENT_BY_VIEW: Readonly<
+  Partial<Record<ProjectOverviewPageView, ProjectOverviewRouteSegment>>
+> = {
+  "timeline-retrospective": "timeline",
+  "collaboration-control": "collaboration",
+  "memory-role-governance": "governance",
+  "deliverable-center": "deliverables",
+  "approval-inbox": "approvals",
+};
+
+const PROJECT_OVERVIEW_VIEW_BY_ROUTE_SEGMENT: Readonly<
+  Record<ProjectOverviewRouteSegment, Exclude<ProjectOverviewPageView, "overview">>
+> = {
+  timeline: "timeline-retrospective",
+  collaboration: "collaboration-control",
+  governance: "memory-role-governance",
+  deliverables: "deliverable-center",
+  approvals: "approval-inbox",
+};
 
 const LEGACY_PROJECT_OVERVIEW_HASH_COMPAT: Readonly<
   Record<string, { view: ProjectOverviewPageView; targetId: string | null }>
@@ -129,6 +156,38 @@ export const PROJECT_OVERVIEW_NAVIGATION_ITEMS: readonly ProjectOverviewNavigati
       description: "查看审批队列并处理关键审批动作。",
     },
   ];
+
+export function getProjectOverviewDefaultTargetId(view: ProjectOverviewPageView) {
+  return view === "overview" ? "project-detail" : view;
+}
+
+export function projectOverviewRouteSegmentToView(
+  routeSegment: string | null | undefined,
+): Exclude<ProjectOverviewPageView, "overview"> | null {
+  if (!routeSegment) {
+    return null;
+  }
+
+  return (
+    PROJECT_OVERVIEW_VIEW_BY_ROUTE_SEGMENT[
+      routeSegment as ProjectOverviewRouteSegment
+    ] ?? null
+  );
+}
+
+export function buildProjectOverviewRoute(input: {
+  projectId: string | null;
+  view: ProjectOverviewPageView;
+}) {
+  if (!input.projectId) {
+    return "/projects";
+  }
+
+  const routeSegment = PROJECT_OVERVIEW_ROUTE_SEGMENT_BY_VIEW[input.view];
+  return routeSegment
+    ? `/projects/${input.projectId}/${routeSegment}`
+    : `/projects/${input.projectId}`;
+}
 
 export function buildProjectOverviewHash(input: {
   view: ProjectOverviewPageView;

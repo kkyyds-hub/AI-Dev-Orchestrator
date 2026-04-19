@@ -1,6 +1,7 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
+  getProjectOverviewDefaultTargetId,
   navigateToProjectOverviewHash,
   parseProjectOverviewHash,
   type ProjectOverviewPageView,
@@ -10,6 +11,11 @@ type UseProjectOverviewNavigationStateInput = {
   requestedApprovalId: string | null;
   requestedDeliverableId: string | null;
   selectedProjectId: string | null;
+  routeProjectView?: Exclude<ProjectOverviewPageView, "overview"> | null;
+  onNavigateToRouteView?: (
+    view: ProjectOverviewPageView,
+    options?: { projectId?: string | null },
+  ) => boolean | void;
 };
 
 export function useProjectOverviewNavigationState(
@@ -25,25 +31,44 @@ export function useProjectOverviewNavigationState(
     setScrollRequestNonce((value) => value + 1);
   };
 
-  const navigateToOverviewSection = (sectionId: string) => {
+  const navigateToOverviewSection = (
+    sectionId: string,
+    options?: { projectId?: string | null },
+  ) => {
     setActiveView("overview");
-    navigateToProjectOverviewHash({
-      view: "overview",
-      targetId: sectionId,
+    const routeHandled = input.onNavigateToRouteView?.("overview", {
+      projectId: options?.projectId ?? input.selectedProjectId,
     });
+
+    if (!routeHandled) {
+      navigateToProjectOverviewHash({
+        view: "overview",
+        targetId: sectionId,
+      });
+    }
+
     scheduleScrollToTarget(sectionId);
   };
 
   const navigateToOverviewPage = (
     view: Exclude<ProjectOverviewPageView, "overview">,
     targetId?: string | null,
+    options?: { projectId?: string | null },
   ) => {
     setActiveView(view);
-    navigateToProjectOverviewHash({
-      view,
-      targetId: targetId ?? view,
+    const nextTargetId = targetId ?? view;
+    const routeHandled = input.onNavigateToRouteView?.(view, {
+      projectId: options?.projectId ?? input.selectedProjectId,
     });
-    scheduleScrollToTarget(targetId ?? view);
+
+    if (!routeHandled) {
+      navigateToProjectOverviewHash({
+        view,
+        targetId: nextTargetId,
+      });
+    }
+
+    scheduleScrollToTarget(nextTargetId);
   };
 
   useEffect(() => {
@@ -104,6 +129,12 @@ export function useProjectOverviewNavigationState(
         return;
       }
 
+      if (input.routeProjectView) {
+        setActiveView(input.routeProjectView);
+        scheduleScrollToTarget(getProjectOverviewDefaultTargetId(input.routeProjectView));
+        return;
+      }
+
       const parsed = parseProjectOverviewHash(window.location.hash);
       if (!parsed) {
         return;
@@ -119,7 +150,7 @@ export function useProjectOverviewNavigationState(
     return () => {
       window.removeEventListener("hashchange", applyHashNavigation);
     };
-  }, []);
+  }, [input.routeProjectView]);
 
   return {
     activeView,
