@@ -55,6 +55,9 @@ _RUN_TABLE_COLUMN_UPGRADES = {
 _PROJECT_TABLE_COLUMN_UPGRADES = {
     "sop_template_code": "ALTER TABLE projects ADD COLUMN sop_template_code VARCHAR(100)",
     "stage_history_json": "ALTER TABLE projects ADD COLUMN stage_history_json TEXT NOT NULL DEFAULT '[]'",
+    "team_assembly_json": "ALTER TABLE projects ADD COLUMN team_assembly_json TEXT NOT NULL DEFAULT '[]'",
+    "team_policy_json": "ALTER TABLE projects ADD COLUMN team_policy_json TEXT NOT NULL DEFAULT '{}'",
+    "budget_policy_json": "ALTER TABLE projects ADD COLUMN budget_policy_json TEXT NOT NULL DEFAULT '{}'",
 }
 
 _CHANGE_BATCH_TABLE_COLUMN_UPGRADES = {

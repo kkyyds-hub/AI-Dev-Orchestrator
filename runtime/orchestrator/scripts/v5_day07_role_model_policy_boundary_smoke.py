@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+from _smoke_runtime_env import prepare_runtime_data_dir
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 SMOKE_RUNTIME_DATA_DIR = RUNTIME_ROOT / "tmp" / "day07-role-policy-boundary-smoke"
@@ -39,16 +39,13 @@ def _request_json(
     return response.json()
 
 
-def _prepare_env() -> None:
-    if SMOKE_RUNTIME_DATA_DIR.exists():
-        shutil.rmtree(SMOKE_RUNTIME_DATA_DIR)
-    SMOKE_RUNTIME_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    os.environ["RUNTIME_DATA_DIR"] = str(SMOKE_RUNTIME_DATA_DIR)
+def _prepare_env() -> Path:
+    runtime_data_dir = prepare_runtime_data_dir(SMOKE_RUNTIME_DATA_DIR)
     os.environ["DAILY_BUDGET_USD"] = "2.00"
     os.environ["SESSION_BUDGET_USD"] = "2.00"
     os.environ["MAX_TASK_RETRIES"] = "2"
     os.environ["MAX_CONCURRENT_WORKERS"] = "2"
+    return runtime_data_dir
 
 
 def _create_fixture(
@@ -156,7 +153,7 @@ def _find_project_item(
 
 
 def main() -> None:
-    _prepare_env()
+    runtime_data_dir = _prepare_env()
 
     from app.main import create_application
 
@@ -329,6 +326,7 @@ def main() -> None:
         json.dumps(
             {
                 "runtime_data_dir": str(SMOKE_RUNTIME_DATA_DIR),
+                "runtime_data_dir_effective": str(runtime_data_dir),
                 "stage_override_case": {
                     "project_id": stage_override_project_id,
                     "task_id": stage_override_task_id,

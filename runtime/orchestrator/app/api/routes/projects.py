@@ -43,6 +43,7 @@ from app.repositories.change_plan_repository import ChangePlanRepository
 from app.repositories.change_session_repository import ChangeSessionRepository
 from app.repositories.commit_candidate_repository import CommitCandidateRepository
 from app.repositories.deliverable_repository import DeliverableRepository
+from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.project_repository import ProjectRepository
@@ -60,6 +61,7 @@ from app.services.approval_service import (
     ApprovalTimelineEntry,
 )
 from app.services.budget_guard_service import BudgetGuardService
+from app.services.context_budget_service import ContextBudgetService
 from app.services.context_builder_service import ContextBuilderService
 from app.services.decision_replay_service import (
     DecisionReplayService,
@@ -76,6 +78,9 @@ from app.services.change_risk_guard_service import (
     ChangeRiskGuardService,
 )
 from app.services.project_memory_service import (
+    MemoryCompactionRecord,
+    MemoryGovernanceState,
+    MemoryRehydrateResult,
     ProjectMemoryCount,
     ProjectMemoryItem,
     ProjectMemoryKind,
@@ -111,6 +116,7 @@ from app.services.sop_engine_service import (
 from app.services.task_service import TaskService
 from app.services.task_readiness_service import TaskReadinessService
 from app.services.task_state_machine_service import TaskStateMachineService
+from app.services.memory_compaction_service import MemoryCompactionService
 from app.services.run_logging_service import RunLoggingService
 
 
@@ -584,6 +590,84 @@ class ProjectMemorySnapshotResponse(BaseModel):
     latest_items: list[ProjectMemoryItemResponse]
 
 
+class ProjectCostDashboardModeBreakdownResponse(BaseModel):
+    """Run aggregation grouped by token-accounting mode."""
+
+    mode: str
+    run_count: int
+    total_estimated_cost_usd: float
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ProjectCostDashboardRoleBreakdownResponse(BaseModel):
+    """Run aggregation grouped by owner role."""
+
+    role_code: str
+    run_count: int
+    total_estimated_cost_usd: float
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ProjectCostDashboardThreadBreakdownResponse(BaseModel):
+    """Run aggregation grouped by Day11 agent-thread sessions."""
+
+    session_id: UUID
+    task_id: UUID
+    run_id: UUID
+    status: str
+    review_status: str
+    current_phase: str
+    owner_role_code: str
+    total_estimated_cost_usd: float
+    total_tokens: int
+    updated_at: datetime
+
+
+class ProjectCostDashboardCacheSummaryResponse(BaseModel):
+    """Minimal cache-side summary for Day14 dashboard observations."""
+
+    total_memories: int
+    memory_type_counts: list[ProjectMemoryCountResponse] = Field(default_factory=list)
+    cache_signal_note: str
+
+
+class ProjectCostDashboardFallbackContractResponse(BaseModel):
+    """Explicit fallback contract when token accounting is not fully provider-reported."""
+
+    provider_reported_run_count: int
+    heuristic_run_count: int
+    missing_mode_run_count: int
+    fallback_active: bool
+    fallback_reason: str
+
+
+class ProjectCostDashboardSnapshotResponse(BaseModel):
+    """Day14 minimal cost/cache aggregation snapshot."""
+
+    project_id: UUID
+    project_name: str
+    generated_at: datetime
+    task_count: int
+    task_count_with_runs: int
+    run_count: int
+    thread_count: int
+    total_estimated_cost_usd: float
+    avg_estimated_cost_per_run_usd: float
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    mode_breakdown: list[ProjectCostDashboardModeBreakdownResponse]
+    role_breakdown: list[ProjectCostDashboardRoleBreakdownResponse]
+    thread_breakdown: list[ProjectCostDashboardThreadBreakdownResponse]
+    cache_summary: ProjectCostDashboardCacheSummaryResponse
+    fallback_contract: ProjectCostDashboardFallbackContractResponse
+    day15_smoke_routes: list[str] = Field(default_factory=list)
+
+
 class ProjectMemorySearchHitResponse(BaseModel):
     """One lexical project-memory search hit."""
 
@@ -631,6 +715,123 @@ class ProjectMemoryContextResponse(BaseModel):
     memory_count: int
     context_summary: str
     items: list[ProjectMemoryItemResponse]
+
+
+class ProjectMemoryGovernanceStateResponse(BaseModel):
+    """Day09 governance state consumed by Day10 control-surface actions."""
+
+    project_id: UUID
+    generated_at: datetime
+    checkpoint_count: int
+    latest_checkpoint_id: str | None = None
+    latest_task_id: UUID | None = None
+    latest_run_id: UUID | None = None
+    latest_pressure_level: str | None = None
+    latest_usage_ratio: float | None = None
+    latest_bad_context_detected: bool
+    latest_bad_context_reasons: list[str]
+    latest_rolling_summary: str | None = None
+    latest_compaction_applied: bool
+    latest_compaction_reduction_ratio: float | None = None
+    latest_compaction_reason_codes: list[str]
+    latest_rehydrate_at: datetime | None = None
+    latest_rehydrate_used_checkpoint_id: str | None = None
+    latest_compacted_at: datetime | None = None
+    latest_reset_at: datetime | None = None
+    storage_path: str | None = None
+
+    @classmethod
+    def from_state(
+        cls,
+        state: MemoryGovernanceState,
+    ) -> "ProjectMemoryGovernanceStateResponse":
+        return cls(
+            project_id=state.project_id,
+            generated_at=state.generated_at,
+            checkpoint_count=state.checkpoint_count,
+            latest_checkpoint_id=state.latest_checkpoint_id,
+            latest_task_id=state.latest_task_id,
+            latest_run_id=state.latest_run_id,
+            latest_pressure_level=state.latest_pressure_level,
+            latest_usage_ratio=state.latest_usage_ratio,
+            latest_bad_context_detected=state.latest_bad_context_detected,
+            latest_bad_context_reasons=state.latest_bad_context_reasons,
+            latest_rolling_summary=state.latest_rolling_summary,
+            latest_compaction_applied=state.latest_compaction_applied,
+            latest_compaction_reduction_ratio=state.latest_compaction_reduction_ratio,
+            latest_compaction_reason_codes=state.latest_compaction_reason_codes,
+            latest_rehydrate_at=state.latest_rehydrate_at,
+            latest_rehydrate_used_checkpoint_id=state.latest_rehydrate_used_checkpoint_id,
+            latest_compacted_at=state.latest_compacted_at,
+            latest_reset_at=state.latest_reset_at,
+            storage_path=state.storage_path,
+        )
+
+
+class ProjectMemoryGovernanceRehydrateResponse(BaseModel):
+    """Manual rehydrate action response used by Day10 preview timeline."""
+
+    project_id: UUID
+    task_id: UUID | None = None
+    used_checkpoint_id: str | None = None
+    rehydrated_context_summary: str
+    rehydrated: bool
+    generated_at: datetime
+
+    @classmethod
+    def from_result(
+        cls,
+        result: MemoryRehydrateResult,
+    ) -> "ProjectMemoryGovernanceRehydrateResponse":
+        return cls(
+            project_id=result.project_id,
+            task_id=result.task_id,
+            used_checkpoint_id=result.used_checkpoint_id,
+            rehydrated_context_summary=result.rehydrated_context_summary,
+            rehydrated=result.rehydrated,
+            generated_at=result.generated_at,
+        )
+
+
+class ProjectMemoryGovernanceCompactRequest(BaseModel):
+    """Optional compact action payload for Day10 manual controls."""
+
+    target_chars: int = Field(default=900, ge=300, le=2_000)
+
+
+class ProjectMemoryGovernanceCompactResponse(BaseModel):
+    """Manual compact action response for Day10 control surface."""
+
+    project_id: UUID
+    checkpoint_id: str | None = None
+    compacted_summary: str
+    compacted_char_count: int
+    reduction_ratio: float
+    reason_codes: list[str]
+    created_at: datetime
+
+    @classmethod
+    def from_record(
+        cls,
+        record: MemoryCompactionRecord,
+    ) -> "ProjectMemoryGovernanceCompactResponse":
+        return cls(
+            project_id=record.project_id,
+            checkpoint_id=record.checkpoint_id,
+            compacted_summary=record.compacted_summary,
+            compacted_char_count=record.compacted_char_count,
+            reduction_ratio=record.reduction_ratio,
+            reason_codes=record.reason_codes,
+            created_at=record.created_at,
+        )
+
+
+class ProjectMemoryGovernanceResetResponse(BaseModel):
+    """Reset-action response so Day10 can refresh control state."""
+
+    project_id: UUID
+    reset_performed: bool
+    generated_at: datetime
 
 
 class ProjectStageBlockingTaskResponse(BaseModel):
@@ -1014,6 +1215,8 @@ def _build_project_memory_stack(
             run_repository=run_repository,
         ),
         project_memory_service=project_memory_service,
+        context_budget_service=ContextBudgetService(),
+        memory_compaction_service=MemoryCompactionService(),
     )
     return task_repository, context_builder_service, project_memory_service
 
@@ -1617,6 +1820,206 @@ def get_project_day15_repository_flow(
 
 
 @router.get(
+    "/{project_id}/cost-dashboard",
+    response_model=ProjectCostDashboardSnapshotResponse,
+    summary="Get the Day14 minimal cost/cache dashboard snapshot",
+)
+def get_project_cost_dashboard_snapshot(
+    project_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+) -> ProjectCostDashboardSnapshotResponse:
+    """Return project-scoped Day14 cost aggregation with explicit fallback semantics."""
+
+    project_repository = ProjectRepository(session)
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
+    agent_session_repository = AgentSessionRepository(session)
+
+    project = project_repository.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    tasks = task_repository.list_by_project_id(project_id)
+    task_ids = [task.id for task in tasks]
+    runs = run_repository.list_by_task_ids(task_ids)
+
+    total_prompt_tokens = sum(run.prompt_tokens for run in runs)
+    total_completion_tokens = sum(run.completion_tokens for run in runs)
+    total_estimated_cost = round(sum(run.estimated_cost for run in runs), 6)
+    task_count_with_runs = len({run.task_id for run in runs})
+
+    mode_accumulator: dict[str, dict[str, float]] = {}
+    role_accumulator: dict[str, dict[str, float]] = {}
+    mode_counter = Counter((run.token_accounting_mode or "missing") for run in runs)
+
+    for run in runs:
+        mode_key = run.token_accounting_mode or "missing"
+        role_key = (
+            run.owner_role_code.value if run.owner_role_code is not None else "unassigned"
+        )
+
+        mode_bucket = mode_accumulator.setdefault(
+            mode_key,
+            {
+                "run_count": 0.0,
+                "cost": 0.0,
+                "prompt_tokens": 0.0,
+                "completion_tokens": 0.0,
+                "total_tokens": 0.0,
+            },
+        )
+        mode_bucket["run_count"] += 1
+        mode_bucket["cost"] += run.estimated_cost
+        mode_bucket["prompt_tokens"] += run.prompt_tokens
+        mode_bucket["completion_tokens"] += run.completion_tokens
+        mode_bucket["total_tokens"] += run.total_tokens
+
+        role_bucket = role_accumulator.setdefault(
+            role_key,
+            {
+                "run_count": 0.0,
+                "cost": 0.0,
+                "prompt_tokens": 0.0,
+                "completion_tokens": 0.0,
+                "total_tokens": 0.0,
+            },
+        )
+        role_bucket["run_count"] += 1
+        role_bucket["cost"] += run.estimated_cost
+        role_bucket["prompt_tokens"] += run.prompt_tokens
+        role_bucket["completion_tokens"] += run.completion_tokens
+        role_bucket["total_tokens"] += run.total_tokens
+
+    mode_breakdown = [
+        ProjectCostDashboardModeBreakdownResponse(
+            mode=mode,
+            run_count=int(values["run_count"]),
+            total_estimated_cost_usd=round(float(values["cost"]), 6),
+            prompt_tokens=int(values["prompt_tokens"]),
+            completion_tokens=int(values["completion_tokens"]),
+            total_tokens=int(values["total_tokens"]),
+        )
+        for mode, values in sorted(
+            mode_accumulator.items(),
+            key=lambda item: (-item[1]["run_count"], item[0]),
+        )
+    ]
+    role_breakdown = [
+        ProjectCostDashboardRoleBreakdownResponse(
+            role_code=role_code,
+            run_count=int(values["run_count"]),
+            total_estimated_cost_usd=round(float(values["cost"]), 6),
+            prompt_tokens=int(values["prompt_tokens"]),
+            completion_tokens=int(values["completion_tokens"]),
+            total_tokens=int(values["total_tokens"]),
+        )
+        for role_code, values in sorted(
+            role_accumulator.items(),
+            key=lambda item: (-item[1]["run_count"], item[0]),
+        )
+    ]
+    run_by_id = {run.id: run for run in runs}
+    thread_breakdown: list[ProjectCostDashboardThreadBreakdownResponse] = []
+    for session_item in agent_session_repository.list_by_project_id(
+        project_id=project_id,
+        limit=max(len(runs), 20),
+    ):
+        bound_run = run_by_id.get(session_item.run_id)
+        if bound_run is None:
+            continue
+        thread_breakdown.append(
+            ProjectCostDashboardThreadBreakdownResponse(
+                session_id=session_item.id,
+                task_id=session_item.task_id,
+                run_id=session_item.run_id,
+                status=session_item.status.value,
+                review_status=session_item.review_status.value,
+                current_phase=session_item.current_phase.value,
+                owner_role_code=(
+                    session_item.owner_role_code.value
+                    if session_item.owner_role_code is not None
+                    else "unassigned"
+                ),
+                total_estimated_cost_usd=round(bound_run.estimated_cost, 6),
+                total_tokens=bound_run.total_tokens,
+                updated_at=session_item.updated_at,
+            )
+        )
+
+    memory_snapshot = project_memory_service.get_project_memory_snapshot(project_id=project_id)
+    if memory_snapshot is None:
+        memory_type_counts: list[ProjectMemoryCountResponse] = []
+        total_memories = 0
+        cache_signal_note = (
+            "Day14 memory snapshot is unavailable. Cache-side observation is currently missing."
+        )
+    else:
+        memory_type_counts = [
+            ProjectMemoryCountResponse.from_count(item) for item in memory_snapshot.counts
+        ]
+        total_memories = memory_snapshot.total_memories
+        cache_signal_note = (
+            "Cache signal currently uses Day14 project-memory counts, "
+            "not provider-level cache hit/miss telemetry."
+        )
+
+    provider_reported_run_count = mode_counter.get("provider_reported", 0)
+    heuristic_run_count = mode_counter.get("heuristic", 0)
+    missing_mode_run_count = mode_counter.get("missing", 0)
+    fallback_active = heuristic_run_count > 0 or missing_mode_run_count > 0
+    fallback_reason = (
+        "At least one run still uses heuristic/missing token accounting mode; "
+        "Day14 cost totals must be treated as fallback estimates."
+        if fallback_active
+        else "All runs in the current slice are provider_reported."
+    )
+
+    return ProjectCostDashboardSnapshotResponse(
+        project_id=project.id,
+        project_name=project.name,
+        generated_at=utc_now(),
+        task_count=len(tasks),
+        task_count_with_runs=task_count_with_runs,
+        run_count=len(runs),
+        thread_count=len(thread_breakdown),
+        total_estimated_cost_usd=total_estimated_cost,
+        avg_estimated_cost_per_run_usd=(
+            round(total_estimated_cost / len(runs), 6) if runs else 0.0
+        ),
+        prompt_tokens=total_prompt_tokens,
+        completion_tokens=total_completion_tokens,
+        total_tokens=total_prompt_tokens + total_completion_tokens,
+        mode_breakdown=mode_breakdown,
+        role_breakdown=role_breakdown,
+        thread_breakdown=thread_breakdown,
+        cache_summary=ProjectCostDashboardCacheSummaryResponse(
+            total_memories=total_memories,
+            memory_type_counts=memory_type_counts,
+            cache_signal_note=cache_signal_note,
+        ),
+        fallback_contract=ProjectCostDashboardFallbackContractResponse(
+            provider_reported_run_count=provider_reported_run_count,
+            heuristic_run_count=heuristic_run_count,
+            missing_mode_run_count=missing_mode_run_count,
+            fallback_active=fallback_active,
+            fallback_reason=fallback_reason,
+        ),
+        day15_smoke_routes=[
+            "GET /projects/{project_id}/team-control-center",
+            "GET /projects/{project_id}/cost-dashboard",
+            "POST /workers/run-once?project_id={project_id}",
+            "GET /projects/{project_id}/memory",
+        ],
+    )
+
+
+@router.get(
     "/{project_id}/memory",
     response_model=ProjectMemorySnapshotResponse,
     summary="Get the Day14 project-memory snapshot",
@@ -1725,6 +2128,94 @@ def get_project_memory_context(
         memory_count=len(memory_context.items),
         context_summary=memory_context.context_summary,
         items=[ProjectMemoryItemResponse.from_item(item) for item in memory_context.items],
+    )
+
+
+@router.get(
+    "/{project_id}/memory/governance",
+    response_model=ProjectMemoryGovernanceStateResponse,
+    summary="Get Day09 memory-governance state",
+)
+def get_project_memory_governance_state(
+    project_id: UUID,
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+) -> ProjectMemoryGovernanceStateResponse:
+    """Return Day09 checkpoint/bad-context/rehydrate governance state."""
+
+    state = project_memory_service.get_memory_governance_state(project_id=project_id)
+    return ProjectMemoryGovernanceStateResponse.from_state(state)
+
+
+@router.post(
+    "/{project_id}/memory/governance/rehydrate",
+    response_model=ProjectMemoryGovernanceRehydrateResponse,
+    summary="Trigger Day09 manual rehydrate preview",
+)
+def rehydrate_project_memory_governance(
+    project_id: UUID,
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+    task_id: UUID | None = None,
+) -> ProjectMemoryGovernanceRehydrateResponse:
+    """Trigger one manual rehydrate preview from latest checkpoints."""
+
+    result = project_memory_service.rehydrate_context(
+        project_id=project_id,
+        task_id=task_id,
+    )
+    return ProjectMemoryGovernanceRehydrateResponse.from_result(result)
+
+
+@router.post(
+    "/{project_id}/memory/governance/compact",
+    response_model=ProjectMemoryGovernanceCompactResponse,
+    summary="Trigger Day09 manual compaction",
+)
+def compact_project_memory_governance(
+    project_id: UUID,
+    request: ProjectMemoryGovernanceCompactRequest,
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+) -> ProjectMemoryGovernanceCompactResponse:
+    """Compact latest checkpoint context for Day10 manual action entry."""
+
+    record = project_memory_service.compact_latest_checkpoint(
+        project_id=project_id,
+        target_chars=request.target_chars,
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No governance checkpoint found for project: {project_id}",
+        )
+
+    return ProjectMemoryGovernanceCompactResponse.from_record(record)
+
+
+@router.post(
+    "/{project_id}/memory/governance/reset",
+    response_model=ProjectMemoryGovernanceResetResponse,
+    summary="Reset Day09 memory-governance artifacts",
+)
+def reset_project_memory_governance(
+    project_id: UUID,
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+) -> ProjectMemoryGovernanceResetResponse:
+    """Reset governance checkpoint/compaction state for one project."""
+
+    reset_performed = project_memory_service.reset_memory_governance(
+        project_id=project_id,
+    )
+    return ProjectMemoryGovernanceResetResponse(
+        project_id=project_id,
+        reset_performed=reset_performed,
+        generated_at=utc_now(),
     )
 
 

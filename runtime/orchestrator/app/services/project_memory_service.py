@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.core.config import settings
 from app.domain._base import ensure_utc_datetime, utc_now
@@ -28,6 +28,8 @@ from app.services.failure_review_service import FailureReviewRecord, FailureRevi
 _PROJECT_MEMORY_SUMMARY_LIMIT = 600
 _PROJECT_MEMORY_DETAIL_LIMIT = 1_400
 _QUERY_TERM_LIMIT = 30
+_ROLLING_SUMMARY_MAX_CHARS = 900
+_REHYDRATE_PREVIEW_MAX_CHARS = 1_200
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
 _TOKEN_PATTERN = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]+", re.IGNORECASE)
 
@@ -114,6 +116,75 @@ class TaskProjectMemoryContext:
     context_summary: str
 
 
+@dataclass(slots=True, frozen=True)
+class MemoryGovernanceCheckpoint:
+    """One persisted checkpoint used by Day09 rehydrate/compact flows."""
+
+    checkpoint_id: str
+    project_id: UUID
+    task_id: UUID
+    run_id: UUID | None
+    context_summary: str
+    context_char_count: int
+    bad_context_detected: bool
+    bad_context_reasons: list[str]
+    pressure_level: str | None
+    usage_ratio: float | None
+    rolling_summary: str
+    project_memory_context_summary: str | None
+    created_at: datetime
+
+
+@dataclass(slots=True, frozen=True)
+class MemoryGovernanceState:
+    """Day10-consumable governance state snapshot for one project."""
+
+    project_id: UUID
+    generated_at: datetime
+    checkpoint_count: int
+    latest_checkpoint_id: str | None
+    latest_task_id: UUID | None
+    latest_run_id: UUID | None
+    latest_pressure_level: str | None
+    latest_usage_ratio: float | None
+    latest_bad_context_detected: bool
+    latest_bad_context_reasons: list[str]
+    latest_rolling_summary: str | None
+    latest_compaction_applied: bool
+    latest_compaction_reduction_ratio: float | None
+    latest_compaction_reason_codes: list[str]
+    latest_rehydrate_at: datetime | None
+    latest_rehydrate_used_checkpoint_id: str | None
+    latest_compacted_at: datetime | None
+    latest_reset_at: datetime | None
+    storage_path: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class MemoryRehydrateResult:
+    """Result returned when rebuilding context from latest checkpoints."""
+
+    project_id: UUID
+    task_id: UUID | None
+    used_checkpoint_id: str | None
+    rehydrated_context_summary: str
+    rehydrated: bool
+    generated_at: datetime
+
+
+@dataclass(slots=True, frozen=True)
+class MemoryCompactionRecord:
+    """Persisted Day09 compaction event for Day10 timeline consumption."""
+
+    project_id: UUID
+    checkpoint_id: str | None
+    compacted_summary: str
+    compacted_char_count: int
+    reduction_ratio: float
+    reason_codes: list[str]
+    created_at: datetime
+
+
 class ProjectMemoryService:
     """Build, persist and retrieve lightweight project-memory snapshots."""
 
@@ -134,6 +205,7 @@ class ProjectMemoryService:
         self.approval_repository = approval_repository
         self.failure_review_service = failure_review_service
         self._base_dir = settings.runtime_data_dir / "project-memories"
+        self._governance_base_dir = settings.runtime_data_dir / "project-memory-governance"
 
     def get_project_memory_snapshot(
         self,
@@ -144,6 +216,281 @@ class ProjectMemoryService:
         if refresh:
             return self.refresh_project_memory(project_id=project_id)
         return self._load_snapshot(project_id=project_id)
+
+    def get_memory_governance_state(
+        self,
+        *,
+        project_id: UUID,
+    ) -> MemoryGovernanceState:
+        """Return the latest Day09 governance state snapshot for one project."""
+
+        state_payload = self._load_governance_state_payload(project_id=project_id)
+        checkpoints = self._load_checkpoints(project_id=project_id)
+        compactions = self._load_compactions_payload(project_id=project_id)
+        latest_checkpoint = checkpoints[0] if checkpoints else None
+        latest_compaction = compactions[0] if compactions else None
+        latest_compaction_at = _parse_datetime_or_none(state_payload.get("latest_compacted_at"))
+        latest_rehydrate_at = _parse_datetime_or_none(state_payload.get("latest_rehydrate_at"))
+        latest_rehydrate_used_checkpoint_id = (
+            str(state_payload.get("latest_rehydrate_used_checkpoint_id"))
+            if state_payload.get("latest_rehydrate_used_checkpoint_id") is not None
+            else None
+        )
+        latest_reset_at = _parse_datetime_or_none(state_payload.get("latest_reset_at"))
+        latest_compaction_reduction_ratio = _parse_float_or_none(
+            latest_compaction.get("reduction_ratio") if latest_compaction is not None else None
+        )
+        latest_compaction_reason_codes = (
+            [
+                str(reason)
+                for reason in latest_compaction.get("reason_codes", [])
+                if str(reason).strip()
+            ]
+            if latest_compaction is not None
+            else []
+        )
+
+        return MemoryGovernanceState(
+            project_id=project_id,
+            generated_at=utc_now(),
+            checkpoint_count=len(checkpoints),
+            latest_checkpoint_id=(
+                latest_checkpoint.checkpoint_id if latest_checkpoint is not None else None
+            ),
+            latest_task_id=(latest_checkpoint.task_id if latest_checkpoint is not None else None),
+            latest_run_id=(latest_checkpoint.run_id if latest_checkpoint is not None else None),
+            latest_pressure_level=(
+                latest_checkpoint.pressure_level if latest_checkpoint is not None else None
+            ),
+            latest_usage_ratio=(
+                latest_checkpoint.usage_ratio if latest_checkpoint is not None else None
+            ),
+            latest_bad_context_detected=bool(
+                latest_checkpoint.bad_context_detected if latest_checkpoint is not None else False
+            ),
+            latest_bad_context_reasons=(
+                list(latest_checkpoint.bad_context_reasons)
+                if latest_checkpoint is not None
+                else []
+            ),
+            latest_rolling_summary=(
+                latest_checkpoint.rolling_summary if latest_checkpoint is not None else None
+            ),
+            latest_compaction_applied=bool(state_payload.get("latest_compaction_applied", False)),
+            latest_compaction_reduction_ratio=latest_compaction_reduction_ratio,
+            latest_compaction_reason_codes=latest_compaction_reason_codes,
+            latest_rehydrate_at=latest_rehydrate_at,
+            latest_rehydrate_used_checkpoint_id=latest_rehydrate_used_checkpoint_id,
+            latest_compacted_at=latest_compaction_at,
+            latest_reset_at=latest_reset_at,
+            storage_path=self._resolve_governance_state_path(project_id=project_id)
+            .relative_to(settings.runtime_data_dir)
+            .as_posix(),
+        )
+
+    def record_context_checkpoint(
+        self,
+        *,
+        project_id: UUID,
+        task_id: UUID,
+        run_id: UUID | None,
+        context_summary: str,
+        bad_context_detected: bool,
+        bad_context_reasons: list[str],
+        pressure_level: str | None,
+        usage_ratio: float | None,
+        project_memory_context_summary: str | None,
+        compacted_summary: str | None = None,
+    ) -> MemoryGovernanceCheckpoint:
+        """Persist one Day09 governance checkpoint for later rehydrate."""
+
+        checkpoints = self._load_checkpoints(project_id=project_id)
+        rolling_summary = _truncate(
+            compacted_summary or context_summary,
+            _ROLLING_SUMMARY_MAX_CHARS,
+        )
+        checkpoint = MemoryGovernanceCheckpoint(
+            checkpoint_id=f"ckpt-{uuid4().hex}",
+            project_id=project_id,
+            task_id=task_id,
+            run_id=run_id,
+            context_summary=context_summary,
+            context_char_count=len(context_summary),
+            bad_context_detected=bad_context_detected,
+            bad_context_reasons=list(bad_context_reasons),
+            pressure_level=pressure_level,
+            usage_ratio=usage_ratio,
+            rolling_summary=rolling_summary,
+            project_memory_context_summary=project_memory_context_summary,
+            created_at=utc_now(),
+        )
+        checkpoints.insert(0, checkpoint)
+        self._save_checkpoints(project_id=project_id, checkpoints=checkpoints[:50])
+        self._merge_governance_state(
+            project_id=project_id,
+            fields={
+                "latest_compaction_applied": bool(compacted_summary),
+            },
+        )
+        return checkpoint
+
+    def rehydrate_context(
+        self,
+        *,
+        project_id: UUID,
+        task_id: UUID | None = None,
+    ) -> MemoryRehydrateResult:
+        """Build a short rehydrate summary from latest relevant checkpoints."""
+
+        checkpoints = self._load_checkpoints(project_id=project_id)
+        scoped = [
+            item for item in checkpoints if task_id is None or item.task_id == task_id
+        ]
+        if not scoped:
+            result = MemoryRehydrateResult(
+                project_id=project_id,
+                task_id=task_id,
+                used_checkpoint_id=None,
+                rehydrated_context_summary="No checkpoint available for rehydrate.",
+                rehydrated=False,
+                generated_at=utc_now(),
+            )
+            self._merge_governance_state(
+                project_id=project_id,
+                fields={
+                    "latest_rehydrate_at": result.generated_at.isoformat(),
+                    "latest_rehydrate_used_checkpoint_id": None,
+                },
+            )
+            return result
+
+        selected = scoped[0]
+        lines = [
+            f"Rehydrate checkpoint: {selected.checkpoint_id}",
+            f"Pressure: {selected.pressure_level or 'unknown'}",
+            f"Bad context: {'yes' if selected.bad_context_detected else 'no'}",
+            f"Rolling summary: {selected.rolling_summary}",
+        ]
+        if selected.project_memory_context_summary:
+            lines.append(
+                "Memory context: "
+                + _truncate(selected.project_memory_context_summary, 260)
+            )
+
+        result = MemoryRehydrateResult(
+            project_id=project_id,
+            task_id=task_id,
+            used_checkpoint_id=selected.checkpoint_id,
+            rehydrated_context_summary=_truncate(
+                "\n".join(lines),
+                _REHYDRATE_PREVIEW_MAX_CHARS,
+            ),
+            rehydrated=True,
+            generated_at=utc_now(),
+        )
+        self._merge_governance_state(
+            project_id=project_id,
+            fields={
+                "latest_rehydrate_at": result.generated_at.isoformat(),
+                "latest_rehydrate_used_checkpoint_id": result.used_checkpoint_id,
+            },
+        )
+        return result
+
+    def record_compaction(
+        self,
+        *,
+        project_id: UUID,
+        checkpoint_id: str | None,
+        compacted_summary: str,
+        original_chars: int,
+        compacted_chars: int,
+        reason_codes: list[str],
+    ) -> MemoryCompactionRecord:
+        """Persist one compaction event for governance timeline."""
+
+        reduction_ratio = (
+            round(max(0.0, (original_chars - compacted_chars) / original_chars), 4)
+            if original_chars > 0
+            else 0.0
+        )
+        record = MemoryCompactionRecord(
+            project_id=project_id,
+            checkpoint_id=checkpoint_id,
+            compacted_summary=compacted_summary,
+            compacted_char_count=compacted_chars,
+            reduction_ratio=reduction_ratio,
+            reason_codes=list(reason_codes),
+            created_at=utc_now(),
+        )
+        payload = self._load_compactions_payload(project_id=project_id)
+        payload.insert(
+            0,
+            {
+                "project_id": str(project_id),
+                "checkpoint_id": checkpoint_id,
+                "compacted_summary": compacted_summary,
+                "compacted_char_count": compacted_chars,
+                "reduction_ratio": reduction_ratio,
+                "reason_codes": list(reason_codes),
+                "created_at": record.created_at.isoformat(),
+            },
+        )
+        self._save_compactions_payload(project_id=project_id, payload=payload[:50])
+        self._merge_governance_state(
+            project_id=project_id,
+            fields={
+                "latest_compacted_at": record.created_at.isoformat(),
+                "latest_compaction_applied": True,
+                "latest_compaction_reduction_ratio": record.reduction_ratio,
+                "latest_compaction_reason_codes": list(record.reason_codes),
+            },
+        )
+        return record
+
+    def compact_latest_checkpoint(
+        self,
+        *,
+        project_id: UUID,
+        target_chars: int = _ROLLING_SUMMARY_MAX_CHARS,
+    ) -> MemoryCompactionRecord | None:
+        """Manually compact the latest checkpoint summary for Day10 action entry."""
+
+        checkpoints = self._load_checkpoints(project_id=project_id)
+        if not checkpoints:
+            return None
+
+        latest = checkpoints[0]
+        normalized_target = max(target_chars, 300)
+        compacted_summary = _truncate(latest.context_summary, normalized_target)
+        compacted_chars = len(compacted_summary)
+        return self.record_compaction(
+            project_id=project_id,
+            checkpoint_id=latest.checkpoint_id,
+            compacted_summary=compacted_summary,
+            original_chars=latest.context_char_count,
+            compacted_chars=compacted_chars,
+            reason_codes=["manual_compact_action"],
+        )
+
+    def reset_memory_governance(self, *, project_id: UUID) -> bool:
+        """Clear persisted Day09 governance artifacts for one project."""
+
+        changed = False
+        for path in (
+            self._resolve_governance_state_path(project_id=project_id),
+            self._resolve_checkpoint_path(project_id=project_id),
+            self._resolve_compaction_path(project_id=project_id),
+        ):
+            if path.exists():
+                path.unlink()
+                changed = True
+
+        self._merge_governance_state(
+            project_id=project_id,
+            fields={"latest_reset_at": utc_now().isoformat()},
+        )
+        return changed
 
     def refresh_project_memory(self, *, project_id: UUID) -> ProjectMemorySnapshot | None:
         project = self.project_repository.get_by_id(project_id)
@@ -794,6 +1141,160 @@ class ProjectMemoryService:
 
         return _truncate("\n".join(summary_lines), _PROJECT_MEMORY_SUMMARY_LIMIT)
 
+    def _resolve_governance_project_dir(self, *, project_id: UUID) -> Path:
+        project_prefix = str(project_id)[:2]
+        return self._governance_base_dir / project_prefix / str(project_id)
+
+    def _resolve_governance_state_path(self, *, project_id: UUID) -> Path:
+        return self._resolve_governance_project_dir(project_id=project_id) / "state.json"
+
+    def _resolve_checkpoint_path(self, *, project_id: UUID) -> Path:
+        return self._resolve_governance_project_dir(project_id=project_id) / "checkpoints.json"
+
+    def _resolve_compaction_path(self, *, project_id: UUID) -> Path:
+        return self._resolve_governance_project_dir(project_id=project_id) / "compactions.json"
+
+    def _load_governance_state_payload(self, *, project_id: UUID) -> dict[str, Any]:
+        path = self._resolve_governance_state_path(project_id=project_id)
+        if not path.exists():
+            return {}
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+        return payload if isinstance(payload, dict) else {}
+
+    def _merge_governance_state(
+        self,
+        *,
+        project_id: UUID,
+        fields: dict[str, Any],
+    ) -> None:
+        payload = self._load_governance_state_payload(project_id=project_id)
+        payload.update(fields)
+        path = self._resolve_governance_state_path(project_id=project_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _load_checkpoints(self, *, project_id: UUID) -> list[MemoryGovernanceCheckpoint]:
+        path = self._resolve_checkpoint_path(project_id=project_id)
+        if not path.exists():
+            return []
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(payload, list):
+            return []
+
+        items: list[MemoryGovernanceCheckpoint] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            try:
+                items.append(
+                    MemoryGovernanceCheckpoint(
+                        checkpoint_id=str(item.get("checkpoint_id", "")),
+                        project_id=UUID(str(item["project_id"])),
+                        task_id=UUID(str(item["task_id"])),
+                        run_id=(
+                            UUID(str(item["run_id"]))
+                            if item.get("run_id") is not None
+                            else None
+                        ),
+                        context_summary=str(item.get("context_summary", "")),
+                        context_char_count=int(item.get("context_char_count", 0)),
+                        bad_context_detected=bool(item.get("bad_context_detected", False)),
+                        bad_context_reasons=[
+                            str(reason)
+                            for reason in item.get("bad_context_reasons", [])
+                            if str(reason).strip()
+                        ],
+                        pressure_level=(
+                            str(item.get("pressure_level"))
+                            if item.get("pressure_level") is not None
+                            else None
+                        ),
+                        usage_ratio=(
+                            float(item.get("usage_ratio"))
+                            if item.get("usage_ratio") is not None
+                            else None
+                        ),
+                        rolling_summary=str(item.get("rolling_summary", "")),
+                        project_memory_context_summary=(
+                            str(item["project_memory_context_summary"])
+                            if item.get("project_memory_context_summary") is not None
+                            else None
+                        ),
+                        created_at=_parse_datetime(item.get("created_at")),
+                    )
+                )
+            except (KeyError, ValueError, TypeError):
+                continue
+
+        return sorted(items, key=lambda entry: entry.created_at, reverse=True)
+
+    def _save_checkpoints(
+        self,
+        *,
+        project_id: UUID,
+        checkpoints: list[MemoryGovernanceCheckpoint],
+    ) -> None:
+        payload = [
+            {
+                "checkpoint_id": item.checkpoint_id,
+                "project_id": str(item.project_id),
+                "task_id": str(item.task_id),
+                "run_id": str(item.run_id) if item.run_id is not None else None,
+                "context_summary": item.context_summary,
+                "context_char_count": item.context_char_count,
+                "bad_context_detected": item.bad_context_detected,
+                "bad_context_reasons": list(item.bad_context_reasons),
+                "pressure_level": item.pressure_level,
+                "usage_ratio": item.usage_ratio,
+                "rolling_summary": item.rolling_summary,
+                "project_memory_context_summary": item.project_memory_context_summary,
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in checkpoints
+        ]
+        path = self._resolve_checkpoint_path(project_id=project_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _load_compactions_payload(self, *, project_id: UUID) -> list[dict[str, Any]]:
+        path = self._resolve_compaction_path(project_id=project_id)
+        if not path.exists():
+            return []
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(payload, list):
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+
+    def _save_compactions_payload(
+        self,
+        *,
+        project_id: UUID,
+        payload: list[dict[str, Any]],
+    ) -> None:
+        path = self._resolve_compaction_path(project_id=project_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     def _resolve_snapshot_path(self, *, project_id: UUID) -> Path:
         project_prefix = str(project_id)[:2]
         return self._base_dir / project_prefix / f"{project_id}.json"
@@ -913,6 +1414,25 @@ def _parse_datetime(value: Any) -> datetime:
         return ensure_utc_datetime(datetime.fromisoformat(value))
 
     return utc_now()
+
+
+def _parse_datetime_or_none(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return ensure_utc_datetime(value)
+    if isinstance(value, str) and value.strip():
+        return ensure_utc_datetime(datetime.fromisoformat(value))
+    return None
+
+
+def _parse_float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _first_non_empty(*values: str | None) -> str | None:

@@ -29,14 +29,19 @@ from app.repositories.run_repository import RunRepository
 from app.repositories.skill_repository import SkillRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.approval_repository import ApprovalRepository
+from app.repositories.agent_message_repository import AgentMessageRepository
+from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.deliverable_repository import DeliverableRepository
+from app.services.agent_conversation_service import AgentConversationService
 from app.services.budget_guard_service import BudgetGuardDecision, BudgetGuardService
+from app.services.context_budget_service import ContextBudgetService
 from app.services.context_builder_service import ContextBuilderService, TaskContextPackage
 from app.services.cost_estimator_service import CostEstimate, CostEstimatorService
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionPlan, ExecutionResult, ExecutorService
 from app.services.failure_review_service import FailureReviewService
 from app.services.model_routing_service import ModelRoutingService
+from app.services.memory_compaction_service import MemoryCompactionService
 from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt_registry_service import PromptRegistryService
 from app.services.project_memory_service import ProjectMemoryService
@@ -94,6 +99,20 @@ class WorkerRunResult:
     project_memory_query_text: str | None = None
     project_memory_item_count: int | None = None
     project_memory_context_summary: str | None = None
+    memory_governance_checkpoint_id: str | None = None
+    memory_governance_rolling_summary: str | None = None
+    memory_governance_bad_context_detected: bool | None = None
+    memory_governance_bad_context_reasons: list[str] = field(default_factory=list)
+    memory_governance_pressure_level: str | None = None
+    memory_governance_usage_ratio: float | None = None
+    memory_governance_compaction_applied: bool | None = None
+    memory_governance_compaction_ratio: float | None = None
+    memory_governance_rehydrated: bool | None = None
+    memory_governance_rehydrate_source_checkpoint_id: str | None = None
+    agent_session_id: UUID | None = None
+    agent_session_status: str | None = None
+    agent_review_status: str | None = None
+    agent_current_phase: str | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -120,6 +139,7 @@ class TaskWorker:
         token_accounting_service: TokenAccountingService,
         task_state_machine_service: TaskStateMachineService,
         failure_review_service: FailureReviewService,
+        agent_conversation_service: AgentConversationService,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -137,6 +157,7 @@ class TaskWorker:
         self.token_accounting_service = token_accounting_service
         self.task_state_machine_service = task_state_machine_service
         self.failure_review_service = failure_review_service
+        self.agent_conversation_service = agent_conversation_service
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -151,6 +172,10 @@ class TaskWorker:
         context_package: TaskContextPackage | None = None
         routing_decision: TaskRoutingDecision | None = None
         claim_transition: TaskStateTransition | None = None
+        agent_session_id: UUID | None = None
+        agent_session_status: str | None = None
+        agent_review_status: str | None = None
+        agent_current_phase: str | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -362,9 +387,52 @@ class TaskWorker:
 
             context_package = self.context_builder_service.build_context_package(
                 task=task,
+                run_id=run.id,
                 include_project_memory=True,
             )
+            if task.project_id is not None:
+                context_seed = self.context_builder_service.build_agent_thread_context_seed(
+                    task=task,
+                    context_package=context_package,
+                )
+                agent_session = self.agent_conversation_service.start_session(
+                    project_id=task.project_id,
+                    task_id=task.id,
+                    run_id=run.id,
+                    owner_role_code=run.owner_role_code,
+                    context_seed=context_seed,
+                )
+                agent_session = self.agent_conversation_service.record_execution_started(
+                    session_id=agent_session.id
+                )
+                agent_session_id = agent_session.id
+                agent_session_status = agent_session.status.value
+                agent_review_status = agent_session.review_status.value
+                agent_current_phase = agent_session.current_phase.value
             self._log_context_package(run=run, context_package=context_package)
+            if run.log_path is not None and context_package.governance_checkpoint_id is not None:
+                self.run_logging_service.append_event(
+                    log_path=run.log_path,
+                    event="memory_governance_checkpointed",
+                    message=(
+                        "Day09 memory governance checkpoint was persisted for this task context."
+                    ),
+                    data={
+                        "checkpoint_id": context_package.governance_checkpoint_id,
+                        "pressure_level": context_package.governance_pressure_level,
+                        "usage_ratio": context_package.governance_usage_ratio,
+                        "bad_context_detected": (
+                            context_package.governance_bad_context_detected
+                        ),
+                        "bad_context_reasons": (
+                            context_package.governance_bad_context_reasons
+                        ),
+                        "compaction_applied": (
+                            context_package.governance_compaction_applied
+                        ),
+                        "rehydrated": context_package.governance_rehydrated,
+                    },
+                )
             routing_contract = self.model_routing_service.build_contract_from_strategy_decision(
                 routing_decision.strategy_decision if routing_decision is not None else None
             )
@@ -439,6 +507,29 @@ class TaskWorker:
                 prompt_envelope=prompt_envelope,
                 token_accounting=token_accounting,
             )
+            if agent_session_id is not None:
+                agent_session = self.agent_conversation_service.record_execution_outcome(
+                    session_id=agent_session_id,
+                    execution_success=execution.success,
+                    execution_summary=execution.summary,
+                    verification_present=verification is not None,
+                    verification_success=verification.success if verification else False,
+                    verification_summary=verification.summary if verification else None,
+                    run_failure_category=(
+                        verification.failure_category
+                        if verification is not None
+                        else None
+                    ),
+                )
+                agent_session = self.agent_conversation_service.finalize_session(
+                    session_id=agent_session.id,
+                    run_status=run.status,
+                    run_failure_category=run.failure_category,
+                    final_summary=final_summary,
+                )
+                agent_session_status = agent_session.status.value
+                agent_review_status = agent_session.review_status.value
+                agent_current_phase = agent_session.current_phase.value
             self._log_finalization(
                 task=task,
                 run=run,
@@ -507,6 +598,60 @@ class TaskWorker:
                     if context_package is not None
                     else None
                 ),
+                memory_governance_checkpoint_id=(
+                    context_package.governance_checkpoint_id
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_rolling_summary=(
+                    context_package.governance_rolling_summary
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_bad_context_detected=(
+                    context_package.governance_bad_context_detected
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_bad_context_reasons=(
+                    list(context_package.governance_bad_context_reasons)
+                    if context_package is not None
+                    else []
+                ),
+                memory_governance_pressure_level=(
+                    context_package.governance_pressure_level
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_usage_ratio=(
+                    context_package.governance_usage_ratio
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_compaction_applied=(
+                    context_package.governance_compaction_applied
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_compaction_ratio=(
+                    context_package.governance_compaction_ratio
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_rehydrated=(
+                    context_package.governance_rehydrated
+                    if context_package is not None
+                    else None
+                ),
+                memory_governance_rehydrate_source_checkpoint_id=(
+                    context_package.governance_rehydrate_source_checkpoint_id
+                    if context_package is not None
+                    else None
+                ),
+                agent_session_id=agent_session_id,
+                agent_session_status=agent_session_status,
+                agent_review_status=agent_review_status,
+                agent_current_phase=agent_current_phase,
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier
@@ -1317,6 +1462,12 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         failure_review_repository=FailureReviewRepository(),
         run_logging_service=run_logging_service,
     )
+    agent_session_repository = AgentSessionRepository(session)
+    agent_message_repository = AgentMessageRepository(session)
+    agent_conversation_service = AgentConversationService(
+        agent_session_repository=agent_session_repository,
+        agent_message_repository=agent_message_repository,
+    )
     project_memory_service = ProjectMemoryService(
         project_repository=ProjectRepository(session),
         task_repository=task_repository,
@@ -1325,10 +1476,14 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         approval_repository=ApprovalRepository(session),
         failure_review_service=failure_review_service,
     )
+    context_budget_service = ContextBudgetService()
+    memory_compaction_service = MemoryCompactionService()
     context_builder_service = ContextBuilderService(
         run_repository=run_repository,
         task_readiness_service=task_readiness_service,
         project_memory_service=project_memory_service,
+        context_budget_service=context_budget_service,
+        memory_compaction_service=memory_compaction_service,
     )
     role_catalog_service = RoleCatalogService(
         project_repository=ProjectRepository(session),
@@ -1369,4 +1524,5 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         token_accounting_service=token_accounting_service,
         task_state_machine_service=task_state_machine_service,
         failure_review_service=failure_review_service,
+        agent_conversation_service=agent_conversation_service,
     )

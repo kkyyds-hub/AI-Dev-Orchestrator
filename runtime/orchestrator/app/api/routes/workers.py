@@ -85,6 +85,20 @@ class WorkerRunOnceResponse(BaseModel):
     project_memory_query_text: str | None = None
     project_memory_item_count: int | None = None
     project_memory_context_summary: str | None = None
+    memory_governance_checkpoint_id: str | None = None
+    memory_governance_rolling_summary: str | None = None
+    memory_governance_bad_context_detected: bool | None = None
+    memory_governance_bad_context_reasons: list[str] = Field(default_factory=list)
+    memory_governance_pressure_level: str | None = None
+    memory_governance_usage_ratio: float | None = None
+    memory_governance_compaction_applied: bool | None = None
+    memory_governance_compaction_ratio: float | None = None
+    memory_governance_rehydrated: bool | None = None
+    memory_governance_rehydrate_source_checkpoint_id: str | None = None
+    agent_session_id: UUID | None = None
+    agent_session_status: str | None = None
+    agent_review_status: str | None = None
+    agent_current_phase: str | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -170,6 +184,28 @@ class WorkerRunOnceResponse(BaseModel):
             project_memory_query_text=result.project_memory_query_text,
             project_memory_item_count=result.project_memory_item_count,
             project_memory_context_summary=result.project_memory_context_summary,
+            memory_governance_checkpoint_id=result.memory_governance_checkpoint_id,
+            memory_governance_rolling_summary=result.memory_governance_rolling_summary,
+            memory_governance_bad_context_detected=(
+                result.memory_governance_bad_context_detected
+            ),
+            memory_governance_bad_context_reasons=(
+                result.memory_governance_bad_context_reasons
+            ),
+            memory_governance_pressure_level=result.memory_governance_pressure_level,
+            memory_governance_usage_ratio=result.memory_governance_usage_ratio,
+            memory_governance_compaction_applied=(
+                result.memory_governance_compaction_applied
+            ),
+            memory_governance_compaction_ratio=result.memory_governance_compaction_ratio,
+            memory_governance_rehydrated=result.memory_governance_rehydrated,
+            memory_governance_rehydrate_source_checkpoint_id=(
+                result.memory_governance_rehydrate_source_checkpoint_id
+            ),
+            agent_session_id=result.agent_session_id,
+            agent_session_status=result.agent_session_status,
+            agent_review_status=result.agent_review_status,
+            agent_current_phase=result.agent_current_phase,
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
             task_status=result.task.status if result.task else None,

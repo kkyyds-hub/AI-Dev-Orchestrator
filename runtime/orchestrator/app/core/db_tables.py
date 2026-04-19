@@ -19,6 +19,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain._base import utc_now
 from app.domain.approval import ApprovalDecisionAction, ApprovalStatus
+from app.domain.agent_message import AgentMessageRole, AgentMessageType
+from app.domain.agent_session import (
+    AgentSessionPhase,
+    AgentSessionReviewStatus,
+    AgentSessionStatus,
+)
 from app.domain.change_batch import ChangeBatchStatus
 from app.domain.commit_candidate import CommitCandidateStatus
 from app.domain.change_session import (
@@ -90,6 +96,21 @@ class ProjectTable(ORMBase):
         Text,
         nullable=False,
         default="[]",
+    )
+    team_assembly_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    team_policy_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="{}",
+    )
+    budget_policy_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="{}",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -610,6 +631,14 @@ class TaskTable(ORMBase):
     deliverable_versions: Mapped[list["DeliverableVersionTable"]] = relationship(
         back_populates="source_task",
     )
+    agent_sessions: Mapped[list["AgentSessionTable"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
+    agent_messages: Mapped[list["AgentMessageTable"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
 
 
 class RunTable(ORMBase):
@@ -706,6 +735,171 @@ class RunTable(ORMBase):
     deliverable_versions: Mapped[list["DeliverableVersionTable"]] = relationship(
         back_populates="source_run",
     )
+    agent_sessions: Mapped[list["AgentSessionTable"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+    )
+    agent_messages: Mapped[list["AgentMessageTable"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentSessionTable(ORMBase):
+    """Day11 agent-thread session rows."""
+
+    __tablename__ = "agent_sessions"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[AgentSessionStatus] = mapped_column(
+        Enum(
+            AgentSessionStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=AgentSessionStatus.RUNNING,
+    )
+    review_status: Mapped[AgentSessionReviewStatus] = mapped_column(
+        Enum(
+            AgentSessionReviewStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=AgentSessionReviewStatus.NONE,
+    )
+    current_phase: Mapped[AgentSessionPhase] = mapped_column(
+        Enum(
+            AgentSessionPhase,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=AgentSessionPhase.CONTEXT_READY,
+    )
+    owner_role_code: Mapped[ProjectRoleCode | None] = mapped_column(
+        Enum(
+            ProjectRoleCode,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    context_checkpoint_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    context_rehydrated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    latest_intervention_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    latest_note_event_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    project: Mapped[ProjectTable] = relationship()
+    task: Mapped[TaskTable] = relationship(back_populates="agent_sessions")
+    run: Mapped[RunTable] = relationship(back_populates="agent_sessions")
+    messages: Mapped[list["AgentMessageTable"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentMessageTable(ORMBase):
+    """Day11 agent-thread timeline rows."""
+
+    __tablename__ = "agent_messages"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("agent_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[AgentMessageRole] = mapped_column(
+        Enum(
+            AgentMessageRole,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    message_type: Mapped[AgentMessageType] = mapped_column(
+        Enum(
+            AgentMessageType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    phase: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    state_from: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    state_to: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    intervention_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    note_event_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    context_checkpoint_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    context_rehydrated: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    content_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    content_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    session: Mapped[AgentSessionTable] = relationship(back_populates="messages")
+    project: Mapped[ProjectTable] = relationship()
+    task: Mapped[TaskTable] = relationship(back_populates="agent_messages")
+    run: Mapped[RunTable] = relationship(back_populates="agent_messages")
 
 
 class DeliverableTable(ORMBase):

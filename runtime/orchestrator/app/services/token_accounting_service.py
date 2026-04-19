@@ -158,7 +158,7 @@ class TokenAccountingService:
         prompt_envelope: BuiltPromptEnvelope | None,
         provider_usage_receipt: ProviderUsageReceipt,
     ) -> TokenAccountingSnapshot:
-        """Record mock-provider receipts without polluting real provider semantics."""
+        """Persist mock-provider receipts on the provider-reported accounting contract."""
 
         if prompt_envelope is not None:
             if prompt_envelope.provider_key != provider_usage_receipt.provider_key:
@@ -179,7 +179,7 @@ class TokenAccountingService:
             )
         )
         return TokenAccountingSnapshot(
-            accounting_mode=TokenAccountingMode.PROVIDER_MOCK,
+            accounting_mode=TokenAccountingMode.PROVIDER_REPORTED,
             template_ref=template_ref,
             provider_key=normalized_receipt.provider_key,
             model_name=normalized_receipt.model_name,

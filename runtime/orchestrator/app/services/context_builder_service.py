@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -19,9 +19,16 @@ from app.domain.task import (
 )
 from app.repositories.run_repository import RunRepository
 from app.services.project_memory_service import (
+    MemoryGovernanceCheckpoint,
+    MemoryRehydrateResult,
     ProjectMemoryItem,
     ProjectMemoryService,
     TaskProjectMemoryContext,
+)
+from app.services.context_budget_service import ContextBudgetService
+from app.services.memory_compaction_service import (
+    MemoryCompactionResult,
+    MemoryCompactionService,
 )
 from app.services.task_readiness_service import (
     TaskBlockingSignal,
@@ -71,6 +78,31 @@ class TaskContextPackage:
     project_memory_query_text: str | None = None
     project_memory_item_count: int = 0
     project_memory_context_summary: str | None = None
+    governance_checkpoint_id: str | None = None
+    governance_rolling_summary: str | None = None
+    governance_bad_context_detected: bool = False
+    governance_bad_context_reasons: list[str] = field(default_factory=list)
+    governance_pressure_level: str | None = None
+    governance_usage_ratio: float | None = None
+    governance_compaction_applied: bool = False
+    governance_compaction_ratio: float | None = None
+    governance_rehydrated: bool = False
+    governance_rehydrate_source_checkpoint_id: str | None = None
+
+
+
+@dataclass(slots=True, frozen=True)
+class AgentThreadContextSeed:
+    """Day11 session seed built from Day10 governance/context artifacts."""
+
+    task_id: UUID
+    context_checkpoint_id: str | None
+    context_rehydrated: bool
+    pressure_level: str | None
+    usage_ratio: float | None
+    bad_context_detected: bool
+    bad_context_reasons: list[str]
+    context_contract_summary: str
 
 
 @dataclass(slots=True, frozen=True)
@@ -137,15 +169,22 @@ class ContextBuilderService:
         run_repository: RunRepository,
         task_readiness_service: TaskReadinessService,
         project_memory_service: ProjectMemoryService | None = None,
+        context_budget_service: ContextBudgetService | None = None,
+        memory_compaction_service: MemoryCompactionService | None = None,
     ) -> None:
         self.run_repository = run_repository
         self.task_readiness_service = task_readiness_service
         self.project_memory_service = project_memory_service
+        self.context_budget_service = context_budget_service or ContextBudgetService()
+        self.memory_compaction_service = (
+            memory_compaction_service or MemoryCompactionService()
+        )
 
     def build_context_package(
         self,
         *,
         task: Task,
+        run_id: UUID | None = None,
         include_project_memory: bool = False,
         project_memory_limit: int = 3,
     ) -> TaskContextPackage:
@@ -167,6 +206,45 @@ class ContextBuilderService:
             recent_runs=recent_runs,
             blocking_reasons=readiness.blocking_reasons,
             project_memory_context=project_memory_context,
+        )
+        (
+            context_summary,
+            governance_checkpoint,
+            compaction_result,
+            rehydrate_result,
+        ) = self._apply_memory_governance(
+            task=task,
+            run_id=run_id,
+            context_summary=context_summary,
+            project_memory_context=project_memory_context,
+            recent_runs=recent_runs,
+            blocking_reasons=readiness.blocking_reasons,
+        )
+
+        rolling_summary = (
+            governance_checkpoint.rolling_summary
+            if governance_checkpoint is not None
+            else None
+        )
+        bad_context_detected = (
+            governance_checkpoint.bad_context_detected
+            if governance_checkpoint is not None
+            else False
+        )
+        bad_context_reasons = (
+            list(governance_checkpoint.bad_context_reasons)
+            if governance_checkpoint is not None
+            else []
+        )
+        pressure_level = (
+            governance_checkpoint.pressure_level
+            if governance_checkpoint is not None
+            else None
+        )
+        usage_ratio = (
+            governance_checkpoint.usage_ratio
+            if governance_checkpoint is not None
+            else None
         )
 
         return TaskContextPackage(
@@ -200,7 +278,162 @@ class ContextBuilderService:
                 if project_memory_context is not None
                 else None
             ),
+            governance_checkpoint_id=(
+                governance_checkpoint.checkpoint_id
+                if governance_checkpoint is not None
+                else None
+            ),
+            governance_rolling_summary=rolling_summary,
+            governance_bad_context_detected=bad_context_detected,
+            governance_bad_context_reasons=bad_context_reasons,
+            governance_pressure_level=pressure_level,
+            governance_usage_ratio=usage_ratio,
+            governance_compaction_applied=(
+                compaction_result.compaction_applied
+                if compaction_result is not None
+                else False
+            ),
+            governance_compaction_ratio=(
+                compaction_result.reduction_ratio
+                if compaction_result is not None
+                else None
+            ),
+            governance_rehydrated=(
+                rehydrate_result.rehydrated
+                if rehydrate_result is not None
+                else False
+            ),
+            governance_rehydrate_source_checkpoint_id=(
+                rehydrate_result.used_checkpoint_id
+                if rehydrate_result is not None
+                else None
+            ),
         )
+
+    def build_agent_thread_context_seed(
+        self,
+        *,
+        task: Task,
+        context_package: TaskContextPackage,
+    ) -> AgentThreadContextSeed:
+        """Build the Day11 session seed from the current context package."""
+
+        summary_lines = [
+            f"task_id={task.id}",
+            f"checkpoint_id={context_package.governance_checkpoint_id or 'none'}",
+            f"rehydrated={'yes' if context_package.governance_rehydrated else 'no'}",
+            f"pressure={context_package.governance_pressure_level or 'unknown'}",
+        ]
+        if context_package.governance_usage_ratio is not None:
+            summary_lines.append(f"usage_ratio={context_package.governance_usage_ratio:.4f}")
+        if context_package.governance_bad_context_detected:
+            reasons_text = (
+                ", ".join(context_package.governance_bad_context_reasons[:3])
+                if context_package.governance_bad_context_reasons
+                else "detected"
+            )
+            summary_lines.append(f"bad_context={reasons_text}")
+        summary_lines.append("source=day10-memory-governance")
+
+        return AgentThreadContextSeed(
+            task_id=task.id,
+            context_checkpoint_id=context_package.governance_checkpoint_id,
+            context_rehydrated=context_package.governance_rehydrated,
+            pressure_level=context_package.governance_pressure_level,
+            usage_ratio=context_package.governance_usage_ratio,
+            bad_context_detected=context_package.governance_bad_context_detected,
+            bad_context_reasons=list(context_package.governance_bad_context_reasons),
+            context_contract_summary="; ".join(summary_lines),
+        )
+
+    def _apply_memory_governance(
+        self,
+        *,
+        task: Task,
+        run_id: UUID | None,
+        context_summary: str,
+        project_memory_context: TaskProjectMemoryContext | None,
+        recent_runs: list[ContextRecentRunItem],
+        blocking_reasons: list[str],
+    ) -> tuple[
+        str,
+        MemoryGovernanceCheckpoint | None,
+        MemoryCompactionResult | None,
+        MemoryRehydrateResult | None,
+    ]:
+        """Run Day09 governance chain: budget -> compaction -> checkpoint -> rehydrate."""
+
+        if self.project_memory_service is None or task.project_id is None:
+            return context_summary, None, None, None
+
+        budget_snapshot = self.context_budget_service.evaluate(
+            task_id=task.id,
+            context_summary=context_summary,
+            project_memory_context_summary=(
+                project_memory_context.context_summary
+                if project_memory_context is not None
+                else None
+            ),
+            recent_run_count=len(recent_runs),
+            blocking_reason_count=len(blocking_reasons),
+        )
+
+        compaction_result: MemoryCompactionResult | None = None
+        compacted_summary: str | None = None
+        if budget_snapshot.recommended_action in {"compact", "compact_and_rehydrate"}:
+            compaction_result = self.memory_compaction_service.compact_context(
+                context_summary=context_summary,
+                project_memory_context_summary=(
+                    project_memory_context.context_summary
+                    if project_memory_context is not None
+                    else None
+                ),
+                budget_snapshot=budget_snapshot,
+            )
+            if compaction_result.compaction_applied:
+                compacted_summary = compaction_result.compacted_summary
+                context_summary = compacted_summary
+
+        checkpoint = self.project_memory_service.record_context_checkpoint(
+            project_id=task.project_id,
+            task_id=task.id,
+            run_id=run_id,
+            context_summary=context_summary,
+            bad_context_detected=budget_snapshot.bad_context_detected,
+            bad_context_reasons=budget_snapshot.bad_context_reasons,
+            pressure_level=budget_snapshot.pressure_level.value,
+            usage_ratio=budget_snapshot.usage_ratio,
+            project_memory_context_summary=(
+                project_memory_context.context_summary
+                if project_memory_context is not None
+                else None
+            ),
+            compacted_summary=compacted_summary,
+        )
+
+        if compaction_result is not None and compaction_result.compaction_applied:
+            self.project_memory_service.record_compaction(
+                project_id=task.project_id,
+                checkpoint_id=checkpoint.checkpoint_id,
+                compacted_summary=compaction_result.compacted_summary,
+                original_chars=compaction_result.original_chars,
+                compacted_chars=compaction_result.compacted_chars,
+                reason_codes=compaction_result.reasons,
+            )
+
+        rehydrate_result: MemoryRehydrateResult | None = None
+        if budget_snapshot.recommended_action == "compact_and_rehydrate":
+            rehydrate_result = self.project_memory_service.rehydrate_context(
+                project_id=task.project_id,
+                task_id=task.id,
+            )
+            if rehydrate_result.rehydrated:
+                context_summary = _merge_rehydrated_context(
+                    context_summary=context_summary,
+                    rehydrated_context=rehydrate_result.rehydrated_context_summary,
+                )
+
+        return context_summary, checkpoint, compaction_result, rehydrate_result
 
     def build_task_memory_context(
         self,
@@ -801,3 +1034,21 @@ class ContextBuilderService:
             return normalized_suffix
 
         return normalized_name
+
+
+def _merge_rehydrated_context(
+    *,
+    context_summary: str,
+    rehydrated_context: str,
+) -> str:
+    """Attach a short rehydrate block while respecting the context summary limit."""
+
+    merged = (
+        context_summary.strip()
+        + "\n\nRehydrate hints:\n"
+        + rehydrated_context.strip()
+    )
+    if len(merged) <= _CONTEXT_SUMMARY_MAX_LENGTH:
+        return merged
+
+    return merged[: _CONTEXT_SUMMARY_MAX_LENGTH - 3].rstrip() + "..."
