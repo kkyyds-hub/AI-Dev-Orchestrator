@@ -1,6 +1,8 @@
 import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "./AppShell";
+import { buildTaskRoute } from "../lib/task-route";
+import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
 import { RunsPage } from "../pages/runs/RunsPage";
@@ -65,12 +67,16 @@ export const router = createBrowserRouter([
         element: <RunsPage />,
       },
       {
-        path: "deliverables/*",
+        path: "deliverables",
         element: (
-          <PlaceholderPage
-            title="交付物中心即将开放"
-            description="交付物入口已经纳入统一导航，后续会在这里集中呈现交付物、版本快照与关联回溯能力。"
-            nextStep="逐步把项目域中的交付物访问体验提升为统一入口，减少跨页面查找成本。"
+          <DeliverablesPage
+            onNavigateToTask={(taskId, options) =>
+              buildTaskRoute({
+                taskId,
+                runId: options?.runId ?? null,
+                from: "deliverables",
+              })
+            }
           />
         ),
       },

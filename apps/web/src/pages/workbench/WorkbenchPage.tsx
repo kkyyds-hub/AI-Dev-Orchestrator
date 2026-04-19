@@ -13,6 +13,7 @@ import { ManualRunResultSection } from "../../app/sections/ManualRunResultSectio
 import { RightSidebarOverviewSection } from "../../app/sections/RightSidebarOverviewSection";
 import { TaskTableSection } from "../../app/sections/TaskTableSection";
 import { WorkerPoolResultSection } from "../../app/sections/WorkerPoolResultSection";
+import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 
@@ -85,11 +86,11 @@ export function WorkbenchPage() {
     projectId: string;
     deliverableId: string;
   }) => {
-    const searchParams = new URLSearchParams();
-    searchParams.set("deliverableId", input.deliverableId);
-
     navigate(
-      `/projects/${input.projectId}?${searchParams.toString()}#project-overview?view=deliverable-center&targetId=deliverable-center`,
+      buildDeliverablesRoute({
+        projectId: input.projectId,
+        deliverableId: input.deliverableId,
+      }),
     );
   };
 

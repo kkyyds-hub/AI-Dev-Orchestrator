@@ -1,7 +1,7 @@
 type BuildTaskRouteInput = {
   taskId?: string | null;
   runId?: string | null;
-  from?: "workbench" | "project" | "tasks";
+  from?: "workbench" | "project" | "tasks" | "deliverables";
   projectId?: string | null;
 };
 

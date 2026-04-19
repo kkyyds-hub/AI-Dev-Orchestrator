@@ -7,6 +7,7 @@ import type { ConsoleRun, ConsoleTask } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { TaskDetailPanel } from "../../features/task-detail/TaskDetailPanel";
 import { formatDateTime, formatNullableCurrencyUsd } from "../../lib/format";
+import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import { buildRunRoute } from "../../lib/run-route";
 import { mapRunStatusTone } from "../../lib/status";
 
@@ -83,11 +84,11 @@ export function RunsPage() {
     projectId: string;
     deliverableId: string;
   }) => {
-    const nextSearchParams = new URLSearchParams();
-    nextSearchParams.set("deliverableId", input.deliverableId);
-
     navigate(
-      `/projects/${input.projectId}?${nextSearchParams.toString()}#project-overview?view=deliverable-center&targetId=deliverable-center`,
+      buildDeliverablesRoute({
+        projectId: input.projectId,
+        deliverableId: input.deliverableId,
+      }),
     );
   };
 

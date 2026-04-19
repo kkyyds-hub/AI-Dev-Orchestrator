@@ -6,6 +6,7 @@ import { useConsoleOverview } from "../../features/console/hooks";
 import type { ConsoleTask } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { TaskDetailPanel } from "../../features/task-detail/TaskDetailPanel";
+import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 
@@ -49,11 +50,11 @@ export function TasksPage() {
     projectId: string;
     deliverableId: string;
   }) => {
-    const nextSearchParams = new URLSearchParams();
-    nextSearchParams.set("deliverableId", input.deliverableId);
-
     navigate(
-      `/projects/${input.projectId}?${nextSearchParams.toString()}#project-overview?view=deliverable-center&targetId=deliverable-center`,
+      buildDeliverablesRoute({
+        projectId: input.projectId,
+        deliverableId: input.deliverableId,
+      }),
     );
   };
 
