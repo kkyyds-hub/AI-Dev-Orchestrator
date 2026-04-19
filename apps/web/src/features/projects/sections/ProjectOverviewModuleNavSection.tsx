@@ -29,20 +29,20 @@ export function ProjectOverviewModuleNavSection(
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-cyan-300">
-            Frontend Entry Governance
+            Project Domain Navigation
           </p>
           <h2
             data-testid="project-overview-module-nav-title"
             className="mt-2 text-lg font-semibold text-slate-50"
           >
-            项目概览统一导航
+            项目域模块导航
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            统一“页内区块定位”和“跨页入口跳达”，继续使用 hash 页面态，不做正式 Router 重构。
+            当前已进入正式 /projects 路由；项目域内部视图仍保留渐进式模块切换，后续再提升为子路由。
           </p>
         </div>
         <div className="text-xs text-slate-500">
-          当前入口：{sectionEntryCount} 个页内区块 / {pageEntryCount} 个跨页视图
+          当前入口：{sectionEntryCount} 个页内区块 / {pageEntryCount} 个项目域模块
         </div>
       </div>
 
@@ -71,7 +71,7 @@ export function ProjectOverviewModuleNavSection(
               {item.description}
             </p>
             <div className="mt-3 text-xs uppercase tracking-[0.18em] text-cyan-300">
-              {item.kind === "section" ? `页内定位 #${item.id}` : "跨页入口"}
+              {item.kind === "section" ? `页内定位 #${item.id}` : "项目域模块"}
             </div>
           </button>
         ))}

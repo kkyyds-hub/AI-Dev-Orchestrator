@@ -28,6 +28,9 @@ import type { TaskDetail } from "../task-detail/types";
 
 type ProjectOverviewPageProps = {
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
+  routeProjectId?: string | null;
+  routeRequestedDeliverableId?: string | null;
+  routeRequestedApprovalId?: string | null;
 };
 
 type ProjectDay15FlowOverview = {
@@ -81,16 +84,18 @@ function useProjectDay15FlowOverview(projectId: string | null) {
 export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const overviewQuery = useBossProjectOverview();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    null,
+    props.routeProjectId ?? null,
   );
   const [stageActionFeedback, setStageActionFeedback] = useState<{
     tone: "success" | "warning" | "danger";
     text: string;
   } | null>(null);
   const [requestedDeliverableId, setRequestedDeliverableId] = useState<string | null>(
-    null,
+    props.routeRequestedDeliverableId ?? null,
   );
-  const [requestedApprovalId, setRequestedApprovalId] = useState<string | null>(null);
+  const [requestedApprovalId, setRequestedApprovalId] = useState<string | null>(
+    props.routeRequestedApprovalId ?? null,
+  );
   const { activeView, navigateToOverviewSection, navigateToOverviewPage } =
     useProjectOverviewNavigationState({
       requestedApprovalId,
@@ -111,6 +116,26 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   }, [projects]);
 
   useEffect(() => {
+    setRequestedDeliverableId(props.routeRequestedDeliverableId ?? null);
+  }, [props.routeRequestedDeliverableId]);
+
+  useEffect(() => {
+    setRequestedApprovalId(props.routeRequestedApprovalId ?? null);
+  }, [props.routeRequestedApprovalId]);
+
+  useEffect(() => {
+    if (!props.routeProjectId || !projects.length) {
+      return;
+    }
+
+    const hasRouteProject = projects.some((project) => project.id === props.routeProjectId);
+    if (hasRouteProject && selectedProjectId !== props.routeProjectId) {
+      setSelectedProjectId(props.routeProjectId);
+      setStageActionFeedback(null);
+    }
+  }, [projects, props.routeProjectId, selectedProjectId]);
+
+  useEffect(() => {
     if (!projects.length) {
       if (selectedProjectId !== null) {
         setSelectedProjectId(null);
@@ -124,7 +149,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     if ((!selectedProjectId || !hasSelection) && defaultSelectedProjectId) {
       setSelectedProjectId(defaultSelectedProjectId);
     }
-  }, [defaultSelectedProjectId, projects, selectedProjectId]);
+  }, [defaultSelectedProjectId, projects, props.routeProjectId, selectedProjectId]);
 
   const selectedProject = useMemo<BossProjectItem | null>(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
