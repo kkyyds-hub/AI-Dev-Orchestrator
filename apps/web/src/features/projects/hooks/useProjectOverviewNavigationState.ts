@@ -130,8 +130,18 @@ export function useProjectOverviewNavigationState(
       }
 
       if (input.routeProjectView) {
+        const parsedRouteHash = parseProjectOverviewHash(window.location.hash);
+        const defaultTargetId = getProjectOverviewDefaultTargetId(input.routeProjectView);
+        const routeTargetId = parsedRouteHash
+          ? parsedRouteHash.view === input.routeProjectView
+            ? parsedRouteHash.targetId ?? defaultTargetId
+            : defaultTargetId
+          : window.location.hash.startsWith("#") && window.location.hash.length > 1
+            ? window.location.hash.slice(1)
+            : defaultTargetId;
+
         setActiveView(input.routeProjectView);
-        scheduleScrollToTarget(getProjectOverviewDefaultTargetId(input.routeProjectView));
+        scheduleScrollToTarget(routeTargetId);
         return;
       }
 

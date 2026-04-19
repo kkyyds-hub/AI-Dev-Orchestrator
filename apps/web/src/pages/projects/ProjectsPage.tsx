@@ -1,8 +1,11 @@
+import { useEffect } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ProjectOverviewPage } from "../../features/projects/ProjectOverviewPage";
 import {
   buildProjectOverviewRoute,
+  getProjectOverviewDefaultTargetId,
+  parseProjectOverviewHash,
   projectOverviewRouteSegmentToView,
   type ProjectOverviewPageView,
 } from "../../features/projects/lib/overviewNavigation";
@@ -14,6 +17,39 @@ export function ProjectsPage() {
   const { projectId } = useParams();
   const [searchParams] = useSearchParams();
   const routeProjectView = resolveRouteProjectView(location.pathname, projectId ?? null);
+
+  useEffect(() => {
+    if (!projectId || !location.hash || location.hash.startsWith("#boss-drilldown")) {
+      return;
+    }
+
+    const parsed = parseProjectOverviewHash(location.hash);
+    if (!parsed || parsed.view === "overview") {
+      return;
+    }
+
+    const nextPathname = buildProjectOverviewRoute({
+      projectId,
+      view: parsed.view,
+    });
+    const defaultTargetId = getProjectOverviewDefaultTargetId(parsed.view);
+    const nextHash =
+      parsed.targetId && parsed.targetId !== defaultTargetId ? `#${parsed.targetId}` : "";
+    const currentHash = location.hash;
+
+    if (location.pathname === nextPathname && currentHash === nextHash) {
+      return;
+    }
+
+    navigate(
+      {
+        pathname: nextPathname,
+        search: location.search,
+        hash: nextHash,
+      },
+      { replace: true },
+    );
+  }, [location.hash, location.pathname, location.search, navigate, projectId]);
 
   return (
     <ProjectOverviewPage
