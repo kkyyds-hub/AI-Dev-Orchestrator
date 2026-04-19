@@ -4,7 +4,7 @@
 - Phase：`Phase 2`
 - 模块：`模块C：记忆治理与上下文防爆仓`
 - 工作包：`memory-governance-backend-core`
-- 当前状态：**已规划**
+- 当前状态：**已实现待验证**
 - owner skill：`write-v5-runtime-backend`
 - 文档定位：**逐日执行包总入口 / 完整展开**
 
@@ -101,4 +101,4 @@ Day09 是 Phase 2 的后端主链冻结日，负责把 checkpoint / summary / ba
 4. 当前缺证与风险边界
 5. 不要误判为 Phase 2 已整体完成的点
 - 下一日接力：`drive-v5-orchestrator-delivery` 接手 `Day10：记忆治理控制面与跨层交付`
-- 当前不要误判为完成：`Day09` 仍处于 **已规划**，必须由后续真实线程回填状态。
+- 当前不要误判为完成：`Day09` 当前为 **已实现待验证**，仅代表后端主链接线与最小证据已具备，不代表 Phase 2 已通过。

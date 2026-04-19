@@ -4,7 +4,7 @@
 - Phase：`Phase 4`
 - 模块：`模块D：Multi-Agent 协作与老板控制面`
 - 工作包：`cache-and-cost-dashboard-delivery`
-- 当前状态：**已规划**
+- 当前状态：**已实现待验证**
 - owner skill：`drive-v5-orchestrator-delivery`
 - 文档定位：**逐日执行包总入口 / 完整展开**
 
@@ -12,14 +12,14 @@
 
 ## 本日定位
 
-Day14 负责把 cache hit/miss、task/thread/role 三级成本聚合与 dashboard 最小版冻结成 Day15 可直接验证的正式执行包。
+Day14 负责把 cache 侧观察信号与 task/thread/role 三级成本聚合、dashboard 最小版冻结成 Day15 可直接验证的正式执行包。
 
 ## 当前真实状态
 
-- `apps/web/src/features/costs/` 当前不存在。
-- `token_accounting_service.py` 当前不存在，因此不能假装已有真实成本拆账主链。
-- `cost_estimator_service.py` 仍是启发式估算基线。
-- `runtime/orchestrator/scripts/` 已有 V3/V4 smoke 脚本，但尚未看到 V5 专用脚本。
+- `apps/web/src/features/costs/` 已新增最小承载面（`types/api/hooks/sections`）。
+- `token_accounting_service.py` 已存在，并可输出 `provider_reported/heuristic` 语义；但 Day14 仍需显式 fallback 口径。
+- `cost_estimator_service.py` 仍保留启发式估算兜底逻辑，不可误写为完整真实成本拆账闭环。
+- `runtime/orchestrator/scripts/` 仍无 Day14 专用脚本，本轮以最小 API smoke + web build 形成证据。
 
 ## 本日纳入范围
 
@@ -42,11 +42,11 @@ Day14 负责把 cache hit/miss、task/thread/role 三级成本聚合与 dashboar
 
 ## 重点改动面
 
-1. apps/web/src/features/costs/（计划新增）
-2. apps/web/src/features/projects/ProjectOverviewPage.tsx
-3. runtime/orchestrator/app/services/cost_estimator_service.py
-4. runtime/orchestrator/app/services/token_accounting_service.py（计划新增）
-5. runtime/orchestrator/scripts/ 下 V5 smoke 入口（后续线程）
+1. `runtime/orchestrator/app/api/routes/projects.py`（`GET /projects/{project_id}/cost-dashboard`）
+2. `runtime/orchestrator/app/services/token_accounting_service.py`（provider/mock 与 fallback 口径语义）
+3. `apps/web/src/features/costs/`（`types/api/hooks/sections`）
+4. `apps/web/src/features/projects/ProjectOverviewPage.tsx`（最小挂载，不扩聚合逻辑）
+5. `runtime/orchestrator/scripts/` 下 Day14 专用脚本仍留给后续 verify 线程
 
 ## 开始前必须先读
 
@@ -85,4 +85,4 @@ Day14 负责把 cache hit/miss、task/thread/role 三级成本聚合与 dashboar
 - 把 Day14 联调范围扩大成完整运营报表，破坏 16 天边界。
 
 - 下一日接力：`verify-v5-runtime-and-regression` → `Day15：V5 E2E、回归与风险汇总`
-- 当前不要误判为完成：`Day14` 仍是 **已规划**。
+- 当前不要误判为完成：`Day14` 当前为 **已实现待验证**，并非 `Phase 4 已通过`。
