@@ -5,6 +5,7 @@ import {
   hasRoleModelPolicyRuntimeData,
 } from "../../lib/latestRunRuntimeContract";
 import { mapBudgetPressureTone } from "../../lib/status";
+import { navigateToProjectOverviewHash } from "../projects/lib/overviewNavigation";
 import type {
   BossDrilldownContext,
   BossProjectLatestTask,
@@ -155,6 +156,22 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
               tone="warning"
             />
           ) : null}
+          <button
+            type="button"
+            data-testid="goto-agent-thread-from-strategy-preview"
+            onClick={scrollToAgentThreadControlSurface}
+            className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+          >
+            Open Agent Thread
+          </button>
+          <button
+            type="button"
+            data-testid="goto-team-control-center-from-strategy-preview"
+            onClick={scrollToTeamControlCenterSurface}
+            className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
+          >
+            Open Team Control
+          </button>
         </div>
       </div>
 
@@ -529,4 +546,18 @@ function InfoCard(props: {
       ) : null}
     </div>
   );
+}
+
+function scrollToAgentThreadControlSurface() {
+  navigateToProjectOverviewHash({
+    view: "collaboration-control",
+    targetId: "agent-thread-control-surface",
+  });
+}
+
+function scrollToTeamControlCenterSurface() {
+  navigateToProjectOverviewHash({
+    view: "collaboration-control",
+    targetId: "team-control-center-surface",
+  });
 }

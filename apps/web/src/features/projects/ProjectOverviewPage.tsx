@@ -1,32 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { requestJson } from "../../lib/http";
 import { formatDateTime } from "../../lib/format";
 import { ApprovalInboxPage } from "../approvals/ApprovalInboxPage";
 import { DeliverableCenterPage } from "../deliverables/DeliverableCenterPage";
-import { RoleCatalogPage } from "../roles/RoleCatalogPage";
-import { RoleWorkbenchPage } from "../roles/RoleWorkbenchPage";
-import { SkillRegistryPage } from "../skills/SkillRegistryPage";
-import { MemorySearchPanel } from "./MemorySearchPanel";
-import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
-import { ProjectCreateFlow } from "./ProjectCreateFlow";
-import { ProjectRetrospectivePanel } from "./ProjectRetrospectivePanel";
-import { ProjectTimelinePage } from "./ProjectTimelinePage";
-import { ProjectSummaryCards } from "./components/ProjectSummaryCards";
 import { ProjectDeliverySnapshotCard } from "./components/ProjectDeliverySnapshotCard";
-import { ProjectTable } from "./components/ProjectTable";
-import { ProjectDetailSection } from "./sections/ProjectDetailSection";
-import { FeaturedProjectsSection } from "./sections/FeaturedProjectsSection";
-import { ProjectOverviewHeroSection } from "./sections/ProjectOverviewHeroSection";
-import { RepositoryOverviewSection } from "./sections/RepositoryOverviewSection";
+import {
+  PROJECT_OVERVIEW_NAVIGATION_ITEMS,
+} from "./lib/overviewNavigation";
 import { buildTaskSampleFromDetail } from "./lib/bossDrilldown";
+import { useProjectOverviewNavigationState } from "./hooks/useProjectOverviewNavigationState";
+import { ProjectCollaborationControlPage } from "./pages/ProjectCollaborationControlPage";
+import { ProjectMemoryRoleGovernancePage } from "./pages/ProjectMemoryRoleGovernancePage";
+import { ProjectOverviewDashboardPage } from "./pages/ProjectOverviewDashboardPage";
+import { ProjectTimelineRetrospectivePage } from "./pages/ProjectTimelineRetrospectivePage";
 import {
   useAdvanceProjectStage,
   useBossProjectDrilldown,
   useBossProjectOverview,
   useProjectDetail,
 } from "./hooks";
+import { ProjectOverviewHeroSection } from "./sections/ProjectOverviewHeroSection";
+import { ProjectOverviewModuleNavSection } from "./sections/ProjectOverviewModuleNavSection";
 import type { BossProjectItem, BossProjectLatestTask } from "./types";
 import type { TaskDetail } from "../task-detail/types";
 
@@ -50,6 +46,27 @@ type ProjectDay15FlowOverview = {
   git_write_actions_triggered: boolean;
 };
 
+function getProjectRecencyTimestamp(project: BossProjectItem): number {
+  const timestampCandidates = [
+    project.latest_progress_at,
+    project.updated_at,
+    project.created_at,
+  ];
+
+  for (const candidate of timestampCandidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    const parsed = Date.parse(candidate);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
 function useProjectDay15FlowOverview(projectId: string | null) {
   return useQuery({
     queryKey: ["project-day15-repository-flow", projectId],
@@ -63,7 +80,6 @@ function useProjectDay15FlowOverview(projectId: string | null) {
 
 export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const overviewQuery = useBossProjectOverview();
-  const detailRef = useRef<HTMLElement | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
   );
@@ -75,8 +91,24 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     null,
   );
   const [requestedApprovalId, setRequestedApprovalId] = useState<string | null>(null);
+  const { activeView, navigateToOverviewSection, navigateToOverviewPage } =
+    useProjectOverviewNavigationState({
+      requestedApprovalId,
+      requestedDeliverableId,
+      selectedProjectId,
+    });
 
   const projects = overviewQuery.data?.projects ?? [];
+  const defaultSelectedProjectId = useMemo(() => {
+    if (!projects.length) {
+      return null;
+    }
+
+    return [...projects].sort(
+      (left, right) =>
+        getProjectRecencyTimestamp(right) - getProjectRecencyTimestamp(left),
+    )[0]?.id ?? null;
+  }, [projects]);
 
   useEffect(() => {
     if (!projects.length) {
@@ -89,10 +121,10 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     const hasSelection = projects.some(
       (project) => project.id === selectedProjectId,
     );
-    if (!selectedProjectId || !hasSelection) {
-      setSelectedProjectId(projects[0].id);
+    if ((!selectedProjectId || !hasSelection) && defaultSelectedProjectId) {
+      setSelectedProjectId(defaultSelectedProjectId);
     }
-  }, [projects, selectedProjectId]);
+  }, [defaultSelectedProjectId, projects, selectedProjectId]);
 
   const selectedProject = useMemo<BossProjectItem | null>(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
@@ -102,6 +134,8 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const advanceStageMutation = useAdvanceProjectStage(selectedProjectId);
   const day15FlowOverviewQuery = useProjectDay15FlowOverview(selectedProjectId);
   const selectedProjectDetail = projectDetailQuery.data ?? null;
+  const selectedProjectName =
+    selectedProject?.name ?? selectedProjectDetail?.name ?? null;
 
   const featuredProjects = useMemo(() => projects.slice(0, 3), [projects]);
   const lastUpdatedText = overviewQuery.dataUpdatedAt
@@ -127,12 +161,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     }
 
     if (options?.scrollIntoDetail) {
-      requestAnimationFrame(() => {
-        detailRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      });
+      navigateToOverviewSection("project-detail");
     }
   };
 
@@ -152,12 +181,14 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     refetchOverview: overviewQuery.refetch,
     onSelectProject: handleSelectProject,
   });
+
   const drilldownTaskDetailQuery = useQuery({
     queryKey: ["project-drilldown-task-detail", drilldownContext?.task_id],
     queryFn: () =>
       requestJson<TaskDetail>(`/tasks/${drilldownContext?.task_id ?? ""}/detail`),
     enabled: Boolean(drilldownContext?.task_id),
   });
+
   const activeDrilldownTaskSample = useMemo<BossProjectLatestTask | null>(() => {
     if (!drilldownContext || !drilldownTaskDetailQuery.data) {
       return null;
@@ -173,16 +204,10 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     deliverableId: string;
   }) => {
     handleSelectProject(input.projectId, {
-      scrollIntoDetail: true,
       requestedDeliverableId: input.deliverableId,
     });
 
-    requestAnimationFrame(() => {
-      document.getElementById("deliverable-center")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
+    navigateToOverviewPage("deliverable-center", "deliverable-center");
   };
 
   const handleNavigateToApproval = (input: {
@@ -190,16 +215,10 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     approvalId: string;
   }) => {
     handleSelectProject(input.projectId, {
-      scrollIntoDetail: true,
       requestedApprovalId: input.approvalId,
     });
 
-    requestAnimationFrame(() => {
-      document.getElementById("approval-inbox")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
+    navigateToOverviewPage("approval-inbox", "approval-inbox");
   };
 
   useEffect(() => {
@@ -248,11 +267,21 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   };
 
   return (
-    <section className="space-y-6 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40">
+    <section
+      data-testid="project-overview-page"
+      className="space-y-6 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40"
+    >
       <ProjectOverviewHeroSection
         budgetStrategyLabel={overviewQuery.data?.budget.strategy_label}
         budgetPressureLevel={overviewQuery.data?.budget.pressure_level}
         lastUpdatedText={lastUpdatedText}
+      />
+
+      <ProjectOverviewModuleNavSection
+        activeView={activeView}
+        navigationItems={PROJECT_OVERVIEW_NAVIGATION_ITEMS}
+        onNavigateToOverviewSection={navigateToOverviewSection}
+        onNavigateToOverviewPage={navigateToOverviewPage}
       />
 
       {selectedProjectId ? (
@@ -279,177 +308,91 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
 
       {overviewQuery.data ? (
         <>
-          <ProjectCreateFlow onProjectCreated={handleProjectCreated} />
-
-          <ProjectSummaryCards overview={overviewQuery.data} />
-
-          {featuredProjects.length > 0 ? (
-            <RepositoryOverviewSection
+          {activeView === "overview" ? (
+            <ProjectOverviewDashboardPage
+              overview={overviewQuery.data}
               featuredProjects={featuredProjects}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={(projectId) =>
-                handleSelectProject(projectId, { scrollIntoDetail: true })
-              }
-            />
-          ) : null}
-
-          {featuredProjects.length > 0 ? (
-            <FeaturedProjectsSection
-              featuredProjects={featuredProjects}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={(projectId) =>
-                handleSelectProject(projectId, { scrollIntoDetail: true })
-              }
-            />
-          ) : null}
-
-          <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-            <ProjectTable
               projects={projects}
               selectedProjectId={selectedProjectId}
-              onSelectProject={(projectId) =>
+              selectedProject={selectedProject}
+              selectedProjectDetail={selectedProjectDetail}
+              drilldownContext={drilldownContext}
+              drilldownFeedback={drilldownFeedback}
+              activeDrilldownTaskSample={activeDrilldownTaskSample}
+              onProjectCreated={handleProjectCreated}
+              onSelectProjectIntoDetail={(projectId) =>
                 handleSelectProject(projectId, { scrollIntoDetail: true })
               }
+              onNavigateToStrategyPreview={navigateToStrategyPreview}
+              onNavigateToProjectLatestRun={navigateToProjectLatestRun}
+              onNavigateToTask={props.onNavigateToTask}
+              onAdvanceStage={handleAdvanceStage}
+              isAdvancingStage={advanceStageMutation.isPending}
+              stageActionFeedback={stageActionFeedback}
+              isProjectDetailLoading={projectDetailQuery.isLoading && !selectedProjectDetail}
+              projectDetailErrorMessage={
+                projectDetailQuery.isError ? projectDetailQuery.error.message : null
+              }
             />
+          ) : null}
 
-            <aside
-              ref={detailRef}
-              id="project-detail"
-              data-testid="project-detail-panel"
-              className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30"
+          {activeView === "timeline-retrospective" ? (
+            <ProjectTimelineRetrospectivePage
+              selectedProjectId={selectedProjectId}
+              selectedProjectName={selectedProjectName}
+              onNavigateToTask={props.onNavigateToTask}
+              onNavigateToDeliverable={handleNavigateToDeliverable}
+              onNavigateToApproval={handleNavigateToApproval}
+            />
+          ) : null}
+
+          {activeView === "collaboration-control" ? (
+            <ProjectCollaborationControlPage
+              selectedProjectId={selectedProjectId}
+              selectedProjectName={selectedProjectName}
+            />
+          ) : null}
+
+          {activeView === "memory-role-governance" ? (
+            <ProjectMemoryRoleGovernancePage
+              selectedProjectId={selectedProjectId}
+              selectedProjectName={selectedProjectName}
+              projects={projects}
+              onSelectProject={(projectId) => handleSelectProject(projectId)}
+              onNavigateToTask={props.onNavigateToTask}
+              onNavigateToDeliverable={handleNavigateToDeliverable}
+              onNavigateToApproval={handleNavigateToApproval}
+            />
+          ) : null}
+
+          {activeView === "deliverable-center" ? (
+            <div
+              id="project-overview-view-deliverable-center"
+              data-testid="project-overview-view-deliverable-center"
             >
-              <h2 className="text-lg font-semibold text-slate-50">项目详情</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                从项目卡片或列表进入，查看老板视角的项目详情；Day04 已把仓库绑定、目录快照和当前变更会话合并到同一详情视图中，仓库首页仍只保留最小入口，不扩展到文件级编辑、代码上下文包或验证证据视图。
-              </p>
+              <DeliverableCenterPage
+                projectId={selectedProjectId}
+                projectName={selectedProjectName}
+                requestedDeliverableId={requestedDeliverableId}
+                onRequestedDeliverableHandled={() => setRequestedDeliverableId(null)}
+                onNavigateToTask={props.onNavigateToTask}
+              />
+            </div>
+          ) : null}
 
-              {drilldownFeedback ? (
-                <div
-                  data-testid="project-detail-drilldown-feedback"
-                  className={`mt-3 rounded-xl border p-3 text-xs ${
-                    drilldownFeedback.tone === "success"
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                      : "border-amber-500/30 bg-amber-500/10 text-amber-100"
-                  }`}
-                >
-                  {drilldownFeedback.text}
-                </div>
-              ) : null}
-
-              {selectedProject || selectedProjectDetail ? (
-                <ProjectDetailSection
-                  project={selectedProject}
-                  detail={selectedProjectDetail}
-                  drilldownContext={
-                    drilldownContext &&
-                    drilldownContext.project_id === (selectedProjectDetail?.id ?? selectedProject?.id ?? null)
-                      ? drilldownContext
-                      : null
-                  }
-                  activeDrilldownTaskSample={
-                    drilldownContext &&
-                    drilldownContext.project_id ===
-                      (selectedProjectDetail?.id ?? selectedProject?.id ?? null)
-                      ? activeDrilldownTaskSample
-                      : null
-                  }
-                  onNavigateToStrategyPreview={navigateToStrategyPreview}
-                  onNavigateToProjectLatestRun={navigateToProjectLatestRun}
-                  onNavigateToTask={props.onNavigateToTask}
-                  onAdvanceStage={handleAdvanceStage}
-                  isAdvancing={advanceStageMutation.isPending}
-                  stageActionFeedback={stageActionFeedback}
-                  isLoading={projectDetailQuery.isLoading && !selectedProjectDetail}
-                  errorMessage={
-                    projectDetailQuery.isError
-                      ? projectDetailQuery.error.message
-                      : null
-                  }
-                />
-              ) : (
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-8 text-center text-sm text-slate-400">
-                  还没有可查看的项目详情。
-                </div>
-              )}
-            </aside>
-          </section>
-
-          <ProjectTimelinePage
-            projectId={selectedProjectId}
-            projectName={selectedProject?.name ?? selectedProjectDetail?.name ?? null}
-            onNavigateToTask={props.onNavigateToTask}
-            onNavigateToDeliverable={handleNavigateToDeliverable}
-            onNavigateToApproval={handleNavigateToApproval}
-          />
-
-          <DeliverableCenterPage
-            projectId={selectedProjectId}
-            projectName={selectedProject?.name ?? selectedProjectDetail?.name ?? null}
-            requestedDeliverableId={requestedDeliverableId}
-            onRequestedDeliverableHandled={() => setRequestedDeliverableId(null)}
-            onNavigateToTask={props.onNavigateToTask}
-          />
-
-          <ApprovalInboxPage
-            projectId={selectedProjectId}
-            projectName={selectedProject?.name ?? selectedProjectDetail?.name ?? null}
-            requestedApprovalId={requestedApprovalId}
-            onRequestedApprovalHandled={() => setRequestedApprovalId(null)}
-          />
-
-          <ProjectRetrospectivePanel
-            projectId={selectedProjectId}
-            projectName={selectedProject?.name ?? selectedProjectDetail?.name ?? null}
-            onNavigateToApproval={handleNavigateToApproval}
-            onNavigateToTask={props.onNavigateToTask}
-          />
-
-          <ProjectMemoryPanel
-            projectId={selectedProjectId}
-            projectName={selectedProject?.name ?? selectedProjectDetail?.name ?? null}
-            onNavigateToApproval={handleNavigateToApproval}
-            onNavigateToDeliverable={handleNavigateToDeliverable}
-            onNavigateToTask={props.onNavigateToTask}
-          />
-
-          <MemorySearchPanel
-            projectId={selectedProjectId}
-            projectName={selectedProject?.name ?? selectedProjectDetail?.name ?? null}
-            onNavigateToApproval={handleNavigateToApproval}
-            onNavigateToDeliverable={handleNavigateToDeliverable}
-            onNavigateToTask={props.onNavigateToTask}
-          />
-
-          <RoleCatalogPage
-            selectedProjectId={selectedProjectId}
-            selectedProjectName={
-              selectedProject?.name ?? selectedProjectDetail?.name ?? null
-            }
-          />
-
-          <SkillRegistryPage
-            selectedProjectId={selectedProjectId}
-            selectedProjectName={
-              selectedProject?.name ?? selectedProjectDetail?.name ?? null
-            }
-          />
-
-          <RoleWorkbenchPage
-            selectedProjectId={selectedProjectId}
-            selectedProjectName={
-              selectedProject?.name ?? selectedProjectDetail?.name ?? null
-            }
-            projectOptions={projects.map((project) => ({
-              id: project.id,
-              name: project.name,
-              stage: project.stage,
-              status: project.status,
-            }))}
-            onNavigateToProject={(projectId) =>
-              handleSelectProject(projectId, { scrollIntoDetail: true })
-            }
-            onNavigateToTask={props.onNavigateToTask}
-          />
+          {activeView === "approval-inbox" ? (
+            <div
+              id="project-overview-view-approval-inbox"
+              data-testid="project-overview-view-approval-inbox"
+            >
+              <ApprovalInboxPage
+                projectId={selectedProjectId}
+                projectName={selectedProjectName}
+                requestedApprovalId={requestedApprovalId}
+                onRequestedApprovalHandled={() => setRequestedApprovalId(null)}
+              />
+            </div>
+          ) : null}
         </>
       ) : null}
     </section>

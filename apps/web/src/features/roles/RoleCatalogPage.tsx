@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { MetricCard } from "../../components/MetricCard";
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
+import { navigateToProjectOverviewHash } from "../projects/lib/overviewNavigation";
 import { RoleEditorDrawer } from "./RoleEditorDrawer";
 import {
   useProjectRoleCatalog,
@@ -79,6 +80,22 @@ export function RoleCatalogPage(props: RoleCatalogPageProps) {
             label={projectRoleQuery.data ? "项目角色配置已接入" : "系统目录只读模式"}
             tone={projectRoleQuery.data ? "success" : "warning"}
           />
+          <button
+            type="button"
+            data-testid="goto-agent-thread-from-role-catalog"
+            onClick={scrollToAgentThreadControlSurface}
+            className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+          >
+            Open Agent Thread
+          </button>
+          <button
+            type="button"
+            data-testid="goto-team-control-center-from-role-catalog"
+            onClick={scrollToTeamControlCenterSurface}
+            className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
+          >
+            Open Team Control
+          </button>
         </div>
       </header>
 
@@ -300,4 +317,18 @@ function isProjectRoleConfig(
 
 function roleNameFallback(role: ProjectRoleConfig | SystemRoleCatalogItem) {
   return "role_code" in role ? role.role_code : role.code;
+}
+
+function scrollToAgentThreadControlSurface() {
+  navigateToProjectOverviewHash({
+    view: "collaboration-control",
+    targetId: "agent-thread-control-surface",
+  });
+}
+
+function scrollToTeamControlCenterSurface() {
+  navigateToProjectOverviewHash({
+    view: "collaboration-control",
+    targetId: "team-control-center-surface",
+  });
 }

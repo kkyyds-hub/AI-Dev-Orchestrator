@@ -67,7 +67,8 @@ export function DeliverableCenterPage(props: DeliverableCenterPageProps) {
   return (
     <section
       id="deliverable-center"
-      className="space-y-6 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40"
+      data-testid="deliverable-center-section"
+      className="scroll-mt-24 space-y-6 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40"
     >
       <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">

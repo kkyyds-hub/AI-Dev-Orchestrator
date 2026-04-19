@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
     "/runs",
     "/repositories",
     "/events",
+    "/agent-threads",
   ];
   const proxyConfig = Object.fromEntries(
     proxyPrefixes.map((prefix) => [

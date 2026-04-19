@@ -166,7 +166,8 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
     <>
       <section
         id="approval-inbox"
-        className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30"
+        data-testid="approval-inbox-section"
+        className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30"
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>

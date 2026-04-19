@@ -110,23 +110,10 @@ export function App() {
         detail: input,
       }),
     );
-
-    requestAnimationFrame(() => {
-      document.getElementById("deliverable-center")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
   };
 
   const handleNavigateToProjectDrilldown = (detail: BossDrilldownNavigateDetail) => {
     dispatchBossDrilldownNavigation(detail);
-    requestAnimationFrame(() => {
-      document.getElementById("project-detail")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
   };
 
   return (
