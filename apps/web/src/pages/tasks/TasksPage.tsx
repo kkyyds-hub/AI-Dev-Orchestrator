@@ -6,6 +6,7 @@ import { useConsoleOverview } from "../../features/console/hooks";
 import type { ConsoleTask } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { TaskDetailPanel } from "../../features/task-detail/TaskDetailPanel";
+import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 
 type BossDrilldownNavigateDetail = {
@@ -101,6 +102,15 @@ export function TasksPage() {
           onSelectTask={(nextTaskId) => {
             navigate(buildTaskRoute({ taskId: nextTaskId, from: "tasks" }));
           }}
+          onNavigateToRun={(nextRunId, nextTaskId) => {
+            navigate(
+              buildRunRoute({
+                runId: nextRunId,
+                taskId: nextTaskId,
+                from: "tasks",
+              }),
+            );
+          }}
           onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
         />
 
@@ -112,6 +122,15 @@ export function TasksPage() {
           budget={overviewQuery.data?.budget ?? null}
           realtimeStatus={realtime.status}
           onNavigateToDeliverable={handleNavigateToDeliverable}
+          onNavigateToRun={(nextRunId, nextTaskId) =>
+            navigate(
+              buildRunRoute({
+                runId: nextRunId,
+                taskId: nextTaskId,
+                from: "tasks",
+              }),
+            )
+          }
           onNavigateToStrategyPreview={({ taskId: nextTaskId, runId }) =>
             handleNavigateToProjectDrilldown({
               source: "home_latest_run",

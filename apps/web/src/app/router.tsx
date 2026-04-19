@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
+import { RunsPage } from "../pages/runs/RunsPage";
 import { TasksPage } from "../pages/tasks/TasksPage";
 import { WorkbenchPage } from "../pages/workbench/WorkbenchPage";
 
@@ -36,14 +37,12 @@ export const router = createBrowserRouter([
         element: <TasksPage />,
       },
       {
-        path: "runs/*",
-        element: (
-          <PlaceholderPage
-            title="运行观测即将开放"
-            description="运行观测入口已经准备就绪，后续会在这里集中承接运行状态、日志链路与执行细节。"
-            nextStep="优先补齐运行详情与日志查看能力，让执行链路具备更清晰的深链接体验。"
-          />
-        ),
+        path: "runs",
+        element: <RunsPage />,
+      },
+      {
+        path: "runs/:runId",
+        element: <RunsPage />,
       },
       {
         path: "deliverables/*",

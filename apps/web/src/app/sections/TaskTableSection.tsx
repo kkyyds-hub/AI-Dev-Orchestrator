@@ -15,6 +15,7 @@ type TaskTableSectionProps = {
   overviewIsError: boolean;
   onSelectTask: (taskId: string) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
+  onNavigateToRun?: (runId: string, taskId: string) => void;
   onNavigateToProjectDrilldown: (detail: {
     source: "home_latest_run" | "home_manual_run";
     taskId: string;
@@ -165,6 +166,19 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                                 className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/30 hover:text-cyan-100"
                               >
                                 打开任务详情页
+                              </button>
+                            ) : null}
+                            {props.onNavigateToRun ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  task.latest_run?.id
+                                    ? props.onNavigateToRun?.(task.latest_run.id, task.id)
+                                    : undefined
+                                }
+                                className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/30 hover:text-cyan-100"
+                              >
+                                打开运行详情页
                               </button>
                             ) : null}
                           </div>

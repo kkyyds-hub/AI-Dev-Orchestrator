@@ -104,11 +104,14 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   }
 
   if (pathname.startsWith("/runs")) {
+    const segments = pathname.split("/").filter(Boolean);
+    const selectedRunId = segments[1] ?? null;
+
     return {
       section: "运行观测",
       title: "运行观测",
       description: "集中查看运行状态、日志链路与执行细节。",
-      breadcrumbs: ["运行观测"],
+      breadcrumbs: selectedRunId ? ["运行观测", selectedRunId] : ["运行观测"],
     };
   }
 

@@ -49,6 +49,7 @@ type TaskDetailPanelProps = {
     projectId: string;
     deliverableId: string;
   }) => void;
+  onNavigateToRun?: (runId: string, taskId: string) => void;
   onNavigateToStrategyPreview?: (input: {
     taskId: string;
     runId?: string | null;
@@ -63,6 +64,7 @@ export function TaskDetailPanel({
   budget,
   realtimeStatus,
   onNavigateToDeliverable,
+  onNavigateToRun,
   onNavigateToStrategyPreview,
 }: TaskDetailPanelProps) {
   const detailQuery = useTaskDetail(selectedTask?.id ?? null, {
@@ -700,7 +702,7 @@ export function TaskDetailPanel({
               </div>
 
               {onNavigateToStrategyPreview ? (
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
                     data-testid="goto-strategy-preview-from-task-detail"
@@ -713,6 +715,27 @@ export function TaskDetailPanel({
                     className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
                   >
                     Back to Strategy Preview
+                  </button>
+                  {onNavigateToRun ? (
+                    <button
+                      type="button"
+                      data-testid="goto-run-center-from-task-detail"
+                      onClick={() => onNavigateToRun(selectedRun.id, detail.id)}
+                      className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-100"
+                    >
+                      Open in Run Center
+                    </button>
+                  ) : null}
+                </div>
+              ) : onNavigateToRun ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    data-testid="goto-run-center-from-task-detail"
+                    onClick={() => onNavigateToRun(selectedRun.id, detail.id)}
+                    className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-100"
+                  >
+                    Open in Run Center
                   </button>
                 </div>
               ) : null}
@@ -799,6 +822,15 @@ export function TaskDetailPanel({
                           >
                             {isSelected ? "日志中" : "查看日志"}
                           </button>
+                          {onNavigateToRun ? (
+                            <button
+                              type="button"
+                              onClick={() => onNavigateToRun(run.id, detail.id)}
+                              className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
+                            >
+                              打开运行详情页
+                            </button>
+                          ) : null}
                         </div>
                       </div>
 

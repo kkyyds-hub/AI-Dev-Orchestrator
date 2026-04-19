@@ -13,6 +13,7 @@ import { ManualRunResultSection } from "../../app/sections/ManualRunResultSectio
 import { RightSidebarOverviewSection } from "../../app/sections/RightSidebarOverviewSection";
 import { TaskTableSection } from "../../app/sections/TaskTableSection";
 import { WorkerPoolResultSection } from "../../app/sections/WorkerPoolResultSection";
+import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 
 type BossDrilldownNavigateDetail = {
@@ -159,6 +160,15 @@ export function WorkbenchPage() {
               }),
             );
           }}
+          onNavigateToRun={(runId, taskId) => {
+            navigate(
+              buildRunRoute({
+                runId,
+                taskId,
+                from: "workbench",
+              }),
+            );
+          }}
           onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
         />
 
@@ -168,6 +178,15 @@ export function WorkbenchPage() {
           budget={overviewQuery.data?.budget ?? null}
           blockedTasks={overviewQuery.data?.blocked_tasks ?? 0}
           realtimeStatus={realtime.status}
+          onNavigateToRun={(runId, taskId) =>
+            navigate(
+              buildRunRoute({
+                runId,
+                taskId,
+                from: "workbench",
+              }),
+            )
+          }
           onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
           onNavigateToDeliverable={handleNavigateToDeliverable}
           reviewClusters={reviewClustersQuery.data ?? []}

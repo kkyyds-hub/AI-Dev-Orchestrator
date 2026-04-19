@@ -15,6 +15,7 @@ type RightSidebarOverviewSectionProps = {
   budget: ConsoleBudget | null;
   blockedTasks: number;
   realtimeStatus: StreamConnectionStatus;
+  onNavigateToRun?: (runId: string, taskId: string) => void;
   onNavigateToProjectDrilldown: (detail: {
     source: "home_latest_run" | "home_manual_run";
     taskId: string;
@@ -44,6 +45,7 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
         budget={props.budget}
         realtimeStatus={props.realtimeStatus}
         onNavigateToDeliverable={props.onNavigateToDeliverable}
+        onNavigateToRun={props.onNavigateToRun}
         onNavigateToStrategyPreview={({ taskId, runId }) =>
           props.onNavigateToProjectDrilldown({
             source: "home_latest_run",
