@@ -323,6 +323,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
 
       <ProjectOverviewModuleNavSection
         activeView={activeView}
+        projectId={selectedProjectId}
         navigationItems={PROJECT_OVERVIEW_NAVIGATION_ITEMS}
         onNavigateToOverviewSection={navigateToOverviewSection}
         onNavigateToOverviewPage={navigateToOverviewPage}
