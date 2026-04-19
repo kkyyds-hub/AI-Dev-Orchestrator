@@ -1,8 +1,8 @@
 import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "./AppShell";
-import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
+import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
 import { WorkbenchPage } from "../pages/workbench/WorkbenchPage";
 
 export const router = createBrowserRouter([
@@ -30,9 +30,9 @@ export const router = createBrowserRouter([
         path: "tasks/*",
         element: (
           <PlaceholderPage
-            title="任务域骨架已预留"
-            description="按架构方案，本轮先建立正式路由入口，避免继续把任务域长期压在首页控制台中。"
-            nextStep="Step 2 最合理的动作，是把 TaskTableSection 与 TaskDetailPanel 提升为 /tasks 与 /tasks/:taskId。"
+            title="任务中心即将开放"
+            description="任务域入口已经接入正式导航，后续会在这里承接更完整的任务列表、任务详情与处理流转。"
+            nextStep="优先完善任务对象的独立访问体验，让任务列表与任务详情可以在统一入口中连续操作。"
           />
         ),
       },
@@ -40,9 +40,9 @@ export const router = createBrowserRouter([
         path: "runs/*",
         element: (
           <PlaceholderPage
-            title="运行观测骨架已预留"
-            description="按架构方案，本轮先建立正式路由入口，后续再把 run detail 与 run logs 提升为独立深链接页面。"
-            nextStep="Step 2 可先落 /runs 与 /runs/:runId，优先解决日志与运行详情深链接。"
+            title="运行观测即将开放"
+            description="运行观测入口已经准备就绪，后续会在这里集中承接运行状态、日志链路与执行细节。"
+            nextStep="优先补齐运行详情与日志查看能力，让执行链路具备更清晰的深链接体验。"
           />
         ),
       },
@@ -50,9 +50,9 @@ export const router = createBrowserRouter([
         path: "deliverables/*",
         element: (
           <PlaceholderPage
-            title="交付物域骨架已预留"
-            description="当前继续由项目域内部承接交付物中心，这里先保留正式路由入口。"
-            nextStep="后续可以把交付物中心提升为 /deliverables 与 /deliverables/:deliverableId。"
+            title="交付物中心即将开放"
+            description="交付物入口已经纳入统一导航，后续会在这里集中呈现交付物、版本快照与关联回溯能力。"
+            nextStep="逐步把项目域中的交付物访问体验提升为统一入口，减少跨页面查找成本。"
           />
         ),
       },
@@ -60,9 +60,9 @@ export const router = createBrowserRouter([
         path: "approvals/*",
         element: (
           <PlaceholderPage
-            title="审批域骨架已预留"
-            description="当前继续由项目域内部承接审批收件箱，这里先保留正式路由入口。"
-            nextStep="后续可以把审批队列与审批详情提升为 /approvals 与 /approvals/:approvalId。"
+            title="审批中心即将开放"
+            description="审批入口已经纳入统一导航，后续会在这里承接审批队列、审批详情与人工确认动作。"
+            nextStep="逐步完善审批列表、审批详情和项目上下文之间的连续跳转体验。"
           />
         ),
       },
@@ -70,9 +70,9 @@ export const router = createBrowserRouter([
         path: "governance/*",
         element: (
           <PlaceholderPage
-            title="治理域骨架已预留"
-            description="角色、记忆、技能与策略能力已拥有正式导航入口，但本轮不继续大拆业务。"
-            nextStep="后续再逐步把 roles / skills / providers 等能力迁移到治理域正式子路由。"
+            title="治理中心即将开放"
+            description="治理入口已经建立，后续会在这里逐步整合角色、记忆、技能与策略相关能力。"
+            nextStep="逐步把治理能力聚合到统一入口，提升配置检索与跨能力切换效率。"
           />
         ),
       },
@@ -80,9 +80,9 @@ export const router = createBrowserRouter([
         path: "me",
         element: (
           <PlaceholderPage
-            title="我的页面骨架已预留"
-            description="先把信息架构中的一级域立起来，再按优先级补个人视图。"
-            nextStep="后续可以承接我的任务、我的审批、我的关注项目等内容。"
+            title="我的工作区即将开放"
+            description="个人视图入口已经保留，后续会在这里集中呈现我的任务、我的审批与关注项目。"
+            nextStep="优先完善与个人处理效率强相关的任务、审批与关注项聚合能力。"
           />
         ),
       },
@@ -90,9 +90,9 @@ export const router = createBrowserRouter([
         path: "settings",
         element: (
           <PlaceholderPage
-            title="设置页骨架已预留"
-            description="系统级设置入口已独立，为后续环境与策略配置预留位置。"
-            nextStep="后续可以把 Provider Settings 与环境配置正式迁入设置域。"
+            title="系统设置即将开放"
+            description="系统设置入口已经独立，后续会在这里承接环境配置、连接状态与平台级设置。"
+            nextStep="逐步把系统设置能力集中到统一入口，便于维护环境与平台参数。"
           />
         ),
       },

@@ -1,5 +1,6 @@
 export type PrimaryNavigationItem = {
   label: string;
+  shortLabel: string;
   to: string;
   description: string;
 };
@@ -14,48 +15,57 @@ export type RouteMeta = {
 export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   {
     label: "工作台",
+    shortLabel: "工",
     to: "/workbench",
-    description: "当前最值得处理的控制台聚合页。",
+    description: "聚合当前最值得处理的状态、任务与风险。",
   },
   {
     label: "项目",
+    shortLabel: "项",
     to: "/projects",
-    description: "项目域入口与项目总览承接页。",
+    description: "进入项目域并查看项目总览与关键上下文。",
   },
   {
     label: "任务",
+    shortLabel: "任",
     to: "/tasks",
-    description: "后续提升任务列表与详情。",
+    description: "统一承接任务列表、详情与后续处理入口。",
   },
   {
     label: "运行观测",
+    shortLabel: "运",
     to: "/runs",
-    description: "后续提升运行与日志深链接。",
+    description: "查看运行状态、日志链路与执行观测能力。",
   },
   {
     label: "交付物",
+    shortLabel: "交",
     to: "/deliverables",
-    description: "交付与版本快照域。",
+    description: "管理交付物、版本快照与回溯入口。",
   },
   {
     label: "审批",
+    shortLabel: "审",
     to: "/approvals",
-    description: "集中处理审批与人工决策。",
+    description: "集中处理审批队列与人工决策事项。",
   },
   {
     label: "治理",
+    shortLabel: "治",
     to: "/governance",
-    description: "角色、记忆、技能与策略配置。",
+    description: "管理角色、记忆、技能与策略配置。",
   },
   {
     label: "我的",
+    shortLabel: "我",
     to: "/me",
-    description: "个人工作视图占位入口。",
+    description: "聚合个人待办、关注项与偏好入口。",
   },
   {
     label: "设置",
+    shortLabel: "设",
     to: "/settings",
-    description: "系统级设置与环境配置。",
+    description: "进入系统设置、环境配置与连接状态。",
   },
 ];
 
@@ -63,10 +73,11 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/projects/")) {
     const segments = pathname.split("/").filter(Boolean);
     const projectId = segments[1] ?? null;
+
     return {
       section: "项目",
       title: "项目总览",
-      description: "正式项目域路由入口，当前继续复用现有 ProjectOverviewPage。",
+      description: "查看项目当前阶段、关键模块与项目内协同上下文。",
       breadcrumbs: projectId ? ["项目", projectId] : ["项目"],
     };
   }
@@ -74,8 +85,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/projects")) {
     return {
       section: "项目",
-      title: "项目域入口",
-      description: "承接现有项目总览与项目内模块导航。",
+      title: "项目中心",
+      description: "统一进入项目域并承接项目总览相关能力。",
       breadcrumbs: ["项目"],
     };
   }
@@ -83,8 +94,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/tasks")) {
     return {
       section: "任务",
-      title: "任务域骨架",
-      description: "本轮先建立正式路由入口，业务提升放到 Step 2。",
+      title: "任务中心",
+      description: "从统一入口管理任务列表、详情与处理流转。",
       breadcrumbs: ["任务"],
     };
   }
@@ -92,8 +103,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/runs")) {
     return {
       section: "运行观测",
-      title: "运行观测骨架",
-      description: "本轮先建立正式路由入口，日志与详情后续再提升。",
+      title: "运行观测",
+      description: "集中查看运行状态、日志链路与执行细节。",
       breadcrumbs: ["运行观测"],
     };
   }
@@ -101,8 +112,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/deliverables")) {
     return {
       section: "交付物",
-      title: "交付物骨架",
-      description: "预留正式路由入口，避免继续把入口挂在大首页里。",
+      title: "交付物中心",
+      description: "在统一入口查看交付物、版本快照与关联上下文。",
       breadcrumbs: ["交付物"],
     };
   }
@@ -110,8 +121,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/approvals")) {
     return {
       section: "审批",
-      title: "审批骨架",
-      description: "预留审批域路由入口，后续再提升审批列表与详情。",
+      title: "审批中心",
+      description: "集中处理审批流、人工确认与关键决策节点。",
       breadcrumbs: ["审批"],
     };
   }
@@ -119,8 +130,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/governance")) {
     return {
       section: "治理",
-      title: "治理骨架",
-      description: "角色、记忆、Skill 与策略能力的正式域入口。",
+      title: "治理中心",
+      description: "统一管理角色、记忆、技能与平台治理能力。",
       breadcrumbs: ["治理"],
     };
   }
@@ -128,8 +139,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/me")) {
     return {
       section: "我的",
-      title: "我的工作台骨架",
-      description: "预留个人视图入口。",
+      title: "我的工作区",
+      description: "聚合个人任务、关注项目与近期处理记录。",
       breadcrumbs: ["我的"],
     };
   }
@@ -137,8 +148,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/settings")) {
     return {
       section: "设置",
-      title: "设置骨架",
-      description: "系统级设置入口占位。",
+      title: "系统设置",
+      description: "配置环境、连接状态与平台级参数。",
       breadcrumbs: ["设置"],
     };
   }
@@ -146,7 +157,7 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   return {
     section: "工作台",
     title: "控制台工作台",
-    description: "承接当前首页控制台内容，并从正式路由访问。",
+    description: "聚合项目状态、待办事项与关键运行上下文。",
     breadcrumbs: ["工作台"],
   };
 }
