@@ -92,11 +92,14 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   }
 
   if (pathname.startsWith("/tasks")) {
+    const segments = pathname.split("/").filter(Boolean);
+    const selectedTaskId = segments[1] ?? null;
+
     return {
       section: "任务",
       title: "任务中心",
       description: "从统一入口管理任务列表、详情与处理流转。",
-      breadcrumbs: ["任务"],
+      breadcrumbs: selectedTaskId ? ["任务", selectedTaskId] : ["任务"],
     };
   }
 

@@ -13,6 +13,7 @@ import { ManualRunResultSection } from "../../app/sections/ManualRunResultSectio
 import { RightSidebarOverviewSection } from "../../app/sections/RightSidebarOverviewSection";
 import { TaskTableSection } from "../../app/sections/TaskTableSection";
 import { WorkerPoolResultSection } from "../../app/sections/WorkerPoolResultSection";
+import { buildTaskRoute } from "../../lib/task-route";
 
 type BossDrilldownNavigateDetail = {
   source: "home_latest_run" | "home_manual_run";
@@ -148,6 +149,15 @@ export function WorkbenchPage() {
           onSelectTask={(taskId) => {
             setSelectedTaskId(taskId);
             setRequestedRunId(null);
+          }}
+          onNavigateToTask={(taskId, options) => {
+            navigate(
+              buildTaskRoute({
+                taskId,
+                runId: options?.runId ?? null,
+                from: "workbench",
+              }),
+            );
           }}
           onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
         />

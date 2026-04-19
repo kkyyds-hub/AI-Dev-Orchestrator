@@ -14,6 +14,7 @@ type TaskTableSectionProps = {
   overviewIsLoading: boolean;
   overviewIsError: boolean;
   onSelectTask: (taskId: string) => void;
+  onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onNavigateToProjectDrilldown: (detail: {
     source: "home_latest_run" | "home_manual_run";
     taskId: string;
@@ -71,26 +72,45 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                       }`}
                     >
                       <td className="py-4 pr-4">
-                        <button type="button" onClick={() => props.onSelectTask(task.id)} className="w-full text-left">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => props.onSelectTask(task.id)}
+                              className="text-left"
+                            >
                               <div className="font-medium text-slate-100">{task.title}</div>
-                              <span
-                                className={`rounded-full px-2 py-1 text-[11px] font-medium ${
-                                  isSelected
-                                    ? "bg-cyan-500/15 text-cyan-200"
-                                    : "bg-slate-800 text-slate-400"
-                                }`}
+                            </button>
+                            <span
+                              className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                                isSelected
+                                  ? "bg-cyan-500/15 text-cyan-200"
+                                  : "bg-slate-800 text-slate-400"
+                              }`}
+                            >
+                              {isSelected ? "详情中" : "查看详情"}
+                            </span>
+                            {props.onNavigateToTask ? (
+                              <button
+                                type="button"
+                                onClick={() => props.onNavigateToTask?.(task.id)}
+                                className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-100 transition hover:bg-cyan-500/20"
                               >
-                                {isSelected ? "详情中" : "查看详情"}
-                              </span>
-                            </div>
-                            <div className="text-xs uppercase tracking-wide text-slate-500">
-                              优先级：{task.priority}
-                            </div>
-                            <div className="max-w-md text-xs leading-5 text-slate-400">{task.input_summary}</div>
+                                在任务中心打开
+                              </button>
+                            ) : null}
                           </div>
-                        </button>
+                          <div className="text-xs uppercase tracking-wide text-slate-500">
+                            优先级：{task.priority}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => props.onSelectTask(task.id)}
+                            className="max-w-md text-left text-xs leading-5 text-slate-400"
+                          >
+                            {task.input_summary}
+                          </button>
+                        </div>
                       </td>
                       <td className="py-4 pr-4">
                         <StatusBadge label={task.status} tone={mapTaskStatusTone(task.status)} />
@@ -134,6 +154,19 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                             >
                               Drill-down chain
                             </button>
+                            {props.onNavigateToTask ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  props.onNavigateToTask?.(task.id, {
+                                    runId: task.latest_run?.id ?? null,
+                                  })
+                                }
+                                className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/30 hover:text-cyan-100"
+                              >
+                                打开任务详情页
+                              </button>
+                            ) : null}
                           </div>
                         ) : (
                           <span className="text-xs text-slate-500">尚未运行</span>

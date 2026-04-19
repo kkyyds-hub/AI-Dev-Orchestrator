@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
+import { TasksPage } from "../pages/tasks/TasksPage";
 import { WorkbenchPage } from "../pages/workbench/WorkbenchPage";
 
 export const router = createBrowserRouter([
@@ -27,14 +28,12 @@ export const router = createBrowserRouter([
         element: <ProjectsPage />,
       },
       {
-        path: "tasks/*",
-        element: (
-          <PlaceholderPage
-            title="任务中心即将开放"
-            description="任务域入口已经接入正式导航，后续会在这里承接更完整的任务列表、任务详情与处理流转。"
-            nextStep="优先完善任务对象的独立访问体验，让任务列表与任务详情可以在统一入口中连续操作。"
-          />
-        ),
+        path: "tasks",
+        element: <TasksPage />,
+      },
+      {
+        path: "tasks/:taskId",
+        element: <TasksPage />,
       },
       {
         path: "runs/*",
