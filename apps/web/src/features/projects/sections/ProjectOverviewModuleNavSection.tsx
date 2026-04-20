@@ -11,6 +11,10 @@ type ProjectOverviewModuleNavSectionProps = {
   projectId: string | null;
   navigationItems: readonly ProjectOverviewNavigationItem[];
   onNavigateToOverviewSection: (sectionId: string) => void;
+  resolvePageHref?: (
+    item: Extract<ProjectOverviewNavigationItem, { kind: "page" }>,
+    projectId: string,
+  ) => string | null | undefined;
   onNavigateToOverviewPage: (
     view: Exclude<ProjectOverviewPageView, "overview">,
     targetId?: string | null,
@@ -62,6 +66,15 @@ export function ProjectOverviewModuleNavSection(
               : "border-slate-800 bg-slate-950/60 hover:border-cyan-400/40 hover:bg-cyan-500/10"
           }`;
 
+          const pageHref =
+            props.projectId && item.kind === "page"
+              ? props.resolvePageHref?.(item, props.projectId) ??
+                buildProjectOverviewRoute({
+                  projectId: props.projectId,
+                  view: item.view,
+                })
+              : null;
+
           if (item.kind === "section") {
             return (
               <button
@@ -102,10 +115,7 @@ export function ProjectOverviewModuleNavSection(
             <Link
               key={item.id}
               data-testid={`project-overview-nav-${item.id}`}
-              to={buildProjectOverviewRoute({
-                projectId: props.projectId,
-                view: item.view,
-              })}
+              to={pageHref ?? "/projects"}
               className={`${sharedClassName} block`}
             >
               <NavigationCardContent

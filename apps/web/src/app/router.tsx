@@ -4,6 +4,7 @@ import { AppShell } from "./AppShell";
 import { buildTaskRoute } from "../lib/task-route";
 import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
 import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
+import { GovernancePage } from "../pages/governance/GovernancePage";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
 import { RunsPage } from "../pages/runs/RunsPage";
@@ -86,14 +87,8 @@ export const router = createBrowserRouter([
         element: <ApprovalsPage />,
       },
       {
-        path: "governance/*",
-        element: (
-          <PlaceholderPage
-            title="治理中心即将开放"
-            description="治理入口已经建立，后续会在这里逐步整合角色、记忆、技能与策略相关能力。"
-            nextStep="逐步把治理能力聚合到统一入口，提升配置检索与跨能力切换效率。"
-          />
-        ),
+        path: "governance",
+        element: <GovernancePage />,
       },
       {
         path: "me",

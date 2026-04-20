@@ -30,6 +30,10 @@ import type { TaskDetail } from "../task-detail/types";
 type ProjectOverviewPageProps = {
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onNavigateToApproval?: (projectId: string, approvalId: string) => void;
+  resolveProjectViewHref?: (
+    view: Exclude<ProjectOverviewPageView, "overview">,
+    projectId: string,
+  ) => string | null | undefined;
   routeProjectId?: string | null;
   routeProjectView?: Exclude<ProjectOverviewPageView, "overview"> | null;
   routeRequestedDeliverableId?: string | null;
@@ -332,6 +336,9 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
         projectId={selectedProjectId}
         navigationItems={PROJECT_OVERVIEW_NAVIGATION_ITEMS}
         onNavigateToOverviewSection={navigateToOverviewSection}
+        resolvePageHref={(item, projectId) =>
+          props.resolveProjectViewHref?.(item.view, projectId) ?? null
+        }
         onNavigateToOverviewPage={navigateToOverviewPage}
       />
 
