@@ -2,6 +2,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "./AppShell";
 import { buildTaskRoute } from "../lib/task-route";
+import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
 import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
@@ -81,14 +82,8 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: "approvals/*",
-        element: (
-          <PlaceholderPage
-            title="审批中心即将开放"
-            description="审批入口已经纳入统一导航，后续会在这里承接审批队列、审批详情与人工确认动作。"
-            nextStep="逐步完善审批列表、审批详情和项目上下文之间的连续跳转体验。"
-          />
-        ),
+        path: "approvals",
+        element: <ApprovalsPage />,
       },
       {
         path: "governance/*",

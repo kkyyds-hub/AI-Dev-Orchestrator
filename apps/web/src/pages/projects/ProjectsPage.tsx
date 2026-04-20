@@ -9,6 +9,7 @@ import {
   projectOverviewRouteSegmentToView,
   type ProjectOverviewPageView,
 } from "../../features/projects/lib/overviewNavigation";
+import { buildApprovalsRoute } from "../../lib/approval-route";
 import { buildTaskRoute } from "../../lib/task-route";
 
 export function ProjectsPage() {
@@ -69,6 +70,14 @@ export function ProjectsPage() {
             runId: options?.runId ?? null,
             from: "project",
             projectId: projectId ?? null,
+          }),
+        )
+      }
+      onNavigateToApproval={(nextProjectId, approvalId) =>
+        navigate(
+          buildApprovalsRoute({
+            projectId: nextProjectId,
+            approvalId,
           }),
         )
       }

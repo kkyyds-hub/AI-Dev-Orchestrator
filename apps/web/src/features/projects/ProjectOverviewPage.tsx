@@ -29,6 +29,7 @@ import type { TaskDetail } from "../task-detail/types";
 
 type ProjectOverviewPageProps = {
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
+  onNavigateToApproval?: (projectId: string, approvalId: string) => void;
   routeProjectId?: string | null;
   routeProjectView?: Exclude<ProjectOverviewPageView, "overview"> | null;
   routeRequestedDeliverableId?: string | null;
@@ -255,6 +256,11 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     projectId: string;
     approvalId: string;
   }) => {
+    if (props.onNavigateToApproval) {
+      props.onNavigateToApproval(input.projectId, input.approvalId);
+      return;
+    }
+
     handleSelectProject(input.projectId, {
       requestedApprovalId: input.approvalId,
       syncRoute: false,
