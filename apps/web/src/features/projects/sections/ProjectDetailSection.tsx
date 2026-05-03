@@ -81,7 +81,6 @@ export function ProjectDetailSection(props: {
     <div data-testid="project-detail-section" className="mt-4 space-y-5">
       <ProjectDetailHeader
         project={props.project}
-        detail={props.detail}
         projectName={projectName}
         projectSummary={projectSummary}
         projectStage={projectStage}
@@ -132,7 +131,6 @@ export function ProjectDetailSection(props: {
 
       <ProjectLatestTaskPreview
         latestTask={runtimeTaskSample}
-        detail={props.detail}
         projectTasks={projectTasks}
         projectId={projectId}
         drilldownContext={props.drilldownContext}

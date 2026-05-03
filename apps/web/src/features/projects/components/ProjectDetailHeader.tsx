@@ -13,7 +13,6 @@ import {
 
 export function ProjectDetailHeader(props: {
   project: BossProjectItem | null;
-  detail: ProjectDetail | null;
   projectName: string;
   projectSummary: string;
   projectStage: BossProjectItem["stage"] | ProjectDetail["stage"];
