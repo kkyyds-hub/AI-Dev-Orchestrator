@@ -5,14 +5,12 @@ import { ProjectMemoryRoleGovernancePage } from "../pages/ProjectMemoryRoleGover
 import { ProjectOverviewDashboardPage } from "../pages/ProjectOverviewDashboardPage";
 import { ProjectTimelineRetrospectivePage } from "../pages/ProjectTimelineRetrospectivePage";
 import { type ProjectOverviewPageView } from "../lib/overviewNavigation";
-import type { useProjectOverviewPageController } from "../hooks/useProjectOverviewPageController";
-
-type ProjectOverviewController = ReturnType<typeof useProjectOverviewPageController>;
+import type { ProjectOverviewPageController } from "../hooks/useProjectOverviewPageController";
 
 type ProjectOverviewViewSwitchProps = {
   activeView: ProjectOverviewPageView;
-  controller: ProjectOverviewController;
-  overview: NonNullable<ProjectOverviewController["overviewQuery"]["data"]>;
+  controller: ProjectOverviewPageController;
+  overview: NonNullable<ProjectOverviewPageController["overviewQuery"]["data"]>;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
 };
 

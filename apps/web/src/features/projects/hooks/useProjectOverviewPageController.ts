@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { formatDateTime } from "../../../lib/format";
@@ -169,7 +169,7 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
   const featuredProjects = useMemo(() => projects.slice(0, 3), [projects]);
   const lastUpdatedText = overviewQuery.dataUpdatedAt
     ? formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString())
-    : "灏氭湭鍒锋柊";
+    : "尚未刷新";
 
   const handleSelectProject = (
     projectId: string,
@@ -233,38 +233,38 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
     );
   }, [drilldownContext, drilldownTaskDetailQuery.data]);
 
-  const handleNavigateToDeliverable = (input: {
-    projectId: string;
-    deliverableId: string;
-  }) => {
-    handleSelectProject(input.projectId, {
-      requestedDeliverableId: input.deliverableId,
-      syncRoute: false,
-    });
+  const handleNavigateToDeliverable = useCallback(
+    (input: { projectId: string; deliverableId: string }) => {
+      handleSelectProject(input.projectId, {
+        requestedDeliverableId: input.deliverableId,
+        syncRoute: false,
+      });
 
-    navigateToOverviewPage("deliverable-center", "deliverable-center", {
-      projectId: input.projectId,
-    });
-  };
+      navigateToOverviewPage("deliverable-center", "deliverable-center", {
+        projectId: input.projectId,
+      });
+    },
+    [handleSelectProject, navigateToOverviewPage],
+  );
 
-  const handleNavigateToApproval = (input: {
-    projectId: string;
-    approvalId: string;
-  }) => {
-    if (props.onNavigateToApproval) {
-      props.onNavigateToApproval(input.projectId, input.approvalId);
-      return;
-    }
+  const handleNavigateToApproval = useCallback(
+    (input: { projectId: string; approvalId: string }) => {
+      if (props.onNavigateToApproval) {
+        props.onNavigateToApproval(input.projectId, input.approvalId);
+        return;
+      }
 
-    handleSelectProject(input.projectId, {
-      requestedApprovalId: input.approvalId,
-      syncRoute: false,
-    });
+      handleSelectProject(input.projectId, {
+        requestedApprovalId: input.approvalId,
+        syncRoute: false,
+      });
 
-    navigateToOverviewPage("approval-inbox", "approval-inbox", {
-      projectId: input.projectId,
-    });
-  };
+      navigateToOverviewPage("approval-inbox", "approval-inbox", {
+        projectId: input.projectId,
+      });
+    },
+    [handleSelectProject, navigateToOverviewPage, props.onNavigateToApproval],
+  );
 
   useEffect(() => {
     const handleDeliverableNavigation = (event: Event) => {
@@ -293,7 +293,7 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
         handleDeliverableNavigation as EventListener,
       );
     };
-  }, []);
+  }, [handleNavigateToDeliverable]);
 
   const handleAdvanceStage = async (note: string | null) => {
     try {
@@ -311,7 +311,7 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
     }
   };
 
-  return {
+  const controller = {
     activeView,
     activeDrilldownTaskSample,
     day15FlowOverviewQuery,
@@ -342,4 +342,10 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
     setRequestedDeliverableId,
     stageActionFeedback,
   };
+
+  return controller;
 }
+
+export type ProjectOverviewPageController = ReturnType<
+  typeof useProjectOverviewPageController
+>;
