@@ -8,8 +8,6 @@ import {
   parseProjectOverviewHash,
   type ProjectOverviewPageView,
 } from "../../features/projects/lib/overviewNavigation";
-import { buildApprovalsRoute } from "../../lib/approval-route";
-import { buildGovernanceRoute } from "../../lib/governance-route";
 import { buildTaskRoute } from "../../lib/task-route";
 
 type ProjectOverviewRouteContainerProps = {
@@ -80,17 +78,16 @@ export function ProjectOverviewRouteContainer(
         )
       }
       onNavigateToApproval={(nextProjectId, approvalId) =>
-        navigate(
-          buildApprovalsRoute({
+        navigate({
+          pathname: buildProjectOverviewRoute({
             projectId: nextProjectId,
-            approvalId,
+            view: "approval-inbox",
           }),
-        )
+          search: `?${new URLSearchParams({ approvalId }).toString()}`,
+        })
       }
       resolveProjectViewHref={(view, nextProjectId) =>
-        view === "memory-role-governance"
-          ? buildGovernanceRoute({ projectId: nextProjectId })
-          : buildProjectOverviewRoute({ projectId: nextProjectId, view })
+        buildProjectOverviewRoute({ projectId: nextProjectId, view })
       }
       routeProjectId={projectId ?? null}
       routeProjectView={routeProjectView}

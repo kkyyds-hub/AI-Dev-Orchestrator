@@ -1,5 +1,5 @@
 import { ProjectOverviewRouteContainer } from "./ProjectOverviewRouteContainer";
 
-export function ProjectDashboardRoutePage() {
+export function ProjectOverviewRoutePage() {
   return <ProjectOverviewRouteContainer />;
 }

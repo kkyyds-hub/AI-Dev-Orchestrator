@@ -59,7 +59,7 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     label: "我的",
     shortLabel: "我",
     to: "/me",
-    description: "聚合个人待办、关注项与偏好入口。",
+    description: "聚合个人待办、关注项目与偏好入口。",
   },
   {
     label: "设置",
@@ -69,16 +69,57 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   },
 ];
 
+const PROJECT_ROUTE_META_BY_SEGMENT: Record<
+  string,
+  Pick<RouteMeta, "title" | "description"> & { breadcrumb: string }
+> = {
+  timeline: {
+    title: "项目时间线与复盘",
+    description: "独立查看项目时间线、审批回退重做与复盘收口上下文。",
+    breadcrumb: "时间线与复盘",
+  },
+  collaboration: {
+    title: "项目协作控制面",
+    description: "聚合 Agent Thread、团队控制中心与项目成本看板。",
+    breadcrumb: "协作控制",
+  },
+  governance: {
+    title: "项目记忆与角色治理",
+    description: "在项目上下文内查看记忆、角色、技能与工作台治理能力。",
+    breadcrumb: "记忆与角色治理",
+  },
+  deliverables: {
+    title: "项目交付物中心",
+    description: "在项目上下文内查看交付物仓库、版本快照与关联任务。",
+    breadcrumb: "交付物中心",
+  },
+  approvals: {
+    title: "项目审批收件箱",
+    description: "在项目上下文内处理审批队列、人工确认与关键决策节点。",
+    breadcrumb: "审批收件箱",
+  },
+};
+
 export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/projects/")) {
     const segments = pathname.split("/").filter(Boolean);
     const projectId = segments[1] ?? null;
+    const projectRouteSegment = segments[2] ?? null;
+    const projectRouteMeta = projectRouteSegment
+      ? PROJECT_ROUTE_META_BY_SEGMENT[projectRouteSegment]
+      : null;
 
     return {
       section: "项目",
-      title: "项目总览",
-      description: "查看项目当前阶段、关键模块与项目内协同上下文。",
-      breadcrumbs: projectId ? ["项目", projectId] : ["项目"],
+      title: projectRouteMeta?.title ?? "项目总览",
+      description:
+        projectRouteMeta?.description ??
+        "查看项目当前阶段、关键模块与项目内协同上下文。",
+      breadcrumbs: [
+        "项目",
+        ...(projectId ? [projectId] : []),
+        ...(projectRouteMeta ? [projectRouteMeta.breadcrumb] : []),
+      ],
     };
   }
 

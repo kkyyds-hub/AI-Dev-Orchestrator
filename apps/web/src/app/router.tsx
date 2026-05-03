@@ -7,7 +7,7 @@ import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
 import { GovernancePage } from "../pages/governance/GovernancePage";
 import { ProjectApprovalsRoutePage } from "../pages/projects/ProjectApprovalsRoutePage";
 import { ProjectCollaborationRoutePage } from "../pages/projects/ProjectCollaborationRoutePage";
-import { ProjectDashboardRoutePage } from "../pages/projects/ProjectDashboardRoutePage";
+import { ProjectOverviewRoutePage } from "../pages/projects/ProjectOverviewRoutePage";
 import { ProjectDeliverablesRoutePage } from "../pages/projects/ProjectDeliverablesRoutePage";
 import { ProjectGovernanceRoutePage } from "../pages/projects/ProjectGovernanceRoutePage";
 import { ProjectTimelineRoutePage } from "../pages/projects/ProjectTimelineRoutePage";
@@ -36,7 +36,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects/:projectId",
-        element: <ProjectDashboardRoutePage />,
+        element: <ProjectOverviewRoutePage />,
       },
       {
         path: "projects/:projectId/timeline",

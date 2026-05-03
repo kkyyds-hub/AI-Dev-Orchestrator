@@ -43,14 +43,14 @@ export function ProjectOverviewModuleNavSection(
             data-testid="project-overview-module-nav-title"
             className="mt-2 text-lg font-semibold text-slate-50"
           >
-            ???????
+            项目域模块导航
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            ??????????????????????????????????
+            将项目总览拆成清晰路由入口；页内项目详情仍保留在总览页内定位。
           </p>
         </div>
         <div className="text-xs text-slate-500">
-          ?????{sectionEntryCount} ????? / {pageEntryCount} ??????
+          页内入口 {sectionEntryCount} 个 / 路由入口 {pageEntryCount} 个
         </div>
       </div>
 
@@ -87,7 +87,7 @@ export function ProjectOverviewModuleNavSection(
                 <NavigationCardContent
                   label={item.label}
                   description={item.description}
-                  meta={`???? #${item.id}`}
+                  meta={`页内定位 #${item.id}`}
                 />
               </button>
             );
@@ -105,7 +105,7 @@ export function ProjectOverviewModuleNavSection(
                 <NavigationCardContent
                   label={item.label}
                   description={item.description}
-                  meta="?????"
+                  meta="先选择项目"
                 />
               </button>
             );
@@ -121,7 +121,7 @@ export function ProjectOverviewModuleNavSection(
               <NavigationCardContent
                 label={item.label}
                 description={item.description}
-                meta="?????"
+                meta="路由页面"
               />
             </Link>
           );
