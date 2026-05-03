@@ -5,6 +5,12 @@ import { buildTaskRoute } from "../lib/task-route";
 import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
 import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
 import { GovernancePage } from "../pages/governance/GovernancePage";
+import { ProjectApprovalsRoutePage } from "../pages/projects/ProjectApprovalsRoutePage";
+import { ProjectCollaborationRoutePage } from "../pages/projects/ProjectCollaborationRoutePage";
+import { ProjectDashboardRoutePage } from "../pages/projects/ProjectDashboardRoutePage";
+import { ProjectDeliverablesRoutePage } from "../pages/projects/ProjectDeliverablesRoutePage";
+import { ProjectGovernanceRoutePage } from "../pages/projects/ProjectGovernanceRoutePage";
+import { ProjectTimelineRoutePage } from "../pages/projects/ProjectTimelineRoutePage";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
 import { RunsPage } from "../pages/runs/RunsPage";
@@ -30,27 +36,27 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects/:projectId",
-        element: <ProjectsPage />,
+        element: <ProjectDashboardRoutePage />,
       },
       {
         path: "projects/:projectId/timeline",
-        element: <ProjectsPage />,
+        element: <ProjectTimelineRoutePage />,
       },
       {
         path: "projects/:projectId/collaboration",
-        element: <ProjectsPage />,
+        element: <ProjectCollaborationRoutePage />,
       },
       {
         path: "projects/:projectId/governance",
-        element: <ProjectsPage />,
+        element: <ProjectGovernanceRoutePage />,
       },
       {
         path: "projects/:projectId/deliverables",
-        element: <ProjectsPage />,
+        element: <ProjectDeliverablesRoutePage />,
       },
       {
         path: "projects/:projectId/approvals",
-        element: <ProjectsPage />,
+        element: <ProjectApprovalsRoutePage />,
       },
       {
         path: "tasks",
