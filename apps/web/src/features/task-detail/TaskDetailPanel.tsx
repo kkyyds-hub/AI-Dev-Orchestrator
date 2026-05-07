@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
 
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../../lib/format";
@@ -37,6 +36,12 @@ import {
 } from "../deliverables/types";
 import { RunLogPanel } from "../run-log/RunLogPanel";
 import { useTaskDetail } from "./hooks";
+import { TaskDetailBaseInfoCard } from "./components/TaskDetailBaseInfoCard";
+import { DetailField } from "./components/TaskDetailField";
+import { TaskDetailEmptyState } from "./components/TaskDetailEmptyState";
+import { TaskDetailErrorState } from "./components/TaskDetailErrorState";
+import { TaskDetailLoadingState } from "./components/TaskDetailLoadingState";
+import { TaskDetailPanelHeader } from "./components/TaskDetailPanelHeader";
 
 type TaskDetailPanelProps = {
   panelId?: string;
@@ -216,105 +221,17 @@ export function TaskDetailPanel({
       id={panelId}
       className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-50">任务详情</h2>
-          <p className="text-sm text-slate-400">
-            {selectedTask
-              ? "查看单任务的结构化上下文、决策历史、质量闸门结果、最小操作入口和运行日志。"
-              : "从左侧任务列表中选择一条任务，打开 Day 15 详情侧板。"}
-          </p>
-        </div>
-        {selectedTask ? <StatusBadge label="详情已启用" tone="info" /> : null}
-      </div>
+      <TaskDetailPanelHeader selectedTask={selectedTask} />
 
       {!selectedTask ? (
-        <EmptyPanel />
+        <TaskDetailEmptyState />
       ) : detailQuery.isError ? (
-        <ErrorPanel message={detailQuery.error.message} />
+        <TaskDetailErrorState message={detailQuery.error.message} />
       ) : detailQuery.isLoading && !detail ? (
-        <LoadingPanel title={selectedTask.title} />
+        <TaskDetailLoadingState title={selectedTask.title} />
       ) : detail ? (
         <div className="mt-4 space-y-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
-                <h3 className="text-lg font-semibold text-slate-50">{detail.title}</h3>
-                <p className="text-xs text-slate-500">Task ID：{detail.id}</p>
-              </div>
-              <StatusBadge label={detail.status} tone={mapTaskStatusTone(detail.status)} />
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <DetailField label="优先级" value={detail.priority} />
-              <DetailField label="风险等级" value={detail.risk_level} />
-              <DetailField label="人工状态" value={detail.human_status} />
-              <DetailField label="验收项数量" value={String(detail.acceptance_criteria.length)} />
-              <DetailField label="依赖数量" value={String(detail.depends_on_task_ids.length)} />
-              <DetailField label="创建时间" value={formatDateTime(detail.created_at)} />
-              <DetailField label="更新时间" value={formatDateTime(detail.updated_at)} />
-              <DetailField label="运行次数" value={String(detail.runs.length)} />
-            </div>
-
-            <div className="mt-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                输入摘要
-              </div>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">
-                {detail.input_summary}
-              </p>
-            </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  验收标准
-                </div>
-                {detail.acceptance_criteria.length > 0 ? (
-                  <ul className="mt-2 space-y-2 text-sm text-slate-300">
-                    {detail.acceptance_criteria.map((criterion, index) => (
-                      <li key={`${detail.id}-criterion-${index}`} className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
-                        {criterion}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 text-sm text-slate-500">暂无显式验收标准</p>
-                )}
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    依赖任务
-                  </div>
-                  {detail.depends_on_task_ids.length > 0 ? (
-                    <div className="mt-2 space-y-2">
-                      {detail.depends_on_task_ids.map((dependencyId) => (
-                        <code
-                          key={dependencyId}
-                          className="block break-all rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs text-cyan-200"
-                        >
-                          {dependencyId}
-                        </code>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-500">无前置依赖</p>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    暂停说明
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">
-                    {detail.paused_reason ?? "未设置暂停说明"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <TaskDetailBaseInfoCard detail={detail} />
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
             <div className="flex items-start justify-between gap-4">
@@ -960,46 +877,6 @@ function mapBlockingCategoryLabel(signal: TaskBlockingSignal): string {
     return "预算阻塞";
   }
   return "状态阻塞";
-}
-
-function EmptyPanel() {
-  return (
-    <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-400">
-      点击左侧任意任务后，这里会展示任务基础信息、最新运行、质量闸门结果和结构化日志事件。
-    </div>
-  );
-}
-
-function LoadingPanel(props: { title: string }) {
-  return (
-    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-      正在加载 <span className="font-medium text-slate-100">{props.title}</span> 的详情数据…
-    </div>
-  );
-}
-
-function ErrorPanel(props: { message: string }) {
-  return (
-    <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
-      无法加载任务详情：{props.message}
-    </div>
-  );
-}
-
-function DetailField(props: { label: string; value: ReactNode; testId?: string }) {
-  return (
-    <div
-      data-testid={props.testId}
-      className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3"
-    >
-      <div data-slot="label" className="text-xs uppercase tracking-[0.2em] text-slate-500">
-        {props.label}
-      </div>
-      <div data-slot="value" className="mt-2 text-sm font-medium text-slate-100">
-        {props.value}
-      </div>
-    </div>
-  );
 }
 
 function ActionButton(props: {
