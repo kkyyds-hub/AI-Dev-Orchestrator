@@ -35,7 +35,7 @@ export function RoleCatalogListCard(props: RoleCatalogListCardProps) {
           </ul>
         )
       ) : (
-        <p className="mt-3 text-sm text-slate-500">?????</p>
+        <p className="mt-3 text-sm text-slate-500">暂无配置。</p>
       )}
     </section>
   );

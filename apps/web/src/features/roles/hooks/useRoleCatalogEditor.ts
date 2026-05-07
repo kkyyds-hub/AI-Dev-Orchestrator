@@ -30,7 +30,7 @@ export function useRoleCatalogEditor(input: UseRoleCatalogEditorInput) {
 
   const saveRole = async (payload: ProjectRoleUpdateInput) => {
     if (!editingRole) {
-      throw new Error("?????????????");
+      throw new Error("当前没有可保存的角色配置。");
     }
 
     await input.onSaveRole(editingRole.role_code, payload);

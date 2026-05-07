@@ -12,7 +12,7 @@ type RoleCatalogCardProps = {
 };
 
 export function RoleCatalogCard(props: RoleCatalogCardProps) {
-  const roleName = props.projectRole?.name ?? props.systemRole?.name ?? "??";
+  const roleName = props.projectRole?.name ?? props.systemRole?.name ?? "角色";
   const roleCode = props.projectRole?.role_code ?? props.systemRole?.code ?? "unknown";
   const summary = props.projectRole?.summary ?? props.systemRole?.summary ?? "?";
   const responsibilities =
@@ -38,7 +38,7 @@ export function RoleCatalogCard(props: RoleCatalogCardProps) {
             />
             {props.projectRole ? (
               <StatusBadge
-                label={props.projectRole.enabled ? "???" : "???"}
+                label={props.projectRole.enabled ? "已启用" : "未启用"}
                 tone={props.projectRole.enabled ? "success" : "neutral"}
               />
             ) : null}
@@ -52,21 +52,21 @@ export function RoleCatalogCard(props: RoleCatalogCardProps) {
           disabled={!props.projectSelected}
           className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
         >
-          {props.projectSelected ? "????" : "????????"}
+          {props.projectSelected ? "编辑角色" : "选择项目后可编辑"}
         </button>
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        <RoleCatalogListCard title="????" items={responsibilities} />
-        <RoleCatalogListCard title="?? Skill ??" items={skillSlots} chips />
-        <RoleCatalogListCard title="????" items={inputBoundary} />
-        <RoleCatalogListCard title="????" items={outputBoundary} />
+        <RoleCatalogListCard title="职责边界" items={responsibilities} />
+        <RoleCatalogListCard title="默认 Skill 占位" items={skillSlots} chips />
+        <RoleCatalogListCard title="输入边界" items={inputBoundary} />
+        <RoleCatalogListCard title="输出边界" items={outputBoundary} />
       </div>
 
       {props.projectRole?.custom_notes ? (
         <section className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
           <div className="text-xs uppercase tracking-[0.2em] text-amber-200">
-            ????
+            项目备注
           </div>
           <p className="mt-2 text-sm leading-6 text-slate-200">
             {props.projectRole.custom_notes}
@@ -75,11 +75,11 @@ export function RoleCatalogCard(props: RoleCatalogCardProps) {
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
-        <span>?????{roleCode}</span>
+        <span>角色代码：{roleCode}</span>
         {props.projectRole ? (
-          <span>?????{formatDateTime(props.projectRole.updated_at)}</span>
+          <span>更新时间：{formatDateTime(props.projectRole.updated_at)}</span>
         ) : (
-          <span>???????</span>
+          <span>系统默认目录项</span>
         )}
       </div>
     </article>

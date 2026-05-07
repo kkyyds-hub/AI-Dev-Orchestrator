@@ -14,10 +14,10 @@ export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
           V3 Day05 Role Catalog
         </p>
         <h2 className="text-2xl font-semibold tracking-tight text-slate-50">
-          ???????????
+          角色目录与身份配置模型
         </h2>
         <p className="max-w-3xl text-sm leading-6 text-slate-300">
-          Day05 ????????????????????????????????????????????/???????????????? Skill ???
+          Day05 把“谁负责什么”变成正式配置对象：系统提供最小角色目录，项目可以选择启用哪些角色，并查看/编辑职责边界、输入输出边界和默认 Skill 占位。
         </p>
       </div>
 
@@ -25,14 +25,14 @@ export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
         <StatusBadge
           label={
             props.selectedProjectName
-              ? `?????${props.selectedProjectName}`
-              : "??????"
+              ? `当前项目：${props.selectedProjectName}`
+              : "当前未选项目"
           }
           tone={props.selectedProjectName ? "info" : "neutral"}
         />
         <StatusBadge
           label={
-            props.projectRoleConnected ? "?????????" : "????????"
+            props.projectRoleConnected ? "项目角色配置已接入" : "系统目录只读模式"
           }
           tone={props.projectRoleConnected ? "success" : "warning"}
         />
