@@ -10,8 +10,7 @@ import { RunsMissingTaskContextNotice } from "./components/RunsMissingTaskContex
 import { RunsPageHeader } from "./components/RunsPageHeader";
 import { RunsTaskDetailSection } from "./components/RunsTaskDetailSection";
 import { useRunSelection } from "./hooks/useRunSelection";
-import { buildBossDrilldownHash } from "./lib";
-import type { BossDrilldownNavigateDetail } from "./types";
+import { buildBossDrilldownHash, type BossDrilldownNavigateDetail } from "../shared/boss-drilldown-route";
 
 export function RunsPage() {
   const navigate = useNavigate();
