@@ -18,7 +18,6 @@ import type {
   ConsoleBudget,
   ConsoleRun,
   ConsoleTask,
-  TaskBlockingSignal,
 } from "../console/types";
 import {
   usePauseTask,
@@ -30,18 +29,16 @@ import {
 import { DecisionHistoryPanel } from "../console-metrics/DecisionHistoryPanel";
 import { useTaskDecisionHistory } from "../console-metrics/decision-hooks";
 import { useTaskRelatedDeliverables } from "../deliverables/hooks";
-import {
-  DELIVERABLE_TYPE_LABELS,
-  type TaskRelatedDeliverable,
-} from "../deliverables/types";
 import { RunLogPanel } from "../run-log/RunLogPanel";
 import { useTaskDetail } from "./hooks";
 import { TaskDetailBaseInfoCard } from "./components/TaskDetailBaseInfoCard";
 import { DetailField } from "./components/TaskDetailField";
 import { TaskDetailEmptyState } from "./components/TaskDetailEmptyState";
 import { TaskDetailErrorState } from "./components/TaskDetailErrorState";
+import { TaskDetailContextPreviewSection } from "./components/TaskDetailContextPreviewSection";
 import { TaskDetailLoadingState } from "./components/TaskDetailLoadingState";
 import { TaskDetailPanelHeader } from "./components/TaskDetailPanelHeader";
+import { TaskDetailRelatedDeliverablesSection } from "./components/TaskDetailRelatedDeliverablesSection";
 
 type TaskDetailPanelProps = {
   panelId?: string;
@@ -233,196 +230,15 @@ export function TaskDetailPanel({
         <div className="mt-4 space-y-4">
           <TaskDetailBaseInfoCard detail={detail} />
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-50">关联交付件</h3>
-                <p className="mt-1 text-sm text-slate-400">
-                  反查当前任务及其运行记录对应的 PRD、设计稿、代码计划或验收结论快照。
-                </p>
-              </div>
-              <StatusBadge
-                label={`${relatedDeliverablesQuery.data?.length ?? 0} 条关联`}
-                tone="info"
-              />
-            </div>
+          <TaskDetailRelatedDeliverablesSection
+            relatedDeliverables={relatedDeliverablesQuery.data}
+            isLoading={relatedDeliverablesQuery.isLoading}
+            isError={relatedDeliverablesQuery.isError}
+            errorMessage={relatedDeliverablesQuery.error?.message ?? ""}
+            onNavigateToDeliverable={onNavigateToDeliverable}
+          />
 
-            {relatedDeliverablesQuery.isLoading && !relatedDeliverablesQuery.data ? (
-              <p className="mt-4 text-sm leading-6 text-slate-400">
-                正在查询关联交付件...
-              </p>
-            ) : relatedDeliverablesQuery.isError ? (
-              <p className="mt-4 text-sm leading-6 text-rose-200">
-                关联交付件加载失败：{relatedDeliverablesQuery.error.message}
-              </p>
-            ) : relatedDeliverablesQuery.data &&
-              relatedDeliverablesQuery.data.length > 0 ? (
-              <div className="mt-4 space-y-3">
-                {relatedDeliverablesQuery.data.map((relatedItem) => (
-                  <RelatedDeliverableCard
-                    key={`${relatedItem.deliverable_id}-${relatedItem.matched_version.id}`}
-                    item={relatedItem}
-                    onNavigateToDeliverable={onNavigateToDeliverable}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-4 text-sm leading-6 text-slate-400">
-                当前任务或其运行记录还没有关联的交付件快照。
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-50">最小上下文包</h3>
-                <p className="mt-1 text-sm text-slate-400">
-                  Worker 在执行前会聚合任务目标、依赖状态、最近运行片段和阻塞信号。
-                </p>
-              </div>
-              <StatusBadge
-                label={
-                  detail.context_preview.ready_for_execution ? "上下文就绪" : "存在阻塞信号"
-                }
-                tone={detail.context_preview.ready_for_execution ? "success" : "warning"}
-              />
-            </div>
-
-            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                上下文摘要
-              </div>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">
-                {detail.context_preview.context_summary}
-              </p>
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <DetailField
-                label="上下文状态"
-                value={detail.context_preview.ready_for_execution ? "可执行" : "需人工关注"}
-              />
-              <DetailField
-                label="最近运行片段"
-                value={String(detail.context_preview.recent_runs.length)}
-              />
-              <DetailField
-                label="依赖摘要"
-                value={String(detail.context_preview.dependency_items.length)}
-              />
-              <DetailField
-                label="阻塞项"
-                value={String(detail.context_preview.blocking_signals.length)}
-              />
-            </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  依赖状态
-                </div>
-                {detail.context_preview.dependency_items.length > 0 ? (
-                  <div className="mt-2 space-y-3">
-                    {detail.context_preview.dependency_items.map((dependency) => (
-                      <div
-                        key={dependency.task_id}
-                        className="rounded-xl border border-slate-800 bg-slate-900/70 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-medium text-slate-100">
-                              {dependency.title}
-                            </div>
-                            <code className="mt-1 block break-all text-xs text-cyan-200">
-                              {dependency.task_id}
-                            </code>
-                          </div>
-                          <StatusBadge
-                            label={dependency.status}
-                            tone={mapTaskStatusTone(dependency.status)}
-                          />
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-slate-300">
-                          {dependency.missing
-                            ? "依赖任务不存在，需先补齐或重建。"
-                            : dependency.latest_run_summary ?? "暂无依赖运行摘要"}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm text-slate-500">无前置依赖，上下文更轻量。</p>
-                )}
-              </div>
-
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  最近运行摘要
-                </div>
-                {detail.context_preview.recent_runs.length > 0 ? (
-                  <div className="mt-2 space-y-3">
-                    {detail.context_preview.recent_runs.map((run) => (
-                      <div
-                        key={run.run_id}
-                        className="rounded-xl border border-slate-800 bg-slate-900/70 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-medium text-slate-100">
-                              {formatDateTime(run.created_at)}
-                            </div>
-                            <code className="mt-1 block break-all text-xs text-cyan-200">
-                              {run.run_id}
-                            </code>
-                          </div>
-                          <StatusBadge
-                            label={run.status}
-                            tone={mapRunStatusTone(run.status)}
-                          />
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-slate-300">
-                          {run.result_summary ?? "暂无运行摘要"}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm text-slate-500">这是首次执行，没有历史运行片段。</p>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                阻塞信号
-              </div>
-              {detail.context_preview.blocking_signals.length > 0 ? (
-                <div className="mt-2 space-y-2">
-                  {detail.context_preview.blocking_signals.map((signal, index) => (
-                    <div
-                      key={`${detail.id}-context-block-${signal.code}-${index}`}
-                      className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-medium text-amber-50">
-                          {mapBlockingCategoryLabel(signal)}
-                        </div>
-                        <code className="text-[11px] uppercase tracking-[0.12em] text-amber-200">
-                          {signal.code}
-                        </code>
-                      </div>
-                      <div className="mt-2 leading-6 text-amber-100">{signal.message}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-                  当前没有显式阻塞信号；Worker 会按此上下文继续执行。
-                </div>
-              )}
-            </div>
-          </div>
+          <TaskDetailContextPreviewSection contextPreview={detail.context_preview} />
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
             <div className="flex items-center justify-between gap-4">
@@ -796,87 +612,6 @@ export function TaskDetailPanel({
       ) : null}
     </section>
   );
-}
-
-function RelatedDeliverableCard(props: {
-  item: TaskRelatedDeliverable;
-  onNavigateToDeliverable?: (input: {
-    projectId: string;
-    deliverableId: string;
-  }) => void;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-medium text-slate-50">{props.item.title}</div>
-            <StatusBadge
-              label={DELIVERABLE_TYPE_LABELS[props.item.type]}
-              tone="info"
-            />
-            <StatusBadge label={`v${props.item.matched_version.version_number}`} tone="neutral" />
-          </div>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
-            {props.item.matched_version.summary}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <StatusBadge label={props.item.stage} tone="neutral" />
-          {props.item.matched_version.source_run_id ? (
-            <StatusBadge label="来自运行快照" tone="success" />
-          ) : (
-            <StatusBadge label="来自任务快照" tone="warning" />
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
-        <span>交付件 ID：{props.item.deliverable_id}</span>
-        <span>最新版本：v{props.item.current_version_number}</span>
-        <span>快照时间：{formatDateTime(props.item.matched_version.created_at)}</span>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-3">
-        {props.onNavigateToDeliverable ? (
-          <button
-            type="button"
-            onClick={() =>
-              props.onNavigateToDeliverable?.({
-                projectId: props.item.project_id,
-                deliverableId: props.item.deliverable_id,
-              })
-            }
-            className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
-          >
-            跳到交付件中心
-          </button>
-        ) : null}
-        {props.item.matched_version.source_run_id ? (
-          <code className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-400">
-            Run {props.item.matched_version.source_run_id}
-          </code>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function mapBlockingCategoryLabel(signal: TaskBlockingSignal): string {
-  if (signal.category === "dependency") {
-    return "依赖阻塞";
-  }
-  if (signal.category === "human") {
-    return "人工阻塞";
-  }
-  if (signal.category === "pause") {
-    return "暂停阻塞";
-  }
-  if (signal.category === "budget") {
-    return "预算阻塞";
-  }
-  return "状态阻塞";
 }
 
 function ActionButton(props: {
