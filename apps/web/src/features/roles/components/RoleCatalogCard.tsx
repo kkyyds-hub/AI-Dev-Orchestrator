@@ -14,7 +14,7 @@ type RoleCatalogCardProps = {
 export function RoleCatalogCard(props: RoleCatalogCardProps) {
   const roleName = props.projectRole?.name ?? props.systemRole?.name ?? "角色";
   const roleCode = props.projectRole?.role_code ?? props.systemRole?.code ?? "unknown";
-  const summary = props.projectRole?.summary ?? props.systemRole?.summary ?? "?";
+  const summary = props.projectRole?.summary ?? props.systemRole?.summary ?? "—";
   const responsibilities =
     props.projectRole?.responsibilities ?? props.systemRole?.responsibilities ?? [];
   const inputBoundary =
