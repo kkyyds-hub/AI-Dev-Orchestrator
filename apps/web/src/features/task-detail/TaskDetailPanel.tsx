@@ -11,7 +11,6 @@ import {
   mapFailureCategoryTone,
   mapQualityGateTone,
   mapRunStatusTone,
-  mapTaskStatusTone,
 } from "../../lib/status";
 import type { StreamConnectionStatus } from "../events/types";
 import type {
@@ -31,6 +30,7 @@ import { useTaskDecisionHistory } from "../console-metrics/decision-hooks";
 import { useTaskRelatedDeliverables } from "../deliverables/hooks";
 import { RunLogPanel } from "../run-log/RunLogPanel";
 import { useTaskDetail } from "./hooks";
+import { TaskDetailActionsSection } from "./components/TaskDetailActionsSection";
 import { TaskDetailBaseInfoCard } from "./components/TaskDetailBaseInfoCard";
 import { DetailField } from "./components/TaskDetailField";
 import { TaskDetailEmptyState } from "./components/TaskDetailEmptyState";
@@ -240,172 +240,42 @@ export function TaskDetailPanel({
 
           <TaskDetailContextPreviewSection contextPreview={detail.context_preview} />
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-50">任务操作</h3>
-                <p className="mt-1 text-sm text-slate-400">
-                  支持显式暂停、人工介入和失败重试；所有动作都只更新当前任务状态，不复制任务记录。
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <ActionButton
-                  label="暂停任务"
-                  pendingLabel="暂停中..."
-                  tone="amber"
-                  disabled={!canPause || isActionPending}
-                  isPending={pauseMutation.isPending}
-                  onClick={() => pauseMutation.mutate(detail.id)}
-                />
-                <ActionButton
-                  label="恢复任务"
-                  pendingLabel="恢复中..."
-                  tone="emerald"
-                  disabled={!canResume || isActionPending}
-                  isPending={resumeMutation.isPending}
-                  onClick={() => resumeMutation.mutate(detail.id)}
-                />
-                <ActionButton
-                  label="请求人工"
-                  pendingLabel="提交中..."
-                  tone="violet"
-                  disabled={!canRequestHuman || isActionPending}
-                  isPending={requestHumanMutation.isPending}
-                  onClick={() => requestHumanMutation.mutate(detail.id)}
-                />
-                <ActionButton
-                  label="人工已处理"
-                  pendingLabel="恢复中..."
-                  tone="emerald"
-                  disabled={!canResolveHuman || isActionPending}
-                  isPending={resolveHumanMutation.isPending}
-                  onClick={() => resolveHumanMutation.mutate(detail.id)}
-                />
-                <ActionButton
-                  label="重试任务"
-                  pendingLabel="重试中..."
-                  tone="cyan"
-                  disabled={!canTriggerRetry || isActionPending}
-                  isPending={retryMutation.isPending}
-                  onClick={() => retryMutation.mutate(detail.id)}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <DetailField
-                label="当前状态"
-                value={
-                  <StatusBadge
-                    label={detail.status}
-                    tone={mapTaskStatusTone(detail.status)}
-                  />
-                }
-              />
-              <DetailField
-                label="重试资格"
-                value={
-                  retryLimitReached
-                    ? "已达到重试上限"
-                    : canRetry
-                      ? "允许"
-                      : "仅 failed / blocked 可重试"
-                }
-              />
-              <DetailField
-                label="已执行次数"
-                value={String(executionAttempts)}
-              />
-              <DetailField
-                label="已用重试 / 上限"
-                value={
-                  budget
-                    ? `${retriesUsed} / ${budget.max_task_retries}`
-                    : "预算未加载"
-                }
-              />
-              <DetailField
-                label="剩余重试"
-                value={budget ? String(retriesRemaining) : "预算未加载"}
-              />
-              <DetailField
-                label="预算状态"
-                value={formatBudgetHealthLabel(budget)}
-              />
-            </div>
-
-            {retryLimitReached ? (
-              <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-                当前任务已达到 Day 15 重试上限。若要继续尝试，请先提高 `MAX_TASK_RETRIES`
-                或人工处理任务输入后再重试。
-              </div>
-            ) : null}
-
-            {pauseResult ? (
-              <StateActionNotice
-                title="暂停已生效"
-                message={pauseResult.message}
-                previousStatus={pauseResult.previous_status}
-                currentStatus={pauseResult.current_status}
-              />
-            ) : null}
-
-            {resumeResult ? (
-              <StateActionNotice
-                title="任务已恢复"
-                message={resumeResult.message}
-                previousStatus={resumeResult.previous_status}
-                currentStatus={resumeResult.current_status}
-              />
-            ) : null}
-
-            {requestHumanResult ? (
-              <StateActionNotice
-                title="已请求人工处理"
-                message={requestHumanResult.message}
-                previousStatus={requestHumanResult.previous_status}
-                currentStatus={requestHumanResult.current_status}
-              />
-            ) : null}
-
-            {resolveHumanResult ? (
-              <StateActionNotice
-                title="人工处理已完成"
-                message={resolveHumanResult.message}
-                previousStatus={resolveHumanResult.previous_status}
-                currentStatus={resolveHumanResult.current_status}
-              />
-            ) : null}
-
-            {retryResult ? (
-              <StateActionNotice
-                title="重试已触发"
-                message={retryResult.message}
-                previousStatus={retryResult.previous_status}
-                currentStatus={retryResult.current_status}
-              />
-            ) : null}
-
-            {pauseError ? (
-              <ActionError title="暂停失败" message={pauseError} />
-            ) : null}
-
-            {resumeError ? (
-              <ActionError title="恢复失败" message={resumeError} />
-            ) : null}
-
-            {requestHumanError ? (
-              <ActionError title="请求人工失败" message={requestHumanError} />
-            ) : null}
-
-            {resolveHumanError ? (
-              <ActionError title="恢复人工任务失败" message={resolveHumanError} />
-            ) : null}
-
-            {retryError ? (
-              <ActionError title="重试失败" message={retryError} />
-            ) : null}
-          </div>
+          <TaskDetailActionsSection
+            taskId={detail.id}
+            status={detail.status}
+            budget={budget}
+            canPause={canPause}
+            canResume={canResume}
+            canRequestHuman={canRequestHuman}
+            canResolveHuman={canResolveHuman}
+            canRetry={canRetry}
+            canTriggerRetry={canTriggerRetry}
+            isActionPending={isActionPending}
+            executionAttempts={executionAttempts}
+            retriesUsed={retriesUsed}
+            retriesRemaining={retriesRemaining}
+            retryLimitReached={retryLimitReached}
+            isPausePending={pauseMutation.isPending}
+            isResumePending={resumeMutation.isPending}
+            isRequestHumanPending={requestHumanMutation.isPending}
+            isResolveHumanPending={resolveHumanMutation.isPending}
+            isRetryPending={retryMutation.isPending}
+            pauseResult={pauseResult}
+            resumeResult={resumeResult}
+            requestHumanResult={requestHumanResult}
+            resolveHumanResult={resolveHumanResult}
+            retryResult={retryResult}
+            pauseError={pauseError}
+            resumeError={resumeError}
+            requestHumanError={requestHumanError}
+            resolveHumanError={resolveHumanError}
+            retryError={retryError}
+            onPause={(taskId) => pauseMutation.mutate(taskId)}
+            onResume={(taskId) => resumeMutation.mutate(taskId)}
+            onRequestHuman={(taskId) => requestHumanMutation.mutate(taskId)}
+            onResolveHuman={(taskId) => resolveHumanMutation.mutate(taskId)}
+            onRetry={(taskId) => retryMutation.mutate(taskId)}
+          />
 
           <RunCard
             title="最新运行"
@@ -614,60 +484,6 @@ export function TaskDetailPanel({
   );
 }
 
-function ActionButton(props: {
-  label: string;
-  pendingLabel: string;
-  onClick: () => void;
-  disabled: boolean;
-  isPending: boolean;
-  tone: "cyan" | "amber" | "violet" | "emerald";
-}) {
-  const toneClassName = {
-    cyan: "border-cyan-400/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20",
-    amber:
-      "border-amber-400/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20",
-    violet:
-      "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20",
-    emerald:
-      "border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20",
-  }[props.tone];
-
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      disabled={props.disabled}
-      className={`rounded-lg border px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500 ${toneClassName}`}
-    >
-      {props.isPending ? props.pendingLabel : props.label}
-    </button>
-  );
-}
-
-function StateActionNotice(props: {
-  title: string;
-  message: string;
-  previousStatus: string;
-  currentStatus: string;
-}) {
-  return (
-    <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-      <div className="font-medium text-emerald-50">{props.title}</div>
-      <p className="mt-1">
-        {props.message} 状态已从 `{props.previousStatus}` 更新为 `{props.currentStatus}`。
-      </p>
-    </div>
-  );
-}
-
-function ActionError(props: { title: string; message: string }) {
-  return (
-    <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">
-      {props.title}：{props.message}
-    </div>
-  );
-}
-
 function RunCard(props: {
   title: string;
   run: ConsoleRun | null;
@@ -870,22 +686,3 @@ function formatQualityGateLabel(qualityGatePassed: boolean | null): string {
   return "闸门未知";
 }
 
-function formatBudgetHealthLabel(budget: ConsoleBudget | null): string {
-  if (!budget) {
-    return "预算未加载";
-  }
-
-  if (budget.daily_budget_exceeded && budget.session_budget_exceeded) {
-    return "日预算 / 会话预算均告警";
-  }
-
-  if (budget.daily_budget_exceeded) {
-    return "日预算告警";
-  }
-
-  if (budget.session_budget_exceeded) {
-    return "会话预算告警";
-  }
-
-  return "预算正常";
-}
