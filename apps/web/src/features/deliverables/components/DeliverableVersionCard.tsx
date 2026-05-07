@@ -21,7 +21,7 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-base font-semibold text-slate-50">
-              {DELIVERABLE_TYPE_LABELS[props.deliverableType]} ? v
+              {DELIVERABLE_TYPE_LABELS[props.deliverableType]} · v
               {props.version.version_number}
             </div>
             <StatusBadge
