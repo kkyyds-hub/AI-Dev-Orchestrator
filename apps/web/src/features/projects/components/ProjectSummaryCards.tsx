@@ -8,9 +8,7 @@ type ProjectSummaryCardsProps = {
   overview: BossProjectOverview;
 };
 
-export function ProjectSummaryCards({
-  overview,
-}: ProjectSummaryCardsProps) {
+export function ProjectSummaryCards({ overview }: ProjectSummaryCardsProps) {
   const activeStageItems = overview.stage_distribution.filter(
     (item) => item.count > 0,
   );
@@ -24,7 +22,7 @@ export function ProjectSummaryCards({
   ).length;
 
   return (
-    <section className="border-b border-[#333333] pb-8">
+    <section className="border-b border-[#333333] pb-7">
       <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
@@ -35,7 +33,7 @@ export function ProjectSummaryCards({
           </h2>
         </div>
         <p className="text-xs text-zinc-600">
-          任务、阶段、预算与仓库绑定状态一屏总览
+          只保留数量、阻塞、阶段和预算四个核心信号。
         </p>
       </div>
 
@@ -49,7 +47,7 @@ export function ProjectSummaryCards({
         <StatColumn
           label="阻塞项目"
           value={String(overview.blocked_projects)}
-          description={`挂起、阻塞或等待人工的项目；已记录会话 ${activeChangeSessionProjects}`}
+          description={`挂起、阻塞或等待人工；已记录会话 ${activeChangeSessionProjects}`}
           valueClassName={overview.blocked_projects > 0 ? "text-amber-200" : undefined}
         />
 
@@ -58,7 +56,7 @@ export function ProjectSummaryCards({
             <div className="text-sm text-zinc-400">阶段分布</div>
             <div className="text-right text-xs leading-5 text-zinc-600">
               <div>项目内任务总量</div>
-              <div>共 {overview.stage_distribution.length} 个阶段槽</div>
+              <div>共 {overview.stage_distribution.length} 个阶段</div>
             </div>
           </div>
           <div className="font-mono text-3xl font-semibold tracking-tight text-zinc-100">
@@ -114,10 +112,9 @@ export function ProjectSummaryCards({
       </div>
 
       {overview.unassigned_tasks > 0 ? (
-        <div className="mt-6 border-l-2 border-l-amber-400/70 py-2 pl-4 text-sm leading-6 text-amber-100">
-          还有 {overview.unassigned_tasks} 条历史任务尚未归属到项目，会继续保留在下方任务控制台中，不影响
-          V1/V2 现有能力。
-        </div>
+        <p className="mt-4 text-xs leading-5 text-zinc-600">
+          另有 {overview.unassigned_tasks} 条历史任务尚未归属项目，已保留在任务域中。
+        </p>
       ) : null}
     </section>
   );
@@ -154,7 +151,7 @@ function RatioRow(props: { label: string; value: number; text: string }) {
       <div className="h-1 overflow-hidden rounded-full bg-[#333333]">
         <div
           className="h-full rounded-full bg-zinc-300 transition-all"
-          style={{ width: `${Math.max(4, Math.round(props.value * 100))}%` }}
+          style={{ width: `${Math.max(3, Math.round(props.value * 100))}%` }}
         />
       </div>
     </div>

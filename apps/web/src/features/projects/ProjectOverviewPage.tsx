@@ -1,4 +1,3 @@
-import { ProjectDeliverySnapshotCard } from "./components/ProjectDeliverySnapshotCard";
 import { ProjectOverviewViewSwitch } from "./components/ProjectOverviewViewSwitch";
 import { PROJECT_OVERVIEW_NAVIGATION_ITEMS } from "./lib/overviewNavigation";
 import {
@@ -10,19 +9,10 @@ import { ProjectOverviewModuleNavSection } from "./sections/ProjectOverviewModul
 
 export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const controller = useProjectOverviewPageController(props);
-  const {
-    activeView,
-    day15FlowOverviewQuery,
-    lastUpdatedText,
-    overviewQuery,
-    selectedProjectId,
-  } = controller;
+  const { activeView, lastUpdatedText, overviewQuery, selectedProjectId } = controller;
 
   return (
-    <section
-      data-testid="project-overview-page"
-      className="space-y-8"
-    >
+    <section data-testid="project-overview-page" className="space-y-7">
       <ProjectOverviewHeroSection
         budgetStrategyLabel={overviewQuery.data?.budget.strategy_label}
         budgetPressureLevel={overviewQuery.data?.budget.pressure_level}
@@ -37,16 +27,6 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
           props.resolveProjectViewHref?.(view, projectId) ?? null
         }
       />
-
-      {selectedProjectId ? (
-        <ProjectDeliverySnapshotCard
-          overview={day15FlowOverviewQuery.data ?? null}
-          isLoading={day15FlowOverviewQuery.isLoading}
-          errorMessage={
-            day15FlowOverviewQuery.isError ? day15FlowOverviewQuery.error.message : null
-          }
-        />
-      ) : null}
 
       {overviewQuery.isLoading && !overviewQuery.data ? (
         <section className="border-b border-[#333333] py-6 text-sm text-zinc-500">

@@ -1,8 +1,6 @@
-﻿import { ProjectCreateFlow } from "../ProjectCreateFlow";
+import { ProjectCreateFlow } from "../ProjectCreateFlow";
 import { ProjectSummaryCards } from "../components/ProjectSummaryCards";
-import { FeaturedProjectsSection } from "../sections/FeaturedProjectsSection";
 import { ProjectOverviewTableAndDetailSection } from "../sections/ProjectOverviewTableAndDetailSection";
-import { RepositoryOverviewSection } from "../sections/RepositoryOverviewSection";
 import type {
   BossDrilldownContext,
   BossDrilldownFeedback,
@@ -46,31 +44,9 @@ export function ProjectOverviewDashboardPage(
     <div
       id="overview"
       data-testid="project-overview-view-overview"
-      className="space-y-8"
+      className="space-y-7"
     >
       <ProjectSummaryCards overview={props.overview} />
-
-      <div className="grid gap-8 xl:grid-cols-[minmax(340px,0.82fr)_minmax(0,1.18fr)]">
-        <ProjectCreateFlow onProjectCreated={props.onProjectCreated} />
-
-        <div className="space-y-8">
-          {props.featuredProjects.length > 0 ? (
-            <RepositoryOverviewSection
-              featuredProjects={props.featuredProjects}
-              selectedProjectId={props.selectedProjectId}
-              onSelectProject={props.onSelectProjectIntoDetail}
-            />
-          ) : null}
-
-          {props.featuredProjects.length > 0 ? (
-            <FeaturedProjectsSection
-              featuredProjects={props.featuredProjects}
-              selectedProjectId={props.selectedProjectId}
-              onSelectProject={props.onSelectProjectIntoDetail}
-            />
-          ) : null}
-        </div>
-      </div>
 
       <ProjectOverviewTableAndDetailSection
         projects={props.projects}
@@ -90,6 +66,22 @@ export function ProjectOverviewDashboardPage(
         isProjectDetailLoading={props.isProjectDetailLoading}
         projectDetailErrorMessage={props.projectDetailErrorMessage}
       />
+
+      <details className="group border-b border-[#333333] pb-5">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm text-zinc-400 transition hover:text-zinc-100">
+          <span>
+            <span className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+              Quick Intake
+            </span>
+            <span className="ml-3">需要新项目时展开创建入口</span>
+          </span>
+          <span className="text-xs text-zinc-600 group-open:hidden">展开</span>
+          <span className="hidden text-xs text-zinc-600 group-open:inline">收起</span>
+        </summary>
+        <div className="mt-5">
+          <ProjectCreateFlow onProjectCreated={props.onProjectCreated} />
+        </div>
+      </details>
     </div>
   );
 }
