@@ -23,7 +23,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   return (
     <section
       data-testid="project-overview-page"
-      className="space-y-6 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40"
+      className="space-y-6"
     >
       <ProjectOverviewHeroSection
         budgetStrategyLabel={overviewQuery.data?.budget.strategy_label}
@@ -53,8 +53,8 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
       ) : null}
 
       {overviewQuery.isLoading && !overviewQuery.data ? (
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 text-sm text-slate-400">
-          正在加载老板首页数据...
+        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-6 text-sm text-zinc-500">
+          正在加载项目数据...
         </section>
       ) : null}
 

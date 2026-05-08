@@ -24,28 +24,28 @@ export function ProjectTable({
   onSelectProject,
 }: ProjectTableProps) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30">
+    <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">
+          <h2 className="text-lg font-semibold text-zinc-100">
             项目总览列表
           </h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-zinc-500">
             先看项目，再看任务；点击“查看详情”可切到右侧项目详情面板。
           </p>
         </div>
-        <div className="text-xs text-slate-500">共 {projects.length} 个项目</div>
+        <div className="text-xs text-zinc-600">共 {projects.length} 个项目</div>
       </div>
 
       {projects.length === 0 ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-8 text-center text-sm text-slate-400">
+        <div className="mt-4 rounded-2xl border border-dashed border-[#3a3a3a] bg-[#1f1f1f] px-4 py-8 text-center text-sm text-zinc-500">
           暂无项目，可先通过 `/projects` 创建项目，再在下方任务控制台继续查看历史任务。
         </div>
       ) : (
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full border-separate border-spacing-y-3 text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+              <tr className="text-left text-xs uppercase tracking-[0.18em] text-zinc-600">
                 <th className="px-4 py-2">项目 / 仓库</th>
                 <th className="px-4 py-2">阶段 / 状态</th>
                 <th className="px-4 py-2">任务聚合</th>
@@ -62,14 +62,14 @@ export function ProjectTable({
                     <td
                       className={`rounded-l-2xl border border-r-0 px-4 py-4 ${
                         isSelected
-                          ? "border-cyan-500/40 bg-cyan-500/10"
-                          : "border-slate-800 bg-slate-950/70"
+                          ? "border-[#4a4a4a] bg-[#303030]"
+                          : "border-[#333333] bg-[#1f1f1f]"
                       }`}
                     >
-                      <div className="font-medium text-slate-50">
+                      <div className="font-medium text-zinc-100">
                         {project.name}
                       </div>
-                      <p className="mt-2 max-w-xs text-xs leading-6 text-slate-400">
+                      <p className="mt-2 max-w-xs text-xs leading-6 text-zinc-500">
                         {project.summary}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -92,7 +92,7 @@ export function ProjectTable({
                           tone={mapChangeSessionTone(project)}
                         />
                       </div>
-                      <div className="mt-3 text-xs text-slate-500">
+                      <div className="mt-3 text-xs text-zinc-600">
                         预估成本 {formatCurrencyUsd(project.estimated_cost)}
                       </div>
                     </td>
@@ -100,8 +100,8 @@ export function ProjectTable({
                     <td
                       className={`border border-x-0 px-4 py-4 ${
                         isSelected
-                          ? "border-cyan-500/40 bg-cyan-500/10"
-                          : "border-slate-800 bg-slate-950/70"
+                          ? "border-[#4a4a4a] bg-[#303030]"
+                          : "border-[#333333] bg-[#1f1f1f]"
                       }`}
                     >
                       <div className="flex flex-wrap gap-2">
@@ -124,11 +124,11 @@ export function ProjectTable({
                     <td
                       className={`border border-x-0 px-4 py-4 ${
                         isSelected
-                          ? "border-cyan-500/40 bg-cyan-500/10"
-                          : "border-slate-800 bg-slate-950/70"
+                          ? "border-[#4a4a4a] bg-[#303030]"
+                          : "border-[#333333] bg-[#1f1f1f]"
                       }`}
                     >
-                      <div className="space-y-2 text-xs text-slate-300">
+                      <div className="space-y-2 text-xs text-zinc-400">
                         <AggregateRow
                           label="总任务"
                           value={String(project.task_stats.total_tasks)}
@@ -151,14 +151,14 @@ export function ProjectTable({
                     <td
                       className={`border border-x-0 px-4 py-4 ${
                         isSelected
-                          ? "border-cyan-500/40 bg-cyan-500/10"
-                          : "border-slate-800 bg-slate-950/70"
+                          ? "border-[#4a4a4a] bg-[#303030]"
+                          : "border-[#333333] bg-[#1f1f1f]"
                       }`}
                     >
-                      <p className="max-w-sm text-xs leading-6 text-slate-300">
+                      <p className="max-w-sm text-xs leading-6 text-zinc-400">
                         {project.latest_progress_summary}
                       </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
                         <span>
                           更新时间 {formatDateTime(project.latest_progress_at)}
                         </span>
@@ -174,8 +174,8 @@ export function ProjectTable({
                     <td
                       className={`border border-x-0 px-4 py-4 ${
                         isSelected
-                          ? "border-cyan-500/40 bg-cyan-500/10"
-                          : "border-slate-800 bg-slate-950/70"
+                          ? "border-[#4a4a4a] bg-[#303030]"
+                          : "border-[#333333] bg-[#1f1f1f]"
                       }`}
                     >
                       <div className="flex flex-wrap items-center gap-2">
@@ -187,12 +187,12 @@ export function ProjectTable({
                           tone={mapProjectRiskTone(project.risk_level)}
                         />
                         {project.high_risk_task_count > 0 ? (
-                          <span className="text-xs text-slate-500">
+                          <span className="text-xs text-zinc-600">
                             高风险任务 {project.high_risk_task_count}
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-3 max-w-sm text-xs leading-6 text-slate-300">
+                      <p className="mt-3 max-w-sm text-xs leading-6 text-zinc-400">
                         {project.key_risk_summary}
                       </p>
                     </td>
@@ -200,14 +200,14 @@ export function ProjectTable({
                     <td
                       className={`rounded-r-2xl border border-l-0 px-4 py-4 text-right ${
                         isSelected
-                          ? "border-cyan-500/40 bg-cyan-500/10"
-                          : "border-slate-800 bg-slate-950/70"
+                          ? "border-[#4a4a4a] bg-[#303030]"
+                          : "border-[#333333] bg-[#1f1f1f]"
                       }`}
                     >
                       <button
                         type="button"
                         onClick={() => onSelectProject(project.id)}
-                        className="inline-flex rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:border-cyan-400 hover:bg-cyan-500/20"
+                        className="inline-flex rounded-xl border border-[#4a4a4a] bg-[#303030] px-3 py-2 text-xs font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#383838]"
                       >
                         {isSelected ? "已在详情中" : "查看详情"}
                       </button>
@@ -225,9 +225,9 @@ export function ProjectTable({
 
 function AggregateRow(props: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/60 px-3 py-2">
-      <span className="text-slate-400">{props.label}</span>
-      <span className="font-medium text-slate-100">{props.value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-[#333333]/80 bg-[#1f1f1f] px-3 py-2">
+      <span className="text-zinc-500">{props.label}</span>
+      <span className="font-medium text-zinc-100">{props.value}</span>
     </div>
   );
 }

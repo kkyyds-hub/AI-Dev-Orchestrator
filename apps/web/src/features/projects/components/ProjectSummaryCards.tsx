@@ -41,15 +41,15 @@ export function ProjectSummaryCards({
           tone={overview.blocked_projects > 0 ? "warning" : "success"}
         />
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm text-slate-400">阶段分布</div>
-              <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-50">
+              <div className="text-sm text-zinc-500">阶段分布</div>
+              <div className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100">
                 {overview.total_project_tasks}
               </div>
             </div>
-            <div className="text-right text-xs text-slate-500">
+            <div className="text-right text-xs text-zinc-600">
               <div>项目内任务总量</div>
               <div className="mt-1">
                 共 {overview.stage_distribution.length} 个阶段桶
@@ -64,24 +64,24 @@ export function ProjectSummaryCards({
             ).map((item) => (
               <span
                 key={item.stage}
-                className="inline-flex items-center rounded-full border border-slate-700 bg-slate-950/70 px-3 py-1 text-xs text-slate-200"
+                className="inline-flex items-center rounded-full border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-1 text-xs text-zinc-300"
               >
                 {PROJECT_STAGE_LABELS[item.stage] ?? item.stage}
-                <span className="ml-2 text-slate-400">{item.count}</span>
+                <span className="ml-2 text-zinc-500">{item.count}</span>
               </span>
             ))}
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm text-slate-400">预算摘要</div>
-              <div className="mt-2 text-lg font-semibold text-slate-50">
+              <div className="text-sm text-zinc-500">预算摘要</div>
+              <div className="mt-2 text-lg font-semibold text-zinc-100">
                 {formatCurrencyUsd(overview.budget.daily_cost_used)} /{" "}
                 {formatCurrencyUsd(overview.budget.daily_budget_usd)}
               </div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-1 text-xs text-zinc-600">
                 会话剩余{" "}
                 {formatCurrencyUsd(overview.budget.session_cost_remaining)}
               </div>
@@ -92,7 +92,7 @@ export function ProjectSummaryCards({
             />
           </div>
 
-          <div className="mt-4 space-y-3 text-sm text-slate-300">
+          <div className="mt-4 space-y-3 text-sm text-zinc-400">
             <RatioRow
               label="日预算使用率"
               value={dailyRatio}
@@ -120,13 +120,13 @@ export function ProjectSummaryCards({
 function RatioRow(props: { label: string; value: number; text: string }) {
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+      <div className="mb-2 flex items-center justify-between text-xs text-zinc-500">
         <span>{props.label}</span>
         <span>{props.text}</span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+      <div className="h-2 overflow-hidden rounded-full bg-[#333333]">
         <div
-          className="h-full rounded-full bg-cyan-400 transition-all"
+          className="h-full rounded-full bg-zinc-400 transition-all"
           style={{ width: `${Math.max(4, Math.round(props.value * 100))}%` }}
         />
       </div>

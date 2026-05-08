@@ -32,24 +32,24 @@ export function ProjectOverviewModuleNavSection(
   return (
     <section
       data-testid="project-overview-module-nav"
-      className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30"
+      className="rounded-2xl border border-[#333333] bg-[#242424] p-5"
     >
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-cyan-300">
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
             Project Domain Navigation
           </p>
           <h2
             data-testid="project-overview-module-nav-title"
-            className="mt-2 text-lg font-semibold text-slate-50"
+            className="mt-2 text-lg font-semibold text-zinc-100"
           >
             项目域模块导航
           </h2>
-          <p className="mt-1 text-sm text-slate-400">
-            将项目总览拆成清晰路由入口；页内项目详情仍保留在总览页内定位。
+          <p className="mt-1 text-sm text-zinc-500">
+            通过统一入口进入项目总览、协作、交付、审批与治理模块。
           </p>
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-zinc-600">
           页内入口 {sectionEntryCount} 个 / 路由入口 {pageEntryCount} 个
         </div>
       </div>
@@ -62,8 +62,8 @@ export function ProjectOverviewModuleNavSection(
           const isActive = props.activeView === item.view;
           const sharedClassName = `rounded-2xl border px-4 py-4 text-left transition ${
             isActive
-              ? "border-cyan-400/60 bg-cyan-500/10"
-              : "border-slate-800 bg-slate-950/60 hover:border-cyan-400/40 hover:bg-cyan-500/10"
+              ? "border-[#4a4a4a] bg-[#303030]"
+              : "border-[#333333] bg-[#1f1f1f] hover:border-zinc-600 hover:bg-[#292929]"
           }`;
 
           const pageHref =
@@ -138,9 +138,9 @@ function NavigationCardContent(props: {
 }) {
   return (
     <>
-      <div className="text-sm font-medium text-slate-100">{props.label}</div>
-      <p className="mt-2 text-sm leading-6 text-slate-400">{props.description}</p>
-      <div className="mt-3 text-xs uppercase tracking-[0.18em] text-cyan-300">
+      <div className="text-sm font-medium text-zinc-100">{props.label}</div>
+      <p className="mt-2 text-sm leading-6 text-zinc-500">{props.description}</p>
+      <div className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-600">
         {props.meta}
       </div>
     </>

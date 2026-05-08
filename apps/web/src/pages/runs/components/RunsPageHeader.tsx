@@ -8,15 +8,15 @@ type RunsPageHeaderProps = {
 
 export function RunsPageHeader(props: RunsPageHeaderProps) {
   return (
-    <section className="rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/30">
+    <section className="border-b border-[#333333] pb-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs font-medium uppercase tracking-[0.24em] text-cyan-300">
+          <div className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
             Runs
           </div>
-          <h3 className="mt-2 text-xl font-semibold text-slate-50">运行中心</h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            在正式运行域中查看运行状态、决策回放、结构化日志事件与运行上下文。
+          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100">运行观测</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
+            集中查看运行状态、日志事件与相关任务上下文。
           </p>
         </div>
 

@@ -14,12 +14,12 @@ type RunsListPanelProps = {
 
 export function RunsListPanel(props: RunsListPanelProps) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">最新运行列表</h2>
-          <p className="text-sm text-slate-400">
-            基于当前任务总览聚合最近一轮运行，可直接进入正式运行详情页。
+          <h2 className="text-lg font-semibold text-zinc-100">最新运行列表</h2>
+          <p className="text-sm text-zinc-500">
+            基于任务总览聚合最近运行，可直接进入运行详情。
           </p>
         </div>
         <StatusBadge

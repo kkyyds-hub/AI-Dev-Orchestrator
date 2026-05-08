@@ -18,8 +18,8 @@ export function FeaturedProjectsSection(props: FeaturedProjectsSectionProps) {
   return (
     <section data-testid="featured-projects-section" className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-50">重点项目卡片</h2>
-        <p className="text-xs text-slate-500">默认按阻塞风险和最近进展排序</p>
+        <h2 className="text-lg font-semibold text-zinc-100">重点项目</h2>
+        <p className="text-xs text-zinc-600">按阻塞风险和最近进展排序</p>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -31,13 +31,13 @@ export function FeaturedProjectsSection(props: FeaturedProjectsSectionProps) {
             onClick={() => props.onSelectProject(project.id)}
             className={`rounded-2xl border p-5 text-left transition ${
               project.id === props.selectedProjectId
-                ? "border-cyan-500/40 bg-cyan-500/10 shadow-lg shadow-cyan-950/20"
-                : "border-slate-800 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900"
+                ? "border-[#4a4a4a] bg-[#303030]"
+                : "border-[#333333] bg-[#242424] hover:border-zinc-600 hover:bg-[#292929]"
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold text-slate-50">{project.name}</div>
+                <div className="text-lg font-semibold text-zinc-100">{project.name}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <StatusBadge
                     label={PROJECT_STAGE_LABELS[project.stage] ?? project.stage}
@@ -56,11 +56,11 @@ export function FeaturedProjectsSection(props: FeaturedProjectsSectionProps) {
               />
             </div>
 
-            <p className="mt-4 text-sm leading-6 text-slate-300">{project.summary}</p>
-            <p className="mt-4 text-sm leading-6 text-slate-200">
+            <p className="mt-4 text-sm leading-6 text-zinc-400">{project.summary}</p>
+            <p className="mt-4 text-sm leading-6 text-zinc-300">
               {project.latest_progress_summary}
             </p>
-            <p className="mt-3 text-xs leading-6 text-slate-400">{project.key_risk_summary}</p>
+            <p className="mt-3 text-xs leading-6 text-zinc-500">{project.key_risk_summary}</p>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <MiniStat
@@ -78,11 +78,11 @@ export function FeaturedProjectsSection(props: FeaturedProjectsSectionProps) {
 
 function MiniStat(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div className="rounded-xl border border-[#333333] bg-[#1f1f1f] px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
         {props.label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }

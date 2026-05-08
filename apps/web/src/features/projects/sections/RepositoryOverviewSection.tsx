@@ -12,14 +12,14 @@ export function RepositoryOverviewSection(props: RepositoryOverviewSectionProps)
     <section data-testid="repository-overview-section" className="space-y-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-50">
+                  <h2 className="text-lg font-semibold text-zinc-100">
                     仓库入口概览
                   </h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    把项目阶段统计、任务概览和仓库摘要放在同一屏联动查看；每张卡片只展示绑定、快照和变更会话的 Day04 最小入口。
+                  <p className="mt-1 text-sm text-zinc-500">
+                    汇总项目仓库绑定、最新快照与当前变更会话。
                   </p>
                 </div>
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-zinc-600">
                   默认展示当前排序最靠前的 {props.featuredProjects.length} 个项目
                 </div>
               </div>

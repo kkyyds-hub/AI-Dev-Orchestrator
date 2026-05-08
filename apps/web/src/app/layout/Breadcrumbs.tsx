@@ -8,14 +8,14 @@ export function Breadcrumbs() {
 
   return (
     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-      <span className="rounded-full border border-[#333333] bg-[#212121] px-3 py-1">
+      <span className="text-zinc-600">
         AI Dev Orchestrator
       </span>
 
       {routeMeta.breadcrumbs.map((crumb) => (
         <span key={crumb} className="flex items-center gap-2">
-          <span>/</span>
-          <span className="rounded-full border border-[#333333] bg-[#212121] px-3 py-1 text-zinc-300">
+          <span className="text-zinc-700">/</span>
+          <span className="text-zinc-300">
             {crumb}
           </span>
         </span>
