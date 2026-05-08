@@ -51,15 +51,30 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
   return (
     <div
       data-testid="home-right-sidebar-overview-section"
-      className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 p-3 backdrop-blur-sm sm:p-5"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/72 p-3 backdrop-blur-sm sm:p-5"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="workbench-task-detail-drawer-title"
+      aria-labelledby="workbench-task-detail-modal-title"
       onClick={props.onClose}
     >
+      <style>
+        {`
+          @keyframes workbench-detail-modal-in {
+            from {
+              opacity: 0;
+              transform: translateY(10px) scale(0.985);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+            }
+          }
+        `}
+      </style>
       <div
-        className="flex h-full w-full max-w-5xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-slate-800/90 bg-slate-950 shadow-2xl shadow-black/50 ring-1 ring-white/[0.04]"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-6xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-slate-800/90 bg-slate-950 shadow-2xl shadow-black/50 ring-1 ring-white/[0.04] sm:max-h-[calc(100vh-3rem)]"
         onClick={(event) => event.stopPropagation()}
+        style={{ animation: "workbench-detail-modal-in 180ms ease-out" }}
       >
         <div className="flex items-start justify-between gap-4 border-b border-slate-800/90 bg-slate-950/95 px-5 py-4">
           <div className="min-w-0">
@@ -67,13 +82,13 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
               任务详情
             </div>
             <h2
-              id="workbench-task-detail-drawer-title"
+              id="workbench-task-detail-modal-title"
               className="mt-1 truncate text-lg font-semibold text-slate-50"
             >
               {props.selectedTask?.title ?? "未选择任务"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              详情信息已从首页右侧栏移入抽屉，避免挤压主列表与形成长窄栏。
+              详情信息集中在居中弹窗中展示，主页面保持清爽，列表不再被窄栏挤压。
             </p>
           </div>
 
