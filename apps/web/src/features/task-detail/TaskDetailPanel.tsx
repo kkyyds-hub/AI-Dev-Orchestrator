@@ -1,10 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import {
-  buildLatestRunRuntimeFields,
-  buildRoleModelPolicyRuntimeFields,
-  hasRoleModelPolicyRuntimeData,
-} from "../../lib/latestRunRuntimeContract";
 import type { StreamConnectionStatus } from "../events/types";
 import type { ConsoleBudget, ConsoleTask } from "../console/types";
 import {
@@ -32,6 +27,8 @@ import {
   TaskDetailRunHistorySection,
 } from "./components/TaskDetailRunsSection";
 import { TaskDetailRuntimeContractSection } from "./components/TaskDetailRuntimeContractSection";
+import { useSelectedRunRuntimeContract } from "./useSelectedRunRuntimeContract";
+import { useSelectedTaskRun } from "./useSelectedTaskRun";
 
 type TaskDetailPanelProps = {
   panelId?: string;
@@ -71,70 +68,16 @@ export function TaskDetailPanel({
   const requestHumanMutation = useRequestHumanReview();
   const resolveHumanMutation = useResolveHumanReview();
   const detail = detailQuery.data;
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelectedRunId(null);
-  }, [selectedTask?.id]);
-
-  useEffect(() => {
-    if (!detail?.latest_run) {
-      return;
-    }
-
-    const hasSelectedRun = detail.runs.some((run) => run.id === selectedRunId);
-    if (!selectedRunId || !hasSelectedRun) {
-      setSelectedRunId(detail.latest_run.id);
-    }
-  }, [detail, selectedRunId]);
-
-  useEffect(() => {
-    if (!requestedRunId || !detail?.runs.length) {
-      return;
-    }
-
-    if (detail.runs.some((run) => run.id === requestedRunId)) {
-      setSelectedRunId(requestedRunId);
-    }
-  }, [detail?.runs, requestedRunId]);
-
-  const selectedRun = useMemo(
-    () =>
-      detail?.runs.find((run) => run.id === selectedRunId) ??
-      detail?.latest_run ??
-      null,
-    [detail, selectedRunId],
-  );
-  const selectedRunRuntimeContractInput = selectedRun
-    ? {
-        providerKey: selectedRun.provider_key,
-        promptTemplateKey: selectedRun.prompt_template_key,
-        promptTemplateVersion: selectedRun.prompt_template_version,
-        tokenAccountingMode: selectedRun.token_accounting_mode,
-        tokenPricingSource: selectedRun.token_pricing_source,
-        promptCharCount: selectedRun.prompt_char_count,
-        promptTokens: selectedRun.prompt_tokens,
-        completionTokens: selectedRun.completion_tokens,
-        totalTokens: selectedRun.total_tokens,
-        estimatedCost: selectedRun.estimated_cost,
-        providerReceiptId: selectedRun.provider_receipt_id,
-        roleModelPolicySource: selectedRun.role_model_policy_source,
-        roleModelPolicyDesiredTier: selectedRun.role_model_policy_desired_tier,
-        roleModelPolicyAdjustedTier: selectedRun.role_model_policy_adjusted_tier,
-        roleModelPolicyFinalTier: selectedRun.role_model_policy_final_tier,
-        roleModelPolicyStageOverrideApplied:
-          selectedRun.role_model_policy_stage_override_applied,
-      }
-    : null;
-  const selectedRunRuntimeFields = selectedRunRuntimeContractInput
-    ? buildLatestRunRuntimeFields(selectedRunRuntimeContractInput)
-    : [];
-  const selectedRunRoleModelPolicyFields = selectedRunRuntimeContractInput
-    ? buildRoleModelPolicyRuntimeFields(selectedRunRuntimeContractInput)
-    : [];
-  const hasSelectedRunRoleModelPolicyData = selectedRunRuntimeContractInput
-    ? hasRoleModelPolicyRuntimeData(selectedRunRuntimeContractInput)
-    : false;
+  const { selectedRun, setSelectedRunId } = useSelectedTaskRun({
+    taskId: selectedTask?.id ?? null,
+    detail,
+    requestedRunId,
+  });
+  const {
+    runtimeFields: selectedRunRuntimeFields,
+    roleModelPolicyFields: selectedRunRoleModelPolicyFields,
+    hasRoleModelPolicyData: hasSelectedRunRoleModelPolicyData,
+  } = useSelectedRunRuntimeContract(selectedRun);
 
   const currentTaskId = detail?.id ?? selectedTask?.id ?? null;
   const relatedDeliverablesQuery = useTaskRelatedDeliverables(currentTaskId);
