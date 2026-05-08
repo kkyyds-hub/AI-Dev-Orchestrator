@@ -6,7 +6,9 @@ type BuildRunRouteInput = {
 
 export function buildRunRoute(input: BuildRunRouteInput = {}) {
   const normalizedRunId = input.runId?.trim();
-  const pathname = normalizedRunId ? `/runs/${normalizedRunId}` : "/runs";
+  const pathname = normalizedRunId
+    ? `/runs/${encodeURIComponent(normalizedRunId)}`
+    : "/runs";
   const searchParams = new URLSearchParams();
 
   if (input.taskId) {

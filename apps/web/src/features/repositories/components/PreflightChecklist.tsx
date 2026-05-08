@@ -32,10 +32,10 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-50">??????????</div>
+          <div className="text-sm font-semibold text-slate-50">预检清单</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
             {props.helperText ??
-              "Day08 ??????????????????????????????????? Git ????"}
+              "Day08 预检清单用于展示当前变更的整体风险概览、命令审查结果与确认前检查项。"}
           </div>
         </div>
 
@@ -50,7 +50,7 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
                 : "border-cyan-400/30 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/20"
             }`}
           >
-            {props.isRunning ? "??????..." : "????"}
+            {props.isRunning ? "执行中..." : "运行预检"}
           </button>
         ) : null}
       </div>
@@ -60,10 +60,10 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
           label={CHANGE_BATCH_PREFLIGHT_STATUS_LABELS[props.preflight.status]}
           tone={statusTone}
         />
-        <StatusBadge label={`?? ${props.taskCount}`} tone="info" />
-        <StatusBadge label={`???? ${props.targetFileCount}`} tone="info" />
+        <StatusBadge label={`任务 ${props.taskCount}`} tone="info" />
+        <StatusBadge label={`文件 ${props.targetFileCount}`} tone="info" />
         <StatusBadge
-          label={`?? ${props.overlapFileCount ?? 0}`}
+          label={`重叠 ${props.overlapFileCount ?? 0}`}
           tone={(props.overlapFileCount ?? 0) > 0 ? "warning" : "success"}
         />
         {props.preflight.overall_severity ? (
@@ -76,27 +76,27 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
 
       <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
         <div className="font-medium text-slate-100">{props.title}</div>
-        <div className="mt-2">{props.preflight.summary ?? "???????? Day08 ???"}</div>
+        <div className="mt-2">{props.preflight.summary ?? "暂无 Day08 预检摘要"}</div>
         <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
-          <span>??? {props.preflight.finding_count}</span>
-          <span>???? {props.preflight.inspected_command_count}</span>
+          <span>发现 {props.preflight.finding_count}</span>
+          <span>检查命令 {props.preflight.inspected_command_count}</span>
           {props.preflight.evaluated_at ? (
-            <span>???? {formatDateTime(props.preflight.evaluated_at)}</span>
+            <span>评估于 {formatDateTime(props.preflight.evaluated_at)}</span>
           ) : null}
           {props.preflight.requested_at ? (
-            <span>??? {formatDateTime(props.preflight.requested_at)}</span>
+            <span>请求于 {formatDateTime(props.preflight.requested_at)}</span>
           ) : null}
           {props.preflight.decided_at ? (
-            <span>???? {formatDateTime(props.preflight.decided_at)}</span>
+            <span>决策于 {formatDateTime(props.preflight.decided_at)}</span>
           ) : null}
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="????" value={String(props.preflight.critical_risk_count)} tone="danger" />
-        <MetricCard label="???" value={String(props.preflight.high_risk_count)} tone="warning" />
-        <MetricCard label="???" value={String(props.preflight.medium_risk_count)} tone="info" />
-        <MetricCard label="???" value={String(props.preflight.low_risk_count)} tone="neutral" />
+        <MetricCard label="严重" value={String(props.preflight.critical_risk_count)} tone="danger" />
+        <MetricCard label="高" value={String(props.preflight.high_risk_count)} tone="warning" />
+        <MetricCard label="中" value={String(props.preflight.medium_risk_count)} tone="info" />
+        <MetricCard label="低" value={String(props.preflight.low_risk_count)} tone="neutral" />
       </div>
 
       {props.preflight.findings.length > 0 ? (
@@ -120,12 +120,12 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
               <div className="mt-2 text-sm leading-6 text-slate-300">{finding.summary}</div>
               {finding.affected_paths.length > 0 ? (
                 <div className="mt-3 text-xs leading-5 text-slate-400">
-                  ?????{finding.affected_paths.join(" / ")}
+                  影响路径：{finding.affected_paths.join(" / ")}
                 </div>
               ) : null}
               {finding.related_commands.length > 0 ? (
                 <div className="mt-2 text-xs leading-5 text-slate-400">
-                  ?????{finding.related_commands.join(" / ")}
+                  关联命令：{finding.related_commands.join(" / ")}
                 </div>
               ) : null}
             </article>
@@ -133,13 +133,13 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
         </div>
       ) : (
         <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
-          ???????????????? Day08 ??????????????????? Day09+ ???????????????
+          当前未发现高风险项，Day08 预检可以继续推进到下一步。
         </div>
       )}
 
       {props.preflight.inspected_commands.length > 0 ? (
         <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">????????</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">检查命令</div>
           <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
             {props.preflight.inspected_commands.map((command) => (
               <li key={command} className="break-all rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2">
