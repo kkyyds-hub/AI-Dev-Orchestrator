@@ -12,7 +12,6 @@ import { ManualRunResultSection } from "../../app/sections/ManualRunResultSectio
 import { RightSidebarOverviewSection } from "../../app/sections/RightSidebarOverviewSection";
 import { TaskTableSection } from "../../app/sections/TaskTableSection";
 import { WorkerPoolResultSection } from "../../app/sections/WorkerPoolResultSection";
-import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 
@@ -84,14 +83,22 @@ export function WorkbenchPage() {
     await Promise.all([overviewQuery.refetch(), healthQuery.refetch()]);
   };
 
-  const handleNavigateToDeliverable = (input: {
-    projectId: string;
-    deliverableId: string;
-  }) => {
+  const handleNavigateToTask = (taskId: string, options?: { runId?: string | null }) => {
     navigate(
-      buildDeliverablesRoute({
-        projectId: input.projectId,
-        deliverableId: input.deliverableId,
+      buildTaskRoute({
+        taskId,
+        runId: options?.runId ?? null,
+        from: "workbench",
+      }),
+    );
+  };
+
+  const handleNavigateToRun = (runId: string, taskId: string) => {
+    navigate(
+      buildRunRoute({
+        runId,
+        taskId,
+        from: "workbench",
       }),
     );
   };
@@ -101,8 +108,8 @@ export function WorkbenchPage() {
   };
 
   return (
-    <div className="relative -mx-1 overflow-hidden rounded-[30px] border border-slate-900/90 bg-[#07080a] p-3 shadow-2xl shadow-black/35 ring-1 ring-white/[0.03] sm:p-4">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.11),transparent_30%),radial-gradient(circle_at_86%_8%,rgba(99,102,241,0.10),transparent_26%)]" />
+    <div className="relative overflow-hidden rounded-[30px] border border-zinc-900 bg-[#0f0f10] p-3 shadow-2xl shadow-black/25 ring-1 ring-white/[0.025] sm:p-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.055),transparent_36%)]" />
       <div className="relative space-y-3">
         <HomeHeaderSection
           backendStatus={healthQuery.data?.status}
@@ -144,24 +151,8 @@ export function WorkbenchPage() {
               setRequestedRunId(null);
               setIsTaskDetailOpen(true);
             }}
-            onNavigateToTask={(taskId, options) => {
-              navigate(
-                buildTaskRoute({
-                  taskId,
-                  runId: options?.runId ?? null,
-                  from: "workbench",
-                }),
-              );
-            }}
-            onNavigateToRun={(runId, taskId) => {
-              navigate(
-                buildRunRoute({
-                  runId,
-                  taskId,
-                  from: "workbench",
-                }),
-              );
-            }}
+            onNavigateToTask={handleNavigateToTask}
+            onNavigateToRun={handleNavigateToRun}
             onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
           />
 
@@ -187,17 +178,9 @@ export function WorkbenchPage() {
         selectedTask={selectedTask}
         budget={overviewQuery.data?.budget ?? null}
         realtimeStatus={realtime.status}
-        onNavigateToRun={(runId, taskId) =>
-          navigate(
-            buildRunRoute({
-              runId,
-              taskId,
-              from: "workbench",
-            }),
-          )
-        }
+        onNavigateToTask={handleNavigateToTask}
+        onNavigateToRun={handleNavigateToRun}
         onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-        onNavigateToDeliverable={handleNavigateToDeliverable}
       />
     </div>
   );

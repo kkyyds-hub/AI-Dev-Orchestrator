@@ -31,23 +31,13 @@ export function AppShell() {
           : "lg:grid-cols-[264px_minmax(0,1fr)]"
       }`}
     >
-      <Sidebar
-        isCollapsed={isSidebarCollapsed}
-        onToggle={() => setIsSidebarCollapsed((current) => !current)}
-      />
+      <Sidebar isCollapsed={isSidebarCollapsed} onToggle={() => setIsSidebarCollapsed((current) => !current)} />
 
       <div className="flex min-h-screen min-w-0 flex-col">
-        <Topbar
-          isSidebarCollapsed={isSidebarCollapsed}
-          onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
-        />
+        <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} />
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div
-            className={`mx-auto flex w-full min-w-0 flex-col ${
-              isWorkbenchRoute ? "max-w-[1840px] gap-4" : "max-w-7xl gap-5"
-            }`}
-          >
+          <div className={`mx-auto flex w-full min-w-0 flex-col ${isWorkbenchRoute ? "max-w-6xl gap-4" : "max-w-7xl gap-5"}`}>
             <Breadcrumbs />
             <Outlet />
           </div>

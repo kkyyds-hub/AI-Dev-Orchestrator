@@ -15,17 +15,22 @@ type HomeHeaderSectionProps = {
   onRefresh: () => void;
 };
 
+const primaryButtonClass =
+  "rounded-xl border border-zinc-700/80 bg-zinc-100 px-3.5 py-2 text-sm font-medium text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600";
+const secondaryButtonClass =
+  "rounded-xl border border-zinc-800 bg-zinc-950/55 px-3.5 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-600 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:border-zinc-900 disabled:bg-zinc-950 disabled:text-zinc-600";
+
 export function HomeHeaderSection(props: HomeHeaderSectionProps) {
   return (
     <header
       data-testid="home-header-section"
-      className="rounded-[28px] border border-slate-800/90 bg-slate-950/70 px-5 py-5 shadow-2xl shadow-black/25 ring-1 ring-white/[0.03] lg:px-6"
+      className="rounded-[26px] border border-zinc-800/90 bg-zinc-950/55 px-5 py-5 shadow-xl shadow-black/20 ring-1 ring-white/[0.025] lg:px-6"
     >
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-slate-400">
-              工作台
+            <span className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1 text-xs font-medium tracking-[0.18em] text-zinc-500">
+              中文 AI 工作台
             </span>
             <StatusBadge
               label={props.backendStatus === "ok" ? "后端在线" : "后端状态未知"}
@@ -37,11 +42,11 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
             />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
-              AI 工作台控制台
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+              AI 工作台
             </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              面向任务队列、运行态、预算护栏与人工介入信号的统一控制台。
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+              集中查看任务队列、运行状态与预算信号。
             </p>
           </div>
         </div>
@@ -53,28 +58,30 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
               data-testid="home-run-worker-once"
               onClick={props.onRunWorkerOnce}
               disabled={props.isRunWorkerOncePending}
-              className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3.5 py-2 text-sm font-medium text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+              className={primaryButtonClass}
             >
               {props.isRunWorkerOncePending ? "执行中..." : "执行 Worker 一次"}
             </button>
             <button
               type="button"
+              data-testid="home-run-worker-pool-once"
               onClick={props.onRunWorkerPoolOnce}
               disabled={props.isRunWorkerPoolOncePending}
-              className="rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-3.5 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+              className={secondaryButtonClass}
             >
-              {props.isRunWorkerPoolOncePending ? "Worker 池运行中..." : "执行 Worker Pool"}
+              {props.isRunWorkerPoolOncePending ? "Worker Pool 运行中..." : "执行 Worker Pool"}
             </button>
             <button
               type="button"
+              data-testid="home-refresh"
               onClick={props.onRefresh}
-              className="rounded-xl border border-slate-700 bg-slate-900/80 px-3.5 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
+              className={secondaryButtonClass}
             >
               刷新
             </button>
           </div>
 
-          <dl className="grid gap-2 text-xs text-slate-500 sm:grid-cols-3 xl:text-right">
+          <dl className="grid gap-2 text-xs text-zinc-500 sm:grid-cols-3 xl:text-right">
             <HeaderMeta label="服务" value={props.backendService ?? "orchestrator-backend"} />
             <HeaderMeta label="更新时间" value={props.lastUpdatedText} />
             <HeaderMeta
@@ -94,9 +101,9 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
 
 function HeaderMeta(props: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-slate-800/80 bg-slate-950/70 px-3 py-2">
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-600">{props.label}</dt>
-      <dd className="mt-1 truncate text-slate-300">{props.value}</dd>
+    <div className="min-w-0 rounded-2xl border border-zinc-800/80 bg-black/20 px-3 py-2">
+      <dt className="text-[11px] tracking-[0.14em] text-zinc-600">{props.label}</dt>
+      <dd className="mt-1 truncate text-zinc-300">{props.value}</dd>
     </div>
   );
 }
