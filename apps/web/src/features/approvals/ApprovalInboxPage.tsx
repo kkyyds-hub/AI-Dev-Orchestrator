@@ -110,7 +110,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
 
   if (!props.projectId) {
     return (
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30">
+      <section className="border-b border-[#333333] pb-6">
         <div className="text-lg font-semibold text-slate-50">老板审批闸门</div>
         <p className="mt-3 text-sm leading-6 text-slate-400">
           请先在上方选择项目，再查看审批队列与老板决策动作。
@@ -177,7 +177,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
               <section
         id="approval-inbox"
         data-testid="approval-inbox-section"
-        className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30"
+        className="scroll-mt-24 border-b border-[#333333] pb-6"
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -213,7 +213,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
         <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <form
             onSubmit={handleCreateRequest}
-            className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4"
+            className="border-b border-[#333333] pb-4"
           >
             <div className="text-sm font-medium text-slate-100">发起审批</div>
             <div className="mt-1 text-xs leading-5 text-slate-400">
@@ -267,7 +267,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
               </div>
 
               {selectedDeliverable ? (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-sm leading-6 text-slate-300">
+                <div className="border-l border-[#333333] px-4 py-3 text-sm leading-6 text-slate-300">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge
                       label={
@@ -328,7 +328,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
                 <button
                   type="submit"
                   disabled={!eligibleDeliverables.length || createMutation.isPending}
-                  className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+                  className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {createMutation.isPending ? "发起中..." : "发起老板审批"}
                 </button>
@@ -336,7 +336,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
             </div>
           </form>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+          <section className="border-b border-[#333333] pb-4">
             <div className="text-sm font-medium text-slate-100">超时审批提醒</div>
             <div className="mt-1 text-xs leading-5 text-slate-400">
               这里聚焦所有已经超过截止时间、但仍未完成老板决策的审批项。
@@ -353,14 +353,14 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
                 ))}
               </div>
             ) : (
-              <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-sm leading-6 text-slate-400">
+              <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-6 text-sm leading-6 text-slate-400">
                 当前没有超时审批项，可以继续关注下方审批队列。
               </div>
             )}
           </section>
         </div>
 
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+        <section className="mt-6 border-b border-[#333333] pb-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-slate-100">审批队列</div>
@@ -390,7 +390,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
               ))}
             </div>
           ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-sm leading-6 text-slate-400">
+            <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-6 text-sm leading-6 text-slate-400">
               当前项目还没有发起过审批请求；可以先从左侧选中交付件并送审。
             </div>
           )}
@@ -436,7 +436,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
 
 function ApprovalStat(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{props.label}</div>
       <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
     </div>
@@ -490,7 +490,7 @@ function ApprovalQueueCard(props: {
     ] ?? props.approval.deliverable_type;
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-4">
+    <div className="border-b border-[#333333] px-0 py-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -547,7 +547,7 @@ function ApprovalQueueCard(props: {
 
         <div className="flex flex-col items-start gap-3 xl:items-end">
           {props.approval.latest_decision ? (
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-3 text-xs leading-5 text-slate-400">
+            <div className="border-l border-[#333333] px-3 py-2 text-xs leading-5 text-slate-400">
               <div className="text-slate-300">
                 {APPROVAL_STATUS_LABELS[props.approval.status] ?? props.approval.status}
               </div>
@@ -561,7 +561,7 @@ function ApprovalQueueCard(props: {
           <button
             type="button"
             onClick={props.onOpen}
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-500/20"
+            className="rounded border border-[#4a4a4a] bg-transparent px-3 py-2 text-xs font-medium text-zinc-100 transition hover:bg-[#292929]"
           >
             {props.approval.status === "pending_approval" ? "处理审批" : "查看回放"}
           </button>

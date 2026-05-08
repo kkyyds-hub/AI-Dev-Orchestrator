@@ -58,11 +58,11 @@ export function ProjectSubviewTabs<TTabId extends string>(
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div
         role="tablist"
         aria-label={props.ariaLabel}
-        className="flex gap-1 overflow-x-auto rounded-3xl border border-[#333333] bg-[#242424] p-2"
+        className="flex gap-6 overflow-x-auto border-b border-[#333333]"
       >
         {props.items.map((item) => {
           const isActive = item.id === activeItem.id;
@@ -75,10 +75,10 @@ export function ProjectSubviewTabs<TTabId extends string>(
               aria-selected={isActive}
               aria-controls={item.panelId ?? item.id}
               onClick={() => setActiveTabId(item.id)}
-              className={`min-w-max rounded-2xl px-4 py-2.5 text-sm font-medium transition ${
+              className={`relative min-w-max pb-3 text-sm font-medium transition ${
                 isActive
-                  ? "bg-[#303030] text-zinc-50 shadow-sm shadow-black/20"
-                  : "text-zinc-500 hover:bg-[#292929] hover:text-zinc-200"
+                  ? "text-zinc-50 after:absolute after:bottom-[-1px] after:left-0 after:h-px after:w-full after:bg-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-200"
               }`}
             >
               {item.label}

@@ -25,7 +25,7 @@ export function DeliverableVersionList(props: DeliverableVersionListProps) {
     props.isLoading || props.errorMessage !== null || !hasVersions;
 
   return (
-    <section className="space-y-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+    <section className="space-y-5 border-b border-[#333333] pb-5">
       <DeliverableVersionHeader deliverable={deliverable} />
 
       {shouldShowQueryState || !props.detail ? (

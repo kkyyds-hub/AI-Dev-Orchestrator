@@ -15,10 +15,10 @@ export function DeliverableCardButton(props: DeliverableCardButtonProps) {
     <button
       type="button"
       onClick={props.onSelect}
-      className={`w-full rounded-2xl border px-4 py-4 text-left transition ${
+      className={`w-full border-l-2 px-4 py-4 text-left transition ${
         props.selected
-          ? "border-cyan-400/60 bg-cyan-500/10"
-          : "border-slate-800 bg-slate-900/70 hover:border-slate-700"
+          ? "border-l-zinc-300 bg-white/[0.03]"
+          : "border-l-transparent hover:border-l-[#555555] hover:bg-white/[0.02]"
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">

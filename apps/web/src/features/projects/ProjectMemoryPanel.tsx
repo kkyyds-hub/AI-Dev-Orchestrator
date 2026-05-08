@@ -33,7 +33,7 @@ export function ProjectMemoryPanel(props: ProjectMemoryPanelProps) {
   const snapshot = snapshotQuery.data;
 
   return (
-    <section className="space-y-5 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/30">
+    <section className="space-y-6 border-b border-[#333333] pb-7">
       <ProjectMemoryHeader
         projectName={props.projectName}
         totalMemories={snapshot?.total_memories ?? 0}

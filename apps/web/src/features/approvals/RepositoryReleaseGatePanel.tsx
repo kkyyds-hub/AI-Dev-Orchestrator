@@ -47,7 +47,7 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
 
   if (!props.projectId) {
     return (
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30">
+      <section className="border-b border-[#333333] pb-6">
         <div className="text-lg font-semibold text-slate-50">Day14 审批闸门与放行检查单</div>
         <p className="mt-3 text-sm leading-6 text-slate-400">
           请先在上方选择项目，再查看放行检查单、阻断缺口和审批动作。
@@ -57,7 +57,7 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30">
+    <section className="border-b border-[#333333] pb-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="text-lg font-semibold text-slate-50">Day14 审批闸门与放行检查单</div>
@@ -86,7 +86,7 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
 
       {items.length > 0 ? (
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.25fr)]">
-          <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+          <section className="border-b border-[#333333] pb-4">
             <div className="text-sm font-semibold text-slate-50">变更批次放行视图</div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
               每个批次都对应一份 Day14 放行检查单，可切换查看阻断缺口与审批记录。
@@ -100,8 +100,8 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
                   onClick={() => setSelectedChangeBatchId(item.change_batch_id)}
                   className={`w-full rounded-2xl border px-4 py-4 text-left transition ${
                     item.change_batch_id === selectedChangeBatchId
-                      ? "border-cyan-400/40 bg-cyan-500/10"
-                      : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
+                      ? "border-zinc-300 bg-white/[0.03]"
+                      : "border-[#333333] bg-transparent hover:border-zinc-600 hover:bg-white/[0.02]"
                   }`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -125,7 +125,7 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
           <section>
             {selectedChangeBatchId ? (
               detailQuery.isLoading && !detailQuery.data ? (
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-8 text-sm leading-6 text-slate-400">
+                <div className="border-b border-[#333333] px-0 py-6 text-sm leading-6 text-slate-400">
                   正在加载放行检查单详情...
                 </div>
               ) : detailQuery.isError ? (
@@ -139,14 +139,14 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
                 />
               ) : null
             ) : (
-              <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-8 text-sm leading-6 text-slate-400">
+              <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
                 当前项目还没有可查看的放行检查单，请先生成 Day13 提交草案并进入 Day14 审批链路。
               </div>
             )}
           </section>
         </div>
       ) : !inboxQuery.isLoading && !inboxQuery.isError ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-8 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
           当前项目暂无 Day14 放行检查单；请先完成 Day07 批次、Day08 预检、Day10 验证和 Day13 提交草案。
         </div>
       ) : null}
@@ -234,7 +234,7 @@ function RepositoryReleaseGateDetailPanel(props: {
     <div className="space-y-4">
       <RepositoryReleaseChecklist gate={props.detail} />
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+      <section className="border-b border-[#333333] pb-4">
         <div className="text-sm font-semibold text-slate-50">审批动作</div>
         <div className="mt-2 text-sm leading-6 text-slate-400">
           可记录通过 / 驳回 / 补证据。注意：审批通过不自动触发真实 `git commit`、`push`、PR 或 `merge`。
@@ -337,7 +337,7 @@ function RepositoryReleaseGateDetailPanel(props: {
             <button
               type="submit"
               disabled={mutation.isPending}
-              className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {mutation.isPending ? "提交中..." : "提交审批动作"}
             </button>
@@ -350,7 +350,7 @@ function RepositoryReleaseGateDetailPanel(props: {
 
 function MiniStat(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{props.label}</div>
       <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
     </div>
