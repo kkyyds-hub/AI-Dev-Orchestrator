@@ -20,7 +20,7 @@ type TaskTableSectionProps = {
   }) => void;
 };
 
-const TASKS_PER_PAGE = 5;
+const TASKS_PER_PAGE = 8;
 const tableActionButtonClass =
   "rounded-md border border-transparent px-2.5 py-1 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-100";
 const subtleActionButtonClass =
@@ -45,10 +45,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
   return (
     <section data-testid="home-task-table-section" className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="text-base font-semibold text-zinc-100">任务队列</h2>
-          <span className="text-sm text-zinc-500">每页 {TASKS_PER_PAGE} 条</span>
-        </div>
         <StatusBadge
           label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "已同步"}
           tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "neutral"}
@@ -80,7 +77,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                         props.onSelectTask(task.id);
                       }
                     }}
-                    className={`grid min-h-[76px] cursor-pointer gap-3 px-2 py-3.5 transition sm:px-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(220px,0.95fr)_116px_176px] lg:items-center ${
+                    className={`grid min-h-[68px] cursor-pointer gap-3 px-2 py-3 transition sm:px-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(220px,0.95fr)_116px_176px] lg:items-center ${
                       isSelected ? "rounded-md bg-[#2b2b2b]" : "hover:rounded-md hover:bg-[#2a2a2a]"
                     }`}
                   >
