@@ -21,7 +21,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   return (
     <section
       data-testid="project-overview-page"
-      className="space-y-6"
+      className="space-y-8"
     >
       <ProjectOverviewHeroSection
         budgetStrategyLabel={overviewQuery.data?.budget.strategy_label}
@@ -49,13 +49,13 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
       ) : null}
 
       {overviewQuery.isLoading && !overviewQuery.data ? (
-        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-6 text-sm text-zinc-500">
+        <section className="border-b border-[#333333] py-6 text-sm text-zinc-500">
           正在加载项目数据...
         </section>
       ) : null}
 
       {overviewQuery.isError ? (
-        <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6 text-sm text-rose-100">
+        <section className="border-l-2 border-l-rose-400 py-4 pl-4 text-sm text-rose-100">
           项目总览加载失败：{overviewQuery.error.message}
         </section>
       ) : null}

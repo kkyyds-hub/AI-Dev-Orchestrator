@@ -46,14 +46,14 @@ export function ProjectOverviewDashboardPage(
     <div
       id="overview"
       data-testid="project-overview-view-overview"
-      className="space-y-5"
+      className="space-y-8"
     >
       <ProjectSummaryCards overview={props.overview} />
 
-      <div className="grid gap-5 2xl:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
+      <div className="grid gap-8 xl:grid-cols-[minmax(340px,0.82fr)_minmax(0,1.18fr)]">
         <ProjectCreateFlow onProjectCreated={props.onProjectCreated} />
 
-        <div className="space-y-5">
+        <div className="space-y-8">
           {props.featuredProjects.length > 0 ? (
             <RepositoryOverviewSection
               featuredProjects={props.featuredProjects}

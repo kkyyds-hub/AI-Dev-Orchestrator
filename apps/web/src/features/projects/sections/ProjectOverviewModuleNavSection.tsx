@@ -23,11 +23,11 @@ export function ProjectOverviewModuleNavSection(
     <nav
       aria-label="项目视图"
       data-testid="project-overview-module-nav"
-      className="rounded-3xl border border-[#333333] bg-[#242424] p-2 shadow-sm shadow-black/10"
+      className="border-b border-[#333333]"
     >
       <div
         data-testid="project-overview-module-nav-tabs"
-        className="flex gap-1 overflow-x-auto"
+        className="flex gap-6 overflow-x-auto"
       >
         {props.navigationItems.map((item) => {
           const isActive = props.activeView === item.view;
@@ -43,10 +43,10 @@ export function ProjectOverviewModuleNavSection(
               data-testid={`project-overview-nav-${item.id}`}
               to={href}
               aria-current={isActive ? "page" : undefined}
-              className={`group min-w-max rounded-2xl px-4 py-3 text-sm font-medium transition ${
+              className={`group relative min-w-max pb-3 text-sm font-medium transition ${
                 isActive
-                  ? "bg-[#303030] text-zinc-50 shadow-sm shadow-black/20"
-                  : "text-zinc-500 hover:bg-[#292929] hover:text-zinc-200"
+                  ? "text-zinc-50 after:absolute after:bottom-[-1px] after:left-0 after:h-px after:w-full after:bg-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-200"
               }`}
               title={item.description}
             >

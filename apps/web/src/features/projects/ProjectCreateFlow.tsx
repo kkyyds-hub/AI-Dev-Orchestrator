@@ -157,7 +157,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
   };
 
   return (
-    <section className="space-y-4 rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10">
+    <section className="space-y-5 border-b border-[#333333] pb-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
@@ -187,7 +187,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
         ) : null}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
+      <div className="grid gap-5">
         <label className="space-y-2">
           <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
             项目 brief
@@ -196,12 +196,12 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
             value={brief}
             onChange={(event) => setBrief(event.target.value)}
             rows={5}
-            className="w-full rounded-2xl border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
+            className="w-full rounded-xl border border-[#3a3a3a] bg-transparent px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
             placeholder="例如：做一个项目级规划入口，先根据 brief 生成项目草案，再把任务映射到该项目下，并在项目详情中可见任务树。"
           />
         </label>
 
-        <aside className="space-y-4 rounded-2xl border border-[#333333] bg-[#1f1f1f] p-4">
+        <aside className="space-y-4 border-l border-[#333333] pl-4">
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
               最大任务数
@@ -214,11 +214,11 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
               onChange={(event) =>
                 setMaxTasks(clampTaskCount(Number(event.target.value) || 6))
               }
-              className="w-full rounded-xl border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
+              className="w-full rounded-lg border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
             />
           </label>
 
-          <div className="rounded-2xl border border-[#333333] bg-[#292929]/60 px-4 py-3 text-sm leading-6 text-zinc-400">
+          <div className="border-l-2 border-l-[#555555] py-2 pl-4 text-sm leading-6 text-zinc-400">
             生成完成后仍需人工确认：项目名称、摘要、依赖关系和验收标准都可以改；应用后只创建项目/任务，不会一键自动执行。
           </div>
 
@@ -238,7 +238,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
             type="button"
             onClick={handleGenerateDraft}
             disabled={!canGenerate}
-            className="inline-flex rounded-xl border border-[#4a4a4a] bg-[#303030] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {createDraftMutation.isPending ? "生成中..." : "生成项目草案"}
           </button>

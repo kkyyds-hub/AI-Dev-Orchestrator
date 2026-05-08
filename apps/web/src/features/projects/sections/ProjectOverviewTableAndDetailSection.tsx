@@ -38,7 +38,7 @@ export function ProjectOverviewTableAndDetailSection(
   return (
     <section
       data-testid="project-overview-detail-workspace"
-      className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)]"
+      className="grid gap-8 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)]"
     >
       <ProjectTable
         projects={props.projects}
@@ -49,9 +49,9 @@ export function ProjectOverviewTableAndDetailSection(
       <aside
         id="project-detail"
         data-testid="project-detail-panel"
-        className="scroll-mt-24 rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto"
+        className="scroll-mt-24 border-l border-[#333333] pl-5 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto"
       >
-        <div className="rounded-2xl border border-[#333333] bg-[#1f1f1f] p-4">
+        <div className="border-b border-[#333333] pb-4">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
             Selected Project
           </p>
@@ -102,7 +102,7 @@ export function ProjectOverviewTableAndDetailSection(
             errorMessage={props.projectDetailErrorMessage}
           />
         ) : (
-          <div className="mt-4 rounded-2xl border border-dashed border-[#3a3a3a] bg-[#1f1f1f] px-4 py-8 text-center text-sm text-zinc-500">
+          <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-zinc-500">
             请选择项目后查看阶段守卫、任务树和运行策略上下文。
           </div>
         )}

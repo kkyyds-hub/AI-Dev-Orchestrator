@@ -11,7 +11,7 @@ export function RepositoryOverviewSection(props: RepositoryOverviewSectionProps)
   return (
     <section
       data-testid="repository-overview-section"
-      className="space-y-4 rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10"
+      className="space-y-4 border-b border-[#333333] pb-8"
     >
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
@@ -30,7 +30,7 @@ export function RepositoryOverviewSection(props: RepositoryOverviewSectionProps)
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3 2xl:grid-cols-1">
+      <div className="divide-y divide-[#333333]">
         {props.featuredProjects.map((project) => (
           <RepositoryHomeCard
             key={`repository-home-${project.id}`}
@@ -39,7 +39,7 @@ export function RepositoryOverviewSection(props: RepositoryOverviewSectionProps)
             changeSession={project.current_change_session}
             title={project.name}
             description={project.summary}
-            variant="compact"
+            variant="flat"
             actionLabel={
               project.id === props.selectedProjectId ? "已在详情中" : "查看项目详情"
             }
