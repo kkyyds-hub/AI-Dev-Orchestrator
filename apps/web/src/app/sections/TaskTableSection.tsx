@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
 import type { ConsoleTask } from "../../features/console/types";
 import { formatDateTime, formatNullableCurrencyUsd } from "../../lib/format";
-import { mapRunStatusTone, mapTaskStatusTone } from "../../lib/status";
+import { mapTaskStatusTone } from "../../lib/status";
 
 type TaskTableSectionProps = {
   tasks: ConsoleTask[];
@@ -43,14 +43,11 @@ export function TaskTableSection(props: TaskTableSectionProps) {
   const pageEnd = Math.min(currentPage * TASKS_PER_PAGE, props.tasks.length);
 
   return (
-    <section
-      data-testid="home-task-table-section"
-      className="space-y-3"
-    >
+    <section data-testid="home-task-table-section" className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="text-base font-semibold text-zinc-100">任务队列</h2>
-          <p className="mt-1 text-sm text-zinc-500">每页 5 条，点击任务查看摘要。</p>
+          <span className="text-sm text-zinc-500">每页 {TASKS_PER_PAGE} 条</span>
         </div>
         <StatusBadge
           label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "已同步"}
@@ -60,7 +57,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
 
       {props.overviewIsError ? (
         <div className="rounded-xl border border-rose-900/60 bg-rose-950/20 p-4 text-sm text-rose-100">
-          工作台数据加载失败。请确认后端服务已启动，并且 GET /tasks/console 可访问。
+          工作台数据加载失败，请确认后端服务已启动。
         </div>
       ) : (
         <div className="border-y border-[#333333]">
@@ -83,33 +80,19 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                         props.onSelectTask(task.id);
                       }
                     }}
-                    className={`grid min-h-[84px] cursor-pointer gap-3 px-2 py-4 transition sm:px-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(210px,1fr)_116px_190px] lg:items-center ${
+                    className={`grid min-h-[76px] cursor-pointer gap-3 px-2 py-3.5 transition sm:px-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(220px,0.95fr)_116px_176px] lg:items-center ${
                       isSelected ? "rounded-md bg-[#2b2b2b]" : "hover:rounded-md hover:bg-[#2a2a2a]"
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <div className="truncate text-sm font-medium text-zinc-100">{task.title}</div>
-                        <span
-                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                            isSelected
-                              ? "border-zinc-500 text-zinc-100"
-                              : "border-[#333333] text-zinc-600"
-                          }`}
-                        >
-                          {isSelected ? "已选" : "选择"}
-                        </span>
-                      </div>
+                      <div className="truncate text-sm font-medium text-zinc-100">{task.title}</div>
                       <div className="mt-1 truncate text-xs leading-5 text-zinc-500">
                         P{task.priority} · {task.input_summary}
                       </div>
                     </div>
 
                     <div className="min-w-0 space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <StatusBadge label={formatTaskStatusLabel(task.status)} tone={mapTaskStatusTone(task.status)} />
-                        {latestRun ? <StatusBadge label={formatRunStatusLabel(latestRun.status)} tone={mapRunStatusTone(latestRun.status)} /> : null}
-                      </div>
+                      <StatusBadge label={formatTaskStatusLabel(task.status)} tone={mapTaskStatusTone(task.status)} />
                       <div className="truncate text-xs text-zinc-500">
                         {latestRun
                           ? `${buildRunMicroSummary(latestRun)} · ${formatDateTime(latestRun.created_at)}`
@@ -121,7 +104,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                       {latestRun ? formatNullableCurrencyUsd(latestRun.estimated_cost) : "-"}
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5 lg:justify-end" onClick={(event) => event.stopPropagation()}>
+                    <div className="flex flex-wrap gap-1 lg:justify-end" onClick={(event) => event.stopPropagation()}>
                       {props.onNavigateToTask ? (
                         <button
                           type="button"
@@ -162,15 +145,15 @@ export function TaskTableSection(props: TaskTableSectionProps) {
               })
             ) : (
               <div className="py-12 text-center text-sm text-zinc-500">
-                暂无任务。后端创建任务后，可在这里查看状态、费用和最近运行。
+                暂无任务。
               </div>
             )}
           </div>
 
           <div className="flex flex-col gap-3 border-t border-[#333333] px-2 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-3">
             <div>
-              共 {props.tasks.length} 条任务，每页 {TASKS_PER_PAGE} 条
-              {props.tasks.length ? `，当前 ${pageStart}-${pageEnd}` : ""}
+              共 {props.tasks.length} 条任务
+              {props.tasks.length ? `，${pageStart}-${pageEnd}` : ""}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -207,19 +190,6 @@ function formatTaskStatusLabel(status: string) {
     blocked: "已阻断",
     paused: "已暂停",
     waiting_human: "等待人工",
-  };
-
-  return labels[status] ?? status;
-}
-
-function formatRunStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    queued: "排队中",
-    running: "运行中",
-    succeeded: "成功",
-    completed: "已完成",
-    failed: "失败",
-    cancelled: "已取消",
   };
 
   return labels[status] ?? status;
