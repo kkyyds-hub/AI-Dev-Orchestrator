@@ -14,8 +14,6 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
     activeView,
     day15FlowOverviewQuery,
     lastUpdatedText,
-    navigateToOverviewPage,
-    navigateToOverviewSection,
     overviewQuery,
     selectedProjectId,
   } = controller;
@@ -35,11 +33,9 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
         activeView={activeView}
         projectId={selectedProjectId}
         navigationItems={PROJECT_OVERVIEW_NAVIGATION_ITEMS}
-        onNavigateToOverviewSection={navigateToOverviewSection}
-        resolvePageHref={(item, projectId) =>
-          props.resolveProjectViewHref?.(item.view, projectId) ?? null
+        resolvePageHref={(view, projectId) =>
+          props.resolveProjectViewHref?.(view, projectId) ?? null
         }
-        onNavigateToOverviewPage={navigateToOverviewPage}
       />
 
       {selectedProjectId ? (
