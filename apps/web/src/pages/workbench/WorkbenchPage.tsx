@@ -99,9 +99,9 @@ export function WorkbenchPage() {
   };
 
   return (
-    <div className="relative -mx-1 space-y-4 overflow-hidden rounded-[32px] border border-slate-900/80 bg-[#08090b] p-3 shadow-2xl shadow-black/30 ring-1 ring-white/[0.03] sm:p-4 lg:p-5">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.10),transparent_34%)]" />
-      <div className="relative space-y-4">
+    <div className="relative -mx-1 overflow-hidden rounded-[30px] border border-slate-900/90 bg-[#07080a] p-3 shadow-2xl shadow-black/35 ring-1 ring-white/[0.03] sm:p-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.11),transparent_30%),radial-gradient(circle_at_86%_8%,rgba(99,102,241,0.10),transparent_26%)]" />
+      <div className="relative space-y-3">
         <HomeHeaderSection
           backendStatus={healthQuery.data?.status}
           backendService={healthQuery.data?.service}
@@ -131,8 +131,8 @@ export function WorkbenchPage() {
           totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
         />
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
-          <div className="min-w-0 space-y-4">
+        <div className="grid min-h-0 gap-3 2xl:grid-cols-[minmax(980px,1fr)_420px]">
+          <div className="min-w-0 space-y-3">
             <TaskTableSection
               tasks={tasks}
               selectedTaskId={selectedTaskId}
@@ -177,36 +177,38 @@ export function WorkbenchPage() {
             />
           </div>
 
-          <RightSidebarOverviewSection
-            requestedRunId={requestedRunId}
-            selectedTask={selectedTask}
-            budget={overviewQuery.data?.budget ?? null}
-            blockedTasks={overviewQuery.data?.blocked_tasks ?? 0}
-            realtimeStatus={realtime.status}
-            onNavigateToRun={(runId, taskId) =>
-              navigate(
-                buildRunRoute({
-                  runId,
-                  taskId,
-                  from: "workbench",
-                }),
-              )
-            }
-            onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-            onNavigateToDeliverable={handleNavigateToDeliverable}
-            reviewClusters={reviewClustersQuery.data ?? []}
-            reviewClustersIsLoading={reviewClustersQuery.isLoading && !reviewClustersQuery.data}
-            reviewClustersErrorMessage={
-              reviewClustersQuery.isError ? reviewClustersQuery.error.message : null
-            }
-            pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
-            runningTasks={overviewQuery.data?.running_tasks ?? 0}
-            completedTasks={overviewQuery.data?.completed_tasks ?? 0}
-            failedTasks={overviewQuery.data?.failed_tasks ?? 0}
-            totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
-            totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
-            totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
-          />
+          <div className="min-w-0 2xl:min-w-[420px]">
+            <RightSidebarOverviewSection
+              requestedRunId={requestedRunId}
+              selectedTask={selectedTask}
+              budget={overviewQuery.data?.budget ?? null}
+              blockedTasks={overviewQuery.data?.blocked_tasks ?? 0}
+              realtimeStatus={realtime.status}
+              onNavigateToRun={(runId, taskId) =>
+                navigate(
+                  buildRunRoute({
+                    runId,
+                    taskId,
+                    from: "workbench",
+                  }),
+                )
+              }
+              onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+              onNavigateToDeliverable={handleNavigateToDeliverable}
+              reviewClusters={reviewClustersQuery.data ?? []}
+              reviewClustersIsLoading={reviewClustersQuery.isLoading && !reviewClustersQuery.data}
+              reviewClustersErrorMessage={
+                reviewClustersQuery.isError ? reviewClustersQuery.error.message : null
+              }
+              pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
+              runningTasks={overviewQuery.data?.running_tasks ?? 0}
+              completedTasks={overviewQuery.data?.completed_tasks ?? 0}
+              failedTasks={overviewQuery.data?.failed_tasks ?? 0}
+              totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
+              totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
+              totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -40,8 +40,8 @@ export function AppShell() {
           onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
         />
 
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-5">
+        <main className="flex-1 px-3 py-5 sm:px-5 lg:px-6 2xl:px-8">
+          <div className="mx-auto flex w-full max-w-[1840px] min-w-0 flex-col gap-4">
             <Breadcrumbs />
             <Outlet />
           </div>
