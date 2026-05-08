@@ -25,10 +25,10 @@ export function DecisionHintPanel() {
   );
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">管理决策提示</h2>
+          <h2 className="text-base font-semibold text-slate-50">管理决策提示</h2>
           <p className="mt-1 text-sm text-slate-400">
             根据预算压力、失败分布和路由热点，给出下一步优先动作建议。
           </p>

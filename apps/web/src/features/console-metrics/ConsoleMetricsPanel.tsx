@@ -7,10 +7,10 @@ export function ConsoleMetricsPanel() {
   const budgetHealthQuery = useConsoleBudgetHealth();
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">观测指标总览</h2>
+          <h2 className="text-base font-semibold text-slate-50">观测指标总览</h2>
           <p className="mt-1 text-sm text-slate-400">
             汇总运行数量、成本和预算压力，作为 Day09 管理视图基线。
           </p>
@@ -72,7 +72,7 @@ export function ConsoleMetricsPanel() {
       ) : null}
 
       {budgetHealthQuery.data ? (
-        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
               label={pressureLevelLabel(budgetHealthQuery.data.pressure_level)}
@@ -94,7 +94,7 @@ export function ConsoleMetricsPanel() {
 
 function Metric(props: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5">
       <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
       <div className="mt-2 break-all text-sm font-medium text-slate-100">{props.value}</div>
       {props.hint ? <div className="mt-1 text-xs text-slate-500">{props.hint}</div> : null}

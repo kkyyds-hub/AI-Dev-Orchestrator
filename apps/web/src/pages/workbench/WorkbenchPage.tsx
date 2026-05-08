@@ -72,7 +72,7 @@ export function WorkbenchPage() {
 
   const lastUpdatedText = useMemo(() => {
     if (!overviewQuery.dataUpdatedAt) {
-      return "尚未刷新";
+      return "Not refreshed";
     }
 
     return formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString());
@@ -99,111 +99,116 @@ export function WorkbenchPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <HomeHeaderSection
-        backendStatus={healthQuery.data?.status}
-        backendService={healthQuery.data?.service}
-        realtimeStatus={realtime.status}
-        realtimeLastEventType={realtime.lastEventType}
-        realtimeLastEventAt={realtime.lastEventAt}
-        lastUpdatedText={lastUpdatedText}
-        isRunWorkerOncePending={runWorkerOnceMutation.isPending}
-        isRunWorkerPoolOncePending={runWorkerPoolOnceMutation.isPending}
-        onRunWorkerOnce={() => runWorkerOnceMutation.mutate()}
-        onRunWorkerPoolOnce={() => runWorkerPoolOnceMutation.mutate()}
-        onRefresh={() => {
-          void handleRefresh();
-        }}
-      />
-
-      <ManualRunResultSection
-        data={runWorkerOnceMutation.data}
-        isError={runWorkerOnceMutation.isError}
-        errorMessage={runWorkerOnceMutation.isError ? runWorkerOnceMutation.error.message : null}
-        onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-      />
-
-      <WorkerPoolResultSection
-        data={runWorkerPoolOnceMutation.data}
-        isError={runWorkerPoolOnceMutation.isError}
-        errorMessage={runWorkerPoolOnceMutation.isError ? runWorkerPoolOnceMutation.error.message : null}
-      />
-
-      <HomeMetricsSection
-        totalTasks={overviewQuery.data?.total_tasks ?? 0}
-        runningTasks={overviewQuery.data?.running_tasks ?? 0}
-        pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
-        pausedTasks={overviewQuery.data?.paused_tasks ?? 0}
-        waitingHumanTasks={overviewQuery.data?.waiting_human_tasks ?? 0}
-        completedTasks={overviewQuery.data?.completed_tasks ?? 0}
-        failedTasks={overviewQuery.data?.failed_tasks ?? 0}
-        totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
-        totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
-        totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
-      />
-
-      <section className="grid gap-4 xl:grid-cols-[1.45fr_minmax(320px,1fr)]">
-        <TaskTableSection
-          tasks={tasks}
-          selectedTaskId={selectedTaskId}
-          overviewIsLoading={overviewQuery.isLoading}
-          overviewIsError={overviewQuery.isError}
-          onSelectTask={(taskId) => {
-            setSelectedTaskId(taskId);
-            setRequestedRunId(null);
+    <div className="relative -mx-1 space-y-4 overflow-hidden rounded-[32px] border border-slate-900/80 bg-[#08090b] p-3 shadow-2xl shadow-black/30 ring-1 ring-white/[0.03] sm:p-4 lg:p-5">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.10),transparent_34%)]" />
+      <div className="relative space-y-4">
+        <HomeHeaderSection
+          backendStatus={healthQuery.data?.status}
+          backendService={healthQuery.data?.service}
+          realtimeStatus={realtime.status}
+          realtimeLastEventType={realtime.lastEventType}
+          realtimeLastEventAt={realtime.lastEventAt}
+          lastUpdatedText={lastUpdatedText}
+          isRunWorkerOncePending={runWorkerOnceMutation.isPending}
+          isRunWorkerPoolOncePending={runWorkerPoolOnceMutation.isPending}
+          onRunWorkerOnce={() => runWorkerOnceMutation.mutate()}
+          onRunWorkerPoolOnce={() => runWorkerPoolOnceMutation.mutate()}
+          onRefresh={() => {
+            void handleRefresh();
           }}
-          onNavigateToTask={(taskId, options) => {
-            navigate(
-              buildTaskRoute({
-                taskId,
-                runId: options?.runId ?? null,
-                from: "workbench",
-              }),
-            );
-          }}
-          onNavigateToRun={(runId, taskId) => {
-            navigate(
-              buildRunRoute({
-                runId,
-                taskId,
-                from: "workbench",
-              }),
-            );
-          }}
-          onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
         />
 
-        <RightSidebarOverviewSection
-          requestedRunId={requestedRunId}
-          selectedTask={selectedTask}
-          budget={overviewQuery.data?.budget ?? null}
-          blockedTasks={overviewQuery.data?.blocked_tasks ?? 0}
-          realtimeStatus={realtime.status}
-          onNavigateToRun={(runId, taskId) =>
-            navigate(
-              buildRunRoute({
-                runId,
-                taskId,
-                from: "workbench",
-              }),
-            )
-          }
-          onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-          onNavigateToDeliverable={handleNavigateToDeliverable}
-          reviewClusters={reviewClustersQuery.data ?? []}
-          reviewClustersIsLoading={reviewClustersQuery.isLoading && !reviewClustersQuery.data}
-          reviewClustersErrorMessage={
-            reviewClustersQuery.isError ? reviewClustersQuery.error.message : null
-          }
-          pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
+        <HomeMetricsSection
+          totalTasks={overviewQuery.data?.total_tasks ?? 0}
           runningTasks={overviewQuery.data?.running_tasks ?? 0}
+          pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
+          pausedTasks={overviewQuery.data?.paused_tasks ?? 0}
+          waitingHumanTasks={overviewQuery.data?.waiting_human_tasks ?? 0}
           completedTasks={overviewQuery.data?.completed_tasks ?? 0}
           failedTasks={overviewQuery.data?.failed_tasks ?? 0}
           totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
           totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
           totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
         />
-      </section>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
+          <div className="min-w-0 space-y-4">
+            <TaskTableSection
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              overviewIsLoading={overviewQuery.isLoading}
+              overviewIsError={overviewQuery.isError}
+              onSelectTask={(taskId) => {
+                setSelectedTaskId(taskId);
+                setRequestedRunId(null);
+              }}
+              onNavigateToTask={(taskId, options) => {
+                navigate(
+                  buildTaskRoute({
+                    taskId,
+                    runId: options?.runId ?? null,
+                    from: "workbench",
+                  }),
+                );
+              }}
+              onNavigateToRun={(runId, taskId) => {
+                navigate(
+                  buildRunRoute({
+                    runId,
+                    taskId,
+                    from: "workbench",
+                  }),
+                );
+              }}
+              onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+            />
+
+            <ManualRunResultSection
+              data={runWorkerOnceMutation.data}
+              isError={runWorkerOnceMutation.isError}
+              errorMessage={runWorkerOnceMutation.isError ? runWorkerOnceMutation.error.message : null}
+              onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+            />
+
+            <WorkerPoolResultSection
+              data={runWorkerPoolOnceMutation.data}
+              isError={runWorkerPoolOnceMutation.isError}
+              errorMessage={runWorkerPoolOnceMutation.isError ? runWorkerPoolOnceMutation.error.message : null}
+            />
+          </div>
+
+          <RightSidebarOverviewSection
+            requestedRunId={requestedRunId}
+            selectedTask={selectedTask}
+            budget={overviewQuery.data?.budget ?? null}
+            blockedTasks={overviewQuery.data?.blocked_tasks ?? 0}
+            realtimeStatus={realtime.status}
+            onNavigateToRun={(runId, taskId) =>
+              navigate(
+                buildRunRoute({
+                  runId,
+                  taskId,
+                  from: "workbench",
+                }),
+              )
+            }
+            onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+            onNavigateToDeliverable={handleNavigateToDeliverable}
+            reviewClusters={reviewClustersQuery.data ?? []}
+            reviewClustersIsLoading={reviewClustersQuery.isLoading && !reviewClustersQuery.data}
+            reviewClustersErrorMessage={
+              reviewClustersQuery.isError ? reviewClustersQuery.error.message : null
+            }
+            pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
+            runningTasks={overviewQuery.data?.running_tasks ?? 0}
+            completedTasks={overviewQuery.data?.completed_tasks ?? 0}
+            failedTasks={overviewQuery.data?.failed_tasks ?? 0}
+            totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
+            totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
+            totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
+          />
+        </div>
+      </div>
     </div>
   );
 }

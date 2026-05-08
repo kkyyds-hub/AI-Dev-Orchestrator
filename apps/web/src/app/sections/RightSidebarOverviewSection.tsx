@@ -1,4 +1,4 @@
-﻿import { BudgetOverviewPanel } from "../../features/budget/BudgetOverviewPanel";
+import { BudgetOverviewPanel } from "../../features/budget/BudgetOverviewPanel";
 import { ConsoleMetricsPanel } from "../../features/console-metrics/ConsoleMetricsPanel";
 import { DecisionHintPanel } from "../../features/console-metrics/DecisionHintPanel";
 import { FailureDistributionPanel } from "../../features/console-metrics/FailureDistributionPanel";
@@ -36,7 +36,10 @@ type RightSidebarOverviewSectionProps = {
 
 export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionProps) {
   return (
-    <aside data-testid="home-right-sidebar-overview-section" className="space-y-4">
+    <aside
+      data-testid="home-right-sidebar-overview-section"
+      className="space-y-4 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto xl:pr-1"
+    >
       <TaskDetailPanel
         panelId="task-detail-panel"
         runLogPanelId="task-run-log-panel"
@@ -55,6 +58,44 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
         }
       />
 
+      <div
+        data-testid="home-right-overview-section"
+        className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4"
+      >
+        <h2 className="text-base font-semibold text-slate-50">Run overview</h2>
+        <div className="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-1">
+          <OverviewRow label="Pending" value={String(props.pendingTasks)} />
+          <OverviewRow label="Running" value={String(props.runningTasks)} />
+          <OverviewRow label="Completed" value={String(props.completedTasks)} />
+          <OverviewRow label="Failed" value={String(props.failedTasks)} />
+          <OverviewRow label="Blocked" value={String(props.blockedTasks)} />
+        </div>
+      </div>
+
+      <div
+        data-testid="home-right-cost-section"
+        className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4"
+      >
+        <h2 className="text-base font-semibold text-slate-50">Cost overview</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-300">
+          <OverviewRow
+            label="Prompt Tokens"
+            value={formatTokenCount(props.totalPromptTokens)}
+          />
+          <OverviewRow
+            label="Completion Tokens"
+            value={formatTokenCount(props.totalCompletionTokens)}
+          />
+          <OverviewRow
+            label="Estimated cost"
+            value={formatCurrencyUsd(props.totalEstimatedCost)}
+          />
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">
+          Estimated cost is used as a lightweight reference for budget guardrails on the workbench.
+        </p>
+      </div>
+
       {props.budget ? (
         <BudgetOverviewPanel budget={props.budget} blockedTasks={props.blockedTasks} />
       ) : null}
@@ -72,53 +113,15 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
       <DecisionHintPanel />
 
       <WorkerSlotPanel />
-
-      <div
-        data-testid="home-right-overview-section"
-        className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
-      >
-        <h2 className="text-lg font-semibold text-slate-50">杩愯姒傝</h2>
-        <div className="mt-4 space-y-3 text-sm text-slate-300">
-          <OverviewRow label="寰呭鐞?" value={String(props.pendingTasks)} />
-          <OverviewRow label="杩愯涓?" value={String(props.runningTasks)} />
-          <OverviewRow label="宸插畬鎴?" value={String(props.completedTasks)} />
-          <OverviewRow label="澶辫触" value={String(props.failedTasks)} />
-          <OverviewRow label="闃诲" value={String(props.blockedTasks)} />
-        </div>
-      </div>
-
-      <div
-        data-testid="home-right-cost-section"
-        className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
-      >
-        <h2 className="text-lg font-semibold text-slate-50">鎴愭湰缁熻</h2>
-        <div className="mt-4 space-y-3 text-sm text-slate-300">
-          <OverviewRow
-            label="Prompt Tokens"
-            value={formatTokenCount(props.totalPromptTokens)}
-          />
-          <OverviewRow
-            label="Completion Tokens"
-            value={formatTokenCount(props.totalCompletionTokens)}
-          />
-          <OverviewRow
-            label="浼扮畻鎴愭湰"
-            value={formatCurrencyUsd(props.totalEstimatedCost)}
-          />
-        </div>
-        <p className="mt-4 text-xs leading-5 text-slate-500">
-          褰撳墠鎴愭湰鏉ヨ嚜 Day 9 鐨勫惎鍙戝紡浼扮畻锛岀敤浜庢帶鍒跺彴灞曠ず锛屼笉绛夊悓浜庣湡瀹炴ā鍨嬪巶鍟嗚处鍗曘€?
-        </p>
-      </div>
     </aside>
   );
 }
 
 function OverviewRow(props: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <span className="text-slate-400">{props.label}</span>
-      <span className="font-medium text-slate-100">{props.value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/90 bg-slate-950/70 px-3 py-2.5">
+      <span className="truncate text-slate-500">{props.label}</span>
+      <span className="shrink-0 font-medium text-slate-100">{props.value}</span>
     </div>
   );
 }
