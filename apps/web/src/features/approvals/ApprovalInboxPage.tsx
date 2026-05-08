@@ -7,6 +7,7 @@ import {
   type DeliverableSummary,
 } from "../deliverables/types";
 import { useProjectDeliverableSnapshot } from "../deliverables/hooks";
+import { ProjectSubviewTabs } from "../projects/components/ProjectSubviewTabs";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
 import { ROLE_CODE_LABELS } from "../roles/types";
 import { ApprovalActionDrawer } from "./ApprovalActionDrawer";
@@ -163,8 +164,17 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
   };
 
   return (
-    <>
-      <section
+    <ProjectSubviewTabs
+      ariaLabel="项目审批视图"
+      defaultTabId="approval-inbox"
+      items={[
+        {
+          id: "approval-inbox",
+          label: "审批队列",
+          panelId: "approval-inbox-tab-panel",
+          content: (
+            <>
+              <section
         id="approval-inbox"
         data-testid="approval-inbox-section"
         className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30"
@@ -387,24 +397,40 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
         </section>
       </section>
 
-      <ApprovalActionDrawer
-        open={selectedApprovalId !== null}
-        approvalId={selectedApprovalId}
-        projectId={props.projectId}
-        projectName={props.projectName}
-        onClose={() => setSelectedApprovalId(null)}
-      />
-
-      <RepositoryPreflightPanel
-        projectId={props.projectId}
-        projectName={props.projectName ?? null}
-      />
-
-      <RepositoryReleaseGatePanel
-        projectId={props.projectId}
-        projectName={props.projectName ?? null}
-      />
-    </>
+              <ApprovalActionDrawer
+                open={selectedApprovalId !== null}
+                approvalId={selectedApprovalId}
+                projectId={props.projectId}
+                projectName={props.projectName}
+                onClose={() => setSelectedApprovalId(null)}
+              />
+            </>
+          ),
+        },
+        {
+          id: "preflight",
+          label: "预检",
+          panelId: "repository-preflight-tab-panel",
+          content: (
+            <RepositoryPreflightPanel
+              projectId={props.projectId}
+              projectName={props.projectName ?? null}
+            />
+          ),
+        },
+        {
+          id: "release-gate",
+          label: "发布门禁",
+          panelId: "repository-release-gate-tab-panel",
+          content: (
+            <RepositoryReleaseGatePanel
+              projectId={props.projectId}
+              projectName={props.projectName ?? null}
+            />
+          ),
+        },
+      ]}
+    />
   );
 }
 
