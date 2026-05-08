@@ -10,7 +10,7 @@ type SidebarProps = {
 export function Sidebar(props: SidebarProps) {
   return (
     <aside
-      className={`border-b border-[#333333] bg-[#171717] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:transition-[width,padding] lg:duration-300 ${
+      className={`border-b border-[#333333] bg-[#181818] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:transition-[width,padding] lg:duration-300 ${
         props.isCollapsed ? "lg:w-[88px]" : "lg:w-[260px]"
       }`}
     >
@@ -25,7 +25,7 @@ export function Sidebar(props: SidebarProps) {
               props.isCollapsed ? "lg:justify-center" : ""
             }`}
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-xs font-bold text-[#171717]">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-500/30 bg-zinc-100 text-xs font-bold text-[#171717]">
               AI
             </div>
 
@@ -34,7 +34,7 @@ export function Sidebar(props: SidebarProps) {
                 AI Dev Orchestrator
               </h1>
               <p className="mt-1 text-xs leading-5 text-zinc-500">
-                中性深灰工作台
+                全局控制台
               </p>
             </div>
           </div>
@@ -55,7 +55,7 @@ export function Sidebar(props: SidebarProps) {
         <nav className="flex flex-1 flex-col gap-1.5">
           {!props.isCollapsed ? (
             <div className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-              核心导航
+              主要入口
             </div>
           ) : null}
           {PRIMARY_NAV_ITEMS.map((item, index) => (
@@ -68,7 +68,7 @@ export function Sidebar(props: SidebarProps) {
                   props.isCollapsed ? "px-2 py-2.5" : "px-3 py-3"
                 } ${
                   isActive
-                    ? "border-[#333333] bg-[#383838] text-zinc-100 shadow-sm shadow-black/20"
+                    ? "border-[#3a3a3a] bg-[#303030] text-zinc-100 shadow-sm shadow-black/20"
                     : "border-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100"
                 } ${index === 3 && !props.isCollapsed ? "mt-4" : ""}`
               }
@@ -96,11 +96,11 @@ export function Sidebar(props: SidebarProps) {
         <div className="mt-5 border-t border-[#333333] pt-4">
           {props.isCollapsed ? (
             <div className="flex justify-center" title="导航在线">
-              <div className="h-2 w-2 rounded-full bg-emerald-400" />
+              <div className="h-2 w-2 rounded-full bg-zinc-400" />
             </div>
           ) : (
             <div className="flex items-center gap-3 rounded-lg px-2 py-2 text-zinc-400 transition hover:bg-white/[0.03]">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-[#171717]">U</div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-500/30 bg-zinc-100 text-sm font-bold text-[#171717]">U</div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-zinc-100">当前操作人</div>
                 <div className="truncate text-xs text-zinc-600">系统管理员</div>

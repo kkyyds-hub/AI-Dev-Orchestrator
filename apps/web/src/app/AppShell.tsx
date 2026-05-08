@@ -37,7 +37,7 @@ export function AppShell() {
         <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} />
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className={`mx-auto flex w-full min-w-0 flex-col ${isWorkbenchRoute ? "max-w-[1200px] gap-7" : "max-w-7xl gap-5"}`}>
+          <div className={`mx-auto flex w-full max-w-[1200px] min-w-0 flex-col ${isWorkbenchRoute ? "gap-7" : "gap-5"}`}>
             {isWorkbenchRoute ? null : <Breadcrumbs />}
             <Outlet />
           </div>

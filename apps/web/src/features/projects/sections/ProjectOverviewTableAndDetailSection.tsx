@@ -49,11 +49,11 @@ export function ProjectOverviewTableAndDetailSection(
       <aside
         id="project-detail"
         data-testid="project-detail-panel"
-        className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-slate-950/30"
+        className="scroll-mt-24 rounded-2xl border border-[#333333] bg-[#242424] p-5"
       >
-        <h2 className="text-lg font-semibold text-slate-50">项目详情</h2>
-        <p className="mt-1 text-sm text-slate-400">
-          聚焦阶段推进、运行钻取与策略上下文，保持同一入口内的最小协同闭环。
+        <h2 className="text-lg font-semibold text-zinc-100">项目详情</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          聚焦阶段推进、运行钻取与策略上下文。
         </p>
 
         {props.drilldownFeedback ? (
@@ -97,7 +97,7 @@ export function ProjectOverviewTableAndDetailSection(
             errorMessage={props.projectDetailErrorMessage}
           />
         ) : (
-          <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-8 text-center text-sm text-slate-400">
+          <div className="mt-4 rounded-2xl border border-dashed border-[#3a3a3a] bg-[#1f1f1f] px-4 py-8 text-center text-sm text-zinc-500">
             请选择项目后查看阶段守卫、任务树和运行策略上下文。
           </div>
         )}

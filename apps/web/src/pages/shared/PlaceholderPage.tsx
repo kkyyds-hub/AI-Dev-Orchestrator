@@ -6,18 +6,18 @@ type PlaceholderPageProps = {
 
 export function PlaceholderPage(props: PlaceholderPageProps) {
   return (
-    <section className="rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40">
+    <section className="rounded-2xl border border-[#333333] bg-[#242424] p-6 shadow-sm shadow-black/20">
       <div className="max-w-3xl">
-        <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-100">
-          <span className="h-2 w-2 rounded-full bg-cyan-300" />
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#333333] px-3 py-1 text-xs font-medium text-zinc-300">
+          <span className="h-2 w-2 rounded-full bg-zinc-400" />
           即将开放
         </div>
 
-        <h3 className="mt-4 text-2xl font-semibold text-slate-50">{props.title}</h3>
-        <p className="mt-3 text-sm leading-7 text-slate-300">{props.description}</p>
+        <h3 className="mt-4 text-2xl font-semibold text-zinc-100">{props.title}</h3>
+        <p className="mt-3 text-sm leading-7 text-zinc-400">{props.description}</p>
 
-        <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 text-sm leading-7 text-slate-300">
-          <div className="text-xs uppercase tracking-[0.22em] text-slate-500">后续规划</div>
+        <div className="mt-5 rounded-xl border border-[#333333] bg-[#1f1f1f] p-5 text-sm leading-7 text-zinc-400">
+          <div className="text-xs uppercase tracking-[0.22em] text-zinc-600">后续规划</div>
           <p className="mt-2">{props.nextStep}</p>
         </div>
       </div>

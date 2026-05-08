@@ -157,18 +157,18 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
   };
 
   return (
-    <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section className="space-y-4 rounded-2xl border border-[#333333] bg-[#242424] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-cyan-300">
-            V3 Day03 Planner Entry
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+            Project Planning
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
-            从 brief 生成项目草案，再映射为项目内任务
+          <h2 className="text-xl font-semibold text-zinc-100">
+            创建项目草案
           </h2>
-          <p className="max-w-3xl text-sm leading-6 text-slate-300">
+          <p className="max-w-3xl text-sm leading-6 text-zinc-500">
             这里直接复用现有 <code>/planning/drafts</code> 与{" "}
-            <code>/planning/apply</code> 链路，只是在 Day03 中补齐项目草案与任务映射，不扩展到审批或阶段守卫。
+            <code>/planning/apply</code> 链路，生成项目草案并映射为项目内任务。
           </p>
         </div>
 
@@ -189,21 +189,21 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         <label className="space-y-2">
-          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
             项目 brief
           </span>
           <textarea
             value={brief}
             onChange={(event) => setBrief(event.target.value)}
             rows={6}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-500"
+            className="w-full rounded-2xl border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
             placeholder="例如：做一个项目级规划入口，先根据 brief 生成项目草案，再把任务映射到该项目下，并在项目详情中可见任务树。"
           />
         </label>
 
-        <aside className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+        <aside className="space-y-4 rounded-2xl border border-[#333333] bg-[#1f1f1f] p-4">
           <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
               最大任务数
             </span>
             <input
@@ -214,11 +214,11 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
               onChange={(event) =>
                 setMaxTasks(clampTaskCount(Number(event.target.value) || 6))
               }
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+              className="w-full rounded-xl border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
             />
           </label>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm leading-6 text-slate-300">
+          <div className="rounded-2xl border border-[#333333] bg-[#292929]/60 px-4 py-3 text-sm leading-6 text-zinc-400">
             生成完成后仍需人工确认：项目名称、摘要、依赖关系和验收标准都可以改；应用后只创建项目/任务，不会一键自动执行。
           </div>
 
@@ -238,7 +238,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
             type="button"
             onClick={handleGenerateDraft}
             disabled={!canGenerate}
-            className="inline-flex rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:border-cyan-400 hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex rounded-xl border border-[#4a4a4a] bg-[#303030] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {createDraftMutation.isPending ? "生成中..." : "生成项目草案"}
           </button>
