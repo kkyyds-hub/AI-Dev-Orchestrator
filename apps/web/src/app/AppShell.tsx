@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 
 import { Breadcrumbs } from "./layout/Breadcrumbs";
 import { Sidebar } from "./layout/Sidebar";
@@ -8,7 +8,9 @@ import { Topbar } from "./layout/Topbar";
 const SIDEBAR_STORAGE_KEY = "app-shell-sidebar-collapsed";
 
 export function AppShell() {
+  const location = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const isWorkbenchRoute = location.pathname === "/workbench";
 
   useEffect(() => {
     const savedValue = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
@@ -40,8 +42,12 @@ export function AppShell() {
           onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
         />
 
-        <main className="flex-1 px-3 py-5 sm:px-5 lg:px-6 2xl:px-8">
-          <div className="mx-auto flex w-full max-w-[1840px] min-w-0 flex-col gap-4">
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div
+            className={`mx-auto flex w-full min-w-0 flex-col ${
+              isWorkbenchRoute ? "max-w-[1840px] gap-4" : "max-w-7xl gap-5"
+            }`}
+          >
             <Breadcrumbs />
             <Outlet />
           </div>

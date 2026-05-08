@@ -152,7 +152,7 @@ export function TaskDetailPanel({
   return (
     <section
       id={panelId}
-      className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4"
+      className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
     >
       <TaskDetailPanelHeader selectedTask={selectedTask} />
 

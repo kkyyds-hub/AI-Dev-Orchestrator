@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from "react";
+
 import { StatusBadge } from "../../components/StatusBadge";
 import type { ConsoleTask } from "../../features/console/types";
 import { formatDateTime, formatNullableCurrencyUsd } from "../../lib/format";
@@ -23,7 +25,24 @@ type TaskTableSectionProps = {
   }) => void;
 };
 
+const TASKS_PER_PAGE = 5;
+
 export function TaskTableSection(props: TaskTableSectionProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(props.tasks.length / TASKS_PER_PAGE));
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  const pagedTasks = useMemo(() => {
+    const startIndex = (currentPage - 1) * TASKS_PER_PAGE;
+    return props.tasks.slice(startIndex, startIndex + TASKS_PER_PAGE);
+  }, [currentPage, props.tasks]);
+
+  const pageStart = props.tasks.length ? (currentPage - 1) * TASKS_PER_PAGE + 1 : 0;
+  const pageEnd = Math.min(currentPage * TASKS_PER_PAGE, props.tasks.length);
+
   return (
     <section
       data-testid="home-task-table-section"
@@ -33,7 +52,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
         <div>
           <h2 className="text-base font-semibold text-slate-50">Task list</h2>
           <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-            Compact queue view: select a task, open details, inspect runs, or drill into project strategy.
+            紧凑队列视图：每页 5 条任务，可选择任务、打开详情、查看运行或 Drill-down。
           </p>
         </div>
         <StatusBadge
@@ -69,8 +88,8 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/70 bg-slate-950/35">
-                {props.tasks.length ? (
-                  props.tasks.map((task) => {
+                {pagedTasks.length ? (
+                  pagedTasks.map((task) => {
                     const isSelected = props.selectedTaskId === task.id;
 
                     return (
@@ -217,6 +236,33 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="flex flex-col gap-3 border-t border-slate-800/80 bg-slate-950/55 px-3 py-3 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              共 {props.tasks.length} 条任务，每页 {TASKS_PER_PAGE} 条
+              {props.tasks.length ? `，当前 ${pageStart}-${pageEnd}` : ""}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage <= 1}
+                className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-950 disabled:text-slate-600"
+              >
+                上一页
+              </button>
+              <span className="min-w-16 text-center text-xs text-slate-500">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage >= totalPages}
+                className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-950 disabled:text-slate-600"
+              >
+                下一页
+              </button>
+            </div>
           </div>
         </div>
       )}

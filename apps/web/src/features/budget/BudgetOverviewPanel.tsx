@@ -15,10 +15,10 @@ export function BudgetOverviewPanel({
   const actionMeta = actionMetaByType[budget.suggested_action];
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-slate-50">预算守卫</h2>
+          <h2 className="text-lg font-semibold text-slate-50">预算守卫</h2>
           <p className="mt-1 text-sm text-slate-400">
             V2 Day7 预算层级、降级动作与策略命中总览。
           </p>
@@ -74,7 +74,7 @@ export function BudgetOverviewPanel({
         />
       </div>
 
-      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5">
+      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
         <div className="text-xs uppercase tracking-[0.2em] text-slate-500">策略命中</div>
         <div className="mt-2 text-sm font-medium text-slate-100">
           {budget.strategy_label}（{budget.strategy_code}）
@@ -91,7 +91,7 @@ export function BudgetOverviewPanel({
 
 function BudgetField(props: { label: string; value: string; hint: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5">
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
       <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
       <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
       <div className="mt-1 text-xs text-slate-500">{props.hint}</div>
@@ -101,7 +101,7 @@ function BudgetField(props: { label: string; value: string; hint: string }) {
 
 function BudgetState(props: { label: string; value: string; tone: "neutral" | "info" | "success" | "warning" | "danger" }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5">
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
       <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
       <div className="mt-2">
         <StatusBadge label={props.value} tone={props.tone} />
