@@ -25,7 +25,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
     <section
       data-testid="home-manual-run-result-section"
       className={`rounded-2xl border p-4 ${
-        props.isError ? "border-rose-900/60 bg-rose-950/25" : "border-zinc-800/90 bg-zinc-950/45"
+        props.isError ? "border-rose-900/60 bg-rose-950/25" : "border-[#333333] bg-transparent"
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -66,7 +66,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
                 runId: props.data?.run_id,
               })
             }
-            className="rounded-lg border border-zinc-800 bg-zinc-900/65 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800"
+            className="rounded-lg border border-[#333333] bg-transparent px-3 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800"
           >
             钻取到项目详情与策略预览
           </button>
@@ -74,14 +74,14 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
       ) : null}
 
       {!props.isError && props.data?.route_reason ? (
-        <div className="mt-3 rounded-xl border border-zinc-800 bg-black/20 p-3">
+        <div className="mt-3 rounded-xl border border-[#333333] bg-[#1f1f1f] p-3">
           <div className="text-xs tracking-[0.16em] text-zinc-500">路由原因</div>
           <p className="mt-2 text-sm leading-6 text-zinc-300">{props.data.route_reason}</p>
         </div>
       ) : null}
 
       {!props.isError && (props.data?.model_name || props.data?.selected_skill_names.length) ? (
-        <div className="mt-3 rounded-xl border border-zinc-800 bg-black/20 p-3">
+        <div className="mt-3 rounded-xl border border-[#333333] bg-[#1f1f1f] p-3">
           <div className="text-xs tracking-[0.16em] text-zinc-500">策略结果</div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <MiniInfo
@@ -98,7 +98,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
           {props.data?.selected_skill_names.length ? (
             <div className="mt-3 flex flex-wrap gap-2">
               {props.data.selected_skill_names.map((skillName) => (
-                <span key={`${skillName}-${props.data?.run_id ?? "run"}`} className="rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300">
+                <span key={`${skillName}-${props.data?.run_id ?? "run"}`} className="rounded-full border border-[#333333] bg-[#1f1f1f] px-3 py-1 text-xs text-zinc-300">
                   {skillName}
                 </span>
               ))}
@@ -135,7 +135,7 @@ function formatRunStatusLabel(status: string | null | undefined) {
 
 function MiniInfo(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-black/20 px-3 py-2.5">
+    <div className="rounded-xl border border-[#333333] bg-[#1f1f1f] px-3 py-2.5">
       <div className="text-xs tracking-[0.16em] text-zinc-500">{props.label}</div>
       <div className="mt-1 break-all text-sm font-medium text-zinc-100">{props.value}</div>
     </div>

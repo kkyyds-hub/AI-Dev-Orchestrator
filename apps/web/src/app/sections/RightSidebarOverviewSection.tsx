@@ -23,9 +23,9 @@ type RightSidebarOverviewSectionProps = {
 };
 
 const actionButtonClass =
-  "rounded-xl border border-zinc-800 bg-zinc-950/55 px-3.5 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-600 hover:bg-zinc-900 hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700";
+  "rounded-md border border-[#333333] bg-transparent px-3.5 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f] hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700";
 const primaryActionButtonClass =
-  "rounded-xl border border-zinc-700 bg-zinc-100 px-3.5 py-2 text-sm font-medium text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600";
+  "rounded-md border border-zinc-200 bg-transparent px-3.5 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-700";
 
 export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionProps) {
   const { isOpen, onClose } = props;
@@ -67,7 +67,7 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
       aria-modal="true"
       aria-labelledby="workbench-task-detail-modal-title"
       onClick={props.onClose}
-      style={{ animation: "workbench-overlay-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both" }}
+      style={{ animation: "workbench-overlay-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both" }}
     >
       <style>
         {`
@@ -79,35 +79,28 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
           @keyframes workbench-detail-modal-in {
             from {
               opacity: 0;
-              transform: translateY(18px) scale(0.965);
-              filter: blur(4px);
-            }
-            60% {
-              opacity: 1;
-              transform: translateY(-1px) scale(1.002);
-              filter: blur(0);
+              transform: translateY(14px) scale(0.98);
             }
             to {
               opacity: 1;
               transform: translateY(0) scale(1);
-              filter: blur(0);
             }
           }
         `}
       </style>
       <div
-        className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl min-w-0 flex-col overflow-hidden rounded-[28px] border border-zinc-800/90 bg-[#101010] shadow-2xl shadow-black/60 ring-1 ring-white/[0.04] sm:max-h-[calc(100vh-3rem)]"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl min-w-0 flex-col overflow-hidden rounded-2xl border border-[#333333] bg-[#212121] shadow-2xl shadow-black/60 sm:max-h-[calc(100vh-3rem)]"
         onClick={(event) => event.stopPropagation()}
-        style={{ animation: "workbench-detail-modal-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both" }}
+        style={{ animation: "workbench-detail-modal-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both" }}
       >
-        <div className="border-b border-zinc-800/90 bg-[#121212] px-5 py-4 sm:px-6">
+        <div className="border-b border-[#333333] bg-[#1f1f1f] px-5 py-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-zinc-800 bg-black/20 px-3 py-1 text-xs font-medium tracking-[0.16em] text-zinc-500">
+            <span className="rounded-full border border-[#333333] px-3 py-1 text-xs font-medium tracking-[0.16em] text-zinc-500">
               任务摘要
             </span>
             {selectedTask ? <StatusBadge label={formatTaskStatusLabel(selectedTask.status)} tone={mapTaskStatusTone(selectedTask.status)} /> : null}
           </div>
-          <h2 id="workbench-task-detail-modal-title" className="mt-3 truncate text-xl font-semibold tracking-tight text-zinc-50">
+          <h2 id="workbench-task-detail-modal-title" className="mt-3 truncate text-xl font-semibold tracking-tight text-zinc-100">
             {selectedTask?.title ?? "未选择任务"}
           </h2>
           <p className="mt-1 text-sm text-zinc-500">点击遮罩或按 Esc 关闭。</p>
@@ -123,13 +116,13 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
                 <SummaryItem label="人工状态" value={selectedTask.human_status || "-"} />
               </div>
 
-              <section className="rounded-2xl border border-zinc-800/90 bg-black/18 p-4">
+              <section className="rounded-xl border border-[#333333] bg-transparent p-4">
                 <div className="text-xs font-medium tracking-[0.16em] text-zinc-500">输入摘要</div>
                 <p className="mt-2 text-sm leading-6 text-zinc-300">{selectedTask.input_summary || "暂无摘要"}</p>
               </section>
 
               <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                <section className="rounded-2xl border border-zinc-800/90 bg-black/18 p-4">
+                <section className="rounded-xl border border-[#333333] bg-transparent p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-xs font-medium tracking-[0.16em] text-zinc-500">最近运行</div>
                     {latestRun ? <StatusBadge label={formatRunStatusLabel(latestRun.status)} tone={mapRunStatusTone(latestRun.status)} /> : null}
@@ -148,7 +141,7 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
                   )}
                 </section>
 
-                <section className="rounded-2xl border border-zinc-800/90 bg-black/18 p-4">
+                <section className="rounded-xl border border-[#333333] bg-transparent p-4">
                   <div className="text-xs font-medium tracking-[0.16em] text-zinc-500">运行环境</div>
                   <div className="mt-3 space-y-2">
                     <SummaryItem label="实时连接" value={formatRealtimeStatus(props.realtimeStatus)} />
@@ -158,7 +151,7 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
                 </section>
               </div>
 
-              <section className="rounded-2xl border border-zinc-800/90 bg-black/18 p-4">
+              <section className="rounded-xl border border-[#333333] bg-transparent p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs font-medium tracking-[0.16em] text-zinc-500">验收要点</div>
                   <span className="text-xs text-zinc-600">{selectedTask.acceptance_criteria.length} 项</span>
@@ -175,21 +168,46 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
                 ) : (
                   <p className="mt-3 text-sm text-zinc-500">暂无验收要点。</p>
                 )}
-                {selectedTask.acceptance_criteria.length > acceptancePreview.length ? (
-                  <p className="mt-2 text-xs text-zinc-600">
-                    还有 {selectedTask.acceptance_criteria.length - acceptancePreview.length} 项，请打开任务页查看。
-                  </p>
-                ) : null}
               </section>
+
+              <details className="group rounded-xl border border-[#333333] bg-transparent p-4">
+                <summary className="cursor-pointer list-none text-sm font-medium text-zinc-200 outline-none transition hover:text-zinc-50">
+                  <span className="inline-flex items-center gap-2">
+                    <span className="transition group-open:rotate-90">›</span>
+                    完整详情
+                  </span>
+                </summary>
+                <div className="mt-4 space-y-4 border-t border-[#333333] pt-4">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <SummaryItem label="任务 ID" value={selectedTask.id} />
+                    <SummaryItem label="更新时间" value={formatDateTime(selectedTask.updated_at)} />
+                    <SummaryItem label="运行 ID" value={activeRunId ?? "-"} />
+                    <SummaryItem label="最近运行状态" value={latestRun ? formatRunStatusLabel(latestRun.status) : "-"} />
+                  </div>
+                  {selectedTask.acceptance_criteria.length ? (
+                    <div>
+                      <div className="text-xs font-medium tracking-[0.16em] text-zinc-500">全部验收条件</div>
+                      <ul className="mt-3 space-y-2 text-sm leading-6 text-zinc-300">
+                        {selectedTask.acceptance_criteria.map((item) => (
+                          <li key={item} className="flex gap-2">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-600" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-zinc-800 bg-black/20 p-6 text-sm text-zinc-500">
+            <div className="rounded-xl border border-dashed border-[#333333] p-6 text-sm text-zinc-500">
               请先在任务队列中选择一个任务。
             </div>
           )}
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2 border-t border-zinc-800/90 bg-[#121212] px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[#333333] bg-[#1f1f1f] px-5 py-4 sm:px-6">
           <button
             type="button"
             data-testid="workbench-modal-open-task"
@@ -229,7 +247,7 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
 
 function SummaryItem(props: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-xl border border-zinc-800/80 bg-zinc-950/35 px-3 py-2.5">
+    <div className="min-w-0 rounded-lg border border-[#333333] bg-[#1f1f1f] px-3 py-2.5">
       <div className="text-[11px] tracking-[0.14em] text-zinc-600">{props.label}</div>
       <div className="mt-1 truncate text-sm font-medium text-zinc-200">{props.value}</div>
     </div>

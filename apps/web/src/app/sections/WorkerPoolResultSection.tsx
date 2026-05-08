@@ -16,7 +16,7 @@ export function WorkerPoolResultSection(props: WorkerPoolResultSectionProps) {
     <section
       data-testid="home-worker-pool-result-section"
       className={`rounded-2xl border px-4 py-3 ${
-        props.isError ? "border-rose-900/60 bg-rose-950/25" : "border-zinc-800/90 bg-zinc-950/45"
+        props.isError ? "border-rose-900/60 bg-rose-950/25" : "border-[#333333] bg-transparent"
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

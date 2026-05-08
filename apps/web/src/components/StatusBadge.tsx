@@ -4,11 +4,11 @@ type StatusBadgeProps = {
 };
 
 const toneStyles: Record<NonNullable<StatusBadgeProps["tone"]>, string> = {
-  neutral: "border-zinc-700/80 bg-zinc-900/80 text-zinc-200",
-  info: "border-zinc-700/75 bg-zinc-900/70 text-zinc-200",
-  success: "border-zinc-700/75 bg-zinc-900/70 text-zinc-100",
-  warning: "border-zinc-700/75 bg-zinc-900/70 text-zinc-300",
-  danger: "border-rose-900/60 bg-rose-950/30 text-rose-200",
+  neutral: "border-[#333333] bg-transparent text-zinc-300",
+  info: "border-[#333333] bg-transparent text-zinc-300",
+  success: "border-[#333333] bg-transparent text-zinc-100",
+  warning: "border-[#333333] bg-transparent text-zinc-300",
+  danger: "border-rose-900/60 bg-rose-950/20 text-rose-200",
 };
 
 export function StatusBadge({

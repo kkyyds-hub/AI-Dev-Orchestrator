@@ -16,20 +16,29 @@ type HomeHeaderSectionProps = {
 };
 
 const primaryButtonClass =
-  "rounded-xl border border-zinc-700/80 bg-zinc-100 px-3.5 py-2 text-sm font-medium text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600";
+  "rounded-md border border-zinc-200 bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600";
 const secondaryButtonClass =
-  "rounded-xl border border-zinc-800 bg-zinc-950/55 px-3.5 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-600 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:border-zinc-900 disabled:bg-zinc-950 disabled:text-zinc-600";
+  "rounded-md border border-[#333333] bg-transparent px-4 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:text-zinc-600";
 
 export function HomeHeaderSection(props: HomeHeaderSectionProps) {
   return (
     <header
       data-testid="home-header-section"
-      className="rounded-[26px] border border-zinc-800/90 bg-zinc-950/55 px-5 py-5 shadow-xl shadow-black/20 ring-1 ring-white/[0.025] lg:px-6"
+      className="border-b border-[#333333] pb-7"
     >
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1 text-xs font-medium tracking-[0.18em] text-zinc-500">
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0 space-y-4">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">
+              AI 工作台
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
+              集中查看任务队列、运行状态与预算信号。
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+            <span className="rounded-full border border-[#333333] px-3 py-1">
               中文 AI 工作台
             </span>
             <StatusBadge
@@ -41,18 +50,10 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
               tone={mapRealtimeTone(props.realtimeStatus)}
             />
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-              AI 工作台
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-              集中查看任务队列、运行状态与预算信号。
-            </p>
-          </div>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3 xl:items-end">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-col gap-4 xl:items-end">
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <button
               type="button"
               data-testid="home-run-worker-once"
@@ -81,7 +82,7 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
             </button>
           </div>
 
-          <dl className="grid gap-2 text-xs text-zinc-500 sm:grid-cols-3 xl:text-right">
+          <dl className="grid gap-x-4 gap-y-2 text-xs text-zinc-500 sm:grid-cols-3 xl:text-right">
             <HeaderMeta label="服务" value={props.backendService ?? "orchestrator-backend"} />
             <HeaderMeta label="更新时间" value={props.lastUpdatedText} />
             <HeaderMeta
@@ -101,7 +102,7 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
 
 function HeaderMeta(props: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-zinc-800/80 bg-black/20 px-3 py-2">
+    <div className="min-w-0">
       <dt className="text-[11px] tracking-[0.14em] text-zinc-600">{props.label}</dt>
       <dd className="mt-1 truncate text-zinc-300">{props.value}</dd>
     </div>

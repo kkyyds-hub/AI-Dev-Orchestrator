@@ -10,34 +10,31 @@ type SidebarProps = {
 export function Sidebar(props: SidebarProps) {
   return (
     <aside
-      className={`border-b border-slate-800 bg-slate-950/92 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:transition-[width,padding] lg:duration-300 ${
-        props.isCollapsed ? "lg:w-[88px]" : "lg:w-[264px]"
+      className={`border-b border-[#333333] bg-[#171717] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:transition-[width,padding] lg:duration-300 ${
+        props.isCollapsed ? "lg:w-[88px]" : "lg:w-[260px]"
       }`}
     >
       <div
         className={`flex h-full flex-col py-5 transition-[padding] duration-300 ${
-          props.isCollapsed ? "px-3" : "px-4 sm:px-6 lg:px-4"
+          props.isCollapsed ? "px-3" : "px-4"
         }`}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-5">
+        <div className="relative flex items-center pb-7">
           <div
-            className={`flex min-w-0 items-start gap-3 ${
+            className={`flex min-w-0 items-center gap-3 pr-10 ${
               props.isCollapsed ? "lg:justify-center" : ""
             }`}
           >
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-500/10 text-sm font-semibold text-cyan-100 shadow-lg shadow-cyan-950/20">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-xs font-bold text-[#171717]">
               AI
             </div>
 
             <div className={`${props.isCollapsed ? "hidden" : "min-w-0"}`}>
-              <div className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">
-                Workspace
-              </div>
-              <h1 className="mt-2 truncate text-lg font-semibold text-slate-50">
+              <h1 className="truncate whitespace-nowrap text-sm font-semibold text-zinc-100">
                 AI Dev Orchestrator
               </h1>
-              <p className="mt-1 text-sm leading-6 text-slate-400">
-                面向智能研发协同的统一工作台。
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                中性深灰工作台
               </p>
             </div>
           </div>
@@ -47,42 +44,47 @@ export function Sidebar(props: SidebarProps) {
             onClick={props.onToggle}
             aria-label={props.isCollapsed ? "展开左侧导航" : "收起左侧导航"}
             title={props.isCollapsed ? "展开左侧导航" : "收起左侧导航"}
-            className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-slate-300 transition hover:border-cyan-400/40 hover:bg-slate-900 hover:text-cyan-100 lg:flex"
+            className="absolute right-0 top-0 hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#333333] bg-transparent text-zinc-500 transition hover:bg-[#2f2f2f] hover:text-zinc-100 lg:flex"
           >
-            <span className={`text-sm transition-transform duration-300 ${props.isCollapsed ? "rotate-180" : ""}`}>
+            <span className={`text-xs transition-transform duration-300 ${props.isCollapsed ? "rotate-180" : ""}`}>
               ←
             </span>
           </button>
         </div>
 
-        <nav className="mt-5 flex flex-1 flex-col gap-2">
-          {PRIMARY_NAV_ITEMS.map((item) => (
+        <nav className="flex flex-1 flex-col gap-1.5">
+          {!props.isCollapsed ? (
+            <div className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+              核心导航
+            </div>
+          ) : null}
+          {PRIMARY_NAV_ITEMS.map((item, index) => (
             <NavLink
               key={item.to}
               to={item.to}
               title={props.isCollapsed ? item.label : undefined}
               className={({ isActive }) =>
-                `group rounded-2xl border transition ${
+                `group rounded-lg border transition ${
                   props.isCollapsed ? "px-2 py-2.5" : "px-3 py-3"
                 } ${
                   isActive
-                    ? "border-cyan-400/40 bg-cyan-500/10 text-cyan-100"
-                    : "border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:bg-slate-900/80"
-                }`
+                    ? "border-[#333333] bg-[#383838] text-zinc-100 shadow-sm shadow-black/20"
+                    : "border-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100"
+                } ${index === 3 && !props.isCollapsed ? "mt-4" : ""}`
               }
             >
               <div
-                className={`flex items-center ${
+                className={`flex items-start ${
                   props.isCollapsed ? "justify-center" : "gap-3"
                 }`}
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-sm font-medium text-slate-200 transition group-hover:border-cyan-400/30 group-hover:text-cyan-100">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium text-zinc-300 transition group-hover:text-zinc-100">
                   {item.shortLabel}
                 </div>
 
                 <div className={`${props.isCollapsed ? "hidden" : "min-w-0 flex-1"}`}>
                   <div className="truncate text-sm font-medium">{item.label}</div>
-                  <div className="mt-1 text-xs leading-5 text-slate-400">
+                  <div className="mt-1 text-xs leading-5 text-zinc-500">
                     {item.description}
                   </div>
                 </div>
@@ -91,27 +93,19 @@ export function Sidebar(props: SidebarProps) {
           ))}
         </nav>
 
-        <div
-          className={`mt-5 rounded-2xl border border-slate-800 bg-slate-900/70 transition-all duration-300 ${
-            props.isCollapsed ? "px-2 py-3" : "p-4"
-          }`}
-        >
+        <div className="mt-5 border-t border-[#333333] pt-4">
           {props.isCollapsed ? (
-            <div className="flex justify-center" title="统一导航已启用">
-              <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_20px_rgba(74,222,128,0.35)]" />
+            <div className="flex justify-center" title="导航在线">
+              <div className="h-2 w-2 rounded-full bg-emerald-400" />
             </div>
           ) : (
-            <>
-              <div className="flex items-center gap-2">
-                <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_20px_rgba(74,222,128,0.35)]" />
-                <div className="text-xs font-medium uppercase tracking-[0.22em] text-slate-500">
-                  Navigation
-                </div>
+            <div className="flex items-center gap-3 rounded-lg px-2 py-2 text-zinc-400 transition hover:bg-white/[0.03]">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-[#171717]">U</div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-zinc-100">当前操作人</div>
+                <div className="truncate text-xs text-zinc-600">系统管理员</div>
               </div>
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                当前导航按业务域组织，可在工作台、项目、审批与治理之间快速切换。
-              </p>
-            </>
+            </div>
           )}
         </div>
       </div>

@@ -42,8 +42,8 @@ export function WorkerProviderPromptTokenCard(props: WorkerProviderPromptTokenCa
   const runtimeFields = buildLatestRunRuntimeFields(runtimeContractInput);
 
   return (
-    <div className="mt-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+    <div className="mt-3 rounded-xl border border-[#333333] bg-transparent p-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
         Latest Run Runtime
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -57,9 +57,9 @@ export function WorkerProviderPromptTokenCard(props: WorkerProviderPromptTokenCa
 
 function InfoItem(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 break-all text-sm font-medium text-slate-100">{props.value}</div>
+    <div className="rounded-xl border border-[#333333] bg-[#1f1f1f] px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 break-all text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }

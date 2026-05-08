@@ -108,9 +108,8 @@ export function WorkbenchPage() {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-[30px] border border-zinc-900 bg-[#0f0f10] p-3 shadow-2xl shadow-black/25 ring-1 ring-white/[0.025] sm:p-4">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.055),transparent_36%)]" />
-      <div className="relative space-y-3">
+    <div className="relative min-w-0">
+      <div className="space-y-7">
         <HomeHeaderSection
           backendStatus={healthQuery.data?.status}
           backendService={healthQuery.data?.service}
@@ -140,7 +139,7 @@ export function WorkbenchPage() {
           totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
         />
 
-        <div className="min-w-0 space-y-3">
+        <div className="min-w-0 space-y-5">
           <TaskTableSection
             tasks={tasks}
             selectedTaskId={selectedTaskId}

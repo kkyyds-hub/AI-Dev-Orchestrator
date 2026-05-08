@@ -14,8 +14,8 @@ export function WorkerMemoryRecallCard(props: WorkerMemoryRecallCardProps) {
   }
 
   return (
-    <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-violet-200">
+    <div className="mt-3 rounded-xl border border-[#333333] bg-transparent p-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
         Project Memory Recall
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -26,12 +26,12 @@ export function WorkerMemoryRecallCard(props: WorkerMemoryRecallCardProps) {
         />
       </div>
       {props.project_memory_query_text ? (
-        <p className="mt-3 text-sm leading-6 text-slate-300">
+        <p className="mt-3 text-sm leading-6 text-zinc-300">
           查询：{props.project_memory_query_text}
         </p>
       ) : null}
       {props.project_memory_context_summary ? (
-        <p className="mt-2 text-sm leading-6 text-slate-300">
+        <p className="mt-2 text-sm leading-6 text-zinc-300">
           {props.project_memory_context_summary}
         </p>
       ) : null}
@@ -41,11 +41,11 @@ export function WorkerMemoryRecallCard(props: WorkerMemoryRecallCardProps) {
 
 function RecallInfo(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div className="rounded-xl border border-[#333333] bg-[#1f1f1f] px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
         {props.label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }
