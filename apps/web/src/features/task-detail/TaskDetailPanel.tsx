@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { StatusBadge } from "../../components/StatusBadge";
 import {
   buildLatestRunRuntimeFields,
   buildRoleModelPolicyRuntimeFields,
   hasRoleModelPolicyRuntimeData,
 } from "../../lib/latestRunRuntimeContract";
-import { mapRunStatusTone } from "../../lib/status";
 import type { StreamConnectionStatus } from "../events/types";
 import type { ConsoleBudget, ConsoleTask } from "../console/types";
 import {
@@ -23,7 +21,6 @@ import { RunLogPanel } from "../run-log/RunLogPanel";
 import { useTaskDetail } from "./hooks";
 import { TaskDetailActionsSection } from "./components/TaskDetailActionsSection";
 import { TaskDetailBaseInfoCard } from "./components/TaskDetailBaseInfoCard";
-import { DetailField } from "./components/TaskDetailField";
 import { TaskDetailEmptyState } from "./components/TaskDetailEmptyState";
 import { TaskDetailErrorState } from "./components/TaskDetailErrorState";
 import { TaskDetailContextPreviewSection } from "./components/TaskDetailContextPreviewSection";
@@ -34,6 +31,7 @@ import {
   TaskDetailLatestRunCard,
   TaskDetailRunHistorySection,
 } from "./components/TaskDetailRunsSection";
+import { TaskDetailRuntimeContractSection } from "./components/TaskDetailRuntimeContractSection";
 
 type TaskDetailPanelProps = {
   panelId?: string;
@@ -278,108 +276,15 @@ export function TaskDetailPanel({
             onSelectRun={setSelectedRunId}
           />
 
-          {selectedRun ? (
-            <div
-              data-testid="task-detail-runtime-context"
-              className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-base font-semibold text-slate-50">
-                    Task Detail Runtime Contract
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-300">
-                    Task {detail.id}; Run {selectedRun.id}
-                  </p>
-                </div>
-                <StatusBadge
-                  label={selectedRun.status}
-                  tone={mapRunStatusTone(selectedRun.status)}
-                />
-              </div>
-
-              {onNavigateToStrategyPreview ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    data-testid="goto-strategy-preview-from-task-detail"
-                    onClick={() =>
-                      onNavigateToStrategyPreview({
-                        taskId: detail.id,
-                        runId: selectedRun.id,
-                      })
-                    }
-                    className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
-                  >
-                    Back to Strategy Preview
-                  </button>
-                  {onNavigateToRun ? (
-                    <button
-                      type="button"
-                      data-testid="goto-run-center-from-task-detail"
-                      onClick={() => onNavigateToRun(selectedRun.id, detail.id)}
-                      className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-100"
-                    >
-                      Open in Run Center
-                    </button>
-                  ) : null}
-                </div>
-              ) : onNavigateToRun ? (
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    data-testid="goto-run-center-from-task-detail"
-                    onClick={() => onNavigateToRun(selectedRun.id, detail.id)}
-                    className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-100"
-                  >
-                    Open in Run Center
-                  </button>
-                </div>
-              ) : null}
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <DetailField
-                  testId="task-detail-runtime-field-task_id"
-                  label="Task ID"
-                  value={detail.id}
-                />
-                <DetailField
-                  testId="task-detail-runtime-field-run_id"
-                  label="Run ID"
-                  value={selectedRun.id}
-                />
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                {selectedRunRuntimeFields.map((field) => (
-                  <DetailField
-                    key={`task-runtime-${field.key}`}
-                    testId={`task-detail-runtime-field-${field.key}`}
-                    label={field.label}
-                    value={field.value}
-                  />
-                ))}
-              </div>
-
-              {hasSelectedRunRoleModelPolicyData ? (
-                <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-                  <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
-                    Task Detail Role Model Policy Runtime
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                    {selectedRunRoleModelPolicyFields.map((field) => (
-                      <DetailField
-                        key={`task-policy-${field.key}`}
-                        testId={`task-detail-policy-field-${field.key}`}
-                        label={field.label}
-                        value={field.value}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+          <TaskDetailRuntimeContractSection
+            taskId={detail.id}
+            selectedRun={selectedRun}
+            runtimeFields={selectedRunRuntimeFields}
+            roleModelPolicyFields={selectedRunRoleModelPolicyFields}
+            hasRoleModelPolicyData={hasSelectedRunRoleModelPolicyData}
+            onNavigateToRun={onNavigateToRun}
+            onNavigateToStrategyPreview={onNavigateToStrategyPreview}
+          />
 
           <TaskDetailRunHistorySection
             taskId={detail.id}
