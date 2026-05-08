@@ -184,9 +184,10 @@ export function buildProjectOverviewRoute(input: {
   }
 
   const routeSegment = PROJECT_OVERVIEW_ROUTE_SEGMENT_BY_VIEW[input.view];
+  const encodedProjectId = encodeURIComponent(input.projectId);
   return routeSegment
-    ? `/projects/${input.projectId}/${routeSegment}`
-    : `/projects/${input.projectId}`;
+    ? `/projects/${encodedProjectId}/${routeSegment}`
+    : `/projects/${encodedProjectId}`;
 }
 
 export function buildProjectOverviewHash(input: {

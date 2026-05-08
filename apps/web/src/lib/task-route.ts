@@ -7,7 +7,9 @@ type BuildTaskRouteInput = {
 
 export function buildTaskRoute(input: BuildTaskRouteInput = {}) {
   const normalizedTaskId = input.taskId?.trim();
-  const pathname = normalizedTaskId ? `/tasks/${normalizedTaskId}` : "/tasks";
+  const pathname = normalizedTaskId
+    ? `/tasks/${encodeURIComponent(normalizedTaskId)}`
+    : "/tasks";
   const searchParams = new URLSearchParams();
 
   if (input.runId) {
