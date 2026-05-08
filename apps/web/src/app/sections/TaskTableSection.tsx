@@ -1,12 +1,9 @@
-﻿import { StatusBadge } from "../../components/StatusBadge";
+import { useEffect, useMemo, useState } from "react";
+
+import { StatusBadge } from "../../components/StatusBadge";
 import type { ConsoleTask } from "../../features/console/types";
 import { formatDateTime, formatNullableCurrencyUsd } from "../../lib/format";
-import {
-  buildLatestRunRuntimeFields,
-  buildRoleModelPolicyRuntimeFields,
-  hasRoleModelPolicyRuntimeData,
-} from "../../lib/latestRunRuntimeContract";
-import { mapRunStatusTone, mapTaskStatusTone } from "../../lib/status";
+import { mapTaskStatusTone } from "../../lib/status";
 
 type TaskTableSectionProps = {
   tasks: ConsoleTask[];
@@ -23,300 +20,185 @@ type TaskTableSectionProps = {
   }) => void;
 };
 
+const TASKS_PER_PAGE = 8;
+const tableActionButtonClass =
+  "rounded-md border border-transparent px-2.5 py-1 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-100";
+const subtleActionButtonClass =
+  "rounded-md border border-[#333333] bg-transparent px-2.5 py-1 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]";
+
 export function TaskTableSection(props: TaskTableSectionProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(props.tasks.length / TASKS_PER_PAGE));
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  const pagedTasks = useMemo(() => {
+    const startIndex = (currentPage - 1) * TASKS_PER_PAGE;
+    return props.tasks.slice(startIndex, startIndex + TASKS_PER_PAGE);
+  }, [currentPage, props.tasks]);
+
+  const pageStart = props.tasks.length ? (currentPage - 1) * TASKS_PER_PAGE + 1 : 0;
+  const pageEnd = Math.min(currentPage * TASKS_PER_PAGE, props.tasks.length);
+
   return (
-    <section
-      data-testid="home-task-table-section"
-      className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
-    >
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-50">任务列表</h2>
-          <p className="text-sm text-slate-400">
-            展示任务状态、最新运行状态，并支持直接打开详情、日志与任务操作侧栏。
-          </p>
-        </div>
+    <section data-testid="home-task-table-section" className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-base font-semibold text-zinc-100">任务队列</h2>
         <StatusBadge
-          label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "数据已就绪"}
-          tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "success"}
+          label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "已同步"}
+          tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "neutral"}
         />
       </div>
 
       {props.overviewIsError ? (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
-          无法加载控制台首页数据，请确认后端已启动并可访问 `GET /tasks/console`。
+        <div className="rounded-xl border border-rose-900/60 bg-rose-950/20 p-4 text-sm text-rose-100">
+          工作台数据加载失败，请确认后端服务已启动。
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-800 text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-3 pr-4 font-medium">任务</th>
-                <th className="py-3 pr-4 font-medium">Task Status</th>
-                <th className="py-3 pr-4 font-medium">Latest Run</th>
-                <th className="py-3 pr-4 font-medium">Estimated Cost</th>
-                <th className="py-3 pr-4 font-medium">日志</th>
-                <th className="py-3 font-medium">更新时间</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/80">
-              {props.tasks.length ? (
-                props.tasks.map((task) => {
-                  const isSelected = props.selectedTaskId === task.id;
+        <div className="border-y border-[#333333]">
+          <div className="divide-y divide-[#333333]">
+            {pagedTasks.length ? (
+              pagedTasks.map((task) => {
+                const isSelected = props.selectedTaskId === task.id;
+                const latestRun = task.latest_run;
 
-                  return (
-                    <tr
-                      key={task.id}
-                      data-testid={`home-task-row-${task.id}`}
-                      className={`align-top transition ${
-                        isSelected ? "bg-slate-950/60" : "hover:bg-slate-950/40"
-                      }`}
-                    >
-                      <td className="py-4 pr-4">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => props.onSelectTask(task.id)}
-                              className="text-left"
-                            >
-                              <div className="font-medium text-slate-100">{task.title}</div>
-                            </button>
-                            <span
-                              className={`rounded-full px-2 py-1 text-[11px] font-medium ${
-                                isSelected
-                                  ? "bg-cyan-500/15 text-cyan-200"
-                                  : "bg-slate-800 text-slate-400"
-                              }`}
-                            >
-                              {isSelected ? "详情中" : "查看详情"}
-                            </span>
-                            {props.onNavigateToTask ? (
-                              <button
-                                type="button"
-                                onClick={() => props.onNavigateToTask?.(task.id)}
-                                className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-100 transition hover:bg-cyan-500/20"
-                              >
-                                在任务中心打开
-                              </button>
-                            ) : null}
-                          </div>
-                          <div className="text-xs uppercase tracking-wide text-slate-500">
-                            优先级：{task.priority}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => props.onSelectTask(task.id)}
-                            className="max-w-md text-left text-xs leading-5 text-slate-400"
-                          >
-                            {task.input_summary}
-                          </button>
-                        </div>
-                      </td>
-                      <td className="py-4 pr-4">
-                        <StatusBadge label={task.status} tone={mapTaskStatusTone(task.status)} />
-                      </td>
-                      <td className="py-4 pr-4">
-                        {task.latest_run ? (
-                          <div className="space-y-2">
-                            <StatusBadge
-                              label={task.latest_run.status}
-                              tone={mapRunStatusTone(task.latest_run.status)}
-                            />
-                            <TaskLatestRunRuntimeSummary taskId={task.id} run={task.latest_run} />
-                            <div className="text-xs text-slate-400">
-                              <div>
-                                Quality Gate:{" "}
-                                {task.latest_run.quality_gate_passed === true
-                                  ? "passed"
-                                  : task.latest_run.quality_gate_passed === false
-                                    ? "blocked"
-                                    : "unknown"}
-                              </div>
-                              {task.latest_run.failure_category ? (
-                                <div>Failure Category: {task.latest_run.failure_category}</div>
-                              ) : null}
-                              <div>
-                                Run: {task.latest_run.id} @ {formatDateTime(task.latest_run.created_at)}
-                              </div>
-                              <div className="max-w-xs">{task.latest_run.result_summary ?? "n/a"}</div>
-                            </div>
-                            <button
-                              type="button"
-                              data-testid={`home-task-latest-run-drilldown-${task.id}`}
-                              onClick={() =>
-                                props.onNavigateToProjectDrilldown({
-                                  source: "home_latest_run",
-                                  taskId: task.id,
-                                  runId: task.latest_run?.id ?? null,
-                                })
-                              }
-                              className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-500/20"
-                            >
-                              Drill-down chain
-                            </button>
-                            {props.onNavigateToTask ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  props.onNavigateToTask?.(task.id, {
-                                    runId: task.latest_run?.id ?? null,
-                                  })
-                                }
-                                className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/30 hover:text-cyan-100"
-                              >
-                                打开任务详情页
-                              </button>
-                            ) : null}
-                            {props.onNavigateToRun ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  task.latest_run?.id
-                                    ? props.onNavigateToRun?.(task.latest_run.id, task.id)
-                                    : undefined
-                                }
-                                className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/30 hover:text-cyan-100"
-                              >
-                                打开运行详情页
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-500">尚未运行</span>
-                        )}
-                      </td>
-                      <td
-                        data-testid={`home-task-estimated-cost-${task.id}`}
-                        className="py-4 pr-4 text-slate-200"
-                      >
-                        {task.latest_run ? formatNullableCurrencyUsd(task.latest_run.estimated_cost) : "n/a"}
-                      </td>
-                      <td className="py-4 pr-4">
-                        {task.latest_run?.log_path ? (
-                          <code className="break-all text-xs text-cyan-200">{task.latest_run.log_path}</code>
-                        ) : (
-                          <span className="text-xs text-slate-500">暂无日志</span>
-                        )}
-                      </td>
-                      <td className="py-4 text-slate-400">{formatDateTime(task.updated_at)}</td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-sm text-slate-500">
-                    当前还没有任务。先在后端创建任务，再回到控制台查看状态、成本、日志和详情上下文。
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                return (
+                  <article
+                    key={task.id}
+                    data-testid={`home-task-row-${task.id}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => props.onSelectTask(task.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        props.onSelectTask(task.id);
+                      }
+                    }}
+                    className={`grid min-h-[68px] cursor-pointer gap-3 px-2 py-3 transition sm:px-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(220px,0.95fr)_116px_176px] lg:items-center ${
+                      isSelected ? "rounded-md bg-[#2b2b2b]" : "hover:rounded-md hover:bg-[#2a2a2a]"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-zinc-100">{task.title}</div>
+                      <div className="mt-1 truncate text-xs leading-5 text-zinc-500">
+                        P{task.priority} · {task.input_summary}
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 space-y-1.5">
+                      <StatusBadge label={formatTaskStatusLabel(task.status)} tone={mapTaskStatusTone(task.status)} />
+                      <div className="truncate text-xs text-zinc-500">
+                        {latestRun
+                          ? `${buildRunMicroSummary(latestRun)} · ${formatDateTime(latestRun.created_at)}`
+                          : "暂无运行"}
+                      </div>
+                    </div>
+
+                    <div data-testid={`home-task-estimated-cost-${task.id}`} className="font-mono text-sm text-zinc-300">
+                      {latestRun ? formatNullableCurrencyUsd(latestRun.estimated_cost) : "-"}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 lg:justify-end" onClick={(event) => event.stopPropagation()}>
+                      {props.onNavigateToTask ? (
+                        <button
+                          type="button"
+                          onClick={() => props.onNavigateToTask?.(task.id, { runId: latestRun?.id ?? null })}
+                          className={tableActionButtonClass}
+                        >
+                          任务
+                        </button>
+                      ) : null}
+                      {latestRun?.id && props.onNavigateToRun ? (
+                        <button
+                          type="button"
+                          onClick={() => (latestRun.id ? props.onNavigateToRun?.(latestRun.id, task.id) : undefined)}
+                          className={tableActionButtonClass}
+                        >
+                          运行
+                        </button>
+                      ) : null}
+                      {latestRun ? (
+                        <button
+                          type="button"
+                          data-testid={`home-task-latest-run-drilldown-${task.id}`}
+                          onClick={() =>
+                            props.onNavigateToProjectDrilldown({
+                              source: "home_latest_run",
+                              taskId: task.id,
+                              runId: latestRun.id ?? null,
+                            })
+                          }
+                          className={subtleActionButtonClass}
+                        >
+                          钻取
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <div className="py-12 text-center text-sm text-zinc-500">
+                暂无任务。
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-[#333333] px-2 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-3">
+            <div>
+              共 {props.tasks.length} 条任务
+              {props.tasks.length ? `，${pageStart}-${pageEnd}` : ""}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage <= 1}
+                className="rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-[#2f2f2f] hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700"
+              >
+                上一页
+              </button>
+              <span className="min-w-16 text-center text-xs text-zinc-500">{currentPage} / {totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage >= totalPages}
+                className="rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-[#2f2f2f] hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-function TaskLatestRunRuntimeSummary(props: {
-  taskId: string;
-  run: NonNullable<ConsoleTask["latest_run"]>;
-}) {
-  const runtimeContractInput = {
-    providerKey: props.run.provider_key,
-    promptTemplateKey: props.run.prompt_template_key,
-    promptTemplateVersion: props.run.prompt_template_version,
-    tokenAccountingMode: props.run.token_accounting_mode,
-    tokenPricingSource: props.run.token_pricing_source,
-    promptCharCount: props.run.prompt_char_count,
-    promptTokens: props.run.prompt_tokens,
-    completionTokens: props.run.completion_tokens,
-    totalTokens: props.run.total_tokens,
-    estimatedCost: props.run.estimated_cost,
-    providerReceiptId: props.run.provider_receipt_id,
-    roleModelPolicySource: props.run.role_model_policy_source,
-    roleModelPolicyDesiredTier: props.run.role_model_policy_desired_tier,
-    roleModelPolicyAdjustedTier: props.run.role_model_policy_adjusted_tier,
-    roleModelPolicyFinalTier: props.run.role_model_policy_final_tier,
-    roleModelPolicyStageOverrideApplied: props.run.role_model_policy_stage_override_applied,
+function formatTaskStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "待处理",
+    running: "运行中",
+    completed: "已完成",
+    failed: "失败",
+    blocked: "已阻断",
+    paused: "已暂停",
+    waiting_human: "等待人工",
   };
-  const runtimeFields = buildLatestRunRuntimeFields(runtimeContractInput).filter(
-    (field) => field.key !== "estimated_cost",
-  );
-  const roleModelPolicyFields = buildRoleModelPolicyRuntimeFields(runtimeContractInput);
-  const hasRoleModelPolicyData = hasRoleModelPolicyRuntimeData(runtimeContractInput);
 
-  return (
-    <div
-      data-testid={`home-task-runtime-summary-${props.taskId}`}
-      className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300"
-    >
-      <div className="text-[11px] uppercase tracking-[0.16em] text-cyan-300">Latest Run Runtime</div>
-      <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
-        {runtimeFields.map((field) => (
-          <ContractLine
-            key={field.key}
-            testId={`home-task-runtime-field-${props.taskId}-${field.key}`}
-            label={toDay07RuntimeLabel(field.label)}
-            value={field.value}
-          />
-        ))}
-      </div>
-
-      {hasRoleModelPolicyData ? (
-        <div
-          data-testid={`home-task-policy-card-${props.taskId}`}
-          className="mt-3 border-t border-slate-800 pt-3"
-        >
-          <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-300">
-            Role Model Policy Runtime
-          </div>
-          <div className="mt-2">
-            <ContractLine
-              testId={`home-task-policy-field-${props.taskId}-contract-source`}
-              label="role policy"
-              value={runtimeContractInput.roleModelPolicySource ?? "-"}
-            />
-          </div>
-          <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
-            {roleModelPolicyFields.map((field) => (
-              <ContractLine
-                key={field.key}
-                testId={`home-task-policy-field-${props.taskId}-${field.key}`}
-                label={field.label}
-                value={field.value}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+  return labels[status] ?? status;
 }
 
-function toDay07RuntimeLabel(label: string) {
-  const normalized = label.trim().toLowerCase();
-  if (normalized === "provider") {
-    return "provider";
-  }
-  if (normalized.startsWith("prompt")) {
-    return "prompt";
-  }
-  if (normalized.includes("accounting")) {
-    return "accounting";
-  }
-  return label;
-}
-
-function ContractLine(props: { label: string; value: string; testId?: string }) {
-  return (
-    <div data-testid={props.testId} className="leading-5">
-      <span data-slot="label" className="text-slate-500">
-        {props.label}：
-      </span>{" "}
-      <span data-slot="value" className="text-slate-200">
-        {props.value}
-      </span>
-    </div>
-  );
+function buildRunMicroSummary(run: NonNullable<ConsoleTask["latest_run"]>) {
+  const gate =
+    run.quality_gate_passed === true
+      ? "质检通过"
+      : run.quality_gate_passed === false
+        ? "质检阻断"
+        : "质检未知";
+  const failure = run.failure_category ? ` · ${run.failure_category}` : "";
+  return `${gate}${failure}`;
 }

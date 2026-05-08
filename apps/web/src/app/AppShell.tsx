@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 
 import { Breadcrumbs } from "./layout/Breadcrumbs";
 import { Sidebar } from "./layout/Sidebar";
@@ -8,7 +8,9 @@ import { Topbar } from "./layout/Topbar";
 const SIDEBAR_STORAGE_KEY = "app-shell-sidebar-collapsed";
 
 export function AppShell() {
+  const location = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const isWorkbenchRoute = location.pathname === "/workbench";
 
   useEffect(() => {
     const savedValue = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
@@ -23,26 +25,20 @@ export function AppShell() {
 
   return (
     <div
-      className={`min-h-screen bg-slate-950 text-slate-100 lg:grid lg:transition-[grid-template-columns] lg:duration-300 ${
+      className={`min-h-screen bg-[#212121] text-zinc-100 lg:grid lg:transition-[grid-template-columns] lg:duration-300 ${
         isSidebarCollapsed
           ? "lg:grid-cols-[88px_minmax(0,1fr)]"
-          : "lg:grid-cols-[264px_minmax(0,1fr)]"
+          : "lg:grid-cols-[260px_minmax(0,1fr)]"
       }`}
     >
-      <Sidebar
-        isCollapsed={isSidebarCollapsed}
-        onToggle={() => setIsSidebarCollapsed((current) => !current)}
-      />
+      <Sidebar isCollapsed={isSidebarCollapsed} onToggle={() => setIsSidebarCollapsed((current) => !current)} />
 
-      <div className="flex min-h-screen min-w-0 flex-col">
-        <Topbar
-          isSidebarCollapsed={isSidebarCollapsed}
-          onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
-        />
+      <div className="flex min-h-screen min-w-0 flex-col bg-[#212121]">
+        <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} />
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-5">
-            <Breadcrumbs />
+          <div className={`mx-auto flex w-full min-w-0 flex-col ${isWorkbenchRoute ? "max-w-[1200px] gap-7" : "max-w-7xl gap-5"}`}>
+            {isWorkbenchRoute ? null : <Breadcrumbs />}
             <Outlet />
           </div>
         </main>

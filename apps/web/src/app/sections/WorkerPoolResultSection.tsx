@@ -1,4 +1,4 @@
-﻿import { StatusBadge } from "../../components/StatusBadge";
+import { StatusBadge } from "../../components/StatusBadge";
 import type { WorkerPoolRunResponse } from "../../features/task-actions/types";
 
 type WorkerPoolResultSectionProps = {
@@ -15,25 +15,20 @@ export function WorkerPoolResultSection(props: WorkerPoolResultSectionProps) {
   return (
     <section
       data-testid="home-worker-pool-result-section"
-      className={`rounded-2xl border p-4 ${
-        props.isError ? "border-rose-500/30 bg-rose-500/10" : "border-cyan-500/30 bg-cyan-500/10"
+      className={`rounded-2xl border px-4 py-3 ${
+        props.isError ? "border-rose-900/60 bg-rose-950/25" : "border-[#333333] bg-transparent"
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-slate-50">鏈€杩戜竴娆?Worker Pool 鎵ц</h2>
-          <p className={`mt-1 text-sm ${props.isError ? "text-rose-100" : "text-cyan-100"}`}>
+          <h2 className="text-sm font-semibold text-zinc-50">最近一次 Worker Pool 执行</h2>
+          <p className={`mt-1 text-sm ${props.isError ? "text-rose-100" : "text-zinc-300"}`}>
             {props.isError
               ? props.errorMessage
-              : `璇锋眰 ${props.data?.requested_workers} 涓Ы浣嶏紝鍚姩 ${props.data?.launched_workers} 涓?worker锛屽疄闄呴鍙?${props.data?.claimed_runs} 鏉′换鍔°€?`}
+              : `请求 ${props.data?.requested_workers} 个槽位，启动 ${props.data?.launched_workers} 个 Worker，领取 ${props.data?.claimed_runs} 个任务。`}
           </p>
         </div>
-        {!props.isError && props.data ? (
-          <StatusBadge
-            label={`${props.data.slot_snapshot.running_slots} 涓Ы浣嶈繍琛屼腑`}
-            tone="info"
-          />
-        ) : null}
+        {!props.isError && props.data ? <StatusBadge label={`${props.data.slot_snapshot.running_slots} 个槽位运行中`} tone="neutral" /> : null}
       </div>
     </section>
   );
