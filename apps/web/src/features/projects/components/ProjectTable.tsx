@@ -24,17 +24,22 @@ export function ProjectTable({
   onSelectProject,
 }: ProjectTableProps) {
   return (
-    <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
+    <section className="rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-100">
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+            Project Workspace
+          </p>
+          <h2 className="mt-2 text-lg font-semibold text-zinc-100">
             项目总览列表
           </h2>
           <p className="mt-1 text-sm text-zinc-500">
             先看项目，再看任务；点击“查看详情”可切到右侧项目详情面板。
           </p>
         </div>
-        <div className="text-xs text-zinc-600">共 {projects.length} 个项目</div>
+        <div className="rounded-full border border-[#333333] bg-[#1f1f1f] px-3 py-1 text-xs text-zinc-500">
+          共 {projects.length} 个项目
+        </div>
       </div>
 
       {projects.length === 0 ? (
@@ -42,7 +47,7 @@ export function ProjectTable({
           暂无项目，可先通过 `/projects` 创建项目，再在下方任务控制台继续查看历史任务。
         </div>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto rounded-2xl border border-[#333333] bg-[#1f1f1f]/70 p-2">
           <table className="min-w-full border-separate border-spacing-y-3 text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-[0.18em] text-zinc-600">

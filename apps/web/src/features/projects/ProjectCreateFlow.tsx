@@ -157,11 +157,11 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
   };
 
   return (
-    <section className="space-y-4 rounded-2xl border border-[#333333] bg-[#242424] p-5">
+    <section className="space-y-4 rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Project Planning
+            Quick Intake
           </p>
           <h2 className="text-xl font-semibold text-zinc-100">
             创建项目草案
@@ -187,7 +187,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
         ) : null}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
         <label className="space-y-2">
           <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
             项目 brief
@@ -195,7 +195,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
           <textarea
             value={brief}
             onChange={(event) => setBrief(event.target.value)}
-            rows={6}
+            rows={5}
             className="w-full rounded-2xl border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
             placeholder="例如：做一个项目级规划入口，先根据 brief 生成项目草案，再把任务映射到该项目下，并在项目详情中可见任务树。"
           />

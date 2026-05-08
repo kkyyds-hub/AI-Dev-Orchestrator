@@ -16,13 +16,21 @@ type FeaturedProjectsSectionProps = {
 
 export function FeaturedProjectsSection(props: FeaturedProjectsSectionProps) {
   return (
-    <section data-testid="featured-projects-section" className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-zinc-100">重点项目</h2>
+    <section
+      data-testid="featured-projects-section"
+      className="space-y-4 rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10"
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+            Focus Queue
+          </p>
+          <h2 className="mt-2 text-lg font-semibold text-zinc-100">重点项目</h2>
+        </div>
         <p className="text-xs text-zinc-600">按阻塞风险和最近进展排序</p>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-3 2xl:grid-cols-1">
         {props.featuredProjects.map((project) => (
           <button
             key={project.id}
@@ -31,8 +39,8 @@ export function FeaturedProjectsSection(props: FeaturedProjectsSectionProps) {
             onClick={() => props.onSelectProject(project.id)}
             className={`rounded-2xl border p-5 text-left transition ${
               project.id === props.selectedProjectId
-                ? "border-[#4a4a4a] bg-[#303030]"
-                : "border-[#333333] bg-[#242424] hover:border-zinc-600 hover:bg-[#292929]"
+                ? "border-[#555555] bg-[#303030] shadow-sm shadow-black/20"
+                : "border-[#333333] bg-[#1f1f1f] hover:border-zinc-600 hover:bg-[#292929]"
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">

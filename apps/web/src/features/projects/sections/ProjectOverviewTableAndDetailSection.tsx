@@ -38,7 +38,7 @@ export function ProjectOverviewTableAndDetailSection(
   return (
     <section
       data-testid="project-overview-detail-workspace"
-      className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]"
+      className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)]"
     >
       <ProjectTable
         projects={props.projects}
@@ -49,12 +49,17 @@ export function ProjectOverviewTableAndDetailSection(
       <aside
         id="project-detail"
         data-testid="project-detail-panel"
-        className="scroll-mt-24 rounded-2xl border border-[#333333] bg-[#242424] p-5"
+        className="scroll-mt-24 rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto"
       >
-        <h2 className="text-lg font-semibold text-zinc-100">项目详情</h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          聚焦阶段推进、运行钻取与策略上下文。
-        </p>
+        <div className="rounded-2xl border border-[#333333] bg-[#1f1f1f] p-4">
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+            Selected Project
+          </p>
+          <h2 className="mt-2 text-lg font-semibold text-zinc-100">项目详情</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            聚焦阶段推进、运行钻取与策略上下文。
+          </p>
+        </div>
 
         {props.drilldownFeedback ? (
           <div

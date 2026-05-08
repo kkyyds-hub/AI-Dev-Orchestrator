@@ -25,8 +25,22 @@ export function ProjectSummaryCards({
   ).length;
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-4">
+    <section className="space-y-4 rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+            Portfolio Snapshot
+          </p>
+          <h2 className="mt-2 text-lg font-semibold text-zinc-100">
+            项目组合态势
+          </h2>
+        </div>
+        <p className="text-xs text-zinc-600">
+          任务、阶段、预算与仓库绑定状态一屏总览
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="项目总数"
           value={String(overview.total_projects)}
@@ -41,7 +55,7 @@ export function ProjectSummaryCards({
           tone={overview.blocked_projects > 0 ? "warning" : "success"}
         />
 
-        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
+        <section className="rounded-2xl border border-zinc-800/90 bg-zinc-950/45 p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm text-zinc-500">阶段分布</div>
@@ -73,7 +87,7 @@ export function ProjectSummaryCards({
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
+        <section className="rounded-2xl border border-zinc-800/90 bg-zinc-950/45 p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm text-zinc-500">预算摘要</div>
@@ -113,7 +127,7 @@ export function ProjectSummaryCards({
           V1/V2 现有能力。
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
 

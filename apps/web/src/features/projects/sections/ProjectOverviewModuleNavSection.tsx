@@ -32,7 +32,7 @@ export function ProjectOverviewModuleNavSection(
   return (
     <section
       data-testid="project-overview-module-nav"
-      className="rounded-2xl border border-[#333333] bg-[#242424] p-5"
+      className="rounded-3xl border border-[#333333] bg-[#242424] p-5 shadow-sm shadow-black/10"
     >
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
@@ -56,13 +56,13 @@ export function ProjectOverviewModuleNavSection(
 
       <div
         data-testid="project-overview-module-nav-grid"
-        className="mt-4 grid gap-3 lg:grid-cols-3"
+        className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3"
       >
         {props.navigationItems.map((item) => {
           const isActive = props.activeView === item.view;
-          const sharedClassName = `rounded-2xl border px-4 py-4 text-left transition ${
+          const sharedClassName = `group relative overflow-hidden rounded-2xl border px-4 py-4 text-left transition ${
             isActive
-              ? "border-[#4a4a4a] bg-[#303030]"
+              ? "border-[#555555] bg-[#303030] shadow-sm shadow-black/20"
               : "border-[#333333] bg-[#1f1f1f] hover:border-zinc-600 hover:bg-[#292929]"
           }`;
 
@@ -137,12 +137,13 @@ function NavigationCardContent(props: {
   meta: string;
 }) {
   return (
-    <>
+    <div className="relative">
+      <div className="absolute -right-3 -top-3 h-12 w-12 rounded-full border border-[#333333] bg-[#242424] opacity-0 transition group-hover:opacity-100" />
       <div className="text-sm font-medium text-zinc-100">{props.label}</div>
       <p className="mt-2 text-sm leading-6 text-zinc-500">{props.description}</p>
       <div className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-600">
         {props.meta}
       </div>
-    </>
+    </div>
   );
 }

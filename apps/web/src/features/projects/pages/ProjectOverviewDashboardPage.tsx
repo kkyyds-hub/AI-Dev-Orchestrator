@@ -46,27 +46,31 @@ export function ProjectOverviewDashboardPage(
     <div
       id="overview"
       data-testid="project-overview-view-overview"
-      className="space-y-6"
+      className="space-y-5"
     >
-      <ProjectCreateFlow onProjectCreated={props.onProjectCreated} />
-
       <ProjectSummaryCards overview={props.overview} />
 
-      {props.featuredProjects.length > 0 ? (
-        <RepositoryOverviewSection
-          featuredProjects={props.featuredProjects}
-          selectedProjectId={props.selectedProjectId}
-          onSelectProject={props.onSelectProjectIntoDetail}
-        />
-      ) : null}
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
+        <ProjectCreateFlow onProjectCreated={props.onProjectCreated} />
 
-      {props.featuredProjects.length > 0 ? (
-        <FeaturedProjectsSection
-          featuredProjects={props.featuredProjects}
-          selectedProjectId={props.selectedProjectId}
-          onSelectProject={props.onSelectProjectIntoDetail}
-        />
-      ) : null}
+        <div className="space-y-5">
+          {props.featuredProjects.length > 0 ? (
+            <RepositoryOverviewSection
+              featuredProjects={props.featuredProjects}
+              selectedProjectId={props.selectedProjectId}
+              onSelectProject={props.onSelectProjectIntoDetail}
+            />
+          ) : null}
+
+          {props.featuredProjects.length > 0 ? (
+            <FeaturedProjectsSection
+              featuredProjects={props.featuredProjects}
+              selectedProjectId={props.selectedProjectId}
+              onSelectProject={props.onSelectProjectIntoDetail}
+            />
+          ) : null}
+        </div>
+      </div>
 
       <ProjectOverviewTableAndDetailSection
         projects={props.projects}
