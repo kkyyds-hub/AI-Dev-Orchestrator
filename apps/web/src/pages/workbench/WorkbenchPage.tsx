@@ -72,7 +72,7 @@ export function WorkbenchPage() {
 
   const lastUpdatedText = useMemo(() => {
     if (!overviewQuery.dataUpdatedAt) {
-      return "Not refreshed";
+      return "暂未刷新";
     }
 
     return formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString());

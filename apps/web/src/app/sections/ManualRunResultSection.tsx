@@ -34,7 +34,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-slate-50">Latest manual run</h2>
+          <h2 className="text-sm font-semibold text-slate-50">最近一次手动执行</h2>
           <p
             className={`mt-1 text-sm ${
               props.isError
@@ -49,7 +49,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
         </div>
         {!props.isError && props.data ? (
           <StatusBadge
-            label={props.data.claimed ? "Task handled" : "No task claimed"}
+            label={props.data.claimed ? "已处理任务" : "未领取任务"}
             tone={props.data.claimed ? "success" : "warning"}
           />
         ) : null}
@@ -57,19 +57,19 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
 
       {!props.isError && props.data?.task_title ? (
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <MiniInfo label="Task" value={props.data.task_title} />
-          <MiniInfo label="Run status" value={props.data.run_status ?? "-"} />
+          <MiniInfo label="任务" value={props.data.task_title} />
+          <MiniInfo label="运行状态" value={formatRunStatusLabel(props.data.run_status)} />
           <MiniInfo
-            label="Routing score"
+            label="路由评分"
             value={
               props.data.routing_score !== null && props.data.routing_score !== undefined
                 ? String(props.data.routing_score)
                 : "-"
             }
           />
-          <MiniInfo label="Run ID" value={props.data.run_id ?? "-"} />
-          <MiniInfo label="Created" value={formatDateTime(props.data.run_created_at)} />
-          <MiniInfo label="Finished" value={formatDateTime(props.data.run_finished_at)} />
+          <MiniInfo label="运行 ID" value={props.data.run_id ?? "-"} />
+          <MiniInfo label="创建时间" value={formatDateTime(props.data.run_created_at)} />
+          <MiniInfo label="完成时间" value={formatDateTime(props.data.run_finished_at)} />
         </div>
       ) : null}
 
@@ -87,31 +87,31 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
             }
             className="rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15"
           >
-            Drill-down to project detail and strategy preview
+            钻取到项目详情与策略预览
           </button>
         </div>
       ) : null}
 
       {!props.isError && props.data?.route_reason ? (
         <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Route reason</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">路由原因</div>
           <p className="mt-2 text-sm leading-6 text-slate-300">{props.data.route_reason}</p>
         </div>
       ) : null}
 
       {!props.isError && (props.data?.model_name || props.data?.selected_skill_names.length) ? (
         <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Strategy result</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">策略结果</div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <MiniInfo
-              label="Model"
+              label="模型"
               value={
                 props.data?.model_name
                   ? `${props.data.model_name}${props.data.model_tier ? ` (${props.data.model_tier})` : ""}`
                   : "-"
               }
             />
-            <MiniInfo label="Strategy code" value={props.data?.strategy_code ?? "-"} />
+            <MiniInfo label="策略代码" value={props.data?.strategy_code ?? "-"} />
           </div>
           {props.data?.strategy_summary ? (
             <p className="mt-3 text-sm leading-6 text-slate-300">{props.data.strategy_summary}</p>
@@ -135,13 +135,30 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
 
       {!props.isError && props.data ? (
         <div className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-300">
-          Provider / Prompt / Token
+          模型调用信息
         </div>
       ) : null}
       {!props.isError && props.data ? <WorkerProviderPromptTokenCard {...props.data} /> : null}
       {!props.isError && props.data ? <WorkerMemoryRecallCard {...props.data} /> : null}
     </section>
   );
+}
+
+function formatRunStatusLabel(status: string | null | undefined) {
+  if (!status) {
+    return "-";
+  }
+
+  const labels: Record<string, string> = {
+    queued: "排队中",
+    running: "运行中",
+    succeeded: "成功",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+  };
+
+  return labels[status] ?? status;
 }
 
 function MiniInfo(props: { label: string; value: string }) {

@@ -25,10 +25,10 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-slate-400">
-              Workbench
+              工作台
             </span>
             <StatusBadge
-              label={props.backendStatus === "ok" ? "Backend online" : "Backend unknown"}
+              label={props.backendStatus === "ok" ? "后端在线" : "后端状态未知"}
               tone={props.backendStatus === "ok" ? "success" : "warning"}
             />
             <StatusBadge
@@ -38,10 +38,10 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
           </div>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
-              AI Workbench Console
+              AI 工作台控制台
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              A clean control surface for task queues, runtime state, budget guardrails, and human intervention signals.
+              面向任务队列、运行态、预算护栏与人工介入信号的统一控制台。
             </p>
           </div>
         </div>
@@ -55,7 +55,7 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
               disabled={props.isRunWorkerOncePending}
               className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3.5 py-2 text-sm font-medium text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
             >
-              {props.isRunWorkerOncePending ? "Running..." : "Run Worker Once"}
+              {props.isRunWorkerOncePending ? "执行中..." : "执行 Worker 一次"}
             </button>
             <button
               type="button"
@@ -63,26 +63,26 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
               disabled={props.isRunWorkerPoolOncePending}
               className="rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-3.5 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
             >
-              {props.isRunWorkerPoolOncePending ? "Pool running..." : "Run Worker Pool"}
+              {props.isRunWorkerPoolOncePending ? "Worker 池运行中..." : "执行 Worker Pool"}
             </button>
             <button
               type="button"
               onClick={props.onRefresh}
               className="rounded-xl border border-slate-700 bg-slate-900/80 px-3.5 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
             >
-              Refresh
+              刷新
             </button>
           </div>
 
           <dl className="grid gap-2 text-xs text-slate-500 sm:grid-cols-3 xl:text-right">
-            <HeaderMeta label="Service" value={props.backendService ?? "orchestrator-backend"} />
-            <HeaderMeta label="Updated" value={props.lastUpdatedText} />
+            <HeaderMeta label="服务" value={props.backendService ?? "orchestrator-backend"} />
+            <HeaderMeta label="更新时间" value={props.lastUpdatedText} />
             <HeaderMeta
-              label="Last event"
+              label="最近事件"
               value={
                 props.realtimeLastEventType
                   ? `${props.realtimeLastEventType} @ ${formatDateTime(props.realtimeLastEventAt)}`
-                  : "No events yet"
+                  : "暂无事件"
               }
             />
           </dl>
@@ -117,12 +117,12 @@ function mapRealtimeTone(status: string) {
 function mapRealtimeLabel(status: string) {
   switch (status) {
     case "open":
-      return "Realtime connected";
+      return "实时连接已建立";
     case "reconnecting":
-      return "Realtime reconnecting";
+      return "实时重连中";
     case "unsupported":
-      return "SSE unavailable";
+      return "SSE 不可用";
     default:
-      return "Realtime connecting";
+      return "实时连接中";
   }
 }

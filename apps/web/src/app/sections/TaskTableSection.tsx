@@ -42,28 +42,29 @@ export function TaskTableSection(props: TaskTableSectionProps) {
 
   const pageStart = props.tasks.length ? (currentPage - 1) * TASKS_PER_PAGE + 1 : 0;
   const pageEnd = Math.min(currentPage * TASKS_PER_PAGE, props.tasks.length);
+  const emptyRowCount = Math.max(0, TASKS_PER_PAGE - pagedTasks.length);
 
   return (
     <section
       data-testid="home-task-table-section"
-      className="rounded-[24px] border border-slate-800/90 bg-slate-950/65 p-3 shadow-xl shadow-black/20 ring-1 ring-white/[0.025] sm:p-4"
+      className="rounded-[24px] border border-slate-800/90 bg-slate-950/70 p-3 shadow-xl shadow-black/20 ring-1 ring-white/[0.025] sm:p-4"
     >
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-slate-50">Task list</h2>
+          <h2 className="text-base font-semibold text-slate-50">任务列表</h2>
           <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-            紧凑队列视图：每页 5 条任务，可选择任务、打开详情、查看运行或 Drill-down。
+            紧凑队列视图：每页 5 条任务，可选择任务、打开详情、查看运行或钻取项目。
           </p>
         </div>
         <StatusBadge
-          label={props.overviewIsLoading ? "Loading" : props.overviewIsError ? "Load failed" : "Ready"}
+          label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "已就绪"}
           tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "success"}
         />
       </div>
 
       {props.overviewIsError ? (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
-          Unable to load workbench data. Confirm the backend is running and GET /tasks/console is reachable.
+          工作台数据加载失败。请确认后端服务已启动，并且 GET /tasks/console 可访问。
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-950/30">
@@ -79,12 +80,12 @@ export function TaskTableSection(props: TaskTableSectionProps) {
               </colgroup>
               <thead className="bg-slate-950/80 text-left text-xs uppercase tracking-[0.16em] text-slate-500">
                 <tr>
-                  <th className="px-3 py-2.5 font-medium">Task</th>
-                  <th className="px-3 py-2.5 font-medium">Status</th>
-                  <th className="px-3 py-2.5 font-medium">Latest run</th>
-                  <th className="px-3 py-2.5 font-medium">Cost</th>
-                  <th className="px-3 py-2.5 font-medium">Updated</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Actions</th>
+                  <th className="px-3 py-2.5 font-medium">任务</th>
+                  <th className="px-3 py-2.5 font-medium">状态</th>
+                  <th className="px-3 py-2.5 font-medium">最近运行</th>
+                  <th className="px-3 py-2.5 font-medium">费用</th>
+                  <th className="px-3 py-2.5 font-medium">更新</th>
+                  <th className="px-3 py-2.5 text-right font-medium">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/70 bg-slate-950/35">
@@ -96,7 +97,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                       <tr
                         key={task.id}
                         data-testid={`home-task-row-${task.id}`}
-                        className={`align-middle transition ${
+                        className={`h-[74px] align-middle transition ${
                           isSelected
                             ? "bg-slate-900/75 shadow-[inset_3px_0_0_rgba(34,211,238,0.55)]"
                             : "hover:bg-slate-900/45"
@@ -119,7 +120,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                                     : "bg-slate-800/80 text-slate-400"
                                 }`}
                               >
-                                {isSelected ? "Selected" : "Select"}
+                                {isSelected ? "已选" : "选择"}
                               </span>
                             </div>
                             <button
@@ -132,14 +133,14 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                           </div>
                         </td>
                         <td className="px-3 py-2.5">
-                          <StatusBadge label={task.status} tone={mapTaskStatusTone(task.status)} />
+                          <StatusBadge label={formatTaskStatusLabel(task.status)} tone={mapTaskStatusTone(task.status)} />
                         </td>
                         <td className="px-3 py-2.5">
                           {task.latest_run ? (
                             <div className="min-w-0 space-y-1">
                               <div className="flex min-w-0 items-center gap-2">
                                 <StatusBadge
-                                  label={task.latest_run.status}
+                                  label={formatRunStatusLabel(task.latest_run.status)}
                                   tone={mapRunStatusTone(task.latest_run.status)}
                                 />
                                 <span className="truncate text-xs text-slate-500">
@@ -151,14 +152,14 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                               </div>
                             </div>
                           ) : (
-                            <span className="text-xs text-slate-500">No runs yet</span>
+                            <span className="text-xs text-slate-500">暂无运行</span>
                           )}
                         </td>
                         <td
                           data-testid={`home-task-estimated-cost-${task.id}`}
                           className="truncate px-3 py-2.5 text-slate-200"
                         >
-                          {task.latest_run ? formatNullableCurrencyUsd(task.latest_run.estimated_cost) : "n/a"}
+                          {task.latest_run ? formatNullableCurrencyUsd(task.latest_run.estimated_cost) : "-"}
                         </td>
                         <td className="truncate px-3 py-2.5 text-xs text-slate-500">
                           {formatDateTime(task.updated_at)}
@@ -175,7 +176,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                                 }
                                 className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100"
                               >
-                                Task detail
+                                任务
                               </button>
                             ) : null}
                             {task.latest_run?.id && props.onNavigateToRun ? (
@@ -188,7 +189,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                                 }
                                 className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100"
                               >
-                                Run detail
+                                运行
                               </button>
                             ) : null}
                             {task.latest_run ? (
@@ -204,14 +205,14 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                                 }
                                 className="rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-100 transition hover:bg-cyan-500/15"
                               >
-                                Drill-down
+                                钻取
                               </button>
                             ) : null}
                           </div>
                           <details className="group mt-1">
                             <summary className="flex cursor-pointer list-none justify-end">
                               <span className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100 group-open:border-cyan-400/30 group-open:text-cyan-100">
-                                More
+                                更多
                               </span>
                             </summary>
                             <div className="mt-2 rounded-2xl border border-slate-700/90 bg-slate-950 p-3 text-left shadow-2xl shadow-black/40">
@@ -230,10 +231,23 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                 ) : (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-sm text-slate-500">
-                      No tasks yet. Create tasks in the backend, then return here to inspect status, cost, logs, and context.
+                      暂无任务。后端创建任务后，可在这里查看状态、费用、日志与上下文。
                     </td>
                   </tr>
                 )}
+                {props.tasks.length
+                  ? Array.from({ length: emptyRowCount }).map((_, index) => (
+                      <tr
+                        key={`empty-row-${index}`}
+                        aria-hidden="true"
+                        className="h-[74px] bg-slate-950/20"
+                      >
+                        <td colSpan={6} className="px-3 py-2.5">
+                          <div className="h-px w-full bg-slate-900/60" />
+                        </td>
+                      </tr>
+                    ))
+                  : null}
               </tbody>
             </table>
           </div>
@@ -270,13 +284,40 @@ export function TaskTableSection(props: TaskTableSectionProps) {
   );
 }
 
+function formatTaskStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "待处理",
+    running: "运行中",
+    completed: "已完成",
+    failed: "失败",
+    blocked: "已阻断",
+    paused: "已暂停",
+    waiting_human: "等待人工",
+  };
+
+  return labels[status] ?? status;
+}
+
+function formatRunStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    queued: "排队中",
+    running: "运行中",
+    succeeded: "成功",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+  };
+
+  return labels[status] ?? status;
+}
+
 function buildRunMicroSummary(run: NonNullable<ConsoleTask["latest_run"]>) {
   const gate =
     run.quality_gate_passed === true
-      ? "gate passed"
+      ? "质检通过"
       : run.quality_gate_passed === false
-        ? "gate blocked"
-        : "gate unknown";
+        ? "质检阻断"
+        : "质检未知";
   const failure = run.failure_category ? ` · ${run.failure_category}` : "";
   return `${gate}${failure}`;
 }
@@ -309,7 +350,7 @@ function TaskRowActionPanel(props: {
             onClick={() => props.onNavigateToTask?.(props.task.id)}
             className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100"
           >
-            Task detail
+            任务
           </button>
         ) : null}
         {latestRun && props.onNavigateToTask ? (
@@ -322,7 +363,7 @@ function TaskRowActionPanel(props: {
             }
             className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100"
           >
-            Task + run
+            任务+运行
           </button>
         ) : null}
         {latestRun?.id && props.onNavigateToRun ? (
@@ -331,7 +372,7 @@ function TaskRowActionPanel(props: {
             onClick={() => props.onNavigateToRun?.(latestRun.id, props.task.id)}
             className="rounded-lg border border-slate-700/80 bg-slate-900/70 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-cyan-400/30 hover:text-cyan-100"
           >
-            Run detail
+            运行
           </button>
         ) : null}
         {latestRun ? (
@@ -346,7 +387,7 @@ function TaskRowActionPanel(props: {
             }
             className="rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-500/15"
           >
-            Drill-down
+            钻取
           </button>
         ) : null}
       </div>
@@ -355,7 +396,7 @@ function TaskRowActionPanel(props: {
         <div className="space-y-2">
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-2 text-xs leading-5 text-slate-400">
             <div className="line-clamp-2">
-              {latestRun.result_summary ?? "No run summary"}
+              {latestRun.result_summary ?? "暂无运行摘要"}
             </div>
             {latestRun.log_path ? (
               <code className="mt-1 block truncate text-cyan-200/80">{latestRun.log_path}</code>
@@ -402,7 +443,7 @@ function TaskLatestRunRuntimeSummary(props: {
       className="group rounded-xl border border-slate-800/80 bg-slate-950/60 px-3 py-2 text-xs text-slate-400"
     >
       <summary className="cursor-pointer list-none text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500 transition group-open:text-cyan-300">
-        Runtime context
+        运行上下文
       </summary>
       <div className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
         {runtimeFields.map((field) => (
@@ -421,12 +462,12 @@ function TaskLatestRunRuntimeSummary(props: {
           className="mt-3 border-t border-slate-800 pt-3"
         >
           <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-300">
-            Role Model Policy Runtime
+            角色模型策略运行时
           </div>
           <div className="mt-2">
             <ContractLine
               testId={`home-task-policy-field-${props.taskId}-contract-source`}
-              label="role policy"
+              label="角色策略"
               value={runtimeContractInput.roleModelPolicySource ?? "-"}
             />
           </div>
@@ -449,13 +490,13 @@ function TaskLatestRunRuntimeSummary(props: {
 function toDay07RuntimeLabel(label: string) {
   const normalized = label.trim().toLowerCase();
   if (normalized === "provider") {
-    return "provider";
+    return "提供商";
   }
   if (normalized.startsWith("prompt")) {
-    return "prompt";
+    return "提示词";
   }
   if (normalized.includes("accounting")) {
-    return "accounting";
+    return "计费";
   }
   return label;
 }

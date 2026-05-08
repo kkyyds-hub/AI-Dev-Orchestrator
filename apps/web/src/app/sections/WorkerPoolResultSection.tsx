@@ -23,16 +23,16 @@ export function WorkerPoolResultSection(props: WorkerPoolResultSectionProps) {
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-slate-50">Latest Worker Pool run</h2>
+          <h2 className="text-sm font-semibold text-slate-50">最近一次 Worker 池执行</h2>
           <p className={`mt-1 text-sm ${props.isError ? "text-rose-100" : "text-slate-300"}`}>
             {props.isError
               ? props.errorMessage
-              : `Requested ${props.data?.requested_workers} slots, launched ${props.data?.launched_workers} workers, claimed ${props.data?.claimed_runs} tasks.`}
+              : `请求 ${props.data?.requested_workers} 个槽位，启动 ${props.data?.launched_workers} 个 Worker，领取 ${props.data?.claimed_runs} 个任务。`}
           </p>
         </div>
         {!props.isError && props.data ? (
           <StatusBadge
-            label={`${props.data.slot_snapshot.running_slots} slots running`}
+            label={`${props.data.slot_snapshot.running_slots} 个槽位运行中`}
             tone="info"
           />
         ) : null}

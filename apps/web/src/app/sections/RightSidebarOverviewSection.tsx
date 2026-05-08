@@ -65,44 +65,44 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
         className="rounded-2xl border border-slate-800 bg-slate-950/55 p-3"
       >
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-slate-50">Queue snapshot</h2>
+          <h2 className="text-base font-semibold text-slate-50">队列概览</h2>
           <span className="rounded-full border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-xs text-slate-400">
-            {props.runningTasks} running
+            {props.runningTasks} 运行中
           </span>
         </div>
         <div className="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-2 2xl:grid-cols-2">
-          <OverviewRow label="Pending" value={String(props.pendingTasks)} />
-          <OverviewRow label="Completed" value={String(props.completedTasks)} />
-          <OverviewRow label="Failed" value={String(props.failedTasks)} />
-          <OverviewRow label="Blocked" value={String(props.blockedTasks)} />
+          <OverviewRow label="待处理" value={String(props.pendingTasks)} />
+          <OverviewRow label="已完成" value={String(props.completedTasks)} />
+          <OverviewRow label="失败" value={String(props.failedTasks)} />
+          <OverviewRow label="阻断" value={String(props.blockedTasks)} />
         </div>
         <p className="mt-3 truncate text-xs text-slate-500">
-          Cost {formatCurrencyUsd(props.totalEstimatedCost)} · Tokens{" "}
+          费用 {formatCurrencyUsd(props.totalEstimatedCost)} · Token{" "}
           {formatTokenCount(props.totalPromptTokens + props.totalCompletionTokens)}
         </p>
       </div>
 
-      <SidebarDisclosure title="Budget & tokens" summary="Guardrails, prompt tokens, completion tokens">
+      <SidebarDisclosure title="预算与 Token" summary="预算护栏、提示词 Token 与完成 Token">
         <div
           data-testid="home-right-cost-section"
           className="rounded-2xl border border-slate-800 bg-slate-950/55 p-3"
         >
           <div className="space-y-2 text-sm text-slate-300">
             <OverviewRow
-              label="Prompt Tokens"
+              label="提示词 Token"
               value={formatTokenCount(props.totalPromptTokens)}
             />
             <OverviewRow
-              label="Completion Tokens"
+              label="完成 Token"
               value={formatTokenCount(props.totalCompletionTokens)}
             />
             <OverviewRow
-              label="Estimated cost"
+              label="预估费用"
               value={formatCurrencyUsd(props.totalEstimatedCost)}
             />
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-500">
-            Estimated cost is used as a lightweight reference for budget guardrails on the workbench.
+            预估费用用于快速判断工作台预算护栏是否接近风险区间。
           </p>
         </div>
         {props.budget ? (
@@ -110,7 +110,7 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
         ) : null}
       </SidebarDisclosure>
 
-      <SidebarDisclosure title="Decision & review" summary="Review clusters and strategy hints">
+      <SidebarDisclosure title="决策与审查" summary="审查聚类与策略提示">
         <ReviewClustersPanel
           clusters={props.reviewClusters}
           isLoading={props.reviewClustersIsLoading}
@@ -119,7 +119,7 @@ export function RightSidebarOverviewSection(props: RightSidebarOverviewSectionPr
         <DecisionHintPanel />
       </SidebarDisclosure>
 
-      <SidebarDisclosure title="Diagnostics" summary="Console metrics, failures, and worker slots">
+      <SidebarDisclosure title="诊断信息" summary="控制台指标、失败分布与 Worker 槽位">
         <ConsoleMetricsPanel />
         <FailureDistributionPanel />
         <WorkerSlotPanel />
@@ -150,8 +150,8 @@ function SidebarDisclosure(props: {
           <span className="mt-0.5 block text-xs text-slate-500">{props.summary}</span>
         </span>
         <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2 py-1 text-[11px] font-medium text-slate-400 transition group-open:border-cyan-400/30 group-open:text-cyan-200">
-          <span className="group-open:hidden">Open</span>
-          <span className="hidden group-open:inline">Close</span>
+          <span className="group-open:hidden">展开</span>
+          <span className="hidden group-open:inline">收起</span>
         </span>
       </summary>
       <div className="mt-3 space-y-3">{props.children}</div>

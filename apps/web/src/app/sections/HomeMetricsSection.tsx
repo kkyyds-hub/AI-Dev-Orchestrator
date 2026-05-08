@@ -20,32 +20,32 @@ export function HomeMetricsSection(props: HomeMetricsSectionProps) {
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       <MetricCard
-        label="Total tasks"
+        label="任务总数"
         value={String(props.totalTasks)}
-        hint="All tasks tracked by the workbench"
+        hint="工作台当前追踪的全部任务"
       />
       <MetricCard
-        label="Running / Pending"
+        label="运行 / 待处理"
         value={`${props.runningTasks} / ${props.pendingTasks}`}
-        hint="Worker load and queued work"
+        hint="Worker 负载与排队任务"
         tone="info"
       />
       <MetricCard
-        label="Paused / Human"
+        label="暂停 / 人工"
         value={`${props.pausedTasks} / ${props.waitingHumanTasks}`}
-        hint="States that need operator attention"
+        hint="需要操作员关注的状态"
         tone="warning"
       />
       <MetricCard
-        label="Done / Failed"
+        label="完成 / 失败"
         value={`${props.completedTasks} / ${props.failedTasks}`}
-        hint="Task closure quality"
+        hint="任务收口质量"
         tone="success"
       />
       <MetricCard
-        label="Estimated cost"
+        label="预估费用"
         value={formatCurrencyUsd(props.totalEstimatedCost)}
-        hint={`Total tokens: ${formatTokenCount(totalTokens)}`}
+        hint={`总 Token：${formatTokenCount(totalTokens)}`}
         tone="warning"
       />
     </section>
