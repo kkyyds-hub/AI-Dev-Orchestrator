@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useReviewClusters } from "../../features/console-metrics/decision-hooks";
 import { useBackendHealth, useConsoleOverview } from "../../features/console/hooks";
 import type { ConsoleTask } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
@@ -41,12 +40,12 @@ export function WorkbenchPage() {
   const overviewQuery = useConsoleOverview({
     enablePollingFallback: realtime.status !== "open",
   });
-  const reviewClustersQuery = useReviewClusters();
   const healthQuery = useBackendHealth();
   const runWorkerOnceMutation = useRunWorkerOnce();
   const runWorkerPoolOnceMutation = useRunWorkerPoolOnce();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [requestedRunId, setRequestedRunId] = useState<string | null>(null);
+  const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
 
   const tasks = overviewQuery.data?.tasks ?? [];
 
@@ -54,6 +53,9 @@ export function WorkbenchPage() {
     if (!tasks.length) {
       if (selectedTaskId !== null) {
         setSelectedTaskId(null);
+      }
+      if (isTaskDetailOpen) {
+        setIsTaskDetailOpen(false);
       }
       return;
     }
@@ -63,7 +65,7 @@ export function WorkbenchPage() {
       setSelectedTaskId(tasks[0].id);
       setRequestedRunId(null);
     }
-  }, [tasks, selectedTaskId]);
+  }, [isTaskDetailOpen, tasks, selectedTaskId]);
 
   const selectedTask = useMemo<ConsoleTask | null>(
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -131,86 +133,72 @@ export function WorkbenchPage() {
           totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
         />
 
-        <div className="grid min-h-0 gap-3 2xl:grid-cols-[minmax(980px,1fr)_420px]">
-          <div className="min-w-0 space-y-3">
-            <TaskTableSection
-              tasks={tasks}
-              selectedTaskId={selectedTaskId}
-              overviewIsLoading={overviewQuery.isLoading}
-              overviewIsError={overviewQuery.isError}
-              onSelectTask={(taskId) => {
-                setSelectedTaskId(taskId);
-                setRequestedRunId(null);
-              }}
-              onNavigateToTask={(taskId, options) => {
-                navigate(
-                  buildTaskRoute({
-                    taskId,
-                    runId: options?.runId ?? null,
-                    from: "workbench",
-                  }),
-                );
-              }}
-              onNavigateToRun={(runId, taskId) => {
-                navigate(
-                  buildRunRoute({
-                    runId,
-                    taskId,
-                    from: "workbench",
-                  }),
-                );
-              }}
-              onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-            />
+        <div className="min-w-0 space-y-3">
+          <TaskTableSection
+            tasks={tasks}
+            selectedTaskId={selectedTaskId}
+            overviewIsLoading={overviewQuery.isLoading}
+            overviewIsError={overviewQuery.isError}
+            onSelectTask={(taskId) => {
+              setSelectedTaskId(taskId);
+              setRequestedRunId(null);
+              setIsTaskDetailOpen(true);
+            }}
+            onNavigateToTask={(taskId, options) => {
+              navigate(
+                buildTaskRoute({
+                  taskId,
+                  runId: options?.runId ?? null,
+                  from: "workbench",
+                }),
+              );
+            }}
+            onNavigateToRun={(runId, taskId) => {
+              navigate(
+                buildRunRoute({
+                  runId,
+                  taskId,
+                  from: "workbench",
+                }),
+              );
+            }}
+            onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+          />
 
-            <ManualRunResultSection
-              data={runWorkerOnceMutation.data}
-              isError={runWorkerOnceMutation.isError}
-              errorMessage={runWorkerOnceMutation.isError ? runWorkerOnceMutation.error.message : null}
-              onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-            />
+          <ManualRunResultSection
+            data={runWorkerOnceMutation.data}
+            isError={runWorkerOnceMutation.isError}
+            errorMessage={runWorkerOnceMutation.isError ? runWorkerOnceMutation.error.message : null}
+            onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+          />
 
-            <WorkerPoolResultSection
-              data={runWorkerPoolOnceMutation.data}
-              isError={runWorkerPoolOnceMutation.isError}
-              errorMessage={runWorkerPoolOnceMutation.isError ? runWorkerPoolOnceMutation.error.message : null}
-            />
-          </div>
-
-          <div className="min-w-0 2xl:min-w-[420px]">
-            <RightSidebarOverviewSection
-              requestedRunId={requestedRunId}
-              selectedTask={selectedTask}
-              budget={overviewQuery.data?.budget ?? null}
-              blockedTasks={overviewQuery.data?.blocked_tasks ?? 0}
-              realtimeStatus={realtime.status}
-              onNavigateToRun={(runId, taskId) =>
-                navigate(
-                  buildRunRoute({
-                    runId,
-                    taskId,
-                    from: "workbench",
-                  }),
-                )
-              }
-              onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-              onNavigateToDeliverable={handleNavigateToDeliverable}
-              reviewClusters={reviewClustersQuery.data ?? []}
-              reviewClustersIsLoading={reviewClustersQuery.isLoading && !reviewClustersQuery.data}
-              reviewClustersErrorMessage={
-                reviewClustersQuery.isError ? reviewClustersQuery.error.message : null
-              }
-              pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
-              runningTasks={overviewQuery.data?.running_tasks ?? 0}
-              completedTasks={overviewQuery.data?.completed_tasks ?? 0}
-              failedTasks={overviewQuery.data?.failed_tasks ?? 0}
-              totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
-              totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
-              totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
-            />
-          </div>
+          <WorkerPoolResultSection
+            data={runWorkerPoolOnceMutation.data}
+            isError={runWorkerPoolOnceMutation.isError}
+            errorMessage={runWorkerPoolOnceMutation.isError ? runWorkerPoolOnceMutation.error.message : null}
+          />
         </div>
       </div>
+
+      <RightSidebarOverviewSection
+        isOpen={isTaskDetailOpen}
+        onClose={() => setIsTaskDetailOpen(false)}
+        requestedRunId={requestedRunId}
+        selectedTask={selectedTask}
+        budget={overviewQuery.data?.budget ?? null}
+        realtimeStatus={realtime.status}
+        onNavigateToRun={(runId, taskId) =>
+          navigate(
+            buildRunRoute({
+              runId,
+              taskId,
+              from: "workbench",
+            }),
+          )
+        }
+        onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+        onNavigateToDeliverable={handleNavigateToDeliverable}
+      />
     </div>
   );
 }
