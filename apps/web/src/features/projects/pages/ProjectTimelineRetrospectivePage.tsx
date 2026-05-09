@@ -20,12 +20,13 @@ export function ProjectTimelineRetrospectivePage(
       className="space-y-4"
     >
       <ProjectSubviewTabs
-        ariaLabel="项目时间线视图"
+        ariaLabel="Project timeline views"
         defaultTabId="timeline"
+        variant="inline"
         items={[
           {
             id: "timeline",
-            label: "时间线",
+            label: "Events",
             panelId: "project-timeline-panel",
             content: (
               <ProjectTimelinePage
@@ -39,7 +40,7 @@ export function ProjectTimelineRetrospectivePage(
           },
           {
             id: "retrospective",
-            label: "复盘",
+            label: "Retrospective",
             panelId: "project-retrospective-panel",
             content: (
               <ProjectRetrospectivePanel

@@ -11,6 +11,7 @@ type ProjectSubviewTabsProps<TTabId extends string> = {
   ariaLabel: string;
   defaultTabId: TTabId;
   items: readonly ProjectSubviewTabItem<TTabId>[];
+  variant?: "default" | "inline";
 };
 
 export function ProjectSubviewTabs<TTabId extends string>(
@@ -57,12 +58,18 @@ export function ProjectSubviewTabs<TTabId extends string>(
     return null;
   }
 
+  const isInline = props.variant === "inline";
+
   return (
-    <div className="space-y-6">
+    <div className={isInline ? "space-y-5" : "space-y-6"}>
       <div
         role="tablist"
         aria-label={props.ariaLabel}
-        className="flex gap-6 overflow-x-auto border-b border-[#333333]"
+        className={
+          isInline
+            ? "flex gap-5 overflow-x-auto text-sm"
+            : "flex gap-6 overflow-x-auto border-b border-[#333333]"
+        }
       >
         {props.items.map((item) => {
           const isActive = item.id === activeItem.id;
@@ -75,11 +82,19 @@ export function ProjectSubviewTabs<TTabId extends string>(
               aria-selected={isActive}
               aria-controls={item.panelId ?? item.id}
               onClick={() => setActiveTabId(item.id)}
-              className={`relative min-w-max pb-3 text-sm font-medium transition ${
-                isActive
-                  ? "text-zinc-50 after:absolute after:bottom-[-1px] after:left-0 after:h-px after:w-full after:bg-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-200"
-              }`}
+              className={
+                isInline
+                  ? `relative min-w-max text-sm font-medium transition ${
+                      isActive
+                        ? "text-zinc-50"
+                        : "text-zinc-500 hover:text-zinc-200"
+                    }`
+                  : `relative min-w-max pb-3 text-sm font-medium transition ${
+                      isActive
+                        ? "text-zinc-50 after:absolute after:bottom-[-1px] after:left-0 after:h-px after:w-full after:bg-zinc-100"
+                        : "text-zinc-500 hover:text-zinc-200"
+                    }`
+              }
             >
               {item.label}
             </button>

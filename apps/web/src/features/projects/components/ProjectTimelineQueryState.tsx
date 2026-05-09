@@ -1,15 +1,15 @@
 export function ProjectTimelineLoadingState() {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-8 text-center text-sm text-slate-400">
-      正在汇总项目时间线…
+    <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
+      Loading project events...
     </div>
   );
 }
 
 export function ProjectTimelineErrorState(props: { message: string }) {
   return (
-    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-8 text-center text-sm text-rose-100">
-      项目时间线加载失败：{props.message}
+    <div className="border-l-2 border-l-rose-400 py-4 pl-4 text-sm text-rose-100">
+      Failed to load project events: {props.message}
     </div>
   );
 }

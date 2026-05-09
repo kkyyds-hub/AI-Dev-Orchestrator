@@ -10,7 +10,7 @@ import {
 } from "../../deliverables/types";
 import { ROLE_CODE_LABELS } from "../../roles/types";
 import type { ProjectTimelineEvent } from "../types";
-import { PROJECT_STAGE_LABELS } from "../types";
+import { PROJECT_STAGE_LABELS, PROJECT_TIMELINE_EVENT_TYPE_LABELS } from "../types";
 
 type ProjectTimelineNavigationProps = {
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
@@ -38,9 +38,17 @@ function isApprovalStatus(value: string): value is ApprovalStatus {
 export function ProjectTimelineEventCard(
   props: ProjectTimelineNavigationProps & {
     projectId: string;
-    event: ProjectTimelineEvent;
+    event: ProjectTimelineEvent | null;
   },
 ) {
+  if (!props.event) {
+    return (
+      <aside className="border border-dashed border-[#3a3a3a] px-5 py-8 text-sm leading-6 text-slate-400">
+        Select an event on the left to inspect details, related objects, and actions.
+      </aside>
+    );
+  }
+
   const event = props.event;
   const typeTone = event.tone ?? "neutral";
   const deliverableType = event.metadata.deliverable_type;
@@ -58,106 +66,147 @@ export function ProjectTimelineEventCard(
   const runId = event.run_id;
   const deliverableId = event.deliverable_id;
   const approvalId = event.approval_id;
+  const metadataEntries = Object.entries(event.metadata).filter(
+    ([, value]) => value !== null && value !== undefined && value !== "",
+  );
 
   return (
-    <article className="px-0 py-4">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge label={event.label} tone={typeTone} />
-            {event.stage ? (
-              <StatusBadge
-                label={PROJECT_STAGE_LABELS[event.stage] ?? event.stage}
-                tone="neutral"
-              />
-            ) : null}
-            {isDeliverableType(deliverableType) ? (
-              <StatusBadge
-                label={DELIVERABLE_TYPE_LABELS[deliverableType]}
-                tone="info"
-              />
-            ) : null}
-            {approvalStatusLabel ? (
-              <StatusBadge label={approvalStatusLabel} tone="neutral" />
-            ) : null}
-          </div>
-
-          <h4 className="mt-3 text-lg font-semibold text-slate-50">
-            {event.title}
-          </h4>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
-            {event.summary}
-          </p>
-
-          <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
-            <span>{formatDateTime(event.occurred_at)}</span>
-            {event.task_title ? <span>任务：{event.task_title}</span> : null}
-            {roleActor ? <span>角色 / 审批人：{roleActor}</span> : null}
-            {event.deliverable_title ? (
-              <span>
-                交付件：{event.deliverable_title}
-                {event.deliverable_version_number
-                  ? ` v${event.deliverable_version_number}`
-                  : ""}
-              </span>
-            ) : null}
-            {event.source_event ? <span>源事件：{event.source_event}</span> : null}
-          </div>
+    <aside className="space-y-5 border-t border-[#333333] pt-5 xl:sticky xl:top-24 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
+      <div className="border-b border-[#333333] pb-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge
+            label={PROJECT_TIMELINE_EVENT_TYPE_LABELS[event.event_type] ?? event.label}
+            tone={typeTone}
+          />
+          {event.stage ? (
+            <StatusBadge
+              label={PROJECT_STAGE_LABELS[event.stage] ?? event.stage}
+              tone="neutral"
+            />
+          ) : null}
+          {isDeliverableType(deliverableType) ? (
+            <StatusBadge label={DELIVERABLE_TYPE_LABELS[deliverableType]} tone="info" />
+          ) : null}
+          {approvalStatusLabel ? <StatusBadge label={approvalStatusLabel} tone="neutral" /> : null}
         </div>
 
-        <div className="flex flex-wrap gap-3 xl:justify-end">
+        <h3 className="mt-4 text-xl font-semibold leading-7 text-slate-50">
+          {event.title}
+        </h3>
+        <p className="mt-3 text-sm leading-6 text-slate-300">{event.summary}</p>
+      </div>
+
+      <section className="space-y-3 border-b border-[#333333] pb-5">
+        <DetailRow label="Time" value={formatDateTime(event.occurred_at)} />
+        {event.task_title ? <DetailRow label="Task" value={event.task_title} /> : null}
+        {roleActor ? <DetailRow label="Actor" value={roleActor} /> : null}
+        {event.deliverable_title ? (
+          <DetailRow
+            label="Deliverable"
+            value={`${event.deliverable_title}${
+              event.deliverable_version_number
+                ? ` - v${event.deliverable_version_number}`
+                : ""
+            }`}
+          />
+        ) : null}
+        {event.source_event ? <DetailRow label="Source" value={event.source_event} /> : null}
+      </section>
+
+      <section className="border-b border-[#333333] pb-5">
+        <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+          Actions
+        </div>
+        <div className="mt-3 flex flex-wrap gap-3">
           {taskId && props.onNavigateToTask ? (
-            <button
-              type="button"
-              onClick={() => props.onNavigateToTask?.(taskId, { runId: null })}
-              className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
-            >
-              查看任务
-            </button>
+            <TimelineActionButton onClick={() => props.onNavigateToTask?.(taskId, { runId: null })}>
+              View task
+            </TimelineActionButton>
           ) : null}
           {taskId && runId && props.onNavigateToTask ? (
-            <button
-              type="button"
+            <TimelineActionButton
               onClick={() =>
                 props.onNavigateToTask?.(taskId, {
                   runId,
                 })
               }
-              className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/20"
             >
-              查看运行
-            </button>
+              View run
+            </TimelineActionButton>
           ) : null}
           {deliverableId && props.onNavigateToDeliverable ? (
-            <button
-              type="button"
+            <TimelineActionButton
               onClick={() =>
                 props.onNavigateToDeliverable?.({
                   projectId: props.projectId,
                   deliverableId,
                 })
               }
-              className="rounded-xl border border-violet-400/30 bg-violet-500/10 px-4 py-2 text-sm text-violet-100 transition hover:bg-violet-500/20"
             >
-              查看交付件
-            </button>
+              View deliverable
+            </TimelineActionButton>
           ) : null}
           {approvalId && props.onNavigateToApproval ? (
-            <button
-              type="button"
+            <TimelineActionButton
               onClick={() =>
                 props.onNavigateToApproval?.({
                   projectId: props.projectId,
                   approvalId,
                 })
               }
-              className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100 transition hover:bg-amber-500/20"
             >
-              查看审批
-            </button>
+              View approval
+            </TimelineActionButton>
+          ) : null}
+          {!taskId && !deliverableId && !approvalId ? (
+            <span className="text-sm text-slate-500">No linked object for this event.</span>
           ) : null}
         </div>
-      </div>
-    </article>
+      </section>
+
+      {metadataEntries.length > 0 ? (
+        <section>
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+            Metadata
+          </div>
+          <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
+            {metadataEntries.slice(0, 8).map(([key, value]) => (
+              <DetailRow key={key} label={key} value={formatMetadataValue(value)} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </aside>
   );
+}
+
+function DetailRow(props: { label: string; value: string }) {
+  return (
+    <div className="grid gap-2 text-sm sm:grid-cols-[92px_minmax(0,1fr)]">
+      <div className="text-xs uppercase tracking-[0.14em] text-slate-500">{props.label}</div>
+      <div className="min-w-0 break-words text-slate-300">{props.value}</div>
+    </div>
+  );
+}
+
+function TimelineActionButton(props: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className="rounded border border-[#4a4a4a] bg-transparent px-3 py-2 text-xs font-medium text-zinc-100 transition hover:bg-[#292929]"
+    >
+      {props.children}
+    </button>
+  );
+}
+
+function formatMetadataValue(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
 }
