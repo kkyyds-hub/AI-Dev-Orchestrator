@@ -8,13 +8,13 @@ export function CostDashboardQueryState(props: CostDashboardQueryStateProps) {
   return (
     <>
       {props.isLoading ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-6 text-sm text-slate-400">
-          正在加载 Day14 成本聚合...
+        <div className="rounded-lg border border-slate-800 bg-slate-900/35 px-4 py-3 text-sm text-slate-400">
+          正在加载成本聚合数据...
         </div>
       ) : null}
 
       {props.isError ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-6 text-sm text-rose-100">
+        <div className="rounded-lg border border-rose-900/60 bg-rose-950/20 px-4 py-3 text-sm text-rose-200">
           成本聚合加载失败：{props.errorMessage}
         </div>
       ) : null}

@@ -1,3 +1,4 @@
+import { formatTokenCount } from "../../../lib/format";
 import type { ProjectCostDashboardSnapshot } from "../types";
 import { formatUsd } from "./costDashboardFormat";
 
@@ -5,69 +6,88 @@ type CostDashboardModeCacheGridProps = {
   snapshot: ProjectCostDashboardSnapshot;
 };
 
-export function CostDashboardModeCacheGrid(props: CostDashboardModeCacheGridProps) {
+export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridProps) {
+  const { mode_breakdown: modeBreakdown } = props.snapshot;
+
   return (
-    <section className="grid gap-4 xl:grid-cols-2">
-      <CostDashboardModeBreakdown snapshot={props.snapshot} />
-      <CostDashboardCacheSummary snapshot={props.snapshot} />
+    <section className="rounded-xl border border-slate-800 bg-slate-900/35 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-100">成本来源</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            按计费模式汇总运行成本、提示词令牌与补全令牌，便于判断主要成本来源。
+          </p>
+        </div>
+        <div className="text-xs text-slate-500">任务 {props.snapshot.task_count_with_runs}/{props.snapshot.task_count}</div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-full text-left text-xs text-slate-300">
+          <thead className="border-b border-slate-800 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+            <tr>
+              <th className="px-3 py-2 font-medium">计费模式</th>
+              <th className="px-3 py-2 text-right font-medium">运行次数</th>
+              <th className="px-3 py-2 text-right font-medium">成本</th>
+              <th className="px-3 py-2 text-right font-medium">提示词令牌</th>
+              <th className="px-3 py-2 text-right font-medium">补全令牌</th>
+              <th className="px-3 py-2 text-right font-medium">总令牌</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/80">
+            {modeBreakdown.map((item) => (
+              <tr key={item.mode} className="hover:bg-slate-800/25">
+                <td className="px-3 py-2 font-medium text-slate-100">{item.mode || "未标记"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatTokenCount(item.run_count)}</td>
+                <td className="px-3 py-2 text-right font-medium tabular-nums text-slate-100">
+                  {formatUsd(item.total_estimated_cost_usd)}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatTokenCount(item.prompt_tokens)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {formatTokenCount(item.completion_tokens)}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatTokenCount(item.total_tokens)}</td>
+              </tr>
+            ))}
+            {modeBreakdown.length === 0 ? (
+              <tr>
+                <td className="px-3 py-5 text-center text-slate-500" colSpan={6}>
+                  当前项目还没有可汇总的运行成本来源。
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
 
-function CostDashboardModeBreakdown(props: CostDashboardModeCacheGridProps) {
-  const { mode_breakdown: modeBreakdown } = props.snapshot;
-
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 className="text-sm font-semibold text-slate-100">令牌计费模式聚合</h3>
-      <div className="mt-3 space-y-2 text-sm">
-        {modeBreakdown.map((item) => (
-          <div
-            key={item.mode}
-            className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-slate-300"
-          >
-            <div className="font-medium text-slate-100">{item.mode}</div>
-            <div className="mt-1 text-xs text-slate-400">
-              运行={item.run_count} | 成本={formatUsd(item.total_estimated_cost_usd)} |
-              令牌={item.total_tokens}
-            </div>
-          </div>
-        ))}
-        {modeBreakdown.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-700 px-3 py-4 text-xs text-slate-500">
-            当前项目还没有可聚合的运行数据。
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function CostDashboardCacheSummary(props: CostDashboardModeCacheGridProps) {
+export function CostDashboardCacheSummaryPanel(props: CostDashboardModeCacheGridProps) {
   const { cache_summary: cacheSummary } = props.snapshot;
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 className="text-sm font-semibold text-slate-100">缓存（memory）聚合信号</h3>
-      <p className="mt-2 text-xs text-slate-400">{cacheSummary.cache_signal_note}</p>
-      <div className="mt-2 text-sm text-slate-300">
-        记忆总数={cacheSummary.total_memories}
-      </div>
-      <div className="mt-3 space-y-2 text-xs text-slate-300">
+    <section className="rounded-xl border border-slate-800 bg-slate-950/25 p-4 text-sm text-slate-400">
+      <h3 className="text-sm font-semibold text-slate-200">缓存信号</h3>
+      <p className="mt-2 text-xs leading-5 text-slate-500">{cacheSummary.cache_signal_note}</p>
+
+      <dl className="mt-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-xs text-slate-500">记忆总数</dt>
+          <dd className="font-medium tabular-nums text-slate-200">
+            {formatTokenCount(cacheSummary.total_memories)}
+          </dd>
+        </div>
         {cacheSummary.memory_type_counts.map((item) => (
-          <div
-            key={item.memory_type}
-            className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-          >
-            {item.memory_type}: {item.count}
+          <div key={item.memory_type} className="flex items-center justify-between gap-3">
+            <dt className="truncate text-xs text-slate-500">{item.memory_type}</dt>
+            <dd className="font-medium tabular-nums text-slate-300">{formatTokenCount(item.count)}</dd>
           </div>
         ))}
-        {cacheSummary.memory_type_counts.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-700 px-3 py-4 text-slate-500">
-            暂无 memory 统计数据。
-          </div>
-        ) : null}
-      </div>
-    </div>
+      </dl>
+
+      {cacheSummary.memory_type_counts.length === 0 ? (
+        <p className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-500">暂无缓存统计数据。</p>
+      ) : null}
+    </section>
   );
 }
