@@ -16,7 +16,7 @@ type DeliverableVersionCardProps = {
 
 export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+    <article className="px-0 py-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">

@@ -12,7 +12,7 @@ export function ProjectOverviewPage(props: ProjectOverviewPageProps) {
   const { activeView, lastUpdatedText, overviewQuery, selectedProjectId } = controller;
 
   return (
-    <section data-testid="project-overview-page" className="space-y-7">
+    <section data-testid="project-overview-page" className="project-quiet-workspace space-y-7">
       <ProjectOverviewHeroSection
         budgetStrategyLabel={overviewQuery.data?.budget.strategy_label}
         budgetPressureLevel={overviewQuery.data?.budget.pressure_level}

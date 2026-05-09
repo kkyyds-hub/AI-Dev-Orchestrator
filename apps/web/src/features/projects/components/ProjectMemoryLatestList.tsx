@@ -16,7 +16,7 @@ export function ProjectMemoryLatestList(props: {
   }) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold text-slate-50">最新沉淀</h3>
@@ -28,7 +28,7 @@ export function ProjectMemoryLatestList(props: {
       </div>
 
       {props.latestItems.length > 0 ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 divide-y divide-[#333333]">
           {props.latestItems.map((item) => (
             <ProjectMemoryCard
               key={item.memory_id}
@@ -41,7 +41,7 @@ export function ProjectMemoryLatestList(props: {
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-6 text-sm leading-6 text-slate-400">
           当前项目还没有可展示的记忆记录。可先通过运行、审批或交付件版本形成可沉淀证据，再回来刷新本面板。
         </div>
       )}

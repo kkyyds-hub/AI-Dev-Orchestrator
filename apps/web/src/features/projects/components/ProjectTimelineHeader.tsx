@@ -6,15 +6,15 @@ export function ProjectTimelineHeader(props: {
   visibleEventCount: number;
 }) {
   return (
-    <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:flex-row lg:items-end lg:justify-between">
+    <header className="flex flex-col gap-4 border-b border-[#333333] pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
+        <p className="text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
           V4 Day12 Timeline & Rework Closure
         </p>
         <h2 className="text-3xl font-semibold tracking-tight text-slate-50">
           项目时间线与回退重做链路
         </h2>
-        <p className="max-w-3xl text-sm leading-6 text-slate-300">
+        <p className="max-w-3xl text-sm leading-6 text-slate-400">
           以项目为单位汇总计划、验证、审批、失败与重做路径，支持从“时间线事件”反查到 Day12 的回退重做收口视图。
         </p>
       </div>

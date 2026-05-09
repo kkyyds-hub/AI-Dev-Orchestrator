@@ -7,7 +7,7 @@ export function ProjectMemoryOverview(props: {
   counts: ProjectMemoryCount[];
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h3 className="text-lg font-semibold text-slate-50">记忆概览</h3>
@@ -32,7 +32,7 @@ export function ProjectMemoryOverview(props: {
 
 function ProjectMemoryCountCard(props: { item: ProjectMemoryCount }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
         {PROJECT_MEMORY_KIND_LABELS[props.item.memory_type]}
       </div>

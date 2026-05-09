@@ -29,7 +29,7 @@ export function ProjectMemoryCard(props: {
   const approvalId = item.approval_id;
 
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
+    <article className="px-0 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge
@@ -62,7 +62,7 @@ export function ProjectMemoryCard(props: {
       <p className="mt-2 text-sm leading-6 text-slate-300">{item.summary}</p>
 
       {item.detail ? (
-        <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm leading-6 text-slate-300">
+        <div className="mt-3 border-l border-[#333333] px-3 py-2 text-sm leading-6 text-slate-300">
           {item.detail}
         </div>
       ) : null}

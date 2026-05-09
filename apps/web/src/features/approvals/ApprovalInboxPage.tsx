@@ -164,8 +164,9 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
   };
 
   return (
-    <ProjectSubviewTabs
-      ariaLabel="项目审批视图"
+    <div className="project-quiet-workspace">
+      <ProjectSubviewTabs
+        ariaLabel="项目审批视图"
       defaultTabId="approval-inbox"
       items={[
         {
@@ -429,8 +430,9 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
             />
           ),
         },
-      ]}
-    />
+        ]}
+      />
+    </div>
   );
 }
 

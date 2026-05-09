@@ -60,7 +60,7 @@ export function ProjectTimelineEventCard(
   const approvalId = event.approval_id;
 
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+    <article className="px-0 py-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

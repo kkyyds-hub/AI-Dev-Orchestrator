@@ -16,7 +16,7 @@ export function ProjectTimelineEventList(props: {
   }) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold text-slate-50">统一项目时间线</h3>
@@ -28,7 +28,7 @@ export function ProjectTimelineEventList(props: {
       </div>
 
       {props.events.length ? (
-        <div className="mt-5 space-y-4">
+        <div className="mt-5 divide-y divide-[#333333]">
           {props.events.map((event) => (
             <ProjectTimelineEventCard
               key={event.id}
@@ -41,7 +41,7 @@ export function ProjectTimelineEventList(props: {
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 px-4 py-8 text-center text-sm text-slate-400">
+        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
           当前筛选条件下没有匹配的时间线事件。
         </div>
       )}

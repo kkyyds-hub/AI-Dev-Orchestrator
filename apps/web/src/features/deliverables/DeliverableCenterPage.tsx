@@ -33,7 +33,7 @@ export function DeliverableCenterPage(props: DeliverableCenterPageProps) {
     <section
       id="deliverable-center"
       data-testid="deliverable-center-section"
-      className="scroll-mt-24 space-y-7"
+      className="project-quiet-workspace scroll-mt-24 space-y-7"
     >
       <DeliverableCenterHeader
         projectName={props.projectName}

@@ -24,3 +24,91 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Project domain visual governance: quiet neutral workspace, not stacked blue cards. */
+.project-quiet-workspace {
+  --project-line: #333333;
+  --project-muted-line: rgba(63, 63, 70, 0.72);
+  --project-soft-surface: rgba(255, 255, 255, 0.025);
+}
+
+.project-quiet-workspace [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+.project-quiet-workspace [class*="from-slate"],
+.project-quiet-workspace [class*="to-slate"],
+.project-quiet-workspace [class*="via-slate"] {
+  background-image: none !important;
+}
+
+.project-quiet-workspace section[class*="bg-slate-"],
+.project-quiet-workspace article[class*="bg-slate-"],
+.project-quiet-workspace header[class*="bg-slate-"] {
+  background: transparent !important;
+  border-color: var(--project-line) !important;
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
+  border-radius: 0 !important;
+}
+
+.project-quiet-workspace div[class*="rounded-[28px]"][class*="bg-slate-"],
+.project-quiet-workspace section[class*="rounded-[28px]"][class*="bg-slate-"],
+.project-quiet-workspace div[class*="rounded-2xl"][class*="bg-slate-"],
+.project-quiet-workspace article[class*="rounded-2xl"][class*="bg-slate-"],
+.project-quiet-workspace section[class*="rounded-2xl"][class*="bg-slate-"],
+.project-quiet-workspace header[class*="rounded-2xl"][class*="bg-slate-"] {
+  background: transparent !important;
+  border-color: var(--project-line) !important;
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
+  border-radius: 0 !important;
+}
+
+.project-quiet-workspace div[class*="rounded-2xl"][class*="border-dashed"][class*="bg-slate-"],
+.project-quiet-workspace section[class*="rounded-2xl"][class*="border-dashed"][class*="bg-slate-"] {
+  background: var(--project-soft-surface) !important;
+  border-color: var(--project-muted-line) !important;
+  border-radius: 0.375rem !important;
+}
+
+.project-quiet-workspace [class*="border-slate-800"],
+.project-quiet-workspace [class*="border-slate-700"] {
+  border-color: var(--project-line) !important;
+}
+
+.project-quiet-workspace button[class*="rounded-full"] {
+  border-radius: 0 !important;
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
+  background: transparent !important;
+}
+
+.project-quiet-workspace [role="tablist"] button,
+.project-quiet-workspace nav a {
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.project-quiet-workspace input[class*="bg-slate-"],
+.project-quiet-workspace select[class*="bg-slate-"],
+.project-quiet-workspace textarea[class*="bg-slate-"] {
+  background: rgba(18, 18, 18, 0.55) !important;
+  border-color: var(--project-line) !important;
+}
+
+.project-quiet-workspace code[class*="bg-slate-"],
+.project-quiet-workspace pre[class*="bg-slate-"] {
+  background: rgba(18, 18, 18, 0.55) !important;
+  border-color: var(--project-line) !important;
+}
+
+
+.project-quiet-workspace div[class*="rounded-xl"][class*="bg-slate-"],
+.project-quiet-workspace label[class*="rounded-xl"][class*="bg-slate-"] {
+  background: transparent !important;
+  border-color: var(--project-line) !important;
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
+  border-radius: 0 !important;
+}
