@@ -33,7 +33,10 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
           {props.emptyText}
         </p>
       ) : (
-        <ul className="mt-4 space-y-0" data-testid={props.testId}>
+        <ul
+          className="mt-4 max-h-[520px] space-y-0 overflow-y-auto pr-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-700/60"
+          data-testid={props.testId}
+        >
           {props.messages.map((message, index) => (
             <li
               key={message.message_id}
