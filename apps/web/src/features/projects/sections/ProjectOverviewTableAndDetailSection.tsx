@@ -51,7 +51,7 @@ export function ProjectOverviewTableAndDetailSection(
   return (
     <section
       data-testid="project-overview-detail-workspace"
-      className="grid gap-7 xl:grid-cols-[minmax(0,1.68fr)_minmax(360px,0.76fr)]"
+      className="grid gap-7 2xl:grid-cols-[minmax(0,1fr)_minmax(380px,420px)]"
     >
       <ProjectTable
         projects={props.projects}
