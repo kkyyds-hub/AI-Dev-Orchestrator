@@ -19,8 +19,8 @@ export function AgentThreadControlGrid(props: {
   onSelectSession: (sessionId: string) => void;
 }) {
   return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)]">
-      <section className="space-y-4">
+    <section className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(340px,0.86fr)_minmax(0,1.14fr)]">
+      <section className="min-w-0 space-y-5">
         <AgentThreadSessionSelectorPanel
           projectId={props.projectId}
           sessions={props.sessions}
@@ -35,7 +35,7 @@ export function AgentThreadControlGrid(props: {
         />
       </section>
 
-      <section className="space-y-4">
+      <section className="min-w-0 space-y-5">
         {props.timelineErrorMessage ? (
           <AgentThreadTimelineErrorState message={props.timelineErrorMessage} />
         ) : null}
@@ -46,6 +46,7 @@ export function AgentThreadControlGrid(props: {
 
         <AgentTimelineList
           title="消息时间线"
+          description="按序查看当前会话的消息摘要、事件类型和状态流转。"
           testId="agent-thread-timeline-list"
           messages={props.timelineMessages}
           emptyText="当前筛选条件下没有返回时间线消息。"
@@ -53,6 +54,7 @@ export function AgentThreadControlGrid(props: {
 
         <AgentTimelineList
           title="介入动态"
+          description="聚合人工介入与 note-event 相关消息，便于复盘操作结果。"
           testId="agent-thread-intervention-list"
           messages={props.interventionItems}
           emptyText="当前筛选条件下没有返回介入或 note-event 消息。"

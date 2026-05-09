@@ -11,8 +11,8 @@ type AgentSessionListProps = {
 export function AgentSessionList(props: AgentSessionListProps) {
   if (!props.sessions.length) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-5 text-sm text-slate-400">
-        No Day11 agent sessions were returned for this project.
+      <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/55 px-4 py-6 text-sm leading-6 text-slate-400">
+        当前项目暂无智能体会话。
       </div>
     );
   }
@@ -27,27 +27,42 @@ export function AgentSessionList(props: AgentSessionListProps) {
             type="button"
             data-testid={`agent-thread-session-item-${session.session_id}`}
             onClick={() => props.onSelectSession(session.session_id)}
-            className={`w-full rounded-2xl border p-4 text-left transition ${
+            className={`group w-full rounded-2xl border p-4 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-cyan-300/35 ${
               selected
-                ? "border-cyan-400/40 bg-cyan-500/10"
-                : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
+                ? "border-cyan-300/50 bg-cyan-400/10 shadow-cyan-950/20"
+                : "border-slate-800/90 bg-slate-950/45 hover:border-slate-600 hover:bg-slate-900/70"
             }`}
           >
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge label={`session ${session.session_status}`} tone="info" />
-              <StatusBadge label={`review ${session.review_status}`} tone="warning" />
-              <StatusBadge label={`phase ${session.current_phase}`} tone="neutral" />
+              <StatusBadge label={`会话状态 ${session.session_status}`} tone="info" />
+              <StatusBadge label={`评审状态 ${session.review_status}`} tone="warning" />
+              <StatusBadge label={`阶段 ${session.current_phase}`} tone="neutral" />
             </div>
-            <div className="mt-2 text-sm text-slate-100">task: {session.task_id}</div>
-            <div className="mt-1 text-xs text-slate-400">run: {session.run_id}</div>
-            <div className="mt-1 text-xs text-slate-400">
-              started: {formatDateTime(session.started_at)}
+            <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+              <div className="min-w-0">
+                <span className="text-slate-500">任务：</span>
+                <span className="break-all text-slate-200">{session.task_id}</span>
+              </div>
+              <div className="min-w-0">
+                <span className="text-slate-500">运行：</span>
+                <span className="break-all text-slate-300">{session.run_id}</span>
+              </div>
+              <div>
+                <span className="text-slate-500">开始：</span>
+                <span className="text-slate-300">{formatDateTime(session.started_at)}</span>
+              </div>
+              <div>
+                <span className="text-slate-500">上下文：</span>
+                <span className="text-slate-300">
+                  {session.context_rehydrated ? "已恢复" : "未恢复"}
+                </span>
+              </div>
             </div>
-            <div className="mt-1 text-xs text-slate-400">
-              checkpoint: {session.context_checkpoint_id ?? "none"}; rehydrated: {String(session.context_rehydrated)}
+            <div className="mt-2 text-xs text-slate-500">
+              检查点：{session.context_checkpoint_id ?? "无"}
             </div>
             {session.summary ? (
-              <div className="mt-2 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+              <div className="mt-3 rounded-xl border border-slate-800/90 bg-slate-950/65 px-3 py-2 text-xs leading-5 text-slate-300">
                 {session.summary}
               </div>
             ) : null}
