@@ -8,6 +8,28 @@ type AgentSessionListProps = {
   onSelectSession: (sessionId: string) => void;
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  blocked: "已阻塞",
+  completed: "已完成",
+  failed: "失败",
+  finalized: "已归档",
+  in_progress: "进行中",
+  pending: "待处理",
+  review_passed: "评审通过",
+  running: "运行中",
+};
+
+function shortId(value: string | null | undefined) {
+  if (!value) {
+    return "无";
+  }
+  return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
+}
+
+function formatStatusLabel(value: string) {
+  return STATUS_LABELS[value] ?? value;
+}
+
 export function AgentSessionList(props: AgentSessionListProps) {
   if (!props.sessions.length) {
     return (
@@ -27,39 +49,54 @@ export function AgentSessionList(props: AgentSessionListProps) {
             type="button"
             data-testid={`agent-thread-session-item-${session.session_id}`}
             onClick={() => props.onSelectSession(session.session_id)}
-            className={`group w-full px-1 py-4 text-left transition focus:outline-none ${
+            className={`group w-full border-l-2 py-3 pl-3 pr-2 text-left transition focus:outline-none ${
               selected
-                ? "bg-slate-900/35"
-                : "hover:bg-slate-900/20"
+                ? "border-slate-200 bg-slate-900/20"
+                : "border-transparent hover:bg-slate-900/15"
             }`}
           >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-slate-100">
-                    任务 {session.task_id}
+                <div className="text-[11px] text-slate-500">任务</div>
+                <div
+                  className="mt-0.5 truncate font-mono text-sm font-medium text-slate-100"
+                  title={session.task_id}
+                >
+                  {shortId(session.task_id)}
+                </div>
+              </div>
+              {selected ? (
+                <span className="shrink-0 text-xs text-slate-400">当前</span>
+              ) : null}
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <StatusBadge label={formatStatusLabel(session.session_status)} tone="info" />
+              <StatusBadge label={formatStatusLabel(session.review_status)} tone="warning" />
+              <StatusBadge label={formatStatusLabel(session.current_phase)} tone="neutral" />
+            </div>
+
+            <div className="mt-2 space-y-1 text-xs text-slate-500">
+              <div className="flex min-w-0 gap-1.5">
+                <span className="shrink-0">运行：</span>
+                <span className="truncate font-mono" title={session.run_id}>
+                  {shortId(session.run_id)}
+                </span>
+              </div>
+              <div>开始：{formatDateTime(session.started_at)}</div>
+              <div>
+                上下文：{session.context_rehydrated ? "已恢复" : "未恢复"}
+                {session.context_checkpoint_id ? (
+                  <span title={session.context_checkpoint_id}>
+                    {" "}
+                    / 检查点 {shortId(session.context_checkpoint_id)}
                   </span>
-                  {selected ? (
-                    <span className="text-xs text-slate-400">当前会话</span>
-                  ) : null}
-                </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
-                  <span>运行：{session.run_id}</span>
-                  <span>开始：{formatDateTime(session.started_at)}</span>
-                </div>
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <StatusBadge label={session.session_status} tone="info" />
-                <StatusBadge label={session.review_status} tone="warning" />
-                <StatusBadge label={session.current_phase} tone="neutral" />
+                ) : null}
               </div>
             </div>
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
-              <span>上下文：{session.context_rehydrated ? "已恢复" : "未恢复"}</span>
-              <span>检查点：{session.context_checkpoint_id ?? "无"}</span>
-            </div>
+
             {session.summary ? (
-              <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">
+              <p className="mt-2 max-h-10 overflow-hidden text-xs leading-5 text-slate-400">
                 {session.summary}
               </p>
             ) : null}
