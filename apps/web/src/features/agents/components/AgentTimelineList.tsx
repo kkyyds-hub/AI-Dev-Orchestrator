@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import { formatDateTime } from "../../../lib/format";
 import type { AgentTimelineMessage } from "../types";
 
@@ -11,20 +9,9 @@ type AgentTimelineListProps = {
   emptyText: string;
 };
 
-function FieldRow(props: { label: string; value: string | number | null | undefined }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-[#333333] bg-slate-950/35 px-3 py-2">
-      <dt className="text-[11px] text-slate-500">{props.label}</dt>
-      <dd className="mt-1 break-all text-xs text-slate-200">{props.value ?? "无"}</dd>
-    </div>
-  );
-}
-
 export function AgentTimelineList(props: AgentTimelineListProps) {
-  const [detailMessage, setDetailMessage] = useState<AgentTimelineMessage | null>(null);
-
   return (
-    <section className="rounded-2xl border border-[#333333] bg-slate-950/30 p-4">
+    <section className="border-b border-[#333333] pb-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h4 className="text-sm font-medium text-slate-100">
@@ -32,50 +19,63 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
           </h4>
           <p className="mt-2 text-xs leading-5 text-slate-400">{props.description}</p>
         </div>
-        <span className="rounded border border-[#3a3a3a] px-2.5 py-1 text-xs text-slate-400">
+        <span className="text-xs text-slate-500">
           {props.messages.length} 条
         </span>
       </div>
 
       {!props.messages.length ? (
-        <p className="mt-4 rounded-xl border border-dashed border-[#3a3a3a] px-4 py-5 text-sm text-slate-400">
+        <p className="mt-4 border-y border-dashed border-[#333333] px-1 py-5 text-sm text-slate-400">
           {props.emptyText}
         </p>
       ) : (
-        <ul className="mt-4 space-y-3" data-testid={props.testId}>
+        <ul className="mt-3 divide-y divide-[#333333]" data-testid={props.testId}>
           {props.messages.map((message) => (
             <li
               key={message.message_id}
-              className="rounded-xl border border-[#333333] bg-transparent p-3 transition hover:border-slate-600 hover:bg-slate-900/35 sm:p-4"
+              className="py-4"
               data-testid={`${props.testId}-item`}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap gap-2 text-xs text-slate-300">
-                    <span className="rounded border border-[#3a3a3a] px-2 py-1">序号 #{message.sequence_no}</span>
-                    <span className="rounded border border-[#3a3a3a] px-2 py-1">角色 {message.role}</span>
-                    <span className="rounded border border-[#3a3a3a] px-2 py-1">类型 {message.message_type}</span>
-                    <span className="rounded border border-[#3a3a3a] px-2 py-1">事件 {message.event_type}</span>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                    <span>#{message.sequence_no}</span>
+                    <span>角色：{message.role}</span>
+                    <span>类型：{message.message_type}</span>
+                    <span>事件：{message.event_type}</span>
                   </div>
-                  <p className="mt-3 break-words text-sm leading-6 text-slate-100">
+                  <p className="mt-2 break-words text-sm leading-6 text-slate-100">
                     {message.content_summary}
                   </p>
                 </div>
-                <button
-                  type="button"
+              </div>
+              <details className="mt-2 text-xs text-slate-400">
+                <summary
                   data-testid={`${props.testId}-detail-open`}
-                  onClick={() => setDetailMessage(message)}
-                  className="shrink-0 rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30"
+                  className="cursor-pointer select-none text-slate-400 transition hover:text-slate-200"
                 >
                   查看详情
-                </button>
-              </div>
-              {message.content_detail ? (
-                <p className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap rounded-lg border border-[#333333] bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-400">
-                  {message.content_detail}
-                </p>
-              ) : null}
-              <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2 xl:grid-cols-4">
+                </summary>
+                <div
+                  data-testid={`${props.testId}-detail-modal`}
+                  className="mt-2 space-y-3 border-l border-[#333333] pl-3"
+                >
+                  {message.content_detail ? (
+                    <pre className="whitespace-pre-wrap text-xs leading-5 text-slate-300">
+                      {message.content_detail}
+                    </pre>
+                  ) : (
+                    <p className="text-xs leading-5 text-slate-500">暂无详情内容。</p>
+                  )}
+                  <span
+                    data-testid={`${props.testId}-detail-close`}
+                    className="block text-[11px] text-slate-500"
+                  >
+                    再次点击“查看详情”可收起。
+                  </span>
+                </div>
+              </details>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
                 <span>阶段：{message.phase ?? "无"}</span>
                 <span>
                   状态：{message.state_from ?? "无"} → {message.state_to ?? "无"}
@@ -87,72 +87,6 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
           ))}
         </ul>
       )}
-
-      {detailMessage ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={`${props.testId}-detail-title`}
-          data-testid={`${props.testId}-detail-modal`}
-        >
-          <div className="max-h-[86vh] w-full max-w-3xl overflow-auto rounded-2xl border border-[#333333] bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs tracking-[0.18em] text-slate-500">消息详情</p>
-                <h5
-                  id={`${props.testId}-detail-title`}
-                  className="mt-2 text-xl font-semibold text-slate-50"
-                >
-                  {props.title} #{detailMessage.sequence_no}
-                </h5>
-              </div>
-              <button
-                type="button"
-                data-testid={`${props.testId}-detail-close`}
-                onClick={() => setDetailMessage(null)}
-                className="rounded border border-[#4a4a4a] px-3 py-1.5 text-sm text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30"
-              >
-                关闭
-              </button>
-            </div>
-
-            <p className="mt-4 rounded-xl border border-[#333333] bg-slate-900/45 px-4 py-3 text-sm leading-6 text-slate-100">
-              {detailMessage.content_summary}
-            </p>
-            {detailMessage.content_detail ? (
-              <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-[#333333] bg-slate-900/45 px-4 py-3 text-xs leading-5 text-slate-300">
-                {detailMessage.content_detail}
-              </pre>
-            ) : null}
-
-            <dl className="mt-4 grid gap-2 sm:grid-cols-2">
-              <FieldRow label="message_id" value={detailMessage.message_id} />
-              <FieldRow label="session_id" value={detailMessage.session_id} />
-              <FieldRow label="task_id" value={detailMessage.task_id} />
-              <FieldRow label="run_id" value={detailMessage.run_id} />
-              <FieldRow label="role" value={detailMessage.role} />
-              <FieldRow label="message_type" value={detailMessage.message_type} />
-              <FieldRow label="event_type" value={detailMessage.event_type} />
-              <FieldRow label="phase" value={detailMessage.phase} />
-              <FieldRow label="state_from" value={detailMessage.state_from} />
-              <FieldRow label="state_to" value={detailMessage.state_to} />
-              <FieldRow label="intervention_type" value={detailMessage.intervention_type} />
-              <FieldRow label="note_event_type" value={detailMessage.note_event_type} />
-              <FieldRow label="context_checkpoint_id" value={detailMessage.context_checkpoint_id} />
-              <FieldRow
-                label="context_rehydrated"
-                value={
-                  detailMessage.context_rehydrated === null
-                    ? null
-                    : String(detailMessage.context_rehydrated)
-                }
-              />
-              <FieldRow label="created_at" value={formatDateTime(detailMessage.created_at)} />
-            </dl>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

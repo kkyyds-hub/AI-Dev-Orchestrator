@@ -90,7 +90,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
 
   return (
     <section
-      className="rounded-2xl border border-[#333333] bg-slate-950/30 p-4"
+      className="border-b border-[#333333] pb-4"
       data-testid="boss-intervention-entry-panel"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -118,12 +118,8 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
         </div>
       </div>
 
-      <p className="mt-3 rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-xs leading-5 text-slate-400">
-        写入接口 POST /agent-threads/projects/{"{project_id}"}/sessions/{"{session_id}"}/interventions
-      </p>
-
       <div
-        className="mt-3 rounded-xl border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-300"
+        className="mt-3 border-l border-[#333333] pl-3 text-xs leading-5 text-slate-400"
         data-testid="boss-intervention-contract-gap"
       >
         {disabledReason ??
@@ -131,21 +127,16 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
           "会话级介入写入契约已可用。"}
       </div>
 
-      <div
-        className="mt-3 grid gap-2 rounded-xl border border-[#333333] bg-transparent p-3 text-xs text-slate-300 sm:grid-cols-2"
-        data-testid="boss-intervention-entry-summary"
-      >
-        <div className="break-all">project_id：{props.projectId ?? "无"}</div>
-        <div className="break-all">session_id：{props.selectedSession?.session_id ?? "无"}</div>
-        <div>session_status：{props.selectedSession?.session_status ?? "无"}</div>
-        <div>review_status：{props.selectedSession?.review_status ?? "无"}</div>
-        <div>current_phase：{props.selectedSession?.current_phase ?? "无"}</div>
-        <div>latest_intervention_type：{props.selectedSession?.latest_intervention_type ?? "无"}</div>
-        <div>latest_note_event_type：{props.selectedSession?.latest_note_event_type ?? "无"}</div>
-        <div>intervention_feed_items：{props.interventionCount}</div>
-        <div>latest_write_at：{latestWriteAt ? formatDateTime(latestWriteAt) : "无"}</div>
-        <div>server_write_gate：{serverWriteGateHint ?? "writable_or_pending_server_check"}</div>
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+        <span>当前会话：{props.selectedSession?.session_id ?? "无"}</span>
+        <span>介入消息：{props.interventionCount}</span>
+        <span>最近写入：{latestWriteAt ? formatDateTime(latestWriteAt) : "无"}</span>
       </div>
+
+      <details className="mt-4">
+        <summary className="cursor-pointer select-none text-sm font-medium text-slate-200 transition hover:text-slate-50">
+          填写人工介入
+        </summary>
 
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1.5 text-xs text-slate-400">
@@ -221,6 +212,31 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
       >
         {submitMutation.isPending ? "提交中..." : "提交人工介入"}
       </button>
+      </details>
+
+      <details className="mt-3 text-xs text-slate-400">
+        <summary className="cursor-pointer select-none text-slate-500 transition hover:text-slate-300">
+          技术字段
+        </summary>
+        <p className="mt-2 border-l border-[#333333] pl-3 leading-5">
+          写入接口 POST /agent-threads/projects/{"{project_id}"}/sessions/{"{session_id}"}/interventions
+        </p>
+        <div
+          className="mt-2 grid gap-2 border-l border-[#333333] pl-3 text-xs text-slate-400 sm:grid-cols-2"
+          data-testid="boss-intervention-entry-summary"
+        >
+          <div className="break-all">project_id：{props.projectId ?? "无"}</div>
+          <div className="break-all">session_id：{props.selectedSession?.session_id ?? "无"}</div>
+          <div>session_status：{props.selectedSession?.session_status ?? "无"}</div>
+          <div>review_status：{props.selectedSession?.review_status ?? "无"}</div>
+          <div>current_phase：{props.selectedSession?.current_phase ?? "无"}</div>
+          <div>latest_intervention_type：{props.selectedSession?.latest_intervention_type ?? "无"}</div>
+          <div>latest_note_event_type：{props.selectedSession?.latest_note_event_type ?? "无"}</div>
+          <div>intervention_feed_items：{props.interventionCount}</div>
+          <div>latest_write_at：{latestWriteAt ? formatDateTime(latestWriteAt) : "无"}</div>
+          <div>server_write_gate：{serverWriteGateHint ?? "writable_or_pending_server_check"}</div>
+        </div>
+      </details>
 
       {isHelpOpen ? (
         <div
