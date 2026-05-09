@@ -7,7 +7,7 @@ type TeamAssemblyEditorProps = {
 
 export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section id="team-role-settings" className="scroll-mt-24 border-b border-[#333333] pb-5">
       <div>
         <h3 className="text-sm font-semibold text-slate-100">角色分工</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">

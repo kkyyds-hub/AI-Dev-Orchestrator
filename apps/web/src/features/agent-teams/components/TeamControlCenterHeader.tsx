@@ -1,10 +1,7 @@
-import { StatusBadge } from "../../../components/StatusBadge";
-
 export function TeamControlCenterHeader(props: {
   projectLabel: string;
   teamSize: number;
   enabledRoleCount: number;
-  day14FieldCount: number;
   isSaving: boolean;
   canSave: boolean;
   onSave: () => void;
@@ -24,9 +21,9 @@ export function TeamControlCenterHeader(props: {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-          <StatusBadge label={`团队 ${props.teamSize}`} tone="info" />
-          <StatusBadge label={`已启用 ${props.enabledRoleCount}`} tone="success" />
-          <StatusBadge label={`Day14 字段 ${props.day14FieldCount}`} tone="warning" />
+          <span className="text-xs text-slate-500">
+            {props.teamSize} 个角色 · {props.enabledRoleCount} 个启用
+          </span>
           <button
             type="button"
             data-testid="team-control-center-save-btn"

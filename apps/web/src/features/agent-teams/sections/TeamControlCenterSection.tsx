@@ -63,7 +63,7 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
     }
     try {
       await saveMutation.mutateAsync(draft);
-      setFeedback("Day13 团队组装 / 团队策略已保存并回显。");
+      setFeedback("团队配置已保存。");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "保存失败。");
     }
@@ -83,9 +83,6 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
         projectLabel={props.projectName ?? props.projectId}
         teamSize={draft?.assembly.length ?? 0}
         enabledRoleCount={enabledRoleCount}
-        day14FieldCount={
-          snapshotQuery.data?.day14_prerequisites.budget_policy_keys.length ?? 0
-        }
         isSaving={saveMutation.isPending}
         canSave={Boolean(draft)}
         onSave={() => void handleSave()}
@@ -117,7 +114,7 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <dt className="text-slate-500">角色数</dt>
+                    <dt className="text-slate-500">角色</dt>
                     <dd className="mt-1 text-slate-200">{draft.assembly.length}</dd>
                   </div>
                   <div>
@@ -131,8 +128,47 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
                     ${draft.budget_policy.per_run_budget_usd}
                   </dd>
                 </div>
+                <div>
+                  <dt className="text-slate-500">每日预算</dt>
+                  <dd className="mt-1 text-slate-200">
+                    ${draft.budget_policy.daily_budget_usd}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">协作模式</dt>
+                  <dd className="mt-1 text-slate-200">
+                    {draft.team_policy.collaboration_mode || "未设置"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">介入模式</dt>
+                  <dd className="mt-1 text-slate-200">
+                    {draft.team_policy.intervention_mode || "未设置"}
+                  </dd>
+                </div>
               </dl>
             </section>
+
+            <nav className="border-b border-[#333333] pb-4" aria-label="团队配置目录">
+              <h3 className="text-sm font-semibold text-slate-100">配置目录</h3>
+              <div className="mt-3 space-y-2 text-xs">
+                <a className="block text-slate-400 transition hover:text-slate-100" href="#team-basic-settings">
+                  基础信息
+                </a>
+                <a className="block text-slate-400 transition hover:text-slate-100" href="#team-role-settings">
+                  角色分工
+                </a>
+                <a className="block text-slate-400 transition hover:text-slate-100" href="#team-collaboration-settings">
+                  协作策略
+                </a>
+                <a className="block text-slate-400 transition hover:text-slate-100" href="#team-budget-settings">
+                  预算策略
+                </a>
+                <a className="block text-slate-400 transition hover:text-slate-100" href="#team-model-settings">
+                  模型策略
+                </a>
+              </div>
+            </nav>
 
             {snapshotQuery.data ? (
               <TeamControlDay14Prerequisites snapshot={snapshotQuery.data} />
@@ -140,11 +176,11 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
           </aside>
 
           <div className="min-w-0 space-y-7">
-            <section className="border-b border-[#333333] pb-5">
+            <section id="team-basic-settings" className="scroll-mt-24 border-b border-[#333333] pb-5">
               <div>
                 <h3 className="text-sm font-semibold text-slate-100">基础信息</h3>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  这些字段用于识别团队配置，并会随统一保存按钮一起提交。
+                  用于识别团队配置，并随统一保存按钮一起提交。
                 </p>
               </div>
               <div className="mt-4 divide-y divide-[#333333]">

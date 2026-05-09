@@ -15,7 +15,7 @@ type RoleModelPolicyEditorProps = {
 
 export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section id="team-model-settings" className="scroll-mt-24 border-b border-[#333333] pb-5">
       <div>
         <h3 className="text-sm font-semibold text-slate-100">模型策略</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -23,7 +23,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
         </p>
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        保存后会写入 `/strategy/rules`，由 runtime strategy preview 与 worker 路由直接消费。
+        保存后将作为团队执行时的模型选择规则生效。
       </p>
 
       <div className="mt-4 overflow-x-auto">
