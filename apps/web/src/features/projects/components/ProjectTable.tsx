@@ -33,7 +33,7 @@ export function ProjectTable({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Project Workspace
+            项目队列
           </p>
           <h2 className="mt-2 text-lg font-semibold text-zinc-100">
             项目队列

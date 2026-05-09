@@ -44,7 +44,7 @@ export function ProjectTimelineEventCard(
   if (!props.event) {
     return (
       <aside className="border border-dashed border-[#3a3a3a] px-5 py-8 text-sm leading-6 text-slate-400">
-        Select an event on the left to inspect details, related objects, and actions.
+        选择左侧事件后，这里会展示事件详情、相关对象和操作入口。
       </aside>
     );
   }
@@ -97,30 +97,30 @@ export function ProjectTimelineEventCard(
       </div>
 
       <section className="space-y-3 border-b border-[#333333] pb-5">
-        <DetailRow label="Time" value={formatDateTime(event.occurred_at)} />
-        {event.task_title ? <DetailRow label="Task" value={event.task_title} /> : null}
-        {roleActor ? <DetailRow label="Actor" value={roleActor} /> : null}
+        <DetailRow label="发生时间" value={formatDateTime(event.occurred_at)} />
+        {event.task_title ? <DetailRow label="任务" value={event.task_title} /> : null}
+        {roleActor ? <DetailRow label="角色" value={roleActor} /> : null}
         {event.deliverable_title ? (
           <DetailRow
-            label="Deliverable"
+            label="交付物"
             value={`${event.deliverable_title}${
               event.deliverable_version_number
-                ? ` - v${event.deliverable_version_number}`
+                ? ` · v${event.deliverable_version_number}`
                 : ""
             }`}
           />
         ) : null}
-        {event.source_event ? <DetailRow label="Source" value={event.source_event} /> : null}
+        {event.source_event ? <DetailRow label="源事件" value={event.source_event} /> : null}
       </section>
 
       <section className="border-b border-[#333333] pb-5">
         <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-          Actions
+          操作入口
         </div>
         <div className="mt-3 flex flex-wrap gap-3">
           {taskId && props.onNavigateToTask ? (
             <TimelineActionButton onClick={() => props.onNavigateToTask?.(taskId, { runId: null })}>
-              View task
+              查看任务
             </TimelineActionButton>
           ) : null}
           {taskId && runId && props.onNavigateToTask ? (
@@ -131,7 +131,7 @@ export function ProjectTimelineEventCard(
                 })
               }
             >
-              View run
+              查看运行
             </TimelineActionButton>
           ) : null}
           {deliverableId && props.onNavigateToDeliverable ? (
@@ -143,7 +143,7 @@ export function ProjectTimelineEventCard(
                 })
               }
             >
-              View deliverable
+              查看交付物
             </TimelineActionButton>
           ) : null}
           {approvalId && props.onNavigateToApproval ? (
@@ -155,11 +155,11 @@ export function ProjectTimelineEventCard(
                 })
               }
             >
-              View approval
+              查看审批
             </TimelineActionButton>
           ) : null}
           {!taskId && !deliverableId && !approvalId ? (
-            <span className="text-sm text-slate-500">No linked object for this event.</span>
+            <span className="text-sm text-slate-500">当前事件没有可跳转对象。</span>
           ) : null}
         </div>
       </section>
@@ -167,7 +167,7 @@ export function ProjectTimelineEventCard(
       {metadataEntries.length > 0 ? (
         <section>
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-            Metadata
+            事件元数据
           </div>
           <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
             {metadataEntries.slice(0, 8).map(([key, value]) => (

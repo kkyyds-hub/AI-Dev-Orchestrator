@@ -12,10 +12,10 @@ export function ProjectTimelineEventList(props: {
     <section className="min-w-0">
       <div className="flex items-end justify-between gap-3 border-b border-[#333333] pb-3">
         <div>
-          <h3 className="text-sm font-medium text-slate-100">Event stream</h3>
-          <p className="mt-1 text-xs text-slate-500">Select an event to inspect details</p>
+          <h3 className="text-sm font-medium text-slate-100">事件流</h3>
+          <p className="mt-1 text-xs text-slate-500">选择事件后在右侧查看详情</p>
         </div>
-        <span className="text-xs text-slate-500">{props.events.length} events</span>
+        <span className="text-xs text-slate-500">{props.events.length} 条</span>
       </div>
 
       {props.events.length ? (
@@ -31,7 +31,7 @@ export function ProjectTimelineEventList(props: {
         </div>
       ) : (
         <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
-          No events match the current filters.
+          当前筛选条件下没有匹配的时间线事件。
         </div>
       )}
     </section>

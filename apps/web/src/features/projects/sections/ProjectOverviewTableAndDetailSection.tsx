@@ -66,7 +66,7 @@ export function ProjectOverviewTableAndDetailSection(
       >
         <div className="border-b border-[#333333] pb-4">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Selected Project
+            选中项目
           </p>
           <h2 className="mt-2 text-lg font-semibold text-zinc-100">项目摘要</h2>
           <p className="mt-1 text-sm text-zinc-500">
@@ -166,7 +166,7 @@ function CompactProjectDetail(props: {
       {props.project ? (
         <div className="space-y-2 border-t border-[#333333] pt-4">
           <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
-            Progress / Risk
+            进展 / 风险
           </div>
           <p className="text-sm leading-6 text-zinc-400">
             {props.project.latest_progress_summary}
@@ -179,7 +179,7 @@ function CompactProjectDetail(props: {
 
       <div className="space-y-3 border-t border-[#333333] pt-4">
         <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
-          Repository
+          仓库上下文
         </div>
         <div className="space-y-2 text-sm leading-6 text-zinc-400">
           <SummaryRow
@@ -202,7 +202,7 @@ function CompactProjectDetail(props: {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
-                Latest Task
+                最新任务
               </div>
               <div className="mt-2 text-sm font-medium text-zinc-100">
                 {latestTask.title}

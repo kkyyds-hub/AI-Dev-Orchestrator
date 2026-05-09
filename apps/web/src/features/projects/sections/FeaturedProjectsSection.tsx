@@ -23,63 +23,78 @@ export function FeaturedProjectsSection(props: FeaturedProjectsSectionProps) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Focus Queue
+            重点队列
           </p>
           <h2 className="mt-2 text-lg font-semibold text-zinc-100">重点项目</h2>
         </div>
-        <p className="text-xs text-zinc-600">按阻塞风险和最近进展排序</p>
+        <p className="text-xs text-zinc-600">按阻塞、风险和最近进展排序</p>
       </div>
 
-      <div className="divide-y divide-[#333333]">
-        {props.featuredProjects.map((project) => (
-          <button
-            key={project.id}
-            type="button"
-            data-testid={`featured-project-card-${project.id}`}
-            onClick={() => props.onSelectProject(project.id)}
-            className={`w-full py-4 text-left transition first:pt-0 last:pb-0 ${
-              project.id === props.selectedProjectId
-                ? "border-l-2 border-l-zinc-300 pl-4"
-                : "pl-4 hover:border-l-2 hover:border-l-[#555555]"
-            }`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-semibold text-zinc-100">{project.name}</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <StatusBadge
-                    label={PROJECT_STAGE_LABELS[project.stage] ?? project.stage}
-                    tone="info"
-                  />
-                  <StatusBadge
-                    label={PROJECT_STATUS_LABELS[project.status] ?? project.status}
-                    tone={mapProjectStatusTone(project.status)}
-                  />
+      {props.featuredProjects.length === 0 ? (
+        <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-500">
+          暂无需要优先关注的项目。
+        </div>
+      ) : (
+        <div className="divide-y divide-[#333333]">
+          {props.featuredProjects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              data-testid={`featured-project-card-${project.id}`}
+              onClick={() => props.onSelectProject(project.id)}
+              className={`w-full py-4 text-left transition first:pt-0 last:pb-0 ${
+                project.id === props.selectedProjectId
+                  ? "border-l-2 border-l-zinc-300 pl-4"
+                  : "pl-4 hover:border-l-2 hover:border-l-[#555555]"
+              }`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-lg font-semibold text-zinc-100">
+                    {project.name}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <StatusBadge
+                      label={PROJECT_STAGE_LABELS[project.stage] ?? project.stage}
+                      tone="info"
+                    />
+                    <StatusBadge
+                      label={PROJECT_STATUS_LABELS[project.status] ?? project.status}
+                      tone={mapProjectStatusTone(project.status)}
+                    />
+                  </div>
                 </div>
+
+                <StatusBadge
+                  label={PROJECT_RISK_LABELS[project.risk_level] ?? project.risk_level}
+                  tone={mapProjectRiskTone(project.risk_level)}
+                />
               </div>
 
-              <StatusBadge
-                label={PROJECT_RISK_LABELS[project.risk_level] ?? project.risk_level}
-                tone={mapProjectRiskTone(project.risk_level)}
-              />
-            </div>
+              <p className="mt-4 line-clamp-2 text-sm leading-6 text-zinc-400">
+                {project.summary}
+              </p>
+              <p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-300">
+                {project.latest_progress_summary}
+              </p>
+              <p className="mt-3 line-clamp-2 text-xs leading-5 text-zinc-500">
+                {project.key_risk_summary}
+              </p>
 
-            <p className="mt-4 text-sm leading-6 text-zinc-400">{project.summary}</p>
-            <p className="mt-4 text-sm leading-6 text-zinc-300">
-              {project.latest_progress_summary}
-            </p>
-            <p className="mt-3 text-xs leading-6 text-zinc-500">{project.key_risk_summary}</p>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <MiniStat
-                label="任务状态"
-                value={`${project.task_stats.completed_tasks}/${project.task_stats.total_tasks} 完成`}
-              />
-              <MiniStat label="预估成本" value={formatCurrencyUsd(project.estimated_cost)} />
-            </div>
-          </button>
-        ))}
-      </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <MiniStat
+                  label="任务状态"
+                  value={`${project.task_stats.completed_tasks}/${project.task_stats.total_tasks} 完成`}
+                />
+                <MiniStat
+                  label="预估成本"
+                  value={formatCurrencyUsd(project.estimated_cost)}
+                />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

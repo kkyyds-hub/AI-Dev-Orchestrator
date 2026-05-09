@@ -161,7 +161,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Quick Intake
+            快速录入
           </p>
           <h2 className="text-xl font-semibold text-zinc-100">
             创建项目草案

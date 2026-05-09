@@ -22,21 +22,7 @@ export function ProjectSummaryCards({ overview }: ProjectSummaryCardsProps) {
   ).length;
 
   return (
-    <section className="border-b border-[#333333] pb-7">
-      <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Portfolio Snapshot
-          </p>
-          <h2 className="mt-2 text-lg font-semibold text-zinc-100">
-            项目组合态势
-          </h2>
-        </div>
-        <p className="text-xs text-zinc-600">
-          只保留数量、阻塞、阶段和预算四个核心信号。
-        </p>
-      </div>
-
+    <section className="border-b border-[#333333] pb-6">
       <div className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-4">
         <StatColumn
           label="项目总数"
@@ -47,7 +33,7 @@ export function ProjectSummaryCards({ overview }: ProjectSummaryCardsProps) {
         <StatColumn
           label="阻塞项目"
           value={String(overview.blocked_projects)}
-          description={`挂起、阻塞或等待人工；已记录会话 ${activeChangeSessionProjects}`}
+          description={`阻塞或等待人工；活跃变更会话 ${activeChangeSessionProjects}`}
           valueClassName={overview.blocked_projects > 0 ? "text-amber-200" : undefined}
         />
 
@@ -55,8 +41,8 @@ export function ProjectSummaryCards({ overview }: ProjectSummaryCardsProps) {
           <div className="flex items-start justify-between gap-4">
             <div className="text-sm text-zinc-400">阶段分布</div>
             <div className="text-right text-xs leading-5 text-zinc-600">
-              <div>项目内任务总量</div>
-              <div>共 {overview.stage_distribution.length} 个阶段</div>
+              <div>任务总数 {overview.total_project_tasks}</div>
+              <div>{overview.stage_distribution.length} 个阶段</div>
             </div>
           </div>
           <div className="font-mono text-3xl font-semibold tracking-tight text-zinc-100">

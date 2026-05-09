@@ -16,15 +16,17 @@ export function ProjectTimelineFilterPanel(props: {
     <section className="border-b border-[#333333] pb-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-sm font-medium text-slate-100">Filters</h3>
+          <h3 className="text-sm font-medium text-slate-100">事件筛选</h3>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            {props.generatedAt ? `Generated: ${formatDateTime(props.generatedAt)}` : "Waiting for generation time"}
+            {props.generatedAt
+              ? `生成时间：${formatDateTime(props.generatedAt)}`
+              : "等待生成时间"}
           </p>
         </div>
 
         <div className="flex flex-wrap gap-3">
           <FilterButton active={!props.activeFilters.length} onClick={props.onClearFilters}>
-            All
+            全部
           </FilterButton>
           {props.eventTypeCounts.map((bucket) => {
             const isActive = props.activeFilters.includes(bucket.event_type);
