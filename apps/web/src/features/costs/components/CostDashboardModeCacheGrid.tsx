@@ -10,7 +10,7 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
   const { mode_breakdown: modeBreakdown } = props.snapshot;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/35 p-4">
+    <section className="border-t border-slate-800/80 pt-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-slate-100">成本来源</h3>
@@ -21,7 +21,7 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
         <div className="text-xs text-slate-500">任务 {props.snapshot.task_count_with_runs}/{props.snapshot.task_count}</div>
       </div>
 
-      <div className="mt-4 max-h-[360px] overflow-auto overscroll-contain">
+      <div className="mt-4 max-h-[360px] overflow-auto overscroll-contain border-y border-slate-800/80">
         <table className="w-full min-w-[860px] text-left text-xs text-slate-300">
           <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-[11px] uppercase tracking-[0.12em] text-slate-500 backdrop-blur">
             <tr>

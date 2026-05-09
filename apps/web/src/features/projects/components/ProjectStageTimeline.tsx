@@ -143,7 +143,7 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
       ) : null}
 
       {timelineEntries.length > 0 ? (
-        <div className="mt-5 max-h-[620px] space-y-3 overflow-y-auto overscroll-contain pr-2">
+        <div className="mt-5 space-y-3">
           {timelineEntries.map((entry) => (
             <article
               key={entry.id}
@@ -188,7 +188,7 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
                   {entry.reasons.map((reason) => (
                     <li
                       key={`${entry.id}-${reason}`}
-                      className="max-h-28 overflow-y-auto break-words rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2"
+                      className="rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2"
                     >
                       {reason}
                     </li>

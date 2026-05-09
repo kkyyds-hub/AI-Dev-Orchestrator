@@ -73,7 +73,7 @@ export function ProjectTimelineEventCard(
   const collapsedMetadataEntries = metadataEntries.slice(4);
 
   return (
-    <aside className="min-w-0 max-h-[min(760px,calc(100vh-10rem))] space-y-5 overflow-y-auto overscroll-contain border border-[#333333] px-5 py-5 xl:sticky xl:top-24">
+    <aside className="min-w-0 space-y-5 border border-[#333333] px-5 py-5 xl:sticky xl:top-24 xl:max-h-[760px] xl:overflow-y-auto">
       <div className="border-b border-[#333333] pb-5">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge
@@ -95,7 +95,7 @@ export function ProjectTimelineEventCard(
         <h3 className="mt-4 break-words text-xl font-semibold leading-7 text-slate-50">
           {event.title}
         </h3>
-        <p className="mt-3 max-h-40 overflow-y-auto break-words pr-2 text-sm leading-6 text-slate-300">{event.summary}</p>
+        <p className="mt-3 break-words text-sm leading-6 text-slate-300">{event.summary}</p>
       </div>
 
       <section className="space-y-3 border-b border-[#333333] pb-5">
@@ -202,7 +202,7 @@ function DetailRow(props: { label: string; value: string }) {
       <div className="min-w-0 break-words text-xs text-slate-500">
         {props.label}
       </div>
-      <div className="min-w-0 max-h-24 overflow-y-auto break-words text-slate-300" title={props.value}>{props.value}</div>
+      <div className="min-w-0 break-all text-slate-300">{props.value}</div>
     </div>
   );
 }

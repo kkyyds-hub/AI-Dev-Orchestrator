@@ -100,17 +100,17 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
 
       {draft ? (
         <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="space-y-5 xl:border-r xl:border-[#333333] xl:pr-6">
+          <aside className="min-h-0 min-w-0 space-y-5 xl:sticky xl:top-24 xl:max-h-[calc(100vh-10rem)] xl:overflow-y-auto xl:border-r xl:border-[#333333] xl:pr-6">
             <section className="border-b border-[#333333] pb-4">
               <h3 className="text-sm font-semibold text-slate-100">团队摘要</h3>
               <dl className="mt-3 space-y-3 text-xs">
                 <div>
                   <dt className="text-slate-500">团队名称</dt>
-                  <dd className="mt-1 text-sm text-slate-200">{draft.team_name}</dd>
+                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-sm text-slate-200">{draft.team_name}</dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">团队使命</dt>
-                  <dd className="mt-1 leading-5 text-slate-300">{draft.team_mission || "未填写"}</dd>
+                  <dd className="mt-1 max-h-28 overflow-y-auto break-words pr-2 leading-5 text-slate-300">{draft.team_mission || "未填写"}</dd>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -136,13 +136,13 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
                 </div>
                 <div>
                   <dt className="text-slate-500">协作模式</dt>
-                  <dd className="mt-1 text-slate-200">
+                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-slate-200">
                     {draft.team_policy.collaboration_mode || "未设置"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">介入模式</dt>
-                  <dd className="mt-1 text-slate-200">
+                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-slate-200">
                     {draft.team_policy.intervention_mode || "未设置"}
                   </dd>
                 </div>

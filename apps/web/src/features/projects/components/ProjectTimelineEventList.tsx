@@ -19,7 +19,7 @@ export function ProjectTimelineEventList(props: {
       </div>
 
       {props.events.length ? (
-        <div className="mt-3 max-h-[min(640px,calc(100vh-16rem))] overflow-y-auto overflow-x-hidden overscroll-contain border border-[#333333]">
+        <div className="mt-3 max-h-[640px] overflow-y-auto border border-[#333333]">
           <div className="divide-y divide-[#333333]">
           {props.events.map((event) => (
             <TimelineEventRow
@@ -68,7 +68,7 @@ function TimelineEventRow(props: {
             <StatusBadge label={eventTypeLabel} tone={props.event.tone ?? "neutral"} />
             {props.event.stage ? <StatusBadge label={props.event.stage} tone="neutral" /> : null}
           </div>
-          <div className="mt-2 line-clamp-1 break-words text-sm font-medium text-slate-100" title={props.event.title}>
+          <div className="mt-2 line-clamp-1 break-words text-sm font-medium text-slate-100">
             {props.event.title}
           </div>
           <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">

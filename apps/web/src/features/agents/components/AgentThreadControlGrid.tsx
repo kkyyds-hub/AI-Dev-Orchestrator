@@ -19,8 +19,8 @@ export function AgentThreadControlGrid(props: {
   onSelectSession: (sessionId: string) => void;
 }) {
   return (
-    <section className="grid min-w-0 gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-      <section className="min-w-0 space-y-5 xl:border-r xl:border-[#333333] xl:pr-6">
+    <section className="grid min-w-0 items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <section className="min-h-0 min-w-0 space-y-5 xl:border-r xl:border-[#333333] xl:pr-6">
         <AgentThreadSessionSelectorPanel
           projectId={props.projectId}
           sessions={props.sessions}

@@ -12,13 +12,13 @@ export function CostDashboardThreadBreakdownTable(
   const { thread_breakdown: threadBreakdown } = props.snapshot;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/35 p-4">
+    <section className="border-t border-slate-800/80 pt-4">
       <div>
         <h3 className="text-sm font-semibold text-slate-100">线程成本明细</h3>
         <p className="mt-1 text-xs text-slate-500">按协作线程查看阶段、状态、责任角色与成本消耗。</p>
       </div>
 
-      <div className="mt-4 max-h-[420px] overflow-auto overscroll-contain">
+      <div className="mt-4 max-h-[420px] overflow-auto overscroll-contain border-y border-slate-800/80">
         <table className="w-full min-w-[1120px] text-left text-xs text-slate-300">
           <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-[11px] uppercase tracking-[0.12em] text-slate-500 backdrop-blur">
             <tr>
