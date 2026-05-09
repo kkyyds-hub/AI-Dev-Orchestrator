@@ -14,7 +14,7 @@ type RepositoryHomeCardProps = {
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
-  variant?: "compact" | "full";
+  variant?: "compact" | "full" | "flat";
   className?: string;
 };
 
@@ -22,6 +22,7 @@ type CardTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 export function RepositoryHomeCard(props: RepositoryHomeCardProps) {
   const variant = props.variant ?? "compact";
+  const isFlat = variant === "flat";
   const isBound = props.workspace !== null;
   const bindingStatus = isBound
     ? { label: "已绑定主仓库", tone: "success" as const }
@@ -33,19 +34,21 @@ export function RepositoryHomeCard(props: RepositoryHomeCardProps) {
 
   return (
     <section
-      className={`rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl shadow-slate-950/20 ${
-        props.className ?? ""
-      }`}
+      className={`${
+        isFlat
+          ? "py-4 first:pt-0 last:pb-0"
+          : "rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl shadow-slate-950/20"
+      } ${props.className ?? ""}`}
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
             {props.title ?? "仓库入口"}
           </div>
-          <div className="text-lg font-semibold text-slate-50">
+          <div className="text-lg font-semibold text-zinc-100">
             {props.workspace?.display_name ?? "等待绑定主仓库入口"}
           </div>
-          <p className="max-w-3xl text-sm leading-6 text-slate-300">
+          <p className="max-w-3xl text-sm leading-6 text-zinc-400">
             {props.description ??
               buildDescription({
                 workspace: props.workspace,
@@ -59,7 +62,7 @@ export function RepositoryHomeCard(props: RepositoryHomeCardProps) {
           <button
             type="button"
             onClick={props.onAction}
-            className="inline-flex items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:border-cyan-400/50 hover:bg-cyan-500/20"
+            className="inline-flex items-center justify-center rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
           >
             {props.actionLabel}
           </button>
@@ -82,22 +85,32 @@ export function RepositoryHomeCard(props: RepositoryHomeCardProps) {
             label="仓库根目录"
             value={props.workspace?.root_path ?? "—"}
             breakAll
+            flat={isFlat}
           />
           <SummaryItem
             label="最新快照"
             value={buildSnapshotSummary(props.snapshot)}
+            flat={isFlat}
           />
           <SummaryItem
             label="当前变更会话"
             value={buildChangeSessionSummary(props.changeSession)}
+            flat={isFlat}
           />
           <SummaryItem
             label="语言分布"
             value={buildLanguageSummary(props.snapshot)}
+            flat={isFlat}
           />
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-5 text-sm leading-6 text-slate-300">
+        <div
+          className={
+            isFlat
+              ? "mt-4 border-l-2 border-l-[#555555] py-2 pl-4 text-sm leading-6 text-zinc-400"
+              : "mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-5 text-sm leading-6 text-zinc-400"
+          }
+        >
           下一步：先为项目绑定主仓库入口，再生成 Day02 目录快照并记录 Day03
           变更会话；Day04 只把这三类摘要整合到老板入口和项目详情，不扩展到文件级编辑或真实
           Git 写操作。
@@ -117,14 +130,21 @@ function SummaryItem(props: {
   label: string;
   value: string;
   breakAll?: boolean;
+  flat?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div
+      className={
+        props.flat
+          ? "border-l border-[#333333] px-4 py-2"
+          : "rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+      }
+    >
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
         {props.label}
       </div>
       <div
-        className={`mt-2 text-sm leading-6 text-slate-100 ${
+        className={`mt-2 text-sm leading-6 text-zinc-100 ${
           props.breakAll ? "break-all" : ""
         }`}
       >

@@ -10,139 +10,79 @@ type ProjectOverviewModuleNavSectionProps = {
   activeView: ProjectOverviewPageView;
   projectId: string | null;
   navigationItems: readonly ProjectOverviewNavigationItem[];
-  onNavigateToOverviewSection: (sectionId: string) => void;
   resolvePageHref?: (
-    item: Extract<ProjectOverviewNavigationItem, { kind: "page" }>,
+    view: Exclude<ProjectOverviewPageView, "overview">,
     projectId: string,
   ) => string | null | undefined;
-  onNavigateToOverviewPage: (
-    view: Exclude<ProjectOverviewPageView, "overview">,
-    targetId?: string | null,
-  ) => void;
 };
 
 export function ProjectOverviewModuleNavSection(
   props: ProjectOverviewModuleNavSectionProps,
 ) {
-  const sectionEntryCount = props.navigationItems.filter(
-    (item) => item.kind === "section",
-  ).length;
-  const pageEntryCount = props.navigationItems.length - sectionEntryCount;
-
   return (
-    <section
+    <nav
+      aria-label="项目视图"
       data-testid="project-overview-module-nav"
-      className="rounded-2xl border border-[#333333] bg-[#242424] p-5"
+      className="border-b border-[#333333]"
     >
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Project Domain Navigation
-          </p>
-          <h2
-            data-testid="project-overview-module-nav-title"
-            className="mt-2 text-lg font-semibold text-zinc-100"
-          >
-            项目域模块导航
-          </h2>
-          <p className="mt-1 text-sm text-zinc-500">
-            通过统一入口进入项目总览、协作、交付、审批与治理模块。
-          </p>
-        </div>
-        <div className="text-xs text-zinc-600">
-          页内入口 {sectionEntryCount} 个 / 路由入口 {pageEntryCount} 个
-        </div>
-      </div>
-
       <div
-        data-testid="project-overview-module-nav-grid"
-        className="mt-4 grid gap-3 lg:grid-cols-3"
+        data-testid="project-overview-module-nav-tabs"
+        className="flex gap-6 overflow-x-auto"
       >
         {props.navigationItems.map((item) => {
           const isActive = props.activeView === item.view;
-          const sharedClassName = `rounded-2xl border px-4 py-4 text-left transition ${
-            isActive
-              ? "border-[#4a4a4a] bg-[#303030]"
-              : "border-[#333333] bg-[#1f1f1f] hover:border-zinc-600 hover:bg-[#292929]"
-          }`;
-
-          const pageHref =
-            props.projectId && item.kind === "page"
-              ? props.resolvePageHref?.(item, props.projectId) ??
-                buildProjectOverviewRoute({
-                  projectId: props.projectId,
-                  view: item.view,
-                })
-              : null;
-
-          if (item.kind === "section") {
-            return (
-              <button
-                key={item.id}
-                type="button"
-                data-testid={`project-overview-nav-${item.id}`}
-                onClick={() => props.onNavigateToOverviewSection(item.id)}
-                className={sharedClassName}
-              >
-                <NavigationCardContent
-                  label={item.label}
-                  description={item.description}
-                  meta={`页内定位 #${item.id}`}
-                />
-              </button>
-            );
-          }
-
-          if (!props.projectId) {
-            return (
-              <button
-                key={item.id}
-                type="button"
-                data-testid={`project-overview-nav-${item.id}`}
-                onClick={() => props.onNavigateToOverviewPage(item.view, item.id)}
-                className={sharedClassName}
-              >
-                <NavigationCardContent
-                  label={item.label}
-                  description={item.description}
-                  meta="先选择项目"
-                />
-              </button>
-            );
-          }
+          const href = buildViewHref({
+            item,
+            projectId: props.projectId,
+            resolvePageHref: props.resolvePageHref,
+          });
 
           return (
             <Link
               key={item.id}
               data-testid={`project-overview-nav-${item.id}`}
-              to={pageHref ?? "/projects"}
-              className={`${sharedClassName} block`}
+              to={href}
+              aria-current={isActive ? "page" : undefined}
+              className={`group relative min-w-max pb-3 text-sm font-medium transition ${
+                isActive
+                  ? "text-zinc-50 after:absolute after:bottom-[-1px] after:left-0 after:h-px after:w-full after:bg-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-200"
+              }`}
+              title={item.description}
             >
-              <NavigationCardContent
-                label={item.label}
-                description={item.description}
-                meta="路由页面"
-              />
+              {item.label}
             </Link>
           );
         })}
       </div>
-    </section>
+    </nav>
   );
 }
 
-function NavigationCardContent(props: {
-  label: string;
-  description: string;
-  meta: string;
+function buildViewHref(input: {
+  item: ProjectOverviewNavigationItem;
+  projectId: string | null;
+  resolvePageHref?: (
+    view: Exclude<ProjectOverviewPageView, "overview">,
+    projectId: string,
+  ) => string | null | undefined;
 }) {
+  if (!input.projectId) {
+    return "/projects";
+  }
+
+  if (input.item.view === "overview") {
+    return buildProjectOverviewRoute({
+      projectId: input.projectId,
+      view: "overview",
+    });
+  }
+
   return (
-    <>
-      <div className="text-sm font-medium text-zinc-100">{props.label}</div>
-      <p className="mt-2 text-sm leading-6 text-zinc-500">{props.description}</p>
-      <div className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-600">
-        {props.meta}
-      </div>
-    </>
+    input.resolvePageHref?.(input.item.view, input.projectId) ??
+    buildProjectOverviewRoute({
+      projectId: input.projectId,
+      view: input.item.view,
+    })
   );
 }

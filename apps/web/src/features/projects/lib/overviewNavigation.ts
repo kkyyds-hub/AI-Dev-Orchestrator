@@ -13,25 +13,12 @@ export type ProjectOverviewRouteSegment =
   | "deliverables"
   | "approvals";
 
-type ProjectOverviewSectionNavigationItem = {
-  kind: "section";
-  view: "overview";
+export type ProjectOverviewNavigationItem = {
+  view: ProjectOverviewPageView;
   id: string;
   label: string;
   description: string;
 };
-
-type ProjectOverviewPageNavigationItem = {
-  kind: "page";
-  view: Exclude<ProjectOverviewPageView, "overview">;
-  id: string;
-  label: string;
-  description: string;
-};
-
-export type ProjectOverviewNavigationItem =
-  | ProjectOverviewSectionNavigationItem
-  | ProjectOverviewPageNavigationItem;
 
 const PROJECT_OVERVIEW_VIEWS: readonly ProjectOverviewPageView[] = [
   "overview",
@@ -114,46 +101,40 @@ const LEGACY_PROJECT_OVERVIEW_HASH_COMPAT: Readonly<
 export const PROJECT_OVERVIEW_NAVIGATION_ITEMS: readonly ProjectOverviewNavigationItem[] =
   [
     {
-      kind: "section",
       view: "overview",
-      id: "project-detail",
-      label: "项目详情",
-      description: "页内定位到项目详情、阶段推进与关键钻取面板。",
+      id: "overview",
+      label: "总览",
+      description: "项目组合、创建入口、仓库上下文与当前项目详情。",
     },
     {
-      kind: "page",
       view: "timeline-retrospective",
       id: "timeline-retrospective",
-      label: "时间线与复盘",
-      description: "独立查看项目时间线、审批回退重做与复盘收口。",
+      label: "时间线",
+      description: "项目事件、阶段推进与复盘线索。",
     },
     {
-      kind: "page",
       view: "collaboration-control",
       id: "collaboration-control",
-      label: "协作控制面",
-      description: "聚合 Agent Thread、Team Control 与成本看板能力。",
+      label: "协作",
+      description: "Agent Thread、团队控制与协同状态。",
     },
     {
-      kind: "page",
       view: "memory-role-governance",
       id: "memory-role-governance",
-      label: "记忆与角色治理",
-      description: "聚合记忆治理、角色目录、Skill 注册中心与工作台。",
+      label: "记忆与治理",
+      description: "项目记忆、角色目录与治理工作台。",
     },
     {
-      kind: "page",
       view: "deliverable-center",
       id: "deliverable-center",
-      label: "交付物中心",
-      description: "进入交付物仓库与版本快照列表。",
+      label: "交付物",
+      description: "交付物仓库与版本快照。",
     },
     {
-      kind: "page",
       view: "approval-inbox",
       id: "approval-inbox",
-      label: "审批收件箱",
-      description: "查看审批队列并处理关键审批动作。",
+      label: "审批",
+      description: "审批队列与关键决策入口。",
     },
   ];
 

@@ -21,13 +21,13 @@ export function ProjectDeliverySnapshotCard(
   const { overview, isLoading, errorMessage } = props;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section className="border-b border-[#333333] border-l-2 border-l-[#5c7cfa] py-5 pl-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-cyan-300">
+          <div className="text-xs uppercase tracking-[0.2em] text-[#8ea2ff]">
             V4 Day15 仓库接入最小闭环演示
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             串联 Day01~Day14，终点保持在“可审阅 / 可解释 / 可拒绝”；不触发真实 Git
             写操作。
           </p>
@@ -57,7 +57,7 @@ export function ProjectDeliverySnapshotCard(
       </div>
 
       {isLoading && !overview ? (
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+        <p className="mt-3 text-sm leading-6 text-zinc-500">
           正在加载 Day15 闭环总览...
         </p>
       ) : errorMessage ? (
@@ -66,8 +66,8 @@ export function ProjectDeliverySnapshotCard(
         </p>
       ) : overview ? (
         <>
-          <p className="mt-3 text-sm leading-6 text-slate-200">{overview.summary}</p>
-          <p className="mt-2 text-xs leading-5 text-slate-500">
+          <p className="mt-3 text-sm leading-6 text-zinc-200">{overview.summary}</p>
+          <p className="mt-2 text-xs leading-5 text-zinc-500">
             当前批次：
             {overview.selected_change_batch_title ?? "未建立"}；真实 Git 写动作触发：
             {overview.git_write_actions_triggered ? "是" : "否"}。

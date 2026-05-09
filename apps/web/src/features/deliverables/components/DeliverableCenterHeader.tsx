@@ -8,9 +8,9 @@ type DeliverableCenterHeaderProps = {
 
 export function DeliverableCenterHeader(props: DeliverableCenterHeaderProps) {
   return (
-    <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:flex-row lg:items-end lg:justify-between">
+    <header className="flex flex-col gap-4 border-b border-[#333333] pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
+        <p className="text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
           V3 Day09 Deliverable Repository
         </p>
         <h2 className="text-3xl font-semibold tracking-tight text-slate-50">

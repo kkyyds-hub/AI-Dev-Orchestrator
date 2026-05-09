@@ -1,4 +1,3 @@
-import { MetricCard } from "../../../components/MetricCard";
 import { StatusBadge } from "../../../components/StatusBadge";
 import { formatCurrencyUsd } from "../../../lib/format";
 import { mapBudgetPressureTone } from "../../../lib/status";
@@ -9,9 +8,7 @@ type ProjectSummaryCardsProps = {
   overview: BossProjectOverview;
 };
 
-export function ProjectSummaryCards({
-  overview,
-}: ProjectSummaryCardsProps) {
+export function ProjectSummaryCards({ overview }: ProjectSummaryCardsProps) {
   const activeStageItems = overview.stage_distribution.filter(
     (item) => item.count > 0,
   );
@@ -25,65 +22,58 @@ export function ProjectSummaryCards({
   ).length;
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-4">
-        <MetricCard
+    <section className="border-b border-[#333333] pb-6">
+      <div className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-4">
+        <StatColumn
           label="项目总数"
           value={String(overview.total_projects)}
-          hint={`活跃 ${overview.active_projects} / 已完成 ${overview.completed_projects} / 已绑定仓库 ${boundRepositoryProjects}`}
-          tone="info"
+          description={`活跃 ${overview.active_projects} / 已完成 ${overview.completed_projects} / 已绑定仓库 ${boundRepositoryProjects}`}
         />
 
-        <MetricCard
+        <StatColumn
           label="阻塞项目"
           value={String(overview.blocked_projects)}
-          hint={`挂起、阻塞或等待人工的项目；已记录会话 ${activeChangeSessionProjects}`}
-          tone={overview.blocked_projects > 0 ? "warning" : "success"}
+          description={`阻塞或等待人工；活跃变更会话 ${activeChangeSessionProjects}`}
+          valueClassName={overview.blocked_projects > 0 ? "text-amber-200" : undefined}
         />
 
-        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm text-zinc-500">阶段分布</div>
-              <div className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100">
-                {overview.total_project_tasks}
-              </div>
-            </div>
-            <div className="text-right text-xs text-zinc-600">
-              <div>项目内任务总量</div>
-              <div className="mt-1">
-                共 {overview.stage_distribution.length} 个阶段桶
-              </div>
+        <div className="min-w-0 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-sm text-zinc-400">阶段分布</div>
+            <div className="text-right text-xs leading-5 text-zinc-600">
+              <div>任务总数 {overview.total_project_tasks}</div>
+              <div>{overview.stage_distribution.length} 个阶段</div>
             </div>
           </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="font-mono text-3xl font-semibold tracking-tight text-zinc-100">
+            {overview.total_project_tasks}
+          </div>
+          <div className="flex flex-wrap gap-2">
             {(activeStageItems.length > 0
               ? activeStageItems
               : overview.stage_distribution
             ).map((item) => (
               <span
                 key={item.stage}
-                className="inline-flex items-center rounded-full border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-1 text-xs text-zinc-300"
+                className="inline-flex items-center rounded border border-[#3a3a3a] px-2.5 py-1 text-xs text-zinc-400"
               >
                 {PROJECT_STAGE_LABELS[item.stage] ?? item.stage}
-                <span className="ml-2 text-zinc-500">{item.count}</span>
+                <span className="ml-2 text-zinc-600">{item.count}</span>
               </span>
             ))}
           </div>
-        </section>
+        </div>
 
-        <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
+        <div className="min-w-0 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm text-zinc-500">预算摘要</div>
+              <div className="text-sm text-zinc-400">预算摘要</div>
               <div className="mt-2 text-lg font-semibold text-zinc-100">
                 {formatCurrencyUsd(overview.budget.daily_cost_used)} /{" "}
                 {formatCurrencyUsd(overview.budget.daily_budget_usd)}
               </div>
               <div className="mt-1 text-xs text-zinc-600">
-                会话剩余{" "}
-                {formatCurrencyUsd(overview.budget.session_cost_remaining)}
+                会话剩余 {formatCurrencyUsd(overview.budget.session_cost_remaining)}
               </div>
             </div>
             <StatusBadge
@@ -92,7 +82,7 @@ export function ProjectSummaryCards({
             />
           </div>
 
-          <div className="mt-4 space-y-3 text-sm text-zinc-400">
+          <div className="space-y-3 text-sm text-zinc-400">
             <RatioRow
               label="日预算使用率"
               value={dailyRatio}
@@ -104,15 +94,35 @@ export function ProjectSummaryCards({
               text={`${Math.round(sessionRatio * 100)}%`}
             />
           </div>
-        </section>
+        </div>
       </div>
 
       {overview.unassigned_tasks > 0 ? (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-100">
-          还有 {overview.unassigned_tasks} 条历史任务尚未归属到项目，会继续保留在下方任务控制台中，不影响
-          V1/V2 现有能力。
-        </div>
+        <p className="mt-4 text-xs leading-5 text-zinc-600">
+          另有 {overview.unassigned_tasks} 条历史任务尚未归属项目，已保留在任务域中。
+        </p>
       ) : null}
+    </section>
+  );
+}
+
+function StatColumn(props: {
+  label: string;
+  value: string;
+  description: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <div className="text-sm text-zinc-400">{props.label}</div>
+      <div
+        className={`font-mono text-3xl font-semibold tracking-tight ${
+          props.valueClassName ?? "text-zinc-100"
+        }`}
+      >
+        {props.value}
+      </div>
+      <div className="text-xs leading-5 text-zinc-600">{props.description}</div>
     </div>
   );
 }
@@ -124,10 +134,10 @@ function RatioRow(props: { label: string; value: number; text: string }) {
         <span>{props.label}</span>
         <span>{props.text}</span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-[#333333]">
+      <div className="h-1 overflow-hidden rounded-full bg-[#333333]">
         <div
-          className="h-full rounded-full bg-zinc-400 transition-all"
-          style={{ width: `${Math.max(4, Math.round(props.value * 100))}%` }}
+          className="h-full rounded-full bg-zinc-300 transition-all"
+          style={{ width: `${Math.max(3, Math.round(props.value * 100))}%` }}
         />
       </div>
     </div>

@@ -30,7 +30,7 @@ export function ProjectRetrospectivePanel(props: ProjectRetrospectivePanelProps)
   return (
     <section
       id="project-retrospective"
-      className="space-y-5 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/30"
+      className="space-y-6 border-b border-[#333333] pb-7"
     >
       <ProjectRetrospectiveHeader
         projectName={props.projectName}

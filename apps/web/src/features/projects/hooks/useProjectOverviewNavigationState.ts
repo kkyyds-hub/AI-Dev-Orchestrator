@@ -53,7 +53,7 @@ export function useProjectOverviewNavigationState(
   const navigateToOverviewPage = (
     view: Exclude<ProjectOverviewPageView, "overview">,
     targetId?: string | null,
-    options?: { projectId?: string | null },
+    options?: { projectId?: string | null; scrollTargetId?: string | null },
   ) => {
     setActiveView(view);
     const nextTargetId = targetId ?? view;
@@ -68,7 +68,9 @@ export function useProjectOverviewNavigationState(
       });
     }
 
-    scheduleScrollToTarget(nextTargetId);
+    if (options?.scrollTargetId) {
+      scheduleScrollToTarget(options.scrollTargetId);
+    }
   };
 
   useEffect(() => {
@@ -130,23 +132,27 @@ export function useProjectOverviewNavigationState(
       }
 
       if (input.routeProjectView) {
-        const parsedRouteHash = parseProjectOverviewHash(window.location.hash);
-        const defaultTargetId = getProjectOverviewDefaultTargetId(input.routeProjectView);
-        const routeTargetId = parsedRouteHash
-          ? parsedRouteHash.view === input.routeProjectView
-            ? parsedRouteHash.targetId ?? defaultTargetId
-            : defaultTargetId
-          : window.location.hash.startsWith("#") && window.location.hash.length > 1
-            ? window.location.hash.slice(1)
-            : defaultTargetId;
-
         setActiveView(input.routeProjectView);
-        scheduleScrollToTarget(routeTargetId);
+
+        if (window.location.hash) {
+          const parsedRouteHash = parseProjectOverviewHash(window.location.hash);
+          const defaultTargetId = getProjectOverviewDefaultTargetId(input.routeProjectView);
+          const routeTargetId = parsedRouteHash
+            ? parsedRouteHash.view === input.routeProjectView
+              ? parsedRouteHash.targetId ?? defaultTargetId
+              : defaultTargetId
+            : window.location.hash.startsWith("#") && window.location.hash.length > 1
+              ? window.location.hash.slice(1)
+              : defaultTargetId;
+
+          scheduleScrollToTarget(routeTargetId);
+        }
         return;
       }
 
       const parsed = parseProjectOverviewHash(window.location.hash);
       if (!parsed) {
+        setActiveView("overview");
         return;
       }
 

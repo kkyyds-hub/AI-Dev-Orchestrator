@@ -11,6 +11,9 @@ export function AppShell() {
   const location = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const isWorkbenchRoute = location.pathname === "/workbench";
+  const isProjectRoute = location.pathname === "/projects" || location.pathname.startsWith("/projects/");
+  const usesWideWorkspace = isWorkbenchRoute || isProjectRoute;
+  const contentMaxWidthClassName = usesWideWorkspace ? "max-w-[1560px]" : "max-w-[1200px]";
 
   useEffect(() => {
     const savedValue = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
@@ -37,7 +40,7 @@ export function AppShell() {
         <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} />
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className={`mx-auto flex w-full max-w-[1200px] min-w-0 flex-col ${isWorkbenchRoute ? "gap-7" : "gap-5"}`}>
+          <div className={`mx-auto flex w-full ${contentMaxWidthClassName} min-w-0 flex-col ${isWorkbenchRoute ? "gap-7" : "gap-5"}`}>
             {isWorkbenchRoute ? null : <Breadcrumbs />}
             <Outlet />
           </div>

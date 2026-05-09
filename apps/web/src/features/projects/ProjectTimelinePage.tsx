@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { ChangeReworkPanel } from "../approvals/ChangeReworkPanel";
 import { ProjectTimelineEmptyState } from "./components/ProjectTimelineEmptyState";
+import { ProjectTimelineEventCard } from "./components/ProjectTimelineEventCard";
 import { ProjectTimelineEventList } from "./components/ProjectTimelineEventList";
 import { ProjectTimelineFilterPanel } from "./components/ProjectTimelineFilterPanel";
 import { ProjectTimelineHeader } from "./components/ProjectTimelineHeader";
@@ -29,9 +29,11 @@ type ProjectTimelinePageProps = {
 export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
   const timelineQuery = useProjectTimeline(props.projectId);
   const [activeFilters, setActiveFilters] = useState<ProjectTimelineEventType[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveFilters([]);
+    setSelectedEventId(null);
   }, [props.projectId]);
 
   const visibleEvents = useMemo(() => {
@@ -42,6 +44,25 @@ export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
 
     return events.filter((event) => activeFilters.includes(event.event_type));
   }, [activeFilters, timelineQuery.data?.events]);
+
+  useEffect(() => {
+    if (!visibleEvents.length) {
+      if (selectedEventId !== null) {
+        setSelectedEventId(null);
+      }
+      return;
+    }
+
+    const selectedStillVisible = visibleEvents.some(
+      (event) => event.id === selectedEventId,
+    );
+    if (!selectedEventId || !selectedStillVisible) {
+      setSelectedEventId(visibleEvents[0].id);
+    }
+  }, [selectedEventId, visibleEvents]);
+
+  const selectedEvent =
+    visibleEvents.find((event) => event.id === selectedEventId) ?? visibleEvents[0] ?? null;
 
   const toggleFilter = (eventType: ProjectTimelineEventType) => {
     setActiveFilters((previous) =>
@@ -58,7 +79,7 @@ export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
   const projectId = props.projectId;
 
   return (
-    <section className="space-y-5 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/30">
+    <section className="space-y-5 border-b border-[#333333] pb-7">
       <ProjectTimelineHeader
         projectName={props.projectName}
         totalEvents={timelineQuery.data?.total_events ?? 0}
@@ -71,13 +92,6 @@ export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
         <ProjectTimelineErrorState message={timelineQuery.error.message} />
       ) : (
         <>
-          <ChangeReworkPanel
-            projectId={projectId}
-            projectName={props.projectName}
-            onNavigateToApproval={props.onNavigateToApproval}
-            onNavigateToDeliverable={props.onNavigateToDeliverable}
-          />
-
           <ProjectTimelineFilterPanel
             generatedAt={timelineQuery.data?.generated_at ?? null}
             eventTypeCounts={timelineQuery.data?.event_type_counts ?? []}
@@ -86,13 +100,21 @@ export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
             onToggleFilter={toggleFilter}
           />
 
-          <ProjectTimelineEventList
-            projectId={projectId}
-            events={visibleEvents}
-            onNavigateToTask={props.onNavigateToTask}
-            onNavigateToDeliverable={props.onNavigateToDeliverable}
-            onNavigateToApproval={props.onNavigateToApproval}
-          />
+          <div className="grid min-h-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(380px,440px)]">
+            <ProjectTimelineEventList
+              events={visibleEvents}
+              selectedEventId={selectedEvent?.id ?? null}
+              onSelectEvent={setSelectedEventId}
+            />
+
+            <ProjectTimelineEventCard
+              projectId={projectId}
+              event={selectedEvent}
+              onNavigateToTask={props.onNavigateToTask}
+              onNavigateToDeliverable={props.onNavigateToDeliverable}
+              onNavigateToApproval={props.onNavigateToApproval}
+            />
+          </div>
         </>
       )}
     </section>

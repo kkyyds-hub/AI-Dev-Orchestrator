@@ -12,7 +12,7 @@ export function DeliverableVersionSnapshotSection(
   props: DeliverableVersionSnapshotSectionProps,
 ) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h4 className="text-base font-semibold text-slate-50">
@@ -25,7 +25,7 @@ export function DeliverableVersionSnapshotSection(
         <StatusBadge label={`${props.versions.length} 个版本`} tone="neutral" />
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 divide-y divide-[#333333]">
         {props.versions.map((version) => (
           <DeliverableVersionCard
             key={version.id}
