@@ -12,7 +12,8 @@ export function AppShell() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const isWorkbenchRoute = location.pathname === "/workbench";
   const isProjectRoute = location.pathname === "/projects" || location.pathname.startsWith("/projects/");
-  const contentMaxWidthClassName = isProjectRoute ? "max-w-[1560px]" : "max-w-[1200px]";
+  const usesWideWorkspace = isWorkbenchRoute || isProjectRoute;
+  const contentMaxWidthClassName = usesWideWorkspace ? "max-w-[1560px]" : "max-w-[1200px]";
 
   useEffect(() => {
     const savedValue = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
