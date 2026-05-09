@@ -11,15 +11,16 @@ export function ProjectTimelineEventList(props: {
   return (
     <section className="min-w-0">
       <div className="flex items-end justify-between gap-3 border-b border-[#333333] pb-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-sm font-medium text-slate-100">事件流</h3>
           <p className="mt-1 text-xs text-slate-500">选择事件后在右侧查看详情</p>
         </div>
-        <span className="text-xs text-slate-500">{props.events.length} 条</span>
+        <span className="shrink-0 text-xs text-slate-500">{props.events.length} 条</span>
       </div>
 
       {props.events.length ? (
-        <div className="divide-y divide-[#333333]">
+        <div className="mt-3 max-h-[640px] overflow-y-auto border border-[#333333]">
+          <div className="divide-y divide-[#333333]">
           {props.events.map((event) => (
             <TimelineEventRow
               key={event.id}
@@ -28,6 +29,7 @@ export function ProjectTimelineEventList(props: {
               onSelect={() => props.onSelectEvent(event.id)}
             />
           ))}
+          </div>
         </div>
       ) : (
         <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
@@ -57,8 +59,8 @@ function TimelineEventRow(props: {
       }`}
       aria-current={props.selected ? "true" : undefined}
     >
-      <div className="flex items-start gap-3">
-        <div className="pt-1 text-xs tabular-nums text-slate-500">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-[150px_minmax(0,1fr)]">
+        <div className="pt-1 text-xs tabular-nums leading-5 text-slate-500">
           {formatDateTime(props.event.occurred_at)}
         </div>
         <div className="min-w-0 flex-1">
@@ -66,10 +68,10 @@ function TimelineEventRow(props: {
             <StatusBadge label={eventTypeLabel} tone={props.event.tone ?? "neutral"} />
             {props.event.stage ? <StatusBadge label={props.event.stage} tone="neutral" /> : null}
           </div>
-          <div className="mt-2 line-clamp-1 text-sm font-medium text-slate-100">
+          <div className="mt-2 line-clamp-1 break-words text-sm font-medium text-slate-100">
             {props.event.title}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+          <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
             {props.event.summary}
           </p>
         </div>

@@ -100,7 +100,7 @@ export function ProjectTimelinePage(props: ProjectTimelinePageProps) {
             onToggleFilter={toggleFilter}
           />
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,0.92fr)_minmax(360px,1fr)]">
+          <div className="grid min-h-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(380px,440px)]">
             <ProjectTimelineEventList
               events={visibleEvents}
               selectedEventId={selectedEvent?.id ?? null}

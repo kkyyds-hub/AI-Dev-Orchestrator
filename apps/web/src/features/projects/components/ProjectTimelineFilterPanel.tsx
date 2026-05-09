@@ -24,7 +24,7 @@ export function ProjectTimelineFilterPanel(props: {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
           <FilterButton active={!props.activeFilters.length} onClick={props.onClearFilters}>
             全部
           </FilterButton>
@@ -56,7 +56,7 @@ function FilterButton(props: {
     <button
       type="button"
       onClick={props.onClick}
-      className={`border-b px-1 pb-2 pt-1 text-sm transition ${
+      className={`whitespace-nowrap border-b px-1 pb-2 pt-1 text-sm transition ${
         props.active
           ? "border-zinc-100 text-zinc-100"
           : "border-[#333333] text-slate-400 hover:border-zinc-500 hover:text-slate-200"

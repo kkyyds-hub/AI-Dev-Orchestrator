@@ -5,9 +5,9 @@ export function ProjectTimelineHeader(props: {
 }) {
   return (
     <header className="border-b border-[#333333] pb-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-500">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,460px)] xl:items-end">
+        <div className="min-w-0">
+          <p className="text-xs font-medium tracking-[0.24em] text-zinc-500">
             时间线
           </p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50">
@@ -18,7 +18,7 @@ export function ProjectTimelineHeader(props: {
           </p>
         </div>
 
-        <div className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:text-right">
+        <div className="grid gap-3 sm:grid-cols-3">
           <TimelineMetric label="当前项目" value={props.projectName ?? "未选择"} />
           <TimelineMetric label="事件总数" value={String(props.totalEvents)} />
           <TimelineMetric label="当前可见" value={String(props.visibleEventCount)} />
@@ -30,11 +30,11 @@ export function ProjectTimelineHeader(props: {
 
 function TimelineMetric(props: { label: string; value: string }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+    <div className="min-w-0 border border-[#333333] px-3 py-3">
+      <div className="text-xs tracking-[0.16em] text-slate-500">
         {props.label}
       </div>
-      <div className="mt-1 truncate text-sm font-medium text-slate-100">
+      <div className="mt-1 truncate text-sm font-medium text-slate-100" title={props.value}>
         {props.value}
       </div>
     </div>
