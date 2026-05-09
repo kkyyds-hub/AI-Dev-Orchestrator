@@ -11,7 +11,7 @@ type AgentSessionListProps = {
 export function AgentSessionList(props: AgentSessionListProps) {
   if (!props.sessions.length) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/55 px-4 py-6 text-sm leading-6 text-slate-400">
+      <div className="rounded-xl border border-dashed border-[#3a3a3a] px-4 py-6 text-sm leading-6 text-slate-400">
         当前项目暂无智能体会话。
       </div>
     );
@@ -27,10 +27,10 @@ export function AgentSessionList(props: AgentSessionListProps) {
             type="button"
             data-testid={`agent-thread-session-item-${session.session_id}`}
             onClick={() => props.onSelectSession(session.session_id)}
-            className={`group w-full rounded-2xl border p-4 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-cyan-300/35 ${
+            className={`group w-full rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-slate-500/30 sm:p-4 ${
               selected
-                ? "border-cyan-300/50 bg-cyan-400/10 shadow-cyan-950/20"
-                : "border-slate-800/90 bg-slate-950/45 hover:border-slate-600 hover:bg-slate-900/70"
+                ? "border-slate-500/80 bg-slate-900/55"
+                : "border-[#333333] bg-transparent hover:border-slate-600 hover:bg-slate-900/35"
             }`}
           >
             <div className="flex flex-wrap items-center gap-2">
@@ -62,7 +62,7 @@ export function AgentSessionList(props: AgentSessionListProps) {
               检查点：{session.context_checkpoint_id ?? "无"}
             </div>
             {session.summary ? (
-              <div className="mt-3 rounded-xl border border-slate-800/90 bg-slate-950/65 px-3 py-2 text-xs leading-5 text-slate-300">
+              <div className="mt-3 rounded-lg border border-[#333333] bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-300">
                 {session.summary}
               </div>
             ) : null}

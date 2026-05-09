@@ -20,6 +20,7 @@ export function ProjectCollaborationControlPage(
       <ProjectSubviewTabs
         ariaLabel="项目协作视图"
         defaultTabId="agent-thread"
+        variant="inline"
         items={[
           {
             id: "agent-thread",

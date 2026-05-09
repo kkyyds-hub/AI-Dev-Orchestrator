@@ -13,7 +13,7 @@ type AgentTimelineListProps = {
 
 function FieldRow(props: { label: string; value: string | number | null | undefined }) {
   return (
-    <div className="min-w-0 rounded-xl border border-slate-800/80 bg-slate-950/55 px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-[#333333] bg-slate-950/35 px-3 py-2">
       <dt className="text-[11px] text-slate-500">{props.label}</dt>
       <dd className="mt-1 break-all text-xs text-slate-200">{props.value ?? "无"}</dd>
     </div>
@@ -24,21 +24,21 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
   const [detailMessage, setDetailMessage] = useState<AgentTimelineMessage | null>(null);
 
   return (
-    <section className="rounded-3xl border border-slate-800/80 bg-slate-900/70 p-4 shadow-lg shadow-slate-950/15 sm:p-5">
+    <section className="rounded-2xl border border-[#333333] bg-slate-950/30 p-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h4 className="text-sm font-semibold tracking-[0.16em] text-slate-200">
+          <h4 className="text-sm font-medium text-slate-100">
             {props.title}
           </h4>
           <p className="mt-2 text-xs leading-5 text-slate-400">{props.description}</p>
         </div>
-        <span className="rounded-full border border-slate-700/70 px-2.5 py-1 text-xs text-slate-300">
+        <span className="rounded border border-[#3a3a3a] px-2.5 py-1 text-xs text-slate-400">
           {props.messages.length} 条
         </span>
       </div>
 
       {!props.messages.length ? (
-        <p className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/45 px-4 py-5 text-sm text-slate-400">
+        <p className="mt-4 rounded-xl border border-dashed border-[#3a3a3a] px-4 py-5 text-sm text-slate-400">
           {props.emptyText}
         </p>
       ) : (
@@ -46,16 +46,16 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
           {props.messages.map((message) => (
             <li
               key={message.message_id}
-              className="rounded-2xl border border-slate-800/90 bg-slate-950/55 p-4 transition hover:border-slate-700/90 hover:bg-slate-950/75"
+              className="rounded-xl border border-[#333333] bg-transparent p-3 transition hover:border-slate-600 hover:bg-slate-900/35 sm:p-4"
               data-testid={`${props.testId}-item`}
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap gap-2 text-xs text-cyan-100">
-                    <span className="rounded-full bg-cyan-400/10 px-2 py-1">序号 #{message.sequence_no}</span>
-                    <span className="rounded-full bg-slate-800/80 px-2 py-1">角色 {message.role}</span>
-                    <span className="rounded-full bg-slate-800/80 px-2 py-1">类型 {message.message_type}</span>
-                    <span className="rounded-full bg-slate-800/80 px-2 py-1">事件 {message.event_type}</span>
+                  <div className="flex flex-wrap gap-2 text-xs text-slate-300">
+                    <span className="rounded border border-[#3a3a3a] px-2 py-1">序号 #{message.sequence_no}</span>
+                    <span className="rounded border border-[#3a3a3a] px-2 py-1">角色 {message.role}</span>
+                    <span className="rounded border border-[#3a3a3a] px-2 py-1">类型 {message.message_type}</span>
+                    <span className="rounded border border-[#3a3a3a] px-2 py-1">事件 {message.event_type}</span>
                   </div>
                   <p className="mt-3 break-words text-sm leading-6 text-slate-100">
                     {message.content_summary}
@@ -65,13 +65,13 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
                   type="button"
                   data-testid={`${props.testId}-detail-open`}
                   onClick={() => setDetailMessage(message)}
-                  className="shrink-0 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-300/50 hover:text-cyan-100 focus:outline-none focus:ring-2 focus:ring-cyan-300/35"
+                  className="shrink-0 rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30"
                 >
                   查看详情
                 </button>
               </div>
               {message.content_detail ? (
-                <p className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-800/80 bg-slate-950/70 px-3 py-2 text-xs leading-5 text-slate-400">
+                <p className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap rounded-lg border border-[#333333] bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-400">
                   {message.content_detail}
                 </p>
               ) : null}
@@ -96,10 +96,10 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
           aria-labelledby={`${props.testId}-detail-title`}
           data-testid={`${props.testId}-detail-modal`}
         >
-          <div className="max-h-[86vh] w-full max-w-3xl overflow-auto rounded-3xl border border-slate-700 bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
+          <div className="max-h-[86vh] w-full max-w-3xl overflow-auto rounded-2xl border border-[#333333] bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs tracking-[0.18em] text-cyan-200">消息详情</p>
+                <p className="text-xs tracking-[0.18em] text-slate-500">消息详情</p>
                 <h5
                   id={`${props.testId}-detail-title`}
                   className="mt-2 text-xl font-semibold text-slate-50"
@@ -111,17 +111,17 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
                 type="button"
                 data-testid={`${props.testId}-detail-close`}
                 onClick={() => setDetailMessage(null)}
-                className="rounded-full border border-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:text-cyan-100 focus:outline-none focus:ring-2 focus:ring-cyan-300/35"
+                className="rounded border border-[#4a4a4a] px-3 py-1.5 text-sm text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30"
               >
                 关闭
               </button>
             </div>
 
-            <p className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm leading-6 text-slate-100">
+            <p className="mt-4 rounded-xl border border-[#333333] bg-slate-900/45 px-4 py-3 text-sm leading-6 text-slate-100">
               {detailMessage.content_summary}
             </p>
             {detailMessage.content_detail ? (
-              <pre className="mt-3 whitespace-pre-wrap rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-xs leading-5 text-slate-300">
+              <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-[#333333] bg-slate-900/45 px-4 py-3 text-xs leading-5 text-slate-300">
                 {detailMessage.content_detail}
               </pre>
             ) : null}

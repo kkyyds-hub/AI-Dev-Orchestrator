@@ -90,12 +90,12 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
 
   return (
     <section
-      className="rounded-3xl border border-slate-800/80 bg-slate-900/70 p-4 shadow-lg shadow-slate-950/15 sm:p-5"
+      className="rounded-2xl border border-[#333333] bg-slate-950/30 p-4"
       data-testid="boss-intervention-entry-panel"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h4 className="text-sm font-semibold tracking-[0.16em] text-slate-200">
+          <h4 className="text-sm font-medium text-slate-100">
             人工介入入口
           </h4>
           <p className="mt-2 text-xs leading-5 text-slate-400">
@@ -111,19 +111,19 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
             type="button"
             data-testid="boss-intervention-help-open"
             onClick={() => setIsHelpOpen(true)}
-            className="rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-300/50 hover:text-cyan-100 focus:outline-none focus:ring-2 focus:ring-cyan-300/35"
+            className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30"
           >
             查看说明
           </button>
         </div>
       </div>
 
-      <p className="mt-3 rounded-2xl border border-slate-800/80 bg-slate-950/45 px-3 py-2 text-xs leading-5 text-slate-400">
+      <p className="mt-3 rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-xs leading-5 text-slate-400">
         写入接口 POST /agent-threads/projects/{"{project_id}"}/sessions/{"{session_id}"}/interventions
       </p>
 
       <div
-        className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100"
+        className="mt-3 rounded-xl border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-300"
         data-testid="boss-intervention-contract-gap"
       >
         {disabledReason ??
@@ -132,7 +132,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
       </div>
 
       <div
-        className="mt-3 grid gap-2 rounded-2xl border border-slate-800/80 bg-slate-950/55 p-3 text-xs text-slate-300 sm:grid-cols-2"
+        className="mt-3 grid gap-2 rounded-xl border border-[#333333] bg-transparent p-3 text-xs text-slate-300 sm:grid-cols-2"
         data-testid="boss-intervention-entry-summary"
       >
         <div className="break-all">project_id：{props.projectId ?? "无"}</div>
@@ -156,7 +156,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
             onChange={(event) => setInterventionType(event.target.value)}
             data-testid="boss-intervention-type-input"
             placeholder="boss_directive"
-            className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 transition focus:border-cyan-400/60 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+            className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
           />
         </label>
 
@@ -168,7 +168,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
             onChange={(event) => setNoteEventType(event.target.value)}
             data-testid="boss-intervention-note-event-input"
             placeholder="manual_intervention"
-            className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 transition focus:border-cyan-400/60 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+            className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
           />
         </label>
 
@@ -180,7 +180,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
             data-testid="boss-intervention-summary-input"
             rows={3}
             placeholder="描述本次人工介入指令。"
-            className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 transition focus:border-cyan-400/60 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+            className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
           />
         </label>
 
@@ -192,7 +192,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
             data-testid="boss-intervention-detail-input"
             rows={4}
             placeholder="补充操作背景、边界或期望结果。"
-            className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 transition focus:border-cyan-400/60 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
+            className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
           />
         </label>
       </div>
@@ -217,7 +217,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
         aria-disabled={submitDisabled}
         onClick={() => void handleSubmit()}
         title={disabledReason ?? "提交一条正式人工介入指令。"}
-        className="mt-4 w-full rounded-xl border border-cyan-300/35 bg-cyan-400/10 px-4 py-2.5 text-sm font-semibold text-cyan-50 transition hover:border-cyan-200/60 hover:bg-cyan-400/20 focus:outline-none focus:ring-2 focus:ring-cyan-300/35 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-4 w-full rounded border border-[#4a4a4a] bg-transparent px-4 py-2.5 text-sm font-medium text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {submitMutation.isPending ? "提交中..." : "提交人工介入"}
       </button>
@@ -230,10 +230,10 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
           aria-labelledby="boss-intervention-help-title"
           data-testid="boss-intervention-help-modal"
         >
-          <div className="w-full max-w-xl rounded-3xl border border-slate-700 bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
+          <div className="w-full max-w-xl rounded-2xl border border-[#333333] bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs tracking-[0.18em] text-cyan-200">提交说明</p>
+                <p className="text-xs tracking-[0.18em] text-slate-500">提交说明</p>
                 <h5 id="boss-intervention-help-title" className="mt-2 text-xl font-semibold text-slate-50">
                   人工介入写入规则
                 </h5>
@@ -242,7 +242,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
                 type="button"
                 data-testid="boss-intervention-help-close"
                 onClick={() => setIsHelpOpen(false)}
-                className="rounded-full border border-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:text-cyan-100 focus:outline-none focus:ring-2 focus:ring-cyan-300/35"
+                className="rounded border border-[#4a4a4a] px-3 py-1.5 text-sm text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30"
               >
                 关闭
               </button>

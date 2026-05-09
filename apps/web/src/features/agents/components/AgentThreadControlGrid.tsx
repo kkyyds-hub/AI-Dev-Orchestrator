@@ -19,8 +19,8 @@ export function AgentThreadControlGrid(props: {
   onSelectSession: (sessionId: string) => void;
 }) {
   return (
-    <section className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(340px,0.86fr)_minmax(0,1.14fr)]">
-      <section className="min-w-0 space-y-5">
+    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(300px,0.86fr)_minmax(0,1.14fr)]">
+      <section className="min-w-0 space-y-4">
         <AgentThreadSessionSelectorPanel
           projectId={props.projectId}
           sessions={props.sessions}
@@ -35,7 +35,7 @@ export function AgentThreadControlGrid(props: {
         />
       </section>
 
-      <section className="min-w-0 space-y-5">
+      <section className="min-w-0 space-y-4">
         {props.timelineErrorMessage ? (
           <AgentThreadTimelineErrorState message={props.timelineErrorMessage} />
         ) : null}

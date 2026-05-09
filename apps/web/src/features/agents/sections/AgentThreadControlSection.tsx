@@ -62,7 +62,7 @@ export function AgentThreadControlSection(props: AgentThreadControlSectionProps)
     <section
       id="agent-thread-control-surface"
       data-testid="agent-thread-control-surface"
-      className="space-y-5 overflow-hidden rounded-[30px] border border-slate-800/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(2,6,23,0.94))] p-4 shadow-2xl shadow-slate-950/35 sm:p-5 lg:p-6"
+      className="space-y-4"
     >
       <AgentThreadControlHeader
         projectLabel={props.projectName ?? projectId}
