@@ -1,6 +1,5 @@
 import { ProjectCreateFlow } from "../ProjectCreateFlow";
 import { ProjectSummaryCards } from "../components/ProjectSummaryCards";
-import { FeaturedProjectsSection } from "../sections/FeaturedProjectsSection";
 import { ProjectOverviewTableAndDetailSection } from "../sections/ProjectOverviewTableAndDetailSection";
 import type {
   BossDrilldownContext,
@@ -58,39 +57,31 @@ export function ProjectOverviewDashboardPage(
             </h2>
           </div>
           <p className="max-w-xl text-sm leading-6 text-zinc-500">
-            保留项目数量、阻塞、阶段分布与预算四个核心信号；下方只展开最需要处理的项目队列和选中项目摘要。
+            上方保留控制台指标；下方以项目工作清单为主，右侧只显示当前项目摘要，避免把总览变成长日志。
           </p>
         </div>
 
         <ProjectSummaryCards overview={props.overview} />
       </section>
 
-      <div className="grid gap-8 2xl:grid-cols-[minmax(280px,0.62fr)_minmax(0,1.38fr)]">
-        <FeaturedProjectsSection
-          featuredProjects={props.featuredProjects}
-          selectedProjectId={props.selectedProjectId}
-          onSelectProject={props.onSelectProjectIntoDetail}
-        />
-
-        <ProjectOverviewTableAndDetailSection
-          projects={props.projects}
-          selectedProjectId={props.selectedProjectId}
-          selectedProject={props.selectedProject}
-          selectedProjectDetail={props.selectedProjectDetail}
-          drilldownContext={props.drilldownContext}
-          drilldownFeedback={props.drilldownFeedback}
-          activeDrilldownTaskSample={props.activeDrilldownTaskSample}
-          onSelectProject={props.onSelectProjectIntoDetail}
-          onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
-          onNavigateToProjectLatestRun={props.onNavigateToProjectLatestRun}
-          onNavigateToTask={props.onNavigateToTask}
-          onAdvanceStage={props.onAdvanceStage}
-          isAdvancingStage={props.isAdvancingStage}
-          stageActionFeedback={props.stageActionFeedback}
-          isProjectDetailLoading={props.isProjectDetailLoading}
-          projectDetailErrorMessage={props.projectDetailErrorMessage}
-        />
-      </div>
+      <ProjectOverviewTableAndDetailSection
+        projects={props.projects}
+        selectedProjectId={props.selectedProjectId}
+        selectedProject={props.selectedProject}
+        selectedProjectDetail={props.selectedProjectDetail}
+        drilldownContext={props.drilldownContext}
+        drilldownFeedback={props.drilldownFeedback}
+        activeDrilldownTaskSample={props.activeDrilldownTaskSample}
+        onSelectProject={props.onSelectProjectIntoDetail}
+        onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
+        onNavigateToProjectLatestRun={props.onNavigateToProjectLatestRun}
+        onNavigateToTask={props.onNavigateToTask}
+        onAdvanceStage={props.onAdvanceStage}
+        isAdvancingStage={props.isAdvancingStage}
+        stageActionFeedback={props.stageActionFeedback}
+        isProjectDetailLoading={props.isProjectDetailLoading}
+        projectDetailErrorMessage={props.projectDetailErrorMessage}
+      />
 
       <details className="group border-b border-[#333333] pb-5">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm text-zinc-400 transition hover:text-zinc-100">

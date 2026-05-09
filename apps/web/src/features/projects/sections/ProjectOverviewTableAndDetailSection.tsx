@@ -18,6 +18,7 @@ import {
   PROJECT_RISK_LABELS,
   PROJECT_STAGE_LABELS,
   PROJECT_STATUS_LABELS,
+  TASK_STATUS_LABELS,
 } from "../types";
 
 type StageActionFeedback = {
@@ -50,7 +51,7 @@ export function ProjectOverviewTableAndDetailSection(
   return (
     <section
       data-testid="project-overview-detail-workspace"
-      className="grid gap-8 xl:grid-cols-[minmax(0,1.62fr)_minmax(340px,0.82fr)]"
+      className="grid gap-7 xl:grid-cols-[minmax(0,1.68fr)_minmax(360px,0.76fr)]"
     >
       <ProjectTable
         projects={props.projects}
@@ -62,15 +63,15 @@ export function ProjectOverviewTableAndDetailSection(
       <aside
         id="project-detail"
         data-testid="project-detail-panel"
-        className="scroll-mt-24 border-l border-[#333333] pl-5 xl:sticky xl:top-24"
+        className="scroll-mt-24 border border-[#333333] px-5 py-5 xl:sticky xl:top-24 xl:self-start"
       >
         <div className="border-b border-[#333333] pb-4">
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+          <p className="text-xs font-medium tracking-[0.24em] text-zinc-600">
             选中项目
           </p>
-          <h2 className="mt-2 text-lg font-semibold text-zinc-100">项目摘要</h2>
+          <h2 className="mt-2 text-lg font-semibold text-zinc-100">当前项目摘要</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            只展示决策所需的状态、任务、仓库和最新运行入口。
+            默认只保留状态、任务、仓库和运行入口；进展与风险长文本可按需展开。
           </p>
         </div>
 
@@ -94,7 +95,7 @@ export function ProjectOverviewTableAndDetailSection(
           />
         ) : (
           <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-zinc-500">
-            选择一个项目后，在这里查看精简详情摘要。
+            选择一个项目后，在这里查看精简摘要。
           </div>
         )}
       </aside>
@@ -126,62 +127,50 @@ function CompactProjectDetail(props: {
   const latestTask = props.activeDrilldownTaskSample ?? props.project?.latest_task ?? null;
 
   return (
-    <div data-testid="project-detail-section" className="mt-4 space-y-5">
+    <div data-testid="project-detail-section" className="mt-4 space-y-4">
       <div>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="text-xl font-semibold text-zinc-50">{projectName}</h3>
-            <div className="mt-3 flex flex-wrap gap-2">
+        <div className="space-y-3">
+          <h3 className="break-words text-xl font-semibold leading-7 text-zinc-50">
+            {projectName}
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge
+              label={PROJECT_STAGE_LABELS[projectStage] ?? "未知阶段"}
+              tone="info"
+            />
+            <StatusBadge
+              label={PROJECT_STATUS_LABELS[projectStatus] ?? "未知状态"}
+              tone={mapProjectStatusTone(projectStatus)}
+            />
+            {props.project ? (
               <StatusBadge
-                label={PROJECT_STAGE_LABELS[projectStage] ?? projectStage}
-                tone="info"
+                label={
+                  PROJECT_RISK_LABELS[props.project.risk_level] ??
+                  "未知风险"
+                }
+                tone={mapProjectRiskTone(props.project.risk_level)}
               />
-              <StatusBadge
-                label={PROJECT_STATUS_LABELS[projectStatus] ?? projectStatus}
-                tone={mapProjectStatusTone(projectStatus)}
-              />
-              {props.project ? (
-                <StatusBadge
-                  label={
-                    PROJECT_RISK_LABELS[props.project.risk_level] ??
-                    props.project.risk_level
-                  }
-                  tone={mapProjectRiskTone(props.project.risk_level)}
-                />
-              ) : null}
-            </div>
+            ) : null}
           </div>
           {props.project ? (
-            <div className="text-right text-xs leading-5 text-zinc-600">
-              <div>{formatDateTime(props.project.updated_at)}</div>
-              <div>{formatCurrencyUsd(props.project.estimated_cost)}</div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-600">
+              <span>更新 {formatDateTime(props.project.updated_at)}</span>
+              <span>{formatCurrencyUsd(props.project.estimated_cost)}</span>
             </div>
           ) : null}
         </div>
-        <p className="mt-4 text-sm leading-6 text-zinc-400">{projectSummary}</p>
+        <p className="mt-4 line-clamp-2 text-sm leading-6 text-zinc-400">
+          {projectSummary}
+        </p>
       </div>
 
       {taskStats ? <TaskStatsLine taskStats={taskStats} /> : null}
 
-      {props.project ? (
-        <div className="space-y-2 border-t border-[#333333] pt-4">
-          <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
-            进展 / 风险
-          </div>
-          <p className="text-sm leading-6 text-zinc-400">
-            {props.project.latest_progress_summary}
-          </p>
-          <p className="text-xs leading-5 text-zinc-500">
-            {props.project.key_risk_summary}
-          </p>
-        </div>
-      ) : null}
-
       <div className="space-y-3 border-t border-[#333333] pt-4">
-        <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
+        <div className="text-xs font-medium tracking-[0.22em] text-zinc-600">
           仓库上下文
         </div>
-        <div className="space-y-2 text-sm leading-6 text-zinc-400">
+        <div className="grid gap-2 text-sm leading-6 text-zinc-400">
           <SummaryRow
             label="仓库"
             value={repositoryWorkspace?.display_name ?? "待绑定主仓库"}
@@ -199,25 +188,22 @@ function CompactProjectDetail(props: {
 
       {latestTask ? (
         <div className="space-y-3 border-t border-[#333333] pt-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
+          <div className="space-y-3">
+            <div className="min-w-0">
+              <div className="text-xs font-medium tracking-[0.22em] text-zinc-600">
                 最新任务
               </div>
-              <div className="mt-2 text-sm font-medium text-zinc-100">
+              <div className="mt-2 line-clamp-2 text-sm font-medium leading-6 text-zinc-100">
                 {latestTask.title}
               </div>
             </div>
-            <StatusBadge
-              label={latestTask.status}
-              tone={mapTaskStatusTone(latestTask.status)}
-            />
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge
+                label={TASK_STATUS_LABELS[latestTask.status] ?? "未知任务状态"}
+                tone={mapTaskStatusTone(latestTask.status)}
+              />
+            </div>
           </div>
-          {latestTask.latest_run_summary ? (
-            <p className="text-xs leading-5 text-zinc-500">
-              {latestTask.latest_run_summary}
-            </p>
-          ) : null}
           <button
             type="button"
             onClick={() =>
@@ -225,11 +211,32 @@ function CompactProjectDetail(props: {
                 runId: latestTask.latest_run_id,
               })
             }
-            className="inline-flex rounded border border-[#4a4a4a] bg-transparent px-3 py-2 text-xs font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
+            className="inline-flex whitespace-nowrap rounded border border-[#4a4a4a] bg-transparent px-3 py-2 text-xs font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
           >
             打开任务
           </button>
         </div>
+      ) : null}
+
+      {props.project || latestTask?.latest_run_summary ? (
+        <details className="group border-t border-[#333333] pt-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm text-zinc-400 transition hover:text-zinc-100">
+            <span>展开进展、风险与运行摘要</span>
+            <span className="text-xs text-zinc-600 group-open:hidden">展开</span>
+            <span className="hidden text-xs text-zinc-600 group-open:inline">收起</span>
+          </summary>
+          <div className="mt-4 space-y-4">
+            {props.project ? (
+              <div className="space-y-3">
+                <LongTextBlock title="最新进展" text={props.project.latest_progress_summary} />
+                <LongTextBlock title="关键风险" text={props.project.key_risk_summary} />
+              </div>
+            ) : null}
+            {latestTask?.latest_run_summary ? (
+              <LongTextBlock title="运行摘要" text={latestTask.latest_run_summary} />
+            ) : null}
+          </div>
+        </details>
       ) : null}
 
       {props.isLoading ? (
@@ -248,21 +255,26 @@ function CompactProjectDetail(props: {
 }
 
 function TaskStatsLine(props: { taskStats: ProjectTaskStats }) {
+  const completionRatio = props.taskStats.total_tasks
+    ? Math.round((props.taskStats.completed_tasks / props.taskStats.total_tasks) * 100)
+    : 0;
+
   const stats = [
-    ["总任务", props.taskStats.total_tasks],
-    ["完成", props.taskStats.completed_tasks],
-    ["执行中", props.taskStats.running_tasks],
-    ["阻塞/人工", `${props.taskStats.blocked_tasks}/${props.taskStats.waiting_human_tasks}`],
+    ["完成率", `${completionRatio}%`, `${props.taskStats.completed_tasks}/${props.taskStats.total_tasks}`],
+    ["执行中", String(props.taskStats.running_tasks), "运行任务"],
+    ["待处理", String(props.taskStats.pending_tasks), "排队任务"],
+    ["阻塞/人工", `${props.taskStats.blocked_tasks}/${props.taskStats.waiting_human_tasks}`, "需关注"],
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-[#333333] pt-4 sm:grid-cols-4 xl:grid-cols-2">
-      {stats.map(([label, value]) => (
-        <div key={label}>
+    <div className="grid grid-cols-2 gap-3 border-t border-[#333333] pt-4">
+      {stats.map(([label, value, hint]) => (
+        <div key={label} className="border border-[#333333] px-3 py-3">
           <div className="text-xs text-zinc-600">{label}</div>
           <div className="mt-1 font-mono text-xl font-semibold text-zinc-100">
             {value}
           </div>
+          <div className="mt-1 text-xs text-zinc-600">{hint}</div>
         </div>
       ))}
     </div>
@@ -271,9 +283,20 @@ function TaskStatsLine(props: { taskStats: ProjectTaskStats }) {
 
 function SummaryRow(props: { label: string; value: string }) {
   return (
-    <div className="flex gap-4 border-b border-[#333333]/70 pb-2 last:border-b-0">
-      <span className="w-12 shrink-0 text-xs text-zinc-600">{props.label}</span>
-      <span className="min-w-0 break-words text-zinc-300">{props.value}</span>
+    <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-3 border-b border-[#333333]/70 pb-2 last:border-b-0">
+      <span className="text-xs text-zinc-600">{props.label}</span>
+      <span className="min-w-0 truncate text-zinc-300" title={props.value}>
+        {props.value}
+      </span>
+    </div>
+  );
+}
+
+function LongTextBlock(props: { title: string; text: string }) {
+  return (
+    <div>
+      <div className="text-xs text-zinc-600">{props.title}</div>
+      <p className="mt-2 text-sm leading-6 text-zinc-400">{props.text}</p>
     </div>
   );
 }

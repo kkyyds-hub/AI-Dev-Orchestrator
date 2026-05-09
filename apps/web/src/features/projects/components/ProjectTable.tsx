@@ -10,6 +10,7 @@ import {
   PROJECT_RISK_LABELS,
   PROJECT_STAGE_LABELS,
   PROJECT_STATUS_LABELS,
+  TASK_STATUS_LABELS,
 } from "../types";
 
 type ProjectTableProps = {
@@ -32,14 +33,14 @@ export function ProjectTable({
     <section className="min-w-0 border-b border-[#333333] pb-7">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
+          <p className="text-xs font-medium tracking-[0.24em] text-zinc-600">
             项目队列
           </p>
           <h2 className="mt-2 text-lg font-semibold text-zinc-100">
-            项目队列
+            项目工作清单
           </h2>
           <p className="mt-1 text-sm text-zinc-500">
-            默认展示最需要关注的 {visibleProjects.length} 个项目，点选后查看右侧摘要。
+            每行保留项目、任务、进展、风险四组关键信号，避免把信息挤成碎列。
           </p>
         </div>
         <div className="text-xs text-zinc-600">共 {projects.length} 个项目</div>
@@ -50,144 +51,174 @@ export function ProjectTable({
           暂无项目；可展开下方“新建项目”入口创建项目。
         </div>
       ) : (
-        <div className="mt-4 overflow-x-auto border-t border-[#333333]">
-          <table className="min-w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-[#333333] text-left text-xs uppercase tracking-[0.18em] text-zinc-600">
-                <th className="px-3 py-3">项目</th>
-                <th className="px-3 py-3">阶段</th>
-                <th className="px-3 py-3">任务</th>
-                <th className="px-3 py-3">进度</th>
-                <th className="px-3 py-3">风险</th>
-                <th className="px-3 py-3 text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleProjects.map((project) => {
-                const isSelected = project.id === selectedProjectId;
-                const rowClassName = isSelected
-                  ? "border-b border-[#444444] bg-white/[0.03] align-top"
-                  : "border-b border-[#333333] align-top transition hover:bg-white/[0.02]";
+        <div className="mt-4 space-y-3">
+          {visibleProjects.map((project) => {
+            const isSelected = project.id === selectedProjectId;
 
-                return (
-                  <tr key={project.id} className={rowClassName}>
-                    <td
-                      className={`px-3 py-4 ${
-                        isSelected
-                          ? "border-l-2 border-l-zinc-300"
-                          : "border-l-2 border-l-transparent"
-                      }`}
-                    >
-                      <div className="font-medium text-zinc-100">{project.name}</div>
-                      <p className="mt-2 max-w-xs line-clamp-2 text-xs leading-5 text-zinc-500">
+            return (
+              <button
+                key={project.id}
+                type="button"
+                data-testid={`project-row-${project.id}`}
+                onClick={() => onSelectProject(project.id)}
+                className={`w-full border px-4 py-4 text-left transition ${
+                  isSelected
+                    ? "border-[#555555] bg-white/[0.035] shadow-[inset_3px_0_0_#d4d4d8]"
+                    : "border-[#333333] bg-transparent hover:border-[#4a4a4a] hover:bg-white/[0.02]"
+                }`}
+              >
+                <div className="flex min-w-0 flex-col gap-4">
+                  <div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="min-w-0 break-words text-base font-semibold text-zinc-100">
+                          {project.name}
+                        </h3>
+                        {isSelected ? (
+                          <span className="shrink-0 text-xs text-zinc-500">当前查看</span>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-500">
                         {project.summary}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <StatusBadge
-                          label={
-                            project.repository_workspace
-                              ? "仓库已绑定"
-                              : "待绑定仓库"
-                          }
-                          tone={
-                            project.repository_workspace ? "success" : "warning"
-                          }
-                        />
-                        <StatusBadge
-                          label={buildSnapshotLabel(project)}
-                          tone={mapSnapshotTone(project)}
-                        />
-                      </div>
-                    </td>
-
-                    <td className="px-3 py-4">
-                      <div className="flex flex-wrap gap-2">
-                        <StatusBadge
-                          label={
-                            PROJECT_STAGE_LABELS[project.stage] ?? project.stage
-                          }
+                          label={PROJECT_STAGE_LABELS[project.stage] ?? "未知阶段"}
                           tone="info"
                         />
                         <StatusBadge
-                          label={
-                            PROJECT_STATUS_LABELS[project.status] ??
-                            project.status
-                          }
+                          label={PROJECT_STATUS_LABELS[project.status] ?? "未知状态"}
                           tone={mapProjectStatusTone(project.status)}
                         />
+                        <StatusBadge
+                          label={buildRepositoryLabel(project)}
+                          tone={project.repository_workspace ? "success" : "warning"}
+                        />
                       </div>
-                    </td>
+                    </div>
 
-                    <td className="px-3 py-4">
-                      <div className="text-xs leading-6 text-zinc-400">
-                        <div>总数 {project.task_stats.total_tasks}</div>
-                        <div>完成 {project.task_stats.completed_tasks}</div>
-                        <div>阻塞/待人工 {project.task_stats.blocked_tasks} / {project.task_stats.waiting_human_tasks}</div>
-                      </div>
-                    </td>
+                    <div className="flex shrink-0 flex-wrap items-center gap-3 2xl:justify-end">
+                      <span className="text-xs text-zinc-600">
+                        {formatCurrencyUsd(project.estimated_cost)}
+                      </span>
+                      <span className="inline-flex rounded border border-[#4a4a4a] px-3 py-2 text-xs font-medium text-zinc-100">
+                        {isSelected ? "已选中" : "查看摘要"}
+                      </span>
+                    </div>
+                  </div>
 
-                    <td className="px-3 py-4">
-                      <p className="max-w-sm line-clamp-2 text-xs leading-5 text-zinc-400">
-                        {project.latest_progress_summary}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-                        <span>{formatDateTime(project.latest_progress_at)}</span>
+                  <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(180px,0.78fr)_minmax(0,1.12fr)_minmax(0,1fr)]">
+                    <div className="grid grid-cols-3 gap-3 rounded border border-[#333333] px-3 py-3">
+                      <MiniMetric
+                        label="任务"
+                        value={`${project.task_stats.completed_tasks}/${project.task_stats.total_tasks}`}
+                        hint="已完成/总数"
+                      />
+                      <MiniMetric
+                        label="执行"
+                        value={String(project.task_stats.running_tasks)}
+                        hint="运行中"
+                      />
+                      <MiniMetric
+                        label="阻塞"
+                        value={`${project.task_stats.blocked_tasks}/${project.task_stats.waiting_human_tasks}`}
+                        hint="阻塞/待人工"
+                        valueClassName={
+                          project.task_stats.blocked_tasks +
+                            project.task_stats.waiting_human_tasks >
+                          0
+                            ? "text-amber-200"
+                            : undefined
+                        }
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="min-w-0">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-600">
+                          <span>最新进展</span>
+                          <span>{formatDateTime(project.latest_progress_at)}</span>
+                        </div>
+                        <p className="line-clamp-2 text-sm leading-6 text-zinc-400">
+                          {project.latest_progress_summary}
+                        </p>
                         {project.latest_task ? (
-                          <StatusBadge
-                            label={project.latest_task.title}
-                            tone={mapTaskStatusTone(project.latest_task.status)}
-                          />
+                          <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
+                            <StatusBadge
+                              label={
+                                TASK_STATUS_LABELS[project.latest_task.status] ??
+                                "未知任务状态"
+                              }
+                              tone={mapTaskStatusTone(project.latest_task.status)}
+                            />
+                            <span className="min-w-0 truncate text-xs text-zinc-500">
+                              {project.latest_task.title}
+                            </span>
+                          </div>
                         ) : null}
                       </div>
-                    </td>
+                    </div>
 
-                    <td className="px-3 py-4">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <div className="min-w-0">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-zinc-600">风险</span>
                         <StatusBadge
-                          label={
-                            PROJECT_RISK_LABELS[project.risk_level] ??
-                            project.risk_level
-                          }
+                          label={PROJECT_RISK_LABELS[project.risk_level] ?? "未知风险"}
                           tone={mapProjectRiskTone(project.risk_level)}
                         />
                         {project.high_risk_task_count > 0 ? (
-                          <span className="text-xs text-zinc-600">
+                          <span className="text-xs text-zinc-500">
                             高风险 {project.high_risk_task_count}
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-2 max-w-sm line-clamp-2 text-xs leading-5 text-zinc-500">
+                      <p className="line-clamp-2 break-words text-sm leading-6 text-zinc-500">
                         {project.key_risk_summary}
                       </p>
-                    </td>
-
-                    <td className="px-3 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => onSelectProject(project.id)}
-                        className="inline-flex rounded border border-[#4a4a4a] bg-transparent px-3 py-2 text-xs font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
-                      >
-                        {isSelected ? "已选中" : "查看"}
-                      </button>
-                      <div className="mt-2 text-xs text-zinc-600">
-                        {formatCurrencyUsd(project.estimated_cost)}
+                      <div className="mt-3 text-xs text-zinc-600">
+                        {buildSnapshotLabel(project)}
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
 
           {hiddenProjectCount > 0 ? (
-            <p className="mt-3 text-xs text-zinc-600">
-              还有 {hiddenProjectCount} 个项目未在首页展开；可通过项目筛选或后续列表视图继续查看。
+            <p className="text-xs text-zinc-600">
+              还有 {hiddenProjectCount} 个项目未在当前总览展开；此处仅保留最需要处理的队列。
             </p>
           ) : null}
         </div>
       )}
     </section>
   );
+}
+
+function MiniMetric(props: {
+  label: string;
+  value: string;
+  hint: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs text-zinc-600">{props.label}</div>
+      <div
+        className={`mt-1 font-mono text-lg font-semibold ${
+          props.valueClassName ?? "text-zinc-100"
+        }`}
+      >
+        {props.value}
+      </div>
+      <div className="mt-1 text-xs text-zinc-600">{props.hint}</div>
+    </div>
+  );
+}
+
+function buildRepositoryLabel(project: BossProjectItem) {
+  return project.repository_workspace ? "仓库已绑定" : "待绑定仓库";
 }
 
 function buildSnapshotLabel(project: BossProjectItem) {
@@ -200,18 +231,4 @@ function buildSnapshotLabel(project: BossProjectItem) {
   return project.latest_repository_snapshot.status === "success"
     ? "快照已就绪"
     : "快照失败";
-}
-
-function mapSnapshotTone(
-  project: BossProjectItem,
-): "neutral" | "info" | "success" | "warning" | "danger" {
-  if (!project.repository_workspace) {
-    return "neutral";
-  }
-  if (!project.latest_repository_snapshot) {
-    return "info";
-  }
-  return project.latest_repository_snapshot.status === "success"
-    ? "success"
-    : "danger";
 }
