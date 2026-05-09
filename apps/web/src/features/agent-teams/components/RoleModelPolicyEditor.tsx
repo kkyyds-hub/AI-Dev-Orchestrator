@@ -26,9 +26,9 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
         保存后将作为团队执行时的模型选择规则生效。
       </p>
 
-      <div className="mt-4 overflow-x-auto">
+      <div className="mt-4 max-h-[320px] overflow-auto overscroll-contain">
         <table className="w-full min-w-[520px] text-left text-sm">
-          <thead className="border-b border-[#333333] text-xs text-slate-500">
+          <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
             <tr>
               <th className="py-2 pr-4 font-medium">角色</th>
               <th className="px-4 py-2 font-medium">模型档位</th>
@@ -37,7 +37,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
           <tbody className="divide-y divide-[#333333]">
             {props.rolePreferences.map((item, index) => (
               <tr key={`${item.role_code}-${index}`}>
-                <td className="py-3 pr-4 font-mono text-xs text-slate-400">
+                <td className="max-w-[160px] truncate py-3 pr-4 font-mono text-xs text-slate-400" title={item.role_code}>
                   {item.role_code}
                 </td>
                 <td className="px-4 py-3">
@@ -67,10 +67,11 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
       </div>
 
       {props.stageOverrides.length > 0 ? (
-        <div className="mt-6 overflow-x-auto">
+        <div className="mt-6">
           <div className="text-xs font-medium text-slate-500">阶段覆盖</div>
-          <table className="mt-2 w-full min-w-[620px] text-left text-sm">
-            <thead className="border-b border-[#333333] text-xs text-slate-500">
+          <div className="mt-2 max-h-[300px] overflow-auto overscroll-contain">
+            <table className="w-full min-w-[620px] text-left text-sm">
+            <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
               <tr>
                 <th className="py-2 pr-4 font-medium">阶段</th>
                 <th className="px-4 py-2 font-medium">角色</th>
@@ -81,7 +82,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
               {props.stageOverrides.map((item, index) => (
                 <tr key={`${item.stage}-${item.role_code}-${index}`}>
                   <td className="py-3 pr-4 text-slate-300">{item.stage}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-400">
+                  <td className="max-w-[160px] truncate px-4 py-3 font-mono text-xs text-slate-400" title={item.role_code}>
                     {item.role_code}
                   </td>
                   <td className="px-4 py-3">
@@ -108,6 +109,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
               ))}
             </tbody>
           </table>
+          </div>
           </div>
       ) : null}
     </section>

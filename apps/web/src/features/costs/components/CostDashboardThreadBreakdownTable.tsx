@@ -18,9 +18,9 @@ export function CostDashboardThreadBreakdownTable(
         <p className="mt-1 text-xs text-slate-500">按协作线程查看阶段、状态、责任角色与成本消耗。</p>
       </div>
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="min-w-full text-left text-xs text-slate-300">
-          <thead className="border-b border-slate-800 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+      <div className="mt-4 max-h-[420px] overflow-auto overscroll-contain">
+        <table className="w-full min-w-[1120px] text-left text-xs text-slate-300">
+          <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-[11px] uppercase tracking-[0.12em] text-slate-500 backdrop-blur">
             <tr>
               <th className="px-3 py-2 font-medium">线程 ID</th>
               <th className="px-3 py-2 font-medium">任务 ID</th>
@@ -46,10 +46,10 @@ export function CostDashboardThreadBreakdownTable(
                 <td className="px-3 py-2 font-mono text-[11px]" title={item.run_id}>
                   {shortId(item.run_id)}
                 </td>
-                <td className="px-3 py-2">{item.current_phase || "-"}</td>
-                <td className="px-3 py-2">{item.status || "-"}</td>
-                <td className="px-3 py-2">{item.review_status || "-"}</td>
-                <td className="px-3 py-2">{item.owner_role_code || "未分配"}</td>
+                <td className="max-w-[120px] truncate px-3 py-2" title={item.current_phase || "-"}>{item.current_phase || "-"}</td>
+                <td className="max-w-[120px] truncate px-3 py-2" title={item.status || "-"}>{item.status || "-"}</td>
+                <td className="max-w-[120px] truncate px-3 py-2" title={item.review_status || "-"}>{item.review_status || "-"}</td>
+                <td className="max-w-[140px] truncate px-3 py-2" title={item.owner_role_code || "未分配"}>{item.owner_role_code || "未分配"}</td>
                 <td className="px-3 py-2 text-right font-medium tabular-nums text-slate-100">
                   {formatUsd(item.total_estimated_cost_usd)}
                 </td>

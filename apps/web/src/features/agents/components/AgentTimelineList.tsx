@@ -53,7 +53,7 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
                     <span>{message.message_type}</span>
                     <span>{message.event_type}</span>
                   </div>
-                  <p className="mt-2 break-words text-sm leading-6 text-slate-100">
+                  <p className="mt-2 line-clamp-3 break-words text-sm leading-6 text-slate-100" title={message.content_summary}>
                     {message.content_summary}
                   </p>
                 </div>
@@ -74,10 +74,10 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
               {expandedMessageId === message.message_id ? (
                 <div
                   data-testid={`${props.testId}-detail-modal`}
-                  className="mt-3 space-y-3 border-l border-[#333333] pl-3 text-xs leading-5 text-slate-400"
+                  className="mt-3 max-h-[360px] space-y-3 overflow-y-auto overscroll-contain border-l border-[#333333] pl-3 pr-2 text-xs leading-5 text-slate-400"
                 >
                   {message.content_detail ? (
-                    <pre className="whitespace-pre-wrap text-xs leading-5 text-slate-300">
+                    <pre className="max-h-[280px] overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">
                       {message.content_detail}
                     </pre>
                   ) : (

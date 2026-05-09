@@ -15,9 +15,9 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
         </p>
       </div>
 
-      <div className="mt-4 overflow-x-auto">
+      <div className="mt-4 max-h-[360px] overflow-auto overscroll-contain">
         <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="border-b border-[#333333] text-xs text-slate-500">
+          <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
             <tr>
               <th className="py-2 pr-4 font-medium">角色代码</th>
               <th className="px-4 py-2 font-medium">显示名</th>
@@ -28,7 +28,7 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
           <tbody className="divide-y divide-[#333333]">
             {props.members.map((member, index) => (
               <tr key={`${member.role_code}-${index}`}>
-                <td className="py-3 pr-4 font-mono text-xs text-slate-400">
+                <td className="max-w-[160px] truncate py-3 pr-4 font-mono text-xs text-slate-400" title={member.role_code}>
                   {member.role_code}
                 </td>
                 <td className="px-4 py-3">

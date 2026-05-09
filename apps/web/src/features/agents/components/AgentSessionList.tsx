@@ -40,7 +40,7 @@ export function AgentSessionList(props: AgentSessionListProps) {
   }
 
   return (
-    <div className="divide-y divide-[#333333]" data-testid="agent-thread-session-list">
+    <div className="max-h-[520px] divide-y divide-[#333333] overflow-y-auto pr-2 overscroll-contain scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-700/60" data-testid="agent-thread-session-list">
       {props.sessions.map((session) => {
         const selected = session.session_id === props.selectedSessionId;
         return (
@@ -96,7 +96,7 @@ export function AgentSessionList(props: AgentSessionListProps) {
             </div>
 
             {session.summary ? (
-              <p className="mt-2 max-h-10 overflow-hidden text-xs leading-5 text-slate-400">
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400" title={session.summary}>
                 {session.summary}
               </p>
             ) : null}

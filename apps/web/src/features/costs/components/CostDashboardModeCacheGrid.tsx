@@ -21,9 +21,9 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
         <div className="text-xs text-slate-500">任务 {props.snapshot.task_count_with_runs}/{props.snapshot.task_count}</div>
       </div>
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="min-w-full text-left text-xs text-slate-300">
-          <thead className="border-b border-slate-800 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+      <div className="mt-4 max-h-[360px] overflow-auto overscroll-contain">
+        <table className="w-full min-w-[860px] text-left text-xs text-slate-300">
+          <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-[11px] uppercase tracking-[0.12em] text-slate-500 backdrop-blur">
             <tr>
               <th className="px-3 py-2 font-medium">计费模式</th>
               <th className="px-3 py-2 text-right font-medium">运行次数</th>
@@ -36,7 +36,7 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
           <tbody className="divide-y divide-slate-800/80">
             {modeBreakdown.map((item) => (
               <tr key={item.mode} className="hover:bg-slate-800/25">
-                <td className="px-3 py-2 font-medium text-slate-100">{item.mode || "未标记"}</td>
+                <td className="max-w-[180px] truncate px-3 py-2 font-medium text-slate-100" title={item.mode || "未标记"}>{item.mode || "未标记"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatTokenCount(item.run_count)}</td>
                 <td className="px-3 py-2 text-right font-medium tabular-nums text-slate-100">
                   {formatUsd(item.total_estimated_cost_usd)}

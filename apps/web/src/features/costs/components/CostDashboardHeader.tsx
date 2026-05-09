@@ -10,7 +10,7 @@ export function CostDashboardHeader(props: CostDashboardHeaderProps) {
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
       <div className="min-w-0">
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-          Usage & Cost Analytics
+          成本分析
         </p>
         <h2 className="mt-1 text-xl font-semibold text-slate-50">用量与成本分析</h2>
         <p className="mt-1 truncate text-sm text-slate-400">
