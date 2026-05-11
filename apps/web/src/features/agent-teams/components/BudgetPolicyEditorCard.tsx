@@ -5,15 +5,15 @@ export function BudgetPolicyEditorCard(props: {
   onChange: (policy: BudgetPolicy) => void;
 }) {
   return (
-    <section id="team-budget-settings" className="scroll-mt-24 border-b border-[#333333] pb-5">
+    <section id="team-budget-settings" className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <div>
         <h3 className="text-sm font-semibold text-slate-100">预算策略</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">
           设置运行预算、硬停止和预算压力模式。
         </p>
       </div>
-      <div className="mt-4 divide-y divide-[#333333]">
-        <label className="grid gap-3 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="mt-4 divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-950/30">
+        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-slate-300">每日预算美元</span>
           <input
             type="number"
@@ -24,10 +24,10 @@ export function BudgetPolicyEditorCard(props: {
                 daily_budget_usd: Number(event.target.value || 0),
               })
             }
-            className="w-40 rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+            className="w-40 rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
           />
         </label>
-        <label className="grid gap-3 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-slate-300">单次运行预算美元</span>
           <input
             type="number"
@@ -38,10 +38,10 @@ export function BudgetPolicyEditorCard(props: {
                 per_run_budget_usd: Number(event.target.value || 0),
               })
             }
-            className="w-40 rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+            className="w-40 rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
           />
         </label>
-        <label className="grid gap-3 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-slate-300">硬停止</span>
           <span className="inline-flex items-center gap-2 text-slate-300">
             <input
@@ -57,7 +57,7 @@ export function BudgetPolicyEditorCard(props: {
             达到预算后停止
           </span>
         </label>
-        <label className="grid gap-3 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-slate-300">压力模式</span>
           <input
             value={props.policy.pressure_mode}
@@ -67,7 +67,7 @@ export function BudgetPolicyEditorCard(props: {
                 pressure_mode: event.target.value,
               })
             }
-            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+            className="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
           />
         </label>
       </div>

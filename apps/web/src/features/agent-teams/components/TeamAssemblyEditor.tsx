@@ -7,7 +7,7 @@ type TeamAssemblyEditorProps = {
 
 export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
   return (
-    <section id="team-role-settings" className="scroll-mt-24 border-b border-[#333333] pb-5">
+    <section id="team-role-settings" className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <div>
         <h3 className="text-sm font-semibold text-slate-100">角色分工</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -15,9 +15,9 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
         </p>
       </div>
 
-      <div className="mt-4 max-h-[360px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">
+      <div className="mt-4 max-h-[360px] min-w-0 overflow-auto overscroll-contain rounded-xl border border-slate-800 bg-slate-950/30">
         <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
+          <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
             <tr>
               <th className="py-2 pr-4 font-medium">角色代码</th>
               <th className="px-4 py-2 font-medium">显示名</th>
@@ -25,7 +25,7 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
               <th className="pl-4 py-2 font-medium">启用</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#333333]">
+          <tbody className="divide-y divide-slate-800">
             {props.members.map((member, index) => (
               <tr key={`${member.role_code}-${index}`}>
                 <td className="max-w-[160px] truncate py-3 pr-4 font-mono text-xs text-slate-400" title={member.role_code}>
@@ -42,7 +42,7 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
                       };
                       props.onChange(next);
                     }}
-                    className="w-full rounded border border-[#3a3a3a] bg-transparent px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
                   />
                 </td>
                 <td className="px-4 py-3">
@@ -59,7 +59,7 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
                       };
                       props.onChange(next);
                     }}
-                    className="w-28 rounded border border-[#3a3a3a] bg-transparent px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+                    className="w-28 rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
                   />
                 </td>
                 <td className="pl-4 py-3">

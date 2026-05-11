@@ -9,7 +9,7 @@ export function TeamPolicyBudgetGrid(props: {
   onChangeBudgetPolicy: (policy: BudgetPolicy) => void;
 }) {
   return (
-    <section className="space-y-7">
+    <section className="space-y-5">
       <TeamPolicyEditorCard
         policy={props.teamPolicy}
         onChange={props.onChangeTeamPolicy}

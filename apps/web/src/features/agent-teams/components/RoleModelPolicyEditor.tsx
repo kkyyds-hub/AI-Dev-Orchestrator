@@ -15,7 +15,7 @@ type RoleModelPolicyEditorProps = {
 
 export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
   return (
-    <section id="team-model-settings" className="scroll-mt-24 border-b border-[#333333] pb-5">
+    <section id="team-model-settings" className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <div>
         <h3 className="text-sm font-semibold text-slate-100">模型策略</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -26,15 +26,15 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
         按角色和阶段维护模型档位。
       </p>
 
-      <div className="mt-4 max-h-[320px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">
+      <div className="mt-4 max-h-[320px] min-w-0 overflow-auto overscroll-contain rounded-xl border border-slate-800 bg-slate-950/30">
         <table className="w-full min-w-[520px] text-left text-sm">
-          <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
+          <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
             <tr>
               <th className="py-2 pr-4 font-medium">角色</th>
               <th className="px-4 py-2 font-medium">模型档位</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#333333]">
+          <tbody className="divide-y divide-slate-800">
             {props.rolePreferences.map((item, index) => (
               <tr key={`${item.role_code}-${index}`}>
                 <td className="max-w-[160px] truncate py-3 pr-4 font-mono text-xs text-slate-400" title={item.role_code}>
@@ -51,7 +51,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
                       };
                       props.onChangeRolePreferences(next);
                     }}
-                    className="w-44 rounded border border-[#3a3a3a] bg-slate-950 px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+                    className="w-44 rounded-lg border border-slate-700 bg-slate-950/80 px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
                   >
                     {MODEL_TIERS.map((tier) => (
                       <option key={tier} value={tier}>
@@ -69,16 +69,16 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
       {props.stageOverrides.length > 0 ? (
         <div className="mt-6">
           <div className="text-xs font-medium text-slate-500">阶段覆盖</div>
-          <div className="mt-2 max-h-[300px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">
+          <div className="mt-2 max-h-[300px] min-w-0 overflow-auto overscroll-contain rounded-xl border border-slate-800 bg-slate-950/30">
             <table className="w-full min-w-[620px] text-left text-sm">
-            <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
+            <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
               <tr>
                 <th className="py-2 pr-4 font-medium">阶段</th>
                 <th className="px-4 py-2 font-medium">角色</th>
                 <th className="px-4 py-2 font-medium">模型档位</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#333333]">
+            <tbody className="divide-y divide-slate-800">
               {props.stageOverrides.map((item, index) => (
                 <tr key={`${item.stage}-${item.role_code}-${index}`}>
                   <td className="py-3 pr-4 text-slate-300">{item.stage}</td>
@@ -96,7 +96,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
                         };
                         props.onChangeStageOverrides(next);
                       }}
-                      className="w-44 rounded border border-[#3a3a3a] bg-slate-950 px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+                      className="w-44 rounded-lg border border-slate-700 bg-slate-950/80 px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-500"
                     >
                       {MODEL_TIERS.map((tier) => (
                         <option key={tier} value={tier}>

@@ -6,7 +6,7 @@ export function TeamControlDay14Prerequisites(props: {
   return (
     <section
       data-testid="team-control-day14-prerequisites"
-      className="border-b border-[#333333] pb-4 text-xs text-slate-400"
+      className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-xs text-slate-400"
     >
       <h3 className="text-sm font-semibold text-slate-100">运行前置条件</h3>
       <dl className="mt-3 space-y-3">
