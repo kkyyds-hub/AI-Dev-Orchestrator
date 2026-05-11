@@ -59,14 +59,13 @@ export function ProjectSopPanel({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day06 SOP 模板与阶段推进
+            项目流程模板
           </div>
           <h3 className="mt-3 text-lg font-semibold text-slate-50">
             SOP 模板、阶段清单与自动生成任务
           </h3>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            Day06 把项目推进从自由对话改为 SOP 驱动：模板会声明阶段输入、产出、
-            守卫条件和责任角色，并在项目进入阶段时自动补齐当前阶段任务。
+            模板会声明阶段输入、产出、检查条件和责任角色，并在项目进入阶段时补齐当前阶段任务。
           </p>
         </div>
 
@@ -203,7 +202,7 @@ export function ProjectSopPanel({
           <p className="text-sm leading-6 text-slate-300">
             当前项目还没有绑定 SOP 模板。选择模板后，系统会：
             <span className="mx-1 text-slate-100">1)</span>声明阶段输入/产出/守卫条件，
-            <span className="mx-1 text-slate-100">2)</span>关联 Day05 角色责任，
+            <span className="mx-1 text-slate-100">2)</span>关联角色责任，
             <span className="mx-1 text-slate-100">3)</span>自动生成当前阶段任务，
             并在阶段推进时继续补齐后续阶段任务。
           </p>

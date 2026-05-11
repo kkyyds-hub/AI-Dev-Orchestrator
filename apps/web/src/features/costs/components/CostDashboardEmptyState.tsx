@@ -9,7 +9,7 @@ export function CostDashboardEmptyState(props: CostDashboardEmptyStateProps) {
         成本分析
       </p>
       <h2 className="text-xl font-semibold text-slate-50">用量与成本</h2>
-      <p className="text-sm text-slate-400">请先选择项目，再查看用量、成本来源和兜底说明。</p>
+      <p className="text-sm text-slate-400">请先选择项目，再查看用量、成本来源和估算说明。</p>
     </section>
   );
 }

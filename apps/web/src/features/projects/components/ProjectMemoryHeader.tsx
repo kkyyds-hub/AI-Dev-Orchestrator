@@ -9,7 +9,7 @@ export function ProjectMemoryHeader(props: {
     <header className="flex flex-col gap-4 border-b border-[#333333] pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-2">
         <p className="text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
-          V3 Day14 Project Memory
+          ????
         </p>
         <h2 className="text-3xl font-semibold tracking-tight text-slate-50">
           项目记忆与可检索经验沉淀

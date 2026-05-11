@@ -12,8 +12,8 @@ export function CostDashboardFallbackSummary(props: CostDashboardFallbackSummary
     <section className="rounded-xl border border-slate-800 bg-slate-950/25 p-4 text-sm text-slate-400">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-slate-200">兜底说明</h3>
-          <p className="mt-1 text-xs text-slate-500">供应商回传缺失时，用启发式估算保持成本视图可读。</p>
+          <h3 className="text-sm font-semibold text-slate-200">成本估算说明</h3>
+          <p className="mt-1 text-xs text-slate-500">当供应商数据暂缺时，系统会使用估算值保持成本视图可读。</p>
         </div>
         <span className="text-xs font-medium text-slate-400">
           {fallbackContract.fallback_active ? "估算中" : "已回传"}
@@ -25,9 +25,9 @@ export function CostDashboardFallbackSummary(props: CostDashboardFallbackSummary
       </p>
 
       <dl className="mt-4 space-y-3 border-t border-slate-800 pt-3">
-        <FallbackRow label="供应商回传运行" value={fallbackContract.provider_reported_run_count} />
-        <FallbackRow label="启发式估算运行" value={fallbackContract.heuristic_run_count} />
-        <FallbackRow label="缺失模式运行" value={fallbackContract.missing_mode_run_count} />
+        <FallbackRow label="供应商数据运行" value={fallbackContract.provider_reported_run_count} />
+        <FallbackRow label="估算数据运行" value={fallbackContract.heuristic_run_count} />
+        <FallbackRow label="待补齐运行" value={fallbackContract.missing_mode_run_count} />
       </dl>
     </section>
   );

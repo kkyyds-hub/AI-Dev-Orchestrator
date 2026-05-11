@@ -135,7 +135,7 @@ export function ProviderSettingsPanel() {
             Provider Settings
           </div>
           <p className="mt-2 text-sm text-slate-300">
-            OpenAI runtime configuration for real provider execution.
+            配置 OpenAI 供应商参数，用于项目执行。
           </p>
         </div>
         <StatusBadge label={statusLabel} tone={statusTone} />

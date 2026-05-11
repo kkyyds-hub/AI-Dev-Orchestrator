@@ -25,11 +25,10 @@ export function ProjectDeliverySnapshotCard(
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#8ea2ff]">
-            V4 Day15 仓库接入最小闭环演示
+            交付闭环
           </div>
           <p className="mt-2 text-sm leading-6 text-zinc-400">
-            串联 Day01~Day14，终点保持在“可审阅 / 可解释 / 可拒绝”；不触发真实 Git
-            写操作。
+            汇总当前交付批次的完成度、阻断项和放行状态。
           </p>
         </div>
         {overview ? (
@@ -58,18 +57,18 @@ export function ProjectDeliverySnapshotCard(
 
       {isLoading && !overview ? (
         <p className="mt-3 text-sm leading-6 text-zinc-500">
-          正在加载 Day15 闭环总览...
+          正在加载交付闭环...
         </p>
       ) : errorMessage ? (
         <p className="mt-3 text-sm leading-6 text-rose-200">
-          Day15 闭环总览加载失败：{errorMessage}
+          交付闭环加载失败：{errorMessage}
         </p>
       ) : overview ? (
         <>
           <p className="mt-3 text-sm leading-6 text-zinc-200">{overview.summary}</p>
           <p className="mt-2 text-xs leading-5 text-zinc-500">
             当前批次：
-            {overview.selected_change_batch_title ?? "未建立"}；真实 Git 写动作触发：
+            {overview.selected_change_batch_title ?? "未建立"}；代码写入：
             {overview.git_write_actions_triggered ? "是" : "否"}。
           </p>
         </>

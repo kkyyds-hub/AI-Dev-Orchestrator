@@ -89,7 +89,7 @@ export function useBossProjectDrilldown(input: {
       setDrilldownFeedback({
         tone: "warning",
         text:
-          "Unable to resolve authoritative project ownership for this task. Drill-down was not applied.",
+          "无法确认该任务所属项目，已保持当前项目选择。",
       });
       return;
     }
@@ -120,8 +120,8 @@ export function useBossProjectDrilldown(input: {
       tone: "success",
       text:
         detail.projectId && detail.projectId !== resolvedProjectId
-          ? `Drill-down context active with authoritative project override (${detail.projectId} -> ${resolvedProjectId}): task ${nextContext.task_id}, run ${nextContext.run_id ?? "n/a"}.`
-          : `Drill-down context active: task ${nextContext.task_id}, run ${nextContext.run_id ?? "n/a"}.`,
+          ? `已切换到该任务所属项目：任务 ${nextContext.task_id}，运行 ${nextContext.run_id ?? "无"}。`
+          : `已定位到任务 ${nextContext.task_id}，运行 ${nextContext.run_id ?? "无"}。`,
     });
 
     const nextHash = buildBossDrilldownHash(nextContext);
@@ -145,7 +145,7 @@ export function useBossProjectDrilldown(input: {
     setDrilldownContext(context);
     setDrilldownFeedback({
       tone: "success",
-      text: `Continue drill-down to Strategy Preview with run ${context.run_id ?? "n/a"}.`,
+      text: `继续查看策略建议，运行 ${context.run_id ?? "无"}。`,
     });
 
     const nextHash = buildBossDrilldownHash(context);
@@ -168,7 +168,7 @@ export function useBossProjectDrilldown(input: {
     setDrilldownContext(nextContext);
     setDrilldownFeedback({
       tone: "success",
-      text: `Return to Project Latest Run with run ${nextContext.run_id ?? "n/a"}.`,
+      text: `已返回项目最近运行，运行 ${nextContext.run_id ?? "无"}。`,
     });
 
     const nextHash = buildBossDrilldownHash(nextContext);

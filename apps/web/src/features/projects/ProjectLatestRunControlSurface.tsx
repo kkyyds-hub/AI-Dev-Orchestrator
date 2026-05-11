@@ -74,7 +74,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
                 onClick={props.onNavigateToTaskDetail}
                 className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
               >
-                Drill-down to Task Detail
+                查看任务详情
               </button>
             ) : null}
             {props.onNavigateToStrategyPreview ? (
@@ -84,7 +84,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
                 onClick={props.onNavigateToStrategyPreview}
                 className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
               >
-                Drill-down to Strategy Preview
+                查看策略建议
               </button>
             ) : null}
             {props.onNavigateToRunLog ? (
@@ -94,7 +94,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
                 onClick={props.onNavigateToRunLog}
                 className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
               >
-                Drill-down to Run Log
+                查看运行日志
               </button>
             ) : null}
           </div>
@@ -112,12 +112,12 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
         >
           <div className="font-medium">
             {drilldownFullyMatched
-              ? "Current run matches the drill-down context."
-              : "Current run sample differs from the drill-down context."}
+              ? "当前运行与所选任务一致。"
+              : "当前运行与所选任务不完全一致。"}
           </div>
           <div className="mt-1">
-            source={props.drilldownContext?.source ?? "unknown"}; task=
-            {props.drilldownContext?.task_id ?? "n/a"}; run=
+            来源：{props.drilldownContext?.source ?? "未知"}；任务：
+            {props.drilldownContext?.task_id ?? "无"}；运行：
             {props.drilldownContext?.run_id ?? "n/a"}
           </div>
         </div>
@@ -126,15 +126,15 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <InfoItem
           testId="project-latest-run-run-id-field"
-          label="Run ID"
+          label="运行 ID"
           value={props.latestTask.latest_run_id}
         />
         <InfoItem
-          label="Run Status"
+          label="运行状态"
           value={formatNullableText(props.latestTask.latest_run_status)}
         />
         <InfoItem
-          label="Model"
+          label="模型"
           value={
             props.latestTask.latest_run_model_name
               ? `${props.latestTask.latest_run_model_name}${
@@ -146,7 +146,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
           }
         />
         <InfoItem
-          label="Strategy"
+          label="策略"
           value={formatNullableText(props.latestTask.latest_run_strategy_code)}
         />
       </div>
@@ -156,7 +156,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
         className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-3"
       >
         <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
-          Latest Run Runtime
+          最近运行配置
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {runtimeFields.map((field) => (
@@ -172,7 +172,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <InfoItem
-          label="Created At"
+          label="开始时间"
           value={
             props.latestTask.latest_run_created_at
               ? formatDateTime(props.latestTask.latest_run_created_at)
@@ -180,7 +180,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
           }
         />
         <InfoItem
-          label="Finished At"
+          label="完成时间"
           value={
             props.latestTask.latest_run_finished_at
               ? formatDateTime(props.latestTask.latest_run_finished_at)
@@ -195,7 +195,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
           className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3"
         >
           <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
-            Role Model Policy Runtime
+            角色模型策略
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {roleModelPolicyFields.map((field) => (

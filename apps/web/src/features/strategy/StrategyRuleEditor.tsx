@@ -32,8 +32,8 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
   const helperLines = useMemo(
     () => [
       "可编辑关键项：budget_model_tiers、role_model_tier_preferences、stage_model_tier_overrides、stage_skill_preferences。",
-      "保存后会立即影响项目策略预览，以及后续 Worker 的模型路由选择。",
-      "建议先看上方策略预览，再回到这里调整 Role Model Policy。",
+      "保存后会立即影响项目策略建议，以及后续执行中的模型路由选择。",
+      "建议先查看上方策略建议，再回到这里调整角色模型策略。",
     ],
     [],
   );
@@ -42,7 +42,7 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
     try {
       const parsed = JSON.parse(draft) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setLocalError("规则 JSON 必须是对象。");
+        setLocalError("规则内容必须是对象。");
         return;
       }
 
@@ -51,7 +51,7 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
         rules: parsed as Record<string, unknown>,
       });
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "JSON 解析失败。");
+      setLocalError(error instanceof Error ? error.message : "规则内容解析失败。");
     }
   };
 
@@ -60,20 +60,19 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Strategy Rule Editor
+            策略规则
           </div>
           <h3 className="mt-2 text-lg font-semibold text-slate-50">
-            策略规则与 Role Model Policy
+            策略规则与角色模型策略
           </h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            这里保留完整 JSON 编辑入口，同时把 Role Model Policy 的最小控制面显式展开，
-            避免只剩“能改 JSON，但看不见当前策略口径”。
+            维护项目路由、角色模型档位和预算压力下的策略口径。
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <StatusBadge
-            label={rulesQuery.data?.source ?? "default"}
+            label={rulesQuery.data?.source === "runtime_override" ? "项目覆盖" : "默认规则"}
             tone={rulesQuery.data?.source === "runtime_override" ? "success" : "info"}
           />
           {updateRulesMutation.isPending ? (
@@ -94,11 +93,10 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
       {rulesQuery.data?.role_model_policy ? (
         <section className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
           <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
-            Role Model Policy
+            角色模型策略
           </div>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            该摘要由 <code>/strategy/rules</code> 显式返回，代表当前保存态的角色模型策略；
-            修改并保存 JSON 后，这里的摘要会与策略预览一起刷新。
+            展示当前保存的角色模型策略；修改并保存后，这里的摘要会与策略建议一起刷新。
           </p>
 
           <div className="mt-4 grid gap-4 xl:grid-cols-2">
@@ -172,7 +170,7 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
           onChange={(event) => setDraft(event.target.value)}
           spellCheck={false}
           className="min-h-[360px] w-full rounded-2xl border border-slate-800 bg-slate-950/80 p-4 font-mono text-xs leading-6 text-slate-200 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
-          placeholder="策略规则 JSON 将显示在这里..."
+          placeholder="策略规则内容将显示在这里..."
         />
       </div>
 
@@ -190,7 +188,7 @@ export function StrategyRuleEditor(props: StrategyRuleEditorProps) {
       ) : null}
       {updateRulesMutation.isSuccess ? (
         <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-          规则已保存，策略预览会自动刷新。
+          规则已保存，策略建议会自动刷新。
         </div>
       ) : null}
 

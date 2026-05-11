@@ -10,7 +10,7 @@ export function ProjectProgressRiskSummary(props: {
   if (!props.project) {
     return (
       <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm leading-6 text-slate-300">
-        该项目刚通过 Day03 规划入口创建，老板首页汇总数据还在刷新；你已经可以先查看下面的阶段守卫、角色协作链、任务树和草案来源。
+        该项目刚创建完成，汇总数据还在刷新；你可以先查看阶段状态、角色协作、任务树和草案来源。
       </section>
     );
   }

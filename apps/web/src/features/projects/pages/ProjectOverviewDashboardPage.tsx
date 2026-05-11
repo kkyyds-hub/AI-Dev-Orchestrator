@@ -57,7 +57,7 @@ export function ProjectOverviewDashboardPage(
             </h2>
           </div>
           <p className="max-w-xl text-sm leading-6 text-zinc-500">
-            上方保留控制台指标；下方以项目工作清单为主，右侧只显示当前项目摘要，避免把总览变成长日志。
+            聚合项目进展、风险和待处理事项，帮助你快速定位下一步工作。
           </p>
         </div>
 

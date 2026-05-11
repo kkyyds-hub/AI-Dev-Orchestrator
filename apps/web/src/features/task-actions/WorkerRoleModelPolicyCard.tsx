@@ -32,7 +32,7 @@ export function WorkerRoleModelPolicyCard(props: WorkerRoleModelPolicyCardProps)
   return (
     <div className="mt-3 rounded-xl border border-[#333333] bg-transparent p-3">
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-        Role Model Policy Runtime
+        角色模型策略
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {roleModelPolicyFields.map((field) => (

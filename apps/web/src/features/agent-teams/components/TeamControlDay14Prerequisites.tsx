@@ -25,7 +25,7 @@ export function TeamControlDay14Prerequisites(props: {
         <div>
           <dt className="text-slate-500">策略生效范围</dt>
           <dd className="mt-1 max-h-24 overflow-y-auto break-words pr-2 leading-5 text-slate-300">
-            {props.snapshot.runtime_consumption_boundary.role_model_policy_paths.join(" ; ")}
+            {props.snapshot.runtime_consumption_boundary.role_model_policy_paths.length} 项策略路径
           </dd>
         </div>
       </dl>
