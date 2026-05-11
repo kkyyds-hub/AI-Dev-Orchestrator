@@ -1,6 +1,6 @@
 export function TeamControlCenterLoadingState() {
   return (
-    <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/30 px-4 py-5 text-sm text-slate-400">
+    <div className="rounded-xl border border-dashed border-[#333333] bg-[#181818] px-4 py-5 text-sm text-zinc-400">
       正在加载团队设置...
     </div>
   );

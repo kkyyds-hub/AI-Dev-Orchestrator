@@ -77,7 +77,7 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
     <section
       id="team-control-center-surface"
       data-testid="team-control-center-surface"
-      className="space-y-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 shadow-xl shadow-slate-950/30"
+      className="space-y-5 rounded-2xl border border-[#333333] bg-[#151515] p-5"
     >
       <TeamControlCenterHeader
         projectLabel={props.projectName ?? props.projectId}
@@ -101,70 +101,70 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
       {draft ? (
         <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="min-h-0 min-w-0 space-y-4 xl:sticky xl:top-24 xl:max-h-[calc(100vh-10rem)] xl:overflow-y-auto">
-            <section className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-              <h3 className="text-sm font-semibold text-slate-100">团队摘要</h3>
+            <section className="rounded-2xl border border-[#333333] bg-[#181818] p-4">
+              <h3 className="text-sm font-semibold text-zinc-100">团队摘要</h3>
               <dl className="mt-3 space-y-3 text-xs">
                 <div>
-                  <dt className="text-slate-500">团队名称</dt>
-                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-sm text-slate-200">{draft.team_name}</dd>
+                  <dt className="text-zinc-500">团队名称</dt>
+                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-sm text-zinc-200">{draft.team_name}</dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">团队使命</dt>
-                  <dd className="mt-1 max-h-28 overflow-y-auto break-words pr-2 leading-5 text-slate-300">{draft.team_mission || "未填写"}</dd>
+                  <dt className="text-zinc-500">团队使命</dt>
+                  <dd className="mt-1 max-h-28 overflow-y-auto break-words pr-2 leading-5 text-zinc-300">{draft.team_mission || "未填写"}</dd>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <dt className="text-slate-500">角色</dt>
-                    <dd className="mt-1 text-slate-200">{draft.assembly.length}</dd>
+                    <dt className="text-zinc-500">角色</dt>
+                    <dd className="mt-1 text-zinc-200">{draft.assembly.length}</dd>
                   </div>
                   <div>
-                    <dt className="text-slate-500">已启用</dt>
-                    <dd className="mt-1 text-slate-200">{enabledRoleCount}</dd>
+                    <dt className="text-zinc-500">已启用</dt>
+                    <dd className="mt-1 text-zinc-200">{enabledRoleCount}</dd>
                   </div>
                 </div>
                 <div>
-                  <dt className="text-slate-500">单次运行预算</dt>
-                  <dd className="mt-1 text-slate-200">
+                  <dt className="text-zinc-500">单次运行预算</dt>
+                  <dd className="mt-1 text-zinc-200">
                     ${draft.budget_policy.per_run_budget_usd}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">每日预算</dt>
-                  <dd className="mt-1 text-slate-200">
+                  <dt className="text-zinc-500">每日预算</dt>
+                  <dd className="mt-1 text-zinc-200">
                     ${draft.budget_policy.daily_budget_usd}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">协作模式</dt>
-                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-slate-200">
+                  <dt className="text-zinc-500">协作模式</dt>
+                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-zinc-200">
                     {draft.team_policy.collaboration_mode || "未设置"}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">介入模式</dt>
-                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-slate-200">
+                  <dt className="text-zinc-500">介入模式</dt>
+                  <dd className="mt-1 max-h-16 overflow-y-auto break-words pr-2 text-zinc-200">
                     {draft.team_policy.intervention_mode || "未设置"}
                   </dd>
                 </div>
               </dl>
             </section>
 
-            <nav className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4" aria-label="团队配置目录">
-              <h3 className="text-sm font-semibold text-slate-100">配置目录</h3>
+            <nav className="rounded-2xl border border-[#333333] bg-[#181818] p-4" aria-label="团队配置目录">
+              <h3 className="text-sm font-semibold text-zinc-100">配置目录</h3>
               <div className="mt-3 space-y-2 text-xs">
-                <a className="block rounded-lg px-2 py-1.5 text-slate-400 transition hover:bg-slate-900/70 hover:text-slate-100" href="#team-basic-settings">
+                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-basic-settings">
                   基础信息
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-slate-400 transition hover:bg-slate-900/70 hover:text-slate-100" href="#team-role-settings">
+                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-role-settings">
                   角色分工
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-slate-400 transition hover:bg-slate-900/70 hover:text-slate-100" href="#team-collaboration-settings">
+                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-collaboration-settings">
                   协作策略
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-slate-400 transition hover:bg-slate-900/70 hover:text-slate-100" href="#team-budget-settings">
+                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-budget-settings">
                   预算策略
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-slate-400 transition hover:bg-slate-900/70 hover:text-slate-100" href="#team-model-settings">
+                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-model-settings">
                   模型策略
                 </a>
               </div>
@@ -176,16 +176,16 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
           </aside>
 
           <div className="min-w-0 space-y-5">
-            <section id="team-basic-settings" className="scroll-mt-24 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+            <section id="team-basic-settings" className="scroll-mt-24 rounded-2xl border border-[#333333] bg-[#181818] p-4">
               <div>
-                <h3 className="text-sm font-semibold text-slate-100">基础信息</h3>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
+                <h3 className="text-sm font-semibold text-zinc-100">基础信息</h3>
+                <p className="mt-1 text-xs leading-5 text-zinc-500">
                   编辑团队名称和使命说明。
                 </p>
               </div>
-              <div className="mt-4 divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-950/30">
+              <div className="mt-4 divide-y divide-[#333333] rounded-xl border border-[#333333] bg-[#151515]">
                 <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
-                  <span className="text-slate-300">团队名称</span>
+                  <span className="text-zinc-300">团队名称</span>
                   <input
                     value={draft.team_name}
                     onChange={(event) =>
@@ -194,11 +194,11 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
                         team_name: event.target.value,
                       })
                     }
-                    className="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-500"
+                    className="rounded-lg border border-[#3a3a3a] bg-[#151515] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </label>
                 <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
-                  <span className="text-slate-300">团队使命</span>
+                  <span className="text-zinc-300">团队使命</span>
                   <textarea
                     value={draft.team_mission}
                     onChange={(event) =>
@@ -208,7 +208,7 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
                       })
                     }
                     rows={3}
-                    className="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-slate-500"
+                    className="rounded-lg border border-[#3a3a3a] bg-[#151515] px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </label>
               </div>
