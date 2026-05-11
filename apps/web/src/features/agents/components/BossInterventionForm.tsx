@@ -21,7 +21,7 @@ function getServerWriteGateHint(session: AgentSessionSnapshot | null): string | 
     terminalStatuses.has(session.session_status) ||
     session.current_phase === "finalized"
   ) {
-    return `后端写入门禁会冻结终态会话，提交会返回冲突（${session.session_status} / ${session.current_phase}）。`;
+    return `该会话已结束，可能无法继续追加介入（${session.session_status} / ${session.current_phase}）。`;
   }
 
   return null;
@@ -99,7 +99,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
         <div>
           <h4 className="text-sm font-semibold text-slate-100">人工介入</h4>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            对当前会话追加人工指令，默认不会展开完整表单。
+            对当前会话追加人工指令和处理说明。
           </p>
         </div>
         <StatusBadge
@@ -114,7 +114,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
       >
         {disabledReason ??
           serverWriteGateHint ??
-          "会话级介入写入契约已可用。"}
+          "当前会话可以追加人工介入。"}
       </div>
 
       <dl
@@ -182,7 +182,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
                   向当前会话追加指令
                 </h5>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  POST /agent-threads/projects/{"{project_id}"}/sessions/{"{session_id}"}/interventions
+                  填写摘要与详情后，将记录到当前会话的介入动态中。
                 </p>
               </div>
               <button
@@ -308,8 +308,8 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
             </div>
             <div className="mt-4 space-y-3 text-sm leading-6 text-slate-300">
               <p>提交前需要先选中一个会话，并填写介入类型与介入摘要。</p>
-              <p>介入类型、备注事件类型会按后端字段值原样提交；摘要和详情会写入当前会话的介入消息流。</p>
-              <p>若会话已进入终态，后端写入门禁可能拒绝本次提交。</p>
+              <p>备注事件类型可用于分类检索；摘要和详情会出现在当前会话的介入动态中。</p>
+              <p>已结束的会话可能无法继续追加介入。</p>
             </div>
           </div>
         </div>

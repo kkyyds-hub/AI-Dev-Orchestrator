@@ -23,7 +23,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
         </p>
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        保存后将作为团队执行时的模型选择规则生效。
+        按角色和阶段维护模型档位。
       </p>
 
       <div className="mt-4 max-h-[320px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">

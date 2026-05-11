@@ -180,7 +180,7 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
               <div>
                 <h3 className="text-sm font-semibold text-slate-100">基础信息</h3>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  用于识别团队配置，并随统一保存按钮一起提交。
+                  编辑团队名称和使命说明。
                 </p>
               </div>
               <div className="mt-4 divide-y divide-[#333333]">

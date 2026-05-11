@@ -15,7 +15,7 @@ export function AgentThreadSessionSelectorPanel(props: {
             会话选择
           </h4>
           <p className="mt-2 text-xs leading-5 text-slate-400">
-            消费接口 GET /agent-threads/projects/{props.projectId}/sessions
+            选择一个会话查看对应活动流和介入记录。
           </p>
         </div>
         <span className="text-xs text-slate-500">
