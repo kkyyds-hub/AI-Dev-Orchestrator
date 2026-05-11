@@ -21,12 +21,12 @@ export function RoleWorkbenchScopeSelector(props: RoleWorkbenchScopeSelectorProp
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">工作台范围</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">项目范围</div>
           <p className="mt-2 text-sm text-slate-300">
-            切换项目后，角色工作台、项目详情和任务跳转会同步聚焦到同一条项目链路。
+            选择项目后，工作台会聚焦展示该项目下的角色协作情况。
           </p>
         </div>
         <StatusBadge
