@@ -12,13 +12,13 @@ export function RoleCatalogLoadingState(props: RoleCatalogLoadingStateProps) {
       {props.selectedProjectId &&
       props.isProjectRoleLoading &&
       !props.hasProjectRoleData ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4 text-sm leading-6 text-slate-400">
+        <div className="border-y border-[#333333] py-4 text-sm leading-6 text-zinc-500">
           正在加载项目角色目录...
         </div>
       ) : null}
 
       {props.isSystemRoleLoading && !props.hasSystemRoleData ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4 text-sm leading-6 text-slate-400">
+        <div className="border-y border-[#333333] py-4 text-sm leading-6 text-zinc-500">
           正在加载系统内置角色目录...
         </div>
       ) : null}

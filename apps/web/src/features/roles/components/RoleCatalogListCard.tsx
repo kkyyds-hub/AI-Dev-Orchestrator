@@ -6,8 +6,8 @@ type RoleCatalogListCardProps = {
 
 export function RoleCatalogListCard(props: RoleCatalogListCardProps) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <section className="min-w-0">
+      <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
         {props.title}
       </div>
       {props.items.length > 0 ? (
@@ -16,26 +16,23 @@ export function RoleCatalogListCard(props: RoleCatalogListCardProps) {
             {props.items.map((item) => (
               <span
                 key={item}
-                className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100"
+                className="rounded-full border border-[#3a3a3a] px-2.5 py-1 text-xs text-zinc-300"
               >
                 {item}
               </span>
             ))}
           </div>
         ) : (
-          <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+          <ul className="mt-3 divide-y divide-[#333333] border-t border-[#333333] text-sm leading-6 text-zinc-300">
             {props.items.map((item) => (
-              <li
-                key={item}
-                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-              >
+              <li key={item} className="py-2">
                 {item}
               </li>
             ))}
           </ul>
         )
       ) : (
-        <p className="mt-3 text-sm text-slate-500">暂无配置。</p>
+        <p className="mt-3 text-sm text-zinc-600">暂无配置。</p>
       )}
     </section>
   );

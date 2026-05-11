@@ -8,50 +8,50 @@ type RoleCatalogHeaderProps = {
 
 export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
   return (
-    <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 lg:flex-row lg:items-end lg:justify-between">
-      <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
-          V3 Day05 Role Catalog
-        </p>
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-50">
-          角色目录与身份配置模型
-        </h2>
-        <p className="max-w-3xl text-sm leading-6 text-slate-300">
-          Day05 把“谁负责什么”变成正式配置对象：系统提供最小角色目录，项目可以选择启用哪些角色，并查看/编辑职责边界、输入输出边界和默认 Skill 占位。
-        </p>
-      </div>
+    <header className="border-b border-[#333333] pb-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
+            V3 Day05 Role Catalog
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
+            角色目录与身份配置模型
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+            Day05 把“谁负责什么”变成正式配置对象：系统提供最小角色目录，项目可以选择启用哪些角色，并查看/编辑职责边界、输入输出边界和默认 Skill 占位。
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            当前项目：
+            <span className="text-zinc-200">
+              {props.selectedProjectName ?? "未选择项目"}
+            </span>
+          </p>
+        </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-        <StatusBadge
-          label={
-            props.selectedProjectName
-              ? `当前项目：${props.selectedProjectName}`
-              : "当前未选项目"
-          }
-          tone={props.selectedProjectName ? "info" : "neutral"}
-        />
-        <StatusBadge
-          label={
-            props.projectRoleConnected ? "项目角色配置已接入" : "系统目录只读模式"
-          }
-          tone={props.projectRoleConnected ? "success" : "warning"}
-        />
-        <button
-          type="button"
-          data-testid="goto-agent-thread-from-role-catalog"
-          onClick={scrollToAgentThreadControlSurface}
-          className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
-        >
-          Open Agent Thread
-        </button>
-        <button
-          type="button"
-          data-testid="goto-team-control-center-from-role-catalog"
-          onClick={scrollToTeamControlCenterSurface}
-          className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
-        >
-          Open Team Control
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+          <StatusBadge
+            label={
+              props.projectRoleConnected ? "项目角色配置已接入" : "系统目录只读模式"
+            }
+            tone={props.projectRoleConnected ? "success" : "warning"}
+          />
+          <button
+            type="button"
+            data-testid="goto-agent-thread-from-role-catalog"
+            onClick={scrollToAgentThreadControlSurface}
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
+          >
+            Open Agent Thread
+          </button>
+          <button
+            type="button"
+            data-testid="goto-team-control-center-from-role-catalog"
+            onClick={scrollToTeamControlCenterSurface}
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
+          >
+            Open Team Control
+          </button>
+        </div>
       </div>
     </header>
   );

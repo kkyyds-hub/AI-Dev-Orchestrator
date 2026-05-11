@@ -56,7 +56,7 @@ export function RoleCatalogPage(props: RoleCatalogPageProps) {
   });
 
   return (
-    <section className="space-y-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/20">
+    <section className="space-y-6">
       <RoleCatalogHeader
         selectedProjectName={props.selectedProjectName}
         projectRoleConnected={projectRoleQuery.data !== undefined}
