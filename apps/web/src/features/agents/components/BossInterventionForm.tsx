@@ -42,7 +42,6 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
   } | null>(null);
   const [latestWriteAt, setLatestWriteAt] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const serverWriteGateHint = getServerWriteGateHint(props.selectedSession);
 
   useEffect(() => {
@@ -98,9 +97,6 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h4 className="text-sm font-semibold text-slate-100">人工介入</h4>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
-            对当前会话追加人工指令和处理说明。
-          </p>
         </div>
         <StatusBadge
           label={disabledReason ? "暂不可介入" : "可介入"}
@@ -154,14 +150,6 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
         >
           发起人工介入
         </button>
-        <button
-          type="button"
-          data-testid="boss-intervention-help-open"
-          onClick={() => setIsHelpOpen(true)}
-          className="rounded border border-transparent px-3 py-2 text-xs text-slate-400 transition hover:text-slate-100"
-        >
-          提交提示
-        </button>
       </div>
 
       {isFormOpen ? (
@@ -181,9 +169,6 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
                 >
                   向当前会话追加指令
                 </h5>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  填写摘要与详情后，将记录到当前会话的介入动态中。
-                </p>
               </div>
               <button
                 type="button"
@@ -226,7 +211,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
                   onChange={(event) => setContentSummary(event.target.value)}
                   data-testid="boss-intervention-summary-input"
                   rows={3}
-                  placeholder="描述本次人工介入指令。"
+                  placeholder="介入摘要"
                   className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
                 />
               </label>
@@ -238,7 +223,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
                   onChange={(event) => setContentDetail(event.target.value)}
                   data-testid="boss-intervention-detail-input"
                   rows={4}
-                  placeholder="补充操作背景、边界或期望结果。"
+                  placeholder="介入详情"
                   className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
                 />
               </label>
@@ -271,7 +256,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
                 disabled={submitDisabled}
                 aria-disabled={submitDisabled}
                 onClick={() => void handleSubmit()}
-                title={disabledReason ?? "提交一条正式人工介入指令。"}
+                title={disabledReason ?? "提交"}
                 className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitMutation.isPending ? "提交中..." : "提交人工介入"}
@@ -281,39 +266,6 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
         </div>
       ) : null}
 
-      {isHelpOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="boss-intervention-help-title"
-          data-testid="boss-intervention-help-modal"
-        >
-          <div className="w-full max-w-xl rounded-2xl border border-[#333333] bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs tracking-[0.18em] text-slate-500">提交提示</p>
-                <h5 id="boss-intervention-help-title" className="mt-2 text-xl font-semibold text-slate-50">
-                  人工介入提示
-                </h5>
-              </div>
-              <button
-                type="button"
-                data-testid="boss-intervention-help-close"
-                onClick={() => setIsHelpOpen(false)}
-                className="rounded border border-[#4a4a4a] px-3 py-1.5 text-sm text-zinc-100 transition hover:bg-[#292929]"
-              >
-                关闭
-              </button>
-            </div>
-            <div className="mt-4 space-y-3 text-sm leading-6 text-slate-300">
-              <p>提交前需要先选中一个会话，并填写介入类型与介入摘要。</p>
-              <p>备注事件类型可用于分类检索；摘要和详情会出现在当前会话的介入动态中。</p>
-              <p>已结束的会话可能无法继续追加介入。</p>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

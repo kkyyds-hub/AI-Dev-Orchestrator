@@ -57,7 +57,7 @@ export function ProjectOverviewDashboardPage(
             </h2>
           </div>
           <p className="max-w-xl text-sm leading-6 text-zinc-500">
-            聚合项目进展、风险和待处理事项，帮助你快速定位下一步工作。
+            项目进展、风险和待处理事项。
           </p>
         </div>
 
@@ -89,7 +89,7 @@ export function ProjectOverviewDashboardPage(
             <span className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
               创建项目
             </span>
-            <span className="ml-3">需要新项目时打开创建表单</span>
+            <span className="ml-3">新建项目</span>
           </span>
           <span className="text-xs text-zinc-600 group-open:hidden">展开</span>
           <span className="hidden text-xs text-zinc-600 group-open:inline">收起</span>
