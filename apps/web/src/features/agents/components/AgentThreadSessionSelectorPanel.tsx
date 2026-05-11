@@ -8,7 +8,7 @@ export function AgentThreadSessionSelectorPanel(props: {
   onSelectSession: (sessionId: string) => void;
 }) {
   return (
-    <div className="min-h-0 border-b border-[#333333] pb-4">
+    <div className="min-h-0 min-w-0 border-b border-[#333333] pb-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h4 className="text-sm font-medium text-slate-100">
@@ -22,7 +22,7 @@ export function AgentThreadSessionSelectorPanel(props: {
           {props.sessions.length} 个会话
         </span>
       </div>
-      <div className="mt-4">
+      <div className="mt-4 min-h-0">
         <AgentSessionList
           sessions={props.sessions}
           selectedSessionId={props.selectedSessionId}

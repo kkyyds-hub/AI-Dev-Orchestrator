@@ -26,7 +26,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
         保存后将作为团队执行时的模型选择规则生效。
       </p>
 
-      <div className="mt-4 max-h-[320px] overflow-auto overscroll-contain">
+      <div className="mt-4 max-h-[320px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">
         <table className="w-full min-w-[520px] text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
             <tr>
@@ -69,7 +69,7 @@ export function RoleModelPolicyEditor(props: RoleModelPolicyEditorProps) {
       {props.stageOverrides.length > 0 ? (
         <div className="mt-6">
           <div className="text-xs font-medium text-slate-500">阶段覆盖</div>
-          <div className="mt-2 max-h-[300px] overflow-auto overscroll-contain">
+          <div className="mt-2 max-h-[300px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">
             <table className="w-full min-w-[620px] text-left text-sm">
             <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
               <tr>

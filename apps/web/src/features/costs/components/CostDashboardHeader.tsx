@@ -12,7 +12,7 @@ export function CostDashboardHeader(props: CostDashboardHeaderProps) {
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
           成本分析
         </p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-50">用量与成本分析</h2>
+        <h2 className="mt-1 text-xl font-semibold text-slate-50">成本分析</h2>
         <p className="mt-1 truncate text-sm text-slate-400">
           当前项目：{props.projectName ?? props.projectId}
         </p>

@@ -15,7 +15,7 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
         </p>
       </div>
 
-      <div className="mt-4 max-h-[360px] overflow-auto overscroll-contain">
+      <div className="mt-4 max-h-[360px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">
         <table className="w-full min-w-[680px] text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-[#333333] bg-slate-950/95 text-xs text-slate-500 backdrop-blur">
             <tr>

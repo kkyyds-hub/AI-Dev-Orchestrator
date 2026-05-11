@@ -15,7 +15,7 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
 
   return (
-    <section className="pb-4">
+    <section className="min-w-0 pb-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h4 className="text-sm font-semibold text-slate-100">
@@ -34,7 +34,7 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
         </p>
       ) : (
         <ul
-          className="mt-4 max-h-[520px] space-y-0 overflow-y-auto pr-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-700/60"
+          className="mt-4 max-h-[520px] min-w-0 space-y-0 overflow-y-auto overscroll-contain pr-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-700/60"
           data-testid={props.testId}
         >
           {props.messages.map((message, index) => (
@@ -49,9 +49,9 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
                     <span>#{message.sequence_no || index + 1}</span>
                     <span>{formatDateTime(message.created_at)}</span>
-                    <span>{message.role}</span>
-                    <span>{message.message_type}</span>
-                    <span>{message.event_type}</span>
+                    <span className="break-words">{message.role}</span>
+                    <span className="break-words">{message.message_type}</span>
+                    <span className="break-words">{message.event_type}</span>
                   </div>
                   <p className="mt-2 line-clamp-3 break-words text-sm leading-6 text-slate-100" title={message.content_summary}>
                     {message.content_summary}
@@ -74,7 +74,7 @@ export function AgentTimelineList(props: AgentTimelineListProps) {
               {expandedMessageId === message.message_id ? (
                 <div
                   data-testid={`${props.testId}-detail-modal`}
-                  className="mt-3 max-h-[360px] space-y-3 overflow-y-auto overscroll-contain border-l border-[#333333] pl-3 pr-2 text-xs leading-5 text-slate-400"
+                  className="mt-3 max-h-[360px] min-w-0 space-y-3 overflow-y-auto overscroll-contain border-l border-[#333333] pl-3 pr-2 text-xs leading-5 text-slate-400"
                 >
                   {message.content_detail ? (
                     <pre className="max-h-[280px] overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">

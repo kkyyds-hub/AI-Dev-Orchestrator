@@ -20,7 +20,9 @@ export function CostDashboardFallbackSummary(props: CostDashboardFallbackSummary
         </span>
       </div>
 
-      <p className="mt-3 text-xs leading-5 text-slate-500">{fallbackContract.fallback_reason}</p>
+      <p className="mt-3 max-h-28 overflow-y-auto break-words pr-2 text-xs leading-5 text-slate-500">
+        {fallbackContract.fallback_reason}
+      </p>
 
       <dl className="mt-4 space-y-3 border-t border-slate-800 pt-3">
         <FallbackRow label="供应商回传运行" value={fallbackContract.provider_reported_run_count} />
