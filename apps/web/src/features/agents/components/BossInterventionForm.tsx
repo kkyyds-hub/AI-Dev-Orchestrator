@@ -77,7 +77,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
       });
       setActionFeedback({
         tone: "success",
-        text: `介入已写入：${result.intervention_message.event_type}。`,
+        text: `介入已记录：${result.intervention_message.event_type}。`,
       });
       setLatestWriteAt(result.intervention_message.created_at);
       setContentSummary("");
@@ -103,7 +103,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
           </p>
         </div>
         <StatusBadge
-          label={disabledReason ? "暂不可写" : "可写入"}
+          label={disabledReason ? "暂不可介入" : "可介入"}
           tone={disabledReason ? "warning" : "success"}
         />
       </div>
@@ -138,7 +138,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
           <dd className="mt-0.5 text-slate-300">{props.interventionCount}</dd>
         </div>
         <div>
-          <dt className="text-slate-600">最近写入</dt>
+          <dt className="text-slate-600">最近介入</dt>
           <dd className="mt-0.5 text-slate-300">
             {latestWriteAt ? formatDateTime(latestWriteAt) : "无"}
           </dd>
@@ -160,7 +160,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
           onClick={() => setIsHelpOpen(true)}
           className="rounded border border-transparent px-3 py-2 text-xs text-slate-400 transition hover:text-slate-100"
         >
-          查看规则
+          提交提示
         </button>
       </div>
 
@@ -292,9 +292,9 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
           <div className="w-full max-w-xl rounded-2xl border border-[#333333] bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs tracking-[0.18em] text-slate-500">提交说明</p>
+                <p className="text-xs tracking-[0.18em] text-slate-500">提交提示</p>
                 <h5 id="boss-intervention-help-title" className="mt-2 text-xl font-semibold text-slate-50">
-                  人工介入写入规则
+                  人工介入提示
                 </h5>
               </div>
               <button

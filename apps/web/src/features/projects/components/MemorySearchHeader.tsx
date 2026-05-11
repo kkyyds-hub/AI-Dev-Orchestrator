@@ -8,7 +8,7 @@ export function MemorySearchHeader() {
         可检索经验搜索
       </h2>
       <p className="max-w-3xl text-sm leading-6 text-slate-300">
-        面向当前项目执行最小关键词检索，避免引入更重的长期记忆或复杂向量检索体系。
+        面向当前项目检索已沉淀的经验、决策和上下文。
       </p>
     </header>
   );

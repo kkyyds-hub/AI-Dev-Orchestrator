@@ -71,7 +71,7 @@ export function ProjectOverviewTableAndDetailSection(
           </p>
           <h2 className="mt-2 text-lg font-semibold text-zinc-100">当前项目摘要</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            默认只保留状态、任务、仓库和运行入口；进展与风险长文本可按需展开。
+            汇总状态、任务、仓库和运行信息；进展与风险可按需查看。
           </p>
         </div>
 

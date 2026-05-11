@@ -87,9 +87,9 @@ export function ProjectOverviewDashboardPage(
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm text-zinc-400 transition hover:text-zinc-100">
           <span>
             <span className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-              新建入口
+              创建项目
             </span>
-            <span className="ml-3">需要新项目时展开创建入口</span>
+            <span className="ml-3">需要新项目时打开创建表单</span>
           </span>
           <span className="text-xs text-zinc-600 group-open:hidden">展开</span>
           <span className="hidden text-xs text-zinc-600 group-open:inline">收起</span>

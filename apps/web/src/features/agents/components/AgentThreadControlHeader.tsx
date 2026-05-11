@@ -1,5 +1,3 @@
-import { StatusBadge } from "../../../components/StatusBadge";
-
 export function AgentThreadControlHeader(props: {
   projectLabel: string;
   sessionCount: number;
@@ -24,9 +22,9 @@ export function AgentThreadControlHeader(props: {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-          <StatusBadge label={`会话 ${props.sessionCount}`} tone="info" />
-          <StatusBadge label={`时间线 ${props.timelineCount}`} tone="success" />
-          <StatusBadge label={`介入 ${props.interventionCount}`} tone="warning" />
+          <span className="text-xs text-slate-500">会话 {props.sessionCount}</span>
+          <span className="text-xs text-slate-500">时间线 {props.timelineCount}</span>
+          <span className="text-xs text-slate-500">介入 {props.interventionCount}</span>
           <button
             type="button"
             data-testid="agent-thread-refresh-btn"

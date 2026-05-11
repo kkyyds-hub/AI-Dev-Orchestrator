@@ -8,7 +8,7 @@ export function CostDashboardSmokeRoutes(props: CostDashboardSmokeRoutesProps) {
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-950/25 p-4 text-sm text-slate-400">
       <h3 className="text-sm font-semibold text-slate-200">数据记录</h3>
-      <p className="mt-1 text-xs text-slate-500">保留最近一次成本数据更新记录。</p>
+      <p className="mt-1 text-xs text-slate-500">展示最近一次成本数据更新记录。</p>
       <div className="mt-3 space-y-2">
         {props.snapshot.day15_smoke_routes.map((route, index) => (
           <code

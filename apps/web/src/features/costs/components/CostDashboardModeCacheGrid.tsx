@@ -13,9 +13,9 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
     <section className="border-t border-slate-800/80 pt-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-slate-100">成本来源</h3>
+          <h3 className="text-sm font-semibold text-slate-100">数据来源</h3>
           <p className="mt-1 text-xs text-slate-500">
-            按计费模式汇总运行成本、提示词令牌与补全令牌，便于判断主要成本来源。
+            按计费模式汇总运行成本、提示词令牌与补全令牌。
           </p>
         </div>
         <div className="text-xs text-slate-500">任务 {props.snapshot.task_count_with_runs}/{props.snapshot.task_count}</div>
@@ -51,7 +51,7 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
             {modeBreakdown.length === 0 ? (
               <tr>
                 <td className="px-3 py-5 text-center text-slate-500" colSpan={6}>
-                  当前项目还没有可汇总的运行成本来源。
+                  当前项目还没有可汇总的数据来源。
                 </td>
               </tr>
             ) : null}
