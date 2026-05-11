@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import type { IncomingMessage } from "node:http";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -28,6 +29,13 @@ export default defineConfig(({ mode }) => {
       {
         target: backendTarget,
         changeOrigin: true,
+        bypass: (req: IncomingMessage) => {
+          const accept = req.headers.accept ?? "";
+          if (req.method === "GET" && accept.includes("text/html")) {
+            return req.url;
+          }
+          return undefined;
+        },
       },
     ]),
   );
