@@ -33,7 +33,7 @@ export function ProjectTable({
 
   return (
     <section className="min-w-0 border-b border-[#333333] pb-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-medium tracking-[0.24em] text-zinc-600">
             项目队列
@@ -45,21 +45,13 @@ export function ProjectTable({
             按项目汇总任务、进展和风险，方便快速选择处理对象。
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
-          <div className="text-xs text-zinc-600">共 {projects.length} 个项目</div>
-          <button
-            type="button"
-            onClick={onCreateProjectDraft}
-            className="inline-flex rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
-          >
-            创建项目草案
-          </button>
-        </div>
+        <div className="text-xs text-zinc-600">共 {projects.length} 个项目</div>
       </div>
 
       {projects.length === 0 ? (
         <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-zinc-500">
-          <p>暂无项目。可以先创建一个项目草案，再确认生成项目与任务。</p>
+          <p className="text-base font-medium text-zinc-300">还没有项目</p>
+          <p className="mt-2">可以先创建一个项目草案，再确认生成项目与任务。</p>
           <button
             type="button"
             onClick={onCreateProjectDraft}

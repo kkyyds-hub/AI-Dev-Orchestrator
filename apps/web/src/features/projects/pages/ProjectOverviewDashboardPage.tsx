@@ -62,7 +62,7 @@ export function ProjectOverviewDashboardPage(
       className="space-y-7"
     >
       <section className="space-y-5">
-        <div className="flex flex-col gap-2 border-b border-[#333333] pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-4 border-b border-[#333333] pb-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
               控制台总览
@@ -71,26 +71,10 @@ export function ProjectOverviewDashboardPage(
               先看态势，再处理项目
             </h2>
           </div>
-          <p className="max-w-xl text-sm leading-6 text-zinc-500">
-            项目进展、风险和待处理事项。
-          </p>
-        </div>
-
-        <ProjectSummaryCards overview={props.overview} />
-
-        <div className="border border-[#3a3a3a] bg-white/[0.025] px-5 py-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-                创建项目
-              </p>
-              <h3 className="mt-2 text-lg font-semibold text-zinc-100">
-                从项目草案开始规划新项目
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
-                输入 brief 生成可编辑的项目草案，再沿用现有流程映射为项目与任务。
-              </p>
-            </div>
+          <div className="flex flex-col gap-3 lg:items-end">
+            <p className="max-w-xl text-sm leading-6 text-zinc-500 lg:text-right">
+              项目进展、风险和待处理事项。
+            </p>
             <button
               type="button"
               onClick={handleOpenCreateFlow}
@@ -100,6 +84,8 @@ export function ProjectOverviewDashboardPage(
             </button>
           </div>
         </div>
+
+        <ProjectSummaryCards overview={props.overview} />
       </section>
 
       {isCreateFlowOpen ? (
