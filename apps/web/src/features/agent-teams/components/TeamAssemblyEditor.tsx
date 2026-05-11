@@ -7,7 +7,7 @@ type TeamAssemblyEditorProps = {
 
 export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
   return (
-    <section id="team-role-settings" className="scroll-mt-24 rounded-2xl border border-[#333333] bg-[#181818] p-4">
+    <section id="team-role-settings" className="scroll-mt-24 border-b border-[#333333] pb-6">
       <div>
         <h3 className="text-sm font-semibold text-zinc-100">角色分工</h3>
         <p className="mt-1 text-xs leading-5 text-zinc-500">
@@ -15,9 +15,9 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
         </p>
       </div>
 
-      <div className="mt-4 max-h-[360px] min-w-0 overflow-auto overscroll-contain rounded-xl border border-[#333333] bg-[#151515]">
+      <div className="mt-4 max-h-[360px] min-w-0 overflow-auto overscroll-contain border-t border-[#333333]">
         <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="sticky top-0 z-10 border-b border-[#333333] bg-[#151515]/95 text-xs text-zinc-500 backdrop-blur">
+          <thead className="sticky top-0 z-10 border-b border-[#333333] bg-[#111111]/95 text-xs text-zinc-500 backdrop-blur">
             <tr>
               <th className="py-2 pr-4 font-medium">角色代码</th>
               <th className="px-4 py-2 font-medium">显示名</th>
@@ -42,7 +42,7 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
                       };
                       props.onChange(next);
                     }}
-                    className="w-full rounded-lg border border-[#3a3a3a] bg-[#151515] px-2 py-1.5 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
+                    className="w-full rounded border border-[#3a3a3a] bg-transparent px-2 py-1.5 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </td>
                 <td className="px-4 py-3">
@@ -59,7 +59,7 @@ export function TeamAssemblyEditor(props: TeamAssemblyEditorProps) {
                       };
                       props.onChange(next);
                     }}
-                    className="w-28 rounded-lg border border-[#3a3a3a] bg-[#151515] px-2 py-1.5 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
+                    className="w-28 rounded border border-[#3a3a3a] bg-transparent px-2 py-1.5 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </td>
                 <td className="pl-4 py-3">

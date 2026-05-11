@@ -77,7 +77,7 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
     <section
       id="team-control-center-surface"
       data-testid="team-control-center-surface"
-      className="space-y-5 rounded-2xl border border-[#333333] bg-[#151515] p-5"
+      className="space-y-6"
     >
       <TeamControlCenterHeader
         projectLabel={props.projectName ?? props.projectId}
@@ -99,9 +99,9 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
       {feedback ? <TeamControlCenterFeedback text={feedback} /> : null}
 
       {draft ? (
-        <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="min-h-0 min-w-0 space-y-4 xl:sticky xl:top-24 xl:max-h-[calc(100vh-10rem)] xl:overflow-y-auto">
-            <section className="rounded-2xl border border-[#333333] bg-[#181818] p-4">
+        <div className="grid gap-7 xl:grid-cols-[300px_minmax(0,1fr)]">
+          <aside className="min-h-0 min-w-0 space-y-5 xl:sticky xl:top-24 xl:max-h-[calc(100vh-10rem)] xl:overflow-y-auto xl:border-r xl:border-[#333333] xl:pr-6">
+            <section className="border-b border-[#333333] pb-5">
               <h3 className="text-sm font-semibold text-zinc-100">团队摘要</h3>
               <dl className="mt-3 space-y-3 text-xs">
                 <div>
@@ -149,22 +149,22 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
               </dl>
             </section>
 
-            <nav className="rounded-2xl border border-[#333333] bg-[#181818] p-4" aria-label="团队配置目录">
+            <nav className="border-b border-[#333333] pb-5" aria-label="团队配置目录">
               <h3 className="text-sm font-semibold text-zinc-100">配置目录</h3>
               <div className="mt-3 space-y-2 text-xs">
-                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-basic-settings">
+                <a className="block py-1.5 text-zinc-400 transition hover:text-zinc-100" href="#team-basic-settings">
                   基础信息
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-role-settings">
+                <a className="block py-1.5 text-zinc-400 transition hover:text-zinc-100" href="#team-role-settings">
                   角色分工
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-collaboration-settings">
+                <a className="block py-1.5 text-zinc-400 transition hover:text-zinc-100" href="#team-collaboration-settings">
                   协作策略
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-budget-settings">
+                <a className="block py-1.5 text-zinc-400 transition hover:text-zinc-100" href="#team-budget-settings">
                   预算策略
                 </a>
-                <a className="block rounded-lg px-2 py-1.5 text-zinc-400 transition hover:bg-[#1f1f1f] hover:text-zinc-100" href="#team-model-settings">
+                <a className="block py-1.5 text-zinc-400 transition hover:text-zinc-100" href="#team-model-settings">
                   模型策略
                 </a>
               </div>
@@ -175,16 +175,16 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
             ) : null}
           </aside>
 
-          <div className="min-w-0 space-y-5">
-            <section id="team-basic-settings" className="scroll-mt-24 rounded-2xl border border-[#333333] bg-[#181818] p-4">
+          <div className="min-w-0 space-y-7">
+            <section id="team-basic-settings" className="scroll-mt-24 border-b border-[#333333] pb-6">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-100">基础信息</h3>
                 <p className="mt-1 text-xs leading-5 text-zinc-500">
                   编辑团队名称和使命说明。
                 </p>
               </div>
-              <div className="mt-4 divide-y divide-[#333333] rounded-xl border border-[#333333] bg-[#151515]">
-                <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+              <div className="mt-4 divide-y divide-[#333333] border-t border-[#333333]">
+                <label className="grid gap-3 py-4 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
                   <span className="text-zinc-300">团队名称</span>
                   <input
                     value={draft.team_name}
@@ -194,10 +194,10 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
                         team_name: event.target.value,
                       })
                     }
-                    className="rounded-lg border border-[#3a3a3a] bg-[#151515] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
+                    className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </label>
-                <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+                <label className="grid gap-3 py-4 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
                   <span className="text-zinc-300">团队使命</span>
                   <textarea
                     value={draft.team_mission}
@@ -208,7 +208,7 @@ export function TeamControlCenterSection(props: TeamControlCenterSectionProps) {
                       })
                     }
                     rows={3}
-                    className="rounded-lg border border-[#3a3a3a] bg-[#151515] px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
+                    className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </label>
               </div>

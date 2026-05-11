@@ -24,7 +24,7 @@ export function TeamControlCenterHeader(props: {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-          <span className="rounded-full border border-[#333333] bg-[#1f1f1f] px-3 py-1.5 text-xs text-zinc-400">
+          <span className="text-xs text-zinc-500">
             {props.teamSize} 个角色 · {props.enabledRoleCount} 个启用
           </span>
           <button
@@ -32,7 +32,7 @@ export function TeamControlCenterHeader(props: {
             data-testid="team-control-center-save-btn"
             onClick={props.onSave}
             disabled={props.isSaving || !props.canSave}
-            className="rounded-lg border border-[#3a3a3a] bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded border border-[#3a3a3a] bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             {props.isSaving ? "保存中..." : "保存设置"}
           </button>

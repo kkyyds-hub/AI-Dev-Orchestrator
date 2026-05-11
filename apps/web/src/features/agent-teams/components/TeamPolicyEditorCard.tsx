@@ -5,15 +5,15 @@ export function TeamPolicyEditorCard(props: {
   onChange: (policy: TeamPolicy) => void;
 }) {
   return (
-    <section id="team-collaboration-settings" className="scroll-mt-24 rounded-2xl border border-[#333333] bg-[#181818] p-4">
+    <section id="team-collaboration-settings" className="scroll-mt-24 border-b border-[#333333] pb-6">
       <div>
         <h3 className="text-sm font-semibold text-zinc-100">协作策略</h3>
         <p className="mt-1 text-xs leading-5 text-zinc-500">
           控制团队协作、交接和评审门禁方式。
         </p>
       </div>
-      <div className="mt-4 divide-y divide-[#333333] rounded-xl border border-[#333333] bg-[#151515]">
-        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="mt-4 divide-y divide-[#333333] border-t border-[#333333]">
+        <label className="grid gap-3 py-4 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-zinc-300">协作模式</span>
           <input
             value={props.policy.collaboration_mode}
@@ -23,10 +23,10 @@ export function TeamPolicyEditorCard(props: {
                 collaboration_mode: event.target.value,
               })
             }
-            className="rounded-lg border border-[#3a3a3a] bg-[#151515] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
           />
         </label>
-        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="grid gap-3 py-4 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-zinc-300">介入模式</span>
           <input
             value={props.policy.intervention_mode}
@@ -36,10 +36,10 @@ export function TeamPolicyEditorCard(props: {
                 intervention_mode: event.target.value,
               })
             }
-            className="rounded-lg border border-[#3a3a3a] bg-[#151515] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
           />
         </label>
-        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="grid gap-3 py-4 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-zinc-300">升级开关</span>
           <span className="inline-flex items-center gap-2 text-zinc-300">
             <input
@@ -55,7 +55,7 @@ export function TeamPolicyEditorCard(props: {
             启用升级
           </span>
         </label>
-        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="grid gap-3 py-4 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-zinc-300">交接要求</span>
           <span className="inline-flex items-center gap-2 text-zinc-300">
             <input
@@ -71,7 +71,7 @@ export function TeamPolicyEditorCard(props: {
             需要交接
           </span>
         </label>
-        <label className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="grid gap-3 py-4 text-sm md:grid-cols-[220px_minmax(0,1fr)]">
           <span className="text-zinc-300">评审门禁</span>
           <input
             value={props.policy.review_gate}
@@ -81,7 +81,7 @@ export function TeamPolicyEditorCard(props: {
                 review_gate: event.target.value,
               })
             }
-            className="rounded-lg border border-[#3a3a3a] bg-[#151515] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
           />
         </label>
       </div>
