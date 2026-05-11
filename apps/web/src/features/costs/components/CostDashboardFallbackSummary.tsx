@@ -9,7 +9,7 @@ export function CostDashboardFallbackSummary(props: CostDashboardFallbackSummary
   const { fallback_contract: fallbackContract } = props.snapshot;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-950/25 p-4 text-sm text-slate-400">
+    <section className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-400">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-200">成本估算说明</h3>

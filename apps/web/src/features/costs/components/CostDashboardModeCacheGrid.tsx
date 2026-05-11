@@ -10,7 +10,7 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
   const { mode_breakdown: modeBreakdown } = props.snapshot;
 
   return (
-    <section className="border-t border-slate-800/80 pt-4">
+    <section className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-slate-100">数据来源</h3>
@@ -21,7 +21,7 @@ export function CostDashboardCostSourcePanel(props: CostDashboardModeCacheGridPr
         <div className="text-xs text-slate-500">任务 {props.snapshot.task_count_with_runs}/{props.snapshot.task_count}</div>
       </div>
 
-      <div className="mt-4 max-h-[360px] overflow-auto overscroll-contain border-t border-slate-800/80 bg-transparent shadow-none">
+      <div className="mt-4 max-h-[360px] overflow-auto overscroll-contain rounded-xl border border-slate-800 bg-slate-950/30 shadow-none">
         <table className="w-full min-w-[860px] text-left text-xs text-slate-300">
           <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-[11px] uppercase tracking-[0.12em] text-slate-500 backdrop-blur">
             <tr>
@@ -66,7 +66,7 @@ export function CostDashboardCacheSummaryPanel(props: CostDashboardModeCacheGrid
   const { cache_summary: cacheSummary } = props.snapshot;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-950/25 p-4 text-sm text-slate-400">
+    <section className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-400">
       <h3 className="text-sm font-semibold text-slate-200">缓存信号</h3>
       <p className="mt-2 max-h-28 overflow-y-auto break-words pr-2 text-xs leading-5 text-slate-500">
         {cacheSummary.cache_signal_note}

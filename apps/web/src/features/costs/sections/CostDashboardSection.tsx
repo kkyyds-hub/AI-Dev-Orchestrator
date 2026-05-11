@@ -32,7 +32,7 @@ export function CostDashboardSection(props: CostDashboardSectionProps) {
     <section
       id={COST_DASHBOARD_TEST_ID}
       data-testid={COST_DASHBOARD_TEST_ID}
-      className="space-y-4"
+      className="space-y-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-5 shadow-xl shadow-slate-950/30"
     >
       <CostDashboardHeader
         projectId={props.projectId}
@@ -51,8 +51,8 @@ export function CostDashboardSection(props: CostDashboardSectionProps) {
         <>
           <CostDashboardMetricGrid snapshot={snapshot} />
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="space-y-4">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-5">
               <CostDashboardCostSourcePanel snapshot={snapshot} />
               <CostDashboardRoleBreakdownTable snapshot={snapshot} />
               <CostDashboardThreadBreakdownTable snapshot={snapshot} />
