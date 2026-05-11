@@ -43,6 +43,7 @@ type ProjectOverviewTableAndDetailSectionProps = {
   stageActionFeedback: StageActionFeedback;
   isProjectDetailLoading: boolean;
   projectDetailErrorMessage: string | null;
+  onCreateProjectDraft: () => void;
 };
 
 export function ProjectOverviewTableAndDetailSection(
@@ -58,6 +59,7 @@ export function ProjectOverviewTableAndDetailSection(
         selectedProjectId={props.selectedProjectId}
         onSelectProject={props.onSelectProject}
         maxRows={6}
+        onCreateProjectDraft={props.onCreateProjectDraft}
       />
 
       <aside
