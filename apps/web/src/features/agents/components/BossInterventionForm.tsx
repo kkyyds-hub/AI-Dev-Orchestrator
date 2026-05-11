@@ -21,10 +21,7 @@ function getServerWriteGateHint(session: AgentSessionSnapshot | null): string | 
     terminalStatuses.has(session.session_status) ||
     session.current_phase === "finalized"
   ) {
-    return (
-      "Terminal session is frozen by backend gate; submit will return conflict " +
-      `(${session.session_status} / ${session.current_phase}).`
-    );
+    return `该会话已结束，可能无法继续追加介入（${session.session_status} / ${session.current_phase}）。`;
   }
 
   return null;
@@ -44,21 +41,23 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
     text: string;
   } | null>(null);
   const [latestWriteAt, setLatestWriteAt] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const serverWriteGateHint = getServerWriteGateHint(props.selectedSession);
 
   useEffect(() => {
     setActionFeedback(null);
     setLatestWriteAt(null);
+    setIsFormOpen(false);
   }, [props.projectId, props.selectedSession?.session_id]);
 
   const disabledReason = !props.projectId
-    ? "No project selected."
+    ? "请先选择项目。"
     : !props.selectedSession
-      ? "No agent session selected."
+      ? "请先选择一个智能体会话。"
       : interventionType.trim().length === 0
-        ? "Intervention type is required."
+        ? "请填写介入类型。"
       : contentSummary.trim().length === 0
-        ? "Intervention summary is required."
+        ? "请填写介入摘要。"
         : null;
 
   const submitDisabled = submitMutation.isPending || disabledReason !== null;
@@ -77,7 +76,7 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
       });
       setActionFeedback({
         tone: "success",
-        text: `Intervention persisted: ${result.intervention_message.event_type}.`,
+        text: `介入已记录：${result.intervention_message.event_type}。`,
       });
       setLatestWriteAt(result.intervention_message.created_at);
       setContentSummary("");
@@ -85,130 +84,188 @@ export function BossInterventionForm(props: BossInterventionFormProps) {
     } catch (error) {
       setActionFeedback({
         tone: "danger",
-        text: error instanceof Error ? error.message : "Intervention submit failed.",
+        text: error instanceof Error ? error.message : "介入提交失败。",
       });
     }
   }
 
   return (
     <section
-      className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4"
+      className="border-b border-[#333333] pb-4"
       data-testid="boss-intervention-entry-panel"
     >
-      <div className="flex items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-          Boss Intervention Entry
-        </h4>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-100">人工介入</h4>
+        </div>
         <StatusBadge
-          label={disabledReason ? "write gated" : "write enabled"}
+          label={disabledReason ? "暂不可介入" : "可介入"}
           tone={disabledReason ? "warning" : "success"}
         />
       </div>
 
-      <p className="mt-2 text-sm text-slate-400">
-        Day12 consumes Day11 read contracts and now exposes a formal session-level write contract:
-        POST /agent-threads/projects/{"{project_id}"}/sessions/{"{session_id}"}/interventions.
-      </p>
-
       <div
-        className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
+        className="mt-3 text-xs leading-5 text-slate-400"
         data-testid="boss-intervention-contract-gap"
       >
         {disabledReason ??
           serverWriteGateHint ??
-          "Formal session-level intervention write contract is active."}
+          "当前会话可以追加人工介入。"}
       </div>
 
-      <div
-        className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300"
+      <dl
+        className="mt-3 grid gap-x-4 gap-y-2 text-xs text-slate-500"
         data-testid="boss-intervention-entry-summary"
       >
-        <div>project_id: {props.projectId ?? "none"}</div>
-        <div>session_id: {props.selectedSession?.session_id ?? "none"}</div>
-        <div>session_status: {props.selectedSession?.session_status ?? "none"}</div>
-        <div>review_status: {props.selectedSession?.review_status ?? "none"}</div>
-        <div>current_phase: {props.selectedSession?.current_phase ?? "none"}</div>
-        <div>latest_intervention_type: {props.selectedSession?.latest_intervention_type ?? "none"}</div>
-        <div>latest_note_event_type: {props.selectedSession?.latest_note_event_type ?? "none"}</div>
-        <div>intervention_feed_items: {props.interventionCount}</div>
-        <div>latest_write_at: {latestWriteAt ? formatDateTime(latestWriteAt) : "none"}</div>
-        <div>server_write_gate: {serverWriteGateHint ?? "writable_or_pending_server_check"}</div>
-      </div>
+        <div>
+          <dt className="text-slate-600">会话状态</dt>
+          <dd className="mt-0.5 text-slate-300">
+            {props.selectedSession?.session_status ?? "无"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-slate-600">当前阶段</dt>
+          <dd className="mt-0.5 text-slate-300">
+            {props.selectedSession?.current_phase ?? "无"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-slate-600">介入消息</dt>
+          <dd className="mt-0.5 text-slate-300">{props.interventionCount}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-600">最近介入</dt>
+          <dd className="mt-0.5 text-slate-300">
+            {latestWriteAt ? formatDateTime(latestWriteAt) : "无"}
+          </dd>
+        </div>
+      </dl>
 
-      <div className="mt-3 grid gap-2">
-        <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
-          Intervention Type
-        </label>
-        <input
-          type="text"
-          value={interventionType}
-          onChange={(event) => setInterventionType(event.target.value)}
-          data-testid="boss-intervention-type-input"
-          placeholder="boss_directive"
-          className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-cyan-400/50 focus:outline-none"
-        />
-
-        <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
-          Note Event Type (optional)
-        </label>
-        <input
-          type="text"
-          value={noteEventType}
-          onChange={(event) => setNoteEventType(event.target.value)}
-          data-testid="boss-intervention-note-event-input"
-          placeholder="manual_intervention"
-          className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-cyan-400/50 focus:outline-none"
-        />
-
-        <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
-          Summary
-        </label>
-        <textarea
-          value={contentSummary}
-          onChange={(event) => setContentSummary(event.target.value)}
-          data-testid="boss-intervention-summary-input"
-          rows={3}
-          placeholder="Describe the boss intervention command."
-          className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-cyan-400/50 focus:outline-none"
-        />
-
-        <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
-          Detail (optional)
-        </label>
-        <textarea
-          value={contentDetail}
-          onChange={(event) => setContentDetail(event.target.value)}
-          data-testid="boss-intervention-detail-input"
-          rows={4}
-          placeholder="Optional operator detail."
-          className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:border-cyan-400/50 focus:outline-none"
-        />
-      </div>
-
-      {actionFeedback ? (
-        <div
-          data-testid="boss-intervention-submit-feedback"
-          className={`mt-3 rounded-xl border px-3 py-2 text-xs ${
-            actionFeedback.tone === "success"
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-              : "border-rose-500/30 bg-rose-500/10 text-rose-100"
-          }`}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setIsFormOpen(true)}
+          disabled={!props.selectedSession}
+          className="rounded border border-[#4a4a4a] bg-transparent px-3 py-2 text-xs font-medium text-zinc-100 transition hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {actionFeedback.text}
+          发起人工介入
+        </button>
+      </div>
+
+      {isFormOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="boss-intervention-form-title"
+        >
+          <div className="max-h-[88vh] w-full max-w-2xl overflow-auto rounded-2xl border border-[#333333] bg-slate-950 p-5 shadow-2xl shadow-slate-950/60">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs tracking-[0.18em] text-slate-500">人工介入</p>
+                <h5
+                  id="boss-intervention-form-title"
+                  className="mt-2 text-xl font-semibold text-slate-50"
+                >
+                  向当前会话追加指令
+                </h5>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(false)}
+                className="rounded border border-[#4a4a4a] px-3 py-1.5 text-sm text-zinc-100 transition hover:bg-[#292929]"
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <label className="grid gap-1.5 text-xs text-slate-400">
+                <span className="font-medium text-slate-500">介入类型</span>
+                <input
+                  type="text"
+                  value={interventionType}
+                  onChange={(event) => setInterventionType(event.target.value)}
+                  data-testid="boss-intervention-type-input"
+                  placeholder="boss_directive"
+                  className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-xs text-slate-400">
+                <span className="font-medium text-slate-500">备注事件类型（可选）</span>
+                <input
+                  type="text"
+                  value={noteEventType}
+                  onChange={(event) => setNoteEventType(event.target.value)}
+                  data-testid="boss-intervention-note-event-input"
+                  placeholder="manual_intervention"
+                  className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-xs text-slate-400">
+                <span className="font-medium text-slate-500">介入摘要</span>
+                <textarea
+                  value={contentSummary}
+                  onChange={(event) => setContentSummary(event.target.value)}
+                  data-testid="boss-intervention-summary-input"
+                  rows={3}
+                  placeholder="介入摘要"
+                  className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-xs text-slate-400">
+                <span className="font-medium text-slate-500">介入详情（可选）</span>
+                <textarea
+                  value={contentDetail}
+                  onChange={(event) => setContentDetail(event.target.value)}
+                  data-testid="boss-intervention-detail-input"
+                  rows={4}
+                  placeholder="介入详情"
+                  className="rounded-lg border border-[#3a3a3a] bg-slate-950/35 px-3 py-2 text-sm text-slate-100 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+                />
+              </label>
+            </div>
+
+            {actionFeedback ? (
+              <div
+                data-testid="boss-intervention-submit-feedback"
+                className={`mt-4 rounded-xl border px-3 py-2 text-xs ${
+                  actionFeedback.tone === "success"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                    : "border-rose-500/30 bg-rose-500/10 text-rose-100"
+                }`}
+              >
+                {actionFeedback.text}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(false)}
+                className="rounded border border-transparent px-4 py-2 text-sm text-slate-400 transition hover:text-slate-100"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                data-testid="boss-intervention-submit-btn"
+                disabled={submitDisabled}
+                aria-disabled={submitDisabled}
+                onClick={() => void handleSubmit()}
+                title={disabledReason ?? "提交"}
+                className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitMutation.isPending ? "提交中..." : "提交人工介入"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
-      <button
-        type="button"
-        data-testid="boss-intervention-submit-btn"
-        disabled={submitDisabled}
-        aria-disabled={submitDisabled}
-        onClick={() => void handleSubmit()}
-        title={disabledReason ?? "Submit one formal boss intervention command."}
-        className="mt-3 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {submitMutation.isPending ? "Submitting..." : "Submit Boss Intervention"}
-      </button>
     </section>
   );
 }

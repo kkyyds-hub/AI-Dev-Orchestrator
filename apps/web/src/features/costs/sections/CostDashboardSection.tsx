@@ -2,7 +2,10 @@ import { CostDashboardEmptyState } from "../components/CostDashboardEmptyState";
 import { CostDashboardFallbackSummary } from "../components/CostDashboardFallbackSummary";
 import { CostDashboardHeader } from "../components/CostDashboardHeader";
 import { CostDashboardMetricGrid } from "../components/CostDashboardMetricGrid";
-import { CostDashboardModeCacheGrid } from "../components/CostDashboardModeCacheGrid";
+import {
+  CostDashboardCacheSummaryPanel,
+  CostDashboardCostSourcePanel,
+} from "../components/CostDashboardModeCacheGrid";
 import { CostDashboardQueryState } from "../components/CostDashboardQueryState";
 import { CostDashboardRoleBreakdownTable } from "../components/CostDashboardRoleBreakdownTable";
 import { CostDashboardSmokeRoutes } from "../components/CostDashboardSmokeRoutes";
@@ -29,11 +32,12 @@ export function CostDashboardSection(props: CostDashboardSectionProps) {
     <section
       id={COST_DASHBOARD_TEST_ID}
       data-testid={COST_DASHBOARD_TEST_ID}
-      className="space-y-5 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/30"
+      className="space-y-4"
     >
       <CostDashboardHeader
         projectId={props.projectId}
         projectName={props.projectName}
+        isRefreshing={costQuery.isFetching}
         onRefresh={() => void costQuery.refetch()}
       />
 
@@ -46,11 +50,20 @@ export function CostDashboardSection(props: CostDashboardSectionProps) {
       {snapshot ? (
         <>
           <CostDashboardMetricGrid snapshot={snapshot} />
-          <CostDashboardFallbackSummary snapshot={snapshot} />
-          <CostDashboardModeCacheGrid snapshot={snapshot} />
-          <CostDashboardRoleBreakdownTable snapshot={snapshot} />
-          <CostDashboardThreadBreakdownTable snapshot={snapshot} />
-          <CostDashboardSmokeRoutes snapshot={snapshot} />
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-4">
+              <CostDashboardCostSourcePanel snapshot={snapshot} />
+              <CostDashboardRoleBreakdownTable snapshot={snapshot} />
+              <CostDashboardThreadBreakdownTable snapshot={snapshot} />
+            </div>
+
+            <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+              <CostDashboardFallbackSummary snapshot={snapshot} />
+              <CostDashboardCacheSummaryPanel snapshot={snapshot} />
+              <CostDashboardSmokeRoutes snapshot={snapshot} />
+            </aside>
+          </div>
         </>
       ) : null}
     </section>

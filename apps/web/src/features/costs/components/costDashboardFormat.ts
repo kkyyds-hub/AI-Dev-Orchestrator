@@ -1,3 +1,10 @@
+const usdFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 6,
+});
+
 export function formatUsd(value: number) {
-  return `$${value.toFixed(6)}`;
+  return usdFormatter.format(value);
 }

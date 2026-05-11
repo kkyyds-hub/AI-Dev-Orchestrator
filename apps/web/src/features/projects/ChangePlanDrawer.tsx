@@ -263,7 +263,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
       return;
     }
     if (!activeSourceSummary.trim()) {
-      setErrorMessage("当前缺少 Day05 CodeContextPack 或上一版映射来源，无法生成草案。");
+      setErrorMessage("当前缺少候选文件包或上一版映射来源，无法生成草案。");
       return;
     }
     if (targetFiles.length === 0) {
@@ -282,7 +282,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
       verificationCommands.length === 0 &&
       selectedVerificationTemplateIds.length === 0
     ) {
-      setErrorMessage("请至少填写一条验证命令，或选择一个 Day09 验证模板。");
+      setErrorMessage("请至少填写一条验证命令，或选择一个验证模板。");
       return;
     }
 
@@ -338,7 +338,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-[0.24em] text-cyan-300">
-                Day06 ChangePlan
+                变更计划
               </div>
               <h2 className="mt-2 text-2xl font-semibold text-slate-50">
                 仓库任务映射与变更计划草案
@@ -353,7 +353,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
               <StatusBadge
                 label={
                   props.codeContextPack
-                    ? `CodeContextPack ${props.codeContextPack.included_file_count} 文件`
+                    ? `候选文件包 ${props.codeContextPack.included_file_count} 文件`
                     : "沿用上一版映射"
                 }
                 tone={props.codeContextPack ? "info" : "neutral"}
@@ -362,8 +362,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
           </div>
 
           <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
-            Day06 只把任务、交付件与候选文件集合整理成结构化草案，不进入 Day07
-            变更批次、Day08 风险预检，也不会在产品链路里执行真实 Git 写操作。
+            将任务、交付件与候选文件整理成可审阅草案，便于确认范围、风险和验证方式。
           </p>
         </header>
 
@@ -460,8 +459,8 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
               ) : (
                 <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-sm leading-6 text-slate-400">
                   {canCreateNewDraft
-                    ? "当前任务还没有变更计划草案，可以直接从当前 CodeContextPack 新建。"
-                    : "请先在仓库页通过 Day05 FileLocator 生成 CodeContextPack，再新建 Day06 草案。"}
+                    ? "当前任务还没有变更计划草案，可以直接从当前候选文件包新建。"
+                    : "请先在仓库页生成候选文件包，再新建草案。"}
                 </div>
               )}
             </div>
@@ -492,15 +491,15 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
 
                 {props.codeContextPack ? (
                   <div className="mt-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm leading-6 text-cyan-100">
-                    本次保存将优先使用当前 CodeContextPack 中已收敛的文件集合作为 Day06 输入。
+                    本次保存将优先使用当前候选文件包中的文件集合。
                   </div>
                 ) : selectedPlanSummary ? (
                   <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
-                    当前没有新的 CodeContextPack，将沿用《{selectedPlanSummary.title}》最新版本中的目标文件与来源摘要继续追加版本。
+                    当前没有新的候选文件包，将沿用《{selectedPlanSummary.title}》最新版本中的目标文件与来源摘要继续追加版本。
                   </div>
                 ) : (
                   <div className="mt-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
-                    新建草案需要先在 Day05 FileLocator 中生成 CodeContextPack。
+                    新建草案需要先在仓库页生成候选文件包。
                   </div>
                 )}
               </section>
@@ -519,7 +518,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
 
                 <FieldBlock
                   label="主交付件"
-                  description="同一交付件可持续累积多版草案；Day06 只做草案，不进入提交候选。"
+                  description="同一交付件可持续累积多版草案，便于保留调整记录。"
                 >
                   <select
                     value={primaryDeliverableId}
@@ -596,7 +595,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
               <FieldBlock
                 className="mt-5"
                 label="本次变更意图"
-                description="说明为什么要改、准备改到什么程度；Day06 只写草案，不展开到实际代码执行。"
+                description="描述本次调整目标和预期范围。"
               >
                 <textarea
                   value={intentSummary}
@@ -621,7 +620,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
 
                 <FieldBlock
                   label="风险说明"
-                  description="Day06 只记录风险，不做 Day08 的预检守卫与人工确认。"
+                  description="记录可能影响范围、交付质量或验证结果的风险。"
                 >
                   <textarea
                     value={riskNotesText}
@@ -633,7 +632,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
 
                 <FieldBlock
                   label="自定义验证命令"
-                  description="仍可补充自由命令；Day09 验证模板会在下方单独引用。"
+                  description="可补充本次草案需要执行的验证命令。"
                 >
                   <textarea
                     value={verificationCommandsText}
@@ -646,12 +645,12 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
 
               <FieldBlock
                 className="mt-5"
-                label="Day09 验证模板"
-                description="可直接引用仓库级 build / test / lint / typecheck 基线；Day07 ChangeBatch 会保留这些引用，并把命令展开给 Day08 预检使用。"
+                label="验证模板"
+                description="引用仓库级 build / test / lint / typecheck 基线，减少重复填写。"
               >
                 {verificationBaselineQuery.isLoading ? (
                   <div className="text-sm leading-6 text-slate-400">
-                    正在加载 Day09 验证模板...
+                    正在加载验证模板...
                   </div>
                 ) : verificationBaselineQuery.isError ? (
                   <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
@@ -713,15 +712,15 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-                    当前项目尚未初始化 Day09 验证模板，请先在仓库页补齐命令基线。
+                    当前项目尚未初始化验证模板，请先在仓库页补齐命令基线。
                   </div>
                 )}
               </FieldBlock>
 
               <FieldBlock
                 className="mt-5"
-                label="本次草案的验证基线预览"
-                description="这里合并 Day09 模板命令与当前草案补充的自定义命令，仅做基线预览，不执行任何命令。"
+                label="本次草案的验证基线"
+                description="合并模板命令与当前草案补充命令，便于提交前确认。"
               >
                 {resolvedVerificationCommands.length > 0 ? (
                   <div className="space-y-2">
@@ -736,7 +735,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-                    尚未选择 Day09 模板，也未填写自定义验证命令。
+                    尚未选择验证模板，也未填写自定义验证命令。
                   </div>
                 )}
               </FieldBlock>
@@ -744,7 +743,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
               <FieldBlock
                 className="mt-5"
                 label="目标文件集合"
-                description="这里直接消费 Day05 的候选文件 / CodeContextPack，不提前进入 Day07 变更批次。"
+                description="选择本次草案涉及的目标文件。"
               >
                 {activeTargetFiles.length > 0 ? (
                   <div className="space-y-3">
@@ -789,7 +788,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-                    暂无目标文件；请先在 Day05 中生成 CodeContextPack，或先打开已有草案查看上一版映射。
+                    暂无目标文件；请先生成候选文件包，或打开已有草案查看上一版映射。
                   </div>
                 )}
               </FieldBlock>
@@ -798,7 +797,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                 <FieldBlock
                   className="mt-5"
                   label="版本时间线"
-                  description="同一交付件下可连续沉淀多版草案，为 Day07 变更批次保留时间线。"
+                  description="同一交付件下可连续沉淀多版草案，保留调整时间线。"
                 >
                   <div className="space-y-3">
                     {selectedPlanDetail.versions.map((version) => (

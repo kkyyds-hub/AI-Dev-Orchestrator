@@ -72,7 +72,7 @@ function formatRoleModelPolicyStageOverride(value: boolean | null | undefined): 
     return NA_TEXT;
   }
 
-  return value ? "yes" : "no";
+  return value ? "是" : "否";
 }
 
 export function buildLatestRunRuntimeFields(
@@ -81,52 +81,52 @@ export function buildLatestRunRuntimeFields(
   return [
     {
       key: "provider",
-      label: "Provider",
+      label: "供应商",
       value: formatRuntimeText(input.providerKey),
     },
     {
       key: "prompt_template",
-      label: "Prompt Template",
+      label: "提示词模板",
       value: formatPromptTemplate(input.promptTemplateKey, input.promptTemplateVersion),
     },
     {
       key: "token_accounting",
-      label: "Token Accounting",
+      label: "令牌统计",
       value: formatRuntimeText(input.tokenAccountingMode),
     },
     {
       key: "token_pricing",
-      label: "Token Pricing",
+      label: "计费来源",
       value: formatRuntimeText(input.tokenPricingSource),
     },
     {
       key: "prompt_chars",
-      label: "Prompt Chars",
+      label: "提示词字符",
       value: formatNullableTokenCount(input.promptCharCount),
     },
     {
       key: "prompt_tokens",
-      label: "Prompt Tokens",
+      label: "提示词令牌",
       value: formatNullableTokenCount(input.promptTokens),
     },
     {
       key: "completion_tokens",
-      label: "Completion Tokens",
+      label: "补全令牌",
       value: formatNullableTokenCount(input.completionTokens),
     },
     {
       key: "total_tokens",
-      label: "Total Tokens",
+      label: "总令牌",
       value: formatNullableTokenCount(input.totalTokens),
     },
     {
       key: "estimated_cost",
-      label: "Estimated Cost",
+      label: "预估成本",
       value: formatNullableCurrencyUsd(input.estimatedCost),
     },
     {
       key: "provider_receipt",
-      label: "Provider Receipt",
+      label: "供应商回执",
       value: formatRuntimeText(input.providerReceiptId),
     },
   ];
@@ -138,27 +138,27 @@ export function buildRoleModelPolicyRuntimeFields(
   return [
     {
       key: "policy_source",
-      label: "Source",
+      label: "来源",
       value: formatRuntimeText(input.roleModelPolicySource),
     },
     {
       key: "policy_desired_tier",
-      label: "Desired Tier",
+      label: "目标档位",
       value: formatRuntimeText(input.roleModelPolicyDesiredTier),
     },
     {
       key: "policy_adjusted_tier",
-      label: "Adjusted Tier",
+      label: "调整后档位",
       value: formatRuntimeText(input.roleModelPolicyAdjustedTier),
     },
     {
       key: "policy_final_tier",
-      label: "Final Tier",
+      label: "最终档位",
       value: formatRuntimeText(input.roleModelPolicyFinalTier),
     },
     {
       key: "policy_stage_override",
-      label: "Stage Override",
+      label: "阶段覆盖",
       value: formatRoleModelPolicyStageOverride(input.roleModelPolicyStageOverrideApplied),
     },
   ];

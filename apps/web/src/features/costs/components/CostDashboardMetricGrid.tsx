@@ -1,4 +1,4 @@
-import { formatDateTime } from "../../../lib/format";
+import { formatDateTime, formatTokenCount } from "../../../lib/format";
 import type { ProjectCostDashboardSnapshot } from "../types";
 import { formatUsd } from "./costDashboardFormat";
 
@@ -9,22 +9,30 @@ type CostDashboardMetricGridProps = {
 export function CostDashboardMetricGrid(props: CostDashboardMetricGridProps) {
   const { snapshot } = props;
 
-  return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-      <MetricCard label="运行次数" value={String(snapshot.run_count)} />
-      <MetricCard label="线程数量" value={String(snapshot.thread_count)} />
-      <MetricCard label="预估总成本" value={formatUsd(snapshot.total_estimated_cost_usd)} />
-      <MetricCard label="令牌总量" value={String(snapshot.total_tokens)} />
-      <MetricCard label="生成时间" value={formatDateTime(snapshot.generated_at)} />
-    </section>
-  );
-}
+  const metrics = [
+    { label: "预估总成本", value: formatUsd(snapshot.total_estimated_cost_usd) },
+    { label: "平均单次运行", value: formatUsd(snapshot.avg_estimated_cost_per_run_usd) },
+    { label: "运行次数", value: formatTokenCount(snapshot.run_count) },
+    { label: "线程数量", value: formatTokenCount(snapshot.thread_count) },
+    { label: "总令牌", value: formatTokenCount(snapshot.total_tokens) },
+    { label: "生成时间", value: formatDateTime(snapshot.generated_at) },
+  ];
 
-function MetricCard(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-lg font-semibold text-slate-50">{props.value}</div>
-    </div>
+    <section
+      aria-label="关键成本指标摘要"
+      className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/35"
+    >
+      <div className="grid divide-y divide-slate-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-6">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="px-4 py-3">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
+              {metric.label}
+            </div>
+            <div className="mt-1 text-sm font-semibold text-slate-100">{metric.value}</div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

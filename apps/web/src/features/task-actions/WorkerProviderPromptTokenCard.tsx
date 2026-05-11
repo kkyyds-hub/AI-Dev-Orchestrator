@@ -44,7 +44,7 @@ export function WorkerProviderPromptTokenCard(props: WorkerProviderPromptTokenCa
   return (
     <div className="mt-3 rounded-xl border border-[#333333] bg-transparent p-3">
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-        Latest Run Runtime
+        运行配置
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {runtimeFields.map((field) => (

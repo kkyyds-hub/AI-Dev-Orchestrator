@@ -1,5 +1,3 @@
-import { StatusBadge } from "../../../components/StatusBadge";
-
 export function AgentThreadControlHeader(props: {
   projectLabel: string;
   sessionCount: number;
@@ -8,24 +6,29 @@ export function AgentThreadControlHeader(props: {
   onRefresh: () => void;
 }) {
   return (
-    <header className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Day12 Agent Thread</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-50">
-            消息时间线与老板介入入口
+    <header className="border-b border-[#333333] pb-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-medium tracking-[0.18em] text-slate-500">
+            协作
+          </p>
+          <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-50">
+            协作线程
           </h2>
-          <p className="mt-2 text-sm text-slate-300">项目：{props.projectLabel}</p>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
+            当前项目：
+            <span className="text-slate-200">{props.projectLabel}</span>
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge label={`会话 ${props.sessionCount}`} tone="info" />
-          <StatusBadge label={`时间线 ${props.timelineCount}`} tone="success" />
-          <StatusBadge label={`介入 ${props.interventionCount}`} tone="warning" />
+        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+          <span className="text-xs text-slate-500">会话 {props.sessionCount}</span>
+          <span className="text-xs text-slate-500">时间线 {props.timelineCount}</span>
+          <span className="text-xs text-slate-500">介入 {props.interventionCount}</span>
           <button
             type="button"
             data-testid="agent-thread-refresh-btn"
             onClick={props.onRefresh}
-            className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+            className="inline-flex items-center rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-100 transition hover:bg-[#292929] focus:outline-none focus:ring-2 focus:ring-slate-500/30"
           >
             刷新
           </button>

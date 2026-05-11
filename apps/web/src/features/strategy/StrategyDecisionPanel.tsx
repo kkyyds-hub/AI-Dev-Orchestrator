@@ -70,10 +70,10 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
     return (
       <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-          Strategy Preview
+          策略建议
         </div>
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          请选择一个项目后查看角色、模型和 Skill 的路由预览。
+          请选择一个项目后查看角色、模型和能力匹配建议。
         </p>
       </section>
     );
@@ -83,10 +83,10 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
     return (
       <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-          Strategy Preview
+          策略建议
         </div>
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          正在计算当前项目的策略预览...
+          正在计算当前项目的策略建议...
         </p>
       </section>
     );
@@ -96,10 +96,10 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
     return (
       <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
         <div className="text-xs uppercase tracking-[0.2em] text-rose-200">
-          Strategy Preview
+          策略建议
         </div>
         <p className="mt-3 text-sm leading-6 text-rose-100">
-          策略预览加载失败：
+          策略建议加载失败：
           {previewQuery.error instanceof Error ? previewQuery.error.message : "未知错误"}
         </p>
       </section>
@@ -125,7 +125,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Strategy Preview
+            策略建议
           </div>
           <h3 className="mt-2 text-lg font-semibold text-slate-50">
             {preview.project_name}
@@ -203,8 +203,8 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
         >
           <div className="font-medium">
             {drilldownTaskMatchesRuntimeSample && drilldownRunMatchesLatest
-              ? "Strategy preview is aligned with the current drill-down context."
-              : "Strategy preview context differs from the incoming drill-down sample."}
+              ? "策略建议与当前选择一致。"
+              : "策略建议与当前选择不完全一致。"}
           </div>
           <div className="mt-1">
             source={props.drilldownContext.source}; task={props.drilldownContext.task_id}; run=
@@ -219,7 +219,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
           className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4"
         >
           <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
-            Linked Latest Run Runtime Context
+            关联运行配置
           </div>
           <p className="mt-2 text-xs text-slate-300">
             Task {props.latestRunTaskSample.task_id}; Run{" "}
@@ -234,7 +234,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
                   onClick={props.onNavigateToProjectLatestRun}
                   className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
                 >
-                  Back to Project Latest Run
+                  返回最近运行
                 </button>
               ) : null}
               <button
@@ -250,7 +250,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
                 }}
                 className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
               >
-                Drill-down to Task Detail / Run Log
+                查看任务详情 / 运行日志
               </button>
               {props.latestRunTaskSample.latest_run_id ? (
                 <button
@@ -266,7 +266,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
                   }}
                   className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
                 >
-                  Drill-down to Run Log
+                  查看运行日志
                 </button>
               ) : null}
             </div>
@@ -290,7 +290,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
               className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3"
             >
               <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
-                Linked Role Model Policy Runtime
+                关联角色模型策略
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 {latestRunPolicyFields.map((field) => (
@@ -310,11 +310,10 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
       {preview.owner_role_code || preview.model_tier || preview.model_name ? (
         <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
           <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
-            Role Model Policy 命中
+            角色模型策略命中
           </div>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            当前策略预览已经把“责任角色 → 模型层级 → 最终模型”收敛成最小运行时结果；
-            Worker 真正执行时会沿用同一条策略主链。
+            当前策略建议已将责任角色、模型档位和最终模型串联成一条清晰的执行策略。
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <InfoCard
@@ -346,28 +345,28 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
       {preview.role_model_policy_runtime.source ? (
         <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
           <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
-            Role Model Policy Runtime Trace
+            角色模型策略记录
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <InfoCard
-              label="Policy Source"
+              label="策略来源"
               value={preview.role_model_policy_runtime.source}
             />
             <InfoCard
-              label="Desired Tier"
+              label="目标档位"
               value={preview.role_model_policy_runtime.desired_tier ?? "n/a"}
             />
             <InfoCard
-              label="Adjusted Tier"
+              label="调整后档位"
               value={preview.role_model_policy_runtime.adjusted_tier ?? "n/a"}
             />
             <InfoCard
-              label="Final Tier"
+              label="最终档位"
               value={preview.role_model_policy_runtime.final_tier ?? "n/a"}
               extra={
                 preview.role_model_policy_runtime.stage_override_applied
-                  ? "Stage override applied"
-                  : "No stage override"
+                  ? "已应用阶段覆盖"
+                  : "未应用阶段覆盖"
               }
             />
           </div>
@@ -429,7 +428,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
           {preview.selected_skill_names.length > 0 ? (
             <div className="mt-4">
               <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                选中的 Skill
+                选中的能力
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {preview.selected_skill_names.map((skillName, index) => (
@@ -518,7 +517,7 @@ export function StrategyDecisionPanel(props: StrategyDecisionPanelProps) {
       </div>
 
       <div className="mt-4 text-xs text-slate-500">
-        预览会每 5 秒刷新一次，用于展示预算压力、阶段、角色和 Skill 绑定对路由结果的影响。
+        数据会定时刷新，用于展示预算压力、阶段、角色和能力绑定对策略结果的影响。
       </div>
     </section>
   );

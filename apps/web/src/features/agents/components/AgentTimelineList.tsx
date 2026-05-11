@@ -1,44 +1,106 @@
+import { useState } from "react";
+
 import { formatDateTime } from "../../../lib/format";
 import type { AgentTimelineMessage } from "../types";
 
 type AgentTimelineListProps = {
   title: string;
+  description: string;
   testId: string;
   messages: AgentTimelineMessage[];
   emptyText: string;
 };
 
 export function AgentTimelineList(props: AgentTimelineListProps) {
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-        {props.title}
-      </h4>
+    <section className="min-w-0 pb-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-100">
+            {props.title}
+          </h4>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{props.description}</p>
+        </div>
+        <span className="text-xs text-slate-500">
+          {props.messages.length} 条记录
+        </span>
+      </div>
+
       {!props.messages.length ? (
-        <p className="mt-3 text-sm text-slate-400">{props.emptyText}</p>
+        <p className="mt-4 border-y border-dashed border-[#333333] px-1 py-5 text-sm text-slate-400">
+          {props.emptyText}
+        </p>
       ) : (
-        <ul className="mt-3 space-y-3" data-testid={props.testId}>
-          {props.messages.map((message) => (
+        <ul
+          className="mt-4 max-h-[520px] min-w-0 space-y-0 overflow-y-auto overscroll-contain pr-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-700/60"
+          data-testid={props.testId}
+        >
+          {props.messages.map((message, index) => (
             <li
               key={message.message_id}
-              className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"
+              className="relative border-l border-[#333333] pb-5 pl-5 last:pb-0"
               data-testid={`${props.testId}-item`}
             >
-              <div className="flex flex-wrap gap-2 text-xs text-cyan-200">
-                <span>#{message.sequence_no}</span>
-                <span>{message.role}</span>
-                <span>{message.message_type}</span>
-                <span>{message.event_type}</span>
+              <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border border-slate-500 bg-slate-950" />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                    <span>#{message.sequence_no || index + 1}</span>
+                    <span>{formatDateTime(message.created_at)}</span>
+                    <span className="break-words">{message.role}</span>
+                    <span className="break-words">{message.message_type}</span>
+                    <span className="break-words">{message.event_type}</span>
+                  </div>
+                  <p className="mt-2 line-clamp-3 break-words text-sm leading-6 text-slate-100" title={message.content_summary}>
+                    {message.content_summary}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-testid={`${props.testId}-detail-open`}
+                  onClick={() =>
+                    setExpandedMessageId(
+                      expandedMessageId === message.message_id ? null : message.message_id,
+                    )
+                  }
+                  className="shrink-0 text-xs text-slate-400 transition hover:text-slate-100"
+                >
+                  {expandedMessageId === message.message_id ? "收起" : "展开"}
+                </button>
               </div>
-              <p className="mt-2 text-sm text-slate-100">{message.content_summary}</p>
-              {message.content_detail ? (
-                <p className="mt-1 text-xs text-slate-400 whitespace-pre-wrap">
-                  {message.content_detail}
-                </p>
+
+              {expandedMessageId === message.message_id ? (
+                <div
+                  data-testid={`${props.testId}-detail-modal`}
+                  className="mt-3 max-h-[360px] min-w-0 space-y-3 overflow-y-auto overscroll-contain border-l border-[#333333] pl-3 pr-2 text-xs leading-5 text-slate-400"
+                >
+                  {message.content_detail ? (
+                    <pre className="max-h-[280px] overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">
+                      {message.content_detail}
+                    </pre>
+                  ) : (
+                    <p className="text-xs leading-5 text-slate-500">暂无详情内容。</p>
+                  )}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-slate-500">
+                    <span>阶段：{message.phase ?? "无"}</span>
+                    <span>
+                      状态：{message.state_from ?? "无"} → {message.state_to ?? "无"}
+                    </span>
+                    <span>介入：{message.intervention_type ?? "无"}</span>
+                    <span>备注事件：{message.note_event_type ?? "无"}</span>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`${props.testId}-detail-close`}
+                    onClick={() => setExpandedMessageId(null)}
+                    className="text-xs text-slate-500 transition hover:text-slate-200"
+                  >
+                    关闭详情
+                  </button>
+                </div>
               ) : null}
-              <div className="mt-2 text-xs text-slate-500">
-                phase={message.phase ?? "n/a"}; state={message.state_from ?? "n/a"} -&gt; {message.state_to ?? "n/a"}; intervention={message.intervention_type ?? "none"}; note={message.note_event_type ?? "none"}; at={formatDateTime(message.created_at)}
-              </div>
             </li>
           ))}
         </ul>

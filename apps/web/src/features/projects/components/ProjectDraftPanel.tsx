@@ -49,7 +49,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-cyan-300">
-            Day03 项目草案
+            项目草案
           </p>
           <h3 className="mt-2 text-xl font-semibold text-slate-50">
             项目级规划入口与任务映射
@@ -160,7 +160,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
           </div>
 
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
-            当前链路保留人工调整空间；点击“应用草案”前，你可以修改项目摘要、任务标题、验收标准和依赖，不会直接触发 Worker 执行。
+            应用草案前，你可以修改项目摘要、任务标题、验收标准和依赖；保存后再进入执行流程。
           </div>
 
           {props.applyErrorMessage ? (

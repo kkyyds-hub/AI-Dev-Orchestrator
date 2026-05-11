@@ -47,7 +47,7 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
             阶段时间线
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-300">
-            Day04 把每一次项目阶段推进都记录到时间线里；即使守卫未通过，也会留下可审计、可回放的检查记录。
+            记录项目阶段推进、阻断原因和检查结果，便于回看关键节点。
           </p>
         </div>
 

@@ -40,7 +40,7 @@ export function ProjectTable({
             项目工作清单
           </h2>
           <p className="mt-1 text-sm text-zinc-500">
-            每行保留项目、任务、进展、风险四组关键信号，避免把信息挤成碎列。
+            按项目汇总任务、进展和风险，方便快速选择处理对象。
           </p>
         </div>
         <div className="text-xs text-zinc-600">共 {projects.length} 个项目</div>
