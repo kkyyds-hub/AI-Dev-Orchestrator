@@ -1,6 +1,6 @@
 export function ProjectRetrospectiveLoadingState() {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-8 text-center text-sm text-slate-400">
+    <div className="border-y border-[#333333] py-6 text-sm text-zinc-500">
       正在汇总项目复盘结论...
     </div>
   );
@@ -8,7 +8,7 @@ export function ProjectRetrospectiveLoadingState() {
 
 export function ProjectRetrospectiveErrorState(props: { message: string }) {
   return (
-    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-8 text-center text-sm text-rose-100">
+    <div className="border-l border-rose-700/70 pl-4 text-sm leading-6 text-rose-200">
       项目复盘加载失败：{props.message}
     </div>
   );

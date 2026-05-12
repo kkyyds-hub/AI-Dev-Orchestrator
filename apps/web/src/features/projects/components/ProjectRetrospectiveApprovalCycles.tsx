@@ -21,21 +21,21 @@ export function ProjectRetrospectiveApprovalCycles(props: {
   onNavigateToApproval?: (input: { projectId: string; approvalId: string }) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-100">审批返工回路</div>
-          <div className="mt-1 text-xs leading-5 text-slate-400">
+          <div className="text-lg font-semibold text-zinc-50">审批返工回路</div>
+          <div className="mt-1 text-sm leading-6 text-zinc-500">
             聚焦所有被驳回或要求补充的审批，并标记它们目前处于待返工、返工中、已重提还是返工后通过。
           </div>
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="text-sm text-zinc-500">
           生成时间：{formatDateTime(props.generatedAt)}
         </div>
       </div>
 
       {props.approvalCycles.length > 0 ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
           {props.approvalCycles.map((cycle) => (
             <ProjectRetrospectiveApprovalCycleCard
               key={cycle.cycle_id}
@@ -46,7 +46,7 @@ export function ProjectRetrospectiveApprovalCycles(props: {
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
           当前项目还没有形成审批返工回路，说明审批暂未被驳回，或尚未提交审批。
         </div>
       )}
@@ -65,9 +65,9 @@ function ProjectRetrospectiveApprovalCycleCard(props: {
     latestApprovalId && latestApprovalId !== cycle.approval_id;
 
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
+    <article className="px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
               label={PROJECT_APPROVAL_CYCLE_STATUS_LABELS[cycle.status]}
@@ -92,15 +92,15 @@ function ProjectRetrospectiveApprovalCycleCard(props: {
               />
             ) : null}
           </div>
-          <div className="mt-3 text-lg font-semibold text-slate-50">
+          <div className="mt-3 text-lg font-semibold text-zinc-50">
             {cycle.deliverable_title}
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-300">{cycle.summary}</p>
+          <p className="mt-2 text-sm leading-6 text-zinc-300">{cycle.summary}</p>
           {cycle.comment ? (
-            <p className="mt-2 text-sm leading-6 text-slate-400">{cycle.comment}</p>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">{cycle.comment}</p>
           ) : null}
         </div>
-        <div className="text-right text-xs text-slate-500">
+        <div className="text-right text-xs text-zinc-500">
           <div>驳回时间：{formatDateTime(cycle.decided_at)}</div>
           {cycle.resubmitted_at ? (
             <div className="mt-1">
@@ -135,7 +135,7 @@ function ProjectRetrospectiveApprovalCycleCard(props: {
                 approvalId: cycle.approval_id,
               })
             }
-            className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100 transition hover:bg-amber-500/20"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看原审批
           </button>
@@ -149,7 +149,7 @@ function ProjectRetrospectiveApprovalCycleCard(props: {
                 approvalId: latestApprovalId,
               })
             }
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看最新重提
           </button>

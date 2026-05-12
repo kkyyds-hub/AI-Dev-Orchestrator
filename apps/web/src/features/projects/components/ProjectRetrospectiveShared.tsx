@@ -5,8 +5,8 @@ import type { ProjectApprovalCycleStatus } from "../../approvals/types";
 export function ProjectRetrospectiveStat(props: { label: string; value: string }) {
   return (
     <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }
@@ -18,7 +18,7 @@ export function ProjectRetrospectiveTagList(props: {
 }) {
   return (
     <div className="mt-4">
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{props.title}</div>
+      <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">{props.title}</div>
       <div className="mt-2 flex flex-wrap gap-2">
         {props.items.map((item) => (
           <StatusBadge key={`${props.title}-${item}`} label={item} tone={props.tone} />

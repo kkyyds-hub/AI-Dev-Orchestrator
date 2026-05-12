@@ -8,13 +8,13 @@ export function ProjectRetrospectiveHeader(props: {
   return (
     <header className="flex flex-col gap-4 border-b border-[#333333] pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
-          ????
+        <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
+          项目复盘
         </p>
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-50">
+        <h2 className="text-3xl font-semibold tracking-tight text-zinc-50">
           审批回退重做与项目复盘收口
         </h2>
-        <p className="max-w-3xl text-sm leading-6 text-slate-400">
+        <p className="max-w-3xl text-sm leading-6 text-zinc-400">
           汇总项目内的关键审批失败、返工状态与失败运行复盘，帮助你确认“提交 - 审批 - 驳回/通过 - 重做”闭环是否已经真正打通。
         </p>
       </div>
