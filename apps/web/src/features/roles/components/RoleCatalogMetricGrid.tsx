@@ -10,7 +10,7 @@ export function RoleCatalogMetricGrid(props: RoleCatalogMetricGridProps) {
     {
       label: "系统角色数",
       value: String(props.systemRoleCount),
-      hint: "Day05 的最小内置角色目录",
+      hint: "系统内置的最小角色目录",
     },
     {
       label: "项目已启用",
@@ -25,7 +25,7 @@ export function RoleCatalogMetricGrid(props: RoleCatalogMetricGridProps) {
     {
       label: "目录模式",
       value: props.selectedProjectName ? "项目配置" : "系统只读",
-      hint: "Day05 不涉及任务调度与 Skill 引擎",
+      hint: "当前页仅维护角色目录与职责边界",
     },
   ];
 

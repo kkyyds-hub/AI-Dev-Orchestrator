@@ -21,6 +21,7 @@ export function RoleCatalogGrid(props: RoleCatalogGridProps) {
     1,
     Math.ceil(props.roles.length / ROLE_CATALOG_PAGE_SIZE),
   );
+  const shouldShowPagination = props.roles.length > ROLE_CATALOG_PAGE_SIZE;
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(Math.max(page, 1), pageCount));
@@ -77,7 +78,9 @@ export function RoleCatalogGrid(props: RoleCatalogGridProps) {
         </div>
         <p className="mt-1 text-xs leading-5 text-zinc-500">
           {props.roles.length > 0
-            ? `第 ${visibleStart}-${visibleEnd} 个 / 共 ${props.roles.length} 个角色`
+            ? shouldShowPagination
+              ? `第 ${visibleStart}-${visibleEnd} 个 / 共 ${props.roles.length} 个角色`
+              : `共 ${props.roles.length} 个角色`
             : "暂无可展示角色"}
         </p>
       </div>
@@ -150,27 +153,29 @@ export function RoleCatalogGrid(props: RoleCatalogGridProps) {
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t border-[#333333] px-4 py-3">
-            <button
-              type="button"
-              onClick={() => selectPage(currentPage - 1)}
-              disabled={currentPage <= 1}
-              className="rounded border border-[#3a3a3a] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:border-[#2a2a2a] disabled:text-zinc-600"
-            >
-              上一页
-            </button>
-            <span className="text-xs text-zinc-500">
-              {currentPage} / {pageCount}
-            </span>
-            <button
-              type="button"
-              onClick={() => selectPage(currentPage + 1)}
-              disabled={currentPage >= pageCount}
-              className="rounded border border-[#3a3a3a] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:border-[#2a2a2a] disabled:text-zinc-600"
-            >
-              下一页
-            </button>
-          </div>
+          {shouldShowPagination ? (
+            <div className="flex items-center justify-between gap-3 border-t border-[#333333] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => selectPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+                className="rounded border border-[#3a3a3a] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:border-[#2a2a2a] disabled:text-zinc-600"
+              >
+                上一页
+              </button>
+              <span className="text-xs text-zinc-500">
+                {currentPage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => selectPage(currentPage + 1)}
+                disabled={currentPage >= pageCount}
+                className="rounded border border-[#3a3a3a] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:border-[#2a2a2a] disabled:text-zinc-600"
+              >
+                下一页
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section className="min-w-0 rounded-lg border border-[#333333]">
