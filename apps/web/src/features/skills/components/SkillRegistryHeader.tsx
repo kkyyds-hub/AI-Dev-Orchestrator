@@ -1,4 +1,3 @@
-import { StatusBadge } from "../../../components/StatusBadge";
 import type { SkillRegistrySnapshot } from "../types";
 
 type SkillRegistryHeaderProps = {
@@ -8,29 +7,38 @@ type SkillRegistryHeaderProps = {
 
 export function SkillRegistryHeader(props: SkillRegistryHeaderProps) {
   return (
-    <header className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:flex-row lg:items-end lg:justify-between">
+    <header className="flex flex-col gap-4 border-b border-[#333333] pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
-          V3 Day13 Skill Registry
+        <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
+          技能
         </p>
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-50">
+        <h2 className="text-3xl font-semibold tracking-tight text-zinc-50">
           Skill 注册中心与角色绑定
         </h2>
-        <p className="max-w-3xl text-sm leading-6 text-slate-300">
-          Day13 把 Day05 的默认 Skill 槽位升级为正式注册中心：Skill 具备名称、版本、用途、适用角色和启停状态，并且可以在项目内绑定到具体角色。
+        <p className="max-w-3xl text-sm leading-6 text-zinc-400">
+          维护可复用的 Skill 能力条目，并在当前项目内绑定到具体角色，便于团队按职责选择合适的执行能力。
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-        <StatusBadge
-          label={props.selectedProjectName ? `当前项目：${props.selectedProjectName}` : "当前未选项目"}
-          tone={props.selectedProjectName ? "info" : "neutral"}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <HeaderStat
+          label="当前项目"
+          value={props.selectedProjectName ?? "未选择项目"}
         />
-        <StatusBadge
-          label={props.registry ? `已加载 ${props.registry.total_skill_count} 个 Skill` : "注册中心加载中"}
-          tone={props.registry ? "success" : "warning"}
+        <HeaderStat
+          label="注册 Skill"
+          value={props.registry ? `${props.registry.total_skill_count} 个` : "加载中"}
         />
       </div>
     </header>
+  );
+}
+
+function HeaderStat(props: { label: string; value: string }) {
+  return (
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
+    </div>
   );
 }

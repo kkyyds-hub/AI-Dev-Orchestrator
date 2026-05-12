@@ -18,7 +18,7 @@ type RoleSkillBindingRoleCardProps = {
 
 export function RoleSkillBindingRoleCard(props: RoleSkillBindingRoleCardProps) {
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <article className="border-b border-[#333333] pb-5">
       <RoleSkillBindingRoleHeader
         isEditing={props.isEditing}
         role={props.role}
@@ -34,13 +34,13 @@ export function RoleSkillBindingRoleCard(props: RoleSkillBindingRoleCardProps) {
       ) : null}
 
       {props.role.skills.length > 0 ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
           {props.role.skills.map((skill) => (
             <BoundSkillCard key={`${props.role.role_code}-${skill.skill_code}`} skill={skill} />
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
           当前角色还没有绑定 Skill。点击右上角“编辑绑定”即可为该角色分配能力。
         </div>
       )}
@@ -69,14 +69,14 @@ function RoleSkillBindingRoleHeader(props: {
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-lg font-medium text-slate-50">{props.role.role_name}</div>
+          <div className="text-lg font-medium text-zinc-50">{props.role.role_name}</div>
           <StatusBadge
             label={props.role.role_enabled ? "角色启用" : "角色停用"}
             tone={props.role.role_enabled ? "success" : "warning"}
           />
           <StatusBadge label={`${props.role.bound_skill_count} 个 Skill`} tone="info" />
         </div>
-        <div className="mt-2 text-xs text-slate-500">
+        <div className="mt-2 text-xs text-zinc-500">
           角色代码：{ROLE_CODE_LABELS[props.role.role_code] ?? props.role.role_code}
         </div>
       </div>
@@ -84,7 +84,7 @@ function RoleSkillBindingRoleHeader(props: {
       <button
         type="button"
         onClick={() => props.onEditRole(props.role)}
-        className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+        className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
       >
         {props.isEditing ? "正在编辑" : "编辑绑定"}
       </button>
@@ -94,9 +94,9 @@ function RoleSkillBindingRoleHeader(props: {
 
 function BoundSkillCard(props: { skill: ProjectRoleBoundSkill }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
+    <div className="px-4 py-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-sm font-medium text-slate-50">{props.skill.skill_name}</div>
+        <div className="text-sm font-medium text-zinc-50">{props.skill.skill_name}</div>
         <StatusBadge label={`绑定 v${props.skill.bound_version}`} tone="info" />
         {props.skill.registry_current_version ? (
           <StatusBadge
@@ -109,8 +109,8 @@ function BoundSkillCard(props: { skill: ProjectRoleBoundSkill }) {
           tone="neutral"
         />
       </div>
-      <p className="mt-3 text-sm leading-6 text-slate-300">{props.skill.summary}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-400">{props.skill.purpose}</p>
+      <p className="mt-3 text-sm leading-6 text-zinc-300">{props.skill.summary}</p>
+      <p className="mt-2 text-sm leading-6 text-zinc-400">{props.skill.purpose}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {props.skill.applicable_role_codes.map((roleCode) => (
           <StatusBadge
@@ -120,7 +120,7 @@ function BoundSkillCard(props: { skill: ProjectRoleBoundSkill }) {
           />
         ))}
       </div>
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-500">
         <span>{props.skill.registry_enabled ? "当前可绑定" : "当前已停用"}</span>
         <span>绑定于 {formatDateTime(props.skill.created_at)}</span>
         {props.skill.upgrade_available ? (
@@ -143,13 +143,13 @@ function RoleSkillBindingEditor(props: {
   onToggleSkillCode: (skillCode: string) => void;
 }) {
   return (
-    <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+    <div className="mt-5 border-l border-[#333333] pl-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-cyan-100">
+          <div className="text-sm font-medium text-zinc-100">
             编辑 {props.role.role_name} 的 Skill 绑定
           </div>
-          <div className="mt-1 text-xs leading-5 text-cyan-200/80">
+          <div className="mt-1 text-xs leading-5 text-zinc-500">
             这里只显示适用于当前角色的 Skill；重新保存后，会把所选 Skill 的最新版本绑定到该角色。
           </div>
         </div>
@@ -163,10 +163,10 @@ function RoleSkillBindingEditor(props: {
             return (
               <label
                 key={`${props.role.role_code}-${skill.code}`}
-                className={`flex items-start gap-3 rounded-xl border px-3 py-3 text-sm transition ${
+                className={`flex items-start gap-3 border-l px-3 py-3 text-sm transition ${
                   checked
-                    ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-100"
-                    : "border-slate-800 bg-slate-950/60 text-slate-300"
+                    ? "border-zinc-300 text-zinc-100"
+                    : "border-[#333333] text-zinc-400"
                 } ${skill.enabled ? "" : "opacity-60"}`}
               >
                 <input
@@ -174,26 +174,26 @@ function RoleSkillBindingEditor(props: {
                   checked={checked}
                   disabled={!skill.enabled}
                   onChange={() => props.onToggleSkillCode(skill.code)}
-                  className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                  className="mt-1 h-4 w-4 rounded border-zinc-600 bg-transparent text-zinc-200"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-slate-50">{skill.name}</span>
+                    <span className="font-medium text-zinc-50">{skill.name}</span>
                     <StatusBadge label={`v${skill.current_version}`} tone="info" />
                     <StatusBadge
                       label={skill.enabled ? "可绑定" : "已停用"}
                       tone={skill.enabled ? "success" : "warning"}
                     />
                   </div>
-                  <div className="mt-2 text-xs text-slate-500">{skill.code}</div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">{skill.summary}</p>
+                  <div className="mt-2 text-xs text-zinc-500">{skill.code}</div>
+                  <p className="mt-2 text-sm leading-6 text-zinc-300">{skill.summary}</p>
                 </div>
               </label>
             );
           })}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-cyan-500/20 bg-slate-950/40 px-4 py-6 text-sm leading-6 text-slate-300">
+        <div className="mt-4 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
           当前注册中心里没有适用于该角色的可选 Skill；可以先到上方注册中心新增对应 Skill。
         </div>
       )}
@@ -203,14 +203,14 @@ function RoleSkillBindingEditor(props: {
           type="button"
           onClick={props.onSaveRoleBindings}
           disabled={props.isSaving}
-          className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded border border-[#3a3a3a] bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           {props.isSaving ? "保存中..." : "保存绑定"}
         </button>
         <button
           type="button"
           onClick={props.onCancelEdit}
-          className="rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500"
+          className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
         >
           取消编辑
         </button>
