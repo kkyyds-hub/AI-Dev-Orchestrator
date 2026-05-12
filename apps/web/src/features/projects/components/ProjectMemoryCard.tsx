@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { StatusBadge } from "../../../components/StatusBadge";
 import { formatDateTime } from "../../../lib/format";
 import { ROLE_CODE_LABELS } from "../../roles/types";
@@ -27,6 +29,7 @@ export function ProjectMemoryCard(props: {
   const taskId = item.task_id;
   const deliverableId = item.deliverable_id;
   const approvalId = item.approval_id;
+  const [isDetailExpanded, setIsDetailExpanded] = useState(false);
 
   return (
     <article className="py-5">
@@ -64,8 +67,20 @@ export function ProjectMemoryCard(props: {
       </p>
 
       {item.detail ? (
-        <div className="mt-4 max-h-52 max-w-4xl overflow-y-auto overscroll-contain whitespace-pre-wrap break-words border-l border-[#333333] pl-4 pr-3 text-sm leading-6 text-zinc-300">
-          {item.detail}
+        <div className="mt-4 max-w-4xl">
+          <button
+            type="button"
+            onClick={() => setIsDetailExpanded((current) => !current)}
+            className="text-xs font-medium text-zinc-400 transition hover:text-zinc-100"
+            aria-expanded={isDetailExpanded}
+          >
+            {isDetailExpanded ? "收起详情" : "展开详情"}
+          </button>
+          {isDetailExpanded ? (
+            <div className="mt-3 max-h-60 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words border-l border-[#333333] pl-4 pr-3 text-sm leading-6 text-zinc-300">
+              {item.detail}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
