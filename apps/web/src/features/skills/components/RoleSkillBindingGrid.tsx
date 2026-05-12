@@ -30,6 +30,17 @@ export function RoleSkillBindingGrid(props: RoleSkillBindingGridProps) {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
 
+  useEffect(() => {
+    if (!props.editingRoleCode) {
+      return;
+    }
+
+    const roleIndex = roles.findIndex((role) => role.role_code === props.editingRoleCode);
+    if (roleIndex >= 0) {
+      setCurrentPage(Math.floor(roleIndex / ROLES_PER_PAGE) + 1);
+    }
+  }, [props.editingRoleCode, roles]);
+
   const pagedRoles = useMemo(() => {
     const startIndex = (currentPage - 1) * ROLES_PER_PAGE;
     return roles.slice(startIndex, startIndex + ROLES_PER_PAGE);
@@ -37,6 +48,14 @@ export function RoleSkillBindingGrid(props: RoleSkillBindingGridProps) {
 
   const pageStart = roles.length ? (currentPage - 1) * ROLES_PER_PAGE + 1 : 0;
   const pageEnd = Math.min(currentPage * ROLES_PER_PAGE, roles.length);
+
+  function handleEditRole(role: ProjectRoleSkillBindingGroup) {
+    const roleIndex = roles.findIndex((item) => item.role_code === role.role_code);
+    if (roleIndex >= 0) {
+      setCurrentPage(Math.floor(roleIndex / ROLES_PER_PAGE) + 1);
+    }
+    props.onEditRole(role);
+  }
 
   if (!props.bindingSnapshot) {
     return null;
@@ -54,22 +73,24 @@ export function RoleSkillBindingGrid(props: RoleSkillBindingGridProps) {
             isSaving={props.isSaving}
             role={role}
             onCancelEdit={props.onCancelEdit}
-            onEditRole={props.onEditRole}
+            onEditRole={handleEditRole}
             onSaveRoleBindings={props.onSaveRoleBindings}
             onToggleSkillCode={props.onToggleSkillCode}
           />
         ))}
       </div>
 
-      <RoleBindingPagination
-        currentPage={currentPage}
-        pageEnd={pageEnd}
-        pageStart={pageStart}
-        totalItems={roles.length}
-        totalPages={totalPages}
-        onNextPage={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-        onPreviousPage={() => setCurrentPage((page) => Math.max(1, page - 1))}
-      />
+      {totalPages > 1 ? (
+        <RoleBindingPagination
+          currentPage={currentPage}
+          pageEnd={pageEnd}
+          pageStart={pageStart}
+          totalItems={roles.length}
+          totalPages={totalPages}
+          onNextPage={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+          onPreviousPage={() => setCurrentPage((page) => Math.max(1, page - 1))}
+        />
+      ) : null}
     </section>
   );
 }

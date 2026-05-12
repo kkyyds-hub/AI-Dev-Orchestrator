@@ -50,15 +50,17 @@ export function SkillRegistryList(props: SkillRegistryListProps) {
               onSelectSkill={props.onSelectSkill}
             />
           ))}
-          <SkillRegistryPagination
-            currentPage={currentPage}
-            pageEnd={pageEnd}
-            pageStart={pageStart}
-            totalItems={props.skills.length}
-            totalPages={totalPages}
-            onNextPage={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-            onPreviousPage={() => setCurrentPage((page) => Math.max(1, page - 1))}
-          />
+          {totalPages > 1 ? (
+            <SkillRegistryPagination
+              currentPage={currentPage}
+              pageEnd={pageEnd}
+              pageStart={pageStart}
+              totalItems={props.skills.length}
+              totalPages={totalPages}
+              onNextPage={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+              onPreviousPage={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            />
+          ) : null}
         </div>
       ) : (
         <div className="mt-3 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
