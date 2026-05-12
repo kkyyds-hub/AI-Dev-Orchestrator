@@ -28,21 +28,21 @@ export function MemorySearchForm(props: {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <form className="space-y-4" onSubmit={props.onSubmit}>
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_240px_auto]">
-          <label className="block text-sm text-slate-300">
-            <div className="mb-2 font-medium text-slate-100">关键词</div>
+          <label className="block text-sm text-zinc-300">
+            <div className="mb-2 font-medium text-zinc-100">关键词</div>
             <input
               value={props.draftQuery}
               onChange={(event) => props.onDraftQueryChange(event.target.value)}
               placeholder="例如：审批意见、失败模式、PRD 摘要、验证结论"
-              className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-slate-100 outline-none transition focus:border-cyan-400/50"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-zinc-100 outline-none transition focus:border-zinc-500"
             />
           </label>
 
-          <label className="block text-sm text-slate-300">
-            <div className="mb-2 font-medium text-slate-100">类型过滤</div>
+          <label className="block text-sm text-zinc-300">
+            <div className="mb-2 font-medium text-zinc-100">类型过滤</div>
             <select
               value={props.selectedType}
               onChange={(event) => {
@@ -50,7 +50,7 @@ export function MemorySearchForm(props: {
                   props.onSelectedTypeChange(event.target.value);
                 }
               }}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-slate-100 outline-none transition focus:border-cyan-400/50"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-zinc-100 outline-none transition focus:border-zinc-500"
             >
               {MEMORY_SEARCH_TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -63,7 +63,7 @@ export function MemorySearchForm(props: {
           <div className="flex items-end">
             <button
               type="submit"
-              className="w-full rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20"
+              className="w-full rounded border border-[#3a3a3a] bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
             >
               搜索项目记忆
             </button>

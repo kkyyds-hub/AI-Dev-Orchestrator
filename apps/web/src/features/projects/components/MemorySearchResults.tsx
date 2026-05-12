@@ -18,11 +18,11 @@ export function MemorySearchResults(props: {
   }) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-slate-50">搜索结果</h3>
-          <p className="mt-1 text-sm text-slate-400">
+          <h3 className="text-lg font-semibold text-zinc-50">搜索结果</h3>
+          <p className="mt-1 text-sm text-zinc-500">
             查询 “{props.submittedQuery}” ，共命中 {props.totalMatches} 条项目记忆。
           </p>
         </div>
@@ -30,7 +30,7 @@ export function MemorySearchResults(props: {
       </div>
 
       {props.hits.length > 0 ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
           {props.hits.map((hit) => (
             <MemorySearchResultCard
               key={`${hit.item.memory_id}-${hit.score}`}
@@ -43,7 +43,7 @@ export function MemorySearchResults(props: {
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
           当前查询没有命中项目记忆。可以换一个更接近交付件、审批意见、失败模式或运行结论的关键词。
         </div>
       )}

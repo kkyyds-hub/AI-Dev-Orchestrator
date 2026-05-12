@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { StatusBadge } from "../../../components/StatusBadge";
 import { formatDateTime } from "../../../lib/format";
 import { ROLE_CODE_LABELS } from "../../roles/types";
@@ -26,9 +28,10 @@ export function MemorySearchResultCard(props: {
   const taskId = item.task_id;
   const deliverableId = item.deliverable_id;
   const approvalId = item.approval_id;
+  const [isDetailExpanded, setIsDetailExpanded] = useState(false);
 
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
+    <article className="py-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge
@@ -43,25 +46,37 @@ export function MemorySearchResultCard(props: {
             tone="neutral"
           />
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-zinc-600">
           相关度 {props.hit.score.toFixed(1)} · {formatDateTime(item.created_at)}
         </div>
       </div>
 
-      <div className="mt-3 text-base font-semibold text-slate-50">
+      <div className="mt-3 max-w-4xl break-words text-base font-semibold text-zinc-50">
         {item.title}
       </div>
-      <p className="mt-2 text-sm leading-6 text-slate-300">
+      <p className="mt-2 max-w-4xl whitespace-pre-wrap break-words text-sm leading-6 text-zinc-400">
         {item.summary}
       </p>
 
       {item.detail ? (
-        <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm leading-6 text-slate-300">
-          {item.detail}
+        <div className="mt-4 max-w-4xl">
+          <button
+            type="button"
+            onClick={() => setIsDetailExpanded((current) => !current)}
+            className="text-xs font-medium text-zinc-400 transition hover:text-zinc-100"
+            aria-expanded={isDetailExpanded}
+          >
+            {isDetailExpanded ? "收起详情" : "展开详情"}
+          </button>
+          {isDetailExpanded ? (
+            <div className="mt-3 max-h-60 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words border-l border-[#333333] pl-4 pr-3 text-sm leading-6 text-zinc-300">
+              {item.detail}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-zinc-500">
         {item.stage ? (
           <span>
             阶段 {PROJECT_STAGE_LABELS[item.stage] ?? item.stage}
@@ -97,7 +112,7 @@ export function MemorySearchResultCard(props: {
                 runId: item.run_id,
               })
             }
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看任务 / 运行
           </button>
@@ -111,7 +126,7 @@ export function MemorySearchResultCard(props: {
                 deliverableId,
               })
             }
-            className="rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 transition hover:border-slate-600"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看交付件
           </button>
@@ -125,7 +140,7 @@ export function MemorySearchResultCard(props: {
                 approvalId,
               })
             }
-            className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100 transition hover:bg-amber-500/20"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看审批
           </button>

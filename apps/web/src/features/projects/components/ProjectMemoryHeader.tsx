@@ -12,7 +12,7 @@ export function ProjectMemoryHeader(props: {
           项目记忆
         </p>
         <h2 className="text-3xl font-semibold tracking-tight text-zinc-50">
-          项目记忆与可检索经验沉淀
+          项目记忆沉淀
         </h2>
         <p className="max-w-3xl text-sm leading-6 text-zinc-400">
           把运行结论、失败复盘、审批意见与交付件摘要沉淀成结构化项目记忆；列表默认先看摘要，长详情可按需展开。
