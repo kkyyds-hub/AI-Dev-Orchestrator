@@ -110,7 +110,7 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/75 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
       <button
         type="button"
         aria-label="关闭角色编辑抽屉"
@@ -118,14 +118,14 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
         onClick={props.onClose}
       />
 
-      <aside className="flex h-full w-full max-w-2xl flex-col border-l border-slate-800 bg-slate-950 shadow-2xl shadow-slate-950/70">
-        <header className="border-b border-slate-800 px-6 py-5">
+      <aside className="flex h-full w-full max-w-2xl flex-col border-l border-[#333333] bg-[#111111]">
+        <header className="border-b border-[#333333] px-6 py-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-xs uppercase tracking-[0.24em] text-cyan-300">
-                Day05 Role Config
+              <div className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
+                角色配置
               </div>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-50">
+              <h2 className="mt-2 text-2xl font-semibold text-zinc-50">
                 {roleLabel}
               </h2>
             </div>
@@ -139,13 +139,12 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
             </div>
           </div>
 
-          <p className="mt-3 text-sm leading-6 text-slate-300">
+          <p className="mt-3 text-sm leading-6 text-zinc-400">
             当前项目：
-            <span className="font-medium text-slate-100">
+            <span className="font-medium text-zinc-100">
               {props.projectName ?? "未选择项目"}
             </span>
-            。这里只编辑 Day05 的角色目录与身份配置，不涉及 SOP、角色调度或 Skill
-            引擎。
+            。这里只编辑角色目录中的职责、边界和默认 Skill 占位，不涉及 SOP、角色调度或 Skill 引擎。
           </p>
         </header>
 
@@ -153,19 +152,19 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
           className="flex flex-1 flex-col overflow-hidden"
           onSubmit={handleSubmit}
         >
-          <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
-            <label className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
+          <div className="flex-1 overflow-y-auto px-6">
+            <label className="flex items-center justify-between gap-4 border-b border-[#333333] py-5">
               <div>
-                <div className="text-sm font-medium text-slate-100">项目启用状态</div>
-                <div className="mt-1 text-xs leading-5 text-slate-400">
-                  Day05 只维护角色是否在当前项目中启用，不触发任何调度行为。
+                <div className="text-sm font-medium text-zinc-100">项目启用状态</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-500">
+                  只维护角色是否在当前项目中启用，不触发任何调度行为。
                 </div>
               </div>
               <input
                 type="checkbox"
                 checked={enabled}
                 onChange={(event) => setEnabled(event.target.checked)}
-                className="h-5 w-5 rounded border-slate-700 bg-slate-950 text-cyan-400 focus:ring-cyan-400"
+                className="h-5 w-5 rounded border-[#3a3a3a] bg-transparent text-zinc-100 focus:ring-zinc-500"
               />
             </label>
 
@@ -177,7 +176,7 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
                 type="text"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
               />
             </FieldBlock>
 
@@ -189,11 +188,11 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
                 value={summary}
                 onChange={(event) => setSummary(event.target.value)}
                 rows={3}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
               />
             </FieldBlock>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid lg:grid-cols-2 lg:gap-x-6">
               <FieldBlock
                 label="职责边界"
                 description="每行一条职责，保存时会自动去重。"
@@ -202,24 +201,24 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
                   value={responsibilitiesText}
                   onChange={(event) => setResponsibilitiesText(event.target.value)}
                   rows={6}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                  className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                 />
               </FieldBlock>
 
               <FieldBlock
                 label="默认 Skill 占位"
-                description="这里只是占位标签，不会接入 Day13 的 Skill 引擎。"
+                description="这里只是占位标签，不会直接接入 Skill 引擎。"
               >
                 <textarea
                   value={skillSlotsText}
                   onChange={(event) => setSkillSlotsText(event.target.value)}
                   rows={6}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                  className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                 />
               </FieldBlock>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid lg:grid-cols-2 lg:gap-x-6">
               <FieldBlock
                 label="输入边界"
                 description="当前角色接手前应该已经具备哪些输入。"
@@ -228,7 +227,7 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
                   value={inputBoundaryText}
                   onChange={(event) => setInputBoundaryText(event.target.value)}
                   rows={6}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                  className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                 />
               </FieldBlock>
 
@@ -240,7 +239,7 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
                   value={outputBoundaryText}
                   onChange={(event) => setOutputBoundaryText(event.target.value)}
                   rows={6}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                  className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                 />
               </FieldBlock>
             </div>
@@ -253,33 +252,33 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
                 value={customNotes}
                 onChange={(event) => setCustomNotes(event.target.value)}
                 rows={4}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
               />
             </FieldBlock>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs leading-6 text-slate-400">
+            <section className="border-b border-[#333333] py-5 text-xs leading-6 text-zinc-500">
               <div>系统默认名称：{props.systemRole?.name ?? "—"}</div>
               <div>默认启用：{props.systemRole?.enabled_by_default ? "是" : "否"}</div>
               <div>
                 上次更新：
-                <span className="text-slate-300">
+                <span className="text-zinc-300">
                   {formatDateTime(props.role.updated_at)}
                 </span>
               </div>
             </section>
 
             {errorMessage ? (
-              <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+              <div className="my-5 border-l border-rose-700/70 pl-4 text-sm leading-6 text-rose-200">
                 {errorMessage}
               </div>
             ) : null}
           </div>
 
-          <footer className="flex items-center justify-between gap-3 border-t border-slate-800 px-6 py-4">
+          <footer className="flex items-center justify-between gap-3 border-t border-[#333333] px-6 py-4">
             <button
               type="button"
               onClick={props.onClose}
-              className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100"
+              className="rounded border border-[#3a3a3a] px-4 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100"
             >
               取消
             </button>
@@ -287,7 +286,7 @@ export function RoleEditorDrawer(props: RoleEditorDrawerProps) {
             <button
               type="submit"
               disabled={props.isSaving}
-              className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+              className="rounded border border-[#3a3a3a] bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {props.isSaving ? "保存中..." : "保存角色配置"}
             </button>
@@ -304,9 +303,9 @@ function FieldBlock(props: {
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <div className="text-sm font-medium text-slate-100">{props.label}</div>
-      <div className="mt-1 text-xs leading-5 text-slate-400">
+    <section className="border-b border-[#333333] py-5">
+      <div className="text-sm font-medium text-zinc-100">{props.label}</div>
+      <div className="mt-1 text-xs leading-5 text-zinc-500">
         {props.description}
       </div>
       <div className="mt-3">{props.children}</div>
