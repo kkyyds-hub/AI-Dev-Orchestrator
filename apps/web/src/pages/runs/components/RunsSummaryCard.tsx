@@ -5,13 +5,13 @@ type RunsSummaryCardProps = {
 
 export function RunsSummaryCard(props: RunsSummaryCardProps) {
   return (
-    <div className="rounded-xl border border-[#333333] bg-[#242424] px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+    <div className="min-w-0 border-l border-[#333333] pl-3">
+      <dt className="text-xs uppercase tracking-[0.18em] text-zinc-600">
         {props.label}
-      </div>
-      <div className="mt-2 break-all text-sm font-medium text-zinc-100">
+      </dt>
+      <dd className="mt-1 break-all text-sm font-medium text-zinc-100">
         {props.value}
-      </div>
+      </dd>
     </div>
   );
 }

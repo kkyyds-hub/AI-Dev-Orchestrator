@@ -11,6 +11,7 @@ type ProjectMemoryRoleGovernancePageProps = {
   selectedProjectId: string | null;
   selectedProjectName: string | null;
   projects: BossProjectItem[];
+  defaultTabId?: "memory" | "search" | "roles" | "skills" | "workbench";
   onSelectProject: (projectId: string) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onNavigateToDeliverable: (input: { projectId: string; deliverableId: string }) => void;
@@ -27,8 +28,9 @@ export function ProjectMemoryRoleGovernancePage(
       className="space-y-4"
     >
       <ProjectSubviewTabs
+        key={props.defaultTabId ?? "memory"}
         ariaLabel="项目记忆治理视图"
-        defaultTabId="memory"
+        defaultTabId={props.defaultTabId ?? "memory"}
         items={[
           {
             id: "memory",

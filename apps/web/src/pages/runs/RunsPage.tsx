@@ -46,11 +46,13 @@ export function RunsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <RunsPageHeader
         latestRunCount={runSelection.latestRuns.length}
         runId={runId}
         realtimeStatus={realtime.status}
+        isRefreshing={overviewQuery.isFetching}
+        onRefresh={() => void overviewQuery.refetch()}
       />
 
       {runId && !runSelection.effectiveTaskId ? (
@@ -63,7 +65,10 @@ export function RunsPage() {
         <RunsHistoryContextNotice />
       ) : null}
 
-      <section className="grid gap-4 xl:grid-cols-[1.05fr_minmax(380px,1fr)]">
+      <section
+        className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]"
+        aria-label="工作流运行列表与详情"
+      >
         <RunsListPanel
           isLoading={overviewQuery.isLoading}
           isError={overviewQuery.isError}

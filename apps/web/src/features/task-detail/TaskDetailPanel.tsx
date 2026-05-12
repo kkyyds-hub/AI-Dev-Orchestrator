@@ -33,6 +33,7 @@ import { useSelectedTaskRun } from "./useSelectedTaskRun";
 type TaskDetailPanelProps = {
   panelId?: string;
   runLogPanelId?: string;
+  surfaceVariant?: "card" | "line";
   requestedRunId?: string | null;
   selectedTask: ConsoleTask | null;
   budget: ConsoleBudget | null;
@@ -51,6 +52,7 @@ type TaskDetailPanelProps = {
 export function TaskDetailPanel({
   panelId,
   runLogPanelId,
+  surfaceVariant = "card",
   requestedRunId = null,
   selectedTask,
   budget,
@@ -152,7 +154,11 @@ export function TaskDetailPanel({
   return (
     <section
       id={panelId}
-      className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
+      className={
+        surfaceVariant === "line"
+          ? "border-y border-[#333333] bg-transparent py-5"
+          : "rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
+      }
     >
       <TaskDetailPanelHeader selectedTask={selectedTask} />
 

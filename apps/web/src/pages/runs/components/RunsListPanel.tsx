@@ -14,11 +14,11 @@ type RunsListPanelProps = {
 
 export function RunsListPanel(props: RunsListPanelProps) {
   return (
-    <section className="rounded-2xl border border-[#333333] bg-[#242424] p-5">
-      <div className="mb-4 flex items-center justify-between">
+    <section className="min-w-0" data-testid="runs-list-panel">
+      <div className="mb-4 flex flex-col gap-2 border-b border-[#333333] pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-100">最新运行列表</h2>
-          <p className="text-sm text-zinc-500">
+          <h2 className="text-base font-semibold text-zinc-100">最新运行列表</h2>
+          <p className="mt-1 text-sm leading-6 text-zinc-500">
             基于任务总览聚合最近运行，可直接进入运行详情。
           </p>
         </div>
@@ -40,7 +40,7 @@ export function RunsListPanel(props: RunsListPanelProps) {
           hasRuns={props.latestRuns.length > 0}
         />
       ) : (
-        <div className="space-y-3">
+        <div className="divide-y divide-[#333333] border-y border-[#333333]">
           {props.latestRuns.map((item) => (
             <RunListItemButton
               key={item.run.id}
