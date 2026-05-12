@@ -1,5 +1,6 @@
 export type GovernanceRouteSection =
   | "memory"
+  | "governance"
   | "search"
   | "roles"
   | "skills"

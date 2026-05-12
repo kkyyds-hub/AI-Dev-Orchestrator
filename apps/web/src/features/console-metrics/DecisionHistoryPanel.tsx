@@ -1,6 +1,7 @@
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
 import { mapRunStatusTone } from "../../lib/status";
+import type { TaskDetailSurfaceVariant } from "../task-detail/components/TaskDetailField";
 import type { DecisionHistoryItem } from "./types";
 
 type DecisionHistoryPanelProps = {
@@ -9,6 +10,7 @@ type DecisionHistoryPanelProps = {
   isLoading: boolean;
   errorMessage?: string | null;
   selectedRunId?: string | null;
+  surfaceVariant?: TaskDetailSurfaceVariant;
   onSelectRun?: (runId: string) => void;
 };
 
@@ -18,14 +20,17 @@ export function DecisionHistoryPanel({
   isLoading,
   errorMessage,
   selectedRunId,
+  surfaceVariant,
   onSelectRun,
 }: DecisionHistoryPanelProps) {
+  const isLine = surfaceVariant === "line";
+
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className={isLine ? "border-b border-[#333333] pb-5" : "rounded-xl border border-slate-800 bg-slate-950/60 p-4"}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold text-slate-50">决策历史</h3>
-          <p className="mt-1 text-sm text-slate-400">
+          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-slate-50"}`}>决策历史</h3>
+          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-slate-400"}`}>
             {taskId
               ? "查看该任务所有运行的决策路径摘要。"
               : "先选择一个任务，再查看其决策历史。"}
@@ -37,38 +42,46 @@ export function DecisionHistoryPanel({
       </div>
 
       {!taskId ? (
-        <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
+        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm text-zinc-500" : "mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400"}>
           当前还没有选中的任务。
         </div>
       ) : isLoading ? (
-        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-300">
+        <div className={isLine ? "mt-4 border-y border-[#333333] py-4 text-sm text-zinc-500" : "mt-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-300"}>
           正在加载决策历史…
         </div>
       ) : errorMessage ? (
-        <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
+        <div className={isLine ? "mt-4 border-l border-rose-700/70 pl-4 text-sm leading-6 text-rose-200" : "mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100"}>
           无法加载决策历史：{errorMessage}
         </div>
       ) : history.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
+        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm text-zinc-500" : "mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400"}>
           该任务还没有运行历史。
         </div>
       ) : (
-        <div className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-1">
+        <div className={isLine ? "mt-4 max-h-[32rem] divide-y divide-[#333333] overflow-y-auto border-y border-[#333333]" : "mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-1"}>
           {history.map((item) => (
             <button
               key={item.run_id}
               type="button"
-              className={`w-full rounded-xl border p-4 text-left transition-colors ${
-                item.run_id === selectedRunId
-                  ? "border-cyan-500/40 bg-cyan-500/5"
-                  : "border-slate-800 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900"
-              }`}
+              className={
+                isLine
+                  ? `w-full px-3 py-4 text-left transition-colors ${
+                      item.run_id === selectedRunId
+                        ? "bg-[#2b2b2b]"
+                        : "bg-transparent hover:bg-[#252525]"
+                    }`
+                  : `w-full rounded-xl border p-4 text-left transition-colors ${
+                      item.run_id === selectedRunId
+                        ? "border-cyan-500/40 bg-cyan-500/5"
+                        : "border-slate-800 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900"
+                    }`
+              }
               onClick={() => onSelectRun?.(item.run_id)}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-slate-100">{item.headline}</div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-slate-100"}`}>{item.headline}</div>
+                  <div className={`mt-1 text-xs ${isLine ? "text-zinc-600" : "text-slate-500"}`}>
                     {formatDateTime(item.created_at)}
                   </div>
                 </div>
@@ -85,7 +98,7 @@ export function DecisionHistoryPanel({
                   {item.stages.map((stage, index) => (
                     <span
                       key={`${stage}-${index}`}
-                      className="rounded-lg bg-slate-800/70 px-2 py-1 text-xs text-slate-300"
+                      className={isLine ? "border-l border-[#333333] px-2 py-1 text-xs text-zinc-400" : "rounded-lg bg-slate-800/70 px-2 py-1 text-xs text-slate-300"}
                     >
                       {formatStageLabel(stage)}
                     </span>
@@ -96,7 +109,7 @@ export function DecisionHistoryPanel({
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

@@ -11,7 +11,7 @@ type ProjectMemoryRoleGovernancePageProps = {
   selectedProjectId: string | null;
   selectedProjectName: string | null;
   projects: BossProjectItem[];
-  defaultTabId?: "memory" | "search" | "roles" | "skills" | "workbench";
+  defaultTabId?: "memory" | "governance" | "search" | "roles" | "skills" | "workbench";
   onSelectProject: (projectId: string) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onNavigateToDeliverable: (input: { projectId: string; deliverableId: string }) => void;

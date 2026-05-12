@@ -27,13 +27,14 @@ import {
   TaskDetailRunHistorySection,
 } from "./components/TaskDetailRunsSection";
 import { TaskDetailRuntimeContractSection } from "./components/TaskDetailRuntimeContractSection";
+import type { TaskDetailSurfaceVariant } from "./components/TaskDetailField";
 import { useSelectedRunRuntimeContract } from "./useSelectedRunRuntimeContract";
 import { useSelectedTaskRun } from "./useSelectedTaskRun";
 
 type TaskDetailPanelProps = {
   panelId?: string;
   runLogPanelId?: string;
-  surfaceVariant?: "card" | "line";
+  surfaceVariant?: TaskDetailSurfaceVariant;
   requestedRunId?: string | null;
   selectedTask: ConsoleTask | null;
   budget: ConsoleBudget | null;
@@ -160,27 +161,31 @@ export function TaskDetailPanel({
           : "rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
       }
     >
-      <TaskDetailPanelHeader selectedTask={selectedTask} />
+      <TaskDetailPanelHeader selectedTask={selectedTask} surfaceVariant={surfaceVariant} />
 
       {!selectedTask ? (
-        <TaskDetailEmptyState />
+        <TaskDetailEmptyState surfaceVariant={surfaceVariant} />
       ) : detailQuery.isError ? (
-        <TaskDetailErrorState message={detailQuery.error.message} />
+        <TaskDetailErrorState message={detailQuery.error.message} surfaceVariant={surfaceVariant} />
       ) : detailQuery.isLoading && !detail ? (
-        <TaskDetailLoadingState title={selectedTask.title} />
+        <TaskDetailLoadingState title={selectedTask.title} surfaceVariant={surfaceVariant} />
       ) : detail ? (
         <div className="mt-4 space-y-4">
-          <TaskDetailBaseInfoCard detail={detail} />
+          <TaskDetailBaseInfoCard detail={detail} surfaceVariant={surfaceVariant} />
 
           <TaskDetailRelatedDeliverablesSection
             relatedDeliverables={relatedDeliverablesQuery.data}
             isLoading={relatedDeliverablesQuery.isLoading}
             isError={relatedDeliverablesQuery.isError}
             errorMessage={relatedDeliverablesQuery.error?.message ?? ""}
+            surfaceVariant={surfaceVariant}
             onNavigateToDeliverable={onNavigateToDeliverable}
           />
 
-          <TaskDetailContextPreviewSection contextPreview={detail.context_preview} />
+          <TaskDetailContextPreviewSection
+            contextPreview={detail.context_preview}
+            surfaceVariant={surfaceVariant}
+          />
 
           <TaskDetailActionsSection
             taskId={detail.id}
@@ -212,6 +217,7 @@ export function TaskDetailPanel({
             requestHumanError={requestHumanError}
             resolveHumanError={resolveHumanError}
             retryError={retryError}
+            surfaceVariant={surfaceVariant}
             onPause={(taskId) => pauseMutation.mutate(taskId)}
             onResume={(taskId) => resumeMutation.mutate(taskId)}
             onRequestHuman={(taskId) => requestHumanMutation.mutate(taskId)}
@@ -222,6 +228,7 @@ export function TaskDetailPanel({
           <TaskDetailLatestRunCard
             latestRun={detail.latest_run}
             selectedRun={selectedRun}
+            surfaceVariant={surfaceVariant}
             onSelectRun={setSelectedRunId}
           />
 
@@ -231,6 +238,7 @@ export function TaskDetailPanel({
             runtimeFields={selectedRunRuntimeFields}
             roleModelPolicyFields={selectedRunRoleModelPolicyFields}
             hasRoleModelPolicyData={hasSelectedRunRoleModelPolicyData}
+            surfaceVariant={surfaceVariant}
             onNavigateToRun={onNavigateToRun}
             onNavigateToStrategyPreview={onNavigateToStrategyPreview}
           />
@@ -239,6 +247,7 @@ export function TaskDetailPanel({
             taskId={detail.id}
             runs={detail.runs}
             selectedRun={selectedRun}
+            surfaceVariant={surfaceVariant}
             onSelectRun={setSelectedRunId}
             onNavigateToRun={onNavigateToRun}
           />
@@ -249,6 +258,7 @@ export function TaskDetailPanel({
             isLoading={decisionHistoryQuery.isLoading && !decisionHistoryQuery.data}
             errorMessage={decisionHistoryQuery.isError ? decisionHistoryQuery.error.message : null}
             selectedRunId={selectedRun?.id ?? null}
+            surfaceVariant={surfaceVariant}
             onSelectRun={setSelectedRunId}
           />
 
@@ -256,6 +266,7 @@ export function TaskDetailPanel({
             panelId={runLogPanelId}
             taskId={detail.id}
             selectedRun={selectedRun}
+            surfaceVariant={surfaceVariant}
             onNavigateToStrategyPreview={onNavigateToStrategyPreview}
           />
         </div>

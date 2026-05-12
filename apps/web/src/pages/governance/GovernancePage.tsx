@@ -13,6 +13,7 @@ import { buildTaskRoute } from "../../lib/task-route";
 
 const GOVERNANCE_SECTION_TARGETS: Readonly<Record<GovernanceRouteSection, string>> = {
   memory: "governance-memory-panel",
+  governance: "governance-policy-panel",
   search: "governance-memory-search",
   roles: "governance-roles",
   skills: "governance-skills",
@@ -25,6 +26,7 @@ const GOVERNANCE_SECTION_NAV: ReadonlyArray<{
   description: string;
 }> = [
   { id: "memory", label: "记忆", description: "项目沉淀与最新摘要" },
+  { id: "governance", label: "治理", description: "记忆治理动作与状态" },
   { id: "search", label: "检索", description: "按关键词查找上下文" },
   { id: "roles", label: "角色", description: "角色目录与项目覆盖" },
   { id: "skills", label: "技能", description: "技能注册与绑定" },
@@ -245,6 +247,7 @@ function normalizeGovernanceSection(
 ): GovernanceRouteSection | null {
   if (
     value === "memory" ||
+    value === "governance" ||
     value === "search" ||
     value === "roles" ||
     value === "skills" ||
