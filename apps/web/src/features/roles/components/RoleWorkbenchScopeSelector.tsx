@@ -21,7 +21,7 @@ export function RoleWorkbenchScopeSelector(props: RoleWorkbenchScopeSelectorProp
   }
 
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section className="border-b border-[#333333] pb-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">项目范围</div>
@@ -33,7 +33,7 @@ export function RoleWorkbenchScopeSelector(props: RoleWorkbenchScopeSelectorProp
           {props.selectedProjectName ? "项目视角" : "全局视角"}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
         {props.projectOptions.map((project) => {
           const selected = project.id === props.selectedProjectId;
           return (
@@ -41,7 +41,7 @@ export function RoleWorkbenchScopeSelector(props: RoleWorkbenchScopeSelectorProp
               key={project.id}
               type="button"
               onClick={() => props.onNavigateToProject?.(project.id)}
-              className={`border-l px-4 py-3 text-left transition ${
+              className={`min-w-[220px] border-l px-3 py-2 text-left transition ${
                 selected
                   ? "border-zinc-300 bg-white/[0.035] text-zinc-50"
                   : "border-[#333333] text-zinc-300 hover:border-zinc-500 hover:text-zinc-50"

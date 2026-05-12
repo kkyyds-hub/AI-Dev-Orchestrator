@@ -26,7 +26,7 @@ export function RoleSkillBindingPanel(props: RoleSkillBindingPanelProps) {
   }
 
   return (
-    <section className="space-y-5 border-b border-[#333333] pb-7">
+    <section className="space-y-4 border-b border-[#333333] pb-6">
       <RoleSkillBindingHeader
         bindingSnapshot={bindingSnapshot}
         projectName={props.projectName}

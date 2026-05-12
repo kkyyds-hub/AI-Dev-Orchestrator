@@ -12,7 +12,7 @@ export function SkillRegistryMetricGrid(props: SkillRegistryMetricGridProps) {
     : "0 / 0";
 
   return (
-    <div className="grid gap-4 border-b border-[#333333] pb-5 md:grid-cols-2 xl:grid-cols-4">
+    <dl className="grid gap-x-5 gap-y-3 border-b border-[#333333] pb-4 md:grid-cols-2 xl:grid-cols-4">
       <SkillRegistryStat
         label="Skill 总数"
         value={String(props.registry?.total_skill_count ?? 0)}
@@ -33,16 +33,16 @@ export function SkillRegistryMetricGrid(props: SkillRegistryMetricGridProps) {
         value={String(props.bindingSnapshot?.total_bound_skills ?? 0)}
         hint={props.selectedProjectName ? "当前项目所有角色累计绑定的 Skill 数" : "选择项目后可查看角色绑定情况"}
       />
-    </div>
+    </dl>
   );
 }
 
 function SkillRegistryStat(props: { label: string; value: string; hint: string }) {
   return (
-    <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">{props.label}</div>
-      <div className="mt-2 text-xl font-semibold tracking-tight text-zinc-100">{props.value}</div>
-      <div className="mt-1 text-xs leading-5 text-zinc-600">{props.hint}</div>
+    <div className="min-w-0 border-l border-[#333333] px-3 py-1">
+      <dt className="text-xs uppercase tracking-[0.16em] text-zinc-500">{props.label}</dt>
+      <dd className="mt-1 text-base font-semibold tracking-tight text-zinc-100">{props.value}</dd>
+      <dd className="mt-1 text-xs leading-5 text-zinc-600">{props.hint}</dd>
     </div>
   );
 }

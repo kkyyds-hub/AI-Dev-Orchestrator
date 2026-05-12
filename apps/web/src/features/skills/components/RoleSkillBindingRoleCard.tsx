@@ -18,7 +18,7 @@ type RoleSkillBindingRoleCardProps = {
 
 export function RoleSkillBindingRoleCard(props: RoleSkillBindingRoleCardProps) {
   return (
-    <article className="border-b border-[#333333] pb-5">
+    <article className="border-b border-[#333333] pb-4">
       <RoleSkillBindingRoleHeader
         isEditing={props.isEditing}
         role={props.role}
@@ -69,7 +69,7 @@ function RoleSkillBindingRoleHeader(props: {
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-lg font-medium text-zinc-50">{props.role.role_name}</div>
+          <div className="text-base font-medium text-zinc-50">{props.role.role_name}</div>
           <StatusBadge
             label={props.role.role_enabled ? "角色启用" : "角色停用"}
             tone={props.role.role_enabled ? "success" : "warning"}

@@ -31,7 +31,7 @@ export function RoleWorkbenchPage(props: RoleWorkbenchPageProps) {
   const selection = useRoleWorkbenchSelection(lanes, handoffs);
 
   return (
-    <section className="space-y-6 border-b border-[#333333] pb-7">
+    <section className="space-y-5 border-b border-[#333333] pb-6">
       <RoleWorkbenchHeader
         selectedProjectName={props.selectedProjectName}
         scopeLabel={snapshot?.scope_label ?? null}
@@ -65,7 +65,7 @@ export function RoleWorkbenchPage(props: RoleWorkbenchPageProps) {
             onSelectHandoff={selection.selectHandoff}
           />
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)]">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.9fr)]">
             <HandoffTimeline
               handoffs={handoffs}
               selectedHandoffId={selection.selectedHandoffId}

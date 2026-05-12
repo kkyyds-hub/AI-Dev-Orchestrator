@@ -18,7 +18,7 @@ type RoleWorkbenchInspectorProps = {
 
 export function RoleWorkbenchInspector(props: RoleWorkbenchInspectorProps) {
   return (
-    <aside className="space-y-5 border-b border-[#333333] pb-5">
+    <aside className="space-y-4 border-b border-[#333333] pb-4">
       <RoleWorkbenchInspectorIntro />
 
       {props.selectedRole ? <SelectedRoleSummary selectedRole={props.selectedRole} /> : null}
@@ -44,7 +44,7 @@ function RoleWorkbenchInspectorIntro() {
   return (
     <div>
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">详情面板</div>
-      <h3 className="mt-2 text-lg font-semibold text-zinc-50">角色 / 任务 / 运行跳转</h3>
+      <h3 className="mt-2 text-base font-semibold text-zinc-50">角色 / 任务 / 运行跳转</h3>
       <p className="mt-2 text-sm leading-6 text-zinc-400">
         从角色视角选中任务后，可以直接跳到项目详情、任务详情和运行详情；未选中对象时，会展示角色列的聚合摘要。
       </p>
@@ -56,7 +56,7 @@ function SelectedRoleSummary(props: { selectedRole: RoleWorkbenchLane }) {
   const { selectedRole } = props;
 
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section className="border-b border-[#333333] pb-4">
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm font-medium text-zinc-50">当前角色</div>
         <StatusBadge
@@ -64,7 +64,7 @@ function SelectedRoleSummary(props: { selectedRole: RoleWorkbenchLane }) {
           tone={selectedRole.enabled ? "success" : "neutral"}
         />
       </div>
-      <div className="mt-3 text-lg font-semibold text-zinc-100">{selectedRole.role_name}</div>
+      <div className="mt-3 text-base font-semibold text-zinc-100">{selectedRole.role_name}</div>
       <p className="mt-2 text-sm leading-6 text-zinc-300">{selectedRole.role_summary}</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <MiniInfo label="当前任务" value={String(selectedRole.current_task_count)} />
@@ -84,11 +84,11 @@ function SelectedTaskDetail(props: {
   const { selectedTask } = props;
 
   return (
-    <section className="border-b border-[#333333] pb-5" id="role-workbench-task-detail">
+    <section className="border-b border-[#333333] pb-4" id="role-workbench-task-detail">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-zinc-50">当前任务</div>
-          <div className="mt-2 text-lg font-semibold text-zinc-100">{selectedTask.title}</div>
+          <div className="mt-2 text-base font-semibold text-zinc-100">{selectedTask.title}</div>
         </div>
         <StatusBadge
           label={TASK_STATUS_LABELS[selectedTask.status] ?? selectedTask.status}
@@ -189,7 +189,7 @@ function SelectedHandoffDetail(props: { selectedHandoff: RoleWorkbenchHandoffIte
   const { selectedHandoff } = props;
 
   return (
-    <section className="border-b border-[#333333] pb-5" id="role-workbench-run-detail">
+    <section className="border-b border-[#333333] pb-4" id="role-workbench-run-detail">
       <div className="text-sm font-medium text-zinc-50">当前交接</div>
       <div className="mt-2 text-sm text-zinc-300">{selectedHandoff.message}</div>
       <div className="mt-3 flex flex-wrap gap-2">

@@ -12,13 +12,13 @@ type HandoffTimelineProps = {
 
 export function HandoffTimeline(props: HandoffTimelineProps) {
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section className="border-b border-[#333333] pb-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
             角色交接
           </div>
-          <h3 className="mt-2 text-lg font-semibold text-zinc-50">最近角色交接</h3>
+          <h3 className="mt-2 text-base font-semibold text-zinc-50">最近角色交接</h3>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
             按统一的任务和运行口径展示角色之间的接力过程，便于查看最近协作流转。
           </p>
@@ -27,7 +27,7 @@ export function HandoffTimeline(props: HandoffTimelineProps) {
       </div>
 
       {props.handoffs.length ? (
-        <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
+        <div className="mt-3 divide-y divide-[#333333] border-y border-[#333333]">
           {props.handoffs.map((handoff) => {
             const isSelected = handoff.id === props.selectedHandoffId;
             return (
@@ -35,7 +35,7 @@ export function HandoffTimeline(props: HandoffTimelineProps) {
                 key={handoff.id}
                 type="button"
                 onClick={() => props.onSelectHandoff(handoff)}
-                className={`w-full px-4 py-4 text-left transition ${isSelected ? "bg-white/[0.035]" : "hover:bg-white/[0.02]"}`}
+                className={`w-full px-3 py-4 text-left transition ${isSelected ? "bg-white/[0.035]" : "hover:bg-white/[0.02]"}`}
               >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>

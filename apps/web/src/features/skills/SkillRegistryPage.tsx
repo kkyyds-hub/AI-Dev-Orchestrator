@@ -20,7 +20,7 @@ export function SkillRegistryPage(props: SkillRegistryPageProps) {
   const editor = useSkillRegistryEditor(skills);
 
   return (
-    <section className="space-y-6 border-b border-[#333333] pb-7">
+    <section className="space-y-5 border-b border-[#333333] pb-6">
       <SkillRegistryHeader
         selectedProjectName={props.selectedProjectName}
         registry={registry}
@@ -37,7 +37,7 @@ export function SkillRegistryPage(props: SkillRegistryPageProps) {
         formError={editor.formError}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
         <SkillRegistryList
           isLoading={registryQuery.isLoading}
           registryLoaded={Boolean(registry)}

@@ -23,7 +23,7 @@ export function RoleSkillBindingGrid(props: RoleSkillBindingGridProps) {
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-2">
+    <div className="grid gap-x-5 gap-y-4 xl:grid-cols-2">
       {props.bindingSnapshot.roles.map((role) => (
         <RoleSkillBindingRoleCard
           key={role.role_code}

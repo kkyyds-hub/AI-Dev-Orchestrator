@@ -14,7 +14,7 @@ type SkillRegistryListProps = {
 
 export function SkillRegistryList(props: SkillRegistryListProps) {
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section className="border-b border-[#333333] pb-4">
       <SkillRegistryListHeader onCreateSkill={props.onCreateSkill} />
 
       {props.isLoading && !props.registryLoaded ? (
@@ -22,7 +22,7 @@ export function SkillRegistryList(props: SkillRegistryListProps) {
           正在加载 Skill 注册中心...
         </div>
       ) : props.skills.length > 0 ? (
-        <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
+        <div className="mt-3 divide-y divide-[#333333] border-y border-[#333333]">
           {props.skills.map((skill) => (
             <SkillRegistryListItem
               key={skill.id}
@@ -33,7 +33,7 @@ export function SkillRegistryList(props: SkillRegistryListProps) {
           ))}
         </div>
       ) : (
-        <div className="mt-4 border-y border-dashed border-[#333333] py-7 text-sm leading-6 text-zinc-500">
+        <div className="mt-3 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
           当前还没有 Skill；可以使用右侧编辑器创建第一条注册能力。
         </div>
       )}
@@ -45,7 +45,7 @@ function SkillRegistryListHeader(props: { onCreateSkill: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <div className="text-lg font-semibold text-zinc-50">注册中的 Skill</div>
+        <div className="text-base font-semibold text-zinc-50">注册中的 Skill</div>
         <div className="mt-1 text-sm leading-6 text-zinc-500">
           查看当前 Skill 的启停状态、适用角色和版本历史；需要新能力时可新增 Skill 并纳入项目绑定面板。
         </div>
@@ -69,11 +69,11 @@ function SkillRegistryListItem(props: {
   const historyTail = props.skill.version_history.slice(-3).reverse();
 
   return (
-    <article className={`px-4 py-4 transition ${props.isActive ? "bg-white/[0.035]" : ""}`}>
+    <article className={`px-3 py-4 transition ${props.isActive ? "bg-white/[0.035]" : ""}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-base font-medium text-zinc-50">{props.skill.name}</div>
+            <div className="text-sm font-medium text-zinc-50">{props.skill.name}</div>
             <StatusBadge label={`v${props.skill.current_version}`} tone="info" />
             <StatusBadge
               label={props.skill.enabled ? "已启用" : "已停用"}

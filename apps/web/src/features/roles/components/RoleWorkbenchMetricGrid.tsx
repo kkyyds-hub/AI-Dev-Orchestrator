@@ -8,7 +8,7 @@ export function RoleWorkbenchMetricGrid(props: RoleWorkbenchMetricGridProps) {
   const { snapshot } = props;
 
   return (
-    <section className="grid gap-4 border-b border-[#333333] pb-5 md:grid-cols-2 xl:grid-cols-6">
+    <dl className="grid gap-x-5 gap-y-3 border-b border-[#333333] pb-4 md:grid-cols-3 xl:grid-cols-6">
       <WorkbenchStat
         label="角色列"
         value={String(snapshot.total_roles)}
@@ -39,16 +39,16 @@ export function RoleWorkbenchMetricGrid(props: RoleWorkbenchMetricGridProps) {
         value={String(snapshot.recent_handoff_count)}
         hint="来自最新运行日志中的角色交接事件"
       />
-    </section>
+    </dl>
   );
 }
 
 function WorkbenchStat(props: { label: string; value: string; hint: string }) {
   return (
-    <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">{props.label}</div>
-      <div className="mt-2 text-xl font-semibold tracking-tight text-zinc-100">{props.value}</div>
-      <div className="mt-1 text-xs leading-5 text-zinc-600">{props.hint}</div>
+    <div className="min-w-0 border-l border-[#333333] px-3 py-1">
+      <dt className="text-xs uppercase tracking-[0.16em] text-zinc-500">{props.label}</dt>
+      <dd className="mt-1 text-base font-semibold tracking-tight text-zinc-100">{props.value}</dd>
+      <dd className="mt-1 text-xs leading-5 text-zinc-600">{props.hint}</dd>
     </div>
   );
 }

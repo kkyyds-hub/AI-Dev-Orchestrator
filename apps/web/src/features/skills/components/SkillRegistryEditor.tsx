@@ -16,7 +16,7 @@ type SkillRegistryEditorProps = {
 
 export function SkillRegistryEditor(props: SkillRegistryEditorProps) {
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section className="border-b border-[#333333] pb-4">
       <SkillRegistryEditorHeader selectedSkill={props.selectedSkill} />
 
       <div className="mt-4 space-y-4">
@@ -99,7 +99,7 @@ function SkillRegistryEditorHeader(props: { selectedSkill: SkillRegistrySkill | 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <div className="text-lg font-semibold text-zinc-50">
+        <div className="text-base font-semibold text-zinc-50">
           {props.selectedSkill ? "编辑 Skill" : "创建新 Skill"}
         </div>
         <div className="mt-1 text-sm leading-6 text-zinc-500">
