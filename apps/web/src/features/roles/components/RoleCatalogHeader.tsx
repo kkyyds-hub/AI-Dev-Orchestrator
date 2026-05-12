@@ -15,10 +15,10 @@ export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
             角色目录
           </p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
-            角色目录与身份配置模型
+            角色职责与边界配置
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-            Day05 把“谁负责什么”变成正式配置对象：系统提供最小角色目录，项目可以选择启用哪些角色，并查看/编辑职责边界、输入输出边界和默认 Skill 占位。
+            把“谁负责什么”沉淀为可维护的角色配置：系统提供最小角色目录，项目可以选择启用哪些角色，并查看/编辑职责边界、输入输出边界和默认 Skill 占位。
           </p>
           <p className="mt-1 text-xs text-zinc-500">
             当前项目：
