@@ -2,9 +2,9 @@ import type { ProjectMemoryItem } from "../types";
 
 export function ProjectMemoryMiniStat(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+    <div className="min-w-[120px] border-l border-[#333333] px-4 py-1">
+      <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 truncate text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }

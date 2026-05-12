@@ -10,12 +10,12 @@ export function ProjectMemoryOverview(props: {
     <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-slate-50">记忆概览</h3>
-          <p className="mt-1 text-sm text-slate-400">
+          <h3 className="text-lg font-semibold text-zinc-50">记忆概览</h3>
+          <p className="mt-1 text-sm text-zinc-500">
             结构化统计当前项目已沉淀的四类经验。
           </p>
         </div>
-        <div className="text-sm text-slate-400">
+        <div className="text-sm text-zinc-500">
           生成时间：
           {props.generatedAt ? formatDateTime(props.generatedAt) : "—"}
         </div>
@@ -32,11 +32,11 @@ export function ProjectMemoryOverview(props: {
 
 function ProjectMemoryCountCard(props: { item: ProjectMemoryCount }) {
   return (
-    <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+    <div className="min-w-0 border-l border-[#333333] px-4 py-2">
+      <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
         {PROJECT_MEMORY_KIND_LABELS[props.item.memory_type]}
       </div>
-      <div className="mt-2 text-2xl font-semibold text-slate-50">{props.item.count}</div>
+      <div className="mt-2 font-mono text-2xl font-semibold tracking-tight text-zinc-100">{props.item.count}</div>
     </div>
   );
 }

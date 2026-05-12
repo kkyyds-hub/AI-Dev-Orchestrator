@@ -8,13 +8,13 @@ export function ProjectMemoryHeader(props: {
   return (
     <header className="flex flex-col gap-4 border-b border-[#333333] pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
-          ????
+        <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
+          项目记忆
         </p>
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-50">
+        <h2 className="text-3xl font-semibold tracking-tight text-zinc-50">
           项目记忆与可检索经验沉淀
         </h2>
-        <p className="max-w-3xl text-sm leading-6 text-slate-400">
+        <p className="max-w-3xl text-sm leading-6 text-zinc-400">
           把运行结论、失败复盘、审批意见与交付件摘要沉淀成结构化项目记忆，供后续检索、复盘和上下文构建继续消费。
         </p>
       </div>
@@ -31,7 +31,7 @@ export function ProjectMemoryHeader(props: {
         <button
           type="button"
           onClick={props.onRefresh}
-          className="rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+          className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
         >
           刷新沉淀
         </button>

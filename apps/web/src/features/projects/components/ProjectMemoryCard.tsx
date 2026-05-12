@@ -29,7 +29,7 @@ export function ProjectMemoryCard(props: {
   const approvalId = item.approval_id;
 
   return (
-    <article className="px-0 py-4">
+    <article className="py-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge
@@ -51,23 +51,25 @@ export function ProjectMemoryCard(props: {
           ) : null}
         </div>
 
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-zinc-600">
           {formatDateTime(item.created_at)}
         </div>
       </div>
 
-      <div className="mt-3 text-base font-semibold text-slate-50">
+      <div className="mt-3 max-w-4xl break-words text-base font-semibold text-zinc-50">
         {item.title}
       </div>
-      <p className="mt-2 text-sm leading-6 text-slate-300">{item.summary}</p>
+      <p className="mt-2 max-w-4xl whitespace-pre-wrap break-words text-sm leading-6 text-zinc-400">
+        {item.summary}
+      </p>
 
       {item.detail ? (
-        <div className="mt-3 border-l border-[#333333] px-3 py-2 text-sm leading-6 text-slate-300">
+        <div className="mt-4 max-h-52 max-w-4xl overflow-y-auto overscroll-contain whitespace-pre-wrap break-words border-l border-[#333333] pl-4 pr-3 text-sm leading-6 text-zinc-300">
           {item.detail}
         </div>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-zinc-500">
         {item.role_code ? (
           <span>
             角色 {ROLE_CODE_LABELS[item.role_code] ?? item.role_code}
@@ -86,7 +88,7 @@ export function ProjectMemoryCard(props: {
                 runId: item.run_id,
               })
             }
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看任务 / 运行
           </button>
@@ -100,7 +102,7 @@ export function ProjectMemoryCard(props: {
                 deliverableId,
               })
             }
-            className="rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm text-slate-100 transition hover:border-slate-600"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看交付件
           </button>
@@ -114,7 +116,7 @@ export function ProjectMemoryCard(props: {
                 approvalId,
               })
             }
-            className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100 transition hover:bg-amber-500/20"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看审批
           </button>
