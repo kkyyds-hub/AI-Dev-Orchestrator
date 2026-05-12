@@ -12,10 +12,10 @@ export function ProjectRetrospectiveHeader(props: {
           项目复盘
         </p>
         <h2 className="text-3xl font-semibold tracking-tight text-zinc-50">
-          审批回退重做与项目复盘收口
+          项目复盘与返工收口
         </h2>
         <p className="max-w-3xl text-sm leading-6 text-zinc-400">
-          汇总项目内的关键审批失败、返工状态与失败运行复盘，帮助你确认“提交 - 审批 - 驳回/通过 - 重做”闭环是否已经真正打通。
+          聚合当前项目的审批返工回路、待收口返工与失败复盘记录，帮助你快速确认返工闭环与风险处置是否已经收口。
         </p>
       </div>
 
