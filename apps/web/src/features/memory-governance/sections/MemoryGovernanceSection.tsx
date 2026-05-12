@@ -39,10 +39,13 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       <section
         id="memory-governance-control-surface"
         data-testid="memory-governance-control-surface"
-        className="space-y-4 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/30"
+        className="space-y-3 border-b border-[#333333] pb-5"
       >
-        <h2 className="text-2xl font-semibold text-slate-50">Memory Governance</h2>
-        <p className="text-sm text-slate-400">
+        <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
+          记忆治理
+        </p>
+        <h2 className="text-2xl font-semibold text-zinc-50">治理状态观察与动作入口</h2>
+        <p className="text-sm leading-6 text-zinc-400">
           先选择项目，再查看 checkpoint、summary、risk 与手动 rehydrate/compact/reset
           控制入口。
         </p>
@@ -132,25 +135,25 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
     <section
       id="memory-governance-control-surface"
       data-testid="memory-governance-control-surface"
-      className="space-y-5 rounded-[28px] border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/30"
+      className="space-y-6"
     >
-      <header className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+      <header className="border-b border-[#333333] pb-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
-              Day10 Memory Governance
+            <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
+              记忆治理
             </p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-50">
+            <h2 className="mt-2 text-2xl font-semibold text-zinc-50">
               治理状态观察与动作入口
             </h2>
-            <p className="mt-2 text-sm text-slate-300">
+            <p className="mt-2 text-sm text-zinc-400">
               当前项目：{props.projectName ?? projectId}
             </p>
           </div>
           <button
             type="button"
             onClick={() => void stateQuery.refetch()}
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             刷新治理状态
           </button>
@@ -158,13 +161,13 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       </header>
 
       {stateQuery.isLoading && !state ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-6 text-sm text-slate-400">
+        <div className="border-y border-[#333333] py-5 text-sm text-zinc-500">
           正在加载治理状态...
         </div>
       ) : null}
 
       {stateQuery.isError ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-6 text-sm text-rose-100">
+        <div className="border-l border-rose-700/70 pl-4 text-sm leading-6 text-rose-200">
           治理状态加载失败：{stateQuery.error.message}
         </div>
       ) : null}
@@ -172,12 +175,12 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       {actionFeedback ? (
         <div
           data-testid="memory-governance-action-feedback"
-          className={`rounded-2xl border px-4 py-3 text-sm ${
+          className={`border-l pl-4 text-sm leading-6 ${
             actionFeedback.tone === "success"
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+              ? "border-emerald-700/70 text-emerald-200"
               : actionFeedback.tone === "warning"
-                ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
-                : "border-rose-500/30 bg-rose-500/10 text-rose-100"
+                ? "border-amber-700/70 text-amber-200"
+                : "border-rose-700/70 text-rose-200"
           }`}
         >
           {actionFeedback.text}
@@ -186,7 +189,8 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
 
       {state ? (
         <>
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <section className="border-b border-[#333333] pb-5" aria-label="记忆治理指标摘要">
+            <dl className="grid gap-x-6 gap-y-4 md:grid-cols-2 xl:grid-cols-4">
             <GovernanceStatCard label="Checkpoint 数" value={String(state.checkpoint_count)} />
             <GovernanceStatCard
               label="压力等级"
@@ -200,9 +204,10 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
               label="风险标记"
               value={state.latest_bad_context_detected ? "detected" : "clear"}
             />
+            </dl>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <section className="space-y-5 border-b border-[#333333] pb-6">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
                 label={state.latest_bad_context_detected ? "bad context" : "context clear"}
@@ -226,7 +231,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
               />
             </div>
 
-            <div className="mt-3 grid gap-3 text-sm text-slate-300 md:grid-cols-2">
+            <div className="grid gap-x-6 gap-y-3 text-sm text-zinc-300 md:grid-cols-2">
               <div>Latest checkpoint: {state.latest_checkpoint_id ?? "none"}</div>
               <div>Latest task: {state.latest_task_id ?? "none"}</div>
               <div>Latest run: {state.latest_run_id ?? "none"}</div>
@@ -243,9 +248,9 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
               </div>
             </div>
 
-            <div className="mt-4 space-y-3">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            <div className="divide-y divide-[#333333] border-y border-[#333333] text-sm text-zinc-300">
+              <div className="py-4">
+                <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
                   Rolling summary
                 </div>
                 <p className="mt-2 whitespace-pre-wrap">
@@ -253,8 +258,8 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
                 </p>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              <div className="py-4">
+                <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
                   Risk reasons
                 </div>
                 <p className="mt-2">
@@ -264,8 +269,8 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
                 </p>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              <div className="py-4">
+                <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
                   Compact reasons
                 </div>
                 <p className="mt-2">
@@ -279,9 +284,9 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
         </>
       ) : null}
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-        <h3 className="text-lg font-semibold text-slate-50">Manual 动作入口</h3>
-        <p className="mt-1 text-sm text-slate-400">
+      <section className="border-b border-[#333333] pb-6">
+        <h3 className="text-lg font-semibold text-zinc-50">Manual 动作入口</h3>
+        <p className="mt-1 text-sm text-zinc-500">
           覆盖 rehydrate / compact / reset，并附带 run-once 合同回显消费入口。
         </p>
 
@@ -291,7 +296,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
             data-testid="memory-governance-rehydrate-btn"
             onClick={() => void handleRehydrate()}
             disabled={rehydrateMutation.isPending || !state}
-            className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {rehydrateMutation.isPending ? "Rehydrate..." : "Manual Rehydrate"}
           </button>
@@ -303,14 +308,14 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
               max={2000}
               value={compactTargetChars}
               onChange={(event) => setCompactTargetChars(event.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-3 text-sm text-slate-100 focus:border-cyan-400/50 focus:outline-none"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-3 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
             />
             <button
               type="button"
               data-testid="memory-governance-compact-btn"
               onClick={() => void handleCompact()}
               disabled={compactMutation.isPending || !state}
-              className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {compactMutation.isPending ? "Compact..." : "Compact"}
             </button>
@@ -321,7 +326,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
             data-testid="memory-governance-reset-btn"
             onClick={() => void handleReset()}
             disabled={resetMutation.isPending || !state}
-            className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {resetMutation.isPending ? "Reset..." : "Reset Governance"}
           </button>
@@ -331,7 +336,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
             data-testid="memory-governance-run-once-btn"
             onClick={() => void handleProbeRunOnce()}
             disabled={probeMutation.isPending}
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {probeMutation.isPending ? "Probing..." : "Probe /workers/run-once"}
           </button>
@@ -339,13 +344,13 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       </section>
 
       {latestProbe ? (
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <h3 className="text-lg font-semibold text-slate-50">Run-once 治理回显</h3>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="border-b border-[#333333] pb-6">
+          <h3 className="text-lg font-semibold text-zinc-50">Run-once 治理回显</h3>
+          <p className="mt-1 text-sm text-zinc-500">
             该区块直接消费 `POST /workers/run-once` 的 `memory_governance_*` 字段。
           </p>
 
-          <div className="mt-3 grid gap-3 text-sm text-slate-300 md:grid-cols-2">
+          <div className="mt-3 grid gap-x-6 gap-y-3 text-sm text-zinc-300 md:grid-cols-2">
             <div>claimed: {String(latestProbe.claimed)}</div>
             <div>run_id: {latestProbe.run_id ?? "none"}</div>
             <div>task_id: {latestProbe.task_id ?? "none"}</div>
@@ -362,7 +367,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
             </div>
           </div>
 
-          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
+          <div className="mt-4 border-y border-[#333333] py-4 text-sm text-zinc-300">
             {latestProbe.memory_governance_rolling_summary ?? "No rolling summary echoed."}
           </div>
         </section>
@@ -373,9 +378,13 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
 
 function GovernanceStatCard(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-lg font-semibold text-slate-50">{props.value}</div>
+    <div className="min-w-0">
+      <dt className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+        {props.label}
+      </dt>
+      <dd className="mt-2 truncate font-mono text-2xl font-semibold tracking-tight text-zinc-100">
+        {props.value}
+      </dd>
     </div>
   );
 }
