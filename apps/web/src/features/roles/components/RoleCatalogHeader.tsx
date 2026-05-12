@@ -12,7 +12,7 @@ export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
-            V3 Day05 Role Catalog
+            角色目录
           </p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
             角色目录与身份配置模型
@@ -41,7 +41,7 @@ export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
             onClick={scrollToAgentThreadControlSurface}
             className="rounded border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
-            Open Agent Thread
+            查看智能体线程
           </button>
           <button
             type="button"
@@ -49,7 +49,7 @@ export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
             onClick={scrollToTeamControlCenterSurface}
             className="rounded border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
-            Open Team Control
+            查看团队控制中心
           </button>
         </div>
       </div>
