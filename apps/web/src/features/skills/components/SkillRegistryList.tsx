@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from "react";
+
 import { StatusBadge } from "../../../components/StatusBadge";
 import { formatDateTime } from "../../../lib/format";
 import { ROLE_CODE_LABELS } from "../../roles/types";
@@ -12,7 +14,24 @@ type SkillRegistryListProps = {
   onSelectSkill: (skill: SkillRegistrySkill) => void;
 };
 
+const SKILLS_PER_PAGE = 5;
+
 export function SkillRegistryList(props: SkillRegistryListProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(props.skills.length / SKILLS_PER_PAGE));
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  const pagedSkills = useMemo(() => {
+    const startIndex = (currentPage - 1) * SKILLS_PER_PAGE;
+    return props.skills.slice(startIndex, startIndex + SKILLS_PER_PAGE);
+  }, [currentPage, props.skills]);
+
+  const pageStart = props.skills.length ? (currentPage - 1) * SKILLS_PER_PAGE + 1 : 0;
+  const pageEnd = Math.min(currentPage * SKILLS_PER_PAGE, props.skills.length);
+
   return (
     <section className="border-b border-[#333333] pb-4">
       <SkillRegistryListHeader onCreateSkill={props.onCreateSkill} />
@@ -23,7 +42,7 @@ export function SkillRegistryList(props: SkillRegistryListProps) {
         </div>
       ) : props.skills.length > 0 ? (
         <div className="mt-3 divide-y divide-[#333333] border-y border-[#333333]">
-          {props.skills.map((skill) => (
+          {pagedSkills.map((skill) => (
             <SkillRegistryListItem
               key={skill.id}
               skill={skill}
@@ -31,6 +50,15 @@ export function SkillRegistryList(props: SkillRegistryListProps) {
               onSelectSkill={props.onSelectSkill}
             />
           ))}
+          <SkillRegistryPagination
+            currentPage={currentPage}
+            pageEnd={pageEnd}
+            pageStart={pageStart}
+            totalItems={props.skills.length}
+            totalPages={totalPages}
+            onNextPage={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+            onPreviousPage={() => setCurrentPage((page) => Math.max(1, page - 1))}
+          />
         </div>
       ) : (
         <div className="mt-3 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
@@ -38,6 +66,46 @@ export function SkillRegistryList(props: SkillRegistryListProps) {
         </div>
       )}
     </section>
+  );
+}
+
+function SkillRegistryPagination(props: {
+  currentPage: number;
+  pageEnd: number;
+  pageStart: number;
+  totalItems: number;
+  totalPages: number;
+  onNextPage: () => void;
+  onPreviousPage: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 px-3 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        共 {props.totalItems} 个 Skill
+        {props.totalItems ? `，当前 ${props.pageStart}-${props.pageEnd}` : ""}
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={props.onPreviousPage}
+          disabled={props.currentPage <= 1}
+          className="rounded border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:text-zinc-700"
+        >
+          上一页
+        </button>
+        <span className="min-w-16 text-center text-xs text-zinc-500">
+          {props.currentPage} / {props.totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={props.onNextPage}
+          disabled={props.currentPage >= props.totalPages}
+          className="rounded border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:text-zinc-700"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   );
 }
 
