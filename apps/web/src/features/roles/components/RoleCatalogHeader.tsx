@@ -1,4 +1,5 @@
 import { StatusBadge } from "../../../components/StatusBadge";
+import { navigateToProjectOverviewHash } from "../../projects/lib/overviewNavigation";
 
 type RoleCatalogHeaderProps = {
   selectedProjectName: string | null;
@@ -37,23 +38,37 @@ export function RoleCatalogHeader(props: RoleCatalogHeaderProps) {
           <button
             type="button"
             data-testid="goto-agent-thread-from-role-catalog"
-            disabled
-            title="请在项目协作页查看智能体线程"
-            className="cursor-not-allowed rounded border border-[#2a2a2a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-600"
+            onClick={scrollToAgentThreadControlSurface}
+            title="跳转到项目协作页的智能体线程"
+            className="rounded border border-[#2a2a2a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-500 transition hover:border-[#3a3a3a] hover:text-zinc-300"
           >
-            智能体线程见协作页
+            智能体线程
           </button>
           <button
             type="button"
             data-testid="goto-team-control-center-from-role-catalog"
-            disabled
-            title="请在项目协作页查看团队控制中心"
-            className="cursor-not-allowed rounded border border-[#2a2a2a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-600"
+            onClick={scrollToTeamControlCenterSurface}
+            title="跳转到项目协作页的团队控制中心"
+            className="rounded border border-[#2a2a2a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-500 transition hover:border-[#3a3a3a] hover:text-zinc-300"
           >
-            团队控制见协作页
+            团队控制中心
           </button>
         </div>
       </div>
     </header>
   );
+}
+
+function scrollToAgentThreadControlSurface() {
+  navigateToProjectOverviewHash({
+    view: "collaboration-control",
+    targetId: "agent-thread-control-surface",
+  });
+}
+
+function scrollToTeamControlCenterSurface() {
+  navigateToProjectOverviewHash({
+    view: "collaboration-control",
+    targetId: "team-control-center-surface",
+  });
 }
