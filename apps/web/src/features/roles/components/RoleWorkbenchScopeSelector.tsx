@@ -21,18 +21,17 @@ export function RoleWorkbenchScopeSelector(props: RoleWorkbenchScopeSelectorProp
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">项目范围</div>
-          <p className="mt-2 text-sm text-slate-300">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">项目范围</div>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             选择项目后，工作台会聚焦展示该项目下的角色协作情况。
           </p>
         </div>
-        <StatusBadge
-          label={props.selectedProjectName ? "项目视角" : "全局视角"}
-          tone={props.selectedProjectName ? "success" : "neutral"}
-        />
+        <div className="text-xs text-zinc-500">
+          {props.selectedProjectName ? "项目视角" : "全局视角"}
+        </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         {props.projectOptions.map((project) => {
@@ -42,10 +41,10 @@ export function RoleWorkbenchScopeSelector(props: RoleWorkbenchScopeSelectorProp
               key={project.id}
               type="button"
               onClick={() => props.onNavigateToProject?.(project.id)}
-              className={`rounded-xl border px-4 py-3 text-left transition ${
+              className={`border-l px-4 py-3 text-left transition ${
                 selected
-                  ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-50"
-                  : "border-slate-800 bg-slate-900/70 text-slate-300 hover:border-slate-700 hover:bg-slate-900"
+                  ? "border-zinc-300 bg-white/[0.035] text-zinc-50"
+                  : "border-[#333333] text-zinc-300 hover:border-zinc-500 hover:text-zinc-50"
               }`}
             >
               <div className="text-sm font-medium">{project.name}</div>

@@ -18,7 +18,7 @@ type RoleWorkbenchInspectorProps = {
 
 export function RoleWorkbenchInspector(props: RoleWorkbenchInspectorProps) {
   return (
-    <aside className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <aside className="space-y-5 border-b border-[#333333] pb-5">
       <RoleWorkbenchInspectorIntro />
 
       {props.selectedRole ? <SelectedRoleSummary selectedRole={props.selectedRole} /> : null}
@@ -43,10 +43,10 @@ export function RoleWorkbenchInspector(props: RoleWorkbenchInspectorProps) {
 function RoleWorkbenchInspectorIntro() {
   return (
     <div>
-      <div className="text-xs uppercase tracking-[0.2em] text-cyan-300">Workbench Inspector</div>
-      <h3 className="mt-2 text-lg font-semibold text-slate-50">角色 / 任务 / 运行跳转面板</h3>
-      <p className="mt-2 text-sm leading-6 text-slate-300">
-        从角色视角选中任务后，可以直接跳到项目详情、任务详情和运行详情；如果当前没有选中对象，也会展示角色列的聚合摘要。
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">详情面板</div>
+      <h3 className="mt-2 text-lg font-semibold text-zinc-50">角色 / 任务 / 运行跳转</h3>
+      <p className="mt-2 text-sm leading-6 text-zinc-400">
+        从角色视角选中任务后，可以直接跳到项目详情、任务详情和运行详情；未选中对象时，会展示角色列的聚合摘要。
       </p>
     </div>
   );
@@ -56,16 +56,16 @@ function SelectedRoleSummary(props: { selectedRole: RoleWorkbenchLane }) {
   const { selectedRole } = props;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-slate-50">当前角色</div>
+        <div className="text-sm font-medium text-zinc-50">当前角色</div>
         <StatusBadge
           label={selectedRole.enabled ? "已启用" : "未启用"}
           tone={selectedRole.enabled ? "success" : "neutral"}
         />
       </div>
-      <div className="mt-3 text-lg font-semibold text-slate-100">{selectedRole.role_name}</div>
-      <p className="mt-2 text-sm leading-6 text-slate-300">{selectedRole.role_summary}</p>
+      <div className="mt-3 text-lg font-semibold text-zinc-100">{selectedRole.role_name}</div>
+      <p className="mt-2 text-sm leading-6 text-zinc-300">{selectedRole.role_summary}</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <MiniInfo label="当前任务" value={String(selectedRole.current_task_count)} />
         <MiniInfo label="运行中项" value={String(selectedRole.running_task_count)} />
@@ -84,14 +84,11 @@ function SelectedTaskDetail(props: {
   const { selectedTask } = props;
 
   return (
-    <section
-      className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
-      id="role-workbench-task-detail"
-    >
+    <section className="border-b border-[#333333] pb-5" id="role-workbench-task-detail">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-50">当前任务</div>
-          <div className="mt-2 text-lg font-semibold text-slate-100">{selectedTask.title}</div>
+          <div className="text-sm font-medium text-zinc-50">当前任务</div>
+          <div className="mt-2 text-lg font-semibold text-zinc-100">{selectedTask.title}</div>
         </div>
         <StatusBadge
           label={TASK_STATUS_LABELS[selectedTask.status] ?? selectedTask.status}
@@ -115,13 +112,13 @@ function SelectedTaskDetail(props: {
           />
         ) : null}
       </div>
-      <p className="mt-4 text-sm leading-6 text-slate-300">{selectedTask.input_summary}</p>
+      <p className="mt-4 text-sm leading-6 text-zinc-300">{selectedTask.input_summary}</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <MiniInfo label="创建时间" value={formatDateTime(selectedTask.created_at)} />
         <MiniInfo label="更新时间" value={formatDateTime(selectedTask.updated_at)} />
       </div>
       {selectedTask.latest_run_summary ? (
-        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm leading-6 text-slate-300">
+        <div className="mt-4 border-l border-[#333333] pl-3 text-sm leading-6 text-zinc-300">
           {selectedTask.latest_run_summary}
         </div>
       ) : null}
@@ -149,7 +146,7 @@ function SelectedTaskActions(props: {
         <button
           type="button"
           onClick={() => props.onNavigateToProject?.(projectId)}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
+          className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
         >
           跳到项目详情
         </button>
@@ -158,7 +155,7 @@ function SelectedTaskActions(props: {
         <button
           type="button"
           onClick={() => props.onNavigateToTask?.(selectedTask.task_id)}
-          className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+          className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
         >
           跳到任务详情
         </button>
@@ -171,7 +168,7 @@ function SelectedTaskActions(props: {
               runId: latestRunId,
             })
           }
-          className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/20"
+          className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
         >
           跳到运行详情
         </button>
@@ -182,8 +179,8 @@ function SelectedTaskActions(props: {
 
 function RoleWorkbenchTaskPlaceholder() {
   return (
-    <section className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 p-4 text-sm leading-6 text-slate-400">
-      先从左侧角色列或交接时间线里选择一个任务，再查看更细的任务与运行信息。
+    <section className="border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
+      先从左侧角色列或交接列表里选择一个任务，再查看更细的任务与运行信息。
     </section>
   );
 }
@@ -192,12 +189,9 @@ function SelectedHandoffDetail(props: { selectedHandoff: RoleWorkbenchHandoffIte
   const { selectedHandoff } = props;
 
   return (
-    <section
-      className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
-      id="role-workbench-run-detail"
-    >
-      <div className="text-sm font-medium text-slate-50">当前交接</div>
-      <div className="mt-2 text-sm text-slate-300">{selectedHandoff.message}</div>
+    <section className="border-b border-[#333333] pb-5" id="role-workbench-run-detail">
+      <div className="text-sm font-medium text-zinc-50">当前交接</div>
+      <div className="mt-2 text-sm text-zinc-300">{selectedHandoff.message}</div>
       <div className="mt-3 flex flex-wrap gap-2">
         {selectedHandoff.run_status ? (
           <StatusBadge
@@ -214,7 +208,7 @@ function SelectedHandoffDetail(props: { selectedHandoff: RoleWorkbenchHandoffIte
         <MiniInfo label="所属项目" value={selectedHandoff.project_name ?? "未归属项目"} />
       </div>
       {selectedHandoff.handoff_reason ? (
-        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm leading-6 text-slate-300">
+        <div className="mt-4 border-l border-[#333333] pl-3 text-sm leading-6 text-zinc-300">
           {selectedHandoff.handoff_reason}
         </div>
       ) : null}
@@ -224,9 +218,9 @@ function SelectedHandoffDetail(props: { selectedHandoff: RoleWorkbenchHandoffIte
 
 function MiniInfo(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }
