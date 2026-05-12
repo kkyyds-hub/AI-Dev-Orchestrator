@@ -12,15 +12,15 @@ export function CostDashboardThreadBreakdownTable(
   const { thread_breakdown: threadBreakdown } = props.snapshot;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+    <section className="border-b border-[#333333] pb-5">
       <div>
-        <h3 className="text-sm font-semibold text-slate-100">线程成本明细</h3>
-        <p className="mt-1 text-xs text-slate-500">按协作线程查看阶段、状态、责任角色与成本消耗。</p>
+        <h3 className="text-lg font-semibold text-zinc-50">线程成本明细</h3>
+        <p className="mt-1 text-sm leading-6 text-zinc-500">按协作线程查看阶段、状态、责任角色与成本消耗。</p>
       </div>
 
-      <div className="mt-4 max-h-[420px] overflow-auto overscroll-contain rounded-xl border border-slate-800 bg-slate-950/30 shadow-none">
-        <table className="w-full min-w-[1120px] text-left text-xs text-slate-300">
-          <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 text-[11px] uppercase tracking-[0.12em] text-slate-500 backdrop-blur">
+      <div className="mt-4 max-h-[420px] overflow-auto overscroll-contain border-y border-[#333333]">
+        <table className="w-full min-w-[1120px] text-left text-xs text-zinc-300">
+          <thead className="sticky top-0 z-10 border-b border-[#333333] bg-[#171717]/95 text-[11px] uppercase tracking-[0.12em] text-zinc-500 backdrop-blur">
             <tr>
               <th className="px-3 py-2 font-medium">线程 ID</th>
               <th className="px-3 py-2 font-medium">任务 ID</th>
@@ -34,10 +34,10 @@ export function CostDashboardThreadBreakdownTable(
               <th className="px-3 py-2 font-medium">更新时间</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/80">
+          <tbody className="divide-y divide-[#333333]">
             {threadBreakdown.map((item) => (
-              <tr key={`${item.session_id}-${item.run_id}`} className="hover:bg-slate-800/25">
-                <td className="px-3 py-2 font-mono text-[11px] text-slate-200" title={item.session_id}>
+              <tr key={`${item.session_id}-${item.run_id}`} className="hover:bg-white/[0.02]">
+                <td className="px-3 py-2 font-mono text-[11px] text-zinc-200" title={item.session_id}>
                   {shortId(item.session_id)}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px]" title={item.task_id}>
@@ -50,7 +50,7 @@ export function CostDashboardThreadBreakdownTable(
                 <td className="max-w-[120px] truncate px-3 py-2" title={item.status || "-"}>{item.status || "-"}</td>
                 <td className="max-w-[120px] truncate px-3 py-2" title={item.review_status || "-"}>{item.review_status || "-"}</td>
                 <td className="max-w-[140px] truncate px-3 py-2" title={item.owner_role_code || "未分配"}>{item.owner_role_code || "未分配"}</td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums text-slate-100">
+                <td className="px-3 py-2 text-right font-medium tabular-nums text-zinc-100">
                   {formatUsd(item.total_estimated_cost_usd)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatTokenCount(item.total_tokens)}</td>
@@ -59,7 +59,7 @@ export function CostDashboardThreadBreakdownTable(
             ))}
             {threadBreakdown.length === 0 ? (
               <tr>
-                <td className="px-3 py-5 text-center text-slate-500" colSpan={10}>
+                <td className="px-3 py-5 text-center text-zinc-500" colSpan={10}>
                   当前没有线程维度可汇总数据。
                 </td>
               </tr>

@@ -19,18 +19,15 @@ export function CostDashboardMetricGrid(props: CostDashboardMetricGridProps) {
   ];
 
   return (
-    <section
-      aria-label="关键成本指标摘要"
-      className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/35"
-    >
-      <div className="grid gap-px bg-slate-800/70 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+    <section aria-label="关键成本指标摘要" className="border-b border-[#333333] pb-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         {metrics.map((metric) => (
-          <div key={metric.label} className="bg-slate-950/70 px-4 py-4">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
+          <div key={metric.label} className="border-l border-[#333333] px-4 py-2">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
               {metric.label}
             </div>
-            <div className="mt-2 text-base font-semibold text-slate-100">{metric.value}</div>
-            <div className="mt-1 text-xs text-slate-600">{metric.hint}</div>
+            <div className="mt-2 text-base font-semibold text-zinc-100">{metric.value}</div>
+            <div className="mt-1 text-xs text-zinc-600">{metric.hint}</div>
           </div>
         ))}
       </div>
