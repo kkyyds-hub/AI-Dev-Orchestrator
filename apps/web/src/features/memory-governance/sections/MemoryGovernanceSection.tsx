@@ -46,8 +46,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
         </p>
         <h2 className="text-2xl font-semibold text-zinc-50">治理状态观察与动作入口</h2>
         <p className="text-sm leading-6 text-zinc-400">
-          先选择项目，再查看 checkpoint、summary、risk 与手动 rehydrate/compact/reset
-          控制入口。
+          先选择项目，再查看记忆检查点、滚动摘要、风险标记，并使用手动恢复、压缩和重置控制入口。
         </p>
       </section>
     );
@@ -62,13 +61,13 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       setActionFeedback({
         tone: result.rehydrated ? "success" : "warning",
         text: result.rehydrated
-          ? `Rehydrate succeeded from checkpoint ${result.used_checkpoint_id ?? "unknown"}.`
+          ? `上下文恢复成功，使用检查点 ${result.used_checkpoint_id ?? "未知"}。`
           : result.rehydrated_context_summary,
       });
     } catch (error) {
       setActionFeedback({
         tone: "danger",
-        text: error instanceof Error ? error.message : "Rehydrate failed.",
+        text: error instanceof Error ? error.message : "上下文恢复失败。",
       });
     }
   }
@@ -78,7 +77,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
     if (!Number.isFinite(parsed) || parsed < 300 || parsed > 2000) {
       setActionFeedback({
         tone: "warning",
-        text: "Compact target must be an integer between 300 and 2000.",
+        text: "压缩目标必须是 300 到 2000 之间的整数。",
       });
       return;
     }
@@ -87,12 +86,12 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       const result = await compactMutation.mutateAsync({ targetChars: parsed });
       setActionFeedback({
         tone: "success",
-        text: `Compact succeeded with ratio ${formatRatio(result.reduction_ratio)} (checkpoint ${result.checkpoint_id ?? "n/a"}).`,
+        text: `压缩完成，压缩比例 ${formatRatio(result.reduction_ratio)}（检查点 ${result.checkpoint_id ?? "无"}）。`,
       });
     } catch (error) {
       setActionFeedback({
         tone: "danger",
-        text: error instanceof Error ? error.message : "Compact failed.",
+        text: error instanceof Error ? error.message : "压缩失败。",
       });
     }
   }
@@ -103,14 +102,14 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       setActionFeedback({
         tone: result.reset_performed ? "success" : "warning",
         text: result.reset_performed
-          ? "Governance state was reset."
-          : "Reset completed but no persisted governance artifact existed.",
+          ? "治理状态已重置。"
+          : "重置完成，但没有已持久化的治理产物。",
       });
       setLatestProbe(null);
     } catch (error) {
       setActionFeedback({
         tone: "danger",
-        text: error instanceof Error ? error.message : "Reset failed.",
+        text: error instanceof Error ? error.message : "重置失败。",
       });
     }
   }
@@ -121,12 +120,12 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       setLatestProbe(result);
       setActionFeedback({
         tone: result.claimed ? "success" : "warning",
-        text: `Run-once probe: ${result.message}`,
+        text: `单次运行探测：${result.message}`,
       });
     } catch (error) {
       setActionFeedback({
         tone: "danger",
-        text: error instanceof Error ? error.message : "Run-once probe failed.",
+        text: error instanceof Error ? error.message : "单次运行探测失败。",
       });
     }
   }
@@ -191,18 +190,18 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
         <>
           <section className="border-b border-[#333333] pb-5" aria-label="记忆治理指标摘要">
             <dl className="grid gap-x-6 gap-y-4 md:grid-cols-2 xl:grid-cols-4">
-            <GovernanceStatCard label="Checkpoint 数" value={String(state.checkpoint_count)} />
+            <GovernanceStatCard label="检查点数" value={String(state.checkpoint_count)} />
             <GovernanceStatCard
               label="压力等级"
-              value={state.latest_pressure_level ?? "none"}
+              value={state.latest_pressure_level ?? "无"}
             />
             <GovernanceStatCard
-              label="Usage Ratio"
+              label="使用率"
               value={formatRatio(state.latest_usage_ratio)}
             />
             <GovernanceStatCard
               label="风险标记"
-              value={state.latest_bad_context_detected ? "detected" : "clear"}
+              value={state.latest_bad_context_detected ? "已发现" : "正常"}
             />
             </dl>
           </section>
@@ -210,73 +209,73 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
           <section className="space-y-5 border-b border-[#333333] pb-6">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
-                label={state.latest_bad_context_detected ? "bad context" : "context clear"}
+                label={state.latest_bad_context_detected ? "上下文异常" : "上下文正常"}
                 tone={state.latest_bad_context_detected ? "danger" : "success"}
               />
               <StatusBadge
                 label={
                   state.latest_compaction_applied
-                    ? "compaction applied"
-                    : "compaction not applied"
+                    ? "已执行压缩"
+                    : "未执行压缩"
                 }
                 tone={state.latest_compaction_applied ? "warning" : "neutral"}
               />
               <StatusBadge
                 label={
                   state.latest_rehydrate_used_checkpoint_id
-                    ? `rehydrate: ${state.latest_rehydrate_used_checkpoint_id}`
-                    : "rehydrate: none"
+                    ? `恢复自：${state.latest_rehydrate_used_checkpoint_id}`
+                    : "未恢复上下文"
                 }
                 tone={state.latest_rehydrate_used_checkpoint_id ? "info" : "neutral"}
               />
             </div>
 
             <div className="grid gap-x-6 gap-y-3 text-sm text-zinc-300 md:grid-cols-2">
-              <div>Latest checkpoint: {state.latest_checkpoint_id ?? "none"}</div>
-              <div>Latest task: {state.latest_task_id ?? "none"}</div>
-              <div>Latest run: {state.latest_run_id ?? "none"}</div>
+              <div>最新检查点：{state.latest_checkpoint_id ?? "无"}</div>
+              <div>最新任务：{state.latest_task_id ?? "无"}</div>
+              <div>最新运行：{state.latest_run_id ?? "无"}</div>
               <div>
-                Latest compact ratio: {formatRatio(state.latest_compaction_reduction_ratio)}
+                最新压缩比例：{formatRatio(state.latest_compaction_reduction_ratio)}
               </div>
               <div>
-                Latest rehydrate at:{" "}
-                {state.latest_rehydrate_at ? formatDateTime(state.latest_rehydrate_at) : "none"}
+                最近恢复时间：{" "}
+                {state.latest_rehydrate_at ? formatDateTime(state.latest_rehydrate_at) : "无"}
               </div>
               <div>
-                Latest compacted at:{" "}
-                {state.latest_compacted_at ? formatDateTime(state.latest_compacted_at) : "none"}
+                最近压缩时间：{" "}
+                {state.latest_compacted_at ? formatDateTime(state.latest_compacted_at) : "无"}
               </div>
             </div>
 
             <div className="divide-y divide-[#333333] border-y border-[#333333] text-sm text-zinc-300">
               <div className="py-4">
                 <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                  Rolling summary
+                  滚动摘要
                 </div>
                 <p className="mt-2 whitespace-pre-wrap">
-                  {state.latest_rolling_summary ?? "No rolling summary yet."}
+                  {state.latest_rolling_summary ?? "暂无滚动摘要。"}
                 </p>
               </div>
 
               <div className="py-4">
                 <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                  Risk reasons
+                  风险原因
                 </div>
                 <p className="mt-2">
                   {state.latest_bad_context_reasons.length
                     ? state.latest_bad_context_reasons.join(" | ")
-                    : "No bad-context reasons."}
+                    : "暂无上下文风险原因。"}
                 </p>
               </div>
 
               <div className="py-4">
                 <div className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                  Compact reasons
+                  压缩原因
                 </div>
                 <p className="mt-2">
                   {state.latest_compaction_reason_codes.length
                     ? state.latest_compaction_reason_codes.join(" | ")
-                    : "No compaction reason codes."}
+                    : "暂无压缩原因代码。"}
                 </p>
               </div>
             </div>
@@ -285,9 +284,9 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
       ) : null}
 
       <section className="border-b border-[#333333] pb-6">
-        <h3 className="text-lg font-semibold text-zinc-50">Manual 动作入口</h3>
+        <h3 className="text-lg font-semibold text-zinc-50">手动治理动作</h3>
         <p className="mt-1 text-sm text-zinc-500">
-          覆盖 rehydrate / compact / reset，并附带 run-once 合同回显消费入口。
+          覆盖上下文恢复、压缩和重置，并附带单次运行合同回显消费入口。
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -298,7 +297,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
             disabled={rehydrateMutation.isPending || !state}
             className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {rehydrateMutation.isPending ? "Rehydrate..." : "Manual Rehydrate"}
+            {rehydrateMutation.isPending ? "恢复中..." : "手动恢复上下文"}
           </button>
 
           <div className="flex gap-2">
@@ -317,7 +316,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
               disabled={compactMutation.isPending || !state}
               className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {compactMutation.isPending ? "Compact..." : "Compact"}
+              {compactMutation.isPending ? "压缩中..." : "压缩"}
             </button>
           </div>
 
@@ -328,7 +327,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
             disabled={resetMutation.isPending || !state}
             className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {resetMutation.isPending ? "Reset..." : "Reset Governance"}
+            {resetMutation.isPending ? "重置中..." : "重置治理状态"}
           </button>
 
           <button
@@ -338,37 +337,37 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
             disabled={probeMutation.isPending}
             className="rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {probeMutation.isPending ? "Probing..." : "Probe /workers/run-once"}
+            {probeMutation.isPending ? "探测中..." : "探测单次运行"}
           </button>
         </div>
       </section>
 
       {latestProbe ? (
         <section className="border-b border-[#333333] pb-6">
-          <h3 className="text-lg font-semibold text-zinc-50">Run-once 治理回显</h3>
+          <h3 className="text-lg font-semibold text-zinc-50">单次运行治理回显</h3>
           <p className="mt-1 text-sm text-zinc-500">
-            该区块直接消费 `POST /workers/run-once` 的 `memory_governance_*` 字段。
+            该区块直接消费单次运行接口返回的记忆治理字段。
           </p>
 
           <div className="mt-3 grid gap-x-6 gap-y-3 text-sm text-zinc-300 md:grid-cols-2">
-            <div>claimed: {String(latestProbe.claimed)}</div>
-            <div>run_id: {latestProbe.run_id ?? "none"}</div>
-            <div>task_id: {latestProbe.task_id ?? "none"}</div>
-            <div>checkpoint_id: {latestProbe.memory_governance_checkpoint_id ?? "none"}</div>
+            <div>是否认领：{String(latestProbe.claimed)}</div>
+            <div>运行 ID：{latestProbe.run_id ?? "无"}</div>
+            <div>任务 ID：{latestProbe.task_id ?? "无"}</div>
+            <div>检查点 ID：{latestProbe.memory_governance_checkpoint_id ?? "无"}</div>
             <div>
-              pressure_level: {latestProbe.memory_governance_pressure_level ?? "none"}
+              压力等级：{latestProbe.memory_governance_pressure_level ?? "无"}
             </div>
-            <div>usage_ratio: {formatRatio(latestProbe.memory_governance_usage_ratio)}</div>
+            <div>使用率：{formatRatio(latestProbe.memory_governance_usage_ratio)}</div>
             <div>
-              compaction_applied: {String(latestProbe.memory_governance_compaction_applied)}
+              是否压缩：{String(latestProbe.memory_governance_compaction_applied)}
             </div>
             <div>
-              rehydrated: {String(latestProbe.memory_governance_rehydrated)}
+              是否恢复：{String(latestProbe.memory_governance_rehydrated)}
             </div>
           </div>
 
           <div className="mt-4 border-y border-[#333333] py-4 text-sm text-zinc-300">
-            {latestProbe.memory_governance_rolling_summary ?? "No rolling summary echoed."}
+            {latestProbe.memory_governance_rolling_summary ?? "暂无滚动摘要回显。"}
           </div>
         </section>
       ) : null}
