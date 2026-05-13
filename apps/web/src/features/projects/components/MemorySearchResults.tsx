@@ -17,23 +17,25 @@ export function MemorySearchResults(props: {
     approvalId: string;
   }) => void;
 }) {
+  const hasHits = props.hits.length > 0;
+
   return (
-    <section className="border-b border-[#333333] pb-5">
+    <section className="space-y-4" aria-label="检索结果">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-zinc-50">搜索结果</h3>
+          <h3 className="text-lg font-semibold text-zinc-50">结果区</h3>
           <p className="mt-1 text-sm text-zinc-500">
-            查询 “{props.submittedQuery}” ，共命中 {props.totalMatches} 条项目记忆。
+            “{props.submittedQuery}” 共命中 {props.totalMatches} 条，当前展示 {props.hits.length} 条。
           </p>
         </div>
-        <StatusBadge label={`${props.hits.length} 条展示`} tone="neutral" />
+        <StatusBadge label={hasHits ? "已收敛结果" : "暂无结果"} tone={hasHits ? "info" : "neutral"} />
       </div>
 
-      {props.hits.length > 0 ? (
-        <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
+      {hasHits ? (
+        <div className="space-y-3">
           {props.hits.map((hit) => (
             <MemorySearchResultCard
-              key={`${hit.item.memory_id}-${hit.score}`}
+              key={hit.item.memory_id + "-" + String(hit.score)}
               hit={hit}
               projectId={props.projectId}
               onNavigateToTask={props.onNavigateToTask}
@@ -43,8 +45,8 @@ export function MemorySearchResults(props: {
           ))}
         </div>
       ) : (
-        <div className="mt-4 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
-          当前查询没有命中项目记忆。可以换一个更接近交付件、审批意见、失败模式或运行结论的关键词。
+        <div className="border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
+          没有找到匹配的项目记忆。可以换一个更贴近交付摘要、审批意见、失败模式或运行结论的关键词。
         </div>
       )}
     </section>

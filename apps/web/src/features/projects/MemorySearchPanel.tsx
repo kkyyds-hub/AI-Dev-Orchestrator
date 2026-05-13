@@ -55,10 +55,17 @@ export function MemorySearchPanel(props: MemorySearchPanelProps) {
   }
 
   const projectId = props.projectId;
+  const resultCount = searchQuery.data?.hits.length ?? 0;
+  const totalMatches = searchQuery.data?.total_matches ?? 0;
 
   return (
-    <section className="space-y-6 border-b border-[#333333] pb-7">
-      <MemorySearchHeader />
+    <section className="space-y-5 border-b border-[#333333] pb-7">
+      <MemorySearchHeader
+        projectName={props.projectName}
+        submittedQuery={submittedQuery}
+        resultCount={resultCount}
+        totalMatches={totalMatches}
+      />
 
       <MemorySearchForm
         draftQuery={draftQuery}
@@ -68,23 +75,25 @@ export function MemorySearchPanel(props: MemorySearchPanelProps) {
         onSubmit={handleSubmit}
       />
 
-      {!submittedQuery ? (
-        <MemorySearchPromptState projectName={props.projectName} />
-      ) : searchQuery.isLoading && !searchQuery.data ? (
-        <MemorySearchLoadingState />
-      ) : searchQuery.isError ? (
-        <MemorySearchErrorState message={searchQuery.error.message} />
-      ) : (
-        <MemorySearchResults
-          projectId={projectId}
-          submittedQuery={submittedQuery}
-          totalMatches={searchQuery.data?.total_matches ?? 0}
-          hits={searchQuery.data?.hits ?? []}
-          onNavigateToTask={props.onNavigateToTask}
-          onNavigateToDeliverable={props.onNavigateToDeliverable}
-          onNavigateToApproval={props.onNavigateToApproval}
-        />
-      )}
+      <section className="min-h-[220px] border-y border-[#333333] py-5" aria-label="检索结果区">
+        {!submittedQuery ? (
+          <MemorySearchPromptState projectName={props.projectName} />
+        ) : searchQuery.isLoading && !searchQuery.data ? (
+          <MemorySearchLoadingState />
+        ) : searchQuery.isError ? (
+          <MemorySearchErrorState message={searchQuery.error.message} />
+        ) : (
+          <MemorySearchResults
+            projectId={projectId}
+            submittedQuery={submittedQuery}
+            totalMatches={totalMatches}
+            hits={searchQuery.data?.hits ?? []}
+            onNavigateToTask={props.onNavigateToTask}
+            onNavigateToDeliverable={props.onNavigateToDeliverable}
+            onNavigateToApproval={props.onNavigateToApproval}
+          />
+        )}
+      </section>
     </section>
   );
 }

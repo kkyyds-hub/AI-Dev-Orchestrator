@@ -28,21 +28,25 @@ export function MemorySearchForm(props: {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <section className="border-b border-[#333333] pb-5">
-      <form className="space-y-4" onSubmit={props.onSubmit}>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_240px_auto]">
+    <section aria-label="搜索控制条">
+      <form onSubmit={props.onSubmit}>
+        <div className="grid gap-3 rounded-sm border border-[#333333] p-3 xl:grid-cols-[minmax(0,1fr)_220px_auto] xl:items-end">
           <label className="block text-sm text-zinc-300">
-            <div className="mb-2 font-medium text-zinc-100">关键词</div>
+            <span className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+              关键词
+            </span>
             <input
               value={props.draftQuery}
               onChange={(event) => props.onDraftQueryChange(event.target.value)}
-              placeholder="例如：审批意见、失败模式、PRD 摘要、验证结论"
-              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-zinc-100 outline-none transition focus:border-zinc-500"
+              placeholder="输入审批意见、失败模式、交付摘要或验证结论"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-700 focus:border-zinc-500"
             />
           </label>
 
           <label className="block text-sm text-zinc-300">
-            <div className="mb-2 font-medium text-zinc-100">类型过滤</div>
+            <span className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+              类型
+            </span>
             <select
               value={props.selectedType}
               onChange={(event) => {
@@ -50,25 +54,26 @@ export function MemorySearchForm(props: {
                   props.onSelectedTypeChange(event.target.value);
                 }
               }}
-              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-zinc-100 outline-none transition focus:border-zinc-500"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
             >
               {MEMORY_SEARCH_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
+                <option key={option.value} value={option.value} className="bg-[#1f1f1f] text-zinc-100">
                   {option.label}
                 </option>
               ))}
             </select>
           </label>
 
-          <div className="flex items-end">
-            <button
-              type="submit"
-              className="w-full rounded border border-[#3a3a3a] bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
-            >
-              搜索项目记忆
-            </button>
-          </div>
+          <button
+            type="submit"
+            className="rounded border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
+          >
+            执行检索
+          </button>
         </div>
+        <p className="mt-2 text-xs leading-5 text-zinc-600">
+          控制条仅限定关键词和类型；检索范围始终保持在当前项目记忆内。
+        </p>
       </form>
     </section>
   );

@@ -31,7 +31,7 @@ export function MemorySearchResultCard(props: {
   const [isDetailExpanded, setIsDetailExpanded] = useState(false);
 
   return (
-    <article className="py-5">
+    <article className="border border-[#333333] p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge
@@ -51,59 +51,40 @@ export function MemorySearchResultCard(props: {
         </div>
       </div>
 
-      <div className="mt-3 max-w-4xl break-words text-base font-semibold text-zinc-50">
+      <h4 className="mt-3 max-w-4xl break-words text-base font-semibold text-zinc-50">
         {item.title}
-      </div>
+      </h4>
       <p className="mt-2 max-w-4xl whitespace-pre-wrap break-words text-sm leading-6 text-zinc-400">
         {item.summary}
       </p>
 
-      {item.detail ? (
-        <div className="mt-4 max-w-4xl">
-          <button
-            type="button"
-            onClick={() => setIsDetailExpanded((current) => !current)}
-            className="text-xs font-medium text-zinc-400 transition hover:text-zinc-100"
-            aria-expanded={isDetailExpanded}
-          >
-            {isDetailExpanded ? "收起详情" : "展开详情"}
-          </button>
-          {isDetailExpanded ? (
-            <div className="mt-3 max-h-60 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words border-l border-[#333333] pl-4 pr-3 text-sm leading-6 text-zinc-300">
-              {item.detail}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-4 flex flex-wrap gap-3 text-xs text-zinc-500">
-        {item.stage ? (
-          <span>
-            阶段 {PROJECT_STAGE_LABELS[item.stage] ?? item.stage}
-          </span>
-        ) : null}
-        {item.role_code ? (
-          <span>
-            角色 {ROLE_CODE_LABELS[item.role_code] ?? item.role_code}
-          </span>
-        ) : null}
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-500">
+        {item.stage ? <span>阶段 {PROJECT_STAGE_LABELS[item.stage] ?? item.stage}</span> : null}
+        {item.role_code ? <span>角色 {ROLE_CODE_LABELS[item.role_code] ?? item.role_code}</span> : null}
         {item.actor_name ? <span>参与者 {item.actor_name}</span> : null}
         <span>来源 {item.source_label}</span>
       </div>
 
       {props.hit.matched_terms.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {props.hit.matched_terms.map((term) => (
-            <StatusBadge
-              key={`${item.memory_id}-${term}`}
-              label={`命中 ${term}`}
-              tone="info"
-            />
+          {props.hit.matched_terms.slice(0, 4).map((term) => (
+            <StatusBadge key={item.memory_id + "-" + term} label={"命中 " + term} tone="info" />
           ))}
         </div>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-3">
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {item.detail ? (
+          <button
+            type="button"
+            onClick={() => setIsDetailExpanded((current) => !current)}
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
+            aria-expanded={isDetailExpanded}
+          >
+            {isDetailExpanded ? "收起详情" : "展开详情"}
+          </button>
+        ) : null}
+
         {taskId ? (
           <button
             type="button"
@@ -112,7 +93,7 @@ export function MemorySearchResultCard(props: {
                 runId: item.run_id,
               })
             }
-            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看任务 / 运行
           </button>
@@ -126,7 +107,7 @@ export function MemorySearchResultCard(props: {
                 deliverableId,
               })
             }
-            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看交付件
           </button>
@@ -140,12 +121,18 @@ export function MemorySearchResultCard(props: {
                 approvalId,
               })
             }
-            className="rounded border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
+            className="rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
           >
             查看审批
           </button>
         ) : null}
       </div>
+
+      {isDetailExpanded && item.detail ? (
+        <div className="mt-4 max-h-52 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words border-l border-[#333333] pl-4 pr-3 text-sm leading-6 text-zinc-300">
+          {item.detail}
+        </div>
+      ) : null}
     </article>
   );
 }
