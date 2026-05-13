@@ -14,12 +14,12 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
   const gate = props.gate;
 
   return (
-    <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+    <section className="space-y-4 border-b border-[#333333] pb-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-slate-100">{gate.change_batch_title}</div>
           <div className="mt-1 text-xs text-slate-500">
-            批次：{gate.change_batch_id} · 生成时间：{formatDateTime(gate.generated_at)}
+            发布记录：{gate.change_batch_id} · 更新时间：{formatDateTime(gate.generated_at)}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -38,25 +38,31 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
       </div>
 
       {gate.gap_reasons.length > 0 ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3">
-          <div className="text-sm font-medium text-rose-100">当前阻断缺口</div>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-rose-50/90">
+        <div className="border-l border-rose-500/50 px-4 py-3">
+          <div className="text-sm font-medium text-rose-100">缺口与证据</div>
+          <ul className="mt-2 space-y-1 text-sm leading-6 text-rose-50/90">
             {gate.gap_reasons.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
           </ul>
         </div>
       ) : (
-        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-          所有关键项已齐备，可进入审批决策。
+        <div className="border-l border-emerald-500/50 px-4 py-3 text-sm text-emerald-100">
+          放行检查已齐备，可进入审批决策。
         </div>
       )}
 
-      <div className="space-y-3">
+      <div>
+        <div className="text-sm font-medium text-slate-100">放行检查</div>
+        <div className="mt-1 text-sm leading-6 text-slate-400">
+          核对本次发布所需材料是否齐备，未通过项会保留缺口说明。
+        </div>
+
+        <div className="mt-3 divide-y divide-[#333333] border-y border-[#333333]">
         {gate.checklist_items.map((item) => (
           <div
             key={`${item.key}-${item.checked_at ?? "na"}`}
-            className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3"
+            className="px-0 py-3"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm font-medium text-slate-100">{item.title}</div>
@@ -72,21 +78,22 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
               <p className="mt-1 text-xs leading-5 text-rose-200">{item.gap_reason}</p>
             ) : null}
             <div className="mt-1 text-xs text-slate-500">
-              {item.evidence_key ? `证据键：${item.evidence_key}` : "无附加证据键"}
+              {item.evidence_key ? `证据：${item.evidence_key}` : "暂无附加证据"}
               {item.checked_at ? ` · 检查时间：${formatDateTime(item.checked_at)}` : ""}
             </div>
           </div>
         ))}
+        </div>
       </div>
 
       {gate.decisions.length > 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+        <div className="border-b border-[#333333] pb-3">
           <div className="text-sm font-medium text-slate-100">审批记录</div>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 divide-y divide-[#333333] border-y border-[#333333]">
             {gate.decisions.map((decision) => (
               <div
                 key={decision.id}
-                className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                className="px-0 py-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <StatusBadge label={mapDecisionLabel(decision.action)} tone={mapDecisionTone(decision.action)} />

@@ -48,9 +48,9 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
   if (!props.projectId) {
     return (
       <section className="border-b border-[#333333] pb-6">
-        <div className="text-lg font-semibold text-slate-50">Day14 审批闸门与放行检查单</div>
+        <div className="text-lg font-semibold text-slate-50">发布门禁</div>
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          请先在上方选择项目，再查看放行检查单、阻断缺口和审批动作。
+          请先选择项目，再查看放行检查、阻断缺口和审批记录。
         </p>
       </section>
     );
@@ -60,10 +60,10 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
     <section className="border-b border-[#333333] pb-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-lg font-semibold text-slate-50">Day14 审批闸门与放行检查单</div>
+          <div className="text-lg font-semibold text-slate-50">发布门禁</div>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">
-            汇总仓库绑定、快照、变更计划、风险预检、验证结果、差异证据和提交草案；缺少关键项会显式阻断，
-            且审批通过只代表“放行资格成立”，不会自动触发真实 Git 写操作。
+            在变更正式放行前，集中确认检查项、缺口、证据和审批结论。
+            若关键材料未齐备，页面会保留阻断状态，避免误推进。
           </p>
         </div>
 
@@ -76,32 +76,32 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
       </div>
 
       {inboxQuery.isLoading && !inboxQuery.data ? (
-        <div className="mt-4 text-sm leading-6 text-slate-400">正在加载 Day14 放行检查单...</div>
+        <div className="mt-4 text-sm leading-6 text-slate-400">正在加载发布门禁...</div>
       ) : null}
       {inboxQuery.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
-          Day14 放行检查单加载失败：{inboxQuery.error.message}
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+          发布门禁加载失败：{inboxQuery.error.message}
         </div>
       ) : null}
 
       {items.length > 0 ? (
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.25fr)]">
           <section className="border-b border-[#333333] pb-4">
-            <div className="text-sm font-semibold text-slate-50">变更批次放行视图</div>
+            <div className="text-sm font-semibold text-slate-50">待放行事项</div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
-              每个批次都对应一份 Day14 放行检查单，可切换查看阻断缺口与审批记录。
+              选择一条变更记录，查看放行检查、缺口与审批记录。
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
               {items.map((item) => (
                 <button
                   key={item.change_batch_id}
                   type="button"
                   onClick={() => setSelectedChangeBatchId(item.change_batch_id)}
-                  className={`w-full rounded-2xl border px-4 py-4 text-left transition ${
+                  className={`w-full px-0 py-4 text-left transition ${
                     item.change_batch_id === selectedChangeBatchId
-                      ? "border-zinc-300 bg-white/[0.03]"
-                      : "border-[#333333] bg-transparent hover:border-zinc-600 hover:bg-white/[0.02]"
+                      ? "border-l-2 border-zinc-300 pl-3"
+                      : "border-l border-transparent pl-3 hover:border-[#4a4a4a]"
                   }`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -126,11 +126,11 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
             {selectedChangeBatchId ? (
               detailQuery.isLoading && !detailQuery.data ? (
                 <div className="border-b border-[#333333] px-0 py-6 text-sm leading-6 text-slate-400">
-                  正在加载放行检查单详情...
+                  正在加载放行检查详情...
                 </div>
               ) : detailQuery.isError ? (
-                <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-8 text-sm leading-6 text-rose-100">
-                  放行检查单详情加载失败：{detailQuery.error.message}
+                <div className="border-l border-rose-500/50 px-4 py-8 text-sm leading-6 text-rose-100">
+                  放行检查详情加载失败：{detailQuery.error.message}
                 </div>
               ) : detailQuery.data ? (
                 <RepositoryReleaseGateDetailPanel
@@ -140,14 +140,14 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
               ) : null
             ) : (
               <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
-                当前项目还没有可查看的放行检查单，请先生成 Day13 提交草案并进入 Day14 审批链路。
+                当前项目还没有可查看的放行检查，请先补齐变更材料。
               </div>
             )}
           </section>
         </div>
       ) : !inboxQuery.isLoading && !inboxQuery.isError ? (
         <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
-          当前项目暂无 Day14 放行检查单；请先完成 Day07 批次、Day08 预检、Day10 验证和 Day13 提交草案。
+          当前项目暂无发布门禁记录；请先完成变更准备、预检、验证和发布材料整理。
         </div>
       ) : null}
     </section>
@@ -237,7 +237,7 @@ function RepositoryReleaseGateDetailPanel(props: {
       <section className="border-b border-[#333333] pb-4">
         <div className="text-sm font-semibold text-slate-50">审批动作</div>
         <div className="mt-2 text-sm leading-6 text-slate-400">
-          可记录通过 / 驳回 / 补证据。注意：审批通过不自动触发真实 `git commit`、`push`、PR 或 `merge`。
+          可记录通过、驳回或要求补充证据。审批通过只代表当前材料具备放行资格。
         </div>
 
         <form
@@ -252,7 +252,7 @@ function RepositoryReleaseGateDetailPanel(props: {
               <select
                 value={action}
                 onChange={(event) => setAction(event.target.value as ApprovalAction)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
               >
                 <option value="approve" disabled={props.detail.blocked}>
                   通过
@@ -267,7 +267,7 @@ function RepositoryReleaseGateDetailPanel(props: {
               <input
                 value={actorName}
                 onChange={(event) => setActorName(event.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
               />
             </label>
           </div>
@@ -278,7 +278,7 @@ function RepositoryReleaseGateDetailPanel(props: {
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
               placeholder="例如：缺口已补齐，同意进入下一步人工放行。"
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
             />
           </label>
 
@@ -288,7 +288,8 @@ function RepositoryReleaseGateDetailPanel(props: {
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               rows={3}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+              placeholder="可补充放行依据、保留意见或后续注意事项"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
             />
           </label>
 
@@ -299,7 +300,8 @@ function RepositoryReleaseGateDetailPanel(props: {
                 value={highlightedRisksText}
                 onChange={(event) => setHighlightedRisksText(event.target.value)}
                 rows={4}
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                placeholder="例如：上线窗口需避开高峰期"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
               />
             </label>
             <label className="block text-sm text-slate-200">
@@ -308,19 +310,20 @@ function RepositoryReleaseGateDetailPanel(props: {
                 value={requestedChangesText}
                 onChange={(event) => setRequestedChangesText(event.target.value)}
                 rows={4}
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                placeholder="例如：补充验证截图或回滚说明"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
               />
             </label>
           </div>
 
           {feedback ? (
             <div
-              className={`rounded-xl border px-4 py-3 text-sm leading-6 ${
+              className={`border-l px-4 py-3 text-sm leading-6 ${
                 feedback.tone === "success"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  ? "border-emerald-500/50 text-emerald-100"
                   : feedback.tone === "warning"
-                    ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
-                    : "border-rose-500/30 bg-rose-500/10 text-rose-100"
+                    ? "border-amber-500/50 text-amber-100"
+                    : "border-rose-500/50 text-rose-100"
               }`}
             >
               {feedback.text}
@@ -328,7 +331,7 @@ function RepositoryReleaseGateDetailPanel(props: {
           ) : null}
 
           {mutation.isError ? (
-            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+            <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
               提交失败：{mutation.error.message}
             </div>
           ) : null}
@@ -385,7 +388,7 @@ function parseStructuredLines(value: string): string[] {
       if (!line || seen.has(line)) {
         return;
       }
-      normalized.push(line);
+      normalized[normalized.length] = line;
       seen.add(line);
     });
 
