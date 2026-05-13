@@ -28,14 +28,14 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
 
   return (
     <section
-      className={props.className ?? "rounded-2xl border border-slate-800 bg-slate-900/60 p-4"}
+      className={props.className ?? "border-b border-[#333333] pb-4"}
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-50">预检清单</div>
+          <div className="text-sm font-semibold text-slate-50">预检结果</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
             {props.helperText ??
-              "Day08 预检清单用于展示当前变更的整体风险概览、命令审查结果与确认前检查项。"}
+              "展示当前变更的范围、风险提示与确认前检查项，帮助判断是否可以继续推进。"}
           </div>
         </div>
 
@@ -44,10 +44,10 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
             type="button"
             onClick={props.onRunPreflight}
             disabled={props.runDisabled || props.isRunning}
-            className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
+            className={`rounded border px-4 py-2 text-sm font-medium transition ${
               props.runDisabled || props.isRunning
-                ? "cursor-not-allowed border-slate-800 bg-slate-950 text-slate-500"
-                : "border-cyan-400/30 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/20"
+                ? "cursor-not-allowed border-[#333333] bg-transparent text-slate-500"
+                : "border-[#4a4a4a] bg-transparent text-zinc-100 hover:bg-[#292929]"
             }`}
           >
             {props.isRunning ? "执行中..." : "运行预检"}
@@ -74,12 +74,12 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
         ) : null}
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
+      <div className="mt-4 border-l border-[#333333] px-4 py-3 text-sm leading-6 text-slate-300">
         <div className="font-medium text-slate-100">{props.title}</div>
-        <div className="mt-2">{props.preflight.summary ?? "暂无 Day08 预检摘要"}</div>
+        <div className="mt-2">{props.preflight.summary ?? "暂无预检摘要"}</div>
         <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
           <span>发现 {props.preflight.finding_count}</span>
-          <span>检查命令 {props.preflight.inspected_command_count}</span>
+          <span>检查项 {props.preflight.inspected_command_count}</span>
           {props.preflight.evaluated_at ? (
             <span>评估于 {formatDateTime(props.preflight.evaluated_at)}</span>
           ) : null}
@@ -100,11 +100,11 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
       </div>
 
       {props.preflight.findings.length > 0 ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
           {props.preflight.findings.map((finding) => (
             <article
               key={`${finding.code}-${finding.summary}`}
-              className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+              className="px-0 py-4"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge
@@ -132,17 +132,17 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
-          当前未发现高风险项，Day08 预检可以继续推进到下一步。
+        <div className="mt-4 border-l border-emerald-500/50 px-4 py-3 text-sm leading-6 text-emerald-100">
+          当前未发现高风险项，可以继续推进到下一步。
         </div>
       )}
 
       {props.preflight.inspected_commands.length > 0 ? (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">检查命令</div>
-          <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+        <div className="mt-4 border-b border-[#333333] pb-4">
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">检查项</div>
+          <ul className="mt-3 divide-y divide-[#333333] border-y border-[#333333] text-sm leading-6 text-slate-300">
             {props.preflight.inspected_commands.map((command) => (
-              <li key={command} className="break-all rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2">
+              <li key={command} className="break-all px-0 py-2">
                 {command}
               </li>
             ))}
@@ -159,7 +159,7 @@ function MetricCard(props: {
   tone: "neutral" | "info" | "warning" | "danger";
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{props.label}</div>
       <div className={`mt-2 text-sm font-semibold ${mapMetricClass(props.tone)}`}>{props.value}</div>
     </div>
@@ -173,7 +173,7 @@ function mapMetricClass(tone: "neutral" | "info" | "warning" | "danger") {
     case "warning":
       return "text-amber-100";
     case "info":
-      return "text-cyan-100";
+      return "text-slate-100";
     default:
       return "text-slate-100";
   }
