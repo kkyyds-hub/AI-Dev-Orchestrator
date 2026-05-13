@@ -227,7 +227,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
                   value={selectedDeliverableId}
                   onChange={(event) => setSelectedDeliverableId(event.target.value)}
                   disabled={!eligibleDeliverables.length || createMutation.isPending}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:text-slate-500"
+                  className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-200 outline-none transition focus:border-[#6a6a6a] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {eligibleDeliverables.length > 0 ? (
                     eligibleDeliverables.map((deliverable) => (
@@ -247,7 +247,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
                     value={requesterRoleCode}
                     onChange={(event) => setRequesterRoleCode(event.target.value)}
                     disabled={createMutation.isPending}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-200 outline-none transition focus:border-[#6a6a6a]"
                   >
                     {Object.entries(ROLE_CODE_LABELS).map(([roleCode, label]) => (
                       <option key={roleCode} value={roleCode}>
@@ -262,7 +262,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
                     value={dueHoursText}
                     onChange={(event) => setDueHoursText(event.target.value)}
                     inputMode="decimal"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-200 outline-none transition focus:border-[#6a6a6a]"
                   />
                 </FieldBlock>
               </div>
@@ -307,18 +307,18 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
                   onChange={(event) => setRequestNote(event.target.value)}
                   rows={4}
                   placeholder="例如：请确认 PRD 的业务范围、优先级和验收口径是否可以进入执行阶段。"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                  className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-200 outline-none transition focus:border-[#6a6a6a]"
                 />
               </FieldBlock>
 
               {feedback ? (
                 <div
-                  className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${
+                  className={`rounded border px-4 py-3 text-sm leading-6 ${
                     feedback.tone === "success"
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                      ? "border-emerald-500/30 bg-transparent text-emerald-200"
                       : feedback.tone === "warning"
-                        ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
-                        : "border-rose-500/30 bg-rose-500/10 text-rose-100"
+                        ? "border-amber-500/30 bg-transparent text-amber-200"
+                        : "border-rose-500/30 bg-transparent text-rose-200"
                   }`}
                 >
                   {feedback.text}
@@ -381,7 +381,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
               审批队列加载失败：{inboxQuery.error.message}
             </div>
           ) : approvals.length > 0 ? (
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 divide-y divide-[#333333]">
               {approvals.map((approval) => (
                 <ApprovalQueueCard
                   key={approval.id}
@@ -459,10 +459,10 @@ function ApprovalHighlight(props: {
   onOpen: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-4">
+    <div className="border-l border-rose-500/50 px-4 py-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-rose-50">
+          <div className="text-sm font-medium text-rose-100">
             {props.approval.deliverable_title} · v{props.approval.deliverable_version_number}
           </div>
           <div className="mt-1 text-xs leading-5 text-rose-100/80">
@@ -473,7 +473,7 @@ function ApprovalHighlight(props: {
         <button
           type="button"
           onClick={props.onOpen}
-          className="rounded-xl border border-rose-400/40 px-3 py-2 text-xs font-medium text-rose-50 transition hover:bg-rose-500/10"
+          className="rounded border border-rose-400/40 px-3 py-2 text-xs font-medium text-rose-100 transition hover:bg-rose-500/10"
         >
           立即处理
         </button>
@@ -492,7 +492,7 @@ function ApprovalQueueCard(props: {
     ] ?? props.approval.deliverable_type;
 
   return (
-    <div className="border-b border-[#333333] px-0 py-4">
+    <div className="px-0 py-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -550,7 +550,7 @@ function ApprovalQueueCard(props: {
         <div className="flex flex-col items-start gap-3 xl:items-end">
           {props.approval.latest_decision ? (
             <div className="border-l border-[#333333] px-3 py-2 text-xs leading-5 text-slate-400">
-              <div className="text-slate-300">
+              <div className="text-slate-200">
                 {APPROVAL_STATUS_LABELS[props.approval.status] ?? props.approval.status}
               </div>
               <div className="mt-1">决策人：{props.approval.latest_decision.actor_name}</div>
