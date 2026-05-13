@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   fetchMemoryGovernanceState,
-  runMemoryGovernanceCheck,
+  runMemoryGovernanceProbe,
   triggerMemoryGovernanceCompact,
   triggerMemoryGovernanceRehydrate,
   triggerMemoryGovernanceReset,
@@ -81,14 +81,14 @@ export function useMemoryGovernanceReset(projectId: string | null) {
   });
 }
 
-export function useMemoryGovernanceRunCheck(projectId: string | null) {
+export function useMemoryGovernanceProbe(projectId: string | null) {
   return useMutation({
     mutationFn: () => {
       if (!projectId) {
-        throw new Error("未选择项目，无法检查单次运行。");
+        throw new Error("No project selected for memory governance probe.");
       }
 
-      return runMemoryGovernanceCheck(projectId);
+      return runMemoryGovernanceProbe(projectId);
     },
   });
 }

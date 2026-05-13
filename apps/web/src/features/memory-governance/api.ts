@@ -59,7 +59,7 @@ export function triggerMemoryGovernanceReset(
   );
 }
 
-export function runMemoryGovernanceCheck(
+export function runMemoryGovernanceProbe(
   projectId: string,
 ): Promise<MemoryGovernanceRunOnceEcho> {
   const params = new URLSearchParams();

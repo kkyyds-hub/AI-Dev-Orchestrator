@@ -4,7 +4,7 @@ import { StatusBadge } from "../../../components/StatusBadge";
 import { formatDateTime } from "../../../lib/format";
 import {
   useMemoryGovernanceCompact,
-  useMemoryGovernanceRunCheck,
+  useMemoryGovernanceProbe,
   useMemoryGovernanceRehydrate,
   useMemoryGovernanceReset,
   useMemoryGovernanceState,
@@ -34,7 +34,7 @@ export function MemoryGovernanceSection(props: MemoryGovernanceSectionProps) {
   const rehydrateMutation = useMemoryGovernanceRehydrate(props.projectId);
   const compactMutation = useMemoryGovernanceCompact(props.projectId);
   const resetMutation = useMemoryGovernanceReset(props.projectId);
-  const runCheckMutation = useMemoryGovernanceRunCheck(props.projectId);
+  const runCheckMutation = useMemoryGovernanceProbe(props.projectId);
 
   const [activeView, setActiveView] = useState<GovernanceLocalView>("overview");
   const [compactTargetChars, setCompactTargetChars] = useState("900");
