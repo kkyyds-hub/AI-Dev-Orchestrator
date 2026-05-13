@@ -32,7 +32,7 @@ export function MemorySearchResults(props: {
       </div>
 
       {hasHits ? (
-        <div className="space-y-3">
+        <div className="divide-y divide-[#333333] border-y border-[#333333]">
           {props.hits.map((hit) => (
             <MemorySearchResultCard
               key={hit.item.memory_id + "-" + String(hit.score)}
@@ -46,7 +46,10 @@ export function MemorySearchResults(props: {
         </div>
       ) : (
         <div className="border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500">
-          没有找到匹配的项目记忆。可以换一个更贴近交付摘要、审批意见、失败模式或运行结论的关键词。
+          <h4 className="text-base font-semibold text-zinc-100">未找到匹配记忆</h4>
+          <p className="mt-2">
+            可以换一个更贴近交付摘要、审批意见、失败模式或运行结论的关键词。
+          </p>
         </div>
       )}
     </section>
