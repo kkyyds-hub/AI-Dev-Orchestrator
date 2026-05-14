@@ -29,7 +29,7 @@ export function ChangeSessionPanel(props: ChangeSessionPanelProps) {
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
             记录当前分支、HEAD、基线引用与工作区状态，作为后续变更批次的只读上下文；
-            不执行 checkout、建分支、stash、reset、merge 或 commit。
+            本面板只负责保存会话快照，不会改变仓库内容或提交历史。
           </p>
         </div>
 
