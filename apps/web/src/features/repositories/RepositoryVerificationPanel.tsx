@@ -64,7 +64,7 @@ export function RepositoryVerificationPanel(
       return;
     }
 
-    setSuccessMessage("已保存 Day09 验证基线。");
+    setSuccessMessage("已保存验证基线。");
   }, [replaceMutation.isSuccess]);
 
   const templates = useMemo(
@@ -74,24 +74,23 @@ export function RepositoryVerificationPanel(
 
   if (!props.repositoryRootPath) {
     return (
-      <section className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-4 text-sm leading-6 text-slate-400">
-        Day09 验证基线依赖 Day01 的主仓库绑定；当前项目尚未绑定仓库，因此暂不展示
+      <section className="border-l border-dashed border-[#3a3a3a] px-4 py-4 text-sm leading-6 text-zinc-500">
+        验证基线依赖主仓库绑定；当前项目尚未绑定仓库，因此暂不展示
         build / test / lint / typecheck 命令模板。
       </section>
     );
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <section className="border-l border-[#333333] px-4 py-1">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day09 仓库验证模板
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            仓库验证基线
           </div>
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
-            这里冻结项目级 build / test / lint / typecheck 命令基线，供 Day06
-            ChangePlan 与 Day07 ChangeBatch 引用；当前只记录模板和命令基线，不进入
-            Day10+ 的验证运行记录、失败归因、差异证据包或任何真实 Git 写操作。
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
+            在这里维护项目级 build / test / lint / typecheck 命令模板，作为变更批次执行前的统一验证口径。
+            当前只保存模板、工作目录、超时与默认启用状态，不触发实际运行。
           </p>
         </div>
 
@@ -111,8 +110,8 @@ export function RepositoryVerificationPanel(
         </div>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-        仓库根目录：<span className="break-all text-slate-100">{props.repositoryRootPath}</span>
+      <div className="mt-4 border-l border-[#333333] px-4 py-3 text-sm leading-6 text-zinc-400">
+        仓库根目录：<span className="break-all text-zinc-100">{props.repositoryRootPath}</span>
         <div className="mt-2 flex flex-wrap gap-2">
           {(baselineQuery.data?.configured_categories ?? []).map((category) => (
             <StatusBadge
@@ -125,13 +124,13 @@ export function RepositoryVerificationPanel(
       </div>
 
       {baselineQuery.isLoading && !baselineQuery.data ? (
-        <div className="mt-4 text-sm leading-6 text-slate-400">
-          正在加载 Day09 验证基线...
+        <div className="mt-4 text-sm leading-6 text-zinc-500">
+          正在加载验证基线...
         </div>
       ) : null}
 
       {baselineQuery.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           验证基线加载失败：{baselineQuery.error.message}
         </div>
       ) : null}
@@ -165,18 +164,18 @@ export function RepositoryVerificationPanel(
           {templates.map((template) => (
             <article
               key={template.category}
-              className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+              className="border-l border-[#333333] px-4 py-2"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="text-sm font-semibold text-slate-50">
+                  <div className="text-sm font-semibold text-zinc-100">
                     {REPOSITORY_VERIFICATION_CATEGORY_LABELS[template.category]}
                   </div>
-                  <div className="mt-1 text-xs leading-5 text-slate-500">
+                  <div className="mt-1 text-xs leading-5 text-zinc-600">
                     {CATEGORY_HELP_TEXT[template.category]}
                   </div>
                 </div>
-                <label className="inline-flex items-center gap-2 text-xs text-slate-300">
+                <label className="inline-flex items-center gap-2 text-xs text-zinc-400">
                   <input
                     type="checkbox"
                     checked={template.enabled_by_default}
@@ -185,7 +184,7 @@ export function RepositoryVerificationPanel(
                         enabled_by_default: event.target.checked,
                       })
                     }
-                    className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-cyan-400 focus:ring-cyan-400"
+                    className="h-4 w-4 rounded border-[#3a3a3a] bg-transparent text-zinc-100 focus:ring-zinc-500"
                   />
                   默认启用
                 </label>
@@ -199,7 +198,7 @@ export function RepositoryVerificationPanel(
                     onChange={(event) =>
                       updateDraft(template.category, { name: event.target.value })
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </FieldBlock>
 
@@ -213,7 +212,7 @@ export function RepositoryVerificationPanel(
                           working_directory: event.target.value,
                         })
                       }
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+                      className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                     />
                   </FieldBlock>
 
@@ -228,7 +227,7 @@ export function RepositoryVerificationPanel(
                           timeout_seconds: Number(event.target.value || 0),
                         })
                       }
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+                      className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                     />
                   </FieldBlock>
                 </div>
@@ -240,7 +239,7 @@ export function RepositoryVerificationPanel(
                     onChange={(event) =>
                       updateDraft(template.category, { command: event.target.value })
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </FieldBlock>
 
@@ -253,7 +252,7 @@ export function RepositoryVerificationPanel(
                         description: event.target.value,
                       })
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </FieldBlock>
               </div>
@@ -262,13 +261,13 @@ export function RepositoryVerificationPanel(
         </div>
 
         {replaceMutation.isError ? (
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+          <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
             保存失败：{replaceMutation.error.message}
           </div>
         ) : null}
 
         {successMessage ? (
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
+          <div className="border-l border-emerald-500/50 px-4 py-3 text-sm leading-6 text-emerald-100">
             {successMessage}
           </div>
         ) : null}
@@ -277,7 +276,7 @@ export function RepositoryVerificationPanel(
           <button
             type="submit"
             disabled={replaceMutation.isPending || baselineQuery.isLoading}
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600"
           >
             {replaceMutation.isPending ? "保存中..." : "保存验证基线"}
           </button>
@@ -306,7 +305,7 @@ function FieldBlock(props: {
 }) {
   return (
     <label className="block">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
         {props.label}
       </div>
       <div className="mt-2">{props.children}</div>
@@ -362,7 +361,7 @@ function buildDefaultDraft(
 
 const CATEGORY_HELP_TEXT: Record<RepositoryVerificationCategory, string> = {
   build: "约定最终构建口径；默认映射前端构建。",
-  test: "约定仓库级最小烟测或测试口径；当前默认使用 Day08 烟测。",
+  test: "约定仓库级最小烟测或测试口径；当前默认使用轻量烟测。",
   lint: "约定静态检查口径；当前仓库先以 Python 编译检查承接。",
   typecheck: "约定类型检查口径；默认映射前端 TypeScript 检查。",
 };
