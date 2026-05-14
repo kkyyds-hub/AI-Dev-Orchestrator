@@ -142,36 +142,35 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
   };
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <section className="border-l border-[#333333] px-4 py-1">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day05 文件定位索引
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            文件定位
           </div>
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
-            这里先把任务或规划摘要落到候选文件集合，再由你选择需要进入{" "}
-            <code>CodeContextPack</code> 的最小文件片段。当前只做文件定位与上下文包，
-            不生成 Day06 变更计划草案，也不触发任何真实 Git 写操作。
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
+            先把任务或补充说明收束为候选文件集合，再由你挑选需要保留的最小上下文。
+            当前只做定位和摘要打包，不生成改动方案，也不触发任何真实 Git 写操作。
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs leading-6 text-slate-400">
+        <div className="border-l border-[#333333] px-4 py-2 text-xs leading-6 text-zinc-500">
           <div>仓库根：{props.workspaceRootPath}</div>
           <div>已有任务：{props.tasks.length} 个</div>
-          <div>默认上文包预算：{DEFAULT_CONTEXT_MAX_TOTAL_BYTES} bytes</div>
+          <div>默认上下文预算：{DEFAULT_CONTEXT_MAX_TOTAL_BYTES} 字节</div>
         </div>
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
               绑定项目任务
             </span>
             <select
               value={selectedTaskId}
               onChange={(event) => setSelectedTaskId(event.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+              className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
             >
               <option value="">不绑定任务，使用手动过滤</option>
               {props.tasks.map((task) => (
@@ -183,7 +182,7 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
           </label>
 
           <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
               候选上限
             </span>
             <input
@@ -194,19 +193,19 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
               onChange={(event) =>
                 setLimit(clampNumber(Number(event.target.value) || DEFAULT_LOCATOR_LIMIT, 1, 50))
               }
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+              className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
             />
           </label>
 
           <label className="space-y-2 md:col-span-2">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
               规划摘要 / 补充说明
             </span>
             <textarea
               value={taskQuery}
               onChange={(event) => setTaskQuery(event.target.value)}
               rows={4}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-500"
+              className="w-full border border-[#3a3a3a] bg-transparent px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
               placeholder="用于还没落成任务的规划摘要，例如：定位 repositories 路由、服务层和前端面板的最小相关文件。"
             />
           </label>
@@ -237,9 +236,9 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
           />
         </div>
 
-        <aside className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+        <aside className="space-y-4 border-l border-[#333333] px-4 py-2">
           <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
               当前过滤摘要
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -259,7 +258,7 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
                 <StatusBadge key={`type-${item}`} label={`类型 ${item}`} tone="warning" />
               ))}
               {!hasLocatorSignals ? (
-                <div className="text-sm leading-6 text-slate-400">
+                <div className="text-sm leading-6 text-zinc-500">
                   先选择任务，或至少填写一项过滤条件。
                 </div>
               ) : null}
@@ -272,16 +271,16 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
               void handleSearch();
             }}
             disabled={!hasLocatorSignals || fileLocatorSearchMutation.isPending}
-            className={`inline-flex w-full items-center justify-center rounded-xl border px-4 py-2 text-sm font-medium transition ${
+            className={`inline-flex w-full items-center justify-center rounded border px-4 py-2 text-sm font-medium transition ${
               !hasLocatorSignals || fileLocatorSearchMutation.isPending
-                ? "cursor-not-allowed border-slate-800 bg-slate-900 text-slate-500"
-                : "border-cyan-500/30 bg-cyan-500/10 text-cyan-100 hover:border-cyan-400/50 hover:bg-cyan-500/20"
+                ? "cursor-not-allowed border-[#333333] bg-transparent text-zinc-600"
+                : "border-[#4a4a4a] bg-transparent text-zinc-100 hover:border-zinc-500 hover:bg-[#292929]"
             }`}
           >
             {fileLocatorSearchMutation.isPending ? "正在定位候选文件..." : "生成候选文件集合"}
           </button>
 
-          <div className="text-xs leading-6 text-slate-500">
+          <div className="text-xs leading-6 text-zinc-600">
             默认排除 <code>.git</code>、<code>.venv</code>、<code>node_modules</code>、
             <code>dist</code>、<code>build</code> 等噪声目录，并跳过超大或明显二进制文件。
           </div>
@@ -289,7 +288,7 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
       </div>
 
       {fileLocatorSearchMutation.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           文件定位失败：{fileLocatorSearchMutation.error.message}
         </div>
       ) : null}
@@ -298,13 +297,13 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
         <div className="mt-4 space-y-4">
           <LocatorSummaryCard result={locatorResult} />
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="border-l border-[#333333] px-4 py-2">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
                   候选文件列表
                 </div>
-                <div className="mt-2 text-sm leading-6 text-slate-300">
+                <div className="mt-2 text-sm leading-6 text-zinc-400">
                   当前已选 {selectedPaths.length} / {locatorResult.candidates.length} 个文件进入
                   上下文包。
                 </div>
@@ -320,7 +319,7 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
                         .map((candidate) => candidate.relative_path),
                     )
                   }
-                  className="rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500 hover:text-cyan-100"
+                  className="rounded border border-[#4a4a4a] px-3 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
                 >
                   选前 3 个
                 </button>
@@ -331,21 +330,21 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
                       locatorResult.candidates.map((candidate) => candidate.relative_path),
                     )
                   }
-                  className="rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:border-cyan-500 hover:text-cyan-100"
+                  className="rounded border border-[#4a4a4a] px-3 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
                 >
                   全选当前候选
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedPaths([])}
-                  className="rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:border-rose-400/50 hover:text-rose-100"
+                  className="rounded border border-[#4a4a4a] px-3 py-2 text-sm text-zinc-200 transition hover:border-rose-400/50 hover:text-rose-100"
                 >
                   清空选择
                 </button>
               </div>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 divide-y divide-[#333333]">
               {locatorResult.candidates.map((candidate) => (
                 <CandidateRow
                   key={candidate.relative_path}
@@ -363,12 +362,12 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="border-l border-[#333333] px-4 py-2">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    上下文包总预算（bytes）
+                  <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+                    上下文总预算（字节）
                   </span>
                   <input
                     type="number"
@@ -380,13 +379,13 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
                         clampNumber(Number(event.target.value) || DEFAULT_CONTEXT_MAX_TOTAL_BYTES, 512, 80_000),
                       )
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                    className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </label>
 
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    单文件预算（bytes）
+                  <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+                    单文件预算（字节）
                   </span>
                   <input
                     type="number"
@@ -398,7 +397,7 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
                         clampNumber(Number(event.target.value) || DEFAULT_CONTEXT_MAX_BYTES_PER_FILE, 256, 20_000),
                       )
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                    className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                   />
                 </label>
               </div>
@@ -409,27 +408,27 @@ export function FileLocatorPanel(props: FileLocatorPanelProps) {
                   void handleBuildContextPack();
                 }}
                 disabled={!selectedPaths.length || codeContextPackMutation.isPending}
-                className={`inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                className={`inline-flex items-center justify-center rounded border px-4 py-2 text-sm font-medium transition ${
                   !selectedPaths.length || codeContextPackMutation.isPending
-                    ? "cursor-not-allowed border-slate-800 bg-slate-900 text-slate-500"
-                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100 hover:border-emerald-400/50 hover:bg-emerald-500/20"
+                    ? "cursor-not-allowed border-[#333333] bg-transparent text-zinc-600"
+                    : "border-[#4a4a4a] bg-transparent text-zinc-100 hover:border-zinc-500 hover:bg-[#292929]"
                 }`}
               >
                 {codeContextPackMutation.isPending
-                  ? "正在生成 CodeContextPack..."
-                  : "生成 CodeContextPack"}
+                  ? "正在生成上下文包..."
+                  : "生成上下文包"}
               </button>
             </div>
 
-            <div className="mt-3 text-xs leading-6 text-slate-500">
-              Day05 只保留最小可控上下文，供后续 Day06 输入使用；当前不会生成任何具体改动方案。
+            <div className="mt-3 text-xs leading-6 text-zinc-600">
+              这里只保留最小可控上下文，供后续方案整理使用；当前不会生成任何具体改动方案。
             </div>
           </div>
         </div>
       ) : null}
 
       {codeContextPackMutation.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           上下文包生成失败：{codeContextPackMutation.error.message}
         </div>
       ) : null}
@@ -447,13 +446,13 @@ function FilterInput(props: {
 }) {
   return (
     <label className="space-y-2">
-      <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+      <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
         {props.label}
       </span>
       <input
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+        className="w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
         placeholder={props.placeholder}
       />
     </label>
@@ -462,16 +461,16 @@ function FilterInput(props: {
 
 function LocatorSummaryCard(props: { result: FileLocatorResult }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
             定位结果摘要
           </div>
-          <div className="mt-2 text-sm leading-6 text-slate-200">
+          <div className="mt-2 text-sm leading-6 text-zinc-200">
             {props.result.query.summary}
           </div>
-          <div className="mt-2 text-xs leading-6 text-slate-500">
+          <div className="mt-2 text-xs leading-6 text-zinc-600">
             生成时间：{formatDateTime(props.result.generated_at)}
           </div>
         </div>
@@ -500,7 +499,7 @@ function LocatorSummaryCard(props: { result: FileLocatorResult }) {
 
       {props.result.truncated ? (
         <div className="mt-3 text-sm leading-6 text-amber-200">
-          当前命中结果已按上限裁剪，仅保留得分最高的候选文件。
+          当前命中结果已按上限裁剪，仅保留匹配度最高的候选文件。
         </div>
       ) : null}
     </div>
@@ -513,25 +512,25 @@ function CandidateRow(props: {
   onToggle: () => void;
 }) {
   return (
-    <label className="block cursor-pointer rounded-2xl border border-slate-800 bg-slate-900/60 p-4 transition hover:border-cyan-500/40">
+    <label className="block cursor-pointer py-3 transition hover:bg-[#202020]">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-3">
           <input
             type="checkbox"
             checked={props.selected}
             onChange={props.onToggle}
-            className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-400 focus:ring-cyan-500"
+            className="mt-1 h-4 w-4 rounded border-[#3a3a3a] bg-transparent text-zinc-100 focus:ring-zinc-500"
           />
           <div>
-            <div className="break-all text-sm font-medium text-slate-100">
+            <div className="break-all text-sm font-medium text-zinc-100">
               {props.candidate.relative_path}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <StatusBadge label={`Score ${props.candidate.score}`} tone="info" />
+              <StatusBadge label={`匹配度 ${props.candidate.score}`} tone="info" />
               <StatusBadge label={props.candidate.language} tone="success" />
               <StatusBadge label={props.candidate.file_type} tone="warning" />
               <StatusBadge
-                label={`${props.candidate.line_count} lines`}
+                label={`${props.candidate.line_count} 行`}
                 tone="neutral"
               />
               <StatusBadge
@@ -546,7 +545,7 @@ function CandidateRow(props: {
       </div>
 
       {props.candidate.preview ? (
-        <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 text-sm leading-6 text-slate-300">
+        <div className="mt-3 border-l border-[#333333] px-3 py-3 text-sm leading-6 text-zinc-300">
           {props.candidate.preview}
         </div>
       ) : null}
@@ -562,16 +561,16 @@ function CandidateRow(props: {
 
 function CodeContextPackCard(props: { pack: CodeContextPack }) {
   return (
-    <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <div className="mt-4 border-l border-[#333333] px-4 py-2">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            CodeContextPack
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            上下文包
           </div>
-          <div className="mt-2 text-sm leading-6 text-slate-200">
+          <div className="mt-2 text-sm leading-6 text-zinc-200">
             {props.pack.source_summary}
           </div>
-          <div className="mt-2 text-xs leading-6 text-slate-500">
+          <div className="mt-2 text-xs leading-6 text-zinc-600">
             生成时间：{formatDateTime(props.pack.generated_at)}
           </div>
         </div>
@@ -605,7 +604,7 @@ function CodeContextPackCard(props: { pack: CodeContextPack }) {
       ) : null}
 
       {props.pack.omitted_paths.length > 0 ? (
-        <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+        <div className="mt-3 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
           由于预算上限，以下文件未进入上下文包：
           <div className="mt-2 flex flex-wrap gap-2">
             {props.pack.omitted_paths.map((item) => (
@@ -615,15 +614,15 @@ function CodeContextPackCard(props: { pack: CodeContextPack }) {
         </div>
       ) : null}
 
-      <div className="mt-4 space-y-4">
+      <div className="mt-4 divide-y divide-[#333333]">
         {props.pack.entries.map((entry) => (
           <div
             key={entry.relative_path}
-            className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4"
+            className="py-4"
           >
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="break-all text-sm font-medium text-slate-100">
+                <div className="break-all text-sm font-medium text-zinc-100">
                   {entry.relative_path}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -653,8 +652,8 @@ function CodeContextPackCard(props: { pack: CodeContextPack }) {
               ) : null}
             </div>
 
-            <pre className="mt-3 overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-4 whitespace-pre-wrap break-all text-xs leading-6 text-slate-200">
-              {entry.excerpt || "(empty file)"}
+            <pre className="mt-3 overflow-x-auto border-l border-[#333333] px-4 py-4 whitespace-pre-wrap break-all text-xs leading-6 text-zinc-200">
+              {entry.excerpt || "空文件"}
             </pre>
           </div>
         ))}

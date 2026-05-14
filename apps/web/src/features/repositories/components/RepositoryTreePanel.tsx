@@ -37,7 +37,7 @@ function RepositoryTreeNodeCard(props: {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-zinc-100">
-            <span className="mr-2 text-zinc-600">{isDirectory ? "dir" : "file"}</span>
+            <span className="mr-2 text-zinc-600">{isDirectory ? "目录" : "文件"}</span>
             {props.node.name}
           </div>
           <div className="mt-1 break-all text-xs text-zinc-600">
