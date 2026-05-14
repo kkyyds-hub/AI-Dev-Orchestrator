@@ -4,6 +4,7 @@ import { AppShell } from "./AppShell";
 import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
 import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
 import { GovernancePage } from "../pages/governance/GovernancePage";
+import { MePage } from "../pages/me/MePage";
 import { ProjectApprovalsRoutePage } from "../pages/projects/ProjectApprovalsRoutePage";
 import { ProjectCollaborationRoutePage } from "../pages/projects/ProjectCollaborationRoutePage";
 import { ProjectOverviewRoutePage } from "../pages/projects/ProjectOverviewRoutePage";
@@ -12,7 +13,6 @@ import { ProjectGovernanceRoutePage } from "../pages/projects/ProjectGovernanceR
 import { ProjectRepositoryRoutePage } from "../pages/projects/ProjectRepositoryRoutePage";
 import { ProjectTimelineRoutePage } from "../pages/projects/ProjectTimelineRoutePage";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
-import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
 import { RunsPage } from "../pages/runs/RunsPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { TasksPage } from "../pages/tasks/TasksPage";
@@ -93,13 +93,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "me",
-        element: (
-          <PlaceholderPage
-            title="我的工作区即将开放"
-            description="个人视图入口已经保留，后续会在这里集中呈现我的任务、我的审批与关注项目。"
-            nextStep="优先完善与个人处理效率强相关的任务、审批与关注项聚合能力。"
-          />
-        ),
+        element: <MePage />,
       },
       {
         path: "settings",
