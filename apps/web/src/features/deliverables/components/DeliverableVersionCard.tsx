@@ -80,12 +80,12 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
         ) : null}
         {props.version.source_task_id ? (
           <code className="border border-[#333333] px-3 py-2 text-xs text-slate-400">
-            Task {props.version.source_task_id}
+            来源任务 {props.version.source_task_id}
           </code>
         ) : null}
         {props.version.source_run_id ? (
           <code className="border border-[#333333] px-3 py-2 text-xs text-slate-400">
-            Run {props.version.source_run_id}
+            来源运行 {props.version.source_run_id}
           </code>
         ) : null}
       </div>
