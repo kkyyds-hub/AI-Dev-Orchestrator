@@ -35,6 +35,7 @@ type ProjectOverviewTableAndDetailSectionProps = {
   drilldownFeedback: BossDrilldownFeedback | null;
   activeDrilldownTaskSample: BossProjectLatestTask | null;
   onSelectProject: (projectId: string) => void;
+  onNavigateToRepositoryWorkspace: () => void;
   onNavigateToStrategyPreview: (context: BossDrilldownContext) => void;
   onNavigateToProjectLatestRun: (context: BossDrilldownContext) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
@@ -94,6 +95,7 @@ export function ProjectOverviewTableAndDetailSection(
             isLoading={props.isProjectDetailLoading}
             errorMessage={props.projectDetailErrorMessage}
             onNavigateToTask={props.onNavigateToTask}
+            onNavigateToRepositoryWorkspace={props.onNavigateToRepositoryWorkspace}
           />
         ) : (
           <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-zinc-500">
@@ -112,6 +114,7 @@ function CompactProjectDetail(props: {
   isLoading: boolean;
   errorMessage: string | null;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
+  onNavigateToRepositoryWorkspace: () => void;
 }) {
   const projectName = props.project?.name ?? props.detail?.name ?? "未命名项目";
   const projectSummary = props.project?.summary ?? props.detail?.summary ?? "暂无项目摘要。";
@@ -164,6 +167,20 @@ function CompactProjectDetail(props: {
         <p className="mt-4 line-clamp-2 text-sm leading-6 text-zinc-400">
           {projectSummary}
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={props.onNavigateToRepositoryWorkspace}
+            className="inline-flex rounded border border-zinc-300 bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-950 transition hover:bg-white"
+          >
+            进入仓库工作区
+          </button>
+          {!repositoryWorkspace ? (
+            <span className="self-center text-xs leading-5 text-amber-100">
+              未绑定也可先进入，工作区内会引导去设置页绑定主仓库。
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {taskStats ? <TaskStatsLine taskStats={taskStats} /> : null}

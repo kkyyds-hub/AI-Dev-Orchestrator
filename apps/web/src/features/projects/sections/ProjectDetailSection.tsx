@@ -49,6 +49,8 @@ export function ProjectDetailSection(props: {
   const runtimeTaskSample = props.drilldownContext
     ? props.activeDrilldownTaskSample
     : props.project?.latest_task ?? null;
+  const repositoryWorkspace =
+    props.project?.repository_workspace ?? props.detail?.repository_workspace ?? null;
 
   const handleNavigateToTaskDetailFromLatestRun = () => {
     if (!runtimeTaskSample) {
@@ -94,6 +96,31 @@ export function ProjectDetailSection(props: {
       <ProjectProgressRiskSummary project={props.project} />
 
       <ProjectSettingsEntryPanel project={props.project} detail={props.detail} />
+
+      <section className="border-l border-[#333333] px-4 py-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+              仓库工作区入口
+            </div>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">
+              项目仓库页已在下方收口；即使尚未绑定主仓库，也可以先进入工作区查看绑定引导。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              document.getElementById("repository-workspace")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              })
+            }
+            className="inline-flex items-center justify-center rounded border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
+          >
+            {repositoryWorkspace ? "进入仓库工作区" : "进入仓库工作区并绑定"}
+          </button>
+        </div>
+      </section>
 
       <ProjectRepositoryOverviewPage
         project={props.project}

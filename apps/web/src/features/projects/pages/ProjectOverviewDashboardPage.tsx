@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { ProjectCreateFlow } from "../ProjectCreateFlow";
 import { ProjectSummaryCards } from "../components/ProjectSummaryCards";
+import { RepositoryOverviewPage } from "../../repositories/RepositoryOverviewPage";
 import { ProjectOverviewTableAndDetailSection } from "../sections/ProjectOverviewTableAndDetailSection";
 import type {
   BossDrilldownContext,
@@ -29,6 +30,7 @@ type ProjectOverviewDashboardPageProps = {
   activeDrilldownTaskSample: BossProjectLatestTask | null;
   onProjectCreated: (projectId: string) => void;
   onSelectProjectIntoDetail: (projectId: string) => void;
+  onNavigateToRepositoryWorkspace: () => void;
   onNavigateToStrategyPreview: (context: BossDrilldownContext) => void;
   onNavigateToProjectLatestRun: (context: BossDrilldownContext) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
@@ -112,6 +114,14 @@ export function ProjectOverviewDashboardPage(
         isProjectDetailLoading={props.isProjectDetailLoading}
         projectDetailErrorMessage={props.projectDetailErrorMessage}
         onCreateProjectDraft={handleOpenCreateFlow}
+        onNavigateToRepositoryWorkspace={props.onNavigateToRepositoryWorkspace}
+      />
+
+      <RepositoryOverviewPage
+        project={props.selectedProject}
+        detail={props.selectedProjectDetail}
+        isLoading={props.isProjectDetailLoading}
+        errorMessage={props.projectDetailErrorMessage}
       />
     </div>
   );

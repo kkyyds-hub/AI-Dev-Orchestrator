@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { StatusBadge } from "../../components/StatusBadge";
 import { requestJson } from "../../lib/http";
 import { formatDateTime } from "../../lib/format";
 import { useBossProjectOverview } from "../projects/hooks";
+import { buildProjectOverviewHash } from "../projects/lib/overviewNavigation";
 import type { RepositoryWorkspace } from "../projects/types";
 
 type ProviderSource = "saved_config" | "env" | "none";
@@ -232,6 +233,7 @@ function ModelConfigurationSection() {
 }
 
 function RepositoryBindingSection() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const overviewQuery = useBossProjectOverview({ enablePolling: false });
@@ -290,7 +292,7 @@ function RepositoryBindingSection() {
   const bindMutation = useMutation({
     mutationFn: bindProjectRepository,
     onSuccess: async (workspace) => {
-      setFeedback("主仓库绑定已保存。现在可以回到项目详情，继续刷新目录快照和文件定位。");
+      setFeedback("主仓库绑定已保存，正在回到仓库工作区。");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["boss-project-overview"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
@@ -298,6 +300,12 @@ function RepositoryBindingSection() {
           queryKey: ["project-detail", workspace.project_id],
         }),
       ]);
+      navigate(
+        `/projects/${encodeURIComponent(workspace.project_id)}${buildProjectOverviewHash({
+          view: "overview",
+          targetId: "repository-workspace",
+        })}`,
+      );
     },
   });
 
@@ -445,10 +453,15 @@ function RepositoryBindingSection() {
                   {bindMutation.isPending ? "保存中..." : "保存主仓库绑定"}
                 </button>
                 <Link
-                  to={`/projects/${selectedProject.id}`}
+                  to={`/projects/${encodeURIComponent(
+                    selectedProject.id,
+                  )}${buildProjectOverviewHash({
+                    view: "overview",
+                    targetId: "repository-workspace",
+                  })}`}
                   className="rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
                 >
-                  回到项目详情
+                  回到仓库工作区
                 </Link>
                 {feedback ? (
                   <span className="text-sm leading-6 text-zinc-400">{feedback}</span>

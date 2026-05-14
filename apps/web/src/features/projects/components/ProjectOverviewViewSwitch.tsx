@@ -33,6 +33,9 @@ export function ProjectOverviewViewSwitch(props: ProjectOverviewViewSwitchProps)
         onSelectProjectIntoDetail={(projectId) =>
           controller.handleSelectProject(projectId, { scrollIntoDetail: true })
         }
+        onNavigateToRepositoryWorkspace={() =>
+          controller.navigateToOverviewSection("repository-workspace")
+        }
         onNavigateToStrategyPreview={controller.navigateToStrategyPreview}
         onNavigateToProjectLatestRun={controller.navigateToProjectLatestRun}
         onNavigateToTask={props.onNavigateToTask}

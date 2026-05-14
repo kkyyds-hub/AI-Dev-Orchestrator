@@ -71,14 +71,21 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
   );
 
   return (
-    <section className="space-y-5 border-l border-[#333333] pl-4">
+    <section
+      id="repository-workspace"
+      data-testid="repository-workspace"
+      className="scroll-mt-24 space-y-5 border-l border-[#333333] pl-4"
+    >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            仓库入口摘要
+            仓库工作区
           </div>
+          <h2 className="mt-2 text-xl font-semibold text-zinc-100">
+            仓库工作区（仓库页）
+          </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            这里把主仓库绑定、最新目录快照与当前变更会话收束成一段可读摘要。进入变更批次或提交草案前，
+            这里就是项目的仓库页：主仓库绑定、最新目录快照、文件定位、变更批次和提交草案都从这里收口。进入变更批次或提交草案前，
             先在这一屏确认仓库根目录、扫描状态、忽略规则和语言分布，避免把上下文判断分散到多个入口。
           </p>
         </div>
