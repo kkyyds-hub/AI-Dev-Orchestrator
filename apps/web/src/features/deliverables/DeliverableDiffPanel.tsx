@@ -49,14 +49,14 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
 
   if (versions.length < 2) {
     return (
-      <section className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 p-5 text-sm leading-6 text-slate-400">
+      <section className="border border-dashed border-[#3a3a3a] px-4 py-6 text-sm leading-6 text-slate-400">
         当前交付件只有一个版本，至少需要两个版本后才能进行对比。
       </section>
     );
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -77,7 +77,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
             setBaseVersionNumber(targetVersion?.version_number ?? null);
             setTargetVersionNumber(baseVersion?.version_number ?? null);
           }}
-          className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500 hover:text-slate-50"
+          className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-200 transition hover:bg-[#292929] hover:text-slate-50"
         >
           交换基线 / 目标版本
         </button>
@@ -91,7 +91,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
           <select
             value={baseVersionNumber ?? ""}
             onChange={(event) => setBaseVersionNumber(Number(event.target.value))}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+            className="w-full rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
           >
             {versions.map((version) => (
               <option key={version.id} value={version.version_number}>
@@ -108,7 +108,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
           <select
             value={targetVersionNumber ?? ""}
             onChange={(event) => setTargetVersionNumber(Number(event.target.value))}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+            className="w-full rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
           >
             {versions.map((version) => (
               <option key={version.id} value={version.version_number}>
@@ -165,8 +165,8 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
             ) : null}
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80">
-            <div className="grid grid-cols-[72px_72px_36px_minmax(0,1fr)] gap-3 border-b border-slate-800 px-4 py-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+          <div className="border-y border-[#333333]">
+            <div className="grid grid-cols-[72px_72px_36px_minmax(0,1fr)] gap-3 border-b border-[#333333] px-0 py-3 text-xs uppercase tracking-[0.18em] text-slate-500">
               <span>Base</span>
               <span>Target</span>
               <span>Diff</span>
@@ -178,12 +178,12 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
                 diffQuery.data.diff_lines.map((line, index) => (
                   <div
                     key={`${line.kind}-${index}-${line.base_line_number ?? "x"}-${line.target_line_number ?? "y"}`}
-                    className={`grid grid-cols-[72px_72px_36px_minmax(0,1fr)] gap-3 px-4 py-2 font-mono text-sm ${
+                    className={`grid grid-cols-[72px_72px_36px_minmax(0,1fr)] gap-3 border-b border-[#252525] px-0 py-2 font-mono text-sm ${
                       line.kind === "added"
-                        ? "bg-emerald-500/10 text-emerald-100"
+                        ? "text-emerald-100"
                         : line.kind === "removed"
-                          ? "bg-rose-500/10 text-rose-100"
-                          : "bg-slate-950/20 text-slate-300"
+                          ? "text-rose-100"
+                          : "text-slate-300"
                     }`}
                   >
                     <span className="text-slate-500">
@@ -219,7 +219,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
 
 function MiniStat(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
         {props.label}
       </div>
