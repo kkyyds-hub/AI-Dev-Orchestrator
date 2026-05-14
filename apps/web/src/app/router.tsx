@@ -10,6 +10,7 @@ import { ProjectCollaborationRoutePage } from "../pages/projects/ProjectCollabor
 import { ProjectOverviewRoutePage } from "../pages/projects/ProjectOverviewRoutePage";
 import { ProjectDeliverablesRoutePage } from "../pages/projects/ProjectDeliverablesRoutePage";
 import { ProjectGovernanceRoutePage } from "../pages/projects/ProjectGovernanceRoutePage";
+import { ProjectRepositoryRoutePage } from "../pages/projects/ProjectRepositoryRoutePage";
 import { ProjectTimelineRoutePage } from "../pages/projects/ProjectTimelineRoutePage";
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
@@ -38,6 +39,10 @@ export const router = createBrowserRouter([
       {
         path: "projects/:projectId",
         element: <ProjectOverviewRoutePage />,
+      },
+      {
+        path: "projects/:projectId/repository",
+        element: <ProjectRepositoryRoutePage />,
       },
       {
         path: "projects/:projectId/timeline",

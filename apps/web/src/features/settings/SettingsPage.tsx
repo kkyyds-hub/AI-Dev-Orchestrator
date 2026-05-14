@@ -6,7 +6,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { requestJson } from "../../lib/http";
 import { formatDateTime } from "../../lib/format";
 import { useBossProjectOverview } from "../projects/hooks";
-import { buildProjectOverviewHash } from "../projects/lib/overviewNavigation";
+import { buildProjectOverviewRoute } from "../projects/lib/overviewNavigation";
 import type { RepositoryWorkspace } from "../projects/types";
 
 type ProviderSource = "saved_config" | "env" | "none";
@@ -301,10 +301,10 @@ function RepositoryBindingSection() {
         }),
       ]);
       navigate(
-        `/projects/${encodeURIComponent(workspace.project_id)}${buildProjectOverviewHash({
-          view: "overview",
-          targetId: "repository-workspace",
-        })}`,
+        buildProjectOverviewRoute({
+          projectId: workspace.project_id,
+          view: "repository-workspace",
+        }),
       );
     },
   });
@@ -453,12 +453,10 @@ function RepositoryBindingSection() {
                   {bindMutation.isPending ? "保存中..." : "保存主仓库绑定"}
                 </button>
                 <Link
-                  to={`/projects/${encodeURIComponent(
-                    selectedProject.id,
-                  )}${buildProjectOverviewHash({
-                    view: "overview",
-                    targetId: "repository-workspace",
-                  })}`}
+                  to={buildProjectOverviewRoute({
+                    projectId: selectedProject.id,
+                    view: "repository-workspace",
+                  })}
                   className="rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
                 >
                   回到仓库工作区

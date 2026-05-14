@@ -1,5 +1,6 @@
 export type ProjectOverviewPageView =
   | "overview"
+  | "repository-workspace"
   | "timeline-retrospective"
   | "collaboration-control"
   | "memory-role-governance"
@@ -7,6 +8,7 @@ export type ProjectOverviewPageView =
   | "approval-inbox";
 
 export type ProjectOverviewRouteSegment =
+  | "repository"
   | "timeline"
   | "collaboration"
   | "governance"
@@ -22,6 +24,7 @@ export type ProjectOverviewNavigationItem = {
 
 const PROJECT_OVERVIEW_VIEWS: readonly ProjectOverviewPageView[] = [
   "overview",
+  "repository-workspace",
   "timeline-retrospective",
   "collaboration-control",
   "memory-role-governance",
@@ -32,6 +35,7 @@ const PROJECT_OVERVIEW_VIEWS: readonly ProjectOverviewPageView[] = [
 const PROJECT_OVERVIEW_ROUTE_SEGMENT_BY_VIEW: Readonly<
   Partial<Record<ProjectOverviewPageView, ProjectOverviewRouteSegment>>
 > = {
+  "repository-workspace": "repository",
   "timeline-retrospective": "timeline",
   "collaboration-control": "collaboration",
   "memory-role-governance": "governance",
@@ -42,6 +46,7 @@ const PROJECT_OVERVIEW_ROUTE_SEGMENT_BY_VIEW: Readonly<
 const PROJECT_OVERVIEW_VIEW_BY_ROUTE_SEGMENT: Readonly<
   Record<ProjectOverviewRouteSegment, Exclude<ProjectOverviewPageView, "overview">>
 > = {
+  repository: "repository-workspace",
   timeline: "timeline-retrospective",
   collaboration: "collaboration-control",
   governance: "memory-role-governance",
@@ -59,6 +64,10 @@ const LEGACY_PROJECT_OVERVIEW_HASH_COMPAT: Readonly<
   "#timeline-retrospective": {
     view: "timeline-retrospective",
     targetId: "timeline-retrospective",
+  },
+  "#repository-workspace": {
+    view: "repository-workspace",
+    targetId: "repository-workspace",
   },
   "#collaboration-control": {
     view: "collaboration-control",
@@ -79,6 +88,10 @@ const LEGACY_PROJECT_OVERVIEW_HASH_COMPAT: Readonly<
   "#project-overview-view-timeline-retrospective": {
     view: "timeline-retrospective",
     targetId: "timeline-retrospective",
+  },
+  "#project-overview-view-repository-workspace": {
+    view: "repository-workspace",
+    targetId: "repository-workspace",
   },
   "#project-overview-view-collaboration-control": {
     view: "collaboration-control",
@@ -104,7 +117,13 @@ export const PROJECT_OVERVIEW_NAVIGATION_ITEMS: readonly ProjectOverviewNavigati
       view: "overview",
       id: "overview",
       label: "总览",
-      description: "项目组合、创建入口、仓库上下文与当前项目详情。",
+      description: "项目组合、创建入口、轻量仓库摘要与当前项目详情。",
+    },
+    {
+      view: "repository-workspace",
+      id: "repository-workspace",
+      label: "仓库",
+      description: "目录快照、变更会话、文件定位、变更计划、验证与提交草案。",
     },
     {
       view: "timeline-retrospective",

@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from "react";
 
 import { ProjectCreateFlow } from "../ProjectCreateFlow";
 import { ProjectSummaryCards } from "../components/ProjectSummaryCards";
-import { RepositoryOverviewPage } from "../../repositories/RepositoryOverviewPage";
 import { ProjectOverviewTableAndDetailSection } from "../sections/ProjectOverviewTableAndDetailSection";
 import type {
   BossDrilldownContext,
@@ -117,12 +116,6 @@ export function ProjectOverviewDashboardPage(
         onNavigateToRepositoryWorkspace={props.onNavigateToRepositoryWorkspace}
       />
 
-      <RepositoryOverviewPage
-        project={props.selectedProject}
-        detail={props.selectedProjectDetail}
-        isLoading={props.isProjectDetailLoading}
-        errorMessage={props.projectDetailErrorMessage}
-      />
     </div>
   );
 }

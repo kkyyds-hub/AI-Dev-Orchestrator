@@ -1,4 +1,3 @@
-import { RepositoryOverviewPage as ProjectRepositoryOverviewPage } from "../../repositories/RepositoryOverviewPage";
 import { RoleFlowPanel } from "../../roles/RoleFlowPanel";
 import { StrategyDecisionPanel } from "../../strategy/StrategyDecisionPanel";
 import { StrategyRuleEditor } from "../../strategy/StrategyRuleEditor";
@@ -109,25 +108,18 @@ export function ProjectDetailSection(props: {
           </div>
           <button
             type="button"
-            onClick={() =>
-              document.getElementById("repository-workspace")?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              })
-            }
+            onClick={() => {
+              if (projectId) {
+                window.location.href = `/projects/${encodeURIComponent(projectId)}/repository`;
+              }
+            }}
+            disabled={!projectId}
             className="inline-flex items-center justify-center rounded border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
           >
             {repositoryWorkspace ? "进入仓库工作区" : "进入仓库工作区并绑定"}
           </button>
         </div>
       </section>
-
-      <ProjectRepositoryOverviewPage
-        project={props.project}
-        detail={props.detail}
-        isLoading={props.isLoading}
-        errorMessage={props.errorMessage}
-      />
 
       <ProjectStageTimeline
         detail={props.detail}

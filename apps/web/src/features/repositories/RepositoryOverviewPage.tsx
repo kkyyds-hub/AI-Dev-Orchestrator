@@ -106,6 +106,30 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
         </button>
       </div>
 
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <div className="border-l border-cyan-400/40 bg-cyan-500/10 px-4 py-4">
+          <div className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">
+            这个工作区用来做什么
+          </div>
+          <p className="mt-3 text-sm leading-6 text-cyan-50/90">
+            仓库工作区不是配置页，也不是项目总览。它承接“已经选中一个项目之后”的代码上下文工作：
+            先确认主仓库与目录快照，再记录当前变更会话，随后定位相关文件、生成变更计划、执行验证，
+            最后整理提交草案。设置页只负责连接与绑定；真实的仓库工作流在这里推进。
+          </p>
+        </div>
+
+        <div className="border border-[#333333] px-4 py-4">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            首次使用步骤
+          </div>
+          <ol className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
+            <li>1. 如果尚未绑定主仓库，先点击下方入口去设置页绑定。</li>
+            <li>2. 回到本页后刷新目录快照，确认扫描状态与忽略规则。</li>
+            <li>3. 记录变更会话，再使用文件定位和变更计划进入后续验证、提交草案。</li>
+          </ol>
+        </div>
+      </section>
+
       {props.isLoading && !props.detail ? (
         <p className="text-sm leading-6 text-zinc-500">
           正在加载项目仓库信息...

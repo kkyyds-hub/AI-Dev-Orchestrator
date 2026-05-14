@@ -73,6 +73,11 @@ const PROJECT_ROUTE_META_BY_SEGMENT: Record<
   string,
   Pick<RouteMeta, "title" | "description"> & { breadcrumb: string }
 > = {
+  repository: {
+    title: "项目仓库工作区",
+    description: "集中处理目录快照、变更会话、文件定位、变更计划、验证与提交草案。",
+    breadcrumb: "仓库工作区",
+  },
   timeline: {
     title: "项目时间线与复盘",
     description: "独立查看项目时间线、审批回退重做与复盘收口上下文。",

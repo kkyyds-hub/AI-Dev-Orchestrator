@@ -1,5 +1,6 @@
 import { ApprovalInboxPage } from "../../approvals/ApprovalInboxPage";
 import { DeliverableCenterPage } from "../../deliverables/DeliverableCenterPage";
+import { RepositoryOverviewPage } from "../../repositories/RepositoryOverviewPage";
 import { ProjectCollaborationControlPage } from "../pages/ProjectCollaborationControlPage";
 import { ProjectMemoryRoleGovernancePage } from "../pages/ProjectMemoryRoleGovernancePage";
 import { ProjectOverviewDashboardPage } from "../pages/ProjectOverviewDashboardPage";
@@ -34,7 +35,10 @@ export function ProjectOverviewViewSwitch(props: ProjectOverviewViewSwitchProps)
           controller.handleSelectProject(projectId, { scrollIntoDetail: true })
         }
         onNavigateToRepositoryWorkspace={() =>
-          controller.navigateToOverviewSection("repository-workspace")
+          controller.navigateToOverviewPage(
+            "repository-workspace",
+            "repository-workspace",
+          )
         }
         onNavigateToStrategyPreview={controller.navigateToStrategyPreview}
         onNavigateToProjectLatestRun={controller.navigateToProjectLatestRun}
@@ -63,6 +67,28 @@ export function ProjectOverviewViewSwitch(props: ProjectOverviewViewSwitchProps)
         onNavigateToDeliverable={controller.handleNavigateToDeliverable}
         onNavigateToApproval={controller.handleNavigateToApproval}
       />
+    );
+  }
+
+  if (props.activeView === "repository-workspace") {
+    return (
+      <div
+        id="project-overview-view-repository-workspace"
+        data-testid="project-overview-view-repository-workspace"
+      >
+        <RepositoryOverviewPage
+          project={controller.selectedProject}
+          detail={controller.selectedProjectDetail}
+          isLoading={
+            controller.projectDetailQuery.isLoading && !controller.selectedProjectDetail
+          }
+          errorMessage={
+            controller.projectDetailQuery.isError
+              ? controller.projectDetailQuery.error.message
+              : null
+          }
+        />
+      </div>
     );
   }
 
