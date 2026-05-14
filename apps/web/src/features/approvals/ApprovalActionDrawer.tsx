@@ -52,7 +52,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
   const selectedActionDescription = useMemo(() => {
     switch (selectedAction) {
       case "approve":
-        return "确认该版本可以通过老板闸门并允许后续阶段继续推进。";
+        return "确认该版本可以通过审批并允许后续阶段继续推进。";
       case "reject":
         return "明确驳回当前版本，要求下游先处理结论后再继续。";
       case "request_changes":
@@ -105,7 +105,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
         onClick={props.onClose}
       />
 
-      <aside className="flex h-full w-full max-w-3xl flex-col border-l border-[#333333] bg-[#111111] shadow-2xl shadow-black/60">
+      <aside className="flex h-full w-full max-w-3xl flex-col border-l border-[#333333] bg-[#111111]">
         <header className="border-b border-[#333333] px-6 py-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
