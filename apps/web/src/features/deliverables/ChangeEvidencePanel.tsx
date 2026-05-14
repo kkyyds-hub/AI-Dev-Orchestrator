@@ -47,15 +47,15 @@ export function ChangeEvidencePanel(props: ChangeEvidencePanelProps) {
   const evidence = activeQuery.data ?? null;
 
   return (
-    <section className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="space-y-5 border-b border-[#333333] pb-5">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-cyan-300">
-            V4 Day11 Acceptance Evidence
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            交付件 / 证据包
           </div>
-          <h4 className="mt-2 text-lg font-semibold text-slate-50">代码差异验收证据包</h4>
+          <h4 className="mt-2 text-lg font-semibold text-slate-50">交付件证据包</h4>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            围绕当前交付件或审批项，汇总仓库差异摘要、变更计划、验证记录、交付件引用和审批上下文，供老板直接验收。
+            围绕当前交付件或审批项，汇总差异摘要、变更计划、验证结果、交付件引用和审批上下文，方便团队统一验收。
           </p>
         </div>
 
@@ -71,16 +71,16 @@ export function ChangeEvidencePanel(props: ChangeEvidencePanelProps) {
       </header>
 
       {!props.deliverableId && !props.approvalId ? (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/50 px-4 py-8 text-center text-sm text-slate-400">
-          先选择交付件或审批项，再查看 Day11 验收证据包。
+        <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
+          先选择交付件或审批项，再查看对应证据包。
         </div>
       ) : activeQuery.isLoading && !evidence ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-8 text-center text-sm text-slate-400">
-          正在汇总代码差异摘要与验收证据包...
+        <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
+          正在汇总差异摘要与证据包...
         </div>
       ) : activeQuery.isError ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-8 text-center text-sm text-rose-100">
-          验收证据包加载失败：{activeQuery.error.message}
+        <div className="border-l border-rose-500/50 px-4 py-8 text-sm text-rose-100">
+          证据包加载失败：{activeQuery.error.message}
         </div>
       ) : evidence ? (
         <EvidenceContent evidence={evidence} />
@@ -94,7 +94,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
 
   return (
     <>
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+      <section className="border-b border-[#333333] pb-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -127,7 +127,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
         </div>
 
         {evidence.diff_summary.note ? (
-          <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+          <div className="mt-4 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
             {evidence.diff_summary.note}
           </div>
         ) : null}
@@ -157,15 +157,15 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
 
       <SectionCard
         title="关键差异文件"
-        description="优先展示与 ChangeBatch 计划直接相关、或被删除 / 未跟踪的关键文件。"
+        description="优先展示与本轮变更计划直接相关、或被删除 / 未跟踪的关键文件。"
         badge={`${evidence.diff_summary.key_files.length} 项`}
       >
         {evidence.diff_summary.key_files.length > 0 ? (
-          <div className="space-y-3">
+          <div className="divide-y divide-[#333333] border-y border-[#333333]">
             {evidence.diff_summary.key_files.map((file) => (
               <div
                 key={file.relative_path}
-                className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+                className="px-0 py-4"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="text-sm text-slate-100">{file.relative_path}</code>
@@ -203,15 +203,15 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
 
       <SectionCard
         title="变更计划引用"
-        description="收口到本轮 ChangeBatch 的 ChangePlan 快照，避免把 Day12+ 的回退重做链路提前并入。"
+        description="收口到本轮变更计划快照，避免把后续补充记录提前并入。"
         badge={`${evidence.plan_items.length} 项`}
       >
         {evidence.plan_items.length > 0 ? (
-          <div className="space-y-3">
+          <div className="divide-y divide-[#333333] border-y border-[#333333]">
             {evidence.plan_items.map((item) => (
               <div
                 key={item.change_plan_id}
-                className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+                className="px-0 py-4"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="text-sm font-medium text-slate-50">
@@ -245,7 +245,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
 
       <SectionCard
         title="验证结果摘要"
-        description="沿用 Day10 的 VerificationRun，按批次聚合通过 / 失败 / 跳过结果。"
+        description="按批次聚合通过、失败、跳过结果，作为本次交付的验证依据。"
         badge={`${evidence.verification_summary.total_runs} 条`}
       >
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -272,11 +272,11 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
         </div>
 
         {evidence.verification_summary.runs.length > 0 ? (
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
             {evidence.verification_summary.runs.map((run) => (
               <div
                 key={run.verification_run_id}
-                className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+                className="px-0 py-4"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="text-sm font-medium text-slate-50">
@@ -301,7 +301,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                   <span>结束：{formatDateTime(run.finished_at)}</span>
                   {run.failure_category ? <span>归因：{run.failure_category}</span> : null}
                 </div>
-                <code className="mt-3 block overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
+                <code className="mt-3 block overflow-x-auto border border-[#333333] px-3 py-2 text-xs text-slate-300">
                   {run.command}
                 </code>
               </div>
@@ -319,7 +319,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
           badge={`${evidence.deliverables.length} 项`}
         >
           {evidence.deliverables.length > 0 ? (
-            <div className="space-y-3">
+            <div className="divide-y divide-[#333333] border-y border-[#333333]">
               {evidence.deliverables.map((deliverable) => (
                 <DeliverableReferenceCard
                   key={deliverable.deliverable_id}
@@ -338,7 +338,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
           badge={`${evidence.approvals.length} 项`}
         >
           {evidence.approvals.length > 0 ? (
-            <div className="space-y-3">
+            <div className="divide-y divide-[#333333] border-y border-[#333333]">
               {evidence.approvals.map((approval) => (
                 <ApprovalReferenceCard
                   key={approval.approval_id}
@@ -354,18 +354,18 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
 
       <SectionCard
         title="版本快照"
-        description="同一批次下保留 ChangeBatch、交付件版本、审批节点和验证结果的时间序列，便于审批前后对比。"
+        description="保留本轮变更、交付件版本、审批节点和验证结果的时间序列，便于前后对比。"
         badge={`${evidence.snapshots.length} 条`}
       >
         {evidence.snapshots.length > 0 ? (
-          <div className="space-y-3">
+          <div className="divide-y divide-[#333333] border-y border-[#333333]">
             {evidence.snapshots.map((snapshot) => (
               <div
                 key={snapshot.snapshot_id}
-                className={`rounded-2xl border px-4 py-4 ${
+                className={`border-l px-4 py-4 ${
                   snapshot.selected
-                    ? "border-cyan-400/40 bg-cyan-500/10"
-                    : "border-slate-800 bg-slate-950/60"
+                    ? "border-zinc-300"
+                    : "border-transparent"
                 }`}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -400,10 +400,10 @@ function DeliverableReferenceCard(props: {
 
   return (
     <div
-      className={`rounded-2xl border px-4 py-4 ${
+      className={`border-l px-4 py-4 ${
         deliverable.selected
-          ? "border-cyan-400/40 bg-cyan-500/10"
-          : "border-slate-800 bg-slate-950/60"
+          ? "border-zinc-300"
+          : "border-transparent"
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -444,10 +444,10 @@ function ApprovalReferenceCard(props: {
 
   return (
     <div
-      className={`rounded-2xl border px-4 py-4 ${
+      className={`border-l px-4 py-4 ${
         approval.selected
-          ? "border-cyan-400/40 bg-cyan-500/10"
-          : "border-slate-800 bg-slate-950/60"
+          ? "border-zinc-300"
+          : "border-transparent"
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -492,7 +492,7 @@ function SectionCard(props: {
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h5 className="text-base font-semibold text-slate-50">{props.title}</h5>
@@ -523,7 +523,7 @@ function TagGroup(props: {
         {props.values.map((value) => (
           <span
             key={`${props.title}-${value}`}
-            className={`rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-300 ${
+            className={`border border-[#333333] px-3 py-2 text-xs text-slate-300 ${
               props.mono ? "font-mono" : ""
             }`}
           >
@@ -541,7 +541,7 @@ function EmptyText(props: { text: string }) {
 
 function MiniInfo(props: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
         {props.label}
       </div>
