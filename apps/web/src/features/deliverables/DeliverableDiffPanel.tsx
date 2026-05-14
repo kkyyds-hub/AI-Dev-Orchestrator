@@ -86,7 +86,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <label className="block">
           <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
-            Base Version
+            基线版本
           </div>
           <select
             value={baseVersionNumber ?? ""}
@@ -103,7 +103,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
 
         <label className="block">
           <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
-            Target Version
+            目标版本
           </div>
           <select
             value={targetVersionNumber ?? ""}
@@ -155,9 +155,9 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <StatusBadge label={`base v${diffQuery.data.base_version.version_number}`} tone="warning" />
+            <StatusBadge label={`基线 v${diffQuery.data.base_version.version_number}`} tone="warning" />
             <StatusBadge
-              label={`target v${diffQuery.data.target_version.version_number}`}
+              label={`目标 v${diffQuery.data.target_version.version_number}`}
               tone="success"
             />
             {diffQuery.data.format_changed ? (
@@ -167,10 +167,10 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
 
           <div className="border-y border-[#333333]">
             <div className="grid grid-cols-[72px_72px_36px_minmax(0,1fr)] gap-3 border-b border-[#333333] px-0 py-3 text-xs uppercase tracking-[0.18em] text-slate-500">
-              <span>Base</span>
-              <span>Target</span>
-              <span>Diff</span>
-              <span>Content</span>
+              <span>基线行</span>
+              <span>目标行</span>
+              <span>差异</span>
+              <span>内容</span>
             </div>
 
             <div className="max-h-[28rem] overflow-auto">
