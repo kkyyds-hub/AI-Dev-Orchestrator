@@ -93,6 +93,8 @@ export function ProjectDetailSection(props: {
 
       <ProjectProgressRiskSummary project={props.project} />
 
+      <ProjectSettingsEntryPanel project={props.project} detail={props.detail} />
+
       <ProjectRepositoryOverviewPage
         project={props.project}
         detail={props.detail}
@@ -127,7 +129,6 @@ export function ProjectDetailSection(props: {
       />
 
       <StrategyRuleEditor projectId={projectId} />
-      <ProjectSettingsEntryPanel project={props.project} detail={props.detail} />
 
       <ProjectLatestTaskPreview
         latestTask={runtimeTaskSample}

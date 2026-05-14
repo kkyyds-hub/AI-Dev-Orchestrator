@@ -124,6 +124,14 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             snapshot={latestSnapshot}
             changeSession={activeChangeSession}
             title="首页仓库状态"
+            actionLabel={!workspace && projectId ? "去设置绑定主仓库" : undefined}
+            onAction={
+              !workspace && projectId
+                ? () => {
+                    window.location.href = `/settings?projectId=${projectId}#repository-binding`;
+                  }
+                : undefined
+            }
             variant="full"
           />
         </div>

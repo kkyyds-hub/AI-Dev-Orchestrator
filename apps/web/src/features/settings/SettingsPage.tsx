@@ -236,9 +236,13 @@ function RepositoryBindingSection() {
   const queryClient = useQueryClient();
   const overviewQuery = useBossProjectOverview({ enablePolling: false });
   const projects = overviewQuery.data?.projects ?? [];
-  const initialProjectId = searchParams.get("projectId") ?? "";
-  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
+  const requestedProjectId = searchParams.get("projectId") ?? "";
+  const [selectedProjectId, setSelectedProjectId] = useState(requestedProjectId);
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+  const hasInvalidRequestedProject =
+    requestedProjectId.length > 0 &&
+    projects.length > 0 &&
+    !projects.some((project) => project.id === requestedProjectId);
   const [rootPathInput, setRootPathInput] = useState("");
   const [displayNameInput, setDisplayNameInput] = useState("");
   const [baseBranchInput, setBaseBranchInput] = useState("main");
@@ -246,11 +250,25 @@ function RepositoryBindingSection() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    if (selectedProjectId || projects.length === 0) {
+    if (projects.length === 0) {
       return;
     }
-    setSelectedProjectId(projects[0].id);
-  }, [projects, selectedProjectId]);
+
+    const selectedProjectExists = projects.some(
+      (project) => project.id === selectedProjectId,
+    );
+    if (selectedProjectExists) {
+      return;
+    }
+
+    const fallbackProject =
+      projects.find((project) => project.repository_workspace === null) ?? projects[0];
+    setSelectedProjectId(fallbackProject.id);
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.set("projectId", fallbackProject.id);
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [projects, searchParams, selectedProjectId, setSearchParams]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -272,7 +290,7 @@ function RepositoryBindingSection() {
   const bindMutation = useMutation({
     mutationFn: bindProjectRepository,
     onSuccess: async (workspace) => {
-      setFeedback("主仓库绑定已保存。");
+      setFeedback("主仓库绑定已保存。现在可以回到项目详情，继续刷新目录快照和文件定位。");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["boss-project-overview"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
@@ -334,6 +352,12 @@ function RepositoryBindingSection() {
           tone={selectedProject?.repository_workspace ? "success" : "warning"}
         />
       </div>
+
+      {hasInvalidRequestedProject ? (
+        <div className="mt-4 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
+          链接里的项目不存在或已不可用，已自动切换到一个待绑定项目；如果不是你要配置的项目，请在下方重新选择。
+        </div>
+      ) : null}
 
       {overviewQuery.isLoading ? (
         <p className="mt-4 text-sm leading-6 text-zinc-500">正在加载项目列表...</p>
@@ -431,7 +455,7 @@ function RepositoryBindingSection() {
                 ) : null}
                 {bindMutation.isError ? (
                   <span className="text-sm leading-6 text-rose-100">
-                    保存失败：{bindMutation.error.message}
+                    {buildRepositoryBindingErrorMessage(bindMutation.error)}
                   </span>
                 ) : null}
               </div>
@@ -480,6 +504,23 @@ function parseLines(value: string) {
         .filter(Boolean),
     ),
   );
+}
+
+function buildRepositoryBindingErrorMessage(error: Error) {
+  const message = error.message;
+  if (message.includes("exceeds the configured allowed workspace root")) {
+    return "保存失败：仓库路径不在允许的工作区根目录内。请复制设置页提示的允许工作区根，并选择它下面的真实仓库目录。";
+  }
+  if (message.includes("does not exist")) {
+    return "保存失败：这个仓库路径不存在。请确认路径拼写正确，并且该目录已经在本机创建。";
+  }
+  if (message.includes("must be a directory")) {
+    return "保存失败：填写的路径不是目录。请选择项目主仓库所在的文件夹。";
+  }
+  if (message.includes("does not look like a Git repository")) {
+    return "保存失败：这个目录不像 Git 仓库。请确认目录内存在 .git，或先完成仓库初始化。";
+  }
+  return `保存失败：${message}`;
 }
 
 function formatMaskedKey(value: unknown) {
