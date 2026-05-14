@@ -37,7 +37,7 @@ export function RepositoryHomeCard(props: RepositoryHomeCardProps) {
       className={`${
         isFlat
           ? "py-4 first:pt-0 last:pb-0"
-          : "rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl shadow-slate-950/20"
+          : "border-l border-[#333333] px-4 py-1"
       } ${props.className ?? ""}`}
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -108,17 +108,16 @@ export function RepositoryHomeCard(props: RepositoryHomeCardProps) {
           className={
             isFlat
               ? "mt-4 border-l-2 border-l-[#555555] py-2 pl-4 text-sm leading-6 text-zinc-400"
-              : "mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-5 text-sm leading-6 text-zinc-400"
+              : "mt-4 border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-400"
           }
         >
-          下一步：先为项目绑定主仓库入口，再生成 Day02 目录快照并记录 Day03
-          变更会话；Day04 只把这三类摘要整合到老板入口和项目详情，不扩展到文件级编辑或真实
-          Git 写操作。
+          下一步：先为项目绑定主仓库入口，再生成目录快照并记录变更会话。这里仅展示仓库准备状态，
+          不承诺文件级编辑或真实 Git 写操作。
         </div>
       )}
 
       {variant === "full" && props.snapshot?.status === "failed" && props.snapshot.scan_error ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           最近一次仓库快照刷新失败：{props.snapshot.scan_error}
         </div>
       ) : null}
@@ -137,7 +136,7 @@ function SummaryItem(props: {
       className={
         props.flat
           ? "border-l border-[#333333] px-4 py-2"
-          : "rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+          : "border-l border-[#333333] px-4 py-2"
       }
     >
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
@@ -160,18 +159,18 @@ function buildDescription(input: {
   changeSession: ChangeSession | null;
 }) {
   if (!input.workspace) {
-    return "当前项目尚未暴露仓库视角入口，因此老板页和项目详情页都只展示下一步绑定提示，而不会给出空白仓库区域。";
+    return "当前项目尚未绑定主仓库；首页只保留清晰的绑定提示，避免出现空白或误导性的仓库摘要。";
   }
 
   if (!input.snapshot) {
-    return "主仓库已绑定，但还没有 Day02 目录快照；可以在项目详情中手动刷新，以补齐目录结构和语言分布摘要。";
+    return "主仓库已绑定，但还没有目录快照；可以在项目详情中手动刷新，以补齐目录结构和语言分布摘要。";
   }
 
   if (!input.changeSession) {
-    return "主仓库已绑定且已有最新目录快照，但还没有 Day03 变更会话摘要；可在项目详情中记录当前分支、基线和工作区状态。";
+    return "主仓库已绑定且已有最新目录快照，但还没有变更会话摘要；可在项目详情中记录当前分支、基线和工作区状态。";
   }
 
-  return `当前仓库以 ${input.changeSession.current_branch} 为活跃分支，基线 ${input.changeSession.baseline_branch}，老板入口仅展示仓库准备状态摘要。`;
+  return `当前仓库以 ${input.changeSession.current_branch} 为活跃分支，基线 ${input.changeSession.baseline_branch}；首页仅收束仓库准备状态与最近一次扫描结果。`;
 }
 
 function buildSnapshotStatus(

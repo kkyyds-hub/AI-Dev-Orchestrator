@@ -71,20 +71,15 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
   );
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className="space-y-5 border-l border-[#333333] pl-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            仓库首页入口
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            仓库入口摘要
           </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-            Day04 把 Day01 的仓库绑定、Day02 的目录快照和 Day03
-            的变更会话整合到项目详情页；Day05 在此基础上新增最小文件定位与{" "}
-            <code>CodeContextPack</code>，Day06 再把任务、交付件与候选文件集合整理成
-            ChangePlan 草案；当前 Day07-Day10 已把多个草案合并成 ChangeBatch、补上执行前
-            风险分类与人工确认、冻结 build / test / lint / typecheck 命令基线，并沉淀结构化
-            <code>VerificationRun</code> 记录；Day11-Day13 再补齐差异证据包、回退重做链路
-            和提交草案修订历史，但仍不执行任何产品内真实 Git 写操作。
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
+            这里把主仓库绑定、最新目录快照与当前变更会话收束成一段可读摘要。进入变更批次或提交草案前，
+            先在这一屏确认仓库根目录、扫描状态、忽略规则和语言分布，避免把上下文判断分散到多个入口。
           </p>
         </div>
 
@@ -94,10 +89,10 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             void refreshMutation.mutateAsync();
           }}
           disabled={!workspace || refreshMutation.isPending}
-          className={`inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-medium transition ${
+          className={`inline-flex items-center justify-center rounded border px-4 py-2 text-sm font-medium transition ${
             !workspace || refreshMutation.isPending
-              ? "cursor-not-allowed border-slate-800 bg-slate-900 text-slate-500"
-              : "border-cyan-500/30 bg-cyan-500/10 text-cyan-100 hover:border-cyan-400/50 hover:bg-cyan-500/20"
+              ? "cursor-not-allowed border-[#333333] bg-transparent text-zinc-600"
+              : "border-[#4a4a4a] bg-transparent text-zinc-100 hover:border-zinc-500 hover:bg-[#292929]"
           }`}
         >
           {refreshMutation.isPending ? "正在刷新快照..." : "手动刷新快照"}
@@ -105,30 +100,30 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
       </div>
 
       {props.isLoading && !props.detail ? (
-        <p className="mt-4 text-sm leading-6 text-slate-400">
+        <p className="text-sm leading-6 text-zinc-500">
           正在加载项目仓库信息...
         </p>
       ) : null}
 
       {props.errorMessage ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+        <div className="border-l border-rose-500/50 px-4 py-3 text-sm text-rose-100">
           项目详情加载失败：{props.errorMessage}
         </div>
       ) : null}
 
       {refreshMutation.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+        <div className="border-l border-rose-500/50 px-4 py-3 text-sm text-rose-100">
           快照刷新失败：{refreshMutation.error.message}
         </div>
       ) : null}
 
       {!props.isLoading || props.project || props.detail ? (
-        <div className="mt-4">
+        <div>
           <RepositoryHomeCard
             workspace={workspace}
             snapshot={latestSnapshot}
             changeSession={activeChangeSession}
-            title="仓库首页摘要"
+            title="首页仓库状态"
             variant="full"
           />
         </div>
@@ -136,7 +131,7 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
 
       {workspace ? (
         <>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             <RepositoryFieldCard label="显示名" value={workspace.display_name} />
             <RepositoryFieldCard label="仓库根目录" value={workspace.root_path} />
             <RepositoryFieldCard
@@ -149,13 +144,13 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             />
           </div>
 
-          <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+          <div className="border-l border-[#333333] px-4 py-1">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
                 label={buildSnapshotStatusLabel(latestSnapshot)}
                 tone={mapSnapshotTone(latestSnapshot)}
               />
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-zinc-600">
                 最近扫描：{formatDateTime(latestSnapshot?.scanned_at ?? null)}
               </span>
             </div>
@@ -197,14 +192,14 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             </div>
 
             {latestSnapshot?.status === "failed" && latestSnapshot.scan_error ? (
-              <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+              <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
                 扫描失败：{latestSnapshot.scan_error}
               </div>
             ) : null}
 
             {latestSnapshot && latestSnapshot.language_breakdown.length > 0 ? (
               <div className="mt-4">
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
                   语言分布
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -218,7 +213,7 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
                 </div>
               </div>
             ) : (
-              <p className="mt-4 text-sm leading-6 text-slate-400">
+              <p className="mt-4 text-sm leading-6 text-zinc-500">
                 {latestSnapshot?.status === "failed"
                   ? "最近一次刷新失败，因此当前不展示语言分布摘要。"
                   : "还没有生成语言分布摘要；可点击上方按钮手动刷新。"}
@@ -254,13 +249,13 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
           </div>
 
           <div className="mt-4">
-            <div className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">
+            <div className="mb-3 text-xs uppercase tracking-[0.2em] text-zinc-600">
               目录快照
             </div>
             {latestSnapshot?.status === "success" ? (
               <RepositoryTreePanel nodes={latestSnapshot.tree} />
             ) : (
-              <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-6 text-sm leading-6 text-slate-400">
+              <div className="border-l border-dashed border-[#3a3a3a] px-4 py-4 text-sm leading-6 text-zinc-500">
                 {latestSnapshot
                   ? "最近一次扫描失败，目录快照已保留失败状态但不展开旧树摘要。"
                   : "尚未生成目录快照；点击“手动刷新快照”后可查看最新结构化摘要。"}
@@ -473,11 +468,11 @@ function RepositoryFieldCard(props: {
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
         {props.label}
       </div>
-      <div className="mt-2 break-all text-sm leading-6 text-slate-100">
+      <div className="mt-2 break-all text-sm leading-6 text-zinc-100">
         {props.value}
       </div>
     </div>
@@ -489,11 +484,11 @@ function RepositoryMetricCard(props: {
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
         {props.label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-100">
+      <div className="mt-2 text-sm font-medium text-zinc-100">
         {props.value}
       </div>
     </div>
