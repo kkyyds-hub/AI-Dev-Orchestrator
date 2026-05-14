@@ -14,6 +14,7 @@ import { ProjectTimelineRoutePage } from "../pages/projects/ProjectTimelineRoute
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { PlaceholderPage } from "../pages/shared/PlaceholderPage";
 import { RunsPage } from "../pages/runs/RunsPage";
+import { SettingsPage } from "../features/settings/SettingsPage";
 import { TasksPage } from "../pages/tasks/TasksPage";
 import { WorkbenchPage } from "../pages/workbench/WorkbenchPage";
 
@@ -108,13 +109,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "settings",
-        element: (
-          <PlaceholderPage
-            title="系统设置即将开放"
-            description="系统设置入口已经独立，后续会在这里承接环境配置、连接状态与平台级设置。"
-            nextStep="逐步把系统设置能力集中到统一入口，便于维护环境与平台参数。"
-          />
-        ),
+        element: <SettingsPage />,
       },
       {
         path: "*",

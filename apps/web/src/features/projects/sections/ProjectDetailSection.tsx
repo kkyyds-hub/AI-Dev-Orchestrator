@@ -3,12 +3,12 @@ import { RoleFlowPanel } from "../../roles/RoleFlowPanel";
 import { StrategyDecisionPanel } from "../../strategy/StrategyDecisionPanel";
 import { StrategyRuleEditor } from "../../strategy/StrategyRuleEditor";
 import { ProjectSopPanel } from "../ProjectSopPanel";
-import { ProviderSettingsPanel } from "../ProviderSettingsPanel";
 import { ProjectDetailHeader } from "../components/ProjectDetailHeader";
 import { ProjectDetailStatsGrid } from "../components/ProjectDetailStatsGrid";
 import { ProjectLatestTaskPreview } from "../components/ProjectLatestTaskPreview";
 import { ProjectMilestonePanel } from "../components/ProjectMilestonePanel";
 import { ProjectProgressRiskSummary } from "../components/ProjectProgressRiskSummary";
+import { ProjectSettingsEntryPanel } from "../components/ProjectSettingsEntryPanel";
 import { ProjectStageTimeline } from "../components/ProjectStageTimeline";
 import { ProjectTaskTree } from "../components/ProjectTaskTree";
 import type {
@@ -127,7 +127,7 @@ export function ProjectDetailSection(props: {
       />
 
       <StrategyRuleEditor projectId={projectId} />
-      <ProviderSettingsPanel />
+      <ProjectSettingsEntryPanel project={props.project} detail={props.detail} />
 
       <ProjectLatestTaskPreview
         latestTask={runtimeTaskSample}

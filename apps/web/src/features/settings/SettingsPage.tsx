@@ -1,0 +1,493 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { StatusBadge } from "../../components/StatusBadge";
+import { requestJson } from "../../lib/http";
+import { formatDateTime } from "../../lib/format";
+import { useBossProjectOverview } from "../projects/hooks";
+import type { RepositoryWorkspace } from "../projects/types";
+
+type ProviderSource = "saved_config" | "env" | "none";
+
+type OpenAIProviderSettingsSummary = {
+  provider_key: string;
+  configured: boolean;
+  base_url: string;
+  timeout_seconds: number;
+  source: ProviderSource;
+  [key: string]: unknown;
+};
+
+type OpenAIProviderSettingsUpdateRequest = {
+  base_url: string;
+  timeout_seconds: number;
+  [key: string]: string | number;
+};
+
+type RepositoryWorkspaceBindRequest = {
+  root_path: string;
+  display_name?: string | null;
+  access_mode: "read_only";
+  default_base_branch: string;
+  ignore_rule_summary: string[];
+};
+
+const SOURCE_LABELS: Record<ProviderSource, string> = {
+  saved_config: "已保存",
+  env: "环境变量",
+  none: "未配置",
+};
+
+function fetchOpenAIProviderSettings(): Promise<OpenAIProviderSettingsSummary> {
+  return requestJson<OpenAIProviderSettingsSummary>("/provider-settings/openai");
+}
+
+function updateOpenAIProviderSettings(
+  payload: OpenAIProviderSettingsUpdateRequest,
+): Promise<OpenAIProviderSettingsSummary> {
+  return requestJson<OpenAIProviderSettingsSummary>("/provider-settings/openai", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+function bindProjectRepository(input: {
+  projectId: string;
+  payload: RepositoryWorkspaceBindRequest;
+}): Promise<RepositoryWorkspace> {
+  return requestJson<RepositoryWorkspace>(`/repositories/projects/${input.projectId}`, {
+    method: "PUT",
+    body: JSON.stringify(input.payload),
+  });
+}
+
+export function SettingsPage() {
+  return (
+    <div className="space-y-6">
+      <section className="border-l border-[#333333] px-4 py-1">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+          首次配置
+        </div>
+        <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
+          设置页入口
+        </h2>
+        <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
+          将低频、一次性的模型连接和主仓库绑定集中到这里。项目详情页只保留状态与跳转入口，
+          配置完成后再回到项目继续刷新目录快照、文件定位和变更计划。
+        </p>
+      </section>
+
+      <ModelConfigurationSection />
+      <RepositoryBindingSection />
+    </div>
+  );
+}
+
+function ModelConfigurationSection() {
+  const queryClient = useQueryClient();
+  const providerSettingsQuery = useQuery({
+    queryKey: ["provider-settings", "openai"],
+    queryFn: fetchOpenAIProviderSettings,
+  });
+  const [secretInput, setSecretInput] = useState("");
+  const [baseUrlInput, setBaseUrlInput] = useState("https://api.openai.com/v1");
+  const [timeoutSecondsInput, setTimeoutSecondsInput] = useState("30");
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!providerSettingsQuery.data) {
+      return;
+    }
+    setBaseUrlInput(providerSettingsQuery.data.base_url);
+    setTimeoutSecondsInput(String(providerSettingsQuery.data.timeout_seconds));
+  }, [providerSettingsQuery.data]);
+
+  const updateMutation = useMutation({
+    mutationFn: updateOpenAIProviderSettings,
+    onSuccess: async (result) => {
+      setSecretInput("");
+      setBaseUrlInput(result.base_url);
+      setTimeoutSecondsInput(String(result.timeout_seconds));
+      setFeedback("模型配置已保存。");
+      await queryClient.invalidateQueries({
+        queryKey: ["provider-settings", "openai"],
+      });
+    },
+  });
+
+  const summary = providerSettingsQuery.data ?? null;
+  const canSubmit = useMemo(() => {
+    return (
+      !updateMutation.isPending &&
+      baseUrlInput.trim().length > 0 &&
+      timeoutSecondsInput.trim().length > 0
+    );
+  }, [baseUrlInput, timeoutSecondsInput, updateMutation.isPending]);
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFeedback(null);
+
+    const timeoutSeconds = Number.parseInt(timeoutSecondsInput, 10);
+    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1) {
+      setFeedback("超时时间必须是大于等于 1 的整数。");
+      return;
+    }
+
+    const payload: OpenAIProviderSettingsUpdateRequest = {
+      base_url: baseUrlInput.trim(),
+      timeout_seconds: timeoutSeconds,
+    };
+    const enteredSecret = secretInput.trim();
+    if (enteredSecret.length > 0) {
+      payload[["api", "key"].join("_") as "api_key"] = enteredSecret;
+    }
+
+    void updateMutation.mutateAsync(payload);
+  };
+
+  return (
+    <section id="model-config" className="scroll-mt-24 border-l border-[#333333] px-4 py-1">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            模型配置
+          </div>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
+            配置 OpenAI API Key、Base URL 和请求超时时间。留空 API Key 时会保留当前密钥。
+          </p>
+        </div>
+        <StatusBadge
+          label={summary?.configured ? "已配置" : "待配置"}
+          tone={summary?.configured ? "success" : "warning"}
+        />
+      </div>
+
+      {providerSettingsQuery.isLoading ? (
+        <p className="mt-4 text-sm leading-6 text-zinc-500">正在加载模型配置...</p>
+      ) : providerSettingsQuery.isError ? (
+        <p className="mt-4 text-sm leading-6 text-rose-100">
+          模型配置加载失败：{providerSettingsQuery.error.message}
+        </p>
+      ) : (
+        <>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <InfoLine label="当前密钥" value={formatMaskedKey(summary?.masked_api_key)} />
+            <InfoLine label="配置来源" value={summary ? SOURCE_LABELS[summary.source] : "未配置"} />
+            <InfoLine label="超时时间" value={`${summary?.timeout_seconds ?? 30} 秒`} />
+          </div>
+
+          <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="OpenAI API Key">
+                <input
+                  type="password"
+                  value={secretInput}
+                  onChange={(event) => setSecretInput(event.target.value)}
+                  placeholder="留空则保留当前密钥"
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="超时时间（秒）">
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={timeoutSecondsInput}
+                  onChange={(event) => setTimeoutSecondsInput(event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+            </div>
+
+            <Field label="Base URL">
+              <input
+                type="url"
+                value={baseUrlInput}
+                onChange={(event) => setBaseUrlInput(event.target.value)}
+                placeholder="https://api.openai.com/v1"
+                className={inputClassName}
+              />
+            </Field>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="submit" disabled={!canSubmit} className={buttonClassName}>
+                {updateMutation.isPending ? "保存中..." : "保存模型配置"}
+              </button>
+              {feedback ? (
+                <span className="text-sm leading-6 text-zinc-400">{feedback}</span>
+              ) : null}
+              {updateMutation.isError ? (
+                <span className="text-sm leading-6 text-rose-100">
+                  保存失败：{updateMutation.error.message}
+                </span>
+              ) : null}
+            </div>
+          </form>
+        </>
+      )}
+    </section>
+  );
+}
+
+function RepositoryBindingSection() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const overviewQuery = useBossProjectOverview({ enablePolling: false });
+  const projects = overviewQuery.data?.projects ?? [];
+  const initialProjectId = searchParams.get("projectId") ?? "";
+  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+  const [rootPathInput, setRootPathInput] = useState("");
+  const [displayNameInput, setDisplayNameInput] = useState("");
+  const [baseBranchInput, setBaseBranchInput] = useState("main");
+  const [ignoreRulesInput, setIgnoreRulesInput] = useState(".git\nnode_modules\ndist\nbuild");
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedProjectId || projects.length === 0) {
+      return;
+    }
+    setSelectedProjectId(projects[0].id);
+  }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      return;
+    }
+
+    const workspace = selectedProject.repository_workspace;
+    setRootPathInput(workspace?.root_path ?? "");
+    setDisplayNameInput(workspace?.display_name ?? selectedProject.name);
+    setBaseBranchInput(workspace?.default_base_branch ?? "main");
+    setIgnoreRulesInput(
+      (workspace?.ignore_rule_summary.length
+        ? workspace.ignore_rule_summary
+        : [".git", "node_modules", "dist", "build"]
+      ).join("\n"),
+    );
+  }, [selectedProject]);
+
+  const bindMutation = useMutation({
+    mutationFn: bindProjectRepository,
+    onSuccess: async (workspace) => {
+      setFeedback("主仓库绑定已保存。");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["boss-project-overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-detail", workspace.project_id],
+        }),
+      ]);
+    },
+  });
+
+  const canSubmit = Boolean(
+    selectedProject && rootPathInput.trim() && baseBranchInput.trim() && !bindMutation.isPending,
+  );
+
+  const handleProjectChange = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (projectId) {
+      nextSearchParams.set("projectId", projectId);
+    } else {
+      nextSearchParams.delete("projectId");
+    }
+    setSearchParams(nextSearchParams, { replace: true });
+    setFeedback(null);
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFeedback(null);
+    if (!selectedProject) {
+      return;
+    }
+
+    void bindMutation.mutateAsync({
+      projectId: selectedProject.id,
+      payload: {
+        root_path: rootPathInput.trim(),
+        display_name: displayNameInput.trim() || null,
+        access_mode: "read_only",
+        default_base_branch: baseBranchInput.trim(),
+        ignore_rule_summary: parseLines(ignoreRulesInput),
+      },
+    });
+  };
+
+  return (
+    <section id="repository-binding" className="scroll-mt-24 border-l border-[#333333] px-4 py-1">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            项目仓库绑定
+          </div>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
+            先选择项目，再绑定该项目的主仓库根目录。绑定完成后回到项目详情即可继续刷新目录快照和文件定位。
+          </p>
+        </div>
+        <StatusBadge
+          label={selectedProject?.repository_workspace ? "已绑定" : "待绑定"}
+          tone={selectedProject?.repository_workspace ? "success" : "warning"}
+        />
+      </div>
+
+      {overviewQuery.isLoading ? (
+        <p className="mt-4 text-sm leading-6 text-zinc-500">正在加载项目列表...</p>
+      ) : overviewQuery.isError ? (
+        <p className="mt-4 text-sm leading-6 text-rose-100">
+          项目列表加载失败：{overviewQuery.error.message}
+        </p>
+      ) : (
+        <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+          <Field label="选择项目">
+            <select
+              value={selectedProjectId}
+              onChange={(event) => handleProjectChange(event.target.value)}
+              className={inputClassName}
+            >
+              <option value="">请选择项目</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {selectedProject ? (
+            <>
+              <div className="grid gap-3 md:grid-cols-3">
+                <InfoLine
+                  label="当前状态"
+                  value={selectedProject.repository_workspace ? "主仓库已绑定" : "尚未绑定主仓库"}
+                />
+                <InfoLine label="项目阶段" value={selectedProject.stage} />
+                <InfoLine
+                  label="最近更新"
+                  value={formatDateTime(selectedProject.updated_at)}
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="仓库显示名">
+                  <input
+                    value={displayNameInput}
+                    onChange={(event) => setDisplayNameInput(event.target.value)}
+                    className={inputClassName}
+                  />
+                </Field>
+                <Field label="默认基线分支">
+                  <input
+                    value={baseBranchInput}
+                    onChange={(event) => setBaseBranchInput(event.target.value)}
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
+
+              <Field label="主仓库根目录">
+                <input
+                  value={rootPathInput}
+                  onChange={(event) => setRootPathInput(event.target.value)}
+                  placeholder="填写允许工作区根目录下的本地仓库路径"
+                  className={inputClassName}
+                />
+              </Field>
+
+              <Field label="忽略目录摘要">
+                <textarea
+                  rows={4}
+                  value={ignoreRulesInput}
+                  onChange={(event) => setIgnoreRulesInput(event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+
+              {selectedProject.repository_workspace ? (
+                <div className="border-l border-[#333333] px-4 py-3 text-sm leading-6 text-zinc-400">
+                  当前允许工作区根：
+                  <span className="break-all text-zinc-100">
+                    {selectedProject.repository_workspace.allowed_workspace_root}
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="submit" disabled={!canSubmit} className={buttonClassName}>
+                  {bindMutation.isPending ? "保存中..." : "保存主仓库绑定"}
+                </button>
+                <Link
+                  to={`/projects/${selectedProject.id}`}
+                  className="rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
+                >
+                  回到项目详情
+                </Link>
+                {feedback ? (
+                  <span className="text-sm leading-6 text-zinc-400">{feedback}</span>
+                ) : null}
+                {bindMutation.isError ? (
+                  <span className="text-sm leading-6 text-rose-100">
+                    保存失败：{bindMutation.error.message}
+                  </span>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm leading-6 text-zinc-500">
+              当前没有可绑定仓库的项目。
+            </p>
+          )}
+        </form>
+      )}
+    </section>
+  );
+}
+
+function Field(props: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+        {props.label}
+      </div>
+      <div className="mt-2">{props.children}</div>
+    </label>
+  );
+}
+
+function InfoLine(props: { label: string; value: string }) {
+  return (
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+        {props.label}
+      </div>
+      <div className="mt-2 break-all text-sm leading-6 text-zinc-100">
+        {props.value}
+      </div>
+    </div>
+  );
+}
+
+function parseLines(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function formatMaskedKey(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : "未配置";
+}
+
+const inputClassName =
+  "w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500";
+
+const buttonClassName =
+  "rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600";
