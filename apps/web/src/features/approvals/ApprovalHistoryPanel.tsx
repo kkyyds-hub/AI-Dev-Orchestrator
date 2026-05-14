@@ -24,24 +24,23 @@ export function ApprovalHistoryPanel(props: ApprovalHistoryPanelProps) {
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+    <section className="border-b border-[#333333] pb-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-100">审批回退 / 重做链路</div>
+          <div className="text-sm font-medium text-slate-100">审批记录与版本回放</div>
           <div className="mt-1 text-xs leading-5 text-slate-400">
-            串联同一交付件的提交、审批、驳回/补充与重做版本，避免审批流变成一次性死路。
+            串联同一交付件的提交、审批、补充和重提记录，方便回看每一轮处理结果。
           </div>
         </div>
-        <StatusBadge label="Day12" tone="info" />
       </div>
 
       {historyQuery.isLoading && !historyQuery.data ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
-          正在加载审批重做链路...
+        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-6 text-sm text-slate-400">
+          正在加载审批记录...
         </div>
       ) : historyQuery.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-6 text-sm text-rose-100">
-          审批重做链路加载失败：{historyQuery.error.message}
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-6 text-sm text-rose-100">
+          审批记录加载失败：{historyQuery.error.message}
         </div>
       ) : historyQuery.data ? (
         <>
@@ -67,7 +66,7 @@ export function ApprovalHistoryPanel(props: ApprovalHistoryPanelProps) {
             />
           </div>
 
-          <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4">
+          <div className="mt-4 border-l border-[#333333] px-4 py-4">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">
               <span className="font-medium text-slate-100">
                 {historyQuery.data.deliverable_title}
@@ -94,7 +93,7 @@ export function ApprovalHistoryPanel(props: ApprovalHistoryPanelProps) {
             </div>
           </div>
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
             {historyQuery.data.steps.map((step, index) => (
               <HistoryStepCard
                 key={step.id}
@@ -116,7 +115,7 @@ function HistoryStat(props: {
   tone?: "neutral" | "info" | "success" | "warning" | "danger";
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{props.label}</div>
       <div className="mt-2">
         {props.tone ? (
@@ -143,10 +142,10 @@ function HistoryStepCard(props: {
         : null;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4">
+    <div className="relative px-0 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-xs font-semibold text-slate-300">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[#4a4a4a] bg-transparent text-xs font-semibold text-slate-300">
             {props.index}
           </div>
           <div>
@@ -192,10 +191,6 @@ function HistoryStepCard(props: {
       ) : null}
       {props.step.highlighted_risks.length > 0 ? (
         <TagList title="关键风险" items={props.step.highlighted_risks} tone="warning" />
-      ) : null}
-
-      {!props.isLast ? (
-        <div className="pointer-events-none absolute inset-x-8 bottom-0 h-px bg-slate-800" />
       ) : null}
     </div>
   );
