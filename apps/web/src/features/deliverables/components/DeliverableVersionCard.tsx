@@ -58,7 +58,7 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
                 runId: null,
               })
             }
-            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-100 transition hover:bg-[#292929]"
           >
             查看来源任务
           </button>
@@ -73,18 +73,18 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
                 runId: props.version.source_run_id,
               })
             }
-            className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/20"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-100 transition hover:bg-[#292929]"
           >
             查看来源运行
           </button>
         ) : null}
         {props.version.source_task_id ? (
-          <code className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-400">
+          <code className="border border-[#333333] px-3 py-2 text-xs text-slate-400">
             Task {props.version.source_task_id}
           </code>
         ) : null}
         {props.version.source_run_id ? (
-          <code className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-400">
+          <code className="border border-[#333333] px-3 py-2 text-xs text-slate-400">
             Run {props.version.source_run_id}
           </code>
         ) : null}
