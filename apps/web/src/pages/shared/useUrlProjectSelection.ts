@@ -27,11 +27,12 @@ function getProjectRecencyTimestamp(project: {
   return 0;
 }
 
-export function useUrlProjectSelection() {
+export function useUrlProjectSelection(options?: { resetParamKeys?: string[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const overviewQuery = useBossProjectOverview({ enablePolling: false });
   const projects = overviewQuery.data?.projects ?? [];
   const requestedProjectId = searchParams.get("projectId") ?? "";
+  const resetParamKeys = options?.resetParamKeys ?? [];
 
   const fallbackProjectId = useMemo(() => {
     if (!projects.length) {
@@ -71,10 +72,12 @@ export function useUrlProjectSelection() {
 
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.set("projectId", selectedProjectId);
+    resetParamKeys.forEach((key) => nextSearchParams.delete(key));
     setSearchParams(nextSearchParams, { replace: true });
   }, [
     projects.length,
     requestedProjectId,
+    resetParamKeys,
     searchParams,
     selectedProjectId,
     setSearchParams,
@@ -87,6 +90,7 @@ export function useUrlProjectSelection() {
     } else {
       nextSearchParams.delete("projectId");
     }
+    resetParamKeys.forEach((key) => nextSearchParams.delete(key));
     setSearchParams(nextSearchParams, { replace: false });
   };
 

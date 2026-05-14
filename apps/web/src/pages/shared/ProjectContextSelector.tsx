@@ -7,7 +7,6 @@ type ProjectContextSelectorProps = {
   description: string;
   projects: BossProjectItem[];
   selectedProjectId: string | null;
-  requestedProjectId: string;
   hasInvalidRequestedProject: boolean;
   isLoading: boolean;
   errorMessage: string | null;
@@ -19,7 +18,7 @@ export function ProjectContextSelector(props: ProjectContextSelectorProps) {
     props.projects.find((project) => project.id === props.selectedProjectId) ?? null;
 
   return (
-    <section className="rounded-2xl border border-[#333333] bg-[#242424] p-6 shadow-sm shadow-black/20">
+    <section className="border-y border-[#333333] py-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
           <div className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
@@ -35,13 +34,13 @@ export function ProjectContextSelector(props: ProjectContextSelectorProps) {
 
         <label className="min-w-full lg:min-w-[320px]">
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            选择项目
+            项目上下文
           </div>
           <select
             value={props.selectedProjectId ?? ""}
             onChange={(event) => props.onSelectProject(event.target.value)}
             disabled={props.isLoading || props.projects.length === 0}
-            className="mt-2 w-full border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500 disabled:cursor-not-allowed disabled:text-zinc-600"
+            className="mt-2 w-full border-x-0 border-b border-t-0 border-[#3a3a3a] bg-transparent px-0 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500 disabled:cursor-not-allowed disabled:text-zinc-600"
           >
             <option value="">
               {props.isLoading ? "正在加载项目..." : "暂无可选项目"}
@@ -60,23 +59,19 @@ export function ProjectContextSelector(props: ProjectContextSelectorProps) {
       ) : null}
 
       {props.errorMessage ? (
-        <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm leading-6 text-rose-100">
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           项目列表加载失败：{props.errorMessage}
         </div>
       ) : null}
 
       {props.hasInvalidRequestedProject ? (
-        <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
-          URL 中的项目 ID
-          <code className="mx-1 rounded bg-black/20 px-1.5 py-0.5">
-            {props.requestedProjectId}
-          </code>
-          不在当前项目列表中，已自动切换到一个可用项目；如需处理其他项目，请在上方重新选择。
+        <div className="mt-4 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
+          当前打开的项目不可用，已自动切换到一个可处理项目；如需处理其他项目，请在上方重新选择。
         </div>
       ) : null}
 
       {!props.isLoading && !props.errorMessage && props.projects.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-[#3a3a3a] p-4 text-sm leading-6 text-zinc-500">
+        <div className="mt-4 border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-500">
           当前还没有项目。请先到项目中心创建项目，创建后这里会自动出现可选项。
         </div>
       ) : null}

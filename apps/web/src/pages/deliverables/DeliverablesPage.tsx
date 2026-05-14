@@ -1,27 +1,26 @@
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { DeliverableCenterPage } from "../../features/deliverables/DeliverableCenterPage";
+import { buildTaskRoute } from "../../lib/task-route";
 import { ProjectContextSelector } from "../shared/ProjectContextSelector";
 import { useUrlProjectSelection } from "../shared/useUrlProjectSelection";
 
-type DeliverablesPageProps = {
-  onNavigateToTask: (taskId: string, options?: { runId?: string | null }) => void;
-};
-
-export function DeliverablesPage(props: DeliverablesPageProps) {
+export function DeliverablesPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedDeliverableId = searchParams.get("deliverableId");
-  const projectSelection = useUrlProjectSelection();
+  const projectSelection = useUrlProjectSelection({
+    resetParamKeys: ["deliverableId"],
+  });
 
   return (
     <div className="space-y-6">
       <ProjectContextSelector
         eyebrow="Deliverables"
         title="交付物中心"
-        description="交付物数据依赖项目上下文。先在这里选择项目，页面会自动把 projectId 写入 URL，刷新或分享时也能保留当前项目。"
+        description="先选择要查看的项目，再浏览该项目的交付物、版本快照和关联任务。"
         projects={projectSelection.projects}
         selectedProjectId={projectSelection.selectedProjectId}
-        requestedProjectId={projectSelection.requestedProjectId}
         hasInvalidRequestedProject={projectSelection.hasInvalidRequestedProject}
         isLoading={projectSelection.overviewQuery.isLoading}
         errorMessage={
@@ -36,7 +35,16 @@ export function DeliverablesPage(props: DeliverablesPageProps) {
         projectId={projectSelection.selectedProjectId}
         projectName={projectSelection.selectedProject?.name ?? null}
         requestedDeliverableId={requestedDeliverableId}
-        onNavigateToTask={props.onNavigateToTask}
+        onNavigateToTask={(taskId, options) =>
+          navigate(
+            buildTaskRoute({
+              taskId,
+              runId: options?.runId ?? null,
+              from: "deliverables",
+              projectId: projectSelection.selectedProjectId,
+            }),
+          )
+        }
       />
     </div>
   );

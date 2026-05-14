@@ -1,7 +1,6 @@
 import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "./AppShell";
-import { buildTaskRoute } from "../lib/task-route";
 import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
 import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
 import { GovernancePage } from "../pages/governance/GovernancePage";
@@ -82,17 +81,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "deliverables",
-        element: (
-          <DeliverablesPage
-            onNavigateToTask={(taskId, options) =>
-              buildTaskRoute({
-                taskId,
-                runId: options?.runId ?? null,
-                from: "deliverables",
-              })
-            }
-          />
-        ),
+        element: <DeliverablesPage />,
       },
       {
         path: "approvals",
