@@ -1,5 +1,10 @@
+import { Link } from "react-router-dom";
+
 import { formatDateTime } from "../../lib/format";
-import type { BossProjectItem } from "../../features/projects/types";
+import {
+  PROJECT_STAGE_LABELS,
+  type BossProjectItem,
+} from "../../features/projects/types";
 
 type ProjectContextSelectorProps = {
   eyebrow: string;
@@ -73,13 +78,24 @@ export function ProjectContextSelector(props: ProjectContextSelectorProps) {
       {!props.isLoading && !props.errorMessage && props.projects.length === 0 ? (
         <div className="mt-4 border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-500">
           当前还没有项目。请先到项目中心创建项目，创建后这里会自动出现可选项。
+          <div className="mt-3">
+            <Link
+              to="/projects"
+              className="inline-flex border-b border-zinc-500 pb-0.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-200 hover:text-white"
+            >
+              去项目中心创建项目
+            </Link>
+          </div>
         </div>
       ) : null}
 
       {selectedProject ? (
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <InfoLine label="当前项目" value={selectedProject.name} />
-          <InfoLine label="项目阶段" value={selectedProject.stage} />
+          <InfoLine
+            label="项目阶段"
+            value={PROJECT_STAGE_LABELS[selectedProject.stage] ?? "未识别阶段"}
+          />
           <InfoLine label="最近更新" value={formatDateTime(selectedProject.updated_at)} />
         </div>
       ) : null}

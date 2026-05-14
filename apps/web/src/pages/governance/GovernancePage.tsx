@@ -1,8 +1,12 @@
 import { useEffect, useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useBossProjectOverview } from "../../features/projects/hooks";
 import { ProjectMemoryRoleGovernancePage } from "../../features/projects/pages/ProjectMemoryRoleGovernancePage";
+import {
+  PROJECT_STAGE_LABELS,
+  PROJECT_STATUS_LABELS,
+} from "../../features/projects/types";
 import { buildApprovalsRoute } from "../../lib/approval-route";
 import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import {
@@ -45,6 +49,8 @@ export function GovernancePage() {
     () => projects.find((project) => project.id === projectId) ?? null,
     [projectId, projects],
   );
+  const hasNoProjects =
+    !overviewQuery.isLoading && !overviewQuery.isError && projects.length === 0;
 
   useEffect(() => {
     if (!section) {
@@ -131,12 +137,13 @@ export function GovernancePage() {
               </option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id} className="bg-[#1f1f1f] text-zinc-100">
-                  {project.name}（{project.stage} / {project.status}）
+                  {project.name}（{PROJECT_STAGE_LABELS[project.stage] ?? "未识别阶段"} /{" "}
+                  {PROJECT_STATUS_LABELS[project.status] ?? "未识别状态"}）
                 </option>
               ))}
             </select>
             <p className="mt-2 text-xs leading-5 text-zinc-600">
-              也可继续使用 URL 参数 projectId 直接进入指定项目治理视图。
+              选择项目后，下方会切换到对应项目的记忆、角色、技能与治理工作台。
             </p>
           </div>
         </div>
@@ -179,22 +186,32 @@ export function GovernancePage() {
         <section className="border-y border-dashed border-[#333333] py-6">
           <h2 className="text-base font-semibold text-zinc-100">选择项目后开始治理</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
-            当前治理能力依赖项目上下文。请使用右上角项目选择器，或通过
-            <code className="mx-1 rounded bg-[#1f1f1f] px-1.5 py-0.5 text-zinc-300">projectId</code>
-            参数进入，例如
-            <code className="mx-1 rounded bg-[#1f1f1f] px-1.5 py-0.5 text-zinc-300">
-              /governance?projectId=your-project-id
-            </code>
-            。
+            当前治理能力需要先选定一个项目。请使用右上角项目选择器，然后进入对应治理模块。
           </p>
+          {hasNoProjects ? (
+            <Link
+              to="/projects"
+              className="mt-4 inline-flex border-b border-zinc-500 pb-0.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-200 hover:text-white"
+            >
+              去项目中心创建项目
+            </Link>
+          ) : null}
         </section>
       ) : null}
 
       {projectId && !selectedProject && !overviewQuery.isLoading ? (
         <section className="border-l border-amber-700/70 py-2 pl-4 text-sm leading-6 text-amber-200">
-          当前 URL 中的项目 ID
-          <code className="mx-1 rounded bg-[#1f1f1f] px-1.5 py-0.5 text-amber-100">{projectId}</code>
-          未出现在当前项目列表中。你仍然可以继续访问该页面，但建议核对 projectId 是否正确。
+          当前打开的项目不可用。请在右上角重新选择一个可处理项目。
+          {hasNoProjects ? (
+            <div className="mt-3">
+              <Link
+                to="/projects"
+                className="inline-flex border-b border-amber-300/70 pb-0.5 text-sm font-medium text-amber-100 transition hover:border-amber-100 hover:text-white"
+              >
+                去项目中心创建项目
+              </Link>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
