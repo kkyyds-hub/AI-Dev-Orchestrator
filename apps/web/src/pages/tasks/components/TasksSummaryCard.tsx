@@ -5,7 +5,7 @@ type TasksSummaryCardProps = {
 
 export function TasksSummaryCard(props: TasksSummaryCardProps) {
   return (
-    <div className="rounded-xl border border-[#333333] bg-[#242424] px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
         {props.label}
       </div>

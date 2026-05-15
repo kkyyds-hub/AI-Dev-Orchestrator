@@ -46,6 +46,7 @@ export function TasksPageContent(props: TasksPageContentProps) {
         selectedTask={props.selectedTask}
         budget={props.budget}
         realtimeStatus={props.realtimeStatus}
+        surfaceVariant="line"
         onNavigateToDeliverable={props.onNavigateToDeliverable}
         onNavigateToRun={props.onNavigateToRun}
         onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}

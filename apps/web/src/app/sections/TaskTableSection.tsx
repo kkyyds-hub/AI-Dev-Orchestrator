@@ -53,8 +53,8 @@ export function TaskTableSection(props: TaskTableSectionProps) {
       </div>
 
       {props.overviewIsError ? (
-        <div className="rounded-xl border border-rose-900/60 bg-rose-950/20 p-4 text-sm text-rose-100">
-          工作台数据加载失败，请确认后端服务已启动。
+        <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+          任务数据加载失败，请刷新页面或检查服务状态。
         </div>
       ) : (
         <div className="border-y border-[#333333]">
@@ -84,7 +84,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-zinc-100">{task.title}</div>
                       <div className="mt-1 truncate text-xs leading-5 text-zinc-500">
-                        P{task.priority} · {task.input_summary}
+                        优先级 {formatPriorityLabel(task.priority)} · {task.input_summary}
                       </div>
                     </div>
 
@@ -108,7 +108,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                           onClick={() => props.onNavigateToTask?.(task.id, { runId: latestRun?.id ?? null })}
                           className={tableActionButtonClass}
                         >
-                          任务
+                          查看任务
                         </button>
                       ) : null}
                       {latestRun?.id && props.onNavigateToRun ? (
@@ -117,7 +117,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                           onClick={() => (latestRun.id ? props.onNavigateToRun?.(latestRun.id, task.id) : undefined)}
                           className={tableActionButtonClass}
                         >
-                          运行
+                          查看运行
                         </button>
                       ) : null}
                       {latestRun ? (
@@ -133,7 +133,7 @@ export function TaskTableSection(props: TaskTableSectionProps) {
                           }
                           className={subtleActionButtonClass}
                         >
-                          钻取
+                          查看项目上下文
                         </button>
                       ) : null}
                     </div>
@@ -190,6 +190,24 @@ function formatTaskStatusLabel(status: string) {
   };
 
   return labels[status] ?? status;
+}
+
+function formatPriorityLabel(priority: string): string {
+  const labels: Record<string, string> = {
+    P0: "最高",
+    "0": "最高",
+    P1: "高",
+    "1": "高",
+    P2: "中",
+    "2": "中",
+    P3: "低",
+    "3": "低",
+    critical: "最高",
+    high: "高",
+    medium: "中",
+    low: "低",
+  };
+  return labels[priority] ?? priority;
 }
 
 function buildRunMicroSummary(run: NonNullable<ConsoleTask["latest_run"]>) {
