@@ -15,8 +15,8 @@ export function DeliverableListPanel(props: DeliverableListPanelProps) {
     <section className="border-b border-[#333333] pb-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-50">交付件清单</h3>
-          <p className="mt-1 text-sm text-slate-400">
+          <h3 className="text-lg font-semibold text-zinc-100">交付件清单</h3>
+          <p className="mt-1 text-sm text-zinc-400">
             项目当前阶段产生的正式产物与最新版本摘要。
           </p>
         </div>
@@ -42,8 +42,8 @@ export function DeliverableListPanel(props: DeliverableListPanelProps) {
           ))}
         </div>
       ) : (
-        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
-          当前项目还没有交付件。可以先通过 Day09 后端接口创建 PRD、设计稿、任务拆分或验收结论等正式产物。
+        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-400">
+          当前项目还没有交付件。生成或提交 PRD、设计稿、任务拆分、代码计划、验收结论后，会在这里形成版本快照。
         </div>
       )}
     </section>

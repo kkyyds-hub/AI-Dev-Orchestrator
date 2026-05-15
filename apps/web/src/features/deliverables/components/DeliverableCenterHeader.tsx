@@ -11,13 +11,13 @@ export function DeliverableCenterHeader(props: DeliverableCenterHeaderProps) {
     <header className="flex flex-col gap-4 border-b border-[#333333] pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-2">
         <p className="text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
-          V3 Day09 Deliverable Repository
+          交付物中心
         </p>
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-50">
+        <h2 className="text-3xl font-semibold tracking-tight text-zinc-100">
           交付件仓库与版本快照
         </h2>
-        <p className="max-w-3xl text-sm leading-6 text-slate-300">
-          把 PRD、设计稿、任务拆分、代码计划、验收结论等项目产物纳入统一仓库；同一交付件按版本持续提交，并保留完整快照、来源任务与运行关联。
+        <p className="max-w-3xl text-sm leading-6 text-zinc-400">
+          集中查看当前项目的交付件、版本快照、来源任务和后续审批依据。
         </p>
       </div>
 

@@ -22,7 +22,7 @@ export function DeliverableCardButton(props: DeliverableCardButtonProps) {
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-sm font-medium text-slate-50">
+        <div className="text-sm font-medium text-zinc-100">
           {props.deliverable.title}
         </div>
         <StatusBadge
@@ -38,11 +38,11 @@ export function DeliverableCardButton(props: DeliverableCardButtonProps) {
         />
       </div>
 
-      <p className="mt-3 text-sm leading-6 text-slate-300">
+      <p className="mt-3 text-sm leading-6 text-zinc-400">
         {props.deliverable.latest_version.summary}
       </p>
 
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-500">
         <span>
           提交者{" "}
           {ROLE_CODE_LABELS[
