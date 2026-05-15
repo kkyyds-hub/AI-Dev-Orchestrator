@@ -82,11 +82,10 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
             仓库工作区
           </div>
           <h2 className="mt-2 text-xl font-semibold text-zinc-100">
-            仓库工作区（仓库页）
+            仓库工作区
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            这里就是项目的仓库页：主仓库绑定、最新目录快照、文件定位、变更批次和提交草案都从这里收口。进入变更批次或提交草案前，
-            先在这一屏确认仓库根目录、扫描状态、忽略规则和语言分布，避免把上下文判断分散到多个入口。
+            集中查看主仓库、目录快照、变更会话和提交前准备。
           </p>
         </div>
 
@@ -106,27 +105,35 @@ export function RepositoryOverviewPage(props: RepositoryOverviewPageProps) {
         </button>
       </div>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <div className="border-l border-cyan-400/40 bg-cyan-500/10 px-4 py-4">
-          <div className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">
-            这个工作区用来做什么
-          </div>
-          <p className="mt-3 text-sm leading-6 text-cyan-50/90">
-            仓库工作区不是配置页，也不是项目总览。它承接“已经选中一个项目之后”的代码上下文工作：
-            先确认主仓库与目录快照，再记录当前变更会话，随后定位相关文件、生成变更计划、执行验证，
-            最后整理提交草案。设置页只负责连接与绑定；真实的仓库工作流在这里推进。
-          </p>
+      <section className="border-y border-[#333333] py-5">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+          工作流摘要
         </div>
-
-        <div className="border border-[#333333] px-4 py-4">
-          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            首次使用步骤
+        <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="border-l border-[#333333] px-4 py-2">
+            <div className="text-sm font-medium text-zinc-100">绑定仓库</div>
+            <p className="mt-1 text-sm leading-6 text-zinc-400">
+              确认当前项目的主仓库目录。
+            </p>
           </div>
-          <ol className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
-            <li>1. 如果尚未绑定主仓库，先点击下方入口去设置页绑定。</li>
-            <li>2. 回到本页后刷新目录快照，确认扫描状态与忽略规则。</li>
-            <li>3. 记录变更会话，再使用文件定位和变更计划进入后续验证、提交草案。</li>
-          </ol>
+          <div className="border-l border-[#333333] px-4 py-2">
+            <div className="text-sm font-medium text-zinc-100">刷新快照</div>
+            <p className="mt-1 text-sm leading-6 text-zinc-400">
+              获取最新目录结构和语言分布。
+            </p>
+          </div>
+          <div className="border-l border-[#333333] px-4 py-2">
+            <div className="text-sm font-medium text-zinc-100">定位文件</div>
+            <p className="mt-1 text-sm leading-6 text-zinc-400">
+              按任务定位相关文件。
+            </p>
+          </div>
+          <div className="border-l border-[#333333] px-4 py-2">
+            <div className="text-sm font-medium text-zinc-100">准备提交</div>
+            <p className="mt-1 text-sm leading-6 text-zinc-400">
+              整理变更计划、验证结果和提交草案。
+            </p>
+          </div>
         </div>
       </section>
 
@@ -376,29 +383,27 @@ function ChangePlanMappingPanel(props: {
   onOpenTask: (taskId: string) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <section className="space-y-4 border-y border-[#333333] py-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day06 变更计划草案
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            变更计划
           </div>
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
-            这里把项目任务、交付件与 Day05 的候选文件集合映射成结构化 ChangePlan，
-            只记录“要改什么、为什么改、改完怎么验”；后续是否进入 ChangeBatch 与 Day08
-            风险预检，仍在下方批次区单独处理。
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
+            将当前任务与文件定位结果整理为可检查的变更计划，明确修改范围、修改原因和验证方式。后续是否进入变更批次与提交前检查，仍在下方批次区单独处理。
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <StatusBadge
-            label={`草案 ${props.changePlans.length}`}
+            label={`计划 ${props.changePlans.length}`}
             tone="info"
           />
           <StatusBadge
             label={
               props.latestCodeContextPack
-                ? `CodeContextPack ${props.latestCodeContextPack.included_file_count} 文件`
-                : "尚无 CodeContextPack"
+                ? `已定位 ${props.latestCodeContextPack.included_file_count} 文件`
+                : "尚未生成文件定位结果"
             }
             tone={props.latestCodeContextPack ? "success" : "warning"}
           />
@@ -406,28 +411,28 @@ function ChangePlanMappingPanel(props: {
       </div>
 
       {props.latestCodeContextPack ? (
-        <div className="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm leading-6 text-cyan-100">
-          当前草案来源：{props.latestCodeContextPack.source_summary}
-          <div className="mt-2 text-xs text-cyan-50/70">
-            生成于 {formatDateTime(props.latestCodeContextPack.generated_at)}
+        <div className="border-l border-[#333333] px-4 py-3 text-sm leading-6 text-zinc-400">
+          定位来源：{props.latestCodeContextPack.source_summary}
+          <div className="mt-2 text-xs text-zinc-600">
+            生成时间 {formatDateTime(props.latestCodeContextPack.generated_at)}
           </div>
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-          先在上方 Day05 FileLocator 中生成 CodeContextPack，Day06 草案会直接消费该文件集合。
+        <div className="border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-500">
+          先在上方完成文件定位，再创建变更计划。
         </div>
       )}
 
       {props.isLoading ? (
-        <div className="mt-4 text-sm leading-6 text-slate-400">
-          正在加载变更计划映射...
+        <div className="text-sm leading-6 text-zinc-500">
+          正在加载变更计划...
         </div>
       ) : props.errorMessage ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
-          变更计划映射加载失败：{props.errorMessage}
+        <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+          变更计划加载失败：{props.errorMessage}
         </div>
       ) : props.tasks.length > 0 ? (
-        <div className="mt-4 space-y-3">
+        <div className="divide-y divide-[#333333] border-y border-[#333333]">
           {props.tasks.map((task) => {
             const plansForTask = props.changePlans.filter(
               (item) => item.task_id === task.id,
@@ -439,16 +444,16 @@ function ChangePlanMappingPanel(props: {
             return (
               <div
                 key={task.id}
-                className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+                className="border-l border-[#333333] px-4 py-4"
               >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-sm font-medium text-slate-100">
+                      <div className="text-sm font-medium text-zinc-100">
                         {task.title}
                       </div>
                       <StatusBadge
-                        label={`草案 ${props.changePlanCountsByTask[task.id] ?? 0}`}
+                        label={`计划 ${props.changePlanCountsByTask[task.id] ?? 0}`}
                         tone="info"
                       />
                       {latestPlan ? (
@@ -458,12 +463,12 @@ function ChangePlanMappingPanel(props: {
                         />
                       ) : null}
                     </div>
-                    <div className="mt-2 text-sm leading-6 text-slate-300">
+                    <div className="mt-2 text-sm leading-6 text-zinc-400">
                       {task.input_summary}
                     </div>
                     {latestPlan ? (
-                      <div className="mt-2 text-xs leading-5 text-slate-500">
-                        最新草案：{latestPlan.latest_version.intent_summary}
+                      <div className="mt-2 text-xs leading-5 text-zinc-500">
+                        最新计划：{latestPlan.latest_version.intent_summary}
                       </div>
                     ) : null}
                   </div>
@@ -472,9 +477,9 @@ function ChangePlanMappingPanel(props: {
                     type="button"
                     onClick={() => props.onOpenTask(task.id)}
                     disabled={!canOpen}
-                    className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+                    className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600"
                   >
-                    {plansForTask.length > 0 ? "查看 / 追加草案" : "基于当前包创建草案"}
+                    {plansForTask.length > 0 ? "查看 / 追加计划" : "根据定位结果创建计划"}
                   </button>
                 </div>
 
@@ -494,8 +499,8 @@ function ChangePlanMappingPanel(props: {
           })}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-          当前项目还没有任务，因此还不能生成 Day06 变更计划草案。
+        <div className="border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-500">
+          当前项目还没有任务，暂时不能创建变更计划。
         </div>
       )}
     </section>
