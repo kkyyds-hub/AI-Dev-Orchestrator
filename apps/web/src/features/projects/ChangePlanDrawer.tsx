@@ -325,7 +325,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-transparent/75 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
       <button
         type="button"
         aria-label="关闭变更计划抽屉"

@@ -196,7 +196,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
             onChange={(event) => setBrief(event.target.value)}
             rows={5}
             className="w-full rounded-xl border border-[#3a3a3a] bg-transparent px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500"
-            placeholder="例如：做一个项目级规划入口，先根据 brief 生成项目草案，再把任务映射到该项目下，并在项目详情中可见任务树。"
+            placeholder="例如：做一个项目级规划入口，先根据项目需求说明生成项目草案，再把任务映射到该项目下，并在项目详情中可见任务树。"
           />
         </label>
 
