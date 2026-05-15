@@ -12,6 +12,7 @@ type ProjectMemoryRoleGovernancePageProps = {
   selectedProjectName: string | null;
   projects: BossProjectItem[];
   defaultTabId?: "memory" | "governance" | "search" | "roles" | "skills" | "workbench";
+  hideTabs?: boolean;
   onSelectProject: (projectId: string) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onNavigateToDeliverable: (input: { projectId: string; deliverableId: string }) => void;
@@ -21,6 +22,105 @@ type ProjectMemoryRoleGovernancePageProps = {
 export function ProjectMemoryRoleGovernancePage(
   props: ProjectMemoryRoleGovernancePageProps,
 ) {
+  const defaultTabId = props.defaultTabId ?? "memory";
+
+  const items = [
+    {
+      id: "memory",
+      label: "记忆",
+      panelId: "governance-memory-panel",
+      content: (
+        <ProjectMemoryPanel
+          projectId={props.selectedProjectId}
+          projectName={props.selectedProjectName}
+          onNavigateToApproval={props.onNavigateToApproval}
+          onNavigateToDeliverable={props.onNavigateToDeliverable}
+          onNavigateToTask={props.onNavigateToTask}
+        />
+      ),
+    },
+    {
+      id: "governance",
+      label: "治理",
+      panelId: "governance-policy-panel",
+      content: (
+        <MemoryGovernanceSection
+          projectId={props.selectedProjectId}
+          projectName={props.selectedProjectName}
+        />
+      ),
+    },
+    {
+      id: "search",
+      label: "检索",
+      panelId: "governance-memory-search",
+      content: (
+        <MemorySearchPanel
+          projectId={props.selectedProjectId}
+          projectName={props.selectedProjectName}
+          onNavigateToApproval={props.onNavigateToApproval}
+          onNavigateToDeliverable={props.onNavigateToDeliverable}
+          onNavigateToTask={props.onNavigateToTask}
+        />
+      ),
+    },
+    {
+      id: "roles",
+      label: "角色",
+      panelId: "governance-roles",
+      content: (
+        <RoleCatalogPage
+          selectedProjectId={props.selectedProjectId}
+          selectedProjectName={props.selectedProjectName}
+        />
+      ),
+    },
+    {
+      id: "skills",
+      label: "技能",
+      panelId: "governance-skills",
+      content: (
+        <SkillRegistryPage
+          selectedProjectId={props.selectedProjectId}
+          selectedProjectName={props.selectedProjectName}
+        />
+      ),
+    },
+    {
+      id: "workbench",
+      label: "工作台",
+      panelId: "governance-role-workbench",
+      content: (
+        <RoleWorkbenchPage
+          selectedProjectId={props.selectedProjectId}
+          selectedProjectName={props.selectedProjectName}
+          projectOptions={props.projects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            stage: project.stage,
+            status: project.status,
+          }))}
+          onNavigateToProject={props.onSelectProject}
+          onNavigateToTask={props.onNavigateToTask}
+        />
+      ),
+    },
+  ] as const;
+
+  const activeItem = items.find((item) => item.id === defaultTabId) ?? items[0];
+
+  if (props.hideTabs) {
+    return (
+      <section
+        id="memory-role-governance"
+        data-testid="project-overview-view-memory-role-governance"
+        className="space-y-4"
+      >
+        <div id={activeItem.panelId}>{activeItem.content}</div>
+      </section>
+    );
+  }
+
   return (
     <section
       id="memory-role-governance"
@@ -28,91 +128,10 @@ export function ProjectMemoryRoleGovernancePage(
       className="space-y-4"
     >
       <ProjectSubviewTabs
-        key={props.defaultTabId ?? "memory"}
+        key={defaultTabId}
         ariaLabel="项目记忆治理视图"
-        defaultTabId={props.defaultTabId ?? "memory"}
-        items={[
-          {
-            id: "memory",
-            label: "记忆",
-            panelId: "governance-memory-panel",
-            content: (
-              <ProjectMemoryPanel
-                projectId={props.selectedProjectId}
-                projectName={props.selectedProjectName}
-                onNavigateToApproval={props.onNavigateToApproval}
-                onNavigateToDeliverable={props.onNavigateToDeliverable}
-                onNavigateToTask={props.onNavigateToTask}
-              />
-            ),
-          },
-          {
-            id: "governance",
-            label: "治理",
-            panelId: "governance-policy-panel",
-            content: (
-              <MemoryGovernanceSection
-                projectId={props.selectedProjectId}
-                projectName={props.selectedProjectName}
-              />
-            ),
-          },
-          {
-            id: "search",
-            label: "检索",
-            panelId: "governance-memory-search",
-            content: (
-              <MemorySearchPanel
-                projectId={props.selectedProjectId}
-                projectName={props.selectedProjectName}
-                onNavigateToApproval={props.onNavigateToApproval}
-                onNavigateToDeliverable={props.onNavigateToDeliverable}
-                onNavigateToTask={props.onNavigateToTask}
-              />
-            ),
-          },
-          {
-            id: "roles",
-            label: "角色",
-            panelId: "governance-roles",
-            content: (
-              <RoleCatalogPage
-                selectedProjectId={props.selectedProjectId}
-                selectedProjectName={props.selectedProjectName}
-              />
-            ),
-          },
-          {
-            id: "skills",
-            label: "技能",
-            panelId: "governance-skills",
-            content: (
-              <SkillRegistryPage
-                selectedProjectId={props.selectedProjectId}
-                selectedProjectName={props.selectedProjectName}
-              />
-            ),
-          },
-          {
-            id: "workbench",
-            label: "工作台",
-            panelId: "governance-role-workbench",
-            content: (
-              <RoleWorkbenchPage
-                selectedProjectId={props.selectedProjectId}
-                selectedProjectName={props.selectedProjectName}
-                projectOptions={props.projects.map((project) => ({
-                  id: project.id,
-                  name: project.name,
-                  stage: project.stage,
-                  status: project.status,
-                }))}
-                onNavigateToProject={props.onSelectProject}
-                onNavigateToTask={props.onNavigateToTask}
-              />
-            ),
-          },
-        ]}
+        defaultTabId={defaultTabId}
+        items={items.map((item) => ({ ...item }))}
       />
     </section>
   );

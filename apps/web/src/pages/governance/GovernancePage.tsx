@@ -220,6 +220,7 @@ export function GovernancePage() {
         selectedProjectName={selectedProject?.name ?? null}
         projects={projects}
         defaultTabId={section ?? "memory"}
+        hideTabs
         onSelectProject={(nextProjectId) =>
           navigate(
             buildGovernanceRoute({
