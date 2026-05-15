@@ -44,8 +44,8 @@ export function RepositoryPreflightPanel(props: RepositoryPreflightPanelProps) {
   if (!props.projectId) {
     return (
       <section className="border-b border-[#333333] pb-6">
-        <div className="text-lg font-semibold text-slate-50">项目预检</div>
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+        <div className="text-lg font-semibold text-zinc-100">项目预检</div>
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
           请先选择项目，再查看待预检的变更范围、风险提示和人工确认状态。
         </p>
       </section>
@@ -56,8 +56,8 @@ export function RepositoryPreflightPanel(props: RepositoryPreflightPanelProps) {
     <section className="border-b border-[#333333] pb-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-lg font-semibold text-slate-50">项目预检</div>
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">
+          <div className="text-lg font-semibold text-zinc-100">项目预检</div>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-zinc-400">
             在变更进入执行或审批前，先确认影响范围、风险提示和是否需要人工放行。
             这里帮助团队把“能不能继续推进”判断收束在一个轻量入口里。
           </p>
@@ -80,7 +80,7 @@ export function RepositoryPreflightPanel(props: RepositoryPreflightPanelProps) {
       </div>
 
       {inboxQuery.isLoading && !inboxQuery.data ? (
-        <div className="mt-4 text-sm leading-6 text-slate-400">正在加载预检列表...</div>
+        <div className="mt-4 text-sm leading-6 text-zinc-400">正在加载预检列表...</div>
       ) : null}
       {inboxQuery.isError ? (
         <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
@@ -91,8 +91,8 @@ export function RepositoryPreflightPanel(props: RepositoryPreflightPanelProps) {
       {items.length > 0 ? (
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.25fr)]">
           <section className="border-b border-[#333333] pb-4">
-            <div className="text-sm font-semibold text-slate-50">待预检事项</div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">
+            <div className="text-sm font-semibold text-zinc-100">待预检事项</div>
+            <div className="mt-2 text-sm leading-6 text-zinc-400">
               选择一个变更记录，查看范围、风险提示和当前处理状态。
             </div>
 
@@ -109,14 +109,14 @@ export function RepositoryPreflightPanel(props: RepositoryPreflightPanelProps) {
                   }`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-medium text-slate-100">{item.title}</div>
+                    <div className="text-sm font-medium text-zinc-100">{item.title}</div>
                     <StatusBadge
                       label={CHANGE_BATCH_PREFLIGHT_STATUS_LABELS[item.preflight.status]}
                       tone={mapItemTone(item)}
                     />
                   </div>
-                  <div className="mt-2 text-sm leading-6 text-slate-300">{item.preflight.summary ?? item.summary}</div>
-                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+                  <div className="mt-2 text-sm leading-6 text-zinc-400">{item.preflight.summary ?? item.summary}</div>
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-500">
                     <span>涉及任务 {item.task_count}</span>
                     <span>涉及文件 {item.target_file_count}</span>
                     <span>重叠文件 {item.overlap_file_count}</span>
@@ -130,7 +130,7 @@ export function RepositoryPreflightPanel(props: RepositoryPreflightPanelProps) {
           <section>
             {selectedChangeBatchId ? (
               detailQuery.isLoading && !detailQuery.data ? (
-                <div className="border-b border-[#333333] px-0 py-6 text-sm leading-6 text-slate-400">
+                <div className="border-b border-[#333333] px-0 py-6 text-sm leading-6 text-zinc-400">
                   正在加载详情...
                 </div>
               ) : detailQuery.isError ? (
@@ -144,14 +144,14 @@ export function RepositoryPreflightPanel(props: RepositoryPreflightPanelProps) {
                 />
               ) : null
             ) : (
-              <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
+              <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-400">
                 请选择一个变更记录以查看预检详情。
               </div>
             )}
           </section>
         </div>
       ) : !inboxQuery.isLoading && !inboxQuery.isError ? (
-        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-400">
           当前没有需要预检的变更记录。
         </div>
       ) : null}
@@ -204,7 +204,7 @@ function RepositoryPreflightDetailPanel(props: {
       });
       setFeedback({
         tone: action === "approve" ? "success" : "warning",
-        text: action === "approve" ? "已提交审批通过确认。" : "已提交拒绝确认。",
+        text: action === "approve" ? "已提交放行确认。" : "已提交驳回确认。",
       });
       setSummary("");
       setComment("");
@@ -228,15 +228,15 @@ function RepositoryPreflightDetailPanel(props: {
       />
 
       <section className="border-b border-[#333333] pb-4">
-        <div className="text-sm font-semibold text-slate-50">变更范围</div>
-        <div className="mt-2 text-sm leading-6 text-slate-400">
+        <div className="text-sm font-semibold text-zinc-100">变更范围</div>
+        <div className="mt-2 text-sm leading-6 text-zinc-400">
           记录本次变更涉及的任务与文件，方便确认是否符合预期范围。
         </div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
           <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">任务清单</div>
-            <ul className="mt-3 divide-y divide-[#333333] border-y border-[#333333] text-sm leading-6 text-slate-300">
+            <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">任务清单</div>
+            <ul className="mt-3 divide-y divide-[#333333] border-y border-[#333333] text-sm leading-6 text-zinc-400">
               {props.detail.task_titles.map((taskTitle) => (
                 <li key={taskTitle} className="px-0 py-2">
                   {taskTitle}
@@ -245,8 +245,8 @@ function RepositoryPreflightDetailPanel(props: {
             </ul>
           </div>
           <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">目标文件</div>
-            <ul className="mt-3 divide-y divide-[#333333] border-y border-[#333333] text-sm leading-6 text-slate-300">
+            <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">目标文件</div>
+            <ul className="mt-3 divide-y divide-[#333333] border-y border-[#333333] text-sm leading-6 text-zinc-400">
               {props.detail.target_files.map((filePath) => (
                 <li key={filePath} className="break-all px-0 py-2">
                   {filePath}
@@ -264,51 +264,51 @@ function RepositoryPreflightDetailPanel(props: {
           }}
           className="border-b border-[#333333] pb-4"
         >
-          <div className="text-sm font-semibold text-slate-50">人工确认</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">
+          <div className="text-sm font-semibold text-zinc-100">人工确认</div>
+          <div className="mt-2 text-sm leading-6 text-zinc-400">
             当前预检仍需要人工判断。请补充确认摘要后，再决定是否放行。
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <label className="block text-sm text-slate-200">
-              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">动作</div>
+            <label className="block text-sm text-zinc-200">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">动作</div>
               <select
                 value={action}
                 onChange={(event) => setAction(event.target.value as "approve" | "reject")}
-                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
               >
                 <option value="approve">放行</option>
                 <option value="reject">驳回</option>
               </select>
             </label>
-            <label className="block text-sm text-slate-200">
-              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">操作者</div>
+            <label className="block text-sm text-zinc-200">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">操作者</div>
               <input
                 value={actorName}
                 onChange={(event) => setActorName(event.target.value)}
-                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
               />
             </label>
           </div>
 
-          <label className="mt-4 block text-sm text-slate-200">
-            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">摘要</div>
+          <label className="mt-4 block text-sm text-zinc-200">
+            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">摘要</div>
             <input
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
               placeholder="例如：范围可控，允许继续推进"
-              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
             />
           </label>
 
-          <label className="mt-4 block text-sm text-slate-200">
-            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">备注</div>
+          <label className="mt-4 block text-sm text-zinc-200">
+            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">备注</div>
             <textarea
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               rows={4}
               placeholder="可补充需要关注的范围、风险或后续处理建议"
-              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
             />
           </label>
 
@@ -343,7 +343,7 @@ function RepositoryPreflightDetailPanel(props: {
           </div>
         </form>
       ) : (
-        <div className="border-l border-[#333333] px-4 py-3 text-sm leading-6 text-slate-300">
+        <div className="border-l border-[#333333] px-4 py-3 text-sm leading-6 text-zinc-400">
           当前预检已完成确认，后续可继续推进。
         </div>
       )}
@@ -354,8 +354,8 @@ function RepositoryPreflightDetailPanel(props: {
 function MiniStat(props: { label: string; value: string }) {
   return (
     <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }
