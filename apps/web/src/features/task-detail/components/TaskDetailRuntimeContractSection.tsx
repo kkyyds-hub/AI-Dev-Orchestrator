@@ -22,6 +22,7 @@ export function TaskDetailRuntimeContractSection(props: {
   roleModelPolicyFields: RuntimeField[];
   hasRoleModelPolicyData: boolean;
   surfaceVariant?: TaskDetailSurfaceVariant;
+  hideHeaderAndActions?: boolean;
   onNavigateToRun?: (runId: string, taskId: string) => void;
   onNavigateToStrategyPreview?: (input: {
     taskId: string;
@@ -48,53 +49,57 @@ export function TaskDetailRuntimeContractSection(props: {
       data-testid="task-detail-runtime-context"
       className={isLine ? "space-y-4" : "space-y-4"}
     >
-      {/* ── Summary header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#333333] pb-4">
-        <div>
-          <h3 className="text-base font-semibold text-zinc-100">运行约束详情</h3>
-          <p className="mt-1 text-xs text-zinc-500">
-            任务 {props.taskId} · 运行 {selectedRun.id}
-          </p>
-          {selectedRun.result_summary ? (
-            <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-400">
-              {selectedRun.result_summary}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge label={selectedRun.status} tone={mapRunStatusTone(selectedRun.status)} />
-          <StatusBadge
-            label={formatQualityGateLabel(selectedRun.quality_gate_passed)}
-            tone={mapQualityGateTone(selectedRun.quality_gate_passed)}
-          />
-        </div>
-      </div>
+      {!props.hideHeaderAndActions ? (
+        <>
+          {/* ── Summary header ── */}
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#333333] pb-4">
+            <div>
+              <h3 className="text-base font-semibold text-zinc-100">运行约束详情</h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                任务 {props.taskId} · 运行 {selectedRun.id}
+              </p>
+              {selectedRun.result_summary ? (
+                <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-400">
+                  {selectedRun.result_summary}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <StatusBadge label={selectedRun.status} tone={mapRunStatusTone(selectedRun.status)} />
+              <StatusBadge
+                label={formatQualityGateLabel(selectedRun.quality_gate_passed)}
+                tone={mapQualityGateTone(selectedRun.quality_gate_passed)}
+              />
+            </div>
+          </div>
 
-      {/* ── Action bar ── */}
-      <div className="flex flex-wrap gap-2">
-        {props.onNavigateToStrategyPreview ? (
-          <button
-            type="button"
-            data-testid="goto-strategy-preview-from-task-detail"
-            onClick={() => props.onNavigateToStrategyPreview?.({ taskId: props.taskId, runId: selectedRun.id })}
-            className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
-          >
-            返回策略预览
-          </button>
-        ) : null}
-        {props.onNavigateToRun ? (
-          <button
-            type="button"
-            data-testid="goto-run-center-from-task-detail"
-            onClick={() => props.onNavigateToRun?.(selectedRun.id, props.taskId)}
-            className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
-          >
-            打开运行中心
-          </button>
-        ) : null}
-        <CopyButton label="复制任务 ID" value={props.taskId} />
-        <CopyButton label="复制运行 ID" value={selectedRun.id} />
-      </div>
+          {/* ── Action bar ── */}
+          <div className="flex flex-wrap gap-2">
+            {props.onNavigateToStrategyPreview ? (
+              <button
+                type="button"
+                data-testid="goto-strategy-preview-from-task-detail"
+                onClick={() => props.onNavigateToStrategyPreview?.({ taskId: props.taskId, runId: selectedRun.id })}
+                className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
+              >
+                返回策略预览
+              </button>
+            ) : null}
+            {props.onNavigateToRun ? (
+              <button
+                type="button"
+                data-testid="goto-run-center-from-task-detail"
+                onClick={() => props.onNavigateToRun?.(selectedRun.id, props.taskId)}
+                className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
+              >
+                打开运行中心
+              </button>
+            ) : null}
+            <CopyButton label="复制任务 ID" value={props.taskId} />
+            <CopyButton label="复制运行 ID" value={selectedRun.id} />
+          </div>
+        </>
+      ) : null}
 
       {/* ── A. 运行标识 ── */}
       <CardGroup title="运行标识" className={isLine ? "border-b border-[#333333] pb-4" : ""}>

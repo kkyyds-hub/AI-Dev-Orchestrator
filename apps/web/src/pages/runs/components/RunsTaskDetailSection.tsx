@@ -151,6 +151,7 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
               roleModelPolicyFields={roleModelPolicyFields}
               hasRoleModelPolicyData={hasRoleModelPolicyData}
               surfaceVariant="line"
+              hideHeaderAndActions
               onNavigateToRun={props.onNavigateToRun}
               onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
             />
