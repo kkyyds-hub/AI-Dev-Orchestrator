@@ -52,13 +52,13 @@ export function MePage() {
     <div className="space-y-8" data-testid="account-settings-page">
       <header className="border-b border-[#333333] pb-6">
         <div className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-          Account Settings
+          账户中心
         </div>
         <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">我的账户</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-500">
-              管理账户资料、安全与个人偏好。
+              账户体系尚未开放，当前主要提供快捷入口。通过下方链接可以快速进入系统设置、项目中心和工作台。
             </p>
           </div>
           <div className="text-left md:text-right" data-testid="account-session-state">

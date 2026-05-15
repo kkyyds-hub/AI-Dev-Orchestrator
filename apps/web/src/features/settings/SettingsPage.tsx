@@ -69,7 +69,7 @@ export function SettingsPage() {
     <div className="space-y-7">
       <section className="border-l border-[#333333] px-4 py-1">
         <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-          System Settings
+          系统设置
         </div>
         <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
           系统设置
@@ -187,7 +187,7 @@ function ModelConfigurationSection() {
             模型配置
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            配置模型密钥、服务地址和请求超时时间。
+            在这里配置模型密钥、服务地址和请求超时时间。保存后，工作台和任务执行会使用这套连接配置。
           </p>
         </div>
         <StatusBadge
@@ -212,7 +212,7 @@ function ModelConfigurationSection() {
 
           <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="OpenAI API Key">
+              <Field label="模型密钥">
                 <input
                   type="password"
                   value={secretInput}
@@ -233,7 +233,7 @@ function ModelConfigurationSection() {
               </Field>
             </div>
 
-            <Field label="Base URL">
+            <Field label="服务地址">
               <input
                 type="url"
                 value={baseUrlInput}
@@ -383,7 +383,7 @@ function RepositoryBindingSection() {
             项目仓库绑定
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            选择项目并绑定主仓库根目录。
+            在这里为项目绑定主仓库根目录。绑定后，可以进入仓库工作区查看文件、定位代码和生成变更计划。
           </p>
         </div>
         <StatusBadge
