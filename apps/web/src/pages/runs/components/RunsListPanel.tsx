@@ -14,51 +14,60 @@ type RunsListPanelProps = {
 
 export function RunsListPanel(props: RunsListPanelProps) {
   return (
-    <section className="min-w-0" data-testid="runs-list-panel">
-      <div className="mb-4 flex flex-col gap-2 border-b border-[#333333] pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-zinc-100">最新运行列表</h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-500">
-            基于任务总览聚合最近运行，可直接进入运行详情。
-          </p>
+    <section
+      className="flex flex-col overflow-hidden border-r border-[#333333]"
+      data-testid="runs-list-panel"
+    >
+      <div className="shrink-0 border-b border-[#333333] px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">运行列表</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {props.latestRuns.length} 条记录
+            </p>
+          </div>
+          <StatusBadge
+            label={
+              props.isLoading
+                ? "加载中"
+                : props.isError
+                  ? "加载失败"
+                  : "就绪"
+            }
+            tone={props.isLoading ? "warning" : props.isError ? "danger" : "success"}
+          />
         </div>
-        <StatusBadge
-          label={
-            props.isLoading
-              ? "加载中"
-              : props.isError
-                ? "加载失败"
-                : "数据已就绪"
-          }
-          tone={props.isLoading ? "warning" : props.isError ? "danger" : "success"}
-        />
       </div>
 
-      {props.isError || !props.latestRuns.length ? (
-        <RunsListQueryState
-          isError={props.isError}
-          hasRuns={props.latestRuns.length > 0}
-        />
-      ) : (
-        <div className="divide-y divide-[#333333] border-y border-[#333333]">
-          {props.latestRuns.map((item) => (
-            <RunListItemButton
-              key={item.run.id}
-              item={item}
-              selected={item.run.id === props.runId}
-              onSelect={() =>
-                props.onNavigateToRun(
-                  buildRunRoute({
-                    runId: item.run.id,
-                    taskId: item.task.id,
-                    from: "runs",
-                  }),
-                )
-              }
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {props.isError || !props.latestRuns.length ? (
+          <div className="px-4 py-6">
+            <RunsListQueryState
+              isError={props.isError}
+              hasRuns={props.latestRuns.length > 0}
             />
-          ))}
-        </div>
-      )}
+          </div>
+        ) : (
+          <div className="divide-y divide-[#333333]">
+            {props.latestRuns.map((item) => (
+              <RunListItemButton
+                key={item.run.id}
+                item={item}
+                selected={item.run.id === props.runId}
+                onSelect={() =>
+                  props.onNavigateToRun(
+                    buildRunRoute({
+                      runId: item.run.id,
+                      taskId: item.task.id,
+                      from: "runs",
+                    }),
+                  )
+                }
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

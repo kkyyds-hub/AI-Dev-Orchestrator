@@ -46,7 +46,7 @@ export function RunsPage() {
   };
 
   return (
-    <div className="space-y-7">
+    <div className="flex flex-col" style={{ height: "calc(100vh - 5rem)" }}>
       <RunsPageHeader
         latestRunCount={runSelection.latestRuns.length}
         runId={runId}
@@ -66,7 +66,7 @@ export function RunsPage() {
       ) : null}
 
       <section
-        className="grid gap-6 xl:grid-cols-[480px_minmax(0,1fr)]"
+        className="mt-4 grid min-h-0 flex-1 gap-0 xl:grid-cols-[480px_minmax(0,1fr)]"
         aria-label="工作流运行列表与详情"
       >
         <RunsListPanel

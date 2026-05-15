@@ -1,6 +1,18 @@
-import { TaskDetailPanel } from "../../../features/task-detail/TaskDetailPanel";
+import { useState } from "react";
+
+import { StatusBadge } from "../../../components/StatusBadge";
+import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../../../lib/format";
+import { useTaskDetail } from "../../../features/task-detail/hooks";
+import { useSelectedTaskRun } from "../../../features/task-detail/useSelectedTaskRun";
+import { useSelectedRunRuntimeContract } from "../../../features/task-detail/useSelectedRunRuntimeContract";
+import { TaskDetailRuntimeContractSection } from "../../../features/task-detail/components/TaskDetailRuntimeContractSection";
 import type { ConsoleBudget, ConsoleTask } from "../../../features/console/types";
 import type { StreamConnectionStatus } from "../../../features/events/types";
+import {
+  mapFailureCategoryTone,
+  mapQualityGateTone,
+  mapRunStatusTone,
+} from "../../../lib/status";
 
 type RunsTaskDetailSectionProps = {
   runId: string | undefined;
@@ -19,26 +31,171 @@ type RunsTaskDetailSectionProps = {
 };
 
 export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
+  const detailQuery = useTaskDetail(props.selectedTask?.id ?? null, {
+    enablePollingFallback: props.realtimeStatus !== "open",
+  });
+  const detail = detailQuery.data;
+  const { selectedRun } = useSelectedTaskRun({
+    taskId: props.selectedTask?.id ?? null,
+    detail,
+    requestedRunId: props.runId ?? null,
+  });
+  const {
+    runtimeFields,
+    roleModelPolicyFields,
+    hasRoleModelPolicyData,
+  } = useSelectedRunRuntimeContract(selectedRun);
+
+  const currentTaskId = detail?.id ?? props.selectedTask?.id ?? "";
+
   return (
-    <section className="min-w-0" data-testid="runs-task-detail-section">
-      <div className="mb-4 border-b border-[#333333] pb-4">
-        <h2 className="text-base font-semibold text-zinc-100">任务与运行详情</h2>
-        <p className="mt-1 text-sm leading-6 text-zinc-500">
-          保留任务处理、运行切换、交付物跳转、日志查看与策略预览入口。
-        </p>
-      </div>
-      <TaskDetailPanel
-        panelId="runs-task-detail-panel"
-        runLogPanelId="runs-run-log-panel"
-        requestedRunId={props.runId ?? null}
-        selectedTask={props.selectedTask}
-        budget={props.budget}
-        realtimeStatus={props.realtimeStatus}
-        surfaceVariant="line"
-        onNavigateToDeliverable={props.onNavigateToDeliverable}
-        onNavigateToRun={props.onNavigateToRun}
-        onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
-      />
+    <section
+      className="flex min-h-0 flex-col overflow-hidden border-l border-[#333333] bg-[#0d0d0d]"
+      data-testid="runs-task-detail-section"
+    >
+      {!props.runId ? (
+        /* Empty state when no run selected */
+        <div className="flex flex-1 items-center justify-center px-6">
+          <div className="max-w-sm text-center">
+            <div className="text-4xl text-zinc-700">&#9654;</div>
+            <h2 className="mt-4 text-lg font-semibold text-zinc-300">请选择一条运行记录</h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-500">
+              从左侧列表中选择一条运行记录，查看任务详情、运行约束、Token 用量与诊断信息。
+            </p>
+          </div>
+        </div>
+      ) : !selectedRun ? (
+        /* Loading / no run data */
+        <div className="flex flex-1 items-center justify-center px-6">
+          <p className="text-sm text-zinc-500">
+            {detailQuery.isLoading ? "正在加载运行详情..." : "未能找到对应的运行记录。"}
+          </p>
+        </div>
+      ) : (
+        /* Detail content with independent scroll */
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* ── Summary Header ── */}
+          <div className={`border-b border-[#333333] px-5 py-4 ${
+            selectedRun.status === "failed" || selectedRun.status === "blocked"
+              ? "border-l-4 border-l-rose-500/50"
+              : ""
+          }`}>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-lg font-semibold text-zinc-100">
+                    {props.selectedTask?.title ?? "未命名任务"}
+                  </h2>
+                  <StatusBadge label={selectedRun.status} tone={mapRunStatusTone(selectedRun.status)} />
+                  {selectedRun.failure_category ? (
+                    <StatusBadge label={selectedRun.failure_category} tone={mapFailureCategoryTone(selectedRun.failure_category)} />
+                  ) : null}
+                  <StatusBadge
+                    label={formatQualityGateShort(selectedRun.quality_gate_passed)}
+                    tone={mapQualityGateTone(selectedRun.quality_gate_passed)}
+                  />
+                </div>
+
+                {/* Summary metrics row */}
+                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-zinc-500">
+                  <span>开始 {formatDateTime(selectedRun.started_at)}</span>
+                  <span>结束 {formatDateTime(selectedRun.finished_at)}</span>
+                  <span className="font-mono text-zinc-400">
+                    {formatTokenCount(selectedRun.total_tokens ?? 0)} tokens
+                  </span>
+                  <span className="font-mono text-zinc-400">
+                    {formatCurrencyUsd(selectedRun.estimated_cost)}
+                  </span>
+                </div>
+
+                {selectedRun.result_summary ? (
+                  <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-400">
+                    {selectedRun.result_summary}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Action Bar ── */}
+          <div className="flex flex-wrap gap-2 border-b border-[#333333] px-5 py-3">
+            {props.onNavigateToStrategyPreview ? (
+              <ActionBtn
+                label="返回策略预览"
+                data-testid="goto-strategy-preview-from-task-detail"
+                onClick={() =>
+                  props.onNavigateToStrategyPreview?.({
+                    taskId: currentTaskId,
+                    runId: selectedRun.id,
+                  })
+                }
+              />
+            ) : null}
+            {props.onNavigateToRun ? (
+              <ActionBtn
+                label="打开运行中心"
+                data-testid="goto-run-center-from-task-detail"
+                onClick={() => props.onNavigateToRun?.(selectedRun.id, currentTaskId)}
+              />
+            ) : null}
+            <CopyBtn label="复制任务 ID" value={currentTaskId} />
+            <CopyBtn label="复制运行 ID" value={selectedRun.id} />
+          </div>
+
+          {/* ── Detail card grid ── */}
+          <div className="px-5 py-4">
+            <TaskDetailRuntimeContractSection
+              taskId={currentTaskId}
+              selectedRun={selectedRun}
+              runtimeFields={runtimeFields}
+              roleModelPolicyFields={roleModelPolicyFields}
+              hasRoleModelPolicyData={hasRoleModelPolicyData}
+              surfaceVariant="line"
+              onNavigateToRun={props.onNavigateToRun}
+              onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+function ActionBtn(props: { label: string; onClick: () => void; "data-testid"?: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={props["data-testid"]}
+      onClick={props.onClick}
+      className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
+    >
+      {props.label}
+    </button>
+  );
+}
+
+function CopyBtn(props: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(props.value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1600);
+        } catch { /* noop */ }
+      }}
+      className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-100"
+    >
+      {copied ? "已复制" : props.label}
+    </button>
+  );
+}
+
+function formatQualityGateShort(qualityGatePassed: boolean | null): string {
+  if (qualityGatePassed === true) return "闸门放行";
+  if (qualityGatePassed === false) return "闸门拦截";
+  return "闸门未知";
 }
