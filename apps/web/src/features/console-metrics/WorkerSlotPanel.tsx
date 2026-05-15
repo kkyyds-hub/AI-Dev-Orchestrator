@@ -10,7 +10,7 @@ export function WorkerSlotPanel() {
     <div className="border border-[#333333] bg-transparent p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-100">Worker 槽位</h2>
+          <h2 className="text-lg font-semibold text-zinc-100">执行器槽位</h2>
           <p className="mt-1 text-sm text-zinc-400">
             展示固定并行槽位、等待压力和预算守卫状态，避免并行执行变成黑盒。
           </p>
@@ -69,7 +69,7 @@ export function WorkerSlotPanel() {
                       槽位 #{slot.slot_id}
                     </div>
                     <div className="mt-1 text-xs text-zinc-500">
-                      {slot.worker_name ?? "当前未分配 worker 标识"}
+                      {slot.worker_name ?? "当前未分配执行器标识"}
                     </div>
                   </div>
                   <StatusBadge
@@ -81,7 +81,7 @@ export function WorkerSlotPanel() {
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <Metric label="当前任务" value={slot.task_title ?? "—"} />
                   <Metric
-                    label="当前 Run"
+                    label="当前运行"
                     value={slot.run_id ? slot.run_id.slice(0, 8) : "—"}
                   />
                   <Metric

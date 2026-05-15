@@ -12,7 +12,7 @@ export function ConsoleMetricsPanel() {
         <div>
           <h2 className="text-lg font-semibold text-zinc-100">观测指标总览</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            汇总运行数量、成本和预算压力，作为 Day09 管理视图基线。
+            汇总运行数量、成本和预算压力，作为管理视图的基础指标。
           </p>
         </div>
         <StatusBadge
@@ -56,7 +56,7 @@ export function ConsoleMetricsPanel() {
             hint={`平均：${formatCurrencyUsd(metricsQuery.data.avg_estimated_cost)}`}
           />
           <Metric
-            label="Prompt / Completion"
+            label="提示词 / 输出"
             value={`${formatTokenCount(metricsQuery.data.total_prompt_tokens)} / ${formatTokenCount(metricsQuery.data.total_completion_tokens)}`}
             hint={`平均：${Math.round(metricsQuery.data.avg_prompt_tokens)} / ${Math.round(metricsQuery.data.avg_completion_tokens)}`}
           />

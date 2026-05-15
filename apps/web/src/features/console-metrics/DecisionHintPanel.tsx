@@ -30,7 +30,7 @@ export function DecisionHintPanel() {
         <div>
           <h2 className="text-lg font-semibold text-zinc-100">管理决策提示</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            根据预算压力、失败分布和路由热点，给出下一步优先动作建议。
+            根据预算压力、失败分布和执行分配热点，给出下一步优先动作建议。
           </p>
         </div>
         <StatusBadge

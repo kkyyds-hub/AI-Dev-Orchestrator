@@ -11,7 +11,7 @@ export function FailureDistributionPanel() {
         <div>
           <h2 className="text-lg font-semibold text-zinc-100">失败与路由分布</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            展示失败状态、失败类型和主要路由原因，支撑 Day09 管理判断。
+            展示失败状态、失败类型和主要分配原因，支撑管理判断。
           </p>
         </div>
         <StatusBadge
@@ -91,9 +91,9 @@ export function FailureDistributionPanel() {
 
       {routingQuery.data ? (
         <div className="mt-4 rounded-xl border border-[#333333] bg-transparent p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">路由原因分布</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">分配原因分布</div>
           <div className="mt-2 text-xs text-zinc-500">
-            已统计路由运行：{routingQuery.data.total_routed_runs}
+            已统计分配运行：{routingQuery.data.total_routed_runs}
           </div>
           <div className="mt-2 space-y-2">
             {routingQuery.data.distribution.length ? (
