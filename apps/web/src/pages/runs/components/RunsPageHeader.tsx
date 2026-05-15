@@ -24,7 +24,7 @@ export function RunsPageHeader(props: RunsPageHeaderProps) {
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Workflow Runs
+            运行中心
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">
             工作流运行
