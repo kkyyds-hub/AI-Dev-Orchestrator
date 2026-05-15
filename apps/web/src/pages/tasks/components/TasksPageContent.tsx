@@ -33,6 +33,7 @@ export function TasksPageContent(props: TasksPageContentProps) {
       style={{ height: "calc(100vh - 10rem)" }}
     >
       <TaskTableSection
+        layoutVariant="workspace"
         tasks={props.tasks}
         selectedTaskId={props.selectedTaskId}
         overviewIsLoading={props.overviewIsLoading}
@@ -42,7 +43,7 @@ export function TasksPageContent(props: TasksPageContentProps) {
         onNavigateToProjectDrilldown={props.onNavigateToProjectDrilldown}
       />
 
-      <div className="min-h-0 overflow-y-auto border-l border-[#333333]">
+      <div className="min-h-0 overflow-y-auto">
         <TaskDetailPanel
           panelId="tasks-detail-panel"
           runLogPanelId="tasks-run-log-panel"

@@ -10,6 +10,7 @@ type TaskTableSectionProps = {
   selectedTaskId: string | null;
   overviewIsLoading: boolean;
   overviewIsError: boolean;
+  layoutVariant?: "default" | "workspace";
   onSelectTask: (taskId: string) => void;
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
   onNavigateToRun?: (runId: string, taskId: string) => void;
@@ -42,142 +43,176 @@ export function TaskTableSection(props: TaskTableSectionProps) {
   const pageStart = props.tasks.length ? (currentPage - 1) * TASKS_PER_PAGE + 1 : 0;
   const pageEnd = Math.min(currentPage * TASKS_PER_PAGE, props.tasks.length);
 
-  return (
-    <section
-      data-testid="home-task-table-section"
-      className="flex min-h-0 flex-col overflow-hidden border-r border-[#333333]"
-    >
-      <div className="flex shrink-0 items-center justify-between border-b border-[#333333] px-3 py-2.5">
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-100">任务列表</h2>
-          <p className="mt-0.5 text-xs text-zinc-500">{props.tasks.length} 条任务</p>
-        </div>
-        <StatusBadge
-          label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "就绪"}
-          tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "success"}
-        />
-      </div>
+  const isWorkspace = props.layoutVariant === "workspace";
 
+  const headerSection = (
+    <div className={isWorkspace ? "flex shrink-0 items-center justify-between border-b border-[#333333] px-3 py-2.5" : "flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"}>
+      <div>
+        <h2 className={isWorkspace ? "text-sm font-semibold text-zinc-100" : "text-base font-semibold text-zinc-100"}>
+          {isWorkspace ? "任务列表" : "任务队列"}
+        </h2>
+        {isWorkspace ? (
+          <p className="mt-0.5 text-xs text-zinc-500">{props.tasks.length} 条任务</p>
+        ) : null}
+      </div>
+      <StatusBadge
+        label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : isWorkspace ? "就绪" : "已同步"}
+        tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : isWorkspace ? "success" : "neutral"}
+      />
+    </div>
+  );
+
+  const listContent = (
+    <div className={isWorkspace ? "min-h-0 flex-1 overflow-y-auto divide-y divide-[#333333]" : ""}>
+      {pagedTasks.length ? (
+        pagedTasks.map((task) => {
+          const isSelected = props.selectedTaskId === task.id;
+          const latestRun = task.latest_run;
+
+          return (
+            <article
+              key={task.id}
+              data-testid={`home-task-row-${task.id}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => props.onSelectTask(task.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  props.onSelectTask(task.id);
+                }
+              }}
+              className={`grid min-h-[68px] cursor-pointer gap-3 px-2 py-3 transition sm:px-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(220px,0.95fr)_116px_176px] lg:items-center ${
+                isSelected ? "rounded-md bg-[#2b2b2b]" : "hover:rounded-md hover:bg-[#2a2a2a]"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-zinc-100">{task.title}</div>
+                <div className="mt-1 truncate text-xs leading-5 text-zinc-500">
+                  优先级 {formatPriorityLabel(task.priority)} · {task.input_summary}
+                </div>
+              </div>
+
+              <div className="min-w-0 space-y-1.5">
+                <StatusBadge label={formatTaskStatusLabel(task.status)} tone={mapTaskStatusTone(task.status)} />
+                <div className="truncate text-xs text-zinc-500">
+                  {latestRun
+                    ? `${buildRunMicroSummary(latestRun)} · ${formatDateTime(latestRun.created_at)}`
+                    : "暂无运行"}
+                </div>
+              </div>
+
+              <div data-testid={`home-task-estimated-cost-${task.id}`} className="font-mono text-sm text-zinc-300">
+                {latestRun ? formatNullableCurrencyUsd(latestRun.estimated_cost) : "-"}
+              </div>
+
+              <div className="flex flex-wrap gap-1 lg:justify-end" onClick={(event) => event.stopPropagation()}>
+                {props.onNavigateToTask ? (
+                  <button
+                    type="button"
+                    onClick={() => props.onNavigateToTask?.(task.id, { runId: latestRun?.id ?? null })}
+                    className={tableActionButtonClass}
+                  >
+                    查看任务
+                  </button>
+                ) : null}
+                {latestRun?.id && props.onNavigateToRun ? (
+                  <button
+                    type="button"
+                    onClick={() => (latestRun.id ? props.onNavigateToRun?.(latestRun.id, task.id) : undefined)}
+                    className={tableActionButtonClass}
+                  >
+                    查看运行
+                  </button>
+                ) : null}
+                {latestRun ? (
+                  <button
+                    type="button"
+                    data-testid={`home-task-latest-run-drilldown-${task.id}`}
+                    onClick={() =>
+                      props.onNavigateToProjectDrilldown({
+                        source: "home_latest_run",
+                        taskId: task.id,
+                        runId: latestRun.id ?? null,
+                      })
+                    }
+                    className={subtleActionButtonClass}
+                  >
+                    查看项目上下文
+                  </button>
+                ) : null}
+              </div>
+            </article>
+          );
+        })
+      ) : isWorkspace ? (
+        <div className="py-12 text-center text-sm text-zinc-500">暂无任务。</div>
+      ) : null}
+    </div>
+  );
+
+  const paginationFooter = (
+    <div className={isWorkspace ? "flex shrink-0 flex-col gap-3 border-t border-[#333333] px-2 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-3" : "flex flex-col gap-3 border-t border-[#333333] px-2 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-3"}>
+      <span>
+        共 {props.tasks.length} 条任务
+        {props.tasks.length ? `，${pageStart}-${pageEnd}` : ""}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+          disabled={currentPage <= 1}
+          className="rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-[#2f2f2f] hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700"
+        >
+          上一页
+        </button>
+        <span className="min-w-16 text-center text-xs text-zinc-500">{currentPage} / {totalPages}</span>
+        <button
+          type="button"
+          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+          disabled={currentPage >= totalPages}
+          className="rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-[#2f2f2f] hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
+  );
+
+  if (isWorkspace) {
+    return (
+      <section
+        data-testid="home-task-table-section"
+        className="flex min-h-0 flex-col overflow-hidden border-r border-[#333333]"
+      >
+        {headerSection}
+        {props.overviewIsError ? (
+          <div className="shrink-0 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+            任务数据加载失败，请刷新页面或检查服务状态。
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {listContent}
+            {paginationFooter}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section data-testid="home-task-table-section" className="space-y-3">
+      {headerSection}
       {props.overviewIsError ? (
-        <div className="shrink-0 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+        <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           任务数据加载失败，请刷新页面或检查服务状态。
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[#333333]">
-            {pagedTasks.length ? (
-              pagedTasks.map((task) => {
-                const isSelected = props.selectedTaskId === task.id;
-                const latestRun = task.latest_run;
-
-                return (
-                  <article
-                    key={task.id}
-                    data-testid={`home-task-row-${task.id}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => props.onSelectTask(task.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        props.onSelectTask(task.id);
-                      }
-                    }}
-                    className={`grid min-h-[68px] cursor-pointer gap-3 px-2 py-3 transition sm:px-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(220px,0.95fr)_116px_176px] lg:items-center ${
-                      isSelected ? "rounded-md bg-[#2b2b2b]" : "hover:rounded-md hover:bg-[#2a2a2a]"
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-zinc-100">{task.title}</div>
-                      <div className="mt-1 truncate text-xs leading-5 text-zinc-500">
-                        优先级 {formatPriorityLabel(task.priority)} · {task.input_summary}
-                      </div>
-                    </div>
-
-                    <div className="min-w-0 space-y-1.5">
-                      <StatusBadge label={formatTaskStatusLabel(task.status)} tone={mapTaskStatusTone(task.status)} />
-                      <div className="truncate text-xs text-zinc-500">
-                        {latestRun
-                          ? `${buildRunMicroSummary(latestRun)} · ${formatDateTime(latestRun.created_at)}`
-                          : "暂无运行"}
-                      </div>
-                    </div>
-
-                    <div data-testid={`home-task-estimated-cost-${task.id}`} className="font-mono text-sm text-zinc-300">
-                      {latestRun ? formatNullableCurrencyUsd(latestRun.estimated_cost) : "-"}
-                    </div>
-
-                    <div className="flex flex-wrap gap-1 lg:justify-end" onClick={(event) => event.stopPropagation()}>
-                      {props.onNavigateToTask ? (
-                        <button
-                          type="button"
-                          onClick={() => props.onNavigateToTask?.(task.id, { runId: latestRun?.id ?? null })}
-                          className={tableActionButtonClass}
-                        >
-                          查看任务
-                        </button>
-                      ) : null}
-                      {latestRun?.id && props.onNavigateToRun ? (
-                        <button
-                          type="button"
-                          onClick={() => (latestRun.id ? props.onNavigateToRun?.(latestRun.id, task.id) : undefined)}
-                          className={tableActionButtonClass}
-                        >
-                          查看运行
-                        </button>
-                      ) : null}
-                      {latestRun ? (
-                        <button
-                          type="button"
-                          data-testid={`home-task-latest-run-drilldown-${task.id}`}
-                          onClick={() =>
-                            props.onNavigateToProjectDrilldown({
-                              source: "home_latest_run",
-                              taskId: task.id,
-                              runId: latestRun.id ?? null,
-                            })
-                          }
-                          className={subtleActionButtonClass}
-                        >
-                          查看项目上下文
-                        </button>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })
-            ) : (
-              <div className="py-12 text-center text-sm text-zinc-500">
-                暂无任务。
-              </div>
-            )}
+        <div className="border-y border-[#333333]">
+          <div className="divide-y divide-[#333333]">
+            {listContent}
           </div>
-
-          <div className="flex shrink-0 flex-col gap-3 border-t border-[#333333] px-2 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-3">
-            <span>
-              共 {props.tasks.length} 条任务
-              {props.tasks.length ? `，${pageStart}-${pageEnd}` : ""}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                disabled={currentPage <= 1}
-                className="rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-[#2f2f2f] hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700"
-              >
-                上一页
-              </button>
-              <span className="min-w-16 text-center text-xs text-zinc-500">{currentPage} / {totalPages}</span>
-              <button
-                type="button"
-                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                disabled={currentPage >= totalPages}
-                className="rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-[#2f2f2f] hover:text-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-700"
-              >
-                下一页
-              </button>
-            </div>
-          </div>
+          {pagedTasks.length ? paginationFooter : null}
         </div>
       )}
     </section>
