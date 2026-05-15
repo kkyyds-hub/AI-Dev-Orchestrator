@@ -53,13 +53,13 @@ export function VerificationRunPanel(props: VerificationRunPanelProps) {
   };
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <section className="border border-[#333333] bg-transparent p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day10 验证运行记录
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+            验证运行记录
           </div>
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
             将仓库级验证结果沉淀为结构化 <code>VerificationRun</code>，明确关联仓库、
             ChangePlan、ChangeBatch 与命令模板，并只展示最近一次验证结果；本面板不提前进入
             Day11 的差异视图或证据包。
@@ -74,15 +74,15 @@ export function VerificationRunPanel(props: VerificationRunPanelProps) {
       </div>
 
       {!props.projectId ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-4 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border border-dashed border-[#333333] bg-transparent px-4 py-4 text-sm leading-6 text-zinc-400">
           当前还没有绑定可查询验证运行记录的项目仓库。
         </div>
       ) : verificationRunsQuery.isLoading && !verificationRunsQuery.data ? (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4 text-sm text-slate-300">
+        <div className="mt-4 border border-[#333333] bg-transparent px-4 py-4 text-sm text-zinc-400">
           正在加载验证运行记录...
         </div>
       ) : verificationRunsQuery.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-4 text-sm text-rose-100">
+        <div className="mt-4 border border-rose-500/30 bg-rose-500/10 px-4 py-4 text-sm text-rose-100">
           验证运行记录加载失败：{verificationRunsQuery.error.message}
         </div>
       ) : verificationRunsQuery.data ? (
@@ -110,11 +110,11 @@ export function VerificationRunPanel(props: VerificationRunPanelProps) {
           </div>
 
           {latestRun ? (
-            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+            <div className="border border-[#3a3a3a] bg-transparent p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-semibold text-slate-50">
+                    <div className="text-sm font-semibold text-zinc-100">
                       最新验证结果
                     </div>
                     <StatusBadge
@@ -128,7 +128,7 @@ export function VerificationRunPanel(props: VerificationRunPanelProps) {
                       />
                     ) : null}
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                  <p className="mt-2 text-sm leading-6 text-zinc-400">
                     {latestRun.output_summary}
                   </p>
                 </div>
@@ -169,18 +169,18 @@ export function VerificationRunPanel(props: VerificationRunPanelProps) {
 
               <div className="mt-4 space-y-3 text-sm">
                 <div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                     验证命令
                   </div>
-                  <code className="mt-1 block break-all rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs text-cyan-200">
+                  <code className="mt-1 block break-all rounded-xl border border-[#333333] bg-transparent/80 px-3 py-2 text-xs text-zinc-200">
                     {latestRun.command}
                   </code>
                 </div>
                 <div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                     工作目录
                   </div>
-                  <p className="mt-1 text-slate-300">{latestRun.working_directory}</p>
+                  <p className="mt-1 text-zinc-400">{latestRun.working_directory}</p>
                 </div>
               </div>
             </div>
@@ -193,8 +193,8 @@ export function VerificationRunPanel(props: VerificationRunPanelProps) {
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-4 text-sm leading-6 text-slate-400">
-              当前仓库还没有结构化验证运行记录。Day10 只补齐记录与展示，不提前生成差异摘要、
+            <div className="border border-dashed border-[#333333] bg-transparent px-4 py-4 text-sm leading-6 text-zinc-400">
+              当前仓库还没有结构化验证运行记录。当前仅补齐记录与展示，不提前生成差异摘要、
               证据包、回退重做或任何真实 Git 写操作。
             </div>
           )}
@@ -214,11 +214,11 @@ function VerificationRunCard(props: { run: VerificationRun }) {
     : "手动命令";
 
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <article className="border border-[#333333] bg-transparent p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-medium text-slate-50">
+            <div className="text-sm font-medium text-zinc-100">
               {props.run.change_batch_title}
             </div>
             <StatusBadge
@@ -235,12 +235,12 @@ function VerificationRunCard(props: { run: VerificationRun }) {
             ) : null}
           </div>
 
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             {props.run.output_summary}
           </p>
         </div>
 
-        <div className="text-xs leading-6 text-slate-500">
+        <div className="text-xs leading-6 text-zinc-500">
           <div>完成时间：{formatDateTime(props.run.finished_at)}</div>
           <div>耗时：{formatDuration(props.run.duration_seconds)}</div>
           <div>任务：{props.run.task_title ?? "未记录"}</div>
@@ -257,8 +257,8 @@ function VerificationRunCard(props: { run: VerificationRun }) {
       </div>
 
       <div className="mt-4">
-        <div className="text-xs uppercase tracking-[0.2em] text-slate-500">验证命令</div>
-        <code className="mt-1 block break-all rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-cyan-200">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">验证命令</div>
+        <code className="mt-1 block break-all rounded-xl border border-[#333333] bg-transparent/80 px-3 py-2 text-xs text-zinc-200">
           {props.run.command}
         </code>
       </div>
@@ -268,11 +268,11 @@ function VerificationRunCard(props: { run: VerificationRun }) {
 
 function MetricCard(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div className="border border-[#333333] bg-transparent px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
         {props.label}
       </div>
-      <div className="mt-2 break-all text-sm font-medium text-slate-100">
+      <div className="mt-2 break-all text-sm font-medium text-zinc-100">
         {props.value}
       </div>
     </div>
@@ -281,11 +281,11 @@ function MetricCard(props: { label: string; value: string }) {
 
 function InfoCard(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div className="rounded-xl border border-[#333333] bg-transparent px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
         {props.label}
       </div>
-      <div className="mt-2 break-all text-sm text-slate-100">{props.value}</div>
+      <div className="mt-2 break-all text-sm text-zinc-100">{props.value}</div>
     </div>
   );
 }

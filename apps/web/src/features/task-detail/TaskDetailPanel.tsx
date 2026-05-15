@@ -158,7 +158,7 @@ export function TaskDetailPanel({
       className={
         surfaceVariant === "line"
           ? "border-y border-[#333333] bg-transparent py-5"
-          : "rounded-2xl border border-slate-800 bg-slate-900/70 p-5"
+          : "border border-[#333333] bg-transparent p-5"
       }
     >
       <TaskDetailPanelHeader selectedTask={selectedTask} surfaceVariant={surfaceVariant} />

@@ -26,11 +26,11 @@ export function DecisionHistoryPanel({
   const isLine = surfaceVariant === "line";
 
   return (
-    <section className={isLine ? "border-b border-[#333333] pb-5" : "rounded-xl border border-slate-800 bg-slate-950/60 p-4"}>
+    <section className={isLine ? "border-b border-[#333333] pb-5" : "rounded-xl border border-[#333333] bg-transparent p-4"}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-slate-50"}`}>决策历史</h3>
-          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-slate-400"}`}>
+          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>决策历史</h3>
+          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-zinc-400"}`}>
             {taskId
               ? "查看该任务所有运行的决策路径摘要。"
               : "先选择一个任务，再查看其决策历史。"}
@@ -42,11 +42,11 @@ export function DecisionHistoryPanel({
       </div>
 
       {!taskId ? (
-        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm text-zinc-500" : "mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400"}>
+        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm text-zinc-500" : "mt-4 rounded-xl border border-dashed border-[#333333] bg-transparent p-4 text-sm text-zinc-400"}>
           当前还没有选中的任务。
         </div>
       ) : isLoading ? (
-        <div className={isLine ? "mt-4 border-y border-[#333333] py-4 text-sm text-zinc-500" : "mt-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-300"}>
+        <div className={isLine ? "mt-4 border-y border-[#333333] py-4 text-sm text-zinc-500" : "mt-4 rounded-xl border border-[#333333] bg-transparent p-4 text-sm text-zinc-400"}>
           正在加载决策历史…
         </div>
       ) : errorMessage ? (
@@ -54,7 +54,7 @@ export function DecisionHistoryPanel({
           无法加载决策历史：{errorMessage}
         </div>
       ) : history.length === 0 ? (
-        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm text-zinc-500" : "mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400"}>
+        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm text-zinc-500" : "mt-4 rounded-xl border border-dashed border-[#333333] bg-transparent p-4 text-sm text-zinc-400"}>
           该任务还没有运行历史。
         </div>
       ) : (
@@ -72,16 +72,16 @@ export function DecisionHistoryPanel({
                     }`
                   : `w-full rounded-xl border p-4 text-left transition-colors ${
                       item.run_id === selectedRunId
-                        ? "border-cyan-500/40 bg-cyan-500/5"
-                        : "border-slate-800 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900"
+                        ? "border-[#3a3a3a] bg-transparent"
+                        : "border-[#333333] bg-transparent hover:border-[#333333] hover:bg-transparent"
                     }`
               }
               onClick={() => onSelectRun?.(item.run_id)}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
-                  <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-slate-100"}`}>{item.headline}</div>
-                  <div className={`mt-1 text-xs ${isLine ? "text-zinc-600" : "text-slate-500"}`}>
+                  <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>{item.headline}</div>
+                  <div className={`mt-1 text-xs ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>
                     {formatDateTime(item.created_at)}
                   </div>
                 </div>
@@ -98,7 +98,7 @@ export function DecisionHistoryPanel({
                   {item.stages.map((stage, index) => (
                     <span
                       key={`${stage}-${index}`}
-                      className={isLine ? "border-l border-[#333333] px-2 py-1 text-xs text-zinc-400" : "rounded-lg bg-slate-800/70 px-2 py-1 text-xs text-slate-300"}
+                      className={isLine ? "border-l border-[#333333] px-2 py-1 text-xs text-zinc-400" : "rounded-lg bg-transparent/70 px-2 py-1 text-xs text-zinc-400"}
                     >
                       {formatStageLabel(stage)}
                     </span>

@@ -12,11 +12,11 @@ export function TaskDetailContextPreviewSection(props: {
   const isLine = props.surfaceVariant === "line";
 
   return (
-    <section className={isLine ? "border-b border-[#333333] pb-5" : "rounded-xl border border-slate-800 bg-slate-950/60 p-4"}>
+    <section className={isLine ? "border-b border-[#333333] pb-5" : "rounded-xl border border-[#333333] bg-transparent p-4"}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-slate-50"}`}>最小上下文包</h3>
-          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-slate-400"}`}>
+          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>最小上下文包</h3>
+          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-zinc-400"}`}>
             Worker 在执行前会聚合任务目标、依赖状态、最近运行片段和阻塞信号。
           </p>
         </div>
@@ -26,9 +26,9 @@ export function TaskDetailContextPreviewSection(props: {
         />
       </div>
 
-      <div className={isLine ? "mt-4 border-y border-[#333333] py-4" : "mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4"}>
-        <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-slate-500"}`}>上下文摘要</div>
-        <p className={`mt-2 whitespace-pre-wrap text-sm leading-6 ${isLine ? "text-zinc-300" : "text-slate-300"}`}>
+      <div className={isLine ? "mt-4 border-y border-[#333333] py-4" : "mt-4 rounded-xl border border-[#333333] bg-transparent p-4"}>
+        <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>上下文摘要</div>
+        <p className={`mt-2 whitespace-pre-wrap text-sm leading-6 ${isLine ? "text-zinc-300" : "text-zinc-400"}`}>
           {contextPreview.context_summary}
         </p>
       </div>
@@ -50,18 +50,18 @@ export function TaskDetailContextPreviewSection(props: {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
-          <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-slate-500"}`}>依赖状态</div>
+          <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>依赖状态</div>
           {contextPreview.dependency_items.length > 0 ? (
             <div className={isLine ? "mt-2 divide-y divide-[#333333] border-y border-[#333333]" : "mt-2 space-y-3"}>
               {contextPreview.dependency_items.map((dependency) => (
                 <div
                   key={dependency.task_id}
-                  className={isLine ? "py-3" : "rounded-xl border border-slate-800 bg-slate-900/70 p-3"}
+                  className={isLine ? "py-3" : "rounded-xl border border-[#333333] bg-transparent p-3"}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-slate-100"}`}>{dependency.title}</div>
-                      <code className={`mt-1 block break-all text-xs ${isLine ? "text-zinc-500" : "text-cyan-200"}`}>
+                      <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>{dependency.title}</div>
+                      <code className={`mt-1 block break-all text-xs ${isLine ? "text-zinc-500" : "text-zinc-200"}`}>
                         {dependency.task_id}
                       </code>
                     </div>
@@ -70,7 +70,7 @@ export function TaskDetailContextPreviewSection(props: {
                       tone={mapTaskStatusTone(dependency.status)}
                     />
                   </div>
-                  <p className={`mt-3 text-sm leading-6 ${isLine ? "text-zinc-300" : "text-slate-300"}`}>
+                  <p className={`mt-3 text-sm leading-6 ${isLine ? "text-zinc-300" : "text-zinc-400"}`}>
                     {dependency.missing
                       ? "依赖任务不存在，需先补齐或重建。"
                       : dependency.latest_run_summary ?? "暂无依赖运行摘要"}
@@ -79,41 +79,41 @@ export function TaskDetailContextPreviewSection(props: {
               ))}
             </div>
           ) : (
-            <p className={`mt-2 text-sm ${isLine ? "text-zinc-600" : "text-slate-500"}`}>无前置依赖，上下文更轻量。</p>
+            <p className={`mt-2 text-sm ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>无前置依赖，上下文更轻量。</p>
           )}
         </div>
 
         <div>
-          <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-slate-500"}`}>最近运行摘要</div>
+          <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>最近运行摘要</div>
           {contextPreview.recent_runs.length > 0 ? (
             <div className={isLine ? "mt-2 divide-y divide-[#333333] border-y border-[#333333]" : "mt-2 space-y-3"}>
               {contextPreview.recent_runs.map((run) => (
-                <div key={run.run_id} className={isLine ? "py-3" : "rounded-xl border border-slate-800 bg-slate-900/70 p-3"}>
+                <div key={run.run_id} className={isLine ? "py-3" : "rounded-xl border border-[#333333] bg-transparent p-3"}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-slate-100"}`}>
+                      <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>
                         {formatDateTime(run.created_at)}
                       </div>
-                      <code className={`mt-1 block break-all text-xs ${isLine ? "text-zinc-500" : "text-cyan-200"}`}>
+                      <code className={`mt-1 block break-all text-xs ${isLine ? "text-zinc-500" : "text-zinc-200"}`}>
                         {run.run_id}
                       </code>
                     </div>
                     <StatusBadge label={run.status} tone={mapRunStatusTone(run.status)} />
                   </div>
-                  <p className={`mt-3 text-sm leading-6 ${isLine ? "text-zinc-300" : "text-slate-300"}`}>
+                  <p className={`mt-3 text-sm leading-6 ${isLine ? "text-zinc-300" : "text-zinc-400"}`}>
                     {run.result_summary ?? "暂无运行摘要"}
                   </p>
                 </div>
               ))}
             </div>
           ) : (
-            <p className={`mt-2 text-sm ${isLine ? "text-zinc-600" : "text-slate-500"}`}>这是首次执行，没有历史运行片段。</p>
+            <p className={`mt-2 text-sm ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>这是首次执行，没有历史运行片段。</p>
           )}
         </div>
       </div>
 
       <div className="mt-4">
-        <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-slate-500"}`}>阻塞信号</div>
+        <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>阻塞信号</div>
         {contextPreview.blocking_signals.length > 0 ? (
           <div className={isLine ? "mt-2 space-y-2" : "mt-2 space-y-2"}>
             {contextPreview.blocking_signals.map((signal, index) => (

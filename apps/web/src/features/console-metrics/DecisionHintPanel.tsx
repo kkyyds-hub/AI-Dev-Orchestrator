@@ -25,11 +25,11 @@ export function DecisionHintPanel() {
   );
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section className="border border-[#333333] bg-transparent p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">管理决策提示</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <h2 className="text-lg font-semibold text-zinc-100">管理决策提示</h2>
+          <p className="mt-1 text-sm text-zinc-400">
             根据预算压力、失败分布和路由热点，给出下一步优先动作建议。
           </p>
         </div>
@@ -51,13 +51,13 @@ export function DecisionHintPanel() {
         {hints.map((hint, index) => (
           <div
             key={`${hint.title}-${index}`}
-            className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"
+            className="rounded-xl border border-[#333333] bg-transparent p-3"
           >
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium text-slate-100">{hint.title}</h3>
+              <h3 className="text-sm font-medium text-zinc-100">{hint.title}</h3>
               <StatusBadge label={hintLabel(hint.tone)} tone={hint.tone} />
             </div>
-            <p className="mt-2 text-sm leading-6 text-slate-300">{hint.detail}</p>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">{hint.detail}</p>
           </div>
         ))}
       </div>

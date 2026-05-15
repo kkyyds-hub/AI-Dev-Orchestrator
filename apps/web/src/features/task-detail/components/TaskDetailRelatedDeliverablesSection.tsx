@@ -21,11 +21,11 @@ export function TaskDetailRelatedDeliverablesSection(props: {
   const isLine = props.surfaceVariant === "line";
 
   return (
-    <section className={isLine ? "border-b border-[#333333] pb-5" : "rounded-xl border border-slate-800 bg-slate-950/60 p-4"}>
+    <section className={isLine ? "border-b border-[#333333] pb-5" : "rounded-xl border border-[#333333] bg-transparent p-4"}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-slate-50"}`}>关联交付件</h3>
-          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-slate-400"}`}>
+          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>关联交付件</h3>
+          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-zinc-400"}`}>
             反查当前任务及其运行记录对应的 PRD、设计稿、代码计划或验收结论快照。
           </p>
         </div>
@@ -33,7 +33,7 @@ export function TaskDetailRelatedDeliverablesSection(props: {
       </div>
 
       {props.isLoading && !props.relatedDeliverables ? (
-        <p className={`mt-4 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-slate-400"}`}>正在查询关联交付件...</p>
+        <p className={`mt-4 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-zinc-400"}`}>正在查询关联交付件...</p>
       ) : props.isError ? (
         <p className="mt-4 text-sm leading-6 text-rose-200">
           关联交付件加载失败：{props.errorMessage}
@@ -50,7 +50,7 @@ export function TaskDetailRelatedDeliverablesSection(props: {
           ))}
         </div>
       ) : (
-        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500" : "mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-4 text-sm leading-6 text-slate-400"}>
+        <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm leading-6 text-zinc-500" : "mt-4 rounded-xl border border-dashed border-[#333333] bg-transparent p-4 text-sm leading-6 text-zinc-400"}>
           当前任务或其运行记录还没有关联的交付件快照。
         </div>
       )}
@@ -69,15 +69,15 @@ function RelatedDeliverableCard(props: {
   const isLine = props.surfaceVariant === "line";
 
   return (
-    <div className={isLine ? "py-4" : "rounded-xl border border-slate-800 bg-slate-900/70 p-4"}>
+    <div className={isLine ? "py-4" : "rounded-xl border border-[#333333] bg-transparent p-4"}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-slate-50"}`}>{props.item.title}</div>
+            <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>{props.item.title}</div>
             <StatusBadge label={DELIVERABLE_TYPE_LABELS[props.item.type]} tone="info" />
             <StatusBadge label={`v${props.item.matched_version.version_number}`} tone="neutral" />
           </div>
-          <p className={`mt-2 text-sm leading-6 ${isLine ? "text-zinc-300" : "text-slate-300"}`}>
+          <p className={`mt-2 text-sm leading-6 ${isLine ? "text-zinc-300" : "text-zinc-400"}`}>
             {props.item.matched_version.summary}
           </p>
         </div>
@@ -92,7 +92,7 @@ function RelatedDeliverableCard(props: {
         </div>
       </div>
 
-      <div className={`mt-3 flex flex-wrap gap-3 text-xs ${isLine ? "text-zinc-600" : "text-slate-500"}`}>
+      <div className={`mt-3 flex flex-wrap gap-3 text-xs ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>
         <span>交付件 ID：{props.item.deliverable_id}</span>
         <span>最新版本：v{props.item.current_version_number}</span>
         <span>快照时间：{formatDateTime(props.item.matched_version.created_at)}</span>
@@ -108,13 +108,13 @@ function RelatedDeliverableCard(props: {
                 deliverableId: props.item.deliverable_id,
               })
             }
-            className={isLine ? "rounded-md border border-[#333333] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20"}
+            className={isLine ? "rounded-md border border-[#333333] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-cyan-400/30 bg-transparent px-4 py-2 text-sm text-zinc-100 transition hover:bg-transparent"}
           >
             跳到交付件中心
           </button>
         ) : null}
         {props.item.matched_version.source_run_id ? (
-          <code className={isLine ? "border-l border-[#333333] px-3 py-2 text-xs text-zinc-500" : "rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-400"}>
+          <code className={isLine ? "border-l border-[#333333] px-3 py-2 text-xs text-zinc-500" : "rounded-lg border border-[#333333] bg-transparent px-3 py-2 text-xs text-zinc-400"}>
             Run {props.item.matched_version.source_run_id}
           </code>
         ) : null}

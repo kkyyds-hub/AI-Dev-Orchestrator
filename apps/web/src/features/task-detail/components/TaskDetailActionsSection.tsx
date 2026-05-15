@@ -53,13 +53,13 @@ export function TaskDetailActionsSection(props: {
       className={
         isLine
           ? "border-b border-[#333333] pb-5"
-          : "rounded-xl border border-slate-800 bg-slate-950/60 p-4"
+          : "rounded-xl border border-[#333333] bg-transparent p-4"
       }
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-slate-50"}`}>任务操作</h3>
-          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-slate-400"}`}>
+          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>任务操作</h3>
+          <p className={`mt-1 text-sm leading-6 ${isLine ? "text-zinc-500" : "text-zinc-400"}`}>
             支持显式暂停、人工介入和失败重试；所有动作都只更新当前任务状态，不复制任务记录。
           </p>
         </div>
@@ -234,7 +234,7 @@ function ActionButton(props: {
   const toneClassName = isLine
     ? "border-[#333333] bg-transparent text-zinc-200 hover:border-zinc-500 hover:bg-[#2f2f2f] hover:text-zinc-50"
     : {
-        cyan: "border-cyan-400/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20",
+        cyan: "border-cyan-400/30 bg-transparent text-zinc-200 hover:bg-transparent",
         amber:
           "border-amber-400/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20",
         violet:

@@ -35,16 +35,16 @@ export function TaskDetailRuntimeContractSection(props: {
       className={
         isLine
           ? "border-b border-[#333333] pb-5"
-          : "rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4"
+          : "border-l border-[#333333] px-4 py-3"
       }
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-slate-50"}`}>
-            Task Detail Runtime Contract
+          <h3 className={`text-base font-semibold ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>
+            运行约束详情
           </h3>
-          <p className={`mt-1 text-xs ${isLine ? "text-zinc-500" : "text-slate-300"}`}>
-            Task {props.taskId}; Run {selectedRun.id}
+          <p className={`mt-1 text-xs ${isLine ? "text-zinc-500" : "text-zinc-400"}`}>
+            任务 {props.taskId}；运行 {selectedRun.id}
           </p>
         </div>
         <StatusBadge label={selectedRun.status} tone={mapRunStatusTone(selectedRun.status)} />
@@ -61,7 +61,7 @@ export function TaskDetailRuntimeContractSection(props: {
                 runId: selectedRun.id,
               })
             }
-            className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"}
+            className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-transparent"}
           >
             Back to Strategy Preview
           </button>
@@ -70,7 +70,7 @@ export function TaskDetailRuntimeContractSection(props: {
               type="button"
               data-testid="goto-run-center-from-task-detail"
               onClick={() => props.onNavigateToRun?.(selectedRun.id, props.taskId)}
-              className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-100"}
+              className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-[#6a6a6a] hover:text-zinc-100"}
             >
               Open in Run Center
             </button>
@@ -82,7 +82,7 @@ export function TaskDetailRuntimeContractSection(props: {
             type="button"
             data-testid="goto-run-center-from-task-detail"
             onClick={() => props.onNavigateToRun?.(selectedRun.id, props.taskId)}
-            className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-100"}
+            className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-[#6a6a6a] hover:text-zinc-100"}
           >
             Open in Run Center
           </button>
@@ -119,7 +119,7 @@ export function TaskDetailRuntimeContractSection(props: {
       {props.hasRoleModelPolicyData ? (
         <div className={isLine ? "mt-4 border-t border-[#333333] pt-4" : "mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3"}>
           <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-emerald-200"}`}>
-            Task Detail Role Model Policy Runtime
+            运行约束角色模型策略
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {props.roleModelPolicyFields.map((field) => (

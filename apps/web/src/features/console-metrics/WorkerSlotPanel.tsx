@@ -7,11 +7,11 @@ export function WorkerSlotPanel() {
   const overview = workerSlotsQuery.data;
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <div className="border border-[#333333] bg-transparent p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-50">Worker 槽位</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <h2 className="text-lg font-semibold text-zinc-100">Worker 槽位</h2>
+          <p className="mt-1 text-sm text-zinc-400">
             展示固定并行槽位、等待压力和预算守卫状态，避免并行执行变成黑盒。
           </p>
         </div>
@@ -61,14 +61,14 @@ export function WorkerSlotPanel() {
             {overview.slot_snapshot.slots.map((slot) => (
               <div
                 key={slot.slot_id}
-                className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"
+                className="rounded-xl border border-[#333333] bg-transparent p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-slate-100">
+                    <div className="text-sm font-medium text-zinc-100">
                       槽位 #{slot.slot_id}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 text-xs text-zinc-500">
                       {slot.worker_name ?? "当前未分配 worker 标识"}
                     </div>
                   </div>
@@ -95,7 +95,7 @@ export function WorkerSlotPanel() {
                 </div>
 
                 {slot.last_task_title ? (
-                  <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300">
+                  <div className="mt-3 rounded-xl border border-[#333333] bg-transparent p-3 text-sm text-zinc-400">
                     最近一次处理：{slot.last_task_title}
                   </div>
                 ) : null}
@@ -110,9 +110,9 @@ export function WorkerSlotPanel() {
 
 function Metric(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 break-all text-sm font-medium text-slate-100">{props.value}</div>
+    <div className="rounded-xl border border-[#333333] bg-transparent px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 break-all text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }

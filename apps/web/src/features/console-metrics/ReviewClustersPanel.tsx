@@ -16,11 +16,11 @@ export function ReviewClustersPanel({
   onSelectCluster,
 }: ReviewClustersPanelProps) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+    <div className="rounded-xl border border-[#333333] bg-transparent p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold text-slate-50">失败聚类</h3>
-          <p className="mt-1 text-sm text-slate-400">
+          <h3 className="text-base font-semibold text-zinc-100">失败聚类</h3>
+          <p className="mt-1 text-sm text-zinc-400">
             按失败类别汇总，快速识别高频问题。
           </p>
         </div>
@@ -30,7 +30,7 @@ export function ReviewClustersPanel({
       </div>
 
       {isLoading ? (
-        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-300">
+        <div className="mt-4 rounded-xl border border-[#333333] bg-transparent p-4 text-sm text-zinc-400">
           正在加载失败聚类…
         </div>
       ) : errorMessage ? (
@@ -38,7 +38,7 @@ export function ReviewClustersPanel({
           无法加载失败聚类：{errorMessage}
         </div>
       ) : clusters.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
+        <div className="mt-4 rounded-xl border border-dashed border-[#333333] bg-transparent p-4 text-sm text-zinc-400">
           当前还没有失败记录。
         </div>
       ) : (
@@ -46,15 +46,15 @@ export function ReviewClustersPanel({
           {clusters.map((cluster) => (
             <div
               key={cluster.cluster_key}
-              className="cursor-pointer rounded-xl border border-slate-800 bg-slate-900/70 p-4 transition-colors hover:border-slate-700 hover:bg-slate-900"
+              className="cursor-pointer rounded-xl border border-[#333333] bg-transparent p-4 transition-colors hover:border-[#333333] hover:bg-transparent"
               onClick={() => onSelectCluster?.(cluster)}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
-                  <div className="text-sm font-semibold text-slate-100">
+                  <div className="text-sm font-semibold text-zinc-100">
                     {cluster.failure_category}
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-xs text-zinc-500">
                     最近：{formatDateTime(cluster.latest_run_created_at)}
                   </div>
                 </div>
@@ -62,7 +62,7 @@ export function ReviewClustersPanel({
               </div>
 
               {cluster.route_reason_excerpt ? (
-                <p className="mt-3 text-xs leading-5 text-slate-400">
+                <p className="mt-3 text-xs leading-5 text-zinc-400">
                   {cluster.route_reason_excerpt}
                 </p>
               ) : null}
@@ -72,7 +72,7 @@ export function ReviewClustersPanel({
                   {cluster.sample_task_titles.slice(0, 3).map((title, index) => (
                     <div
                       key={`${title}-${index}`}
-                      className="truncate text-xs text-slate-500"
+                      className="truncate text-xs text-zinc-500"
                     >
                       • {title}
                     </div>

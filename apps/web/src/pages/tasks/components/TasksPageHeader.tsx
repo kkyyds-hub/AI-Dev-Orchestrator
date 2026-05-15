@@ -22,7 +22,7 @@ export function TasksPageHeader(props: TasksPageHeaderProps) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Tasks
+            任务中心
           </div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100">任务中心</h3>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">

@@ -11,11 +11,11 @@ export function TaskDetailLoadingState(props: {
       className={
         isLine
           ? "mt-4 border-y border-[#333333] py-4 text-sm text-zinc-500"
-          : "mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300"
+          : "mt-4 rounded-xl border border-[#333333] bg-transparent p-4 text-sm text-zinc-400"
       }
     >
       正在加载{" "}
-      <span className={`font-medium ${isLine ? "text-zinc-100" : "text-slate-100"}`}>
+      <span className={`font-medium ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>
         {props.title}
       </span>{" "}
       的详情数据。
