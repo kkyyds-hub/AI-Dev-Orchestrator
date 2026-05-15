@@ -96,7 +96,7 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
                   <span>开始 {formatDateTime(selectedRun.started_at)}</span>
                   <span>结束 {formatDateTime(selectedRun.finished_at)}</span>
                   <span className="font-mono text-zinc-400">
-                    {formatTokenCount(selectedRun.total_tokens ?? 0)} tokens
+                    {formatTokenCount(selectedRun.total_tokens ?? 0)} 令牌
                   </span>
                   <span className="font-mono text-zinc-400">
                     {formatCurrencyUsd(selectedRun.estimated_cost)}
@@ -213,7 +213,7 @@ function CopyBtn(props: { label: string; value: string }) {
           await navigator.clipboard.writeText(props.value);
           setCopied(true);
           setTimeout(() => setCopied(false), 1600);
-        } catch { /* noop */ }
+        } catch {}
       }}
       className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-100"
     >

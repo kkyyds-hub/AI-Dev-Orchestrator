@@ -142,7 +142,7 @@ export function TaskDetailRuntimeContractSection(props: {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MiniField
             label="失败分类"
-            value={failureCategory ?? "无"}
+            value={formatFailureCategoryLabel(failureCategory)}
             tone={failureCategory ? "danger" : undefined}
           />
           <MiniField
@@ -167,6 +167,25 @@ export function TaskDetailRuntimeContractSection(props: {
   );
 }
 
+function formatFailureCategoryLabel(category: string | null) {
+  switch (category) {
+    case "verification_configuration_failed":
+      return "验证配置失败";
+    case "verification_failed":
+      return "验证失败";
+    case "execution_failed":
+      return "执行失败";
+    case "daily_budget_exceeded":
+      return "日预算超限";
+    case "session_budget_exceeded":
+      return "会话预算超限";
+    case "retry_limit_exceeded":
+      return "重试达到上限";
+    default:
+      return category ?? "无";
+  }
+}
+
 function CardGroup(props: {
   title: string;
   children: React.ReactNode;
@@ -189,7 +208,6 @@ function IdField(props: { label: string; value: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      // clipboard not available
     }
   };
 
@@ -251,7 +269,6 @@ function CopyButton(props: { label: string; value: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      // clipboard not available
     }
   };
 
@@ -272,7 +289,7 @@ function DiagnosticBlock(props: { run: ConsoleRun; isLine: boolean }) {
 
   const diagnosticLines: string[] = [];
   if (run.failure_category) {
-    diagnosticLines.push(`失败分类：${run.failure_category}`);
+    diagnosticLines.push(`失败分类：${formatFailureCategoryLabel(run.failure_category)}`);
   }
   if (run.verification_summary) {
     diagnosticLines.push(`验证摘要：${run.verification_summary}`);
