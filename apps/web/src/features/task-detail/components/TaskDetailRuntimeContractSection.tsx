@@ -30,7 +30,6 @@ export function TaskDetailRuntimeContractSection(props: {
   }) => void;
 }) {
   const { selectedRun } = props;
-  const isLine = props.surfaceVariant === "line";
 
   if (!selectedRun) {
     return null;
@@ -42,12 +41,11 @@ export function TaskDetailRuntimeContractSection(props: {
   const promptTemplate = runtimeMap.get("prompt_template_key")?.value;
   const pricingSource = runtimeMap.get("token_pricing_source")?.value;
   const providerReceipt = runtimeMap.get("provider_receipt_id")?.value;
-  const failureCategory = selectedRun.failure_category;
 
   return (
     <div
       data-testid="task-detail-runtime-context"
-      className={isLine ? "space-y-4" : "space-y-4"}
+      className="space-y-4"
     >
       {!props.hideHeaderAndActions ? (
         <>
@@ -99,152 +97,109 @@ export function TaskDetailRuntimeContractSection(props: {
         </>
       ) : null}
 
-      <CardGroup title="运行标识" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-4">
+        <DetailGridSection title="运行详情">
           <IdField label="任务 ID" value={props.taskId} />
           <IdField label="运行 ID" value={selectedRun.id} />
           <MiniField label="供应商" value={provider ?? "暂无"} />
           <MiniField label="提示词模板" value={promptTemplate ?? "暂无"} />
           <MiniField label="计算来源" value={pricingSource ?? "暂无"} />
-        </div>
-      </CardGroup>
-
-      <CardGroup title="令牌与成本" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <MiniField label="供应商回执" value={providerReceipt ? "已生成" : "暂无"} />
           <NumberField label="提示词令牌" value={formatTokenCount(selectedRun.prompt_tokens)} />
           <NumberField label="输出令牌" value={formatTokenCount(selectedRun.completion_tokens)} />
           <NumberField label="总令牌" value={formatTokenCount(selectedRun.total_tokens ?? 0)} />
           <NumberField label="估算成本" value={formatCurrencyUsd(selectedRun.estimated_cost)} />
-          <MiniField label="供应商回执" value={providerReceipt ? "已生成" : "暂无"} />
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <MiniField label="提示词字符数" value={selectedRun.prompt_char_count != null ? String(selectedRun.prompt_char_count) : "暂无"} />
           <MiniField label="计算模式" value={selectedRun.token_accounting_mode ?? "暂无"} />
-          <MiniField label="开始 / 结束" value={`${formatDateTime(selectedRun.started_at)} → ${formatDateTime(selectedRun.finished_at)}`} />
-        </div>
-      </CardGroup>
+          <MiniField label="开始时间" value={formatDateTime(selectedRun.started_at)} />
+          <MiniField label="结束时间" value={formatDateTime(selectedRun.finished_at)} />
+          {props.hasRoleModelPolicyData
+            ? props.roleModelPolicyFields.map((field) => (
+                <MiniField
+                  key={`policy-${field.key}`}
+                  label={field.label}
+                  value={field.value || "暂无"}
+                />
+              ))
+            : null}
+        </DetailGridSection>
 
-      {props.hasRoleModelPolicyData ? (
-        <CardGroup title="运行约束 / 模型策略" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {props.roleModelPolicyFields.map((field) => (
-              <MiniField
-                key={`policy-${field.key}`}
-                label={field.label}
-                value={field.value || "暂无"}
-              />
+        <DiagnosisPanel run={selectedRun} />
+      </div>
+    </div>
+  );
+}
+
+function DetailGridSection(props: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border-b border-[#333333] pb-4">
+      <h4 className="mb-3 text-sm font-medium text-zinc-200">{props.title}</h4>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+function DiagnosisPanel(props: { run: ConsoleRun }) {
+  const [expanded, setExpanded] = useState(false);
+  const run = props.run;
+
+  const lines: string[] = [];
+  if (run.failure_category) lines.push(`失败分类：${formatFailureCategoryLabel(run.failure_category)}`);
+  if (run.verification_summary) lines.push(`验证摘要：${run.verification_summary}`);
+  if (run.route_reason) lines.push(`分配说明：${run.route_reason}`);
+
+  return (
+    <div>
+      <h4 className="mb-3 text-sm font-medium text-zinc-200">诊断信息</h4>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <MiniField label="质量闸门" value={formatQualityGateLabel(run.quality_gate_passed)} />
+        <MiniField label="分配评分" value={run.routing_score !== null ? String(run.routing_score) : "暂无"} />
+        <MiniField label="验证模式" value={run.verification_mode ?? "未记录"} />
+        <MiniField label="失败分类" value={run.failure_category ? formatFailureCategoryLabel(run.failure_category) : "无"} />
+      </div>
+      {lines.length > 0 ? (
+        <div className="mt-3">
+          <div className="border-l border-[#333333] px-4 py-3">
+            {lines.slice(0, expanded ? lines.length : 3).map((line, i) => (
+              <p key={i} className="text-sm leading-6 text-zinc-400">{line}</p>
             ))}
+            {lines.length > 3 ? (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="mt-2 text-xs text-zinc-500 transition hover:text-zinc-200"
+              >
+                {expanded ? "收起" : `展开全部（${lines.length} 条）`}
+              </button>
+            ) : null}
           </div>
-        </CardGroup>
-      ) : null}
-
-      <CardGroup title="失败与诊断" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MiniField
-            label="失败分类"
-            value={formatFailureCategoryLabel(failureCategory)}
-            tone={failureCategory ? "danger" : undefined}
-          />
-          <MiniField
-            label="质量闸门"
-            value={formatQualityGateLabel(selectedRun.quality_gate_passed)}
-          />
-          <MiniField
-            label="分配评分"
-            value={selectedRun.routing_score !== null ? String(selectedRun.routing_score) : "暂无"}
-          />
-          <MiniField
-            label="验证模式"
-            value={selectedRun.verification_mode ?? "未记录"}
-          />
         </div>
-        <DiagnosticBlock
-          run={selectedRun}
-          isLine={isLine}
-        />
-      </CardGroup>
+      ) : (
+        <p className="mt-3 text-xs text-zinc-500">暂无详细诊断信息。</p>
+      )}
     </div>
   );
 }
 
 function formatFailureCategoryLabel(category: string | null) {
   switch (category) {
-    case "verification_configuration_failed":
-      return "验证配置失败";
-    case "verification_failed":
-      return "验证失败";
-    case "execution_failed":
-      return "执行失败";
-    case "daily_budget_exceeded":
-      return "日预算超限";
-    case "session_budget_exceeded":
-      return "会话预算超限";
-    case "retry_limit_exceeded":
-      return "重试达到上限";
-    default:
-      return category ?? "无";
+    case "verification_configuration_failed": return "验证配置失败";
+    case "verification_failed": return "验证失败";
+    case "execution_failed": return "执行失败";
+    case "daily_budget_exceeded": return "日预算超限";
+    case "session_budget_exceeded": return "会话预算超限";
+    case "retry_limit_exceeded": return "重试达到上限";
+    default: return category ?? "无";
   }
 }
 
-function CardGroup(props: {
-  title: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={props.className}>
-      <h4 className="mb-3 text-sm font-medium text-zinc-200">{props.title}</h4>
-      {props.children}
-    </section>
-  );
-}
-
-function IdField(props: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(props.value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-    }
-  };
-
-  return (
-    <div className="border-l border-[#333333] px-3 py-2 min-w-0">
-      <div className="flex items-center justify-between gap-1">
-        <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="shrink-0 text-[10px] text-zinc-500 transition hover:text-zinc-200"
-        >
-          {copied ? "已复制" : "复制"}
-        </button>
-      </div>
-      <div
-        className="mt-1 truncate font-mono text-sm text-zinc-100"
-        title={props.value}
-      >
-        {props.value}
-      </div>
-    </div>
-  );
-}
-
-function MiniField(props: {
-  label: string;
-  value: string;
-  tone?: "success" | "danger" | "warning" | "neutral" | "info";
-}) {
+function MiniField(props: { label: string; value: string }) {
   return (
     <div className="border-l border-[#333333] px-3 py-2 min-w-0">
       <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</div>
-      <div
-        className="mt-1 truncate text-sm font-medium text-zinc-100"
-        title={props.value}
-      >
+      <div className="mt-1 truncate text-sm font-medium text-zinc-100" title={props.value}>
         {props.value}
       </div>
     </div>
@@ -260,73 +215,43 @@ function NumberField(props: { label: string; value: string }) {
   );
 }
 
-function CopyButton(props: { label: string; value: string }) {
+function IdField(props: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(props.value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-    }
-  };
+  return (
+    <div className="border-l border-[#333333] px-3 py-2 min-w-0">
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</span>
+        <button
+          type="button"
+          onClick={async () => {
+            try { await navigator.clipboard.writeText(props.value); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch {}
+          }}
+          className="shrink-0 text-[10px] text-zinc-500 transition hover:text-zinc-200"
+        >
+          {copied ? "已复制" : "复制"}
+        </button>
+      </div>
+      <div className="mt-1 truncate font-mono text-sm text-zinc-100" title={props.value}>
+        {props.value}
+      </div>
+    </div>
+  );
+}
+
+function CopyButton(props: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
 
   return (
     <button
       type="button"
-      onClick={handleCopy}
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(props.value); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch {}
+      }}
       className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-100"
     >
       {copied ? "已复制" : props.label}
     </button>
-  );
-}
-
-function DiagnosticBlock(props: { run: ConsoleRun; isLine: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const run = props.run;
-
-  const diagnosticLines: string[] = [];
-  if (run.failure_category) {
-    diagnosticLines.push(`失败分类：${formatFailureCategoryLabel(run.failure_category)}`);
-  }
-  if (run.verification_summary) {
-    diagnosticLines.push(`验证摘要：${run.verification_summary}`);
-  }
-  if (run.route_reason) {
-    diagnosticLines.push(`分配说明：${run.route_reason}`);
-  }
-  if (run.result_summary) {
-    diagnosticLines.push(`运行摘要：${run.result_summary}`);
-  }
-
-  if (diagnosticLines.length === 0) {
-    return (
-      <p className="mt-3 text-xs text-zinc-500">暂无详细诊断信息。</p>
-    );
-  }
-
-  const visibleLines = expanded ? diagnosticLines : diagnosticLines.slice(0, 3);
-
-  return (
-    <div className="mt-3">
-      <div className="border-l border-[#333333] px-4 py-3">
-        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500 mb-2">诊断信息</div>
-        {visibleLines.map((line, i) => (
-          <p key={i} className="text-sm leading-6 text-zinc-400">{line}</p>
-        ))}
-        {diagnosticLines.length > 3 ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="mt-2 text-xs text-zinc-500 transition hover:text-zinc-200"
-          >
-            {expanded ? "收起" : `展开全部（${diagnosticLines.length} 条）`}
-          </button>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
