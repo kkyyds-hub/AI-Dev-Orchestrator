@@ -8,6 +8,7 @@ import { formatDateTime } from "../../lib/format";
 import { useBossProjectOverview } from "../projects/hooks";
 import { buildProjectOverviewRoute } from "../projects/lib/overviewNavigation";
 import type { RepositoryWorkspace } from "../projects/types";
+import { PROJECT_STAGE_LABELS } from "../projects/types";
 
 type ProviderSource = "saved_config" | "env" | "none";
 
@@ -65,23 +66,53 @@ function bindProjectRepository(input: {
 
 export function SettingsPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <section className="border-l border-[#333333] px-4 py-1">
         <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-          首次配置
+          System Settings
         </div>
         <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
-          设置页入口
+          系统设置
         </h2>
         <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
-          将低频、一次性的模型连接和主仓库绑定集中到这里。项目详情页只保留状态与跳转入口，
-          配置完成后再回到项目继续刷新目录快照、文件定位和变更计划。
+          集中管理模型连接、项目仓库绑定和运行环境配置。
         </p>
       </section>
 
-      <ModelConfigurationSection />
-      <RepositoryBindingSection />
+      <div className="grid gap-8 xl:grid-cols-[220px_minmax(0,1fr)]">
+        <SettingsSideNav />
+        <div className="space-y-7">
+          <ModelConfigurationSection />
+          <RepositoryBindingSection />
+        </div>
+      </div>
     </div>
+  );
+}
+
+function SettingsSideNav() {
+  const items = [
+    { label: "模型配置", href: "#model-config" },
+    { label: "仓库绑定", href: "#repository-binding" },
+  ];
+
+  return (
+    <nav className="hidden xl:block">
+      <div className="sticky top-20 space-y-1 border-l border-[#333333] pl-4">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+          设置分组
+        </div>
+        {items.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            className="block text-sm leading-7 text-zinc-400 transition hover:text-zinc-100"
+          >
+            {item.label}
+          </a>
+        ))}
+      </div>
+    </nav>
   );
 }
 
@@ -149,14 +180,14 @@ function ModelConfigurationSection() {
   };
 
   return (
-    <section id="model-config" className="scroll-mt-24 border-l border-[#333333] px-4 py-1">
+    <section id="model-config" className="scroll-mt-24 border-b border-[#333333] pb-7">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
             模型配置
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            配置 OpenAI API Key、Base URL 和请求超时时间。留空 API Key 时会保留当前密钥。
+            配置模型密钥、服务地址和请求超时时间。
           </p>
         </div>
         <StatusBadge
@@ -345,14 +376,14 @@ function RepositoryBindingSection() {
   };
 
   return (
-    <section id="repository-binding" className="scroll-mt-24 border-l border-[#333333] px-4 py-1">
+    <section id="repository-binding" className="scroll-mt-24 border-b border-[#333333] pb-7">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
             项目仓库绑定
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            先选择项目，再绑定该项目的主仓库根目录。绑定完成后回到项目详情即可继续刷新目录快照和文件定位。
+            选择项目并绑定主仓库根目录。
           </p>
         </div>
         <StatusBadge
@@ -363,7 +394,7 @@ function RepositoryBindingSection() {
 
       {hasInvalidRequestedProject ? (
         <div className="mt-4 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
-          链接里的项目不存在或已不可用，已自动切换到一个待绑定项目；如果不是你要配置的项目，请在下方重新选择。
+          当前项目不可用，已切换到可配置项目；也可以在下方重新选择。
         </div>
       ) : null}
 
@@ -397,7 +428,10 @@ function RepositoryBindingSection() {
                   label="当前状态"
                   value={selectedProject.repository_workspace ? "主仓库已绑定" : "尚未绑定主仓库"}
                 />
-                <InfoLine label="项目阶段" value={selectedProject.stage} />
+                <InfoLine
+                  label="项目阶段"
+                  value={PROJECT_STAGE_LABELS[selectedProject.stage] ?? "未识别阶段"}
+                />
                 <InfoLine
                   label="最近更新"
                   value={formatDateTime(selectedProject.updated_at)}
@@ -472,9 +506,17 @@ function RepositoryBindingSection() {
               </div>
             </>
           ) : (
-            <p className="text-sm leading-6 text-zinc-500">
-              当前没有可绑定仓库的项目。
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm leading-6 text-zinc-500">
+                当前还没有可配置的项目。
+              </p>
+              <Link
+                to="/projects"
+                className="inline-block rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
+              >
+                去项目中心
+              </Link>
+            </div>
           )}
         </form>
       )}
