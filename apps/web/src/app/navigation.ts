@@ -56,10 +56,10 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     description: "管理角色、记忆与策略配置。",
   },
   {
-    label: "我的",
-    shortLabel: "我",
+    label: "账户",
+    shortLabel: "账",
     to: "/me",
-    description: "查看个人待办与关注事项。",
+    description: "查看账户中心与登录注册接入说明。",
   },
   {
     label: "设置",
@@ -190,10 +190,10 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
 
   if (pathname.startsWith("/me")) {
     return {
-      section: "我的",
-      title: "我的工作区",
-      description: "聚合个人任务、关注项目与近期处理记录。",
-      breadcrumbs: ["我的"],
+      section: "账户",
+      title: "我的账户",
+      description: "收口账户中心、访问状态、登录注册接入说明与个人账户结构。",
+      breadcrumbs: ["账户"],
     };
   }
 

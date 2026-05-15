@@ -95,15 +95,15 @@ export function Sidebar(props: SidebarProps) {
 
         <div className="mt-5 border-t border-[#333333] pt-4">
           {props.isCollapsed ? (
-            <div className="flex justify-center" title="导航在线">
+            <div className="flex justify-center" title="当前环境直接访问">
               <div className="h-2 w-2 rounded-full bg-zinc-400" />
             </div>
           ) : (
             <div className="flex items-center gap-3 rounded-lg px-2 py-2 text-zinc-400 transition hover:bg-white/[0.03]">
               <div className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-500/30 bg-zinc-100 text-sm font-bold text-[#171717]">U</div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-zinc-100">当前操作人</div>
-                <div className="truncate text-xs text-zinc-600">系统管理员</div>
+                <div className="truncate text-sm font-medium text-zinc-100">直接访问</div>
+                <div className="truncate text-xs text-zinc-600">账号登录未启用</div>
               </div>
             </div>
           )}

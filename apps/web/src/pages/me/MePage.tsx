@@ -1,388 +1,205 @@
-import { useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
-import { StatusBadge } from "../../components/StatusBadge";
-import { useConsoleOverview } from "../../features/console/hooks";
-import type { ConsoleTask } from "../../features/console/types";
-import { useBossProjectOverview } from "../../features/projects/hooks";
-import {
-  PROJECT_STAGE_LABELS,
-  PROJECT_STATUS_LABELS,
-  TASK_PRIORITY_LABELS,
-  TASK_STATUS_LABELS,
-} from "../../features/projects/types";
-import { buildApprovalsRoute } from "../../lib/approval-route";
-import { buildDeliverablesRoute } from "../../lib/deliverable-route";
-import { formatDateTime } from "../../lib/format";
-import { mapProjectStatusTone, mapTaskStatusTone } from "../../lib/status";
-import { buildTaskRoute } from "../../lib/task-route";
-import { buildProjectOverviewRoute } from "../../features/projects/lib/overviewNavigation";
+const accountCapabilityGroups = [
+  {
+    title: "账户资料",
+    status: "预留结构",
+    description: "后续登录后展示头像、昵称、邮箱、组织身份与个人资料编辑入口。",
+    items: ["基础资料", "组织与角色", "资料编辑"],
+  },
+  {
+    title: "安全与登录",
+    status: "待接登录注册",
+    description: "后续承接密码、登录方式、多因素验证、登录设备与退出登录。",
+    items: ["账号密码", "登录方式", "退出登录"],
+  },
+  {
+    title: "个人偏好",
+    status: "预留结构",
+    description: "后续保存语言、通知、默认项目、工作台显示等个人级偏好。",
+    items: ["显示偏好", "通知偏好", "默认入口"],
+  },
+] as const;
 
-const ACTIONABLE_TASK_STATUSES = new Set([
-  "waiting_human",
-  "pending",
-  "blocked",
-  "paused",
-  "failed",
-]);
+const authFlowSteps = [
+  {
+    title: "注册账号",
+    description: "未来新用户先完成注册，注册成功后再进入系统。当前版本不提供注册表单。",
+  },
+  {
+    title: "登录验证",
+    description: "未来通过账号密码或其他登录方式建立真实会话。当前版本不模拟登录态。",
+  },
+  {
+    title: "进入账户中心",
+    description: "登录后在这里管理资料、安全、偏好与退出登录。当前仅展示接入结构。",
+  },
+] as const;
 
-function getTimestamp(value: string | null | undefined) {
-  if (!value) {
-    return 0;
-  }
-
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function sortTasksByRecency(left: ConsoleTask, right: ConsoleTask) {
-  return getTimestamp(right.updated_at) - getTimestamp(left.updated_at);
-}
+const realEntryLinks = [
+  {
+    title: "系统设置",
+    description: "查看环境、连接状态与平台级配置。",
+    to: "/settings",
+  },
+  {
+    title: "项目中心",
+    description: "进入项目域，管理项目总览与项目内上下文。",
+    to: "/projects",
+  },
+  {
+    title: "工作台",
+    description: "返回当前真实工作入口，查看任务、状态与运行概览。",
+    to: "/workbench",
+  },
+] as const;
 
 export function MePage() {
-  const navigate = useNavigate();
-  const consoleOverviewQuery = useConsoleOverview({ enablePollingFallback: false });
-  const projectOverviewQuery = useBossProjectOverview({ enablePolling: false });
-  const tasks = consoleOverviewQuery.data?.tasks ?? [];
-  const projects = projectOverviewQuery.data?.projects ?? [];
-
-  const actionableTasks = useMemo(
-    () =>
-      tasks
-        .filter(
-          (task) =>
-            ACTIONABLE_TASK_STATUSES.has(task.status) ||
-            task.human_status === "requested" ||
-            task.human_status === "in_progress",
-        )
-        .sort(sortTasksByRecency)
-        .slice(0, 5),
-    [tasks],
-  );
-
-  const recentTasks = useMemo(
-    () => [...tasks].sort(sortTasksByRecency).slice(0, 5),
-    [tasks],
-  );
-
-  const recentProjects = useMemo(
-    () =>
-      [...projects]
-        .sort(
-          (left, right) =>
-            getTimestamp(right.latest_progress_at ?? right.updated_at) -
-            getTimestamp(left.latest_progress_at ?? left.updated_at),
-        )
-        .slice(0, 4),
-    [projects],
-  );
-
-  const primaryProject = recentProjects[0] ?? null;
-  const isLoading = consoleOverviewQuery.isLoading || projectOverviewQuery.isLoading;
-  const hasLoadError = consoleOverviewQuery.isError || projectOverviewQuery.isError;
-
-  const navigateToTask = (task: ConsoleTask) => {
-    navigate(
-      buildTaskRoute({
-        taskId: task.id,
-        runId: task.latest_run?.id ?? null,
-        from: "tasks",
-      }),
-    );
-  };
-
   return (
-    <div className="space-y-7">
+    <div className="space-y-7" data-testid="account-center-page">
       <section className="border-b border-[#333333] pb-6">
         <div className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-          My Workspace
+          Account Center
         </div>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">
-          我的工作入口
-        </h1>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-500">
-          汇总当前最可能继续处理的任务、项目与审批/交付物入口。这里不绑定个人账号体系，只复用现有任务和项目数据，帮助你快速回到下一步。
-        </p>
+        <div className="mt-3 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-end">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">
+              我的账户
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-500">
+              这里收口为账户中心，不再聚合任务、项目、审批或交付物。后续登录 / 注册上线后，
+              本页承接个人资料、账号安全、登录方式、个人偏好与退出登录。
+            </p>
+          </div>
+          <AccessStateCard />
+        </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-4">
-        <MetricLine label="待处理任务" value={String(actionableTasks.length)} />
-        <MetricLine label="最近任务" value={String(recentTasks.length)} />
-        <MetricLine label="最近项目" value={String(recentProjects.length)} />
-        <MetricLine
-          label="数据状态"
-          value={isLoading ? "加载中" : hasLoadError ? "加载异常" : "已同步"}
-        />
+      <section className="grid gap-4 md:grid-cols-3" aria-label="账户中心状态概览">
+        <StateMetric label="访问状态" value="直接访问" helper="账号登录未启用" />
+        <StateMetric label="登录 / 注册" value="未接入" helper="不模拟登录态" />
+        <StateMetric label="页面职责" value="账户中心" helper="不承接工作聚合" />
       </section>
 
-      {hasLoadError ? (
-        <section className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
-          工作入口数据加载不完整，请确认后端服务可用后刷新页面。
-        </section>
-      ) : null}
-
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-        <TaskListPanel
-          title="待处理任务"
-          description="优先展示待人工、待处理、阻塞、暂停或失败的任务。"
-          tasks={actionableTasks}
-          isLoading={consoleOverviewQuery.isLoading}
-          emptyText="当前没有待处理任务。可以查看最近任务，或去任务中心浏览完整队列。"
-          emptyAction={{ label: "打开任务中心", to: "/tasks" }}
-          onOpenTask={navigateToTask}
-        />
-
-        <QuickEntryPanel projectId={primaryProject?.id ?? null} />
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-        <TaskListPanel
-          title="最近任务"
-          description="按最近更新时间排序，方便继续查看刚处理过的任务。"
-          tasks={recentTasks}
-          isLoading={consoleOverviewQuery.isLoading}
-          emptyText="当前还没有任务。可以先进入项目中心创建项目和任务上下文。"
-          emptyAction={{ label: "去项目中心", to: "/projects" }}
-          onOpenTask={navigateToTask}
-        />
-
-        <RecentProjectsPanel
-          projects={recentProjects}
-          isLoading={projectOverviewQuery.isLoading}
-        />
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-5">
+          <AuthFlowSection />
+          <AccountCapabilitySection />
+        </div>
+        <RealEntrySection />
       </section>
     </div>
   );
 }
 
-function MetricLine(props: { label: string; value: string }) {
+function AccessStateCard() {
+  return (
+    <aside className="rounded-2xl border border-[#333333] bg-[#202020] p-4" data-testid="account-access-state">
+      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+        当前访问状态
+      </div>
+      <div className="mt-3 text-base font-semibold text-zinc-100">
+        当前环境直接访问，账号登录未启用
+      </div>
+      <p className="mt-2 text-sm leading-6 text-zinc-500">
+        本页不会展示假用户、假登录、假注册或后端未提供的账号数据；所有账号能力仅作为后续接入结构说明。
+      </p>
+    </aside>
+  );
+}
+
+function StateMetric(props: { label: string; value: string; helper: string }) {
   return (
     <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-        {props.label}
-      </div>
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">{props.label}</div>
       <div className="mt-2 text-xl font-semibold text-zinc-100">{props.value}</div>
+      <div className="mt-1 text-xs leading-5 text-zinc-500">{props.helper}</div>
     </div>
   );
 }
 
-function TaskListPanel(props: {
-  title: string;
-  description: string;
-  tasks: ConsoleTask[];
-  isLoading: boolean;
-  emptyText: string;
-  emptyAction: { label: string; to: string };
-  onOpenTask: (task: ConsoleTask) => void;
-}) {
+function AuthFlowSection() {
   return (
-    <section className="space-y-3">
-      <div className="flex flex-col gap-2 border-b border-[#333333] pb-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-100">{props.title}</h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-500">{props.description}</p>
-        </div>
-        <Link
-          to="/tasks"
-          className="text-sm font-medium text-zinc-300 transition hover:text-zinc-50"
-        >
-          查看全部任务
-        </Link>
+    <section className="space-y-3" data-testid="account-auth-flow">
+      <div className="border-b border-[#333333] pb-3">
+        <h2 className="text-lg font-semibold text-zinc-100">登录注册流程</h2>
+        <p className="mt-1 text-sm leading-6 text-zinc-500">
+          只展示未来流程边界，不提供假按钮、不写入假账号、不新增接口。
+        </p>
       </div>
 
-      {props.isLoading ? (
-        <div className="border-l border-[#333333] px-4 py-3 text-sm text-zinc-500">
-          正在加载任务...
-        </div>
-      ) : props.tasks.length ? (
-        <div className="divide-y divide-[#333333] border-y border-[#333333]">
-          {props.tasks.map((task) => (
-            <button
-              key={`${props.title}-${task.id}`}
-              type="button"
-              onClick={() => props.onOpenTask(task)}
-              className="grid w-full gap-3 px-2 py-3 text-left transition hover:bg-[#292929] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-zinc-100">
-                  {task.title}
-                </div>
-                <div className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">
-                  {task.input_summary}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <StatusBadge
-                    label={TASK_STATUS_LABELS[task.status] ?? "未知状态"}
-                    tone={mapTaskStatusTone(task.status)}
-                  />
-                  <StatusBadge
-                    label={`优先级 ${TASK_PRIORITY_LABELS[task.priority] ?? task.priority}`}
-                    tone="neutral"
-                  />
-                </div>
-              </div>
-              <div className="text-xs leading-5 text-zinc-600 sm:text-right">
-                更新 {formatDateTime(task.updated_at)}
-                {task.latest_run ? (
-                  <div>最近运行 {formatDateTime(task.latest_run.created_at)}</div>
-                ) : null}
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <EmptyHint text={props.emptyText} action={props.emptyAction} />
-      )}
+      <div className="grid gap-3 md:grid-cols-3">
+        {authFlowSteps.map((step, index) => (
+          <article key={step.title} className="rounded-2xl border border-[#333333] bg-[#202020] p-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-500/30 text-sm font-semibold text-zinc-300">
+              {index + 1}
+            </div>
+            <h3 className="mt-4 text-sm font-semibold text-zinc-100">{step.title}</h3>
+            <p className="mt-2 text-xs leading-5 text-zinc-500">{step.description}</p>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
 
-function QuickEntryPanel(props: { projectId: string | null }) {
-  const approvalHref = props.projectId
-    ? buildApprovalsRoute({ projectId: props.projectId })
-    : "/approvals";
-  const deliverableHref = props.projectId
-    ? buildDeliverablesRoute({ projectId: props.projectId })
-    : "/deliverables";
-
+function AccountCapabilitySection() {
   return (
-    <section className="space-y-3">
+    <section className="space-y-3" data-testid="account-capability-layout">
       <div className="border-b border-[#333333] pb-3">
-        <h2 className="text-lg font-semibold text-zinc-100">继续处理入口</h2>
+        <h2 className="text-lg font-semibold text-zinc-100">账户中心布局</h2>
         <p className="mt-1 text-sm leading-6 text-zinc-500">
-          直接进入审批和交付物流，若没有可用项目，页面会引导你先选择或创建项目。
+          账户资料、安全登录、个人偏好分区保留稳定位置，等待真实登录体系接入。
+        </p>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        {accountCapabilityGroups.map((group) => (
+          <article key={group.title} className="rounded-2xl border border-[#333333] bg-[#202020] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-zinc-100">{group.title}</h3>
+              <span className="rounded-full border border-[#3a3a3a] px-2 py-1 text-[11px] text-zinc-500">
+                {group.status}
+              </span>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-zinc-500">{group.description}</p>
+            <ul className="mt-4 space-y-2 text-xs text-zinc-400">
+              {group.items.map((item) => (
+                <li key={item} className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RealEntrySection() {
+  return (
+    <section className="space-y-3" data-testid="account-real-entry-links">
+      <div className="border-b border-[#333333] pb-3">
+        <h2 className="text-lg font-semibold text-zinc-100">真实可用入口</h2>
+        <p className="mt-1 text-sm leading-6 text-zinc-500">
+          账户能力未启用时，仅保留不会伪造登录状态的真实页面入口。
         </p>
       </div>
 
       <div className="divide-y divide-[#333333] border-y border-[#333333]">
-        <QuickEntryLink
-          to={approvalHref}
-          title="审批入口"
-          description="查看待审批项、放行动作和审批历史。"
-        />
-        <QuickEntryLink
-          to={deliverableHref}
-          title="交付物入口"
-          description="查看交付物快照、版本与关联任务。"
-        />
-        <QuickEntryLink
-          to="/projects"
-          title="项目中心"
-          description="创建项目、选择项目并进入项目内工作区。"
-        />
+        {realEntryLinks.map((entry) => (
+          <Link key={entry.to} to={entry.to} className="block px-2 py-3 transition hover:bg-[#292929]">
+            <div className="text-sm font-medium text-zinc-100">{entry.title}</div>
+            <div className="mt-1 text-xs leading-5 text-zinc-500">{entry.description}</div>
+          </Link>
+        ))}
+      </div>
+
+      <div className="rounded-2xl border border-dashed border-[#3a3a3a] p-4 text-xs leading-5 text-zinc-500">
+        任务中心、项目中心、审批中心、交付物中心继续由各自页面负责；本页不再复制它们的列表、统计或处理入口。
       </div>
     </section>
-  );
-}
-
-function QuickEntryLink(props: {
-  to: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <Link
-      to={props.to}
-      className="block px-2 py-3 transition hover:bg-[#292929]"
-    >
-      <div className="text-sm font-medium text-zinc-100">{props.title}</div>
-      <div className="mt-1 text-xs leading-5 text-zinc-500">
-        {props.description}
-      </div>
-    </Link>
-  );
-}
-
-function RecentProjectsPanel(props: {
-  projects: Array<{
-    id: string;
-    name: string;
-    summary: string;
-    stage: string;
-    status: string;
-    updated_at: string;
-  }>;
-  isLoading: boolean;
-}) {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-end justify-between gap-3 border-b border-[#333333] pb-3">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-100">最近项目</h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-500">
-            进入最近活跃项目，继续查看总览、仓库、交付物或审批。
-          </p>
-        </div>
-        <Link
-          to="/projects"
-          className="text-sm font-medium text-zinc-300 transition hover:text-zinc-50"
-        >
-          项目中心
-        </Link>
-      </div>
-
-      {props.isLoading ? (
-        <div className="border-l border-[#333333] px-4 py-3 text-sm text-zinc-500">
-          正在加载项目...
-        </div>
-      ) : props.projects.length ? (
-        <div className="divide-y divide-[#333333] border-y border-[#333333]">
-          {props.projects.map((project) => (
-            <Link
-              key={project.id}
-              to={buildProjectOverviewRoute({
-                projectId: project.id,
-                view: "overview",
-              })}
-              className="block px-2 py-3 transition hover:bg-[#292929]"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-zinc-100">
-                  {project.name}
-                </span>
-                <StatusBadge
-                  label={PROJECT_STAGE_LABELS[project.stage] ?? "未知阶段"}
-                  tone="info"
-                />
-                <StatusBadge
-                  label={PROJECT_STATUS_LABELS[project.status] ?? "未知状态"}
-                  tone={mapProjectStatusTone(project.status)}
-                />
-              </div>
-              <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-500">
-                {project.summary}
-              </p>
-              <div className="mt-2 text-xs text-zinc-600">
-                更新 {formatDateTime(project.updated_at)}
-              </div>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <EmptyHint
-          text="当前还没有项目。创建项目后，这里会显示最近项目入口。"
-          action={{ label: "去项目中心创建项目", to: "/projects" }}
-        />
-      )}
-    </section>
-  );
-}
-
-function EmptyHint(props: {
-  text: string;
-  action: { label: string; to: string };
-}) {
-  return (
-    <div className="border-l border-dashed border-[#3a3a3a] px-4 py-4 text-sm leading-6 text-zinc-500">
-      {props.text}
-      <div className="mt-3">
-        <Link
-          to={props.action.to}
-          className="inline-flex border-b border-zinc-500 pb-0.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-200 hover:text-white"
-        >
-          {props.action.label}
-        </Link>
-      </div>
-    </div>
   );
 }
