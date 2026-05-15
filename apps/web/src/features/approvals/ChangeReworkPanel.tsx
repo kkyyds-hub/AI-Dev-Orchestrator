@@ -24,9 +24,9 @@ export function ChangeReworkPanel(props: ChangeReworkPanelProps) {
 
   if (!props.projectId) {
     return (
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-        <div className="text-base font-semibold text-slate-50">Day12 回退重做收口</div>
-        <p className="mt-2 text-sm leading-6 text-slate-400">
+      <section className="border border-[#333333] bg-transparent p-5">
+        <div className="text-base font-semibold text-zinc-100">回退重做收口</div>
+        <p className="mt-2 text-sm leading-6 text-zinc-400">
           先选择项目，再查看“计划 → 验证 → 驳回/失败 → 回退重做”全链路。
         </p>
       </section>
@@ -35,24 +35,24 @@ export function ChangeReworkPanel(props: ChangeReworkPanelProps) {
 
   const payload = query.data ?? null;
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="border border-[#333333] bg-transparent p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-cyan-300">V4 Day12</div>
-          <h3 className="mt-2 text-lg font-semibold text-slate-50">回退重做与仓库复盘收口</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">变更复盘</div>
+          <h3 className="mt-2 text-lg font-semibold text-zinc-100">回退重做与仓库复盘收口</h3>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             对验证失败与审批驳回进行显式收口，保留原批次、证据包与失败原因关联。
           </p>
         </div>
-        <div className="text-xs text-slate-500">项目：{props.projectName ?? "未命名项目"}</div>
+        <div className="text-xs text-zinc-500">项目：{props.projectName ?? "未命名项目"}</div>
       </div>
 
       {query.isLoading && !payload ? (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-6 text-sm text-slate-400">
+        <div className="mt-4 border border-[#333333] bg-transparent px-4 py-6 text-sm text-zinc-400">
           正在汇总回退重做链路...
         </div>
       ) : query.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-6 text-sm text-rose-100">
+        <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           回退重做链路加载失败：{query.error.message}
         </div>
       ) : payload ? (
@@ -93,7 +93,7 @@ export function ChangeReworkPanel(props: ChangeReworkPanelProps) {
               ))}
             </div>
           ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-sm text-slate-400">
+            <div className="mt-4 border border-dashed border-[#333333] bg-transparent px-4 py-6 text-sm text-zinc-400">
               当前项目尚未出现需要回退重做的变更链路。
             </div>
           )}
@@ -113,7 +113,7 @@ function ChangeReworkCard(props: {
   }) => void;
 }) {
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-4">
+    <article className="border-l border-[#333333] px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge
@@ -134,15 +134,15 @@ function ChangeReworkCard(props: {
             <StatusBadge label="待处理" tone="warning" />
           )}
         </div>
-        <div className="text-xs text-slate-500">{formatDateTime(props.item.occurred_at)}</div>
+        <div className="text-xs text-zinc-500">{formatDateTime(props.item.occurred_at)}</div>
       </div>
 
-      <div className="mt-3 text-sm font-medium text-slate-100">{props.item.reason_summary}</div>
+      <div className="mt-3 text-sm font-medium text-zinc-100">{props.item.reason_summary}</div>
       {props.item.reason_comment ? (
-        <p className="mt-2 text-sm leading-6 text-slate-300">{props.item.reason_comment}</p>
+        <p className="mt-2 text-sm leading-6 text-zinc-400">{props.item.reason_comment}</p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-400">
         {props.item.change_batch_title ? <span>批次：{props.item.change_batch_title}</span> : null}
         {props.item.deliverable_title ? <span>交付件：{props.item.deliverable_title}</span> : null}
         {props.item.latest_failure_category ? (
@@ -153,9 +153,9 @@ function ChangeReworkCard(props: {
         </span>
       </div>
       {props.item.evidence_package_key ? (
-        <div className="mt-2 text-xs text-slate-500">
+        <div className="mt-2 text-xs text-zinc-500">
           证据包键：
-          <code className="ml-1 rounded bg-slate-900 px-2 py-1 text-slate-300">
+          <code className="ml-1 rounded bg-transparent px-2 py-1 text-zinc-400">
             {props.item.evidence_package_key}
           </code>
         </div>
@@ -173,7 +173,7 @@ function ChangeReworkCard(props: {
           {props.item.steps.map((step) => (
             <div
               key={step.step_id}
-              className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-3"
+              className="border-l border-[#333333] px-4 py-3"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -181,11 +181,11 @@ function ChangeReworkCard(props: {
                     label={CHANGE_REWORK_STAGE_LABELS[step.stage] ?? step.stage}
                     tone={mapStepTone(step.stage)}
                   />
-                  <span className="text-sm font-medium text-slate-100">{step.label}</span>
+                  <span className="text-sm font-medium text-zinc-100">{step.label}</span>
                 </div>
-                <span className="text-xs text-slate-500">{formatDateTime(step.occurred_at)}</span>
+                <span className="text-xs text-zinc-500">{formatDateTime(step.occurred_at)}</span>
               </div>
-              <div className="mt-2 text-sm leading-6 text-slate-300">{step.summary}</div>
+              <div className="mt-2 text-sm leading-6 text-zinc-400">{step.summary}</div>
             </div>
           ))}
         </div>
@@ -201,7 +201,7 @@ function ChangeReworkCard(props: {
                 deliverableId: props.item.deliverable_id as string,
               })
             }
-            className="rounded-xl border border-violet-400/30 bg-violet-500/10 px-4 py-2 text-sm text-violet-100 transition hover:bg-violet-500/20"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-zinc-100 transition hover:bg-[#292929]"
           >
             查看交付件
           </button>
@@ -215,7 +215,7 @@ function ChangeReworkCard(props: {
                 approvalId: props.item.approval_id as string,
               })
             }
-            className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100 transition hover:bg-amber-500/20"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-zinc-100 transition hover:bg-[#292929]"
           >
             查看审批
           </button>
@@ -227,9 +227,9 @@ function ChangeReworkCard(props: {
 
 function MiniStat(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }
@@ -241,7 +241,7 @@ function TagList(props: {
 }) {
   return (
     <div className="mt-3">
-      <div className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-500">{props.title}</div>
+      <div className="mb-2 text-xs uppercase tracking-[0.16em] text-zinc-500">{props.title}</div>
       <div className="flex flex-wrap gap-2">
         {props.items.map((item) => (
           <StatusBadge key={`${props.title}-${item}`} label={item} tone={props.tone} />

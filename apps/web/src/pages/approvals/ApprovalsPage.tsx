@@ -14,7 +14,7 @@ export function ApprovalsPage() {
   return (
     <div className="space-y-6">
       <ProjectContextSelector
-        eyebrow="Approvals"
+        eyebrow="审批中心"
         title="审批中心"
         description="先选择要处理的项目，再查看该项目的审批队列、审批处理与放行状态。"
         projects={projectSelection.projects}
