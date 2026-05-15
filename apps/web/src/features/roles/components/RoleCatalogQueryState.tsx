@@ -21,7 +21,7 @@ export function RoleCatalogQueryState(props: RoleCatalogQueryStateProps) {
 
       {!props.selectedProjectId ? (
         <div className="border-y border-dashed border-[#333333] py-4 text-sm leading-6 text-zinc-500">
-          还没有选中项目。当前先展示系统内置角色目录；在上方老板首页中选择项目后，就可以进入该项目的角色启用与身份配置编辑。
+          还没有选中项目。当前先展示系统内置角色目录；在上方选择项目后，即可进入该项目的角色启用与身份配置编辑。
         </div>
       ) : null}
     </>

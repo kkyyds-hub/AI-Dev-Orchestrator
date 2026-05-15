@@ -102,7 +102,7 @@ export function GovernancePage() {
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-              Page Governance
+              治理中心
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">
               页面治理
