@@ -43,17 +43,17 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
   const evidenceStep = flow?.steps.find((item) => item.key === "diff_evidence") ?? null;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="space-y-4 border-y border-[#333333] py-5">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-cyan-300">
-            V4 Day11 Diff Summary
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            代码差异
           </div>
-          <h3 className="mt-2 text-lg font-semibold text-slate-50">
-            代码差异视图
+          <h3 className="mt-2 text-lg font-semibold text-zinc-100">
+            代码差异
           </h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            按文件维度聚合当前仓库差异，展示增删改统计、关键文件列表，并把 ChangeBatch 上下文映射到老板可读的验收视图。
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+            按文件维度汇总当前仓库差异，展示增删改统计、关键文件和提交前确认信息。
           </p>
         </div>
 
@@ -80,10 +80,10 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
       </header>
 
       {flow ? (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+        <div className="border-l border-[#333333] px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
-              label={`Day15 ${renderDay15FlowLabel(flow.overall_status)}`}
+              label={`提交前状态：${renderDay15FlowLabel(flow.overall_status)}`}
               tone={mapDay15FlowTone(flow.overall_status)}
             />
             <StatusBadge
@@ -99,34 +99,34 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
             ) : null}
           </div>
           {evidenceStep ? (
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className="mt-2 text-sm leading-6 text-zinc-400">
               证据包状态：{renderStepLabel(evidenceStep.status)}；{evidenceStep.summary}
             </p>
           ) : null}
         </div>
       ) : flowQuery.isLoading && props.projectId ? (
-        <div className="mt-4 text-sm text-slate-500">正在读取 Day15 闭环状态...</div>
+        <div className="text-sm text-zinc-500">正在读取提交前状态...</div>
       ) : flowQuery.isError ? (
-        <div className="mt-4 text-sm text-rose-200">
-          Day15 闭环状态读取失败：{flowQuery.error.message}
+        <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+          提交前状态读取失败：{flowQuery.error.message}
         </div>
       ) : null}
 
       {!props.projectId ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/50 px-4 py-8 text-center text-sm text-slate-400">
-          先在老板首页选择一个项目，再查看 Day11 代码差异视图。
+        <div className="border-l border-dashed border-[#3a3a3a] px-4 py-4 text-sm leading-6 text-zinc-500">
+          先选择一个项目，再查看代码差异。
         </div>
       ) : evidenceQuery.isLoading && !evidence ? (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-8 text-center text-sm text-slate-400">
+        <div className="border-l border-dashed border-[#3a3a3a] px-4 py-4 text-sm leading-6 text-zinc-500">
           正在读取仓库差异摘要...
         </div>
       ) : evidenceQuery.isError ? (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-8 text-center text-sm text-rose-100">
-          代码差异视图加载失败：{evidenceQuery.error.message}
+        <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+          代码差异加载失败：{evidenceQuery.error.message}
         </div>
       ) : evidence ? (
         <>
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-400">
+          <div className="flex flex-wrap gap-3 text-xs text-zinc-400">
             <span>基线：{evidence.diff_summary.baseline_label}</span>
             <span>目标：{evidence.diff_summary.target_label}</span>
             <span>生成时间：{formatDateTime(evidence.diff_summary.generated_at)}</span>
@@ -136,12 +136,12 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
           </div>
 
           {evidence.diff_summary.note ? (
-            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+            <div className="border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
               {evidence.diff_summary.note}
             </div>
           ) : null}
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             <StatusBadge
               label={`新增 ${evidence.diff_summary.metrics.added_file_count}`}
               tone="success"
@@ -168,12 +168,12 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
             )}
           </div>
 
-          <section className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+          <section className="border-y border-[#333333] py-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h4 className="text-base font-semibold text-slate-50">关键文件列表</h4>
-                <p className="mt-1 text-sm leading-6 text-slate-400">
-                  优先突出 ChangeBatch 覆盖文件，以及删除 / 未跟踪等高关注项。
+                <h4 className="text-base font-semibold text-zinc-100">关键文件列表</h4>
+                <p className="mt-1 text-sm leading-6 text-zinc-400">
+                  优先展示变更批次覆盖文件，以及删除、未跟踪等需要关注的文件。
                 </p>
               </div>
               <StatusBadge
@@ -187,24 +187,24 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
                 {evidence.diff_summary.key_files.map((file) => (
                   <StatusBadge
                     key={file.relative_path}
-                    label={`${renderDiffKind(file.change_kind)} · ${file.relative_path}`}
+                    label={`${renderDiffKind(file.change_kind)} \u00b7 ${file.relative_path}`}
                     tone={mapDiffTone(file.change_kind)}
                   />
                 ))}
               </div>
             ) : (
-              <p className="mt-4 text-sm leading-6 text-slate-400">
+              <p className="mt-4 text-sm leading-6 text-zinc-400">
                 当前范围内没有可单独高亮的关键文件。
               </p>
             )}
           </section>
 
-          <section className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+          <section className="border-y border-[#333333] py-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h4 className="text-base font-semibold text-slate-50">按文件聚合的差异统计</h4>
-                <p className="mt-1 text-sm leading-6 text-slate-400">
-                  仅展示 Day11 范围内的差异摘要，不扩展到 Day12+ 的回退重做或提交候选。
+                <h4 className="text-base font-semibold text-zinc-100">按文件聚合的差异统计</h4>
+                <p className="mt-1 text-sm leading-6 text-zinc-400">
+                  展示当前范围内的差异摘要，便于提交前确认文件影响。
                 </p>
               </div>
               <StatusBadge
@@ -215,8 +215,8 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
 
             {evidence.diff_summary.files.length > 0 ? (
               <div className="mt-4 overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800 text-sm">
-                  <thead className="text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                <table className="min-w-full divide-y divide-[#333333] text-sm">
+                  <thead className="text-left text-xs uppercase tracking-[0.18em] text-zinc-600">
                     <tr>
                       <th className="px-3 py-3">文件</th>
                       <th className="px-3 py-3">类型</th>
@@ -226,11 +226,11 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
                       <th className="px-3 py-3">备注</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-900/80 text-slate-300">
+                  <tbody className="divide-y divide-[#333333] text-zinc-400">
                     {evidence.diff_summary.files.map((file) => (
                       <tr key={file.relative_path}>
                         <td className="px-3 py-3 align-top">
-                          <div className="font-mono text-xs text-slate-100">
+                          <div className="font-mono text-xs text-zinc-100">
                             {file.relative_path}
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -265,7 +265,7 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
                               ))}
                             </div>
                           ) : (
-                            <span className="text-slate-500">—</span>
+                            <span className="text-zinc-500">—</span>
                           )}
                         </td>
                       </tr>
@@ -274,7 +274,7 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
                 </table>
               </div>
             ) : (
-              <p className="mt-4 text-sm leading-6 text-slate-400">
+              <p className="mt-4 text-sm leading-6 text-zinc-400">
                 当前项目还没有可展示的差异文件。
               </p>
             )}
@@ -287,11 +287,11 @@ export function DiffSummaryPage(props: DiffSummaryPageProps) {
 
 function MetricCard(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-600">
         {props.label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }
