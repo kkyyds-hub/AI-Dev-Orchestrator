@@ -59,7 +59,7 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     label: "账户",
     shortLabel: "账",
     to: "/me",
-    description: "查看账户中心与登录注册接入说明。",
+    description: "管理账户设置与访问状态。",
   },
   {
     label: "设置",
@@ -192,7 +192,7 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
     return {
       section: "账户",
       title: "我的账户",
-      description: "收口账户中心、访问状态、登录注册接入说明与个人账户结构。",
+      description: "管理账户资料、安全与个人偏好。",
       breadcrumbs: ["账户"],
     };
   }

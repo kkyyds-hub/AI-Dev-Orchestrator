@@ -103,7 +103,7 @@ export function Sidebar(props: SidebarProps) {
               <div className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-500/30 bg-zinc-100 text-sm font-bold text-[#171717]">U</div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-zinc-100">直接访问</div>
-                <div className="truncate text-xs text-zinc-600">账号登录未启用</div>
+                <div className="truncate text-xs text-zinc-600">账号登录尚未开放</div>
               </div>
             </div>
           )}
