@@ -37,15 +37,15 @@ export function ProjectLatestTaskPreview(props: {
   return (
     <section
       data-testid="project-detail-latest-task-preview"
-      className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+      className="border border-[#333333] bg-transparent/60 p-4"
     >
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
         最近任务预览
       </div>
       {latestTask ? (
         <div className="mt-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-medium text-slate-50">
+            <div className="text-sm font-medium text-zinc-100">
               {latestTask.title}
             </div>
             <StatusBadge
@@ -84,7 +84,7 @@ export function ProjectLatestTaskPreview(props: {
             />
           </div>
           {latestTask.latest_run_summary ? (
-            <p className="text-sm leading-6 text-slate-300">
+            <p className="text-sm leading-6 text-zinc-400">
               运行摘要：{latestTask.latest_run_summary}
             </p>
           ) : null}
@@ -114,11 +114,11 @@ export function ProjectLatestTaskPreview(props: {
           </div>
         </div>
       ) : props.projectTasks.length > 0 ? (
-        <p className="mt-3 text-sm leading-6 text-slate-300">
-          老板首页聚合数据还未返回最新任务快照；当前可先查看上方的阶段守卫，以及下方的任务树与草案来源。
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
+          项目汇总数据还未返回最新任务快照；当前可先查看上方的阶段守卫，以及下方的任务树与草案来源。
         </p>
       ) : (
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
           当前还没有可展示的任务快照；可以先通过上方规划入口生成项目草案并映射任务。
         </p>
       )}

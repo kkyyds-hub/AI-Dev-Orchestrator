@@ -36,7 +36,7 @@ export function ProjectDetailStatsGrid(props: {
         value={
           props.project
             ? formatTokenCount(props.project.prompt_tokens)
-            : "仅老板首页汇总提供"
+            : "需在项目汇总页查看"
         }
       />
       <ProjectMiniStat
@@ -44,7 +44,7 @@ export function ProjectDetailStatsGrid(props: {
         value={
           props.project
             ? formatCurrencyUsd(props.project.estimated_cost)
-            : "仅老板首页汇总提供"
+            : "需在项目汇总页查看"
         }
       />
     </div>

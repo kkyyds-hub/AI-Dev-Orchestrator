@@ -9,19 +9,19 @@ export function ProjectTaskTree(props: {
   return (
     <section
       data-testid="project-detail-task-tree"
-      className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+      className="border border-[#333333] bg-transparent/60 p-4"
     >
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
           任务树与草案来源
         </div>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-zinc-500">
           {props.tasks.length} 个任务
         </span>
       </div>
 
       {props.isLoading ? (
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
           正在加载项目任务树...
         </p>
       ) : props.errorMessage ? (
@@ -35,7 +35,7 @@ export function ProjectTaskTree(props: {
           ))}
         </div>
       ) : (
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
           当前还没有项目级任务树；可以先通过上方规划入口生成草案并应用到项目。
         </p>
       )}

@@ -167,8 +167,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
             创建项目草案
           </h2>
           <p className="max-w-3xl text-sm leading-6 text-zinc-500">
-            这里直接复用现有 <code>/planning/drafts</code> 与{" "}
-            <code>/planning/apply</code> 链路，生成项目草案并映射为项目内任务。
+            输入项目需求说明，自动生成包含项目信息与任务映射的草案，确认后可一键创建项目和任务。
           </p>
         </div>
 
@@ -190,7 +189,7 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
       <div className="grid gap-5">
         <label className="space-y-2">
           <span className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            项目 brief
+            项目需求说明
           </span>
           <textarea
             value={brief}
@@ -223,13 +222,13 @@ export function ProjectCreateFlow(props: ProjectCreateFlowProps) {
           </div>
 
           {generateErrorMessage ? (
-            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            <div className="border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
               生成失败：{generateErrorMessage}
             </div>
           ) : null}
 
           {successMessage ? (
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
               {successMessage}
             </div>
           ) : null}

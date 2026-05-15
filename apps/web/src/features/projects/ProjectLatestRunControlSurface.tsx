@@ -57,10 +57,10 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
     <section
       id="project-latest-run-control-surface"
       data-testid="project-latest-run-control-surface"
-      className="mt-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"
+      className="mt-3 border border-[#3a3a3a] bg-transparent p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-200">
           Latest Run Control Surface
         </div>
         {props.onNavigateToTaskDetail ||
@@ -72,7 +72,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
                 type="button"
                 data-testid="goto-task-detail-from-project-latest-run"
                 onClick={props.onNavigateToTaskDetail}
-                className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                className="rounded-lg border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-transparent"
               >
                 查看任务详情
               </button>
@@ -82,7 +82,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
                 type="button"
                 data-testid="goto-strategy-preview-from-latest-run"
                 onClick={props.onNavigateToStrategyPreview}
-                className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                className="rounded-lg border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-transparent"
               >
                 查看策略建议
               </button>
@@ -92,7 +92,7 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
                 type="button"
                 data-testid="goto-run-log-from-project-latest-run"
                 onClick={props.onNavigateToRunLog}
-                className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                className="rounded-lg border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-transparent"
               >
                 查看运行日志
               </button>
@@ -153,9 +153,9 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
 
       <div
         data-testid="project-latest-run-runtime-card"
-        className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-3"
+        className="mt-3 rounded-xl border border-[#3a3a3a] bg-transparent p-3"
       >
-        <div className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-200">
           最近运行配置
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -211,9 +211,9 @@ export function ProjectLatestRunControlSurface(props: ProjectLatestRunControlSur
       ) : null}
 
       {props.latestTask.latest_run_log_path ? (
-        <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Run Log</div>
-          <code className="mt-2 block break-all text-xs text-cyan-200">
+        <div className="mt-3 rounded-xl border border-[#333333] bg-transparent/60 p-3">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Run Log</div>
+          <code className="mt-2 block break-all text-xs text-zinc-200">
             {props.latestTask.latest_run_log_path}
           </code>
         </div>
@@ -226,12 +226,12 @@ function InfoItem(props: { label: string; value: string; testId?: string }) {
   return (
     <div
       data-testid={props.testId}
-      className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+      className="rounded-xl border border-[#333333] bg-transparent/60 px-4 py-3"
     >
-      <div data-slot="label" className="text-xs uppercase tracking-[0.2em] text-slate-500">
+      <div data-slot="label" className="text-xs uppercase tracking-[0.2em] text-zinc-500">
         {props.label}
       </div>
-      <div data-slot="value" className="mt-2 break-all text-sm font-medium text-slate-100">
+      <div data-slot="value" className="mt-2 break-all text-sm font-medium text-zinc-100">
         {props.value}
       </div>
     </div>

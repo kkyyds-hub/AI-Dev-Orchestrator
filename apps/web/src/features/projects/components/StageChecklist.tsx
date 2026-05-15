@@ -17,9 +17,9 @@ function ChecklistGroup(props: {
   tone?: "info" | "success" | "warning" | "neutral";
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className="border border-[#333333] bg-transparent/60 p-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
           {props.title}
         </div>
         <StatusBadge
@@ -33,14 +33,14 @@ function ChecklistGroup(props: {
           {props.items.map((item) => (
             <li
               key={item}
-              className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-sm leading-6 text-slate-200"
+              className="rounded-xl border border-[#333333] bg-transparent/70 px-3 py-2 text-sm leading-6 text-zinc-200"
             >
               {item}
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mt-4 text-sm leading-6 text-slate-400">{props.emptyText}</p>
+        <p className="mt-4 text-sm leading-6 text-zinc-400">{props.emptyText}</p>
       )}
     </section>
   );
@@ -54,43 +54,43 @@ export function StageChecklist({ snapshot }: StageChecklistProps) {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+      <section className="border border-[#333333] bg-transparent/60 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               当前 SOP 阶段
             </div>
-            <h4 className="mt-3 text-lg font-semibold text-slate-50">
+            <h4 className="mt-3 text-lg font-semibold text-zinc-100">
               {snapshot.current_stage_title ??
                 PROJECT_STAGE_LABELS[snapshot.current_stage] ??
                 snapshot.current_stage}
             </h4>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className="mt-2 text-sm leading-6 text-zinc-400">
               {snapshot.current_stage_summary ?? "当前阶段暂无额外说明。"}
             </p>
           </div>
 
           <div className="grid gap-3 text-sm sm:grid-cols-3">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+            <div className="border border-[#333333] bg-transparent/70 px-4 py-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
                 阶段任务完成
               </div>
-              <div className="mt-2 text-lg font-semibold text-slate-50">
+              <div className="mt-2 text-lg font-semibold text-zinc-100">
                 {progressText}
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+            <div className="border border-[#333333] bg-transparent/70 px-4 py-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
                 下一阶段
               </div>
-              <div className="mt-2 text-lg font-semibold text-slate-50">
+              <div className="mt-2 text-lg font-semibold text-zinc-100">
                 {snapshot.next_stage
                   ? (PROJECT_STAGE_LABELS[snapshot.next_stage] ?? snapshot.next_stage)
                   : "最终阶段"}
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+            <div className="border border-[#333333] bg-transparent/70 px-4 py-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
                 推进状态
               </div>
               <div className="mt-2">
@@ -149,9 +149,9 @@ export function StageChecklist({ snapshot }: StageChecklistProps) {
         />
       </div>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+      <section className="border border-[#333333] bg-transparent/60 p-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
             当前阶段模板任务
           </div>
           <StatusBadge
@@ -165,12 +165,12 @@ export function StageChecklist({ snapshot }: StageChecklistProps) {
             {snapshot.stage_tasks.map((task) => (
               <article
                 key={task.task_id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4"
+                className="border border-[#333333] bg-transparent/70 px-4 py-4"
               >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h5 className="text-sm font-medium text-slate-100">
+                      <h5 className="text-sm font-medium text-zinc-100">
                         {task.title}
                       </h5>
                       <StatusBadge
@@ -179,13 +179,13 @@ export function StageChecklist({ snapshot }: StageChecklistProps) {
                       />
                     </div>
                     {task.owner_role_names.length > 0 ? (
-                      <p className="mt-2 text-xs leading-6 text-slate-400">
+                      <p className="mt-2 text-xs leading-6 text-zinc-400">
                         责任角色：{task.owner_role_names.join(" / ")}
                       </p>
                     ) : null}
                   </div>
 
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-zinc-500">
                     模板任务码：{task.task_code || "未命名"}
                   </div>
                 </div>
@@ -193,7 +193,7 @@ export function StageChecklist({ snapshot }: StageChecklistProps) {
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm leading-6 text-slate-400">
+          <p className="mt-4 text-sm leading-6 text-zinc-400">
             当前阶段还没有模板任务；如果这是新绑定的模板，可重试同步一次。
           </p>
         )}

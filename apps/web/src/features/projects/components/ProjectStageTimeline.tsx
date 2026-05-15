@@ -40,13 +40,13 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className="border border-[#333333] bg-transparent/60 p-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
             阶段时间线
           </div>
-          <p className="mt-3 text-sm leading-6 text-slate-300">
+          <p className="mt-3 text-sm leading-6 text-zinc-400">
             记录项目阶段推进、阻断原因和检查结果，便于回看关键节点。
           </p>
         </div>
@@ -74,15 +74,15 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
       </div>
 
       {guard && hasNextStage ? (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+        <div className="mt-4 border border-[#333333] bg-transparent/70 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex-1">
-              <div className="text-sm font-medium text-slate-100">
+              <div className="text-sm font-medium text-zinc-100">
                 {guard.can_advance
                   ? "当前里程碑已满足，可以推进到下一阶段。"
                   : "当前里程碑尚未满足，但你仍可记录一次正式的阶段检查结果。"}
               </div>
-              <div className="mt-2 text-xs leading-6 text-slate-500">
+              <div className="mt-2 text-xs leading-6 text-zinc-500">
                 {guard.can_advance
                   ? "推进成功后，项目阶段会立即更新并写入时间线。"
                   : "若守卫未通过，本次动作会以“被守卫拦截”写入时间线，方便回放与追踪。"}
@@ -93,7 +93,7 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
               type="button"
               onClick={() => void handleAdvanceStage()}
               disabled={props.isAdvancing}
-              className="inline-flex items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:border-cyan-400 hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-xl border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-[#3a3a3a] hover:bg-transparent/15 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {props.isAdvancing
                 ? "处理中..."
@@ -106,31 +106,31 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
           </div>
 
           <label className="mt-4 block space-y-2">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               推进备注（可选）
             </span>
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
               rows={3}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-500"
+              className="w-full border border-[#333333] bg-transparent px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
               placeholder="例如：已确认规划拆解完成，开始进入执行阶段。"
             />
           </label>
         </div>
       ) : guard ? (
-        <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm leading-6 text-emerald-100">
+        <div className="mt-4 border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm leading-6 text-emerald-100">
           当前项目已经处于最终阶段，无需继续推进。
         </div>
       ) : (
-        <p className="mt-4 text-sm leading-6 text-slate-400">
+        <p className="mt-4 text-sm leading-6 text-zinc-400">
           正在读取项目阶段信息...
         </p>
       )}
 
       {props.actionFeedback ? (
         <div
-          className={`mt-4 rounded-2xl border px-4 py-3 text-sm leading-6 ${
+          className={`mt-4 border px-4 py-3 text-sm leading-6 ${
             props.actionFeedback.tone === "success"
               ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
               : props.actionFeedback.tone === "danger"
@@ -147,7 +147,7 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
           {timelineEntries.map((entry) => (
             <article
               key={entry.id}
-              className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4"
+              className="border border-[#333333] bg-transparent/70 px-4 py-4"
             >
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
@@ -159,7 +159,7 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
                       }
                       tone={entry.outcome === "applied" ? "success" : "warning"}
                     />
-                    <span className="text-sm font-medium text-slate-100">
+                    <span className="text-sm font-medium text-zinc-100">
                       {entry.from_stage
                         ? `${
                             PROJECT_STAGE_LABELS[entry.from_stage] ?? entry.from_stage
@@ -171,31 +171,31 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
                           }`}
                     </span>
                   </div>
-                  <div className="mt-2 text-xs text-slate-500">
+                  <div className="mt-2 text-xs text-zinc-500">
                     {formatDateTime(entry.created_at)}
                   </div>
                 </div>
               </div>
 
               {entry.note ? (
-                <p className="mt-3 text-sm leading-6 text-slate-300">
+                <p className="mt-3 text-sm leading-6 text-zinc-400">
                   备注：{entry.note}
                 </p>
               ) : null}
 
               {entry.reasons.length > 0 ? (
-                <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
                   {entry.reasons.map((reason) => (
                     <li
                       key={`${entry.id}-${reason}`}
-                      className="rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2"
+                      className="rounded-xl border border-[#333333] bg-transparent/70 px-3 py-2"
                     >
                       {reason}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="mt-3 text-sm leading-6 text-slate-400">
+                <p className="mt-3 text-sm leading-6 text-zinc-400">
                   本次阶段动作无额外阻塞说明。
                 </p>
               )}
@@ -203,7 +203,7 @@ export function ProjectStageTimeline(props: ProjectStageTimelineProps) {
           ))}
         </div>
       ) : (
-        <p className="mt-5 text-sm leading-6 text-slate-400">
+        <p className="mt-5 text-sm leading-6 text-zinc-400">
           当前还没有阶段推进记录。
         </p>
       )}

@@ -325,7 +325,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/75 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex justify-end bg-transparent/75 backdrop-blur-sm">
       <button
         type="button"
         aria-label="关闭变更计划抽屉"
@@ -333,14 +333,14 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
         onClick={props.onClose}
       />
 
-      <aside className="flex h-full w-full max-w-5xl flex-col border-l border-slate-800 bg-slate-950 shadow-2xl shadow-slate-950/70">
-        <header className="border-b border-slate-800 px-6 py-5">
+      <aside className="flex h-full w-full max-w-5xl flex-col border-l border-[#333333] bg-[#111111]">
+        <header className="border-b border-[#333333] px-6 py-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-xs uppercase tracking-[0.24em] text-cyan-300">
+              <div className="text-xs uppercase tracking-[0.24em] text-zinc-400">
                 变更计划
               </div>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-50">
+              <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
                 仓库任务映射与变更计划草案
               </h2>
             </div>
@@ -361,14 +361,14 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
             </div>
           </div>
 
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
             将任务、交付件与候选文件整理成可审阅草案，便于确认范围、风险和验证方式。
           </p>
         </header>
 
         <div className="grid flex-1 gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <section className="border-b border-slate-800 px-6 py-5 lg:border-b-0 lg:border-r">
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <section className="border-b border-[#333333] px-6 py-5 lg:border-b-0 lg:border-r">
+            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               任务映射
             </div>
             <select
@@ -378,7 +378,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                 setSelectedPlanId(null);
               }}
               disabled={Boolean(selectedPlanId)}
-              className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-500"
+              className="mt-3 w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-500"
             >
               {props.tasks.length === 0 ? <option value="">暂无任务</option> : null}
               {props.tasks.map((task) => (
@@ -389,21 +389,21 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
             </select>
 
             {selectedTask ? (
-              <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm leading-6 text-slate-300">
-                <div className="font-medium text-slate-100">{selectedTask.title}</div>
+              <div className="mt-3 border border-[#333333] bg-transparent/60 p-4 text-sm leading-6 text-zinc-400">
+                <div className="font-medium text-zinc-100">{selectedTask.title}</div>
                 <div className="mt-2">{selectedTask.input_summary}</div>
-                <div className="mt-2 text-xs text-slate-500">
+                <div className="mt-2 text-xs text-zinc-500">
                   更新时间 {formatDateTime(selectedTask.updated_at)}
                 </div>
               </div>
             ) : (
-              <div className="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-sm leading-6 text-slate-400">
+              <div className="mt-3 border border-dashed border-[#333333] bg-transparent/40 p-4 text-sm leading-6 text-zinc-400">
                 当前项目还没有可映射的任务。
               </div>
             )}
 
             <div className="mt-5 flex items-center justify-between gap-3">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                 草案历史
               </div>
               <button
@@ -414,7 +414,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   setErrorMessage(null);
                 }}
                 disabled={!canCreateNewDraft}
-                className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+                className="rounded-xl border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-100 transition hover:bg-transparent disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-transparent disabled:text-zinc-500"
               >
                 新建草案
               </button>
@@ -429,19 +429,19 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                       key={item.id}
                       type="button"
                       onClick={() => setSelectedPlanId(item.id)}
-                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                      className={`w-full border px-4 py-3 text-left transition ${
                         isSelected
-                          ? "border-cyan-400/60 bg-cyan-500/10"
-                          : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
+                          ? "border-[#3a3a3a] bg-transparent"
+                          : "border-[#333333] bg-transparent/60 hover:border-[#333333]"
                       }`}
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-sm font-medium text-slate-100">
+                        <div className="text-sm font-medium text-zinc-100">
                           {item.title}
                         </div>
                         <StatusBadge label={`v${item.current_version_number}`} tone="info" />
                       </div>
-                      <div className="mt-2 text-xs leading-5 text-slate-400">
+                      <div className="mt-2 text-xs leading-5 text-zinc-400">
                         {item.latest_version.intent_summary}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -457,7 +457,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   );
                 })
               ) : (
-                <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-sm leading-6 text-slate-400">
+                <div className="border border-dashed border-[#333333] bg-transparent/40 p-4 text-sm leading-6 text-zinc-400">
                   {canCreateNewDraft
                     ? "当前任务还没有变更计划草案，可以直接从当前候选文件包新建。"
                     : "请先在仓库页生成候选文件包，再新建草案。"}
@@ -468,15 +468,15 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
 
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
             <div className="flex-1 overflow-y-auto px-6 py-5">
-              <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+              <section className="border border-[#333333] bg-transparent/60 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-slate-100">当前映射来源</div>
-                    <div className="mt-2 text-sm leading-6 text-slate-300">
+                    <div className="text-sm font-medium text-zinc-100">当前映射来源</div>
+                    <div className="mt-2 text-sm leading-6 text-zinc-400">
                       {activeSourceSummary || "尚未提供映射来源。"}
                     </div>
                     {activeContextPackGeneratedAt ? (
-                      <div className="mt-2 text-xs text-slate-500">
+                      <div className="mt-2 text-xs text-zinc-500">
                         来源时间 {formatDateTime(activeContextPackGeneratedAt)}
                       </div>
                     ) : null}
@@ -490,15 +490,15 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                 </div>
 
                 {props.codeContextPack ? (
-                  <div className="mt-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm leading-6 text-cyan-100">
+                  <div className="mt-3 border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm leading-6 text-zinc-100">
                     本次保存将优先使用当前候选文件包中的文件集合。
                   </div>
                 ) : selectedPlanSummary ? (
-                  <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+                  <div className="mt-3 border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
                     当前没有新的候选文件包，将沿用《{selectedPlanSummary.title}》最新版本中的目标文件与来源摘要继续追加版本。
                   </div>
                 ) : (
-                  <div className="mt-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+                  <div className="mt-3 border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
                     新建草案需要先在仓库页生成候选文件包。
                   </div>
                 )}
@@ -512,7 +512,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   <input
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                   />
                 </FieldBlock>
 
@@ -523,7 +523,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   <select
                     value={primaryDeliverableId}
                     onChange={(event) => setPrimaryDeliverableId(event.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                   >
                     {deliverables.length === 0 ? <option value="">暂无交付件</option> : null}
                     {deliverables.map((deliverable) => (
@@ -547,7 +547,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                       return (
                         <label
                           key={deliverable.id}
-                          className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+                          className="flex items-start gap-3 border border-[#333333] bg-transparent/60 px-4 py-3"
                         >
                           <input
                             type="checkbox"
@@ -564,11 +564,11 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                                 return [...current, deliverable.id];
                               });
                             }}
-                            className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                            className="mt-1 h-4 w-4 rounded border-[#333333] bg-transparent text-zinc-400"
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-medium text-slate-100">
+                              <div className="text-sm font-medium text-zinc-100">
                                 {deliverable.title}
                               </div>
                               <StatusBadge
@@ -577,7 +577,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                               />
                               <StatusBadge label={`v${deliverable.current_version_number}`} tone="neutral" />
                             </div>
-                            <div className="mt-2 text-xs leading-5 text-slate-500">
+                            <div className="mt-2 text-xs leading-5 text-zinc-500">
                               {deliverable.latest_version.summary}
                             </div>
                           </div>
@@ -586,7 +586,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
                     当前项目还没有可关联的交付件，请先在交付件中心补齐最小产物。
                   </div>
                 )}
@@ -601,7 +601,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                   value={intentSummary}
                   onChange={(event) => setIntentSummary(event.target.value)}
                   rows={5}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                  className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                 />
               </FieldBlock>
 
@@ -614,7 +614,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     value={expectedActionsText}
                     onChange={(event) => setExpectedActionsText(event.target.value)}
                     rows={8}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                   />
                 </FieldBlock>
 
@@ -626,7 +626,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     value={riskNotesText}
                     onChange={(event) => setRiskNotesText(event.target.value)}
                     rows={8}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                   />
                 </FieldBlock>
 
@@ -638,7 +638,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     value={verificationCommandsText}
                     onChange={(event) => setVerificationCommandsText(event.target.value)}
                     rows={8}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-400"
+                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                   />
                 </FieldBlock>
               </div>
@@ -649,11 +649,11 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                 description="引用仓库级 build / test / lint / typecheck 基线，减少重复填写。"
               >
                 {verificationBaselineQuery.isLoading ? (
-                  <div className="text-sm leading-6 text-slate-400">
+                  <div className="text-sm leading-6 text-zinc-400">
                     正在加载验证模板...
                   </div>
                 ) : verificationBaselineQuery.isError ? (
-                  <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+                  <div className="border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
                     验证模板加载失败：{verificationBaselineQuery.error.message}
                   </div>
                 ) : verificationTemplates.length > 0 ? (
@@ -663,7 +663,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                       return (
                         <label
                           key={template.id}
-                          className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+                          className="flex items-start gap-3 border border-[#333333] bg-transparent/60 px-4 py-3"
                         >
                           <input
                             type="checkbox"
@@ -675,11 +675,11 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                                   : [...current, template.id],
                               );
                             }}
-                            className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                            className="mt-1 h-4 w-4 rounded border-[#333333] bg-transparent text-zinc-400"
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-medium text-slate-100">
+                              <div className="text-sm font-medium text-zinc-100">
                                 {template.name}
                               </div>
                               <StatusBadge
@@ -699,10 +699,10 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                                 tone="warning"
                               />
                             </div>
-                            <div className="mt-2 text-sm leading-6 text-slate-300">
+                            <div className="mt-2 text-sm leading-6 text-zinc-400">
                               {template.description ?? "未提供模板说明。"}
                             </div>
-                            <div className="mt-2 text-xs leading-5 text-slate-500">
+                            <div className="mt-2 text-xs leading-5 text-zinc-500">
                               工作目录 {template.working_directory} · {template.command}
                             </div>
                           </div>
@@ -711,7 +711,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
                     当前项目尚未初始化验证模板，请先在仓库页补齐命令基线。
                   </div>
                 )}
@@ -727,14 +727,14 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     {resolvedVerificationCommands.map((command) => (
                       <div
                         key={command}
-                        className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100"
+                        className="rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100"
                       >
                         {command}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
                     尚未选择验证模板，也未填写自定义验证命令。
                   </div>
                 )}
@@ -752,7 +752,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                       return (
                         <label
                           key={item.relative_path}
-                          className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+                          className="flex items-start gap-3 border border-[#333333] bg-transparent/60 px-4 py-3"
                         >
                           <input
                             type="checkbox"
@@ -764,10 +764,10 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                                   : [...current, item.relative_path],
                               )
                             }
-                            className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                            className="mt-1 h-4 w-4 rounded border-[#333333] bg-transparent text-zinc-400"
                           />
                           <div className="min-w-0 flex-1">
-                            <div className="break-all text-sm font-medium text-slate-100">
+                            <div className="break-all text-sm font-medium text-zinc-100">
                               {item.relative_path}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
@@ -787,7 +787,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
                     暂无目标文件；请先生成候选文件包，或打开已有草案查看上一版映射。
                   </div>
                 )}
@@ -803,10 +803,10 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                     {selectedPlanDetail.versions.map((version) => (
                       <div
                         key={version.id}
-                        className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+                        className="border border-[#333333] bg-transparent/60 px-4 py-3"
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-sm font-medium text-slate-100">
+                          <div className="text-sm font-medium text-zinc-100">
                             v{version.version_number}
                           </div>
                           <StatusBadge label={`${version.target_files.length} 文件`} tone="info" />
@@ -819,7 +819,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                             tone="neutral"
                           />
                         </div>
-                        <div className="mt-2 text-sm leading-6 text-slate-300">
+                        <div className="mt-2 text-sm leading-6 text-zinc-400">
                           {version.intent_summary}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
@@ -838,7 +838,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                             />
                           ))}
                         </div>
-                        <div className="mt-2 text-xs text-slate-500">
+                        <div className="mt-2 text-xs text-zinc-500">
                           创建于 {formatDateTime(version.created_at)}
                         </div>
                       </div>
@@ -848,23 +848,23 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
               ) : null}
 
               {errorMessage ? (
-                <div className="mt-5 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+                <div className="mt-5 border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
                   {errorMessage}
                 </div>
               ) : null}
 
               {successMessage ? (
-                <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
+                <div className="mt-5 border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
                   {successMessage}
                 </div>
               ) : null}
             </div>
 
-            <footer className="flex items-center justify-between gap-3 border-t border-slate-800 px-6 py-4">
+            <footer className="flex items-center justify-between gap-3 border-t border-[#333333] px-6 py-4">
               <button
                 type="button"
                 onClick={props.onClose}
-                className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100"
+                className="rounded-xl border border-[#333333] px-4 py-2 text-sm font-medium text-zinc-400 transition hover:border-[#333333] hover:text-zinc-100"
               >
                 关闭
               </button>
@@ -872,7 +872,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
               <button
                 type="submit"
                 disabled={isSaving || (!selectedPlanId && !canCreateNewDraft)}
-                className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+                className="rounded-xl border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-transparent disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-transparent disabled:text-zinc-500"
               >
                 {isSaving ? "保存中..." : selectedPlanId ? "追加草案版本" : "创建草案"}
               </button>
@@ -892,10 +892,10 @@ function FieldBlock(props: {
 }) {
   return (
     <section
-      className={`${props.className ?? ""} rounded-2xl border border-slate-800 bg-slate-900/60 p-4`}
+      className={`${props.className ?? ""} border border-[#333333] bg-transparent/60 p-4`}
     >
-      <div className="text-sm font-medium text-slate-100">{props.label}</div>
-      <div className="mt-1 text-xs leading-5 text-slate-400">
+      <div className="text-sm font-medium text-zinc-100">{props.label}</div>
+      <div className="mt-1 text-xs leading-5 text-zinc-400">
         {props.description}
       </div>
       <div className="mt-3">{props.children}</div>

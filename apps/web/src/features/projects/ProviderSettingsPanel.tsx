@@ -128,13 +128,13 @@ export function ProviderSettingsPanel() {
   };
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className="border border-[#333333] bg-transparent/60 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
             Provider Settings
           </div>
-          <p className="mt-2 text-sm text-slate-300">
+          <p className="mt-2 text-sm text-zinc-400">
             配置 OpenAI 供应商参数，用于项目执行。
           </p>
         </div>
@@ -142,7 +142,7 @@ export function ProviderSettingsPanel() {
       </div>
 
       {providerSettingsQuery.isLoading ? (
-        <p className="mt-3 text-sm text-slate-400">Loading provider settings...</p>
+        <p className="mt-3 text-sm text-zinc-400">Loading provider settings...</p>
       ) : providerSettingsQuery.isError ? (
         <p className="mt-3 text-sm text-rose-200">
           {providerSettingsQuery.error instanceof Error
@@ -159,18 +159,18 @@ export function ProviderSettingsPanel() {
 
           <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+              <label className="space-y-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
                 OpenAI API Key
                 <input
                   type="password"
                   value={apiKeyInput}
                   onChange={(event) => setApiKeyInput(event.target.value)}
                   placeholder="sk-... (leave blank to keep current key)"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm normal-case tracking-normal text-slate-100 outline-none ring-cyan-500/40 transition focus:border-cyan-500 focus:ring"
+                  className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm normal-case tracking-normal text-zinc-100 outline-none ring-zinc-500/40 transition focus:border-[#3a3a3a] focus:ring"
                 />
               </label>
 
-              <label className="space-y-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+              <label className="space-y-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
                 Timeout Seconds
                 <input
                   type="number"
@@ -178,19 +178,19 @@ export function ProviderSettingsPanel() {
                   step={1}
                   value={timeoutSecondsInput}
                   onChange={(event) => setTimeoutSecondsInput(event.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm normal-case tracking-normal text-slate-100 outline-none ring-cyan-500/40 transition focus:border-cyan-500 focus:ring"
+                  className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm normal-case tracking-normal text-zinc-100 outline-none ring-zinc-500/40 transition focus:border-[#3a3a3a] focus:ring"
                 />
               </label>
             </div>
 
-            <label className="space-y-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+            <label className="space-y-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
               Base URL
               <input
                 type="url"
                 value={baseUrlInput}
                 onChange={(event) => setBaseUrlInput(event.target.value)}
                 placeholder="https://api.openai.com/v1"
-                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm normal-case tracking-normal text-slate-100 outline-none ring-cyan-500/40 transition focus:border-cyan-500 focus:ring"
+                className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm normal-case tracking-normal text-zinc-100 outline-none ring-zinc-500/40 transition focus:border-[#3a3a3a] focus:ring"
               />
             </label>
 
@@ -198,7 +198,7 @@ export function ProviderSettingsPanel() {
               <button
                 type="submit"
                 disabled={!canSubmit}
-                className="rounded-xl border border-cyan-500/50 bg-cyan-500/20 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-transparent/30 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSaving ? "Saving..." : "Save Provider Settings"}
               </button>
@@ -225,11 +225,11 @@ export function ProviderSettingsPanel() {
 
 function InfoItem(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+    <div className="rounded-xl border border-[#333333] bg-transparent/60 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
         {props.label}
       </div>
-      <div className="mt-2 text-sm text-slate-200">{props.value}</div>
+      <div className="mt-2 text-sm text-zinc-200">{props.value}</div>
     </div>
   );
 }

@@ -43,7 +43,7 @@ export function ProjectTimelineEventCard(
 ) {
   if (!props.event) {
     return (
-      <aside className="min-w-0 border border-dashed border-[#3a3a3a] px-5 py-8 text-sm leading-6 text-slate-400">
+      <aside className="min-w-0 border border-dashed border-[#3a3a3a] px-5 py-8 text-sm leading-6 text-zinc-400">
         选择左侧事件后，这里会展示事件详情、相关对象和操作入口。
       </aside>
     );
@@ -92,10 +92,10 @@ export function ProjectTimelineEventCard(
           {approvalStatusLabel ? <StatusBadge label={approvalStatusLabel} tone="neutral" /> : null}
         </div>
 
-        <h3 className="mt-4 break-words text-xl font-semibold leading-7 text-slate-50">
+        <h3 className="mt-4 break-words text-xl font-semibold leading-7 text-zinc-100">
           {event.title}
         </h3>
-        <p className="mt-3 break-words text-sm leading-6 text-slate-300">{event.summary}</p>
+        <p className="mt-3 break-words text-sm leading-6 text-zinc-400">{event.summary}</p>
       </div>
 
       <section className="space-y-3 border-b border-[#333333] pb-5">
@@ -116,7 +116,7 @@ export function ProjectTimelineEventCard(
       </section>
 
       <section className="border-b border-[#333333] pb-5">
-        <div className="text-xs font-medium tracking-[0.18em] text-slate-500">
+        <div className="text-xs font-medium tracking-[0.18em] text-zinc-500">
           操作入口
         </div>
         <div className="mt-3 flex flex-wrap gap-3">
@@ -161,26 +161,26 @@ export function ProjectTimelineEventCard(
             </TimelineActionButton>
           ) : null}
           {!taskId && !deliverableId && !approvalId ? (
-            <span className="text-sm text-slate-500">当前事件没有可跳转对象。</span>
+            <span className="text-sm text-zinc-500">当前事件没有可跳转对象。</span>
           ) : null}
         </div>
       </section>
 
       {metadataEntries.length > 0 ? (
         <section>
-          <div className="text-xs font-medium tracking-[0.18em] text-slate-500">
+          <div className="text-xs font-medium tracking-[0.18em] text-zinc-500">
             事件元数据
           </div>
-          <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
+          <div className="mt-3 space-y-2 text-xs leading-5 text-zinc-400">
             {visibleMetadataEntries.map(([key, value]) => (
               <DetailRow key={key} label={formatMetadataLabel(key)} value={formatMetadataValue(value)} />
             ))}
             {collapsedMetadataEntries.length > 0 ? (
               <details className="group border-t border-[#333333] pt-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs text-slate-400 transition hover:text-slate-200">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs text-zinc-400 transition hover:text-zinc-200">
                   <span>展开更多元数据</span>
-                  <span className="text-slate-500 group-open:hidden">展开</span>
-                  <span className="hidden text-slate-500 group-open:inline">收起</span>
+                  <span className="text-zinc-500 group-open:hidden">展开</span>
+                  <span className="hidden text-zinc-500 group-open:inline">收起</span>
                 </summary>
                 <div className="mt-3 space-y-2">
                   {collapsedMetadataEntries.map(([key, value]) => (
@@ -199,10 +199,10 @@ export function ProjectTimelineEventCard(
 function DetailRow(props: { label: string; value: string }) {
   return (
     <div className="grid min-w-0 gap-2 text-sm sm:grid-cols-[104px_minmax(0,1fr)]">
-      <div className="min-w-0 break-words text-xs text-slate-500">
+      <div className="min-w-0 break-words text-xs text-zinc-500">
         {props.label}
       </div>
-      <div className="min-w-0 break-all text-slate-300">{props.value}</div>
+      <div className="min-w-0 break-all text-zinc-400">{props.value}</div>
     </div>
   );
 }

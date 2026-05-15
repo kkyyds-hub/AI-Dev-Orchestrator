@@ -17,11 +17,11 @@ export function ProjectMilestonePanel({
 
   if (!guard) {
     return (
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-        <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+      <section className="border border-[#333333] bg-transparent/60 p-4">
+        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
           项目里程碑
         </div>
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
           正在读取当前项目的阶段守卫与里程碑状态...
         </p>
       </section>
@@ -29,21 +29,21 @@ export function ProjectMilestonePanel({
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+    <section className="border border-[#333333] bg-transparent/60 p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
             项目里程碑
           </div>
-          <p className="mt-3 text-sm leading-6 text-slate-300">
+          <p className="mt-3 text-sm leading-6 text-zinc-400">
             当前阶段：
-            <span className="mx-1 font-medium text-slate-100">
+            <span className="mx-1 font-medium text-zinc-100">
               {PROJECT_STAGE_LABELS[guard.current_stage] ?? guard.current_stage}
             </span>
             {guard.target_stage ? (
               <>
                 ，下一阶段：
-                <span className="mx-1 font-medium text-slate-100">
+                <span className="mx-1 font-medium text-zinc-100">
                   {PROJECT_STAGE_LABELS[guard.target_stage] ?? guard.target_stage}
                 </span>
               </>
@@ -75,7 +75,7 @@ export function ProjectMilestonePanel({
           {guard.milestones.map((milestone) => (
             <article
               key={milestone.code}
-              className={`rounded-2xl border px-4 py-4 ${
+              className={`border px-4 py-4 ${
                 milestone.satisfied
                   ? "border-emerald-500/20 bg-emerald-500/5"
                   : "border-amber-500/20 bg-amber-500/5"
@@ -83,10 +83,10 @@ export function ProjectMilestonePanel({
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h4 className="text-sm font-medium text-slate-100">
+                  <h4 className="text-sm font-medium text-zinc-100">
                     {milestone.title}
                   </h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                  <p className="mt-2 text-sm leading-6 text-zinc-400">
                     {milestone.summary}
                   </p>
                 </div>
@@ -113,18 +113,18 @@ export function ProjectMilestonePanel({
           ))}
         </div>
       ) : (
-        <p className="mt-4 text-sm leading-6 text-slate-400">
+        <p className="mt-4 text-sm leading-6 text-zinc-400">
           当前没有更多需要检查的阶段里程碑。
         </p>
       )}
 
       {guard.blocking_tasks.length > 0 ? (
-        <div className="mt-5 rounded-2xl border border-amber-500/20 bg-slate-950/80 p-4">
+        <div className="mt-5 border border-amber-500/20 bg-transparent/80 p-4">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               当前阻塞任务
             </div>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-zinc-500">
               {guard.blocking_tasks.length} 个
             </span>
           </div>
@@ -133,10 +133,10 @@ export function ProjectMilestonePanel({
             {guard.blocking_tasks.map((task) => (
               <article
                 key={task.task_id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4"
+                className="border border-[#333333] bg-transparent/70 px-4 py-4"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-medium text-slate-100">
+                  <div className="text-sm font-medium text-zinc-100">
                     {task.title}
                   </div>
                   <StatusBadge
@@ -145,11 +145,11 @@ export function ProjectMilestonePanel({
                   />
                 </div>
 
-                <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
                   {task.blocking_reasons.map((reason) => (
                     <li
                       key={`${task.task_id}-${reason}`}
-                      className="rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2"
+                      className="rounded-xl border border-[#333333] bg-transparent/70 px-3 py-2"
                     >
                       {reason}
                     </li>
@@ -162,7 +162,7 @@ export function ProjectMilestonePanel({
       ) : null}
 
       {!guard.can_advance && guard.blocking_reasons.length > 0 ? (
-        <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+        <div className="mt-5 border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
           {guard.blocking_reasons.join("；")}
         </div>
       ) : null}
@@ -172,11 +172,11 @@ export function ProjectMilestonePanel({
 
 function SummaryChip(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+    <div className="border border-[#333333] bg-transparent/70 px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
         {props.label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-100">
+      <div className="mt-2 text-sm font-medium text-zinc-100">
         {props.value}
       </div>
     </div>

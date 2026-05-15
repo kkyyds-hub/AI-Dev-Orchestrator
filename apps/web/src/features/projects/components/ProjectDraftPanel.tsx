@@ -45,16 +45,16 @@ type ProjectDraftPanelProps = {
 
 export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
   return (
-    <section className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+    <section className="space-y-5 border border-[#333333] bg-transparent/70 p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-cyan-300">
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-400">
             项目草案
           </p>
-          <h3 className="mt-2 text-xl font-semibold text-slate-50">
+          <h3 className="mt-2 text-xl font-semibold text-zinc-100">
             项目级规划入口与任务映射
           </h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
             先生成项目草案，再人工调整项目名称、任务内容与依赖关系，最后确认应用。此步骤只会创建项目和任务，不会自动执行。
           </p>
         </div>
@@ -72,10 +72,10 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-        <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+        <div className="space-y-4 border border-[#333333] bg-transparent/60 p-4">
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                 项目名称
               </span>
               <input
@@ -83,14 +83,14 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                 onChange={(event) =>
                   props.onProjectChange({ name: event.target.value })
                 }
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                 placeholder="输入项目名称"
               />
             </label>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                   项目阶段
                 </span>
                 <select
@@ -98,7 +98,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                   onChange={(event) =>
                     props.onProjectChange({ stage: event.target.value })
                   }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                  className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                 >
                   {Object.entries(PROJECT_STAGE_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -109,7 +109,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
               </label>
 
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                   项目状态
                 </span>
                 <select
@@ -117,7 +117,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                   onChange={(event) =>
                     props.onProjectChange({ status: event.target.value })
                   }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                  className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                 >
                   {Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -130,7 +130,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
           </div>
 
           <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               项目摘要
             </span>
             <textarea
@@ -139,32 +139,32 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                 props.onProjectChange({ summary: event.target.value })
               }
               rows={4}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-500"
+              className="w-full border border-[#333333] bg-transparent px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
               placeholder="输入项目摘要"
             />
           </label>
         </div>
 
-        <aside className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+        <aside className="space-y-4 border border-[#333333] bg-transparent/60 p-4">
           <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               规划备注
             </div>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
               {props.planningNotes.map((note) => (
-                <li key={note} className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2">
+                <li key={note} className="rounded-xl border border-[#333333] bg-transparent/60 px-3 py-2">
                   {note}
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+          <div className="border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
             应用草案前，你可以修改项目摘要、任务标题、验收标准和依赖；保存后再进入执行流程。
           </div>
 
           {props.applyErrorMessage ? (
-            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            <div className="border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
               应用失败：{props.applyErrorMessage}
             </div>
           ) : null}
@@ -174,7 +174,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
               type="button"
               onClick={props.onApply}
               disabled={props.isApplying}
-              className="inline-flex rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:border-cyan-400 hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex rounded-xl border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-[#3a3a3a] hover:bg-transparent disabled:cursor-not-allowed disabled:opacity-60"
             >
               {props.isApplying ? "应用中..." : "应用草案并创建项目"}
             </button>
@@ -182,7 +182,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
               type="button"
               onClick={props.onReset}
               disabled={props.isApplying}
-              className="inline-flex rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex rounded-xl border border-[#333333] bg-transparent/80 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:border-[#333333] disabled:cursor-not-allowed disabled:opacity-60"
             >
               丢弃草案
             </button>
@@ -192,8 +192,8 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-lg font-semibold text-slate-50">任务映射草案</h4>
-          <span className="text-xs text-slate-500">
+          <h4 className="text-lg font-semibold text-zinc-100">任务映射草案</h4>
+          <span className="text-xs text-zinc-500">
             共 {props.tasks.length} 个任务，依赖关系仍可手动调整
           </span>
         </div>
@@ -202,15 +202,15 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
           {props.tasks.map((task, index) => (
             <article
               key={task.draft_id}
-              className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
+              className="border border-[#333333] bg-transparent/60 p-4"
             >
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                     草案 {task.draft_id}
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-slate-100">
+                    <span className="text-sm font-medium text-zinc-100">
                       任务 {index + 1}
                     </span>
                     <StatusBadge
@@ -240,7 +240,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
 
               <div className="mt-4 grid gap-4 xl:grid-cols-2">
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                     任务标题
                   </span>
                   <input
@@ -248,7 +248,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                     onChange={(event) =>
                       props.onTaskChange(task.draft_id, { title: event.target.value })
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                   />
                 </label>
 
@@ -282,7 +282,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
 
               <div className="mt-4 grid gap-4 xl:grid-cols-2">
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                     任务摘要
                   </span>
                   <textarea
@@ -293,13 +293,13 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                         input_summary: event.target.value,
                       })
                     }
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-500"
+                    className="w-full border border-[#333333] bg-transparent px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                   />
                 </label>
 
                 <div className="space-y-4">
                   <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                       验收标准
                     </span>
                     <textarea
@@ -310,12 +310,12 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                           acceptance_criteria: splitMultiline(event.target.value),
                         })
                       }
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-500"
+                      className="w-full border border-[#333333] bg-transparent px-3 py-3 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                     />
                   </label>
 
                   <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                       依赖草案 ID
                     </span>
                     <input
@@ -325,13 +325,13 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                           depends_on_draft_ids: splitCommaValues(event.target.value),
                         })
                       }
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                      className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                       placeholder="例如 draft-1, draft-2"
                     />
                   </label>
 
                   <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                       暂停原因
                     </span>
                     <input
@@ -341,7 +341,7 @@ export function ProjectDraftPanel(props: ProjectDraftPanelProps) {
                           paused_reason: normalizeOptionalText(event.target.value),
                         })
                       }
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+                      className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
                       placeholder="无则留空"
                     />
                   </label>
@@ -363,13 +363,13 @@ function SelectField(props: {
 }) {
   return (
     <label className="space-y-2">
-      <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+      <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
         {props.label}
       </span>
       <select
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-500"
+        className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
       >
         {Object.entries(props.options).map(([value, label]) => (
           <option key={value} value={value}>

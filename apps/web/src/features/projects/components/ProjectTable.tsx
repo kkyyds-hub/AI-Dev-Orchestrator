@@ -73,7 +73,7 @@ export function ProjectTable({
                 onClick={() => onSelectProject(project.id)}
                 className={`w-full border px-4 py-4 text-left transition ${
                   isSelected
-                    ? "border-[#555555] bg-white/[0.035] shadow-[inset_3px_0_0_#d4d4d8]"
+                    ? "border-[#555555] bg-white/[0.035] border-l-2 border-l-zinc-300"
                     : "border-[#333333] bg-transparent hover:border-[#4a4a4a] hover:bg-white/[0.02]"
                 }`}
               >

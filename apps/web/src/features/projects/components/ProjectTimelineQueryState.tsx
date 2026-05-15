@@ -1,6 +1,6 @@
 export function ProjectTimelineLoadingState() {
   return (
-    <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
+    <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-zinc-400">
       正在汇总项目事件...
     </div>
   );

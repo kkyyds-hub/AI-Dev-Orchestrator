@@ -19,13 +19,13 @@ export function ProjectTaskTreeRow(props: { task: ProjectDetailTaskItem }) {
 
   return (
     <div
-      className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-4"
+      className="border border-[#333333] bg-transparent/60 px-4 py-4"
       style={{ marginLeft: `${indent}px` }}
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-slate-50">
+            <span className="text-sm font-medium text-zinc-100">
               {props.task.title}
             </span>
             <StatusBadge
@@ -45,7 +45,7 @@ export function ProjectTaskTreeRow(props: { task: ProjectDetailTaskItem }) {
               />
             ) : null}
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             {props.task.input_summary}
           </p>
         </div>
@@ -73,7 +73,7 @@ export function ProjectTaskTreeRow(props: { task: ProjectDetailTaskItem }) {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-500">
         <span>{dependencyText}</span>
         <span>子任务 {props.task.child_task_ids.length} 个</span>
         <span>更新时间 {formatDateTime(props.task.updated_at)}</span>
@@ -91,11 +91,11 @@ export function ProjectTaskTreeRow(props: { task: ProjectDetailTaskItem }) {
       </div>
 
       {props.task.acceptance_criteria.length > 0 ? (
-        <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+        <ul className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
           {props.task.acceptance_criteria.map((criterion) => (
             <li
               key={criterion}
-              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+              className="rounded-xl border border-[#333333] bg-transparent/60 px-3 py-2"
             >
               {criterion}
             </li>

@@ -10,10 +10,10 @@ export function ProjectTimelineHeader(props: {
           <p className="text-xs font-medium tracking-[0.24em] text-zinc-500">
             时间线
           </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50">
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100">
             项目事件流
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
             按时间聚合阶段、交付、审批与运行决策；左侧浏览事件，右侧查看上下文与跳转入口。
           </p>
         </div>
@@ -31,10 +31,10 @@ export function ProjectTimelineHeader(props: {
 function TimelineMetric(props: { label: string; value: string }) {
   return (
     <div className="min-w-0 border border-[#333333] px-3 py-3">
-      <div className="text-xs tracking-[0.16em] text-slate-500">
+      <div className="text-xs tracking-[0.16em] text-zinc-500">
         {props.label}
       </div>
-      <div className="mt-1 truncate text-sm font-medium text-slate-100" title={props.value}>
+      <div className="mt-1 truncate text-sm font-medium text-zinc-100" title={props.value}>
         {props.value}
       </div>
     </div>

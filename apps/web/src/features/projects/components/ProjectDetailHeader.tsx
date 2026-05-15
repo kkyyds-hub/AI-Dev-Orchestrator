@@ -24,7 +24,7 @@ export function ProjectDetailHeader(props: {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-xl font-semibold text-slate-50">
+          <h3 className="text-xl font-semibold text-zinc-100">
             {props.projectName}
           </h3>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -48,7 +48,7 @@ export function ProjectDetailHeader(props: {
           </div>
         </div>
 
-        <div className="text-right text-xs text-slate-500">
+        <div className="text-right text-xs text-zinc-500">
           {props.projectCreatedAt ? (
             <div>创建于 {formatDateTime(props.projectCreatedAt)}</div>
           ) : null}
@@ -60,7 +60,7 @@ export function ProjectDetailHeader(props: {
         </div>
       </div>
 
-      <p className="mt-4 text-sm leading-6 text-slate-300">
+      <p className="mt-4 text-sm leading-6 text-zinc-400">
         {props.projectSummary}
       </p>
     </div>

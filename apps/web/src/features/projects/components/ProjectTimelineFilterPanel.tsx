@@ -16,8 +16,8 @@ export function ProjectTimelineFilterPanel(props: {
     <section className="border-b border-[#333333] pb-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-sm font-medium text-slate-100">事件筛选</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
+          <h3 className="text-sm font-medium text-zinc-100">事件筛选</h3>
+          <p className="mt-1 text-xs leading-5 text-zinc-500">
             {props.generatedAt
               ? `生成时间：${formatDateTime(props.generatedAt)}`
               : "等待生成时间"}
@@ -37,7 +37,7 @@ export function ProjectTimelineFilterPanel(props: {
                 onClick={() => props.onToggleFilter(bucket.event_type)}
               >
                 {PROJECT_TIMELINE_EVENT_TYPE_LABELS[bucket.event_type] ?? bucket.label}
-                <span className="ml-2 text-slate-500">{bucket.count}</span>
+                <span className="ml-2 text-zinc-500">{bucket.count}</span>
               </FilterButton>
             );
           })}
@@ -59,7 +59,7 @@ function FilterButton(props: {
       className={`whitespace-nowrap border-b px-1 pb-2 pt-1 text-sm transition ${
         props.active
           ? "border-zinc-100 text-zinc-100"
-          : "border-[#333333] text-slate-400 hover:border-zinc-500 hover:text-slate-200"
+          : "border-[#333333] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
       }`}
     >
       {props.children}
