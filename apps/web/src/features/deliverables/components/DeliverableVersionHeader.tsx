@@ -14,7 +14,7 @@ export function DeliverableVersionHeader(props: DeliverableVersionHeaderProps) {
     <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-lg font-semibold text-slate-50">
+          <h3 className="text-lg font-semibold text-zinc-100">
             {props.deliverable.title}
           </h3>
           <StatusBadge
@@ -29,7 +29,7 @@ export function DeliverableVersionHeader(props: DeliverableVersionHeaderProps) {
             tone="neutral"
           />
         </div>
-        <p className="mt-2 text-sm leading-6 text-slate-300">
+        <p className="mt-2 text-sm leading-6 text-zinc-400">
           创建角色：
           {ROLE_CODE_LABELS[props.deliverable.created_by_role_code] ??
             props.deliverable.created_by_role_code}

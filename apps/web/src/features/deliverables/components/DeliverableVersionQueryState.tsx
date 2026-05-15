@@ -9,7 +9,7 @@ export function DeliverableVersionQueryState(
 ) {
   if (props.isLoading) {
     return (
-      <p className="text-sm leading-6 text-slate-400">
+      <p className="text-sm leading-6 text-zinc-400">
         正在加载交付件版本快照…
       </p>
     );
@@ -25,7 +25,7 @@ export function DeliverableVersionQueryState(
 
   if (!props.hasVersions) {
     return (
-      <p className="text-sm leading-6 text-slate-400">
+      <p className="text-sm leading-6 text-zinc-400">
         当前交付件尚未产生可展示的版本快照。
       </p>
     );

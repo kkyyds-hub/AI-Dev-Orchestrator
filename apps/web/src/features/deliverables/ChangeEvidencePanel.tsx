@@ -50,11 +50,11 @@ export function ChangeEvidencePanel(props: ChangeEvidencePanelProps) {
     <section className="space-y-5 border-b border-[#333333] pb-5">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
             交付件 / 证据包
           </div>
-          <h4 className="mt-2 text-lg font-semibold text-slate-50">交付件证据包</h4>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+          <h4 className="mt-2 text-lg font-semibold text-zinc-100">交付件证据包</h4>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
             围绕当前交付件或审批项，汇总差异摘要、变更计划、验证结果、交付件引用和审批上下文，方便团队统一验收。
           </p>
         </div>
@@ -71,11 +71,11 @@ export function ChangeEvidencePanel(props: ChangeEvidencePanelProps) {
       </header>
 
       {!props.deliverableId && !props.approvalId ? (
-        <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
+        <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-400">
           先选择交付件或审批项，再查看对应证据包。
         </div>
       ) : activeQuery.isLoading && !evidence ? (
-        <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-slate-400">
+        <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-400">
           正在汇总差异摘要与证据包...
         </div>
       ) : activeQuery.isError ? (
@@ -109,7 +109,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                 <StatusBadge label="审批反查" tone="warning" />
               ) : null}
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-300">{evidence.summary}</p>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">{evidence.summary}</p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -168,7 +168,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                 className="px-0 py-4"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="text-sm text-slate-100">{file.relative_path}</code>
+                  <code className="text-sm text-zinc-100">{file.relative_path}</code>
                   <StatusBadge
                     label={renderDiffKind(file.change_kind)}
                     tone={mapDiffTone(file.change_kind)}
@@ -180,7 +180,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                     <StatusBadge label="工作区变更" tone="warning" />
                   ) : null}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+                <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-400">
                   <span>+{file.added_line_count}</span>
                   <span>-{file.deleted_line_count}</span>
                   <span>任务 {file.linked_task_ids.length} 个</span>
@@ -214,13 +214,13 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                 className="px-0 py-4"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-medium text-slate-50">
+                  <div className="text-sm font-medium text-zinc-100">
                     {item.change_plan_title}
                   </div>
                   <StatusBadge label={`v${item.selected_version_number}`} tone="info" />
                   <StatusBadge label={item.task_title} tone="neutral" />
                 </div>
-                <p className="mt-3 text-sm leading-6 text-slate-300">
+                <p className="mt-3 text-sm leading-6 text-zinc-400">
                   {item.intent_summary}
                 </p>
                 <TagGroup title="预期动作" values={item.expected_actions} />
@@ -239,7 +239,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
             ))}
           </div>
         ) : (
-          <EmptyText text="当前证据包未绑定 ChangeBatch 快照，暂未展示 ChangePlan 引用。" />
+          <EmptyText text="当前证据包未绑定变更批次快照，暂未展示变更计划引用。" />
         )}
       </SectionCard>
 
@@ -279,7 +279,7 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                 className="px-0 py-4"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-medium text-slate-50">
+                  <div className="text-sm font-medium text-zinc-100">
                     {run.change_plan_title}
                   </div>
                   <StatusBadge
@@ -292,16 +292,16 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                   />
                   <StatusBadge label={run.change_batch_title} tone="neutral" />
                 </div>
-                <p className="mt-3 text-sm leading-6 text-slate-300">
+                <p className="mt-3 text-sm leading-6 text-zinc-400">
                   {run.output_summary}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+                <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-400">
                   <span>命令来源：{run.command_source === "template" ? "模板" : "手工"}</span>
                   <span>开始：{formatDateTime(run.started_at)}</span>
                   <span>结束：{formatDateTime(run.finished_at)}</span>
                   {run.failure_category ? <span>归因：{run.failure_category}</span> : null}
                 </div>
-                <code className="mt-3 block overflow-x-auto border border-[#333333] px-3 py-2 text-xs text-slate-300">
+                <code className="mt-3 block overflow-x-auto border border-[#333333] px-3 py-2 text-xs text-zinc-400">
                   {run.command}
                 </code>
               </div>
@@ -369,17 +369,17 @@ function EvidenceContent(props: { evidence: ChangeEvidencePackage }) {
                 }`}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-medium text-slate-50">{snapshot.label}</div>
+                  <div className="text-sm font-medium text-zinc-100">{snapshot.label}</div>
                   <StatusBadge
                     label={SNAPSHOT_KIND_LABELS[snapshot.snapshot_kind]}
                     tone={snapshot.selected ? "info" : "neutral"}
                   />
                   {snapshot.selected ? <StatusBadge label="当前焦点" tone="success" /> : null}
                 </div>
-                <p className="mt-2 text-sm leading-6 text-slate-300">
+                <p className="mt-2 text-sm leading-6 text-zinc-400">
                   {snapshot.summary}
                 </p>
-                <div className="mt-2 text-xs text-slate-400">
+                <div className="mt-2 text-xs text-zinc-400">
                   {formatDateTime(snapshot.recorded_at)}
                 </div>
               </div>
@@ -407,7 +407,7 @@ function DeliverableReferenceCard(props: {
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-sm font-medium text-slate-50">{deliverable.title}</div>
+        <div className="text-sm font-medium text-zinc-100">{deliverable.title}</div>
         <StatusBadge
           label={DELIVERABLE_TYPE_LABELS[deliverable.type] ?? deliverable.type}
           tone="info"
@@ -419,11 +419,11 @@ function DeliverableReferenceCard(props: {
         <StatusBadge label={`v${deliverable.current_version_number}`} tone="success" />
       </div>
       {deliverable.latest_version_summary ? (
-        <p className="mt-3 text-sm leading-6 text-slate-300">
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
           {deliverable.latest_version_summary}
         </p>
       ) : null}
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-400">
         <span>
           最新版本：
           {deliverable.latest_version_created_at
@@ -451,7 +451,7 @@ function ApprovalReferenceCard(props: {
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-sm font-medium text-slate-50">
+        <div className="text-sm font-medium text-zinc-100">
           {approval.deliverable_title} · v{approval.deliverable_version_number}
         </div>
         <StatusBadge
@@ -460,7 +460,7 @@ function ApprovalReferenceCard(props: {
         />
         {approval.selected ? <StatusBadge label="当前审批项" tone="success" /> : null}
       </div>
-      <div className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+      <div className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
         {approval.request_note ? <p>发起说明：{approval.request_note}</p> : null}
         {approval.latest_summary ? <p>最近结论：{approval.latest_summary}</p> : null}
         {approval.latest_decision_summary ? (
@@ -472,7 +472,7 @@ function ApprovalReferenceCard(props: {
           </p>
         ) : null}
       </div>
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-400">
         <span>发起时间：{formatDateTime(approval.requested_at)}</span>
         <span>截止时间：{formatDateTime(approval.due_at)}</span>
         {approval.latest_decision_at ? (
@@ -495,8 +495,8 @@ function SectionCard(props: {
     <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h5 className="text-base font-semibold text-slate-50">{props.title}</h5>
-          <p className="mt-1 text-sm leading-6 text-slate-400">{props.description}</p>
+          <h5 className="text-base font-semibold text-zinc-100">{props.title}</h5>
+          <p className="mt-1 text-sm leading-6 text-zinc-400">{props.description}</p>
         </div>
         {props.badge ? <StatusBadge label={props.badge} tone="neutral" /> : null}
       </div>
@@ -516,14 +516,14 @@ function TagGroup(props: {
 
   return (
     <div className="mt-3">
-      <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+      <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
         {props.title}
       </div>
       <div className="flex flex-wrap gap-2">
         {props.values.map((value) => (
           <span
             key={`${props.title}-${value}`}
-            className={`border border-[#333333] px-3 py-2 text-xs text-slate-300 ${
+            className={`border border-[#333333] px-3 py-2 text-xs text-zinc-400 ${
               props.mono ? "font-mono" : ""
             }`}
           >
@@ -536,17 +536,17 @@ function TagGroup(props: {
 }
 
 function EmptyText(props: { text: string }) {
-  return <p className="text-sm leading-6 text-slate-400">{props.text}</p>;
+  return <p className="text-sm leading-6 text-zinc-400">{props.text}</p>;
 }
 
 function MiniInfo(props: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
         {props.label}
       </div>
       <div
-        className={`mt-2 break-all text-sm font-medium text-slate-100 ${
+        className={`mt-2 break-all text-sm font-medium text-zinc-100 ${
           props.mono ? "font-mono" : ""
         }`}
       >

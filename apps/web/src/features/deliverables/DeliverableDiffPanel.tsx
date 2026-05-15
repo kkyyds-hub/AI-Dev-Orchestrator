@@ -49,7 +49,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
 
   if (versions.length < 2) {
     return (
-      <section className="border border-dashed border-[#3a3a3a] px-4 py-6 text-sm leading-6 text-slate-400">
+      <section className="border border-dashed border-[#3a3a3a] px-4 py-6 text-sm leading-6 text-zinc-400">
         当前交付件只有一个版本，至少需要两个版本后才能进行对比。
       </section>
     );
@@ -60,13 +60,13 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-semibold text-slate-50">版本对比视图</h3>
+            <h3 className="text-lg font-semibold text-zinc-100">版本对比视图</h3>
             <StatusBadge
               label={PROJECT_STAGE_LABELS[props.deliverable.stage] ?? props.deliverable.stage}
               tone="neutral"
             />
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             选择同一交付件的两个版本，查看摘要、原文预览和最小行级变更。
           </p>
         </div>
@@ -77,7 +77,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
             setBaseVersionNumber(targetVersion?.version_number ?? null);
             setTargetVersionNumber(baseVersion?.version_number ?? null);
           }}
-          className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-200 transition hover:bg-[#292929] hover:text-slate-50"
+          className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-zinc-200 transition hover:bg-[#292929] hover:text-zinc-100"
         >
           交换基线 / 目标版本
         </button>
@@ -85,13 +85,13 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <label className="block">
-          <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+          <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
             基线版本
           </div>
           <select
             value={baseVersionNumber ?? ""}
             onChange={(event) => setBaseVersionNumber(Number(event.target.value))}
-            className="w-full rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+            className="w-full rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
           >
             {versions.map((version) => (
               <option key={version.id} value={version.version_number}>
@@ -102,13 +102,13 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
         </label>
 
         <label className="block">
-          <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+          <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
             目标版本
           </div>
           <select
             value={targetVersionNumber ?? ""}
             onChange={(event) => setTargetVersionNumber(Number(event.target.value))}
-            className="w-full rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+            className="w-full rounded border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
           >
             {versions.map((version) => (
               <option key={version.id} value={version.version_number}>
@@ -137,7 +137,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
       ) : null}
 
       {diffQuery.isLoading && !diffQuery.data ? (
-        <p className="mt-5 text-sm leading-6 text-slate-400">正在生成版本差异…</p>
+        <p className="mt-5 text-sm leading-6 text-zinc-400">正在生成版本差异…</p>
       ) : diffQuery.isError ? (
         <p className="mt-5 text-sm leading-6 text-rose-200">
           版本对比加载失败：{diffQuery.error.message}
@@ -154,7 +154,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
             <StatusBadge label={`基线 v${diffQuery.data.base_version.version_number}`} tone="warning" />
             <StatusBadge
               label={`目标 v${diffQuery.data.target_version.version_number}`}
@@ -166,7 +166,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
           </div>
 
           <div className="border-y border-[#333333]">
-            <div className="grid grid-cols-[72px_72px_36px_minmax(0,1fr)] gap-3 border-b border-[#333333] px-0 py-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+            <div className="grid grid-cols-[72px_72px_36px_minmax(0,1fr)] gap-3 border-b border-[#333333] px-0 py-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
               <span>基线行</span>
               <span>目标行</span>
               <span>差异</span>
@@ -183,13 +183,13 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
                         ? "text-emerald-100"
                         : line.kind === "removed"
                           ? "text-rose-100"
-                          : "text-slate-300"
+                          : "text-zinc-400"
                     }`}
                   >
-                    <span className="text-slate-500">
+                    <span className="text-zinc-500">
                       {line.base_line_number ?? ""}
                     </span>
-                    <span className="text-slate-500">
+                    <span className="text-zinc-500">
                       {line.target_line_number ?? ""}
                     </span>
                     <span>
@@ -205,7 +205,7 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
                   </div>
                 ))
               ) : (
-                <div className="px-4 py-6 text-sm text-slate-400">
+                <div className="px-4 py-6 text-sm text-zinc-400">
                   两个版本内容一致，没有检测到差异。
                 </div>
               )}
@@ -220,10 +220,10 @@ export function DeliverableDiffPanel(props: DeliverableDiffPanelProps) {
 function MiniStat(props: { label: string; value: string }) {
   return (
     <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
         {props.label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-50">{props.value}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }

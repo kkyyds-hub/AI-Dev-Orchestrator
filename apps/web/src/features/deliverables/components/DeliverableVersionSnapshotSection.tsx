@@ -15,10 +15,10 @@ export function DeliverableVersionSnapshotSection(
     <section className="border-b border-[#333333] pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h4 className="text-base font-semibold text-slate-50">
+          <h4 className="text-base font-semibold text-zinc-100">
             版本快照列表
           </h4>
-          <p className="mt-1 text-sm leading-6 text-slate-400">
+          <p className="mt-1 text-sm leading-6 text-zinc-400">
             先看每次提交的摘要，再进入下方对比视图查看版本变化。
           </p>
         </div>

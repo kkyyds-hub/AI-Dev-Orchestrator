@@ -20,7 +20,7 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-base font-semibold text-slate-50">
+            <div className="text-base font-semibold text-zinc-100">
               {DELIVERABLE_TYPE_LABELS[props.deliverableType]} · v
               {props.version.version_number}
             </div>
@@ -39,12 +39,12 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
               tone="success"
             />
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             {props.version.summary}
           </p>
         </div>
 
-        <div className="text-sm text-slate-400">
+        <div className="text-sm text-zinc-400">
           {formatDateTime(props.version.created_at)}
         </div>
       </div>
@@ -58,7 +58,7 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
                 runId: null,
               })
             }
-            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-100 transition hover:bg-[#292929]"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-zinc-100 transition hover:bg-[#292929]"
           >
             查看来源任务
           </button>
@@ -73,18 +73,18 @@ export function DeliverableVersionCard(props: DeliverableVersionCardProps) {
                 runId: props.version.source_run_id,
               })
             }
-            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-100 transition hover:bg-[#292929]"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-zinc-100 transition hover:bg-[#292929]"
           >
             查看来源运行
           </button>
         ) : null}
         {props.version.source_task_id ? (
-          <code className="border border-[#333333] px-3 py-2 text-xs text-slate-400">
+          <code className="border border-[#333333] px-3 py-2 text-xs text-zinc-400">
             来源任务 {props.version.source_task_id}
           </code>
         ) : null}
         {props.version.source_run_id ? (
-          <code className="border border-[#333333] px-3 py-2 text-xs text-slate-400">
+          <code className="border border-[#333333] px-3 py-2 text-xs text-zinc-400">
             来源运行 {props.version.source_run_id}
           </code>
         ) : null}

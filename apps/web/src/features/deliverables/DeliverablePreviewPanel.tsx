@@ -19,7 +19,7 @@ export function DeliverablePreviewPanel(props: DeliverablePreviewPanelProps) {
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-base font-semibold text-slate-50">{props.title}</h4>
+            <h4 className="text-base font-semibold text-zinc-100">{props.title}</h4>
             <StatusBadge
               label={`v${props.version.version_number}`}
               tone={props.tone ?? "neutral"}
@@ -32,12 +32,12 @@ export function DeliverablePreviewPanel(props: DeliverablePreviewPanelProps) {
               tone="neutral"
             />
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-300">
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
             {props.version.summary}
           </p>
         </div>
 
-        <div className="space-y-2 text-xs text-slate-400 xl:text-right">
+        <div className="space-y-2 text-xs text-zinc-400 xl:text-right">
           <div>
             提交角色：
             {ROLE_CODE_LABELS[props.version.author_role_code] ??
@@ -48,7 +48,7 @@ export function DeliverablePreviewPanel(props: DeliverablePreviewPanelProps) {
       </div>
 
       <div className="mt-4 border-y border-[#333333] py-4">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
           版本预览
         </div>
         {props.version.content_format === "link" ? (
@@ -56,12 +56,12 @@ export function DeliverablePreviewPanel(props: DeliverablePreviewPanelProps) {
             href={props.version.content}
             target="_blank"
             rel="noreferrer"
-            className="mt-3 block break-all text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
+            className="mt-3 block break-all text-sm text-zinc-200 underline underline-offset-4 hover:text-zinc-100"
           >
             {props.version.content}
           </a>
         ) : (
-          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
+          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-zinc-200">
             {props.version.content}
           </pre>
         )}
@@ -77,7 +77,7 @@ export function DeliverablePreviewPanel(props: DeliverablePreviewPanelProps) {
                   runId: null,
                 })
               }
-              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-100 transition hover:bg-[#292929]"
+              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-zinc-100 transition hover:bg-[#292929]"
             >
               查看来源任务
             </button>
@@ -90,7 +90,7 @@ export function DeliverablePreviewPanel(props: DeliverablePreviewPanelProps) {
                   runId: props.version.source_run_id,
                 })
               }
-              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-slate-100 transition hover:bg-[#292929]"
+              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm text-zinc-100 transition hover:bg-[#292929]"
             >
               查看来源运行
             </button>
