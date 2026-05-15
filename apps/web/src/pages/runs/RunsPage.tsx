@@ -66,7 +66,7 @@ export function RunsPage() {
       ) : null}
 
       <section
-        className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]"
+        className="grid gap-6 xl:grid-cols-[480px_minmax(0,1fr)]"
         aria-label="工作流运行列表与详情"
       >
         <RunsListPanel
