@@ -50,31 +50,27 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
 
   return (
     <section
-      className="flex min-h-0 flex-col overflow-hidden border-l border-[#333333] bg-[#0d0d0d]"
+      className="flex min-h-0 flex-col overflow-hidden border-l border-[#333333] bg-transparent"
       data-testid="runs-task-detail-section"
     >
       {!props.runId ? (
-        /* Empty state when no run selected */
         <div className="flex flex-1 items-center justify-center px-6">
           <div className="max-w-sm text-center">
             <div className="text-4xl text-zinc-700">&#9654;</div>
             <h2 className="mt-4 text-lg font-semibold text-zinc-300">请选择一条运行记录</h2>
             <p className="mt-2 text-sm leading-6 text-zinc-500">
-              从左侧列表中选择一条运行记录，查看任务详情、运行约束、Token 用量与诊断信息。
+              从左侧列表中选择一条运行记录，查看任务详情、运行约束、令牌用量与诊断信息。
             </p>
           </div>
         </div>
       ) : !selectedRun ? (
-        /* Loading / no run data */
         <div className="flex flex-1 items-center justify-center px-6">
           <p className="text-sm text-zinc-500">
             {detailQuery.isLoading ? "正在加载运行详情..." : "未能找到对应的运行记录。"}
           </p>
         </div>
       ) : (
-        /* Detail content with independent scroll */
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {/* ── Summary Header ── */}
           <div className={`border-b border-[#333333] px-5 py-4 ${
             selectedRun.status === "failed" || selectedRun.status === "blocked"
               ? "border-l-4 border-l-rose-500/50"
@@ -86,9 +82,9 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
                   <h2 className="truncate text-lg font-semibold text-zinc-100">
                     {props.selectedTask?.title ?? "未命名任务"}
                   </h2>
-                  <StatusBadge label={selectedRun.status} tone={mapRunStatusTone(selectedRun.status)} />
+                  <StatusBadge label={formatRunStatusLabel(selectedRun.status)} tone={mapRunStatusTone(selectedRun.status)} />
                   {selectedRun.failure_category ? (
-                    <StatusBadge label={selectedRun.failure_category} tone={mapFailureCategoryTone(selectedRun.failure_category)} />
+                    <StatusBadge label={formatFailureCategoryLabel(selectedRun.failure_category)} tone={mapFailureCategoryTone(selectedRun.failure_category)} />
                   ) : null}
                   <StatusBadge
                     label={formatQualityGateShort(selectedRun.quality_gate_passed)}
@@ -96,7 +92,6 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
                   />
                 </div>
 
-                {/* Summary metrics row */}
                 <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-zinc-500">
                   <span>开始 {formatDateTime(selectedRun.started_at)}</span>
                   <span>结束 {formatDateTime(selectedRun.finished_at)}</span>
@@ -117,7 +112,6 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
             </div>
           </div>
 
-          {/* ── Action Bar ── */}
           <div className="flex flex-wrap gap-2 border-b border-[#333333] px-5 py-3">
             {props.onNavigateToStrategyPreview ? (
               <ActionBtn
@@ -142,7 +136,6 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
             <CopyBtn label="复制运行 ID" value={selectedRun.id} />
           </div>
 
-          {/* ── Detail card grid ── */}
           <div className="px-5 py-4">
             <TaskDetailRuntimeContractSection
               taskId={currentTaskId}
@@ -160,6 +153,40 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
       )}
     </section>
   );
+}
+
+function formatRunStatusLabel(status: string) {
+  switch (status) {
+    case "succeeded":
+      return "已成功";
+    case "running":
+      return "运行中";
+    case "failed":
+      return "失败";
+    case "cancelled":
+      return "已取消";
+    default:
+      return status;
+  }
+}
+
+function formatFailureCategoryLabel(category: string | null) {
+  switch (category) {
+    case "verification_configuration_failed":
+      return "验证配置失败";
+    case "verification_failed":
+      return "验证失败";
+    case "execution_failed":
+      return "执行失败";
+    case "daily_budget_exceeded":
+      return "日预算超限";
+    case "session_budget_exceeded":
+      return "会话预算超限";
+    case "retry_limit_exceeded":
+      return "重试达到上限";
+    default:
+      return category ?? "无";
+  }
 }
 
 function ActionBtn(props: { label: string; onClick: () => void; "data-testid"?: string }) {

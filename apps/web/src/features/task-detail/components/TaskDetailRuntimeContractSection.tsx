@@ -51,7 +51,6 @@ export function TaskDetailRuntimeContractSection(props: {
     >
       {!props.hideHeaderAndActions ? (
         <>
-          {/* ── Summary header ── */}
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#333333] pb-4">
             <div>
               <h3 className="text-base font-semibold text-zinc-100">运行约束详情</h3>
@@ -73,7 +72,6 @@ export function TaskDetailRuntimeContractSection(props: {
             </div>
           </div>
 
-          {/* ── Action bar ── */}
           <div className="flex flex-wrap gap-2">
             {props.onNavigateToStrategyPreview ? (
               <button
@@ -101,7 +99,6 @@ export function TaskDetailRuntimeContractSection(props: {
         </>
       ) : null}
 
-      {/* ── A. 运行标识 ── */}
       <CardGroup title="运行标识" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <IdField label="任务 ID" value={props.taskId} />
@@ -112,12 +109,11 @@ export function TaskDetailRuntimeContractSection(props: {
         </div>
       </CardGroup>
 
-      {/* ── B. Token 与成本 ── */}
-      <CardGroup title="Token 与成本" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
+      <CardGroup title="令牌与成本" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <NumberField label="提示词 Token" value={formatTokenCount(selectedRun.prompt_tokens)} />
-          <NumberField label="补全 Token" value={formatTokenCount(selectedRun.completion_tokens)} />
-          <NumberField label="总 Token" value={formatTokenCount(selectedRun.total_tokens ?? 0)} />
+          <NumberField label="提示词令牌" value={formatTokenCount(selectedRun.prompt_tokens)} />
+          <NumberField label="输出令牌" value={formatTokenCount(selectedRun.completion_tokens)} />
+          <NumberField label="总令牌" value={formatTokenCount(selectedRun.total_tokens ?? 0)} />
           <NumberField label="估算成本" value={formatCurrencyUsd(selectedRun.estimated_cost)} />
           <MiniField label="供应商回执" value={providerReceipt ? "已生成" : "暂无"} />
         </div>
@@ -128,7 +124,6 @@ export function TaskDetailRuntimeContractSection(props: {
         </div>
       </CardGroup>
 
-      {/* ── C. 运行约束 / 模型策略 ── */}
       {props.hasRoleModelPolicyData ? (
         <CardGroup title="运行约束 / 模型策略" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -143,7 +138,6 @@ export function TaskDetailRuntimeContractSection(props: {
         </CardGroup>
       ) : null}
 
-      {/* ── D. 失败与诊断 ── */}
       <CardGroup title="失败与诊断" className={isLine ? "border-b border-[#333333] pb-4" : ""}>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MiniField
@@ -172,10 +166,6 @@ export function TaskDetailRuntimeContractSection(props: {
     </div>
   );
 }
-
-/* ================================================================ */
-/*  Sub-components                                                   */
-/* ================================================================ */
 
 function CardGroup(props: {
   title: string;
