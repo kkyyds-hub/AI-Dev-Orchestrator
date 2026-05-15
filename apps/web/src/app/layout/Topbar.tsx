@@ -25,13 +25,13 @@ export function Topbar(props: TopbarProps) {
           </button>
           <div className="min-w-0 truncate text-sm text-zinc-500">
             <span className="font-medium text-zinc-200">{routeMeta.title}</span>
-            <span className="ml-3 hidden sm:inline">AI Dev Orchestrator / {routeMeta.section}</span>
+            <span className="ml-3 hidden sm:inline">AI 开发编排平台 / {routeMeta.section}</span>
           </div>
         </div>
 
         <div className="hidden shrink-0 items-center gap-3 text-sm text-zinc-500 sm:flex">
           <span className="rounded-full border border-[#333333] px-3 py-1 text-xs text-zinc-400">
-            Web Console
+            控制台
           </span>
         </div>
       </div>

@@ -31,7 +31,7 @@ export function Sidebar(props: SidebarProps) {
 
             <div className={`${props.isCollapsed ? "hidden" : "min-w-0"}`}>
               <h1 className="truncate whitespace-nowrap text-sm font-semibold text-zinc-100">
-                AI Dev Orchestrator
+                AI 开发编排平台
               </h1>
               <p className="mt-1 text-xs leading-5 text-zinc-500">
                 全局控制台
@@ -68,7 +68,7 @@ export function Sidebar(props: SidebarProps) {
                   props.isCollapsed ? "px-2 py-2.5" : "px-3 py-3"
                 } ${
                   isActive
-                    ? "border-[#3a3a3a] bg-[#303030] text-zinc-100 shadow-sm shadow-black/20"
+                    ? "border-l-2 border-zinc-300 bg-white/[0.03] text-zinc-100"
                     : "border-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100"
                 } ${index === 3 && !props.isCollapsed ? "mt-4" : ""}`
               }

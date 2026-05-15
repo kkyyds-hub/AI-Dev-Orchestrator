@@ -9,7 +9,7 @@ export function Breadcrumbs() {
   return (
     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
       <span className="text-zinc-600">
-        AI Dev Orchestrator
+        AI 开发编排平台
       </span>
 
       {routeMeta.breadcrumbs.map((crumb) => (
