@@ -6,8 +6,8 @@ type RunsListQueryStateProps = {
 export function RunsListQueryState(props: RunsListQueryStateProps) {
   if (props.isError) {
     return (
-      <div className="border-l border-rose-700/70 py-2 pl-4 text-sm leading-6 text-rose-200">
-        无法加载运行列表，请确认后端已启动并可访问 <code>GET /tasks/console</code>。
+      <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+        运行列表加载失败，请刷新页面或检查服务状态。
       </div>
     );
   }

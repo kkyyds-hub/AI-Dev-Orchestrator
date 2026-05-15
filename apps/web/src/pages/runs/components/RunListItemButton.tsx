@@ -10,6 +10,21 @@ type RunListItemButtonProps = {
   onSelect: () => void;
 };
 
+function formatRunStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    pending: "待运行",
+    queued: "排队中",
+    running: "运行中",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+    blocked: "已阻断",
+    paused: "已暂停",
+    waiting_human: "等待人工",
+  };
+  return labels[status] ?? status;
+}
+
 export function RunListItemButton(props: RunListItemButtonProps) {
   return (
     <button
@@ -28,12 +43,12 @@ export function RunListItemButton(props: RunListItemButtonProps) {
               {props.item.task.title}
             </div>
             <StatusBadge
-              label={props.item.run.status}
+              label={formatRunStatusLabel(props.item.run.status)}
               tone={mapRunStatusTone(props.item.run.status)}
             />
           </div>
           <div className="mt-2 truncate text-xs text-zinc-600">
-            Task {props.item.task.id} · Run {props.item.run.id}
+            关联任务：{props.item.task.title}
           </div>
           <p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">
             {props.item.run.result_summary ?? "暂无运行摘要"}

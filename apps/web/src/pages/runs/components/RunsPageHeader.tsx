@@ -8,6 +8,16 @@ type RunsPageHeaderProps = {
   onRefresh: () => void;
 };
 
+function formatRealtimeStatus(status: string): string {
+  const labels: Record<string, string> = {
+    open: "已连接",
+    connecting: "连接中",
+    reconnecting: "正在重连",
+    unsupported: "不支持实时连接",
+  };
+  return labels[status] ?? "未知状态";
+}
+
 export function RunsPageHeader(props: RunsPageHeaderProps) {
   return (
     <header className="border-b border-[#333333] pb-6" data-testid="runs-page-header">
@@ -20,7 +30,7 @@ export function RunsPageHeader(props: RunsPageHeaderProps) {
             工作流运行
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-500">
-            按最近执行顺序查看工作流运行、任务上下文与日志详情；选择左侧记录后，右侧承接任务动作、运行历史与策略钻取。
+            按最近执行顺序查看运行记录、任务上下文和日志详情；选择左侧记录后，右侧展示任务动作、运行历史和项目上下文。
           </p>
         </div>
 
@@ -36,7 +46,7 @@ export function RunsPageHeader(props: RunsPageHeaderProps) {
           <dl className="grid min-w-full gap-x-5 gap-y-2 text-sm sm:grid-cols-3 lg:min-w-[520px]">
             <RunsSummaryCard label="可见运行" value={String(props.latestRunCount)} />
             <RunsSummaryCard label="当前运行" value={props.runId ?? "未选择"} />
-            <RunsSummaryCard label="连接状态" value={props.realtimeStatus} />
+            <RunsSummaryCard label="连接状态" value={formatRealtimeStatus(props.realtimeStatus)} />
           </dl>
         </div>
       </div>
