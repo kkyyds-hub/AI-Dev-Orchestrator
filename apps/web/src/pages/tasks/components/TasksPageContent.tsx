@@ -28,7 +28,10 @@ type TasksPageContentProps = {
 
 export function TasksPageContent(props: TasksPageContentProps) {
   return (
-    <section className="grid gap-4 xl:grid-cols-[1.2fr_minmax(360px,1fr)]">
+    <section
+      className="grid min-h-0 gap-0 xl:grid-cols-[minmax(0,1fr)_minmax(420px,1fr)]"
+      style={{ height: "calc(100vh - 10rem)" }}
+    >
       <TaskTableSection
         tasks={props.tasks}
         selectedTaskId={props.selectedTaskId}
@@ -39,18 +42,20 @@ export function TasksPageContent(props: TasksPageContentProps) {
         onNavigateToProjectDrilldown={props.onNavigateToProjectDrilldown}
       />
 
-      <TaskDetailPanel
-        panelId="tasks-detail-panel"
-        runLogPanelId="tasks-run-log-panel"
-        requestedRunId={props.requestedRunId}
-        selectedTask={props.selectedTask}
-        budget={props.budget}
-        realtimeStatus={props.realtimeStatus}
-        surfaceVariant="line"
-        onNavigateToDeliverable={props.onNavigateToDeliverable}
-        onNavigateToRun={props.onNavigateToRun}
-        onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
-      />
+      <div className="min-h-0 overflow-y-auto border-l border-[#333333]">
+        <TaskDetailPanel
+          panelId="tasks-detail-panel"
+          runLogPanelId="tasks-run-log-panel"
+          requestedRunId={props.requestedRunId}
+          selectedTask={props.selectedTask}
+          budget={props.budget}
+          realtimeStatus={props.realtimeStatus}
+          surfaceVariant="line"
+          onNavigateToDeliverable={props.onNavigateToDeliverable}
+          onNavigateToRun={props.onNavigateToRun}
+          onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
+        />
+      </div>
     </section>
   );
 }

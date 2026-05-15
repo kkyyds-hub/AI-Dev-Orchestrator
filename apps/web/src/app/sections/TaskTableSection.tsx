@@ -43,22 +43,28 @@ export function TaskTableSection(props: TaskTableSectionProps) {
   const pageEnd = Math.min(currentPage * TASKS_PER_PAGE, props.tasks.length);
 
   return (
-    <section data-testid="home-task-table-section" className="space-y-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-base font-semibold text-zinc-100">任务队列</h2>
+    <section
+      data-testid="home-task-table-section"
+      className="flex min-h-0 flex-col overflow-hidden border-r border-[#333333]"
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-[#333333] px-3 py-2.5">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-100">任务列表</h2>
+          <p className="mt-0.5 text-xs text-zinc-500">{props.tasks.length} 条任务</p>
+        </div>
         <StatusBadge
-          label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "已同步"}
-          tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "neutral"}
+          label={props.overviewIsLoading ? "加载中" : props.overviewIsError ? "加载失败" : "就绪"}
+          tone={props.overviewIsLoading ? "warning" : props.overviewIsError ? "danger" : "success"}
         />
       </div>
 
       {props.overviewIsError ? (
-        <div className="border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
+        <div className="shrink-0 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
           任务数据加载失败，请刷新页面或检查服务状态。
         </div>
       ) : (
-        <div className="border-y border-[#333333]">
-          <div className="divide-y divide-[#333333]">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[#333333]">
             {pagedTasks.length ? (
               pagedTasks.map((task) => {
                 const isSelected = props.selectedTaskId === task.id;
@@ -147,11 +153,11 @@ export function TaskTableSection(props: TaskTableSectionProps) {
             )}
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-[#333333] px-2 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-3">
-            <div>
+          <div className="flex shrink-0 flex-col gap-3 border-t border-[#333333] px-2 py-3 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-3">
+            <span>
               共 {props.tasks.length} 条任务
               {props.tasks.length ? `，${pageStart}-${pageEnd}` : ""}
-            </div>
+            </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -188,26 +194,30 @@ function formatTaskStatusLabel(status: string) {
     paused: "已暂停",
     waiting_human: "等待人工",
   };
-
   return labels[status] ?? status;
 }
 
 function formatPriorityLabel(priority: string): string {
   const labels: Record<string, string> = {
-    P0: "最高",
-    "0": "最高",
-    P1: "高",
-    "1": "高",
-    P2: "中",
-    "2": "中",
-    P3: "低",
-    "3": "低",
-    critical: "最高",
-    high: "高",
-    medium: "中",
-    low: "低",
+    P0: "最高", "0": "最高",
+    P1: "高", "1": "高",
+    P2: "中", "2": "中",
+    P3: "低", "3": "低",
+    critical: "最高", high: "高", medium: "中", low: "低",
   };
   return labels[priority] ?? priority;
+}
+
+function formatFailureCategoryLabel(category: string | null | undefined) {
+  switch (category) {
+    case "verification_configuration_failed": return "验证配置失败";
+    case "verification_failed": return "验证失败";
+    case "execution_failed": return "执行失败";
+    case "daily_budget_exceeded": return "日预算超限";
+    case "session_budget_exceeded": return "会话预算超限";
+    case "retry_limit_exceeded": return "重试达到上限";
+    default: return category ?? "";
+  }
 }
 
 function buildRunMicroSummary(run: NonNullable<ConsoleTask["latest_run"]>) {
@@ -217,6 +227,8 @@ function buildRunMicroSummary(run: NonNullable<ConsoleTask["latest_run"]>) {
       : run.quality_gate_passed === false
         ? "质检阻断"
         : "质检未知";
-  const failure = run.failure_category ? ` · ${run.failure_category}` : "";
+  const failure = run.failure_category
+    ? ` · ${formatFailureCategoryLabel(run.failure_category)}`
+    : "";
   return `${gate}${failure}`;
 }

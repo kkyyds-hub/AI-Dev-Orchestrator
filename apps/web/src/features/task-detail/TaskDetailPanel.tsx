@@ -165,7 +165,7 @@ export function TaskDetailPanel({
       id={panelId}
       className={
         surfaceVariant === "line"
-          ? "border-y border-[#333333] bg-transparent py-5"
+          ? "bg-transparent px-5 py-4"
           : "border border-[#333333] bg-transparent p-5"
       }
     >
