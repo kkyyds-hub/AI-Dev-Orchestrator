@@ -54,7 +54,7 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
             disabled={props.isRunWorkerOncePending}
             className={primaryButtonClass}
           >
-            {props.isRunWorkerOncePending ? "执行中..." : "执行 Worker 一次"}
+            {props.isRunWorkerOncePending ? "执行中..." : "手动执行一次"}
           </button>
           <button
             type="button"
@@ -63,7 +63,7 @@ export function HomeHeaderSection(props: HomeHeaderSectionProps) {
             disabled={props.isRunWorkerPoolOncePending}
             className={secondaryButtonClass}
           >
-            {props.isRunWorkerPoolOncePending ? "Pool 运行中..." : "Worker Pool"}
+            {props.isRunWorkerPoolOncePending ? "批量执行中..." : "批量执行"}
           </button>
           <button
             type="button"
@@ -99,7 +99,7 @@ function mapRealtimeLabel(status: string) {
     case "reconnecting":
       return "实时重连中";
     case "unsupported":
-      return "SSE 不可用";
+      return "实时连接不可用";
     default:
       return "实时连接中";
   }

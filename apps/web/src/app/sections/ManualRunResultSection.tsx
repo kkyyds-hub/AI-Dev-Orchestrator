@@ -24,8 +24,8 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
   return (
     <section
       data-testid="home-manual-run-result-section"
-      className={`rounded-2xl border p-4 ${
-        props.isError ? "border-rose-900/60 bg-rose-950/25" : "border-[#333333] bg-transparent"
+      className={`border-b border-[#333333] pb-5 ${
+        props.isError ? "border-rose-500/50" : ""
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -45,7 +45,7 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
           <MiniInfo label="任务" value={props.data.task_title} />
           <MiniInfo label="运行状态" value={formatRunStatusLabel(props.data.run_status)} />
           <MiniInfo
-            label="路由评分"
+            label="分配评分"
             value={props.data.routing_score !== null && props.data.routing_score !== undefined ? String(props.data.routing_score) : "-"}
           />
           <MiniInfo label="运行 ID" value={props.data.run_id ?? "-"} />
@@ -66,22 +66,22 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
                 runId: props.data?.run_id,
               })
             }
-            className="rounded-lg border border-[#333333] bg-transparent px-3 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800"
+            className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#292929]"
           >
-            钻取到项目详情与策略预览
+            查看项目上下文
           </button>
         </div>
       ) : null}
 
       {!props.isError && props.data?.route_reason ? (
-        <div className="mt-3 rounded-xl border border-[#333333] bg-[#1f1f1f] p-3">
-          <div className="text-xs tracking-[0.16em] text-zinc-500">路由原因</div>
+        <div className="mt-3 border-l border-[#333333] px-4 py-3">
+          <div className="text-xs tracking-[0.16em] text-zinc-500">分配说明</div>
           <p className="mt-2 text-sm leading-6 text-zinc-300">{props.data.route_reason}</p>
         </div>
       ) : null}
 
       {!props.isError && (props.data?.model_name || props.data?.selected_skill_names.length) ? (
-        <div className="mt-3 rounded-xl border border-[#333333] bg-[#1f1f1f] p-3">
+        <div className="mt-3 border-l border-[#333333] px-4 py-3">
           <div className="text-xs tracking-[0.16em] text-zinc-500">策略结果</div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <MiniInfo
@@ -135,7 +135,7 @@ function formatRunStatusLabel(status: string | null | undefined) {
 
 function MiniInfo(props: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[#333333] bg-[#1f1f1f] px-3 py-2.5">
+    <div className="border-l border-[#333333] px-4 py-2">
       <div className="text-xs tracking-[0.16em] text-zinc-500">{props.label}</div>
       <div className="mt-1 break-all text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
