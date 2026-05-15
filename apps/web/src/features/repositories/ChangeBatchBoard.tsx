@@ -27,6 +27,14 @@ type ChangeBatchBoardProps = {
   changePlanErrorMessage: string | null;
 };
 
+function formatBatchStatusLabel(status: ChangeBatchSummary["status"]): string {
+  const labels: Record<ChangeBatchSummary["status"], string> = {
+    preparing: "准备中",
+    superseded: "已替换",
+  };
+  return labels[status] ?? status;
+}
+
 export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
   const batchesQuery = useProjectChangeBatches(props.projectId);
   const createMutation = useCreateProjectChangeBatch(props.projectId);
@@ -94,16 +102,14 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <section className="space-y-4 border-y border-[#333333] py-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            Day07 变更批次与执行准备
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            变更批次
           </div>
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
-            这里把多个已确认的 ChangePlan 合并成可推进的 ChangeBatch，明确任务顺序、
-            依赖关系与文件重叠风险；当前已补上 Day08 的执行前风险预检与人工确认，
-            但仍不进入 Day09+ 的验证运行、证据包或任何产品内真实 Git 写操作。
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
+            将多个变更计划合并为可检查的批次，统一查看任务顺序、文件范围、依赖关系和提交前检查结果。
           </p>
         </div>
 
@@ -124,7 +130,7 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
       </div>
 
       {props.changePlanErrorMessage ? (
-        <Alert tone="danger" message={`批次候选 ChangePlan 加载失败：${props.changePlanErrorMessage}`} />
+        <Alert tone="danger" message={`候选变更计划加载失败：${props.changePlanErrorMessage}`} />
       ) : null}
       {batchesQuery.isError ? (
         <Alert tone="danger" message={`批次列表加载失败：${batchesQuery.error.message}`} />
@@ -136,17 +142,17 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
         <Alert tone="danger" message={`批次详情加载失败：${detailQuery.error.message}`} />
       ) : null}
       {preflightMutation.isError ? (
-        <Alert tone="danger" message={`执行前预检失败：${preflightMutation.error.message}`} />
+        <Alert tone="danger" message={`执行前检查失败：${preflightMutation.error.message}`} />
       ) : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
-        <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+        <section className="border-y border-[#333333] py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="text-sm font-semibold text-slate-50">创建 ChangeBatch</div>
-              <div className="mt-2 text-sm leading-6 text-slate-400">
-                默认每个任务只取当前最新一条 ChangePlan 线程；至少选择 2 个不同任务的
-                草案，才能形成一份 Day07 执行准备批次。
+              <div className="text-sm font-semibold text-zinc-100">创建变更批次</div>
+              <div className="mt-2 text-sm leading-6 text-zinc-400">
+                每个任务默认使用最新一条变更计划；至少选择 2 个不同任务
+                的计划后，才能创建变更批次。
               </div>
             </div>
             <StatusBadge
@@ -156,27 +162,26 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
           </div>
 
           {activeBatch ? (
-            <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+            <div className="mt-4 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
               当前项目已存在活跃批次：
-              <span className="font-medium"> {activeBatch.title}</span>。Day07
-              约束同一项目同一时刻只允许一个活跃批次，避免范围混乱。
+              <span className="font-medium"> {activeBatch.title}</span>。同一项目同一时间只保留一个活跃批次，避免变更范围混乱。
             </div>
           ) : null}
 
-          <label className="mt-4 block text-xs uppercase tracking-[0.2em] text-slate-500">
+          <label className="mt-4 block text-xs uppercase tracking-[0.2em] text-zinc-600">
             批次标题（可选）
           </label>
           <input
             type="text"
             value={draftTitle}
             onChange={(event) => setDraftTitle(event.target.value)}
-            placeholder="例如：Day07 仓库批次准备"
-            className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/40"
+            placeholder="例如：登录流程调整批次"
+            className="mt-2 w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-zinc-500"
           />
 
           {props.isLoadingChangePlans ? (
-            <div className="mt-4 text-sm leading-6 text-slate-400">
-              正在加载可并入批次的 ChangePlan...
+            <div className="mt-4 text-sm leading-6 text-zinc-500">
+              正在加载可并入批次的变更计划...
             </div>
           ) : candidateChangePlans.length > 0 ? (
             <div className="mt-4 space-y-3">
@@ -194,16 +199,16 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
                           : [...current, item.id],
                       );
                     }}
-                    className={`w-full rounded-2xl border px-4 py-4 text-left transition ${
+                    className={`w-full border px-4 py-4 text-left transition ${
                       selected
-                        ? "border-cyan-400/50 bg-cyan-500/10"
-                        : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                        ? "border-[#4a4a4a] bg-[#2b2b2b]"
+                        : "border-[#333333] bg-transparent hover:border-[#4a4a4a]"
                     }`}
                   >
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-sm font-medium text-slate-50">
+                          <div className="text-sm font-medium text-zinc-100">
                             {item.task_title}
                           </div>
                           <StatusBadge
@@ -215,10 +220,10 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
                             tone="info"
                           />
                         </div>
-                        <div className="mt-2 text-sm leading-6 text-slate-300">
+                        <div className="mt-2 text-sm leading-6 text-zinc-400">
                           {item.title}
                         </div>
-                        <div className="mt-2 text-xs leading-5 text-slate-500">
+                        <div className="mt-2 text-xs leading-5 text-zinc-500">
                           {item.latest_version.intent_summary}
                         </div>
                       </div>
@@ -228,7 +233,7 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
                           label={selected ? "已选择" : "点击纳入"}
                           tone={selected ? "success" : "neutral"}
                         />
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-zinc-500">
                           更新于 {formatDateTime(item.updated_at)}
                         </span>
                       </div>
@@ -248,16 +253,15 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
               })}
             </div>
           ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-              当前可并入批次的最新 ChangePlan 不足 2 条。请先在上方 Day06 草案区补齐至少
-              2 个任务的 ChangePlan，再创建 Day07 批次。
+            <div className="mt-4 border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-500">
+              当前可并入批次的变更计划不足 2 条。请先为至少 2 个任务创建变更计划，再创建批次。
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-            <div className="text-sm leading-6 text-slate-400">
-              已选 <span className="font-medium text-slate-100">{selectedPlanIds.length}</span>{" "}
-              / 至少 2 条最新 ChangePlan
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-y border-[#333333] px-4 py-3">
+            <div className="text-sm leading-6 text-zinc-400">
+              已选 <span className="font-medium text-zinc-100">{selectedPlanIds.length}</span>{" "}
+              / 至少 2 条变更计划
             </div>
             <button
               type="button"
@@ -265,42 +269,42 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
                 void handleCreateBatch();
               }}
               disabled={!canCreate}
-              className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500"
+              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600"
             >
-              {createMutation.isPending ? "正在创建批次..." : "创建 ChangeBatch"}
+              {createMutation.isPending ? "正在创建批次..." : "创建变更批次"}
             </button>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="text-sm font-semibold text-slate-50">批次列表</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">
-            这里展示当前项目的 ChangeBatch 摘要；Day08 预检状态也会同步回写到列表、详情与时间线。
+        <section className="border-y border-[#333333] py-4">
+          <div className="text-sm font-semibold text-zinc-100">批次列表</div>
+          <div className="mt-2 text-sm leading-6 text-zinc-400">
+            这里展示当前项目的变更批次摘要，提交前检查结果会同步显示在列表、详情和时间线中。
           </div>
 
           {batchesQuery.isLoading && batchSummaries.length === 0 ? (
-            <div className="mt-4 text-sm leading-6 text-slate-400">正在加载批次列表...</div>
+            <div className="mt-4 text-sm leading-6 text-zinc-500">正在加载批次列表...</div>
           ) : batchSummaries.length > 0 ? (
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 divide-y divide-[#333333] border-y border-[#333333]">
               {batchSummaries.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => setSelectedBatchId(item.id)}
-                  className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                  className={`w-full border-l px-4 py-3 text-left transition ${
                     item.id === selectedBatchId
-                      ? "border-cyan-400/50 bg-cyan-500/10"
-                      : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
+                      ? "border-[#4a4a4a] bg-[#2b2b2b]"
+                      : "border-[#333333] bg-transparent hover:border-[#4a4a4a]"
                   }`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-medium text-slate-100">{item.title}</div>
+                    <div className="text-sm font-medium text-zinc-100">{item.title}</div>
                     <StatusBadge
-                      label={item.active ? "活跃" : item.status}
+                      label={item.active ? "活跃" : formatBatchStatusLabel(item.status)}
                       tone={item.active ? "warning" : mapBatchStatusTone(item.status)}
                     />
                   </div>
-                  <div className="mt-2 text-xs leading-5 text-slate-400">{item.summary}</div>
+                  <div className="mt-2 text-xs leading-5 text-zinc-400">{item.summary}</div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <StatusBadge label={`任务 ${item.task_count}`} tone="info" />
                     <StatusBadge label={`文件 ${item.target_file_count}`} tone="neutral" />
@@ -326,18 +330,18 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
               ))}
             </div>
           ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 px-4 py-3 text-sm leading-6 text-slate-400">
-              当前项目还没有 Day07 ChangeBatch；创建后会在这里显示摘要。
+            <div className="mt-4 border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-500">
+              当前项目还没有变更批次；创建后会在这里显示摘要。
             </div>
           )}
         </section>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+      <div className="border-y border-[#333333] py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="text-sm font-semibold text-slate-50">批次详情</div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">
+            <div className="text-sm font-semibold text-zinc-100">批次详情</div>
+            <div className="mt-2 text-sm leading-6 text-zinc-400">
               查看当前批次的执行顺序、依赖关系、目标文件与本地时间线。
             </div>
           </div>
@@ -346,7 +350,11 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
             <div className="flex flex-wrap gap-2">
               <StatusBadge label={selectedBatchSummary.title} tone="info" />
               <StatusBadge
-                label={selectedBatchSummary.active ? "活跃批次" : selectedBatchSummary.status}
+                label={
+                  selectedBatchSummary.active
+                    ? "活跃批次"
+                    : formatBatchStatusLabel(selectedBatchSummary.status)
+                }
                 tone={
                   selectedBatchSummary.active
                     ? "warning"
@@ -358,7 +366,7 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
         </div>
 
         {detailQuery.isLoading && selectedBatchSummary ? (
-          <div className="mt-4 text-sm leading-6 text-slate-400">正在加载批次详情...</div>
+          <div className="mt-4 text-sm leading-6 text-zinc-500">正在加载批次详情...</div>
         ) : selectedBatchDetail ? (
           <ChangeBatchDetailPanel
             detail={selectedBatchDetail}
@@ -368,8 +376,8 @@ export function ChangeBatchBoard(props: ChangeBatchBoardProps) {
             isRunningPreflight={preflightMutation.isPending}
           />
         ) : (
-          <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 px-4 py-3 text-sm leading-6 text-slate-400">
-            请选择一条批次摘要，或先创建新的 ChangeBatch。
+          <div className="mt-4 border-l border-dashed border-[#3a3a3a] px-4 py-3 text-sm leading-6 text-zinc-500">
+            请选择一条批次摘要，或先创建新的变更批次。
           </div>
         )}
       </div>
@@ -384,9 +392,9 @@ function ChangeBatchDetailPanel(props: {
 }) {
   return (
     <div className="mt-4 space-y-4">
-      <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm leading-6 text-cyan-100">
+      <div className="border-l border-[#333333] px-4 py-3 text-sm leading-6 text-zinc-400">
         {props.detail.summary}
-        <div className="mt-2 text-xs text-cyan-50/70">
+        <div className="mt-2 text-xs text-zinc-600">
           创建于 {formatDateTime(props.detail.created_at)} · 最近更新{" "}
           {formatDateTime(props.detail.updated_at)}
         </div>
@@ -400,7 +408,7 @@ function ChangeBatchDetailPanel(props: {
         overlapFileCount={props.detail.overlap_file_count}
         onRunPreflight={props.onRunPreflight}
         isRunning={props.isRunningPreflight}
-        helperText="Day08 在这里执行风险分类与人工确认预检；即使结果为“可进入执行”，当前也不会扩展到验证运行、证据包或真实 Git 写操作。"
+        helperText="在这里执行风险分类与人工确认检查；通过后可继续整理验证结果和提交草案。"
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -418,34 +426,34 @@ function ChangeBatchDetailPanel(props: {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]">
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="text-sm font-semibold text-slate-50">任务执行顺序</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">
-            任务顺序由批次内依赖自动排序；Day08 只在执行前做风险分类和人工确认，不直接运行代码修改。
+        <section className="border-y border-[#333333] py-4">
+          <div className="text-sm font-semibold text-zinc-100">任务执行顺序</div>
+          <div className="mt-2 text-sm leading-6 text-zinc-400">
+            提交前检查只做风险分类和人工确认，不直接执行代码修改。
           </div>
 
           <div className="mt-4 space-y-3">
             {props.detail.tasks.map((task) => (
               <div
                 key={task.task_id}
-                className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+                className="border-l border-[#333333] px-4 py-4"
               >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge label={`步骤 ${task.order_index}`} tone="info" />
-                      <div className="text-sm font-medium text-slate-50">{task.task_title}</div>
+                      <div className="text-sm font-medium text-zinc-100">{task.task_title}</div>
                       <StatusBadge label={`v${task.selected_version_number}`} tone="warning" />
                       <StatusBadge
                         label={`重叠 ${task.overlap_file_paths.length}`}
                         tone={task.overlap_file_paths.length > 0 ? "warning" : "success"}
                       />
                     </div>
-                    <div className="mt-2 text-sm leading-6 text-slate-300">
+                    <div className="mt-2 text-sm leading-6 text-zinc-400">
                       {task.intent_summary}
                     </div>
-                    <div className="mt-2 text-xs leading-5 text-slate-500">
-                      ChangePlan：{task.change_plan_title} · 风险 {task.task_risk_level} · 优先级{" "}
+                    <div className="mt-2 text-xs leading-5 text-zinc-500">
+                      变更计划：{task.change_plan_title} · 风险 {task.task_risk_level} · 优先级{" "}
                       {task.task_priority}
                     </div>
                   </div>
@@ -463,7 +471,7 @@ function ChangeBatchDetailPanel(props: {
 
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
                       依赖关系
                     </div>
                     {task.dependencies.length > 0 ? (
@@ -487,15 +495,15 @@ function ChangeBatchDetailPanel(props: {
                         ))}
                       </div>
                     ) : (
-                      <div className="mt-2 text-sm leading-6 text-slate-400">无前置依赖。</div>
+                      <div className="mt-2 text-sm leading-6 text-zinc-400">无前置依赖。</div>
                     )}
                   </div>
 
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
                       预期动作
                     </div>
-                    <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-300">
+                    <ul className="mt-2 space-y-1 text-sm leading-6 text-zinc-400">
                       {task.expected_actions.map((action) => (
                         <li key={`${task.task_id}-${action}`}>• {action}</li>
                       ))}
@@ -505,35 +513,35 @@ function ChangeBatchDetailPanel(props: {
 
                 <div className="mt-3 grid gap-3 xl:grid-cols-2">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                      Day09 验证模板
+                    <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+                      验证模板
                     </div>
                     {task.verification_templates.length > 0 ? (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {task.verification_templates.map((template) => (
                           <StatusBadge
                             key={`${task.task_id}-${template.id}`}
-                            label={`${REPOSITORY_VERIFICATION_CATEGORY_LABELS[template.category]} · ${template.name}`}
+                            label={`${REPOSITORY_VERIFICATION_CATEGORY_LABELS[template.category]} \u00b7 ${template.name}`}
                             tone="info"
                           />
                         ))}
                       </div>
                     ) : (
-                      <div className="mt-2 text-sm leading-6 text-slate-400">
-                        当前任务未直接引用 Day09 仓库模板，仅保留手动命令基线。
+                      <div className="mt-2 text-sm leading-6 text-zinc-400">
+                        当前任务未直接引用验证模板，仅保留手动命令基线。
                       </div>
                     )}
                   </div>
 
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
                       验证命令基线
                     </div>
                     <div className="mt-2 space-y-2">
                       {task.verification_commands.map((command) => (
                         <div
                           key={`${task.task_id}-${command}`}
-                          className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm leading-6 text-slate-300"
+                          className="border-l border-[#333333] px-3 py-2 text-sm leading-6 text-zinc-400"
                         >
                           {command}
                         </div>
@@ -561,11 +569,11 @@ function ChangeBatchDetailPanel(props: {
         </section>
 
         <section className="space-y-4">
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="text-sm font-semibold text-slate-50">文件重叠风险</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">
-              这里继续提示同一批次内多个 ChangePlan 指向同一文件的情况；Day08 的更高风险分类会在上方预检区统一展示。
-          </div>
+          <section className="border-y border-[#333333] py-4">
+            <div className="text-sm font-semibold text-zinc-100">文件重叠风险</div>
+            <div className="mt-2 text-sm leading-6 text-zinc-400">
+              这里提示同一批次内多个变更计划指向同一文件的情况；更高风险分类会在上方检查区统一展示。
+            </div>
 
             {props.detail.overlap_files.length > 0 ? (
               <div className="mt-4 space-y-3">
@@ -578,16 +586,16 @@ function ChangeBatchDetailPanel(props: {
                 ))}
               </div>
             ) : (
-              <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
-                当前批次未发现文件重叠，可以继续保持 Day07 的范围收口。
+              <div className="mt-4 border-l border-emerald-500/50 px-4 py-3 text-sm leading-6 text-emerald-100">
+                当前批次未发现文件重叠。
               </div>
             )}
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-            <div className="text-sm font-semibold text-slate-50">本轮准备改动文件</div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">
-              汇总所有选中 ChangePlan 的目标文件，帮助后续执行前快速锁定范围。
+          <section className="border-y border-[#333333] py-4">
+            <div className="text-sm font-semibold text-zinc-100">本轮准备改动文件</div>
+            <div className="mt-2 text-sm leading-6 text-zinc-400">
+              汇总所有选中变更计划的目标文件，便于提交前确认范围。
             </div>
 
             <div className="mt-4 space-y-3">
@@ -601,25 +609,25 @@ function ChangeBatchDetailPanel(props: {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-            <div className="text-sm font-semibold text-slate-50">批次时间线</div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">
-              这里会同时沉淀 ChangeBatch 创建、Day08 预检结果和人工确认结论，仍不扩展到 Day09+ 的验证与证据链路。
+          <section className="border-y border-[#333333] py-4">
+            <div className="text-sm font-semibold text-zinc-100">批次时间线</div>
+            <div className="mt-2 text-sm leading-6 text-zinc-400">
+              这里记录批次创建、提交前检查和人工确认结论。
             </div>
 
             <div className="mt-4 space-y-3">
               {props.detail.timeline.map((item) => (
                 <div
                   key={`${item.entry_type}-${item.label}-${item.occurred_at}`}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+                  className="border-l border-[#333333] px-4 py-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-medium text-slate-100">{item.label}</div>
-                    <span className="text-xs text-slate-500">
+                    <div className="text-sm font-medium text-zinc-100">{item.label}</div>
+                    <span className="text-xs text-zinc-500">
                       {formatDateTime(item.occurred_at)}
                     </span>
                   </div>
-                  <div className="mt-2 text-sm leading-6 text-slate-300">{item.summary}</div>
+                  <div className="mt-2 text-sm leading-6 text-zinc-400">{item.summary}</div>
                 </div>
               ))}
             </div>
@@ -635,9 +643,9 @@ function FileAggregateCard(props: {
   tone: "neutral" | "warning";
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+    <div className="border-l border-[#333333] px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="break-all text-sm font-medium text-slate-100">
+        <div className="break-all text-sm font-medium text-zinc-100">
           {props.item.relative_path}
         </div>
         <StatusBadge
@@ -645,7 +653,7 @@ function FileAggregateCard(props: {
           tone={props.tone === "warning" ? "warning" : "neutral"}
         />
       </div>
-      <div className="mt-2 text-xs leading-5 text-slate-500">
+      <div className="mt-2 text-xs leading-5 text-zinc-500">
         {props.item.language} / {props.item.file_type}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -658,7 +666,7 @@ function FileAggregateCard(props: {
         ))}
       </div>
       {props.item.match_reasons.length > 0 ? (
-        <div className="mt-3 text-xs leading-5 text-slate-400">
+        <div className="mt-3 text-xs leading-5 text-zinc-500">
           命中原因：{props.item.match_reasons.join(" / ")}
         </div>
       ) : null}
@@ -672,15 +680,15 @@ function MetricCard(props: {
   tone?: "neutral" | "success" | "warning";
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{props.label}</div>
+    <div className="border-l border-[#333333] px-4 py-2">
+      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">{props.label}</div>
       <div
-        className={`mt-2 text-sm font-semibold ${
+        className={`mt-2 text-sm font-medium ${
           props.tone === "warning"
             ? "text-amber-100"
             : props.tone === "success"
               ? "text-emerald-100"
-              : "text-slate-100"
+              : "text-zinc-100"
         }`}
       >
         {props.value}
@@ -694,7 +702,7 @@ function Alert(props: {
   message: string;
 }) {
   return (
-    <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
+    <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
       {props.message}
     </div>
   );
