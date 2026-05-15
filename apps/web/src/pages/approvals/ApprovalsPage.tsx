@@ -16,7 +16,7 @@ export function ApprovalsPage() {
       <ProjectContextSelector
         eyebrow="Approvals"
         title="审批中心"
-        description="先选择要处理的项目，再查看该项目的审批队列、老板决策动作与放行状态。"
+        description="先选择要处理的项目，再查看该项目的审批队列、审批处理与放行状态。"
         projects={projectSelection.projects}
         selectedProjectId={projectSelection.selectedProjectId}
         hasInvalidRequestedProject={projectSelection.hasInvalidRequestedProject}
