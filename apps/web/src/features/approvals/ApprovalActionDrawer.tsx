@@ -24,7 +24,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
   const actionMutation = useApplyApprovalAction(props.projectId, props.approvalId);
 
   const [selectedAction, setSelectedAction] = useState<ApprovalAction>("approve");
-  const [actorName, setActorName] = useState("老板");
+  const [actorName, setActorName] = useState("审批人");
   const [summary, setSummary] = useState("");
   const [comment, setComment] = useState("");
   const [highlightedRisksText, setHighlightedRisksText] = useState("");
@@ -34,7 +34,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
   useEffect(() => {
     if (!props.open) {
       setSelectedAction("approve");
-      setActorName("老板");
+      setActorName("审批人");
       setSummary("");
       setComment("");
       setHighlightedRisksText("");
@@ -82,7 +82,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
     try {
       await actionMutation.mutateAsync({
         action: selectedAction,
-        actor_name: actorName.trim() || "老板",
+        actor_name: actorName.trim() || "审批人",
         summary: normalizedSummary,
         comment: comment.trim() ? comment.trim() : null,
         highlighted_risks: parseLineItems(highlightedRisksText),
@@ -109,12 +109,12 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
         <header className="border-b border-[#333333] px-6 py-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-xs uppercase tracking-[0.24em] text-slate-500">
+              <div className="text-xs uppercase tracking-[0.24em] text-zinc-500">
                 审批处理
               </div>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-50">{title}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                项目：<span className="font-medium text-slate-100">{props.projectName ?? "未选择项目"}</span>
+              <h2 className="mt-2 text-2xl font-semibold text-zinc-100">{title}</h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
+                项目：<span className="font-medium text-zinc-100">{props.projectName ?? "未选择项目"}</span>
               </p>
             </div>
 
@@ -135,7 +135,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
 
         <div className="flex-1 overflow-y-auto">
           {detailQuery.isLoading && !detail ? (
-            <div className="px-6 py-8 text-sm leading-6 text-slate-400">
+            <div className="px-6 py-8 text-sm leading-6 text-zinc-400">
               正在加载审批详情...
             </div>
           ) : detailQuery.isError ? (
@@ -146,7 +146,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
             <form id={formId} onSubmit={handleSubmit} className="space-y-6 px-6 py-6">
               <section className="grid gap-4 lg:grid-cols-2">
                 <FieldBlock label="交付件快照" description="本次审批固定到具体版本，便于后续回放。">
-                  <div className="space-y-3 text-sm leading-6 text-slate-300">
+                  <div className="space-y-3 text-sm leading-6 text-zinc-400">
                     <div className="flex flex-wrap gap-2">
                       <StatusBadge
                         label={
@@ -175,15 +175,15 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                 </FieldBlock>
 
                 <FieldBlock label="请求说明" description="记录当前节点需要审批的原因和补充背景。">
-                  <div className="space-y-3 text-sm leading-6 text-slate-300">
+                  <div className="space-y-3 text-sm leading-6 text-zinc-400">
                     <p>{detail.request_note ?? "本次未附加额外说明。"}</p>
                     {detail.latest_summary ? (
-                      <div className="border-l border-[#333333] px-3 py-3 text-sm text-slate-200">
+                      <div className="border-l border-[#333333] px-3 py-3 text-sm text-zinc-200">
                         最近结论：{detail.latest_summary}
                       </div>
                     ) : (
-                      <div className="border border-dashed border-[#3a3a3a] px-3 py-3 text-sm text-slate-400">
-                        当前还没有老板审批动作。
+                      <div className="border border-dashed border-[#3a3a3a] px-3 py-3 text-sm text-zinc-400">
+                        当前还没有审批动作。
                       </div>
                     )}
                   </div>
@@ -193,8 +193,8 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
               {canAct ? (
                 <>
                   <section className="border-b border-[#333333] pb-4">
-                    <div className="text-sm font-medium text-slate-100">选择审批动作</div>
-                    <div className="mt-1 text-xs leading-5 text-slate-400">
+                    <div className="text-sm font-medium text-zinc-100">选择审批动作</div>
+                    <div className="mt-1 text-xs leading-5 text-zinc-400">
                       {selectedActionDescription}
                     </div>
 
@@ -219,7 +219,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                                   : tone === "warning"
                                     ? "border-amber-500/50 bg-transparent text-amber-100"
                                     : "border-rose-500/50 bg-transparent text-rose-100"
-                                : "border-[#3a3a3a] bg-transparent text-slate-300 hover:border-[#6a6a6a]"
+                                : "border-[#3a3a3a] bg-transparent text-zinc-400 hover:border-[#6a6a6a]"
                             }`}
                           >
                             {APPROVAL_ACTION_LABELS[action]}
@@ -234,7 +234,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                       <input
                         value={actorName}
                         onChange={(event) => setActorName(event.target.value)}
-                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
                       />
                     </FieldBlock>
 
@@ -243,7 +243,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                         value={summary}
                         onChange={(event) => setSummary(event.target.value)}
                         placeholder="例如：PRD 范围清晰，可进入执行阶段"
-                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
                       />
                     </FieldBlock>
                   </section>
@@ -253,7 +253,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                       value={comment}
                       onChange={(event) => setComment(event.target.value)}
                       rows={4}
-                      className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                      className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
                     />
                   </FieldBlock>
 
@@ -264,7 +264,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                         onChange={(event) => setHighlightedRisksText(event.target.value)}
                         rows={5}
                         placeholder="例如：\n上线窗口过窄\n消息中心接口限流"
-                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
                       />
                     </FieldBlock>
 
@@ -274,13 +274,13 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                         onChange={(event) => setRequestedChangesText(event.target.value)}
                         rows={5}
                         placeholder="例如：\n补充验收口径\n明确兼容旧接口策略"
-                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                        className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
                       />
                     </FieldBlock>
                   </section>
                 </>
               ) : (
-                <div className="border-l border-[#333333] px-4 py-4 text-sm leading-6 text-slate-300">
+                <div className="border-l border-[#333333] px-4 py-4 text-sm leading-6 text-zinc-400">
                   当前审批已结束，抽屉保留为回放视图；如需再次送审，请先提交交付件新版本后重新发起审批。
                 </div>
               )}
@@ -288,9 +288,9 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
               <section className="border-b border-[#333333] pb-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-slate-100">审批回放</div>
-                    <div className="mt-1 text-xs leading-5 text-slate-400">
-                      结构化记录老板每一次决策动作与理由。
+                    <div className="text-sm font-medium text-zinc-100">审批回放</div>
+                    <div className="mt-1 text-xs leading-5 text-zinc-400">
+                      结构化记录每一次审批动作与理由。
                     </div>
                   </div>
                   <StatusBadge
@@ -314,16 +314,16 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                             />
                             <StatusBadge label={decision.actor_name} tone="neutral" />
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-zinc-500">
                             {formatDateTime(decision.created_at)}
                           </div>
                         </div>
 
-                        <div className="mt-3 text-sm font-medium text-slate-100">
+                        <div className="mt-3 text-sm font-medium text-zinc-100">
                           {decision.summary}
                         </div>
                         {decision.comment ? (
-                          <p className="mt-2 text-sm leading-6 text-slate-300">
+                          <p className="mt-2 text-sm leading-6 text-zinc-400">
                             {decision.comment}
                           </p>
                         ) : null}
@@ -347,8 +347,8 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-4 text-sm leading-6 text-slate-400">
-                    暂无审批动作，等待老板首次给出决策。
+                  <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-4 text-sm leading-6 text-zinc-400">
+                    暂无审批动作，等待审批人处理。
                   </div>
                 )}
               </section>
@@ -374,7 +374,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
           <button
             type="button"
             onClick={props.onClose}
-            className="rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-[#6a6a6a] hover:text-slate-100"
+            className="rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-zinc-400 transition hover:border-[#6a6a6a] hover:text-zinc-100"
           >
             关闭
           </button>
@@ -384,7 +384,7 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
               type="submit"
               form={formId}
               disabled={actionMutation.isPending || detailQuery.isLoading}
-              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-slate-500"
+              className="rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-500"
             >
               {actionMutation.isPending ? "提交中..." : "提交审批动作"}
             </button>
@@ -402,8 +402,8 @@ function FieldBlock(props: {
 }) {
   return (
     <section className="border-b border-[#333333] pb-4">
-      <div className="text-sm font-medium text-slate-100">{props.label}</div>
-      <div className="mt-1 text-xs leading-5 text-slate-400">{props.description}</div>
+      <div className="text-sm font-medium text-zinc-100">{props.label}</div>
+      <div className="mt-1 text-xs leading-5 text-zinc-400">{props.description}</div>
       <div className="mt-3">{props.children}</div>
     </section>
   );
@@ -416,7 +416,7 @@ function ReplayList(props: {
 }) {
   return (
     <div className="mt-4">
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+      <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">
         {props.title}
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
