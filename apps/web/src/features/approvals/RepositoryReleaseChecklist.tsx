@@ -17,8 +17,8 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
     <section className="space-y-4 border-b border-[#333333] pb-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-100">{gate.change_batch_title}</div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="text-sm font-medium text-zinc-100">{gate.change_batch_title}</div>
+          <div className="mt-1 text-xs text-zinc-500">
             发布记录：{gate.change_batch_id} · 更新时间：{formatDateTime(gate.generated_at)}
           </div>
         </div>
@@ -53,8 +53,8 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
       )}
 
       <div>
-        <div className="text-sm font-medium text-slate-100">放行检查</div>
-        <div className="mt-1 text-sm leading-6 text-slate-400">
+        <div className="text-sm font-medium text-zinc-100">放行检查</div>
+        <div className="mt-1 text-sm leading-6 text-zinc-400">
           核对本次发布所需材料是否齐备，未通过项会保留缺口说明。
         </div>
 
@@ -65,7 +65,7 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
             className="px-0 py-3"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-medium text-slate-100">{item.title}</div>
+              <div className="text-sm font-medium text-zinc-100">{item.title}</div>
               <StatusBadge
                 label={
                   REPOSITORY_RELEASE_CHECKLIST_ITEM_STATUS_LABELS[item.status] ?? item.status
@@ -73,11 +73,11 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
                 tone={item.status === "passed" ? "success" : "danger"}
               />
             </div>
-            <p className="mt-2 text-sm leading-6 text-slate-300">{item.summary}</p>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">{item.summary}</p>
             {item.gap_reason ? (
               <p className="mt-1 text-xs leading-5 text-rose-200">{item.gap_reason}</p>
             ) : null}
-            <div className="mt-1 text-xs text-slate-500">
+            <div className="mt-1 text-xs text-zinc-500">
               {item.evidence_key ? `证据：${item.evidence_key}` : "暂无附加证据"}
               {item.checked_at ? ` · 检查时间：${formatDateTime(item.checked_at)}` : ""}
             </div>
@@ -88,7 +88,7 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
 
       {gate.decisions.length > 0 ? (
         <div className="border-b border-[#333333] pb-3">
-          <div className="text-sm font-medium text-slate-100">审批记录</div>
+          <div className="text-sm font-medium text-zinc-100">审批记录</div>
           <div className="mt-3 divide-y divide-[#333333] border-y border-[#333333]">
             {gate.decisions.map((decision) => (
               <div
@@ -97,13 +97,13 @@ export function RepositoryReleaseChecklist(props: RepositoryReleaseChecklistProp
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <StatusBadge label={mapDecisionLabel(decision.action)} tone={mapDecisionTone(decision.action)} />
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-zinc-500">
                     {decision.actor_name} · {formatDateTime(decision.created_at)}
                   </span>
                 </div>
-                <div className="mt-1 text-sm leading-6 text-slate-300">{decision.summary}</div>
+                <div className="mt-1 text-sm leading-6 text-zinc-400">{decision.summary}</div>
                 {decision.comment ? (
-                  <div className="mt-1 text-xs leading-5 text-slate-400">{decision.comment}</div>
+                  <div className="mt-1 text-xs leading-5 text-zinc-400">{decision.comment}</div>
                 ) : null}
               </div>
             ))}

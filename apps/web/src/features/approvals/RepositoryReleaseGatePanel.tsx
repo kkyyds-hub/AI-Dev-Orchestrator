@@ -48,8 +48,8 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
   if (!props.projectId) {
     return (
       <section className="border-b border-[#333333] pb-6">
-        <div className="text-lg font-semibold text-slate-50">发布门禁</div>
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+        <div className="text-lg font-semibold text-zinc-100">发布门禁</div>
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
           请先选择项目，再查看放行检查、阻断缺口和审批记录。
         </p>
       </section>
@@ -60,8 +60,8 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
     <section className="border-b border-[#333333] pb-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-lg font-semibold text-slate-50">发布门禁</div>
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">
+          <div className="text-lg font-semibold text-zinc-100">发布门禁</div>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-zinc-400">
             在变更正式放行前，集中确认检查项、缺口、证据和审批结论。
             若关键材料未齐备，页面会保留阻断状态，避免误推进。
           </p>
@@ -76,7 +76,7 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
       </div>
 
       {inboxQuery.isLoading && !inboxQuery.data ? (
-        <div className="mt-4 text-sm leading-6 text-slate-400">正在加载发布门禁...</div>
+        <div className="mt-4 text-sm leading-6 text-zinc-400">正在加载发布门禁...</div>
       ) : null}
       {inboxQuery.isError ? (
         <div className="mt-4 border-l border-rose-500/50 px-4 py-3 text-sm leading-6 text-rose-100">
@@ -87,8 +87,8 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
       {items.length > 0 ? (
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.25fr)]">
           <section className="border-b border-[#333333] pb-4">
-            <div className="text-sm font-semibold text-slate-50">待放行事项</div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">
+            <div className="text-sm font-semibold text-zinc-100">待放行事项</div>
+            <div className="mt-2 text-sm leading-6 text-zinc-400">
               选择一条变更记录，查看放行检查、缺口与审批记录。
             </div>
 
@@ -105,14 +105,14 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
                   }`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-medium text-slate-100">{item.change_batch_title}</div>
+                    <div className="text-sm font-medium text-zinc-100">{item.change_batch_title}</div>
                     <StatusBadge
                       label={REPOSITORY_RELEASE_GATE_STATUS_LABELS[item.status] ?? item.status}
                       tone={mapItemTone(item)}
                     />
                     {item.blocked ? <StatusBadge label="阻断" tone="danger" /> : null}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-500">
                     <span>缺口 {item.missing_item_count}</span>
                     <span>审批记录 {item.decision_count}</span>
                     <span>刷新于 {formatDateTime(item.generated_at)}</span>
@@ -125,7 +125,7 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
           <section>
             {selectedChangeBatchId ? (
               detailQuery.isLoading && !detailQuery.data ? (
-                <div className="border-b border-[#333333] px-0 py-6 text-sm leading-6 text-slate-400">
+                <div className="border-b border-[#333333] px-0 py-6 text-sm leading-6 text-zinc-400">
                   正在加载放行检查详情...
                 </div>
               ) : detailQuery.isError ? (
@@ -139,14 +139,14 @@ export function RepositoryReleaseGatePanel(props: RepositoryReleaseGatePanelProp
                 />
               ) : null
             ) : (
-              <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
+              <div className="border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-400">
                 当前项目还没有可查看的放行检查，请先补齐变更材料。
               </div>
             )}
           </section>
         </div>
       ) : !inboxQuery.isLoading && !inboxQuery.isError ? (
-        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-slate-400">
+        <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-sm leading-6 text-zinc-400">
           当前项目暂无发布门禁记录；请先完成变更准备、预检、验证和发布材料整理。
         </div>
       ) : null}
@@ -164,7 +164,7 @@ function RepositoryReleaseGateDetailPanel(props: {
   );
 
   const [action, setAction] = useState<ApprovalAction>("approve");
-  const [actorName, setActorName] = useState("老板");
+  const [actorName, setActorName] = useState("审批人");
   const [summary, setSummary] = useState("");
   const [comment, setComment] = useState("");
   const [highlightedRisksText, setHighlightedRisksText] = useState("");
@@ -202,7 +202,7 @@ function RepositoryReleaseGateDetailPanel(props: {
     try {
       const result = await mutation.mutateAsync({
         action,
-        actor_name: actorName.trim() || "老板",
+        actor_name: actorName.trim() || "审批人",
         summary: summary.trim(),
         comment: comment.trim() || null,
         highlighted_risks: parseStructuredLines(highlightedRisksText),
@@ -235,8 +235,8 @@ function RepositoryReleaseGateDetailPanel(props: {
       <RepositoryReleaseChecklist gate={props.detail} />
 
       <section className="border-b border-[#333333] pb-4">
-        <div className="text-sm font-semibold text-slate-50">审批动作</div>
-        <div className="mt-2 text-sm leading-6 text-slate-400">
+        <div className="text-sm font-semibold text-zinc-100">审批动作</div>
+        <div className="mt-2 text-sm leading-6 text-zinc-400">
           可记录通过、驳回或要求补充证据。审批通过只代表当前材料具备放行资格。
         </div>
 
@@ -247,12 +247,12 @@ function RepositoryReleaseGateDetailPanel(props: {
           className="mt-4 space-y-4"
         >
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="block text-sm text-slate-200">
-              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">审批动作</div>
+            <label className="block text-sm text-zinc-200">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">审批动作</div>
               <select
                 value={action}
                 onChange={(event) => setAction(event.target.value as ApprovalAction)}
-                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
               >
                 <option value="approve" disabled={props.detail.blocked}>
                   通过
@@ -262,56 +262,56 @@ function RepositoryReleaseGateDetailPanel(props: {
               </select>
             </label>
 
-            <label className="block text-sm text-slate-200">
-              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">审批人</div>
+            <label className="block text-sm text-zinc-200">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">审批人</div>
               <input
                 value={actorName}
                 onChange={(event) => setActorName(event.target.value)}
-                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
               />
             </label>
           </div>
 
-          <label className="block text-sm text-slate-200">
-            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">结论摘要</div>
+          <label className="block text-sm text-zinc-200">
+            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">结论摘要</div>
             <input
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
               placeholder="例如：缺口已补齐，同意进入下一步人工放行。"
-              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
             />
           </label>
 
-          <label className="block text-sm text-slate-200">
-            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">备注</div>
+          <label className="block text-sm text-zinc-200">
+            <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">备注</div>
             <textarea
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               rows={3}
               placeholder="可补充放行依据、保留意见或后续注意事项"
-              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+              className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
             />
           </label>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="block text-sm text-slate-200">
-              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">关注风险（每行一条）</div>
+            <label className="block text-sm text-zinc-200">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">关注风险（每行一条）</div>
               <textarea
                 value={highlightedRisksText}
                 onChange={(event) => setHighlightedRisksText(event.target.value)}
                 rows={4}
                 placeholder="例如：上线窗口需避开高峰期"
-                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
               />
             </label>
-            <label className="block text-sm text-slate-200">
-              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">补充事项（每行一条）</div>
+            <label className="block text-sm text-zinc-200">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-zinc-500">补充事项（每行一条）</div>
               <textarea
                 value={requestedChangesText}
                 onChange={(event) => setRequestedChangesText(event.target.value)}
                 rows={4}
                 placeholder="例如：补充验证截图或回滚说明"
-                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-[#6a6a6a]"
+                className="w-full rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#6a6a6a]"
               />
             </label>
           </div>
@@ -354,8 +354,8 @@ function RepositoryReleaseGateDetailPanel(props: {
 function MiniStat(props: { label: string; value: string }) {
   return (
     <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{props.value}</div>
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</div>
+      <div className="mt-2 text-sm font-medium text-zinc-100">{props.value}</div>
     </div>
   );
 }
