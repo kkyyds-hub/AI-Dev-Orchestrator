@@ -32,8 +32,8 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-50">预检结果</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">
+          <div className="text-sm font-semibold text-zinc-100">预检结果</div>
+          <div className="mt-2 text-sm leading-6 text-zinc-400">
             {props.helperText ??
               "展示当前变更的范围、风险提示与确认前检查项，帮助判断是否可以继续推进。"}
           </div>
@@ -46,7 +46,7 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
             disabled={props.runDisabled || props.isRunning}
             className={`rounded border px-4 py-2 text-sm font-medium transition ${
               props.runDisabled || props.isRunning
-                ? "cursor-not-allowed border-[#333333] bg-transparent text-slate-500"
+                ? "cursor-not-allowed border-[#333333] bg-transparent text-zinc-500"
                 : "border-[#4a4a4a] bg-transparent text-zinc-100 hover:bg-[#292929]"
             }`}
           >
@@ -74,10 +74,10 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
         ) : null}
       </div>
 
-      <div className="mt-4 border-l border-[#333333] px-4 py-3 text-sm leading-6 text-slate-300">
-        <div className="font-medium text-slate-100">{props.title}</div>
+      <div className="mt-4 border-l border-[#333333] px-4 py-3 text-sm leading-6 text-zinc-400">
+        <div className="font-medium text-zinc-100">{props.title}</div>
         <div className="mt-2">{props.preflight.summary ?? "暂无预检摘要"}</div>
-        <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+        <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-500">
           <span>发现 {props.preflight.finding_count}</span>
           <span>检查项 {props.preflight.inspected_command_count}</span>
           {props.preflight.evaluated_at ? (
@@ -115,16 +115,16 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
                   label={CHANGE_BATCH_RISK_SEVERITY_LABELS[finding.severity]}
                   tone={mapSeverityTone(finding.severity)}
                 />
-                <div className="text-sm font-medium text-slate-100">{finding.title}</div>
+                <div className="text-sm font-medium text-zinc-100">{finding.title}</div>
               </div>
-              <div className="mt-2 text-sm leading-6 text-slate-300">{finding.summary}</div>
+              <div className="mt-2 text-sm leading-6 text-zinc-400">{finding.summary}</div>
               {finding.affected_paths.length > 0 ? (
-                <div className="mt-3 text-xs leading-5 text-slate-400">
+                <div className="mt-3 text-xs leading-5 text-zinc-400">
                   影响路径：{finding.affected_paths.join(" / ")}
                 </div>
               ) : null}
               {finding.related_commands.length > 0 ? (
-                <div className="mt-2 text-xs leading-5 text-slate-400">
+                <div className="mt-2 text-xs leading-5 text-zinc-400">
                   关联命令：{finding.related_commands.join(" / ")}
                 </div>
               ) : null}
@@ -139,8 +139,8 @@ export function PreflightChecklist(props: PreflightChecklistProps) {
 
       {props.preflight.inspected_commands.length > 0 ? (
         <div className="mt-4 border-b border-[#333333] pb-4">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">检查项</div>
-          <ul className="mt-3 divide-y divide-[#333333] border-y border-[#333333] text-sm leading-6 text-slate-300">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">检查项</div>
+          <ul className="mt-3 divide-y divide-[#333333] border-y border-[#333333] text-sm leading-6 text-zinc-400">
             {props.preflight.inspected_commands.map((command) => (
               <li key={command} className="break-all px-0 py-2">
                 {command}
@@ -160,7 +160,7 @@ function MetricCard(props: {
 }) {
   return (
     <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{props.label}</div>
+      <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{props.label}</div>
       <div className={`mt-2 text-sm font-semibold ${mapMetricClass(props.tone)}`}>{props.value}</div>
     </div>
   );
@@ -173,9 +173,9 @@ function mapMetricClass(tone: "neutral" | "info" | "warning" | "danger") {
     case "warning":
       return "text-amber-100";
     case "info":
-      return "text-slate-100";
+      return "text-zinc-100";
     default:
-      return "text-slate-100";
+      return "text-zinc-100";
   }
 }
 

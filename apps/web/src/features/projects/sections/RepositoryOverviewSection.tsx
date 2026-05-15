@@ -16,7 +16,7 @@ export function RepositoryOverviewSection(props: RepositoryOverviewSectionProps)
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-600">
-            Repository Context
+            仓库上下文
           </p>
           <h2 className="mt-2 text-lg font-semibold text-zinc-100">
             仓库入口概览
