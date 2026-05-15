@@ -63,7 +63,7 @@ export function TaskDetailRuntimeContractSection(props: {
             }
             className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs text-zinc-100 transition hover:bg-transparent"}
           >
-            Back to Strategy Preview
+            返回策略预览
           </button>
           {props.onNavigateToRun ? (
             <button
@@ -72,7 +72,7 @@ export function TaskDetailRuntimeContractSection(props: {
               onClick={() => props.onNavigateToRun?.(selectedRun.id, props.taskId)}
               className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-[#6a6a6a] hover:text-zinc-100"}
             >
-              Open in Run Center
+              打开运行中心
             </button>
           ) : null}
         </div>
@@ -84,7 +84,7 @@ export function TaskDetailRuntimeContractSection(props: {
             onClick={() => props.onNavigateToRun?.(selectedRun.id, props.taskId)}
             className={isLine ? "rounded-md border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-[#333333] bg-transparent px-3 py-1.5 text-xs text-zinc-200 transition hover:border-[#6a6a6a] hover:text-zinc-100"}
           >
-            Open in Run Center
+            打开运行中心
           </button>
         </div>
       ) : null}
@@ -93,13 +93,13 @@ export function TaskDetailRuntimeContractSection(props: {
         <DetailField
           testId="task-detail-runtime-field-task_id"
           surfaceVariant={props.surfaceVariant}
-          label="Task ID"
+          label="任务 ID"
           value={props.taskId}
         />
         <DetailField
           testId="task-detail-runtime-field-run_id"
           surfaceVariant={props.surfaceVariant}
-          label="Run ID"
+          label="运行 ID"
           value={selectedRun.id}
         />
       </div>

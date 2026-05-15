@@ -149,7 +149,7 @@ export function TaskDetailActionsSection(props: {
 
       {props.retryLimitReached ? (
         <div className={isLine ? "mt-4 border-l border-amber-700/70 pl-4 text-sm leading-6 text-amber-200" : "mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100"}>
-          当前任务已达到 Day 15 重试上限。若要继续尝试，请先提高 `MAX_TASK_RETRIES`
+          当前任务已达到重试上限。若要继续尝试，请先提高重试次数上限，
           或人工处理任务输入后再重试。
         </div>
       ) : null}

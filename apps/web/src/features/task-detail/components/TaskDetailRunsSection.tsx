@@ -13,6 +13,7 @@ export function TaskDetailLatestRunCard(props: {
   selectedRun: ConsoleRun | null;
   surfaceVariant?: TaskDetailSurfaceVariant;
   onSelectRun: (runId: string) => void;
+  onNavigateToLogs?: (runId: string) => void;
 }) {
   return (
     <RunCard
@@ -20,7 +21,7 @@ export function TaskDetailLatestRunCard(props: {
       run={props.latestRun}
       isSelected={props.latestRun?.id === props.selectedRun?.id}
       surfaceVariant={props.surfaceVariant}
-      onViewLog={(run) => props.onSelectRun(run.id)}
+      onViewLog={(run) => (props.onNavigateToLogs ?? props.onSelectRun)(run.id)}
     />
   );
 }
@@ -32,6 +33,7 @@ export function TaskDetailRunHistorySection(props: {
   surfaceVariant?: TaskDetailSurfaceVariant;
   onSelectRun: (runId: string) => void;
   onNavigateToRun?: (runId: string, taskId: string) => void;
+  onNavigateToLogs?: (runId: string) => void;
 }) {
   const isLine = props.surfaceVariant === "line";
 
@@ -69,7 +71,7 @@ export function TaskDetailRunHistorySection(props: {
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className={`text-sm font-medium ${isLine ? "text-zinc-100" : "text-zinc-100"}`}>
-                      Run #{props.runs.length - index}
+                      运行 #{props.runs.length - index}
                     </div>
                     <div className={`text-xs ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>
                       创建于 {formatDateTime(run.created_at)}
@@ -79,7 +81,7 @@ export function TaskDetailRunHistorySection(props: {
                     <StatusBadge label={run.status} tone={mapRunStatusTone(run.status)} />
                     <button
                       type="button"
-                      onClick={() => props.onSelectRun(run.id)}
+                      onClick={() => (props.onNavigateToLogs ?? props.onSelectRun)(run.id)}
                       className={isLine ? "rounded-md border border-[#333333] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-zinc-500 hover:bg-[#2f2f2f]" : "rounded-lg border border-[#333333] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-[#6a6a6a] hover:text-zinc-200"}
                     >
                       {isSelected ? "日志中" : "查看日志"}
@@ -99,7 +101,7 @@ export function TaskDetailRunHistorySection(props: {
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <DetailField
                     surfaceVariant={props.surfaceVariant}
-                    label="Token"
+                    label="令牌用量"
                     value={`${formatTokenCount(run.prompt_tokens)} / ${formatTokenCount(run.completion_tokens)}`}
                   />
                   <DetailField surfaceVariant={props.surfaceVariant} label="估算成本" value={formatCurrencyUsd(run.estimated_cost)} />
@@ -115,7 +117,7 @@ export function TaskDetailRunHistorySection(props: {
         </div>
       ) : (
         <div className={isLine ? "mt-4 border-y border-dashed border-[#333333] py-6 text-sm text-zinc-500" : "mt-4 rounded-xl border border-dashed border-[#333333] bg-transparent p-4 text-sm text-zinc-400"}>
-          这条任务还没有运行历史。你可以先在页面顶部手动触发一次 Worker。
+          这条任务还没有运行历史。你可以先在工作台手动执行一次任务。
         </div>
       )}
     </section>
@@ -174,7 +176,7 @@ function RunCard(props: {
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <DetailField
           surfaceVariant={props.surfaceVariant}
-          label="Token"
+          label="令牌用量"
           value={`${formatTokenCount(run.prompt_tokens)} / ${formatTokenCount(run.completion_tokens)}`}
         />
         <DetailField surfaceVariant={props.surfaceVariant} label="估算成本" value={formatCurrencyUsd(run.estimated_cost)} />
@@ -194,13 +196,13 @@ function RunNarrative(props: { run: ConsoleRun; surfaceVariant?: TaskDetailSurfa
   return (
     <div className="mt-4 space-y-2 text-sm">
       <div>
-        <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>路由原因</div>
+        <div className={`text-xs uppercase tracking-[0.18em] ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>分配原因</div>
         <p className={`mt-1 leading-6 ${isLine ? "text-zinc-300" : "text-zinc-400"}`}>
           {props.run.route_reason ?? "暂无路由说明"}
         </p>
         {props.run.routing_score !== null ? (
           <p className={`mt-1 text-xs ${isLine ? "text-zinc-600" : "text-zinc-500"}`}>
-            路由分数：{props.run.routing_score}
+            分配评分：{props.run.routing_score}
           </p>
         ) : null}
         {props.run.routing_score_breakdown.length > 0 ? (

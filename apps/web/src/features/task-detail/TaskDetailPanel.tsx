@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import type { StreamConnectionStatus } from "../events/types";
 import type { ConsoleBudget, ConsoleTask } from "../console/types";
@@ -111,6 +111,14 @@ export function TaskDetailPanel({
     ? executionAttempts > budget.max_task_retries
     : false;
   const canTriggerRetry = canRetry && !retryLimitReached;
+  const [activeSection, setActiveSection] = useState<"overview" | "runs" | "logs">(
+    requestedRunId ? "runs" : "overview",
+  );
+
+  const handleNavigateToLogs = (runId: string) => {
+    setSelectedRunId(runId);
+    setActiveSection("logs");
+  };
   const retryResult =
     retryMutation.data?.task_id === currentTaskId ? retryMutation.data : null;
   const pauseResult =
@@ -170,106 +178,137 @@ export function TaskDetailPanel({
       ) : detailQuery.isLoading && !detail ? (
         <TaskDetailLoadingState title={selectedTask.title} surfaceVariant={surfaceVariant} />
       ) : detail ? (
-        <div className="mt-4 space-y-4">
-          <TaskDetailBaseInfoCard detail={detail} surfaceVariant={surfaceVariant} />
+        <>
+          <div className="mt-4 flex gap-1 border-b border-[#333333] pb-0">
+            {(["overview", "runs", "logs"] as const).map((section) => (
+              <button
+                key={section}
+                type="button"
+                onClick={() => setActiveSection(section)}
+                className={`px-4 py-2.5 text-sm font-medium transition ${
+                  activeSection === section
+                    ? "border-b-2 border-zinc-300 text-zinc-100"
+                    : "border-b-2 border-transparent text-zinc-500 hover:text-zinc-200"
+                }`}
+              >
+                {{ overview: "概览", runs: "运行", logs: "日志" }[section]}
+              </button>
+            ))}
+          </div>
 
-          <TaskDetailRelatedDeliverablesSection
-            relatedDeliverables={relatedDeliverablesQuery.data}
-            isLoading={relatedDeliverablesQuery.isLoading}
-            isError={relatedDeliverablesQuery.isError}
-            errorMessage={relatedDeliverablesQuery.error?.message ?? ""}
-            surfaceVariant={surfaceVariant}
-            onNavigateToDeliverable={onNavigateToDeliverable}
-          />
+          {activeSection === "overview" ? (
+            <div className="mt-4 space-y-4">
+              <TaskDetailBaseInfoCard detail={detail} surfaceVariant={surfaceVariant} />
 
-          <TaskDetailContextPreviewSection
-            contextPreview={detail.context_preview}
-            surfaceVariant={surfaceVariant}
-          />
+              <TaskDetailActionsSection
+                taskId={detail.id}
+                status={detail.status}
+                budget={budget}
+                canPause={canPause}
+                canResume={canResume}
+                canRequestHuman={canRequestHuman}
+                canResolveHuman={canResolveHuman}
+                canRetry={canRetry}
+                canTriggerRetry={canTriggerRetry}
+                isActionPending={isActionPending}
+                executionAttempts={executionAttempts}
+                retriesUsed={retriesUsed}
+                retriesRemaining={retriesRemaining}
+                retryLimitReached={retryLimitReached}
+                isPausePending={pauseMutation.isPending}
+                isResumePending={resumeMutation.isPending}
+                isRequestHumanPending={requestHumanMutation.isPending}
+                isResolveHumanPending={resolveHumanMutation.isPending}
+                isRetryPending={retryMutation.isPending}
+                pauseResult={pauseResult}
+                resumeResult={resumeResult}
+                requestHumanResult={requestHumanResult}
+                resolveHumanResult={resolveHumanResult}
+                retryResult={retryResult}
+                pauseError={pauseError}
+                resumeError={resumeError}
+                requestHumanError={requestHumanError}
+                resolveHumanError={resolveHumanError}
+                retryError={retryError}
+                surfaceVariant={surfaceVariant}
+                onPause={(taskId) => pauseMutation.mutate(taskId)}
+                onResume={(taskId) => resumeMutation.mutate(taskId)}
+                onRequestHuman={(taskId) => requestHumanMutation.mutate(taskId)}
+                onResolveHuman={(taskId) => resolveHumanMutation.mutate(taskId)}
+                onRetry={(taskId) => retryMutation.mutate(taskId)}
+              />
 
-          <TaskDetailActionsSection
-            taskId={detail.id}
-            status={detail.status}
-            budget={budget}
-            canPause={canPause}
-            canResume={canResume}
-            canRequestHuman={canRequestHuman}
-            canResolveHuman={canResolveHuman}
-            canRetry={canRetry}
-            canTriggerRetry={canTriggerRetry}
-            isActionPending={isActionPending}
-            executionAttempts={executionAttempts}
-            retriesUsed={retriesUsed}
-            retriesRemaining={retriesRemaining}
-            retryLimitReached={retryLimitReached}
-            isPausePending={pauseMutation.isPending}
-            isResumePending={resumeMutation.isPending}
-            isRequestHumanPending={requestHumanMutation.isPending}
-            isResolveHumanPending={resolveHumanMutation.isPending}
-            isRetryPending={retryMutation.isPending}
-            pauseResult={pauseResult}
-            resumeResult={resumeResult}
-            requestHumanResult={requestHumanResult}
-            resolveHumanResult={resolveHumanResult}
-            retryResult={retryResult}
-            pauseError={pauseError}
-            resumeError={resumeError}
-            requestHumanError={requestHumanError}
-            resolveHumanError={resolveHumanError}
-            retryError={retryError}
-            surfaceVariant={surfaceVariant}
-            onPause={(taskId) => pauseMutation.mutate(taskId)}
-            onResume={(taskId) => resumeMutation.mutate(taskId)}
-            onRequestHuman={(taskId) => requestHumanMutation.mutate(taskId)}
-            onResolveHuman={(taskId) => resolveHumanMutation.mutate(taskId)}
-            onRetry={(taskId) => retryMutation.mutate(taskId)}
-          />
+              <TaskDetailRelatedDeliverablesSection
+                relatedDeliverables={relatedDeliverablesQuery.data}
+                isLoading={relatedDeliverablesQuery.isLoading}
+                isError={relatedDeliverablesQuery.isError}
+                errorMessage={relatedDeliverablesQuery.error?.message ?? ""}
+                surfaceVariant={surfaceVariant}
+                onNavigateToDeliverable={onNavigateToDeliverable}
+              />
 
-          <TaskDetailLatestRunCard
-            latestRun={detail.latest_run}
-            selectedRun={selectedRun}
-            surfaceVariant={surfaceVariant}
-            onSelectRun={setSelectedRunId}
-          />
+              <TaskDetailContextPreviewSection
+                contextPreview={detail.context_preview}
+                surfaceVariant={surfaceVariant}
+              />
+            </div>
+          ) : null}
 
-          <TaskDetailRuntimeContractSection
-            taskId={detail.id}
-            selectedRun={selectedRun}
-            runtimeFields={selectedRunRuntimeFields}
-            roleModelPolicyFields={selectedRunRoleModelPolicyFields}
-            hasRoleModelPolicyData={hasSelectedRunRoleModelPolicyData}
-            surfaceVariant={surfaceVariant}
-            onNavigateToRun={onNavigateToRun}
-            onNavigateToStrategyPreview={onNavigateToStrategyPreview}
-          />
+          {activeSection === "runs" ? (
+            <div className="mt-4 space-y-4">
+              <TaskDetailLatestRunCard
+                latestRun={detail.latest_run}
+                selectedRun={selectedRun}
+                surfaceVariant={surfaceVariant}
+                onSelectRun={setSelectedRunId}
+                onNavigateToLogs={handleNavigateToLogs}
+              />
 
-          <TaskDetailRunHistorySection
-            taskId={detail.id}
-            runs={detail.runs}
-            selectedRun={selectedRun}
-            surfaceVariant={surfaceVariant}
-            onSelectRun={setSelectedRunId}
-            onNavigateToRun={onNavigateToRun}
-          />
+              <TaskDetailRuntimeContractSection
+                taskId={detail.id}
+                selectedRun={selectedRun}
+                runtimeFields={selectedRunRuntimeFields}
+                roleModelPolicyFields={selectedRunRoleModelPolicyFields}
+                hasRoleModelPolicyData={hasSelectedRunRoleModelPolicyData}
+                surfaceVariant={surfaceVariant}
+                onNavigateToRun={onNavigateToRun}
+                onNavigateToStrategyPreview={onNavigateToStrategyPreview}
+              />
 
-          <DecisionHistoryPanel
-            taskId={currentTaskId}
-            history={decisionHistoryQuery.data ?? []}
-            isLoading={decisionHistoryQuery.isLoading && !decisionHistoryQuery.data}
-            errorMessage={decisionHistoryQuery.isError ? decisionHistoryQuery.error.message : null}
-            selectedRunId={selectedRun?.id ?? null}
-            surfaceVariant={surfaceVariant}
-            onSelectRun={setSelectedRunId}
-          />
+              <TaskDetailRunHistorySection
+                taskId={detail.id}
+                runs={detail.runs}
+                selectedRun={selectedRun}
+                surfaceVariant={surfaceVariant}
+                onSelectRun={setSelectedRunId}
+                onNavigateToRun={onNavigateToRun}
+                onNavigateToLogs={handleNavigateToLogs}
+              />
 
-          <RunLogPanel
-            panelId={runLogPanelId}
-            taskId={detail.id}
-            selectedRun={selectedRun}
-            surfaceVariant={surfaceVariant}
-            onNavigateToStrategyPreview={onNavigateToStrategyPreview}
-          />
-        </div>
+              <DecisionHistoryPanel
+                taskId={currentTaskId}
+                history={decisionHistoryQuery.data ?? []}
+                isLoading={decisionHistoryQuery.isLoading && !decisionHistoryQuery.data}
+                errorMessage={decisionHistoryQuery.isError ? decisionHistoryQuery.error.message : null}
+                selectedRunId={selectedRun?.id ?? null}
+                surfaceVariant={surfaceVariant}
+                onSelectRun={setSelectedRunId}
+              />
+            </div>
+          ) : null}
+
+          {activeSection === "logs" ? (
+            <div className="mt-4">
+              <RunLogPanel
+                panelId={runLogPanelId}
+                taskId={detail.id}
+                selectedRun={selectedRun}
+                surfaceVariant={surfaceVariant}
+                onNavigateToStrategyPreview={onNavigateToStrategyPreview}
+              />
+            </div>
+          ) : null}
+        </>
       ) : null}
     </section>
   );
