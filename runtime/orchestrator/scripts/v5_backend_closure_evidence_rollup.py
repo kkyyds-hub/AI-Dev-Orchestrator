@@ -30,7 +30,6 @@ def utc_now_iso() -> str:
 
 
 def _read_runtime_data_dir() -> Path:
-    """Resolve the effective RUNTIME_DATA_DIR."""
     env_val = os.environ.get("RUNTIME_DATA_DIR")
     if env_val:
         return Path(env_val).resolve()
@@ -38,13 +37,29 @@ def _read_runtime_data_dir() -> Path:
 
 
 def _read_json_file(path: Path) -> dict | None:
-    """Read a JSON file safely; return None on any error."""
     try:
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _read_json_file_list(path: Path) -> list[dict]:
+    """Read a directory of {uuid}.json files; return list of parsed dicts."""
+    try:
+        if not path.exists() or not path.is_dir():
+            return []
+        results: list[dict] = []
+        for f in sorted(path.iterdir()):
+            if f.suffix == ".json":
+                data = _read_json_file(f)
+                if isinstance(data, dict):
+                    data["_source_file"] = str(f.name)
+                    results.append(data)
+        return results
+    except Exception:
+        return []
 
 
 # -- Rollup builder ---------------------------------------------------------
@@ -75,14 +90,14 @@ def build_rollup() -> dict:
         from app.core.db import init_database, SessionLocal
     except Exception as exc:
         blockers.append(f"db_import_failed: {exc}")
-        return result
+        return _safety_check(result)
 
     try:
         init_database()
         evidence_sources.append("SQLite DB (via init_database)")
     except Exception as exc:
         blockers.append(f"db_init_failed: {exc}")
-        return result
+        return _safety_check(result)
 
     session = SessionLocal()
     try:
@@ -105,12 +120,6 @@ def build_rollup() -> dict:
         projects = proj_repo.list_all()
         evidence_sources.append("ProjectRepository.list_all()")
 
-        if not projects:
-            blockers.append("no_project: no projects exist in the runtime DB")
-            result["project_diagnostics"] = {"project_count": 0, "note": "No projects found."}
-        else:
-            result["project_diagnostics"]["project_count"] = len(projects)
-
         # --- Provider evidence -------------------------------------------
         provider_config_path = (
             runtime_data_dir / "provider-settings" / "openai-provider-config.json"
@@ -119,16 +128,73 @@ def build_rollup() -> dict:
         provider_configured = False
         provider_base_url = None
         if provider_config:
-            evidence_sources.append(str(provider_config_path.relative_to(RUNTIME_ROOT.parent)))
             api_key = provider_config.get("api_key") or ""
             provider_configured = bool(api_key and api_key.strip())
             provider_base_url = provider_config.get("base_url")
 
-        # Check env for API key as fallback
         env_key = os.environ.get("OPENAI_API_KEY") or ""
         if not provider_configured and env_key and env_key.strip():
             provider_configured = True
             evidence_sources.append("env:OPENAI_API_KEY")
+        if provider_config:
+            evidence_sources.append("file:provider-settings/openai-provider-config.json")
+
+        # --- Per-project aggregation -------------------------------------
+        total_tasks = 0
+        total_runs = 0
+        total_succeeded = 0
+        total_failed_blocked = 0
+        mode_counter: Counter = Counter()
+        provider_cache_reported = 0
+        provider_cache_not_reported = 0
+        provider_cache_missing = 0
+        provider_cache_read_tokens = 0
+        any_provider_receipt = False
+        any_budget_hard_stop = False
+        any_budget_project_control = False
+        any_workspace_bound = False
+        any_snapshot = False
+        any_git_write = False
+        any_change_batch = False
+        any_commit_candidate = False
+
+        diag_projects: list[dict] = []
+        release_gate_summaries: list[dict] = []
+        git_write_evidence: dict = {}
+        latest_commit_sha_value: str | None = None
+        evidence_files_read: list[str] = []
+
+        # Read release gate decision files
+        gate_dir = runtime_data_dir / "repository-release-gates"
+        gate_files = _read_json_file_list(gate_dir)
+        if gate_files:
+            evidence_sources.append("file:repository-release-gates/*.json")
+            evidence_files_read.append(str(gate_dir.relative_to(runtime_data_dir)))
+        release_gate_status = "unknown"
+        if gate_files:
+            any_approved = any(
+                any(d.get("action") == "approve" for d in g.get("decisions", []))
+                for g in gate_files
+            )
+            release_gate_status = "approved" if any_approved else "pending_or_rejected"
+        if not gate_files:
+            release_gate_status = "unknown"
+
+        # Read git write state files
+        git_write_dir = runtime_data_dir / "repository-git-writes"
+        git_write_files = _read_json_file_list(git_write_dir)
+        if git_write_files:
+            evidence_sources.append("file:repository-git-writes/*.json")
+            evidence_files_read.append(str(git_write_dir.relative_to(runtime_data_dir)))
+        for gw in git_write_files:
+            if gw.get("git_write_actions_triggered"):
+                any_git_write = True
+            git_commit_data = gw.get("git_commit", {})
+            if isinstance(git_commit_data, dict):
+                sha = git_commit_data.get("commit_sha")
+                if sha and sha != "unknown":
+                    latest_commit_sha_value = str(sha)
+            evidence_files_read.append(str(gw.get("_source_file", "")))
 
         result["provider"] = {
             "configured": provider_configured,
@@ -141,24 +207,6 @@ def build_rollup() -> dict:
                 "No live connectivity test is run by this script."
             ),
         }
-
-        # --- Per-project evidence ----------------------------------------
-        total_tasks = 0
-        total_runs = 0
-        total_succeeded = 0
-        total_failed_blocked = 0
-        mode_counter: Counter = Counter()
-        provider_cache_reported = 0
-        provider_cache_not_reported = 0
-        provider_cache_missing = 0
-        provider_cache_read_tokens = 0
-        any_budget_hard_stop = False
-        any_budget_project_control = False
-        any_workspace_bound = False
-        any_snapshot = False
-        any_git_write = False
-        any_change_batch = False
-        any_commit_candidate = False
 
         for project in projects:
             pid = project.id
@@ -185,11 +233,15 @@ def build_rollup() -> dict:
                 else:
                     provider_cache_missing += 1
 
-                # Check for real provider receipt
                 if run.provider_receipt_id:
-                    result["provider"]["real_run_receipt_exists"] = True
+                    any_provider_receipt = True
                 if cs == "provider_reported":
                     result["provider"]["cache_telemetry_visible"] = True
+                    result["provider"]["real_run_receipt_exists"] = True
+
+            # Project diagnostics via BCL-02 service
+            diag_entry = _build_project_diag(session, pid)
+            diag_projects.append(diag_entry)
 
             # Workspace
             ws = ws_repo.get_by_project_id(pid)
@@ -199,7 +251,6 @@ def build_rollup() -> dict:
                 if snap:
                     any_snapshot = True
 
-                # Git write tracking
                 cb_list = cb_repo.list_by_project_id(pid)
                 if cb_list:
                     any_change_batch = True
@@ -207,10 +258,6 @@ def build_rollup() -> dict:
                     cc = cc_repo.get_by_change_batch_id(cb.id)
                     if cc:
                         any_commit_candidate = True
-                    from app.services.git_write_state_tracker import has_git_write_actions_triggered
-                    if has_git_write_actions_triggered(cb.id):
-                        any_git_write = True
-                        break
 
             # Budget policy
             try:
@@ -230,7 +277,13 @@ def build_rollup() -> dict:
         evidence_sources.append("RunRepository.list_by_task_ids()")
         evidence_sources.append("RepositoryWorkspaceRepository / SnapshotRepository")
         evidence_sources.append("ChangeBatchRepository / CommitCandidateRepository")
-        evidence_sources.append("git_write_state_tracker.has_git_write_actions_triggered()")
+        evidence_sources.append("git_write_state_tracker")
+
+        # --- Project diagnostics output ----------------------------------
+        result["project_diagnostics"] = {
+            "project_count": len(projects),
+            "projects": diag_projects,
+        }
 
         # --- Worker / run evidence ---------------------------------------
         result["worker_runs"] = {
@@ -278,10 +331,7 @@ def build_rollup() -> dict:
                 if total_failed_blocked > 0
                 else "none"
             ),
-            "note": (
-                "Read from ProjectTable.budget_policy_json. "
-                "No live BudgetGuard evaluation is run."
-            ),
+            "note": "Read from ProjectTable.budget_policy_json. No live BudgetGuard evaluation.",
         }
 
         # --- Repository / git write evidence -----------------------------
@@ -291,23 +341,23 @@ def build_rollup() -> dict:
             "any_change_batch": any_change_batch,
             "any_commit_candidate": any_commit_candidate,
             "any_git_write_triggered": any_git_write,
-            "day15_flow_status": "unknown",
-            "release_gate_status": "unknown",
-            "note": (
-                "Read from RepositoryWorkspace, RepositorySnapshot, "
-                "ChangeBatch, CommitCandidate, and git_write_state_tracker. "
-                "Full release gate evaluation is not run."
-            ),
+            "release_gate_status": release_gate_status,
+            "git_write_actions_triggered": any_git_write,
+            "latest_commit_sha": latest_commit_sha_value,
+            "evidence_files_read": evidence_files_read,
+            "note": "Read from release-gate files, git-write files, DB repos.",
         }
 
         # --- Cost dashboard evidence -------------------------------------
         result["cost_dashboard"] = {
             "available": total_runs > 0,
             "provider_cache_available": provider_cache_reported > 0,
-            "missing_source": "legacy_or_replay" if mode_counter.get("missing", 0) > 0 else "none",
+            "missing_source": (
+                "legacy_or_replay" if mode_counter.get("missing", 0) > 0 else "none"
+            ),
         }
 
-        # --- Determine pass_ready / blockers -----------------------------
+        # --- Blockers ----------------------------------------------------
         if not projects:
             blockers.append("no_project: create at least one project")
         if not provider_configured:
@@ -318,35 +368,163 @@ def build_rollup() -> dict:
             blockers.append("snapshot_missing: refresh repository snapshot")
         if total_tasks == 0:
             blockers.append("no_tasks: create tasks via planning or manual")
+        if total_runs == 0:
+            blockers.append("no_runs: no runs have been executed")
+        else:
+            if total_succeeded == 0:
+                blockers.append("no_successful_run: no runs have succeeded")
+            if mode_counter.get("provider_reported", 0) == 0:
+                blockers.append(
+                    "no_provider_reported_run: no runs with provider_reported token accounting"
+                )
+        if not any_provider_receipt and total_runs > 0:
+            blockers.append(
+                "missing_provider_receipt: no run has a provider_receipt_id"
+            )
+        if projects and any(
+            d.get("overall_status") == "blocked" for d in diag_projects
+        ):
+            blockers.append(
+                "project_diagnostics_blocked: at least one project closure diagnostics shows blocked"
+            )
+
+        # Warnings
         if mode_counter.get("missing", 0) > 0:
             warnings.append(
                 f"{mode_counter['missing']} runs have missing token_accounting_mode "
                 "(legacy/replay/abnormal)"
             )
         if not any_git_write and any_change_batch:
-            warnings.append("git write not yet triggered despite change batches existing")
+            warnings.append(
+                "git write not yet triggered despite change batches existing"
+            )
+        if release_gate_status == "unknown" and any_change_batch:
+            warnings.append(
+                "release_gate_unknown: no release gate decision files found, "
+                "but change batches exist"
+            )
+        if any(cb_diag.get("overall_status") == "unknown" for cb_diag in diag_projects):
+            warnings.append(
+                "diagnostics_unavailable: project closure diagnostics could "
+                "not be evaluated for some projects"
+            )
 
-        # pass_ready: all critical evidence points are covered
+        # --- pass_ready --------------------------------------------------
         result["pass_ready"] = (
             len(projects) > 0
             and provider_configured
             and any_workspace_bound
             and any_snapshot
             and total_tasks > 0
+            and total_runs > 0
+            and total_succeeded > 0
             and mode_counter.get("provider_reported", 0) > 0
+            and any_provider_receipt
+            and not any(
+                d.get("overall_status") == "blocked" for d in diag_projects
+            )
+            and release_gate_status in ("approved",)
             and not blockers
         )
 
     finally:
         session.close()
 
-    evidence_sources.append("runtime_data_dir: provider-settings, repository-release-gates, repository-git-writes")
+    evidence_sources.append(
+        "runtime_data_dir: provider-settings, repository-release-gates, "
+        "repository-git-writes"
+    )
+    return _safety_check(result)
+
+
+def _build_project_diag(session, project_id: UUID) -> dict:
+    """Build one project diagnostics entry via BCL-02 service."""
+    try:
+        from app.services.project_closure_diagnostics_service import (
+            build_project_closure_diagnostics,
+            ProjectClosureDiagnosticsProjectNotFoundError,
+        )
+        from app.repositories.project_repository import ProjectRepository
+        from app.repositories.task_repository import TaskRepository
+        from app.repositories.run_repository import RunRepository
+        from app.repositories.repository_workspace_repository import (
+            RepositoryWorkspaceRepository,
+        )
+        from app.repositories.repository_snapshot_repository import (
+            RepositorySnapshotRepository,
+        )
+        from app.repositories.agent_session_repository import AgentSessionRepository
+        from app.repositories.approval_repository import ApprovalRepository
+        from app.repositories.change_batch_repository import ChangeBatchRepository
+        from app.repositories.commit_candidate_repository import CommitCandidateRepository
+        from app.services.provider_config_service import ProviderConfigService
+        from app.services.project_memory_service import ProjectMemoryService
+        from app.repositories.deliverable_repository import DeliverableRepository
+        from app.services.failure_review_service import FailureReviewService
+
+        result = build_project_closure_diagnostics(
+            project_id=project_id,
+            project_repository=ProjectRepository(session),
+            task_repository=TaskRepository(session),
+            run_repository=RunRepository(session),
+            workspace_repository=RepositoryWorkspaceRepository(session),
+            snapshot_repository=RepositorySnapshotRepository(session),
+            agent_session_repository=AgentSessionRepository(session),
+            approval_repository=ApprovalRepository(session),
+            change_batch_repository=ChangeBatchRepository(session),
+            commit_candidate_repository=CommitCandidateRepository(session),
+            provider_config_service=ProviderConfigService(),
+            project_memory_service=ProjectMemoryService(
+                task_repository=TaskRepository(session),
+                run_repository=RunRepository(session),
+                approval_repository=ApprovalRepository(session),
+                deliverable_repository=DeliverableRepository(session),
+                project_repository=ProjectRepository(session),
+                failure_review_service=FailureReviewService(
+                    run_repository=RunRepository(session),
+                    task_repository=TaskRepository(session),
+                ),
+            ),
+        )
+        return {
+            "project_id": str(result.project_id),
+            "overall_status": result.overall_status,
+            "blocking_reason_codes": result.blocking_reason_codes,
+            "next_actions": [
+                {"code": a.code, "label": a.label, "api": a.api}
+                for a in result.next_actions
+            ],
+        }
+    except ProjectClosureDiagnosticsProjectNotFoundError:
+        return {
+            "project_id": str(project_id),
+            "overall_status": "unknown",
+            "blocking_reason_codes": ["project_not_found"],
+            "next_actions": [],
+        }
+    except Exception as exc:
+        return {
+            "project_id": str(project_id),
+            "overall_status": "unknown",
+            "blocking_reason_codes": ["diagnostics_unavailable"],
+            "next_actions": [],
+            "error": str(exc),
+        }
+
+
+def _safety_check(result: dict) -> dict:
+    """Ensure pass_ready=false always has at least one blocker."""
+    if not result["pass_ready"] and not result["blockers"]:
+        result["blockers"].append(
+            "unknown_blocker: pass_ready is false but no explicit blocker "
+            "was identified"
+        )
     return result
 
 
 # -- Main -------------------------------------------------------------------
 
-def main() -> None:
+def main() -> dict:
     rollup = build_rollup()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_FILE.write_text(
@@ -368,6 +546,7 @@ def main() -> None:
         for w in warnings:
             print(f"  - {w}")
     print(f"evidence_sources: {len(rollup.get('evidence_sources', []))} entries")
+    return rollup
 
 
 if __name__ == "__main__":
