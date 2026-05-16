@@ -429,10 +429,16 @@ class LocalGitWriteService:
 
             # 9. Run verification
             verification = _run_verification_commands(batch, workspace_root)
+            verification_passed = bool(verification["passed"])
 
             # 10. Record apply state
+            #     Files are always written (best-effort), but the status
+            #     reflects whether verification passed so git_commit can gate.
+            apply_status = (
+                "applied" if verification_passed else "applied_with_failed_verification"
+            )
             result: dict[str, object] = {
-                "status": "applied",
+                "status": apply_status,
                 "change_batch_id": str(change_batch_id),
                 "applied_at": utc_now().isoformat(),
                 "changed_files": changed_files,
@@ -440,11 +446,13 @@ class LocalGitWriteService:
                     "added_files": diff["added"],
                     "modified_files": diff["modified"],
                 },
-                "verification_passed": verification["passed"],
+                "verification_passed": verification_passed,
                 "verification_results": verification["results"],
                 "log_path": str(log_path),
                 "error_category": None,
                 "error_summary": None,
+                "rollback_performed": False,
+                "rollback_reason": "Rollback not implemented in BCL-03 Phase 1.",
             }
             _save_git_write_state(change_batch_id, {
                 "apply_local": result,
@@ -463,6 +471,8 @@ class LocalGitWriteService:
                 "log_path": str(log_path),
                 "error_category": exc.category,
                 "error_summary": exc.message,
+                "rollback_performed": False,
+                "rollback_reason": "Rollback not implemented in BCL-03 Phase 1.",
             }
             _append_jsonl(log_path, error_result)
             return error_result
@@ -472,10 +482,10 @@ class LocalGitWriteService:
         *,
         change_batch_id: UUID,
     ) -> dict[str, object]:
-        """Stage all changes and create a local git commit.
+        """Stage only apply-local files and create a local git commit.
 
-        Requires a prior successful apply_local.
-        Returns: status, commit_sha, branch_name, changed_files, log_path, ...
+        Requires a prior apply_local with status=applied AND verification_passed=true.
+        Only stages files from apply_result.changed_files (not unrelated dirty files).
         """
         log_path = _resolve_git_write_state_path(change_batch_id).parent / "git-commit.jsonl"
 
@@ -488,10 +498,24 @@ class LocalGitWriteService:
                     message="apply-local must be called successfully before git-commit.",
                 )
             apply_result = prior_state.get("apply_local")
-            if not isinstance(apply_result, dict) or apply_result.get("status") != "applied":
+            if not isinstance(apply_result, dict):
                 raise LocalGitWriteError(
                     category="apply_not_done",
-                    message="apply-local must be completed successfully before git-commit.",
+                    message="apply-local result is missing or corrupted.",
+                )
+
+            apply_status = str(apply_result.get("status", ""))
+            verification_passed = bool(apply_result.get("verification_passed", False))
+
+            # Require apply status = "applied" (not "applied_with_failed_verification")
+            if apply_status != "applied":
+                raise LocalGitWriteError(
+                    category="apply_verification_failed",
+                    message=(
+                        f"apply-local status is '{apply_status}', "
+                        f"verification_passed={verification_passed}. "
+                        "Commit is blocked until verification passes."
+                    ),
                 )
 
             # 1. Load change batch
@@ -534,22 +558,35 @@ class LocalGitWriteService:
                 self._commit_candidate_repository, change_batch_id
             )
 
-            # 6. Git status / changed files
-            branch = _get_current_branch(workspace_root)
-            status_output = _git_status_short(workspace_root)
-            changed_files = apply_result.get("changed_files")
-            if isinstance(changed_files, list):
-                changed_files_list = [str(f) for f in changed_files]
+            # 6. Get changed files from apply, re-validate every path
+            changed_files_raw = apply_result.get("changed_files")
+            if isinstance(changed_files_raw, list):
+                changed_files_list = [str(f) for f in changed_files_raw]
             else:
                 changed_files_list = []
 
-            # 7. Stage changes
-            exit_code, stdout, stderr = _run_git("add", "--all", cwd=workspace_root)
-            if exit_code != 0:
+            if not changed_files_list:
                 raise LocalGitWriteError(
-                    category="git_add_failed",
-                    message=f"git add failed: {stderr}",
+                    category="no_changes_to_commit",
+                    message="apply-local changed_files is empty; nothing to commit.",
                 )
+
+            # Re-validate every changed file path against the workspace
+            for rel_path in changed_files_list:
+                _validate_and_resolve_file_path(rel_path, workspace_root)
+
+            # 7. Stage ONLY the apply-local changed_files (not unrelated dirty files)
+            branch = _get_current_branch(workspace_root)
+
+            for rel_path in changed_files_list:
+                exit_code, _stdout, stderr = _run_git(
+                    "add", "--", rel_path, cwd=workspace_root
+                )
+                if exit_code != 0:
+                    raise LocalGitWriteError(
+                        category="git_add_failed",
+                        message=f"git add {rel_path} failed: {stderr}",
+                    )
 
             # 8. Get commit message from candidate
             versions = candidate.versions
@@ -563,8 +600,8 @@ class LocalGitWriteService:
             else:
                 message = "Apply local changes (BCL-03)"
 
-            # 9. Create commit
-            exit_code, stdout, stderr = _run_git(
+            # 9. Create commit (only previously-staged files are included)
+            exit_code, _stdout, stderr = _run_git(
                 "commit", "-m", message, cwd=workspace_root, timeout=60
             )
             if exit_code != 0:

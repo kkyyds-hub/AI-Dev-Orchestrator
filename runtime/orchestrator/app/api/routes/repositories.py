@@ -2626,6 +2626,7 @@ class ApplyLocalResponse(BaseModel):
     changed_files: list[str] = Field(default_factory=list)
     diff_summary: dict[str, list[str]] = Field(default_factory=dict)
     verification_passed: bool = False
+    rollback_performed: bool = False
     log_path: str
     error_category: str | None = None
     error_summary: str | None = None
@@ -2677,6 +2678,7 @@ def apply_local_changes(
         changed_files=result.get("changed_files", []) or [],
         diff_summary=result.get("diff_summary", {}) or {},
         verification_passed=bool(result.get("verification_passed", False)),
+        rollback_performed=bool(result.get("rollback_performed", False)),
         log_path=str(result.get("log_path", "")),
         error_category=result.get("error_category"),
         error_summary=result.get("error_summary"),
