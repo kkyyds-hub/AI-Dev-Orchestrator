@@ -150,6 +150,10 @@ class TokenAccountingService:
             total_tokens=normalized_receipt.total_tokens,
             estimated_cost_usd=normalized_receipt.estimated_cost_usd,
             pricing_source=normalized_receipt.pricing_source,
+            cache_read_tokens=normalized_receipt.cache_read_tokens,
+            cache_write_tokens=normalized_receipt.cache_write_tokens,
+            cache_hit=normalized_receipt.cache_hit,
+            cache_source=normalized_receipt.cache_source,
         )
 
     def _build_provider_mock_snapshot(
@@ -189,6 +193,10 @@ class TokenAccountingService:
             total_tokens=normalized_receipt.total_tokens,
             estimated_cost_usd=normalized_receipt.estimated_cost_usd,
             pricing_source=normalized_receipt.pricing_source,
+            cache_read_tokens=normalized_receipt.cache_read_tokens,
+            cache_write_tokens=normalized_receipt.cache_write_tokens,
+            cache_hit=normalized_receipt.cache_hit,
+            cache_source=normalized_receipt.cache_source,
         )
 
     def _normalize_provider_usage_receipt(

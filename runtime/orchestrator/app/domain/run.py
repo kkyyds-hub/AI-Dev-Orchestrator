@@ -147,6 +147,10 @@ class Run(DomainModel):
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     estimated_cost: float = Field(default=0.0, ge=0.0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    cache_hit: bool = False
+    cache_source: str | None = Field(default=None, max_length=40)
     log_path: str | None = Field(default=None, max_length=500)
     verification_mode: str | None = Field(default=None, max_length=100)
     verification_template: str | None = Field(default=None, max_length=100)

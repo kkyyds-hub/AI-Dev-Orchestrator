@@ -50,6 +50,10 @@ _RUN_TABLE_COLUMN_UPGRADES = {
     "verification_summary": "ALTER TABLE runs ADD COLUMN verification_summary TEXT",
     "failure_category": "ALTER TABLE runs ADD COLUMN failure_category TEXT",
     "quality_gate_passed": "ALTER TABLE runs ADD COLUMN quality_gate_passed INTEGER",
+    "cache_read_tokens": "ALTER TABLE runs ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
+    "cache_write_tokens": "ALTER TABLE runs ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0",
+    "cache_hit": "ALTER TABLE runs ADD COLUMN cache_hit INTEGER NOT NULL DEFAULT 0",
+    "cache_source": "ALTER TABLE runs ADD COLUMN cache_source VARCHAR(40)",
 }
 
 _PROJECT_TABLE_COLUMN_UPGRADES = {

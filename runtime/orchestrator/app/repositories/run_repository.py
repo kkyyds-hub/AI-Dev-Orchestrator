@@ -306,6 +306,10 @@ class RunRepository:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         estimated_cost: float = 0.0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        cache_hit: bool = False,
+        cache_source: str | None = None,
         verification_mode: str | None = None,
         verification_template: str | None = None,
         verification_command: str | None = None,
@@ -332,6 +336,10 @@ class RunRepository:
         run_row.prompt_tokens = prompt_tokens
         run_row.completion_tokens = completion_tokens
         run_row.estimated_cost = estimated_cost
+        run_row.cache_read_tokens = cache_read_tokens
+        run_row.cache_write_tokens = cache_write_tokens
+        run_row.cache_hit = cache_hit
+        run_row.cache_source = cache_source
         run_row.verification_mode = verification_mode
         run_row.verification_template = verification_template
         run_row.verification_command = verification_command
@@ -459,6 +467,10 @@ class RunRepository:
             prompt_tokens=run_row.prompt_tokens,
             completion_tokens=run_row.completion_tokens,
             estimated_cost=run_row.estimated_cost,
+            cache_read_tokens=run_row.cache_read_tokens,
+            cache_write_tokens=run_row.cache_write_tokens,
+            cache_hit=run_row.cache_hit,
+            cache_source=run_row.cache_source,
             log_path=run_row.log_path,
             verification_mode=run_row.verification_mode,
             verification_template=run_row.verification_template,

@@ -122,6 +122,13 @@ class ProviderUsageReceipt(DomainModel):
     total_tokens: int = Field(ge=0)
     estimated_cost_usd: float = Field(ge=0.0)
     pricing_source: str = Field(min_length=1, max_length=100)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    cache_hit: bool = False
+    cache_source: str = Field(
+        default="not_reported",
+        description="provider_reported | not_reported | heuristic | missing",
+    )
 
     @field_validator("provider_key", "model_name", "receipt_id", "pricing_source")
     @classmethod
@@ -156,6 +163,13 @@ class TokenAccountingSnapshot(DomainModel):
     total_tokens: int = Field(ge=0)
     estimated_cost_usd: float = Field(ge=0.0)
     pricing_source: str = Field(min_length=1, max_length=100)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    cache_hit: bool = False
+    cache_source: str = Field(
+        default="not_reported",
+        description="provider_reported | not_reported | heuristic | missing",
+    )
 
     @field_validator("provider_receipt_id", "pricing_source")
     @classmethod

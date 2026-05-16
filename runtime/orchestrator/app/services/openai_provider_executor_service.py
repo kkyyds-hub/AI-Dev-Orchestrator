@@ -246,6 +246,10 @@ class OpenAIProviderExecutorService:
         prompt_tokens = usage["prompt_tokens"]
         completion_tokens = usage["completion_tokens"]
         total_tokens = usage["total_tokens"]
+        cache_read_tokens = usage.get("cache_read_tokens", 0)
+        cache_write_tokens = usage.get("cache_write_tokens", 0)
+        cache_hit_flag = usage.get("cache_hit", 0)
+        cache_provider_reported = bool(usage.get("cache_provider_reported", False))
 
         receipt_id = str(
             response_payload.get("id") or f"openai-{api_family}-{task.id.hex[:12]}"
@@ -265,6 +269,12 @@ class OpenAIProviderExecutorService:
             total_tokens=total_tokens,
             estimated_cost_usd=0.0,
             pricing_source=pricing_source,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            cache_hit=bool(cache_hit_flag),
+            cache_source=(
+                "provider_reported" if cache_provider_reported else "not_reported"
+            ),
         )
 
         summary = (
@@ -562,11 +572,18 @@ class OpenAIProviderExecutorService:
 
     @staticmethod
     def _extract_usage(payload: dict[str, Any], *, api_family: str) -> dict[str, int]:
-        """Extract usage fields while tolerating missing usage payloads."""
+        """Extract usage fields while tolerating missing usage payloads.
+
+        Also extracts cache telemetry when the provider reports it.
+        """
 
         usage_payload = payload.get("usage")
         if not isinstance(usage_payload, dict):
-            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            return {
+                "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+                "cache_read_tokens": 0, "cache_write_tokens": 0,
+                "cache_hit": 0, "cache_provider_reported": False,
+            }
 
         if api_family == "chat_completions":
             prompt_tokens = OpenAIProviderExecutorService._read_int_from_usage(
@@ -588,10 +605,46 @@ class OpenAIProviderExecutorService:
         if total_tokens <= 0:
             total_tokens = prompt_tokens + completion_tokens
 
+        # Extract cache telemetry from provider usage response.
+        # OpenAI shape (chat_completions):
+        #   usage.prompt_tokens_details.cached_tokens
+        #   usage.prompt_tokens_details.cache_read_input_tokens (newer API)
+        # Fall back to 0 if not present.
+        cache_read_tokens = 0
+        cache_hit_flag = 0
+        cache_provider_reported = False
+
+        prompt_details = usage_payload.get("prompt_tokens_details")
+        if isinstance(prompt_details, dict):
+            cached_tokens = prompt_details.get("cached_tokens")
+            if isinstance(cached_tokens, (int, float)):
+                cache_read_tokens = int(cached_tokens)
+                cache_provider_reported = True
+            # Some providers may use cache_read_input_tokens
+            if cache_read_tokens == 0:
+                alt_cached = prompt_details.get("cache_read_input_tokens")
+                if isinstance(alt_cached, (int, float)):
+                    cache_read_tokens = int(alt_cached)
+                    cache_provider_reported = True
+
+        # Also check top-level cache_* keys (non-OpenAI compat gateways)
+        if not cache_provider_reported:
+            alt_cache = usage_payload.get("cache_read_input_tokens")
+            if isinstance(alt_cache, (int, float)):
+                cache_read_tokens = int(alt_cache)
+                cache_provider_reported = True
+
+        if cache_read_tokens > 0:
+            cache_hit_flag = 1
+
         return {
             "prompt_tokens": max(0, prompt_tokens),
             "completion_tokens": max(0, completion_tokens),
             "total_tokens": max(0, total_tokens),
+            "cache_read_tokens": max(0, cache_read_tokens),
+            "cache_write_tokens": 0,
+            "cache_hit": cache_hit_flag,
+            "cache_provider_reported": cache_provider_reported,
         }
 
     @staticmethod

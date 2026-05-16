@@ -652,6 +652,19 @@ class ProjectCostDashboardFallbackContractResponse(BaseModel):
     fallback_reason: str
 
 
+class ProjectCostDashboardProviderCacheResponse(BaseModel):
+    """BCL-05 provider cache telemetry aggregation."""
+
+    supported: bool = Field(default=False)
+    reported_run_count: int = Field(default=0)
+    not_reported_run_count: int = Field(default=0)
+    cache_hit_run_count: int = Field(default=0)
+    cache_read_tokens: int = Field(default=0)
+    cache_write_tokens: int = Field(default=0)
+    estimated_cache_savings_usd: float = Field(default=0.0)
+    cache_source_breakdown: dict[str, int] = Field(default_factory=dict)
+
+
 class ProjectCostDashboardSnapshotResponse(BaseModel):
     """Day14 minimal cost/cache aggregation snapshot."""
 
@@ -671,6 +684,9 @@ class ProjectCostDashboardSnapshotResponse(BaseModel):
     role_breakdown: list[ProjectCostDashboardRoleBreakdownResponse]
     thread_breakdown: list[ProjectCostDashboardThreadBreakdownResponse]
     cache_summary: ProjectCostDashboardCacheSummaryResponse
+    provider_cache: ProjectCostDashboardProviderCacheResponse = Field(
+        default_factory=ProjectCostDashboardProviderCacheResponse
+    )
     fallback_contract: ProjectCostDashboardFallbackContractResponse
     budget_policy_source: str = Field(
         default="not_configured",
@@ -2074,6 +2090,49 @@ def get_project_cost_dashboard_snapshot(
     except Exception:
         budget_policy_source = "not_configured"
 
+    # BCL-05: provider_cache telemetry aggregation
+    provider_cache_reported = 0
+    provider_cache_not_reported = 0
+    provider_cache_hit_count = 0
+    provider_cache_read_tokens = 0
+    provider_cache_write_tokens = 0
+    provider_cache_source_breakdown: dict[str, int] = {}
+    provider_cache_supported = False
+
+    for run in runs:
+        cs = getattr(run, "cache_source", None)
+        if cs == "provider_reported":
+            provider_cache_reported += 1
+            provider_cache_supported = True
+            provider_cache_read_tokens += getattr(run, "cache_read_tokens", 0) or 0
+            provider_cache_write_tokens += getattr(run, "cache_write_tokens", 0) or 0
+            if getattr(run, "cache_hit", False):
+                provider_cache_hit_count += 1
+        elif cs == "not_reported":
+            provider_cache_not_reported += 1
+        else:
+            # missing / None / other — do not count as reported
+            provider_cache_not_reported += 1
+
+        breakdown_key = cs or "missing"
+        provider_cache_source_breakdown[breakdown_key] = (
+            provider_cache_source_breakdown.get(breakdown_key, 0) + 1
+        )
+
+    # Simple savings estimate: $0.06 per 1000 cached read tokens (very rough)
+    estimated_cache_savings = round(provider_cache_read_tokens * 0.00006, 6)
+
+    provider_cache = ProjectCostDashboardProviderCacheResponse(
+        supported=provider_cache_supported,
+        reported_run_count=provider_cache_reported,
+        not_reported_run_count=provider_cache_not_reported,
+        cache_hit_run_count=provider_cache_hit_count,
+        cache_read_tokens=provider_cache_read_tokens,
+        cache_write_tokens=provider_cache_write_tokens,
+        estimated_cache_savings_usd=estimated_cache_savings,
+        cache_source_breakdown=provider_cache_source_breakdown,
+    )
+
     return ProjectCostDashboardSnapshotResponse(
         project_id=project.id,
         project_name=project.name,
@@ -2092,6 +2151,7 @@ def get_project_cost_dashboard_snapshot(
         mode_breakdown=mode_breakdown,
         role_breakdown=role_breakdown,
         thread_breakdown=thread_breakdown,
+        provider_cache=provider_cache,
         cache_summary=ProjectCostDashboardCacheSummaryResponse(
             total_memories=total_memories,
             memory_type_counts=memory_type_counts,
