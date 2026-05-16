@@ -359,6 +359,11 @@ def main() -> None:
                         "PLANE_STAR_WARS_PROVIDER_TIMEOUT_SECONDS", "5"
                     )
                 ),
+                **(
+                    {"model_preset": os.environ["PLANE_STAR_WARS_PROVIDER_MODEL_PRESET"]}
+                    if os.environ.get("PLANE_STAR_WARS_PROVIDER_MODEL_PRESET")
+                    else {}
+                ),
             },
         )
 

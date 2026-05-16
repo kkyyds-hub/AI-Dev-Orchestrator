@@ -145,6 +145,10 @@ def main() -> int:
     e2e_env["PLANE_STAR_WARS_PROVIDER_API_KEY"] = real_api_key
     e2e_env["PLANE_STAR_WARS_PROVIDER_BASE_URL"] = real_base_url
     e2e_env["PLANE_STAR_WARS_PROVIDER_TIMEOUT_SECONDS"] = timeout_str
+    e2e_env["PLANE_STAR_WARS_PROVIDER_MODEL_PRESET"] = real_config.get(
+        "model_preset",
+        "deepseek" if "deepseek" in real_base_url.lower() else "openai",
+    )
     e2e_result = _run_python_script(
         _E2E_SMOKE,
         env=e2e_env,
