@@ -25,11 +25,11 @@
 
 **裁定：Partial — 实现级闭环通过，当前运行证据未达总 Pass。**
 
-- 实现级：BCL-01 ~ BCL-08 所有 8 个缺口实现已完成，各 smoke 全部通过，账实一致。
-- 运行证据级：rollup pass_ready=false，4 个 blocker 均为运行环境配置/数据缺失，非实现缺陷。
+- 实现级：BCL-01 ~ BCL-06 与 BCL-08 实现级通过（各 smoke 均通过）；BCL-07 按台账决策暂不单独实施，状态为 Deferred / P2，不计入本轮实现 Pass。
+- 运行证据级：rollup pass_ready=false。其中 provider_not_configured、repository_not_bound、release_gate_unknown 属于运行环境配置/数据缺失；diagnostics_unavailable 属于 rollup 诊断聚合适配问题（_build_project_diag 中 FailureReviewService 构造参数不匹配）。
 
 **不得宣布"后端真实闭环已完全通过"**。当前最多可以宣布：
-> "BCL-01 ~ BCL-08 实现级闭环已完成并验证通过；当前运行环境缺少 provider 配置与 repository 绑定，导致运行证据级闭环保真未闭合。"
+> "BCL-01 ~ BCL-06 与 BCL-08 实现级闭环已完成并验证通过；BCL-07 Deferred/P2 本轮未实施；当前运行环境缺少 provider 配置与 repository 绑定，且 rollup 诊断聚合存在 FailureReviewService 参数适配问题，导致运行证据级闭环保真未闭合。"
 
 ---
 
@@ -58,10 +58,10 @@
 |---|---------|------|------|
 | 1 | `provider_not_configured` | 运行环境缺配置 | 当前 runtime DB 中 openai-provider-config.json 无有效 api_key，且无 OPENAI_API_KEY 环境变量 |
 | 2 | `repository_not_bound` | 运行环境缺数据 | 113 个项目中无一绑定 RepositoryWorkspace |
-| 3 | `diagnostics_unavailable` | 运行环境兼容性问题 | BCL-02 closure-diagnostics 调用 `FailureReviewService` 时构造函数参数不匹配（`run_repository` vs 预期参数），导致所有 113 个 project diagnostics 均为 unknown |
+| 3 | `diagnostics_unavailable` | rollup 诊断聚合适配问题 | rollup 中 `_build_project_diag()` 构造 `FailureReviewService` 的 `run_repository=` 参数与当前 `FailureReviewService.__init__()` 签名不匹配，导致所有 113 个 project diagnostics 均为 unknown |
 | 4 | `release_gate_unknown` | 运行环境缺数据 | 无 release gate 决策文件，无 git write state 文件 |
 
-**注意**：这 4 个 blocker 全部是**当前运行环境**的配置/数据/兼容性缺失，不是 BCL-01 ~ BCL-08 实现本身的逻辑缺陷。
+**注意**：provider_not_configured、repository_not_bound、release_gate_unknown 属于运行环境配置/数据缺失；diagnostics_unavailable 属于 rollup 诊断聚合适配问题（脚本级依赖构造问题）。
 
 ---
 
@@ -82,9 +82,10 @@
 | BCL-04 | Pass（返工 + category 返工） | 6/6 passed | **Pass** | BudgetGuard 项目预算硬阻断已实现，部分项目有 budget_policy（soft） |
 | BCL-05 | Pass（返工） | 8/8 passed | **Pass** | Provider cache telemetry 已实现，旧 run 因 cache_source 列为 NULL 全归 missing |
 | BCL-06 | Pass | 3/3 passed | **Pass** | legacy_missing 产品化完成 |
+| BCL-07 | Deferred / P2 / 优先不单独做 | N/A | **Not implemented by design / Deferred** | 台账中列为 P2 增强型闭环；BCL-02 diagnostics 已覆盖主要 next_actions，bootstrap/fresh project flow 本轮未实施 |
 | BCL-08 | Pass（返工 + receipt/gate 返工） | 9/9 passed | **Pass** | Rollup 脚本可正常运行，正确输出 blockers |
 
-**全部 BCL-01 ~ BCL-08 实现级结论：Pass（均已通过 smoke 验证）。**
+**BCL-01 ~ BCL-06 与 BCL-08 实现级结论：Pass（已实施 BCL 的 smoke 均通过）；BCL-07 Deferred / P2，本轮未实施。**
 
 ---
 
@@ -97,7 +98,7 @@
 5. Provider cache telemetry（BCL-05）：cache_read/write_tokens + cache_hit + source + cost dashboard + smoke
 6. Missing 产品化（BCL-06）：legacy_missing 口径 + missing_source_breakdown + smoke
 7. Closure evidence rollup（BCL-08）：只读聚合脚本 + pass_ready/blockers + smoke
-8. 台账第 10 节进度记录完整（BCL-01 ~ BCL-08 共 18 行记录，含所有返工）
+8. 台账第 10 节进度记录完整（BCL-01 ~ BCL-08 含所有返工，BCL-07 标注 Deferred）
 
 ---
 
@@ -106,7 +107,7 @@
 1. **运行环境级闭环保真不可放行**：缺少 provider 配置、repository 绑定、release gate 决策文件，rollup pass_ready=false
 2. **BCL-02 diagnostics 在真实 DB 上的可用性**：`FailureReviewService.__init__()` 构造函数参数与 `_build_project_diag()` 中传入的 `run_repository=` 不匹配，需修复 rollup 脚本中的调用或 FailureReviewService 构造函数
 3. **BCL-03 git write E2E**：smoke 中 gate monkeypatched，真实 gate approved → apply-local → git-commit 的完整 E2E 链路未在运行环境中验证
-4. **BCL-07 fresh project repository flow 引导**：台账中列为 P2，本次未实现
+4. **BCL-07 fresh project repository flow 引导**：台账中列为 P2 / Deferred，本轮未实施
 5. **整体里程碑级 Pass**：需运行环境至少有一个完整闭环链（provider configured → repository bound → snapshot → tasks → provider_reported run → git commit），当前不满足
 
 ---
@@ -140,5 +141,5 @@
 - 本次 gate 裁定 **不是整个 V5 产品总 Pass**。
 - 本次 gate 裁定 **仅针对"后端真实闭环补齐阶段"（BCL-01 ~ BCL-08）的实现级闭环**。
 - `pass_ready=false` 因运行环境配置缺失，**不能包装为总 Pass**。
-- BCL-01 ~ BCL-08 的 18 次 smoke 全部通过证明了实现级正确性，但**不能替代运行环境真实 E2E 验证**。
+- 已实施 BCL 的 smoke 均通过，证明了实现级正确性，但**不能替代运行环境真实 E2E 验证**。
 - 前端、V5 其他阶段、整体产品验收不在本次裁定范围内。
