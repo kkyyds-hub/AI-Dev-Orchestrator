@@ -822,7 +822,7 @@ https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git
 | 2026-05-16 | BCL-03 | `02370b9` | smoke 4/4 passed; compileall clean | Pass（初版，需返工） | 新增 POST apply-local + git-commit；接入 workspace/gate/preflight/commit_candidate 完整 guard chain；安全校验：路径穿越/.git/workspace 边界；git_write_actions_triggered 动态追踪；不做 push/PR |
 | 2026-05-16 | BCL-03 返工 | `afed0c3` | smoke 7/7 passed; compileall clean | Pass（返工） | 返工修复：1) git add --all → git add -- <apply.changed_files>，禁止提交无关脏文件；2) verification 失败时 status=applied_with_failed_verification，git_commit 被 apply_verification_failed 阻断；3) 新增 preflight/candidate/verification-fail/dirty-file 4 个 smoke 场景；4) 失败记录含 rollback_performed=false |
 | 2026-05-16 | BCL-03 index 返工 | `8346a93` | smoke 8/8 passed; compileall clean | Pass（返工） | 返工修复：1) git_commit 前执行 git reset -- . 清空 index，防止预先 staged 的无关文件被提交；2) 新增 git diff --cached --name-only 精确校验，staged 与 changed_files 不一致时返回 staged_files_mismatch 阻断；3) smoke 新增 pre-staged unrelated file 场景 |
-| 2026-05-16 | BCL-04 | `c133e64` | smoke 6/6 passed; compileall clean | Pass | BudgetGuard 消费项目 budget_policy：hard_stop_enabled 时 project daily_budget_usd 覆盖默认值；evaluate_before_execution 新增 project_id 参数；cost dashboard 返回 budget_policy_source；worker run-once 传递 project_id；默认行为不受影响 |
+| 2026-05-16 | BCL-04 | `de09e6b` | smoke 6/6 passed; compileall clean | Pass | BudgetGuard 消费项目 budget_policy：hard_stop_enabled 时 project daily_budget_usd 覆盖默认值；evaluate_before_execution 新增 project_id 参数；cost dashboard 返回 budget_policy_source；worker run-once 传递 project_id；默认行为不受影响 |
 
 ---
 
