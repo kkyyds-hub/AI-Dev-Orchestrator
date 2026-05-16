@@ -222,7 +222,7 @@ def _build_next_actions(
             ClosureDiagnosticsNextAction(
                 code="bind_repository",
                 label="绑定代码仓库",
-                api="POST /repositories/projects/{project_id}/bind",
+                api=f"PUT /repositories/projects/{project_id}",
             )
         )
 
@@ -238,9 +238,9 @@ def _build_next_actions(
     if task_count == 0:
         actions.append(
             ClosureDiagnosticsNextAction(
-                code="apply_sop_plan",
-                label="应用 SOP 计划生成任务",
-                api=f"POST /projects/{project_id}/apply-plan-draft",
+                code="create_plan_draft",
+                label="生成规划草案",
+                api="POST /planning/drafts",
             )
         )
 

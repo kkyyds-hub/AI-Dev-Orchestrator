@@ -103,6 +103,39 @@ def _assert_action_codes_contain(diag: dict[str, object], *expected: str) -> Non
         )
 
 
+# Only these API paths are known to exist in the current codebase.
+_VALID_API_PATHS = frozenset({
+    "PUT /provider-settings/openai",
+    "POST /provider-settings/openai/test",
+    "POST /planning/drafts",
+})
+
+
+def _assert_actions_have_real_api_paths(
+    diag: dict[str, object], *, project_id: str
+) -> None:
+    """Every next_action.api must reference a real backend endpoint.
+
+    `bind_repository` uses PUT /repositories/projects/{project_id} which is
+    validated separately because it embeds the project id.
+    """
+    actions: list[dict[str, object]] = diag.get("next_actions", [])  # type: ignore[assignment]
+    for action in actions:
+        code = action["code"]
+        api = str(action["api"])
+
+        if code == "bind_repository":
+            expected = f"PUT /repositories/projects/{project_id}"
+            assert api == expected, (
+                f"bind_repository api expected {expected}, got {api}"
+            )
+            continue
+
+        assert api in _VALID_API_PATHS, (
+            f"next_action {code} has unrecognized api path: {api}"
+        )
+
+
 # -- Test scenarios ------------------------------------------------------
 
 def test_project_not_found_returns_404(client: TestClient) -> None:
@@ -164,12 +197,15 @@ def test_fresh_project_returns_blocked(client: TestClient) -> None:
 
     # Next actions
     _assert_action_codes_contain(
-        diag, "configure_provider", "test_provider", "bind_repository", "apply_sop_plan"
+        diag, "configure_provider", "test_provider", "bind_repository", "create_plan_draft"
     )
     for action in diag["next_actions"]:
         assert isinstance(action["code"], str) and action["code"]
         assert isinstance(action["label"], str) and action["label"]
         assert isinstance(action["api"], str) and action["api"]
+
+    # Every next_action.api must be a real backend endpoint
+    _assert_actions_have_real_api_paths(diag, project_id=str(project_id))
 
     print("PASS test_fresh_project_returns_blocked")
 
@@ -379,6 +415,7 @@ def test_partial_config_with_real_counts(client: TestClient) -> None:
 
     # Actions
     _assert_action_codes_contain(diag, "test_provider", "bind_repository")
+    _assert_actions_have_real_api_paths(diag, project_id=str(project_id))
 
     print("PASS test_partial_config_with_real_counts")
 
