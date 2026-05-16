@@ -817,7 +817,7 @@ https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git
 | 2026-05-16 | BCL-01 | `4a5bb9e` | smoke 5/5 passed; app loads | Pass | 新增 POST /provider-settings/openai/test；复用 ProviderConfigService + OpenAIProviderExecutorService；5 场景 smoke 通过 |
 | 2026-05-16 | BCL-01 返工 | `8814bfe` | smoke 8/8 passed; compileall clean | Pass（返工） | 返工修复：1) test_connectivity() 增加 _extract_output_text() 内容校验，HTTP 200+非OpenAI JSON 不可误判 passed；2) smoke 补 monkeypatch 模拟 responses/chat_completions 成功场景并断言 passed shape；3) 错误分类测试改用 mock 精确断言 auth_error/endpoint_not_supported/network_error/invalid_response；4) 清理未使用 import（json/ProviderConfigService） |
 | 2026-05-16 | BCL-02 | `4a9386f` | smoke 3/3 passed; compileall clean | Pass（初版，需返工） | 新增 GET /projects/{project_id}/closure-diagnostics 只读诊断接口；聚合 provider/repository/task_runtime/governance 状态并返回 blocking_reason_codes + next_actions；复用现有 repository/service，不产生副作用 |
-| 2026-05-16 | BCL-02 返工 | `acda9af` | smoke 6/6 passed; compileall clean | Pass（返工） | 返工修复：1) day15_flow_status 改为 not_available（不伪造 project.stage）；2) overall_status 修正为 blocking_reason_codes 优先 blocked；3) 新增 provider_not_tested 阻塞码；4) smoke 扩至 6 场景覆盖 404/fresh/provider-not-tested/tasks-blocked/completed-blocked/partial-config |
+| 2026-05-16 | BCL-02 返工 | `f443e80` | smoke 6/6 passed; compileall clean | Pass（返工） | 返工修复：1) day15_flow_status 改为 not_available（不伪造 project.stage）；2) overall_status 修正为 blocking_reason_codes 优先 blocked；3) 新增 provider_not_tested 阻塞码；4) smoke 扩至 6 场景覆盖 404/fresh/provider-not-tested/tasks-blocked/completed-blocked/partial-config |
 
 ---
 
