@@ -2058,6 +2058,7 @@ def get_project_cost_dashboard_snapshot(
     )
 
     # Determine budget_policy_source from project's Team Control configuration.
+    # Only project_team_control when hard_stop_enabled=true (aligned with BudgetGuard).
     budget_policy_source = "not_configured"
     try:
         from app.core.db_tables import ProjectTable
@@ -2066,10 +2067,10 @@ def get_project_cost_dashboard_snapshot(
         if proj_row is not None and proj_row.budget_policy_json:
             raw = _json_inner.loads(proj_row.budget_policy_json)
             if isinstance(raw, dict) and raw and raw != {}:
-                if raw.get("hard_stop_enabled") or raw.get("daily_budget_usd", 0) > 0:
+                if raw.get("hard_stop_enabled"):
                     budget_policy_source = "project_team_control"
                 else:
-                    budget_policy_source = "default_budget_guard"
+                    budget_policy_source = "project_team_control_soft"
     except Exception:
         budget_policy_source = "not_configured"
 

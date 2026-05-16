@@ -26,6 +26,9 @@ _CRITICAL_USAGE_RATIO = 0.85
 _BUDGET_POLICY_SOURCE_PROJECT = "project_team_control"
 _BUDGET_POLICY_SOURCE_DEFAULT = "default_budget_guard"
 _BUDGET_POLICY_SOURCE_NONE = "not_configured"
+_BUDGET_POLICY_SOURCE_PROJECT_SOFT = "project_team_control_soft"
+
+_DEFAULT_ESTIMATED_RUN_COST_USD = 0.01
 
 
 @dataclass(slots=True, frozen=True)
@@ -75,6 +78,8 @@ class BudgetSnapshot:
     budget_blocked_runs_daily: int
     budget_blocked_runs_session: int
     budget_policy_source: str = _BUDGET_POLICY_SOURCE_DEFAULT
+    per_run_budget_usd: float = 0.0
+    estimated_run_cost_usd: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -177,8 +182,8 @@ class BudgetGuardService:
             daily_usd = float(policy_dict.get("daily_budget_usd", 0) or 0)
             per_run_usd = float(policy_dict.get("per_run_budget_usd", 0) or 0)
             source = (
-                _BUDGET_POLICY_SOURCE_PROJECT if hard_stop or daily_usd > 0
-                else _BUDGET_POLICY_SOURCE_DEFAULT
+                _BUDGET_POLICY_SOURCE_PROJECT if hard_stop
+                else _BUDGET_POLICY_SOURCE_PROJECT_SOFT
             )
             return _ProjectBudgetPolicy(
                 hard_stop_enabled=hard_stop,
@@ -201,12 +206,14 @@ class BudgetGuardService:
         task_id: UUID,
         *,
         project_id: UUID | None = None,
+        estimated_run_cost_usd: float = _DEFAULT_ESTIMATED_RUN_COST_USD,
     ) -> BudgetGuardDecision:
         """Return whether one task is allowed to continue into execution.
 
         Args:
             task_id: The task being evaluated.
             project_id: Optional project scope for reading Team Control budget_policy.
+            estimated_run_cost_usd: Estimated cost for this run (default $0.01).
         """
 
         # Load project budget policy if available
@@ -219,13 +226,21 @@ class BudgetGuardService:
             else _BUDGET_POLICY_SOURCE_NONE
         )
 
+        # Per-run project budget check (only when hard_stop is enabled).
+        per_run_budget = (
+            project_policy.per_run_budget_usd
+            if project_policy is not None and project_policy.hard_stop_enabled
+            else 0.0
+        )
+        effective_estimated_run_cost = estimated_run_cost_usd
+
         retry_status = self.build_retry_status(task_id)
 
         # Compute budget with project-level overrides when hard_stop is enabled.
         budget_snapshot = self.build_budget_snapshot(
             project_policy=project_policy if project_policy is not None and project_policy.hard_stop_enabled else None,
         )
-        # Stamp the source regardless of hard_stop.
+        # Stamp the source and per-run fields.
         budget_snapshot = BudgetSnapshot(
             daily_budget_usd=budget_snapshot.daily_budget_usd,
             daily_cost_used=budget_snapshot.daily_cost_used,
@@ -249,9 +264,46 @@ class BudgetGuardService:
             budget_blocked_runs_daily=budget_snapshot.budget_blocked_runs_daily,
             budget_blocked_runs_session=budget_snapshot.budget_blocked_runs_session,
             budget_policy_source=policy_source,
+            per_run_budget_usd=per_run_budget,
+            estimated_run_cost_usd=effective_estimated_run_cost,
         )
 
         if retry_status.retry_limit_reached:
+            return BudgetGuardDecision(
+                allowed=False,
+                summary=(
+                    "Budget guard blocked execution because the task exceeded the retry "
+                    f"limit. Max retries: {retry_status.max_task_retries}; "
+                    f"recorded execution attempts: {retry_status.execution_attempts}."
+                ),
+                failure_category=RunFailureCategory.RETRY_LIMIT_EXCEEDED,
+                pressure_level=budget_snapshot.pressure_level,
+                suggested_action=RunBudgetStrategyAction.BLOCK,
+                strategy_code="bg-retry-limit",
+                budget=budget_snapshot,
+                retry_status=retry_status,
+                budget_policy_source=policy_source,
+            )
+
+        # Per-run project budget check (before daily/session budget check).
+        if per_run_budget > 0 and effective_estimated_run_cost > per_run_budget:
+            return BudgetGuardDecision(
+                allowed=False,
+                summary=(
+                    f"Budget guard blocked execution because estimated run cost "
+                    f"(${effective_estimated_run_cost:.6f}) exceeds project per-run "
+                    f"budget (${per_run_budget:.6f})."
+                ),
+                failure_category=RunFailureCategory.DAILY_BUDGET_EXCEEDED,
+                pressure_level=RunBudgetPressureLevel.BLOCKED,
+                suggested_action=RunBudgetStrategyAction.BLOCK,
+                strategy_code="bg-project-per-run-budget",
+                budget=budget_snapshot,
+                retry_status=retry_status,
+                budget_policy_source=policy_source,
+            )
+
+        if budget_snapshot.pressure_level == RunBudgetPressureLevel.BLOCKED:
             return BudgetGuardDecision(
                 allowed=False,
                 summary=(
@@ -483,6 +535,12 @@ class BudgetGuardService:
                 project_policy.source if project_policy is not None
                 else _BUDGET_POLICY_SOURCE_DEFAULT
             ),
+            per_run_budget_usd=(
+                project_policy.per_run_budget_usd
+                if project_policy is not None and project_policy.hard_stop_enabled
+                else 0.0
+            ),
+            estimated_run_cost_usd=_DEFAULT_ESTIMATED_RUN_COST_USD,
         )
 
     def build_retry_status(self, task_id: UUID) -> RetryStatus:
