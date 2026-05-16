@@ -658,6 +658,7 @@ class ProjectCostDashboardProviderCacheResponse(BaseModel):
     supported: bool = Field(default=False)
     reported_run_count: int = Field(default=0)
     not_reported_run_count: int = Field(default=0)
+    missing_run_count: int = Field(default=0)
     cache_hit_run_count: int = Field(default=0)
     cache_read_tokens: int = Field(default=0)
     cache_write_tokens: int = Field(default=0)
@@ -2093,6 +2094,7 @@ def get_project_cost_dashboard_snapshot(
     # BCL-05: provider_cache telemetry aggregation
     provider_cache_reported = 0
     provider_cache_not_reported = 0
+    provider_cache_missing = 0
     provider_cache_hit_count = 0
     provider_cache_read_tokens = 0
     provider_cache_write_tokens = 0
@@ -2111,8 +2113,8 @@ def get_project_cost_dashboard_snapshot(
         elif cs == "not_reported":
             provider_cache_not_reported += 1
         else:
-            # missing / None / other — do not count as reported
-            provider_cache_not_reported += 1
+            # None, "missing", or unknown → missing
+            provider_cache_missing += 1
 
         breakdown_key = cs or "missing"
         provider_cache_source_breakdown[breakdown_key] = (
@@ -2126,6 +2128,7 @@ def get_project_cost_dashboard_snapshot(
         supported=provider_cache_supported,
         reported_run_count=provider_cache_reported,
         not_reported_run_count=provider_cache_not_reported,
+        missing_run_count=provider_cache_missing,
         cache_hit_run_count=provider_cache_hit_count,
         cache_read_tokens=provider_cache_read_tokens,
         cache_write_tokens=provider_cache_write_tokens,

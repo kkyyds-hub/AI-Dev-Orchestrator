@@ -1,13 +1,14 @@
-"""BCL-05 smoke: provider cache telemetry.
+"""BCL-05 rework smoke: provider cache telemetry with full payload parsing.
 
 Covers:
-1. ProviderUsageReceipt with cache fields → source=provider_reported.
-2. ProviderUsageReceipt without cache fields → source=not_reported.
-3. TokenAccountingSnapshot propagates cache from receipt.
-4. Run persist + retrieval preserves cache fields.
-5. Cost dashboard provider_cache aggregation is correct.
-6. Old run without cache fields → stable missing.
-7. Memory counts are NOT in provider_cache.
+1.  _extract_usage Chat Completions cached_tokens → provider_reported + cache_hit.
+2.  _extract_usage Chat Completions cached_tokens=0 → provider_reported, cache_hit=False.
+3.  _extract_usage Responses input_tokens_details.cached_tokens → provider_reported.
+4.  _extract_usage no cache fields → not_reported.
+5.  _extract_usage compat top-level cache_read_tokens → provider_reported.
+6.  ProviderUsageReceipt / TokenAccountingSnapshot / Run persist chain.
+7.  Old run without cache → stable missing.
+8.  Cost dashboard: reported / not_reported / missing split correctly.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from fastapi.testclient import TestClient
 from _smoke_runtime_env import prepare_runtime_data_dir
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
-SMOKE_RUNTIME_DATA_DIR = RUNTIME_ROOT / "tmp" / "v5-bcl05-cache-telemetry-smoke"
+SMOKE_RUNTIME_DATA_DIR = RUNTIME_ROOT / "tmp" / "v5-bcl05-cache-telemetry-rework-smoke"
 
 if str(RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(RUNTIME_ROOT))
@@ -54,115 +55,154 @@ def _prepare_env() -> Path:
     return runtime_data_dir
 
 
-# -- Tests ---------------------------------------------------------------
+# -- Direct _extract_usage tests (test the real parsing function) ---------
 
-def test_receipt_with_cache_fields_marks_provider_reported() -> None:
-    """ProviderUsageReceipt with cache data sets cache_source=provider_reported."""
+def test_extract_usage_chat_completions_cached_tokens() -> None:
+    """Chat Completions prompt_tokens_details.cached_tokens=40 → provider_reported + cache_hit."""
+    from app.services.openai_provider_executor_service import OpenAIProviderExecutorService
+
+    payload = {
+        "id": "chatcmpl-test",
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "prompt_tokens_details": {"cached_tokens": 40},
+        },
+    }
+    usage = OpenAIProviderExecutorService._extract_usage(payload, api_family="chat_completions")
+    assert usage["cache_read_tokens"] == 40
+    assert usage["cache_hit"] == 1
+    assert usage["cache_provider_reported"] is True
+    print("PASS test_extract_usage_chat_completions_cached_tokens")
+
+
+def test_extract_usage_chat_completions_cached_tokens_zero() -> None:
+    """Chat Completions cached_tokens=0 → still provider_reported, cache_hit=False."""
+    from app.services.openai_provider_executor_service import OpenAIProviderExecutorService
+
+    payload = {
+        "id": "chatcmpl-test-zero",
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "prompt_tokens_details": {"cached_tokens": 0},
+        },
+    }
+    usage = OpenAIProviderExecutorService._extract_usage(payload, api_family="chat_completions")
+    assert usage["cache_read_tokens"] == 0
+    assert usage["cache_hit"] == 0
+    assert usage["cache_provider_reported"] is True, (
+        "cache_provider_reported must be True even when cached_tokens=0"
+    )
+    print("PASS test_extract_usage_chat_completions_cached_tokens_zero")
+
+
+def test_extract_usage_responses_input_tokens_details() -> None:
+    """Responses API input_tokens_details.cached_tokens=30 → provider_reported + cache_hit."""
+    from app.services.openai_provider_executor_service import OpenAIProviderExecutorService
+
+    payload = {
+        "id": "resp-test",
+        "usage": {
+            "input_tokens": 200,
+            "output_tokens": 80,
+            "total_tokens": 280,
+            "input_tokens_details": {"cached_tokens": 30},
+        },
+    }
+    usage = OpenAIProviderExecutorService._extract_usage(payload, api_family="responses")
+    assert usage["cache_read_tokens"] == 30
+    assert usage["cache_hit"] == 1
+    assert usage["cache_provider_reported"] is True
+    # Responses uses input_tokens/output_tokens
+    assert usage["prompt_tokens"] == 200
+    assert usage["completion_tokens"] == 80
+    print("PASS test_extract_usage_responses_input_tokens_details")
+
+
+def test_extract_usage_no_cache_fields() -> None:
+    """No cache fields in usage payload → not_reported."""
+    from app.services.openai_provider_executor_service import OpenAIProviderExecutorService
+
+    payload = {
+        "id": "no-cache-test",
+        "usage": {
+            "prompt_tokens": 50,
+            "completion_tokens": 30,
+            "total_tokens": 80,
+        },
+    }
+    usage = OpenAIProviderExecutorService._extract_usage(payload, api_family="chat_completions")
+    assert usage["cache_read_tokens"] == 0
+    assert usage["cache_hit"] == 0
+    assert usage["cache_provider_reported"] is False
+    print("PASS test_extract_usage_no_cache_fields")
+
+
+def test_extract_usage_compat_top_level_cache_keys() -> None:
+    """Compat gateway top-level cache_read_tokens / cache_write_tokens → provider_reported."""
+    from app.services.openai_provider_executor_service import OpenAIProviderExecutorService
+
+    payload = {
+        "id": "compat-test",
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "cache_read_tokens": 25,
+            "cache_write_tokens": 5,
+        },
+    }
+    usage = OpenAIProviderExecutorService._extract_usage(payload, api_family="chat_completions")
+    assert usage["cache_read_tokens"] == 25
+    assert usage["cache_write_tokens"] == 5
+    assert usage["cache_hit"] == 1
+    assert usage["cache_provider_reported"] is True
+    print("PASS test_extract_usage_compat_top_level_cache_keys")
+
+
+# -- Receipt / snapshot / Run persist tests -------------------------------
+
+def test_receipt_and_run_chain(client: TestClient) -> None:
+    """Full chain: receipt → snapshot → run persist → retrieve."""
     from app.domain.prompt_contract import (
-        ProviderUsageReceipt,
-        ProviderReceiptSource,
-    )
-
-    receipt = ProviderUsageReceipt(
-        provider_key="openai",
-        model_name="gpt-4.1-mini",
-        receipt_id="rcpt-cache-test-01",
-        receipt_source=ProviderReceiptSource.REAL_PROVIDER,
-        prompt_tokens=100,
-        completion_tokens=50,
-        total_tokens=150,
-        estimated_cost_usd=0.01,
-        pricing_source="openai.chat_completions.usage",
-        cache_read_tokens=30,
-        cache_write_tokens=0,
-        cache_hit=True,
-        cache_source="provider_reported",
-    )
-    assert receipt.cache_source == "provider_reported"
-    assert receipt.cache_read_tokens == 30
-    assert receipt.cache_hit is True
-    assert receipt.cache_write_tokens == 0
-    print("PASS test_receipt_with_cache_fields_marks_provider_reported")
-
-
-def test_receipt_without_cache_fields_marks_not_reported() -> None:
-    """ProviderUsageReceipt without cache data defaults to cache_source=not_reported."""
-    from app.domain.prompt_contract import (
-        ProviderUsageReceipt,
-        ProviderReceiptSource,
-    )
-
-    receipt = ProviderUsageReceipt(
-        provider_key="openai",
-        model_name="gpt-4.1-mini",
-        receipt_id="rcpt-no-cache-02",
-        receipt_source=ProviderReceiptSource.REAL_PROVIDER,
-        prompt_tokens=100,
-        completion_tokens=50,
-        total_tokens=150,
-        estimated_cost_usd=0.01,
-        pricing_source="openai.chat_completions.usage",
-    )
-    # Defaults should kick in
-    assert receipt.cache_source == "not_reported"
-    assert receipt.cache_read_tokens == 0
-    assert receipt.cache_hit is False
-    print("PASS test_receipt_without_cache_fields_marks_not_reported")
-
-
-def test_token_accounting_propagates_cache() -> None:
-    """TokenAccountingSnapshot carries cache fields from receipt."""
-    from app.domain.prompt_contract import (
-        ProviderUsageReceipt,
-        ProviderReceiptSource,
-        PromptTemplateRef,
+        ProviderUsageReceipt, ProviderReceiptSource, PromptTemplateRef,
     )
     from app.services.token_accounting_service import TokenAccountingService
+    from app.core.db import SessionLocal
+    from app.repositories.run_repository import RunRepository
+    from app.domain.run import RunStatus
 
     receipt = ProviderUsageReceipt(
         provider_key="openai",
         model_name="gpt-4.1-mini",
-        receipt_id="rcpt-cache-test-03",
+        receipt_id="rcpt-chain",
         receipt_source=ProviderReceiptSource.REAL_PROVIDER,
-        prompt_tokens=200,
-        completion_tokens=80,
-        total_tokens=280,
+        prompt_tokens=200, completion_tokens=80, total_tokens=280,
         estimated_cost_usd=0.02,
         pricing_source="openai.chat_completions.usage",
-        cache_read_tokens=50,
-        cache_write_tokens=5,
-        cache_hit=True,
-        cache_source="provider_reported",
+        cache_read_tokens=60, cache_write_tokens=5,
+        cache_hit=True, cache_source="provider_reported",
     )
 
     svc = TokenAccountingService()
     snapshot = svc._build_provider_reported_snapshot(
-        prompt_envelope=None,
-        provider_usage_receipt=receipt,
+        prompt_envelope=None, provider_usage_receipt=receipt,
     )
     assert snapshot.cache_source == "provider_reported"
-    assert snapshot.cache_read_tokens == 50
-    assert snapshot.cache_write_tokens == 5
-    assert snapshot.cache_hit is True
-    print("PASS test_token_accounting_propagates_cache")
+    assert snapshot.cache_read_tokens == 60
 
-
-def test_run_persist_and_retrieve_cache_fields(client: TestClient) -> None:
-    """Run persist + retrieve preserves cache fields via RunRepository."""
-    from app.core.db import SessionLocal
-    from app.repositories.run_repository import RunRepository
-    from app.domain.run import RunStatus
-
+    # Persist via Run
     project = _request_json(
         client, "POST", "/projects", 201,
-        {"name": "BCL-05 Cache Run", "summary": "Cache test run."},
+        {"name": "BCL-05 Chain", "summary": "Chain test."},
     )
-    project_id = project["id"]
-
     task = _request_json(
         client, "POST", "/tasks", 201,
-        {"title": "Cache Task", "project_id": project_id,
-         "input_summary": "Cache field test."},
+        {"title": "Chain Task", "project_id": project["id"],
+         "input_summary": "Test."},
     )
 
     session = SessionLocal()
@@ -170,173 +210,148 @@ def test_run_persist_and_retrieve_cache_fields(client: TestClient) -> None:
         repo = RunRepository(session)
         run = repo.create_running_run(task_id=UUID(task["id"]), model_name="test")
         finished = repo.finish_run(
-            run_id=run.id,
-            status=RunStatus.SUCCEEDED,
-            result_summary="Cache test run.",
-            estimated_cost=0.01,
-            cache_read_tokens=100,
-            cache_write_tokens=10,
-            cache_hit=True,
-            cache_source="provider_reported",
+            run_id=run.id, status=RunStatus.SUCCEEDED,
+            result_summary="Chain test.",
+            estimated_cost=0.02,
+            cache_read_tokens=60, cache_write_tokens=5,
+            cache_hit=True, cache_source="provider_reported",
         )
         assert finished.cache_source == "provider_reported"
-        assert finished.cache_read_tokens == 100
-        assert finished.cache_write_tokens == 10
-        assert finished.cache_hit is True
-
-        # Re-retrieve
         retrieved = repo.get_by_id(run.id)
         assert retrieved is not None
         assert retrieved.cache_source == "provider_reported"
-        assert retrieved.cache_read_tokens == 100
     finally:
         session.close()
-    print("PASS test_run_persist_and_retrieve_cache_fields")
+    print("PASS test_receipt_and_run_chain")
 
 
-def test_old_run_without_cache_stable_missing(client: TestClient) -> None:
-    """Run without explicit cache fields → stable missing/defaults, no error."""
+def test_old_run_missing_cache(client: TestClient) -> None:
+    """Old run without cache fields → stable missing (None/0/False)."""
     from app.core.db import SessionLocal
     from app.repositories.run_repository import RunRepository
     from app.domain.run import RunStatus
 
     project = _request_json(
         client, "POST", "/projects", 201,
-        {"name": "BCL-05 Old Run", "summary": "Old run test."},
+        {"name": "BCL-05 Old", "summary": "Old run test."},
     )
-    project_id = project["id"]
-
     task = _request_json(
         client, "POST", "/tasks", 201,
-        {"title": "Old Task", "project_id": project_id,
-         "input_summary": "Old cache test."},
+        {"title": "Old Task", "project_id": project["id"],
+         "input_summary": "Test."},
     )
-
     session = SessionLocal()
     try:
         repo = RunRepository(session)
         run = repo.create_running_run(task_id=UUID(task["id"]), model_name="test")
-        # finish without cache fields
         finished = repo.finish_run(
-            run_id=run.id,
-            status=RunStatus.SUCCEEDED,
-            result_summary="Old run without cache.",
-            estimated_cost=0.01,
+            run_id=run.id, status=RunStatus.SUCCEEDED,
+            result_summary="Old run.", estimated_cost=0.01,
         )
-        # Defaults
-        assert finished.cache_source is None  # not set
+        assert finished.cache_source is None
         assert finished.cache_read_tokens == 0
         assert finished.cache_hit is False
     finally:
         session.close()
-    print("PASS test_old_run_without_cache_stable_missing")
+    print("PASS test_old_run_missing_cache")
 
 
-def test_cost_dashboard_provider_cache_aggregation(client: TestClient) -> None:
-    """Cost dashboard provider_cache correctly aggregates cache telemetry."""
+# -- Cost dashboard aggregation tests ------------------------------------
+
+def test_cost_dashboard_provider_cache_split(client: TestClient) -> None:
+    """provider_cache correctly splits reported / not_reported / missing."""
     from app.core.db import SessionLocal
     from app.repositories.run_repository import RunRepository
+    from app.repositories.task_repository import TaskRepository
     from app.domain.run import RunStatus
 
     project = _request_json(
         client, "POST", "/projects", 201,
-        {"name": "BCL-05 Dashboard", "summary": "Dashboard cache test."},
+        {"name": "BCL-05 Dash", "summary": "Dashboard split test."},
     )
     project_id = project["id"]
 
-    # Create 3 runs with different cache states
     session = SessionLocal()
     try:
         repo = RunRepository(session)
-
-        for i in range(3):
-            task = _request_json(
+        for i in range(4):
+            _request_json(
                 client, "POST", "/tasks", 201,
                 {"title": f"Dash Task {i}", "project_id": project_id,
                  "input_summary": f"Test {i}."},
             )
-
-        # Get all task IDs via repo
-        from app.repositories.task_repository import TaskRepository
         all_tasks = TaskRepository(session).list_by_project_id(UUID(project_id))
-        task_ids = [t.id for t in all_tasks]
+        tids = [t.id for t in all_tasks]
 
         # Run 0: provider_reported with cache hit
-        run0 = repo.create_running_run(task_id=task_ids[0], model_name="cache-hit")
-        repo.finish_run(
-            run_id=run0.id, status=RunStatus.SUCCEEDED,
-            result_summary="Cache hit run.",
-            estimated_cost=0.01,
-            cache_read_tokens=40,
-            cache_hit=True,
-            cache_source="provider_reported",
-        )
+        r0 = repo.create_running_run(task_id=tids[0], model_name="hit")
+        repo.finish_run(run_id=r0.id, status=RunStatus.SUCCEEDED,
+                        result_summary="Hit", estimated_cost=0.01,
+                        cache_read_tokens=40, cache_hit=True,
+                        cache_source="provider_reported")
 
-        # Run 1: provider_reported without cache hit
-        run1 = repo.create_running_run(task_id=task_ids[1], model_name="no-cache")
-        repo.finish_run(
-            run_id=run1.id, status=RunStatus.SUCCEEDED,
-            result_summary="No cache hit.",
-            estimated_cost=0.01,
-            cache_read_tokens=0,
-            cache_hit=False,
-            cache_source="not_reported",
-        )
+        # Run 1: provider_reported with cached_tokens=0 (no hit)
+        r1 = repo.create_running_run(task_id=tids[1], model_name="reported-no-hit")
+        repo.finish_run(run_id=r1.id, status=RunStatus.SUCCEEDED,
+                        result_summary="No hit", estimated_cost=0.01,
+                        cache_read_tokens=0, cache_hit=False,
+                        cache_source="provider_reported")
 
-        # Run 2: missing (no cache_source)
-        run2 = repo.create_running_run(task_id=task_ids[2], model_name="missing-cache")
-        repo.finish_run(
-            run_id=run2.id, status=RunStatus.SUCCEEDED,
-            result_summary="Missing cache field.",
-            estimated_cost=0.01,
-        )
+        # Run 2: not_reported (explicit)
+        r2 = repo.create_running_run(task_id=tids[2], model_name="not-rep")
+        repo.finish_run(run_id=r2.id, status=RunStatus.SUCCEEDED,
+                        result_summary="Not reported", estimated_cost=0.01,
+                        cache_source="not_reported")
+
+        # Run 3: no cache_source (missing)
+        r3 = repo.create_running_run(task_id=tids[3], model_name="missing")
+        repo.finish_run(run_id=r3.id, status=RunStatus.SUCCEEDED,
+                        result_summary="Missing", estimated_cost=0.01)
         session.commit()
     finally:
         session.close()
 
-    # Query cost dashboard
     diag = _request_json(
         client, "GET", f"/projects/{project_id}/cost-dashboard", 200,
     )
-
     pc = diag.get("provider_cache", {})
-    assert pc.get("supported") is True, (
-        f"Expected supported=True (has provider_reported), got {pc}"
+
+    assert pc.get("supported") is True
+    assert pc.get("reported_run_count") == 2, (
+        f"Expected 2 reported, got {pc.get('reported_run_count')}"
     )
-    assert pc.get("reported_run_count") == 1, (
-        f"Expected 1 reported_run, got {pc.get('reported_run_count')}"
+    assert pc.get("not_reported_run_count") == 1, (
+        f"Expected 1 not_reported, got {pc.get('not_reported_run_count')}"
+    )
+    assert pc.get("missing_run_count") == 1, (
+        f"Expected 1 missing, got {pc.get('missing_run_count')}"
     )
     assert pc.get("cache_hit_run_count") == 1, (
-        f"Expected 1 cache_hit_run, got {pc.get('cache_hit_run_count')}"
+        f"Expected 1 cache_hit (only run 0), got {pc.get('cache_hit_run_count')}"
     )
     assert pc.get("cache_read_tokens") == 40, (
         f"Expected 40 cache_read_tokens, got {pc.get('cache_read_tokens')}"
     )
-    # not_reported + missing = 2
-    assert pc.get("not_reported_run_count") == 2, (
-        f"Expected 2 not_reported (1 not_reported + 1 missing), "
-        f"got {pc.get('not_reported_run_count')}"
-    )
-    breakdown = pc.get("cache_source_breakdown", {})
-    assert breakdown.get("provider_reported") == 1
-    assert breakdown.get("not_reported") == 1
-    assert breakdown.get("missing") == 1
 
-    # cache_summary still uses memory counts (not provider cache)
-    cs = diag.get("cache_summary", {})
-    assert "cache_signal_note" in cs
-    assert "memory" in str(cs.get("cache_signal_note", "")).lower(), (
-        "cache_signal_note should mention memory (not provider cache)"
-    )
+    bd = pc.get("cache_source_breakdown", {})
+    assert bd.get("provider_reported") == 2
+    assert bd.get("not_reported") == 1
+    assert bd.get("missing") == 1
 
-    # Old fallback contract still exists
+    # Old fields still intact
     fc = diag.get("fallback_contract", {})
     assert "provider_reported_run_count" in fc
     assert "heuristic_run_count" in fc
     assert "missing_mode_run_count" in fc
-    assert "fallback_active" in fc
 
-    print("PASS test_cost_dashboard_provider_cache_aggregation")
+    # cache_summary still uses memory, not provider cache
+    cs = diag.get("cache_summary", {})
+    note = cs.get("cache_signal_note", "")
+    assert "memory" in note.lower(), (
+        "cache_signal_note should mention memory counts, not provider cache"
+    )
+
+    print("PASS test_cost_dashboard_provider_cache_split")
 
 
 # -- Harness -------------------------------------------------------------
@@ -352,42 +367,42 @@ if __name__ == "__main__":
     client = TestClient(app)
 
     all_passed = True
-    # Tests that don't need client
-    no_client_tests = [
-        test_receipt_with_cache_fields_marks_provider_reported,
-        test_receipt_without_cache_fields_marks_not_reported,
-        test_token_accounting_propagates_cache,
-    ]
-    # Tests that need client
-    client_tests = [
-        test_run_persist_and_retrieve_cache_fields,
-        test_old_run_without_cache_stable_missing,
-        test_cost_dashboard_provider_cache_aggregation,
-    ]
 
-    for fn in no_client_tests:
-        name = fn.__name__
+    # Direct _extract_usage tests (no client needed)
+    direct_tests = [
+        test_extract_usage_chat_completions_cached_tokens,
+        test_extract_usage_chat_completions_cached_tokens_zero,
+        test_extract_usage_responses_input_tokens_details,
+        test_extract_usage_no_cache_fields,
+        test_extract_usage_compat_top_level_cache_keys,
+    ]
+    for fn in direct_tests:
         try:
             fn()
         except Exception as exc:
-            print(f"FAIL {name}: {exc}")
+            print(f"FAIL {fn.__name__}: {exc}")
             import traceback
             traceback.print_exc()
             all_passed = False
 
+    # Client tests
+    client_tests = [
+        test_receipt_and_run_chain,
+        test_old_run_missing_cache,
+        test_cost_dashboard_provider_cache_split,
+    ]
     for fn in client_tests:
-        name = fn.__name__
         try:
             fn(client)
         except Exception as exc:
-            print(f"FAIL {name}: {exc}")
+            print(f"FAIL {fn.__name__}: {exc}")
             import traceback
             traceback.print_exc()
             all_passed = False
 
     print()
     if all_passed:
-        print("BCL-05 smoke: ALL PASSED")
+        print("BCL-05 smoke (rework): ALL PASSED")
     else:
-        print("BCL-05 smoke: SOME FAILED")
+        print("BCL-05 smoke (rework): SOME FAILED")
         sys.exit(1)

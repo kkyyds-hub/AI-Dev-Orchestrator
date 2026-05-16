@@ -606,43 +606,66 @@ class OpenAIProviderExecutorService:
             total_tokens = prompt_tokens + completion_tokens
 
         # Extract cache telemetry from provider usage response.
-        # OpenAI shape (chat_completions):
-        #   usage.prompt_tokens_details.cached_tokens
-        #   usage.prompt_tokens_details.cache_read_input_tokens (newer API)
-        # Fall back to 0 if not present.
+        # Covers:
+        #   Chat Completions:  usage.prompt_tokens_details.{cached_tokens, cache_read_input_tokens, cache_write_input_tokens}
+        #   Responses:         usage.input_tokens_details.{cached_tokens, cache_read_input_tokens, cache_write_input_tokens}
+        #   Compat gateways:   usage.{cached_tokens, cache_read_input_tokens, cache_write_input_tokens, cache_read_tokens, cache_write_tokens}
         cache_read_tokens = 0
-        cache_hit_flag = 0
+        cache_write_tokens = 0
         cache_provider_reported = False
 
-        prompt_details = usage_payload.get("prompt_tokens_details")
-        if isinstance(prompt_details, dict):
-            cached_tokens = prompt_details.get("cached_tokens")
-            if isinstance(cached_tokens, (int, float)):
-                cache_read_tokens = int(cached_tokens)
-                cache_provider_reported = True
-            # Some providers may use cache_read_input_tokens
-            if cache_read_tokens == 0:
-                alt_cached = prompt_details.get("cache_read_input_tokens")
-                if isinstance(alt_cached, (int, float)):
-                    cache_read_tokens = int(alt_cached)
-                    cache_provider_reported = True
+        # Helper: try to read cache ints from a details dict.
+        def _try_details(details: object) -> bool:
+            nonlocal cache_read_tokens, cache_write_tokens, cache_provider_reported
+            if not isinstance(details, dict):
+                return False
+            found_any = False
+            for detail_key, target in [
+                ("cached_tokens", "read"),
+                ("cache_read_input_tokens", "read"),
+                ("cache_write_input_tokens", "write"),
+            ]:
+                val = details.get(detail_key)
+                if isinstance(val, (int, float)):
+                    found_any = True
+                    if target == "read":
+                        if cache_read_tokens == 0:
+                            cache_read_tokens = max(0, int(val))
+                    elif target == "write":
+                        cache_write_tokens = max(cache_write_tokens, max(0, int(val)))
+            return found_any
 
-        # Also check top-level cache_* keys (non-OpenAI compat gateways)
-        if not cache_provider_reported:
-            alt_cache = usage_payload.get("cache_read_input_tokens")
-            if isinstance(alt_cache, (int, float)):
-                cache_read_tokens = int(alt_cache)
-                cache_provider_reported = True
+        # 1. Chat Completions: prompt_tokens_details
+        if _try_details(usage_payload.get("prompt_tokens_details")):
+            cache_provider_reported = True
 
-        if cache_read_tokens > 0:
-            cache_hit_flag = 1
+        # 2. Responses API: input_tokens_details
+        if _try_details(usage_payload.get("input_tokens_details")):
+            cache_provider_reported = True
+
+        # 3. Compat gateway top-level cache fields
+        top_level_cache_keys = [
+            "cached_tokens", "cache_read_input_tokens",
+            "cache_write_input_tokens", "cache_read_tokens", "cache_write_tokens",
+        ]
+        for key in top_level_cache_keys:
+            val = usage_payload.get(key)
+            if isinstance(val, (int, float)):
+                cache_provider_reported = True
+                if "write" in key:
+                    cache_write_tokens = max(cache_write_tokens, max(0, int(val)))
+                elif cache_read_tokens == 0:
+                    cache_read_tokens = max(0, int(val))
+
+        # cache_hit is True when cache_read_tokens > 0
+        cache_hit_flag = 1 if cache_read_tokens > 0 else 0
 
         return {
             "prompt_tokens": max(0, prompt_tokens),
             "completion_tokens": max(0, completion_tokens),
             "total_tokens": max(0, total_tokens),
             "cache_read_tokens": max(0, cache_read_tokens),
-            "cache_write_tokens": 0,
+            "cache_write_tokens": max(0, cache_write_tokens),
             "cache_hit": cache_hit_flag,
             "cache_provider_reported": cache_provider_reported,
         }
