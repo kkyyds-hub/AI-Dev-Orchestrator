@@ -32,6 +32,8 @@ from typing import Any
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = RUNTIME_ROOT.parents[1]
 SMOKE_ROOT = RUNTIME_ROOT / "tmp" / "backend-real-e2e-plane-star-wars"
+if os.environ.get("PLANE_STAR_WARS_SMOKE_ROOT"):
+    SMOKE_ROOT = Path(os.environ["PLANE_STAR_WARS_SMOKE_ROOT"])
 SMOKE_RUNTIME_DATA_DIR = SMOKE_ROOT / "runtime-data"
 SMOKE_ALLOWED_WORKSPACE_ROOT = SMOKE_ROOT / "allowed-workspaces"
 SMOKE_REPOSITORY_ROOT = SMOKE_ALLOWED_WORKSPACE_ROOT / "plane-star-wars-game"
@@ -344,9 +346,19 @@ def main() -> None:
             "/provider-settings/openai",
             expected_status=200,
             json_body={
-                "api_key": "sk-KEY_REDACTED-plane-star-wars-e2e",
-                "base_url": "https://api.openai.com/v1",
-                "timeout_seconds": 5,
+                "api_key": os.environ.get(
+                    "PLANE_STAR_WARS_PROVIDER_API_KEY",
+                    "sk-KEY_REDACTED-plane-star-wars-e2e",
+                ),
+                "base_url": os.environ.get(
+                    "PLANE_STAR_WARS_PROVIDER_BASE_URL",
+                    "https://api.openai.com/v1",
+                ),
+                "timeout_seconds": int(
+                    os.environ.get(
+                        "PLANE_STAR_WARS_PROVIDER_TIMEOUT_SECONDS", "5"
+                    )
+                ),
             },
         )
 
