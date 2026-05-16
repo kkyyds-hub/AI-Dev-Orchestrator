@@ -36,6 +36,7 @@ from app.services.diff_summary_service import (
     DiffSummaryService,
     DiffSummaryWorkspaceNotFoundError,
 )
+from app.services.git_write_state_tracker import has_git_write_actions_triggered
 
 
 DEFAULT_SNAPSHOT_FRESHNESS_HOURS = 24
@@ -320,7 +321,7 @@ class RepositoryReleaseGateService:
             status=status,
             approval_status=approval_status,
             release_qualification_established=release_qualification_established,
-            git_write_actions_triggered=False,
+            git_write_actions_triggered=has_git_write_actions_triggered(change_batch_id),
             decision_count=len(decisions),
             latest_decision=latest_decision,
             decisions=decisions,

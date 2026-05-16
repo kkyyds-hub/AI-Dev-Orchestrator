@@ -149,6 +149,10 @@ from app.services.repository_release_gate_service import (
     RepositoryReleaseGateStatus,
 )
 from app.services.task_readiness_service import TaskReadinessService
+from app.services.local_git_write_service import (
+    LocalGitWriteError,
+    LocalGitWriteService,
+)
 
 
 class RepositoryWorkspaceBindRequest(BaseModel):
@@ -1782,6 +1786,18 @@ def get_repository_release_gate_service(
     )
 
 
+def get_local_git_write_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> LocalGitWriteService:
+    """Create the BCL-03 local-git-write dependency."""
+    return LocalGitWriteService(
+        change_batch_repository=ChangeBatchRepository(session),
+        commit_candidate_repository=CommitCandidateRepository(session),
+        workspace_repository=RepositoryWorkspaceRepository(session),
+        release_gate_service=get_repository_release_gate_service(session),
+    )
+
+
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 
 
@@ -2572,6 +2588,133 @@ def build_project_code_context_pack(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+
+
+# -- BCL-03: Local git write ------------------------------------------------
+
+
+class LocalGitWriteFileEntry(BaseModel):
+    """One file to write in an apply-local request."""
+
+    relative_path: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Relative path inside the repository workspace.",
+    )
+    content: str = Field(
+        min_length=0,
+        max_length=2_000_000,
+        description="File content to write.",
+    )
+
+
+class ApplyLocalRequest(BaseModel):
+    """Request body for apply-local."""
+
+    files: list[LocalGitWriteFileEntry] = Field(
+        min_length=1,
+        max_length=200,
+        description="Files to write into the workspace.",
+    )
+
+
+class ApplyLocalResponse(BaseModel):
+    """Response for apply-local."""
+
+    status: str
+    change_batch_id: UUID
+    changed_files: list[str] = Field(default_factory=list)
+    diff_summary: dict[str, list[str]] = Field(default_factory=dict)
+    verification_passed: bool = False
+    log_path: str
+    error_category: str | None = None
+    error_summary: str | None = None
+
+
+class GitCommitResponse(BaseModel):
+    """Response for git-commit."""
+
+    status: str
+    change_batch_id: UUID
+    commit_sha: str | None = None
+    branch_name: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    log_path: str
+    error_category: str | None = None
+    error_summary: str | None = None
+
+
+@router.post(
+    "/change-batches/{change_batch_id}/apply-local",
+    response_model=ApplyLocalResponse,
+    summary="BCL-03: Write changed files to the local repository workspace",
+)
+def apply_local_changes(
+    change_batch_id: UUID,
+    request: ApplyLocalRequest,
+    session: Annotated[Session, Depends(get_db_session)],
+    local_git_write_service: Annotated[
+        LocalGitWriteService, Depends(get_local_git_write_service)
+    ],
+) -> ApplyLocalResponse:
+    """Validate the full guard chain and write files to the workspace.
+
+    Checks: workspace binding, release gate approval, preflight pass,
+    commit candidate existence, path safety (no traversal, no .git, within workspace).
+    Performs dry-run diff before writing.
+    """
+    files_payload = [
+        {"relative_path": f.relative_path, "content": f.content}
+        for f in request.files
+    ]
+    result = local_git_write_service.apply_local(
+        change_batch_id=change_batch_id,
+        files=files_payload,
+    )
+    return ApplyLocalResponse(
+        status=str(result.get("status", "failed")),
+        change_batch_id=UUID(str(result.get("change_batch_id", str(change_batch_id)))),
+        changed_files=result.get("changed_files", []) or [],
+        diff_summary=result.get("diff_summary", {}) or {},
+        verification_passed=bool(result.get("verification_passed", False)),
+        log_path=str(result.get("log_path", "")),
+        error_category=result.get("error_category"),
+        error_summary=result.get("error_summary"),
+    )
+
+
+@router.post(
+    "/change-batches/{change_batch_id}/git-commit",
+    response_model=GitCommitResponse,
+    summary="BCL-03: Stage and commit changes in the local repository",
+)
+def git_commit_changes(
+    change_batch_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    local_git_write_service: Annotated[
+        LocalGitWriteService, Depends(get_local_git_write_service)
+    ],
+) -> GitCommitResponse:
+    """Create a local git commit from a previously applied change batch.
+
+    Requires a prior successful apply-local.  Re-validates release gate,
+    preflight, and commit candidate before committing.
+    Does NOT push or create remote branches.
+    Sets git_write_actions_triggered=true.
+    """
+    result = local_git_write_service.git_commit(
+        change_batch_id=change_batch_id,
+    )
+    return GitCommitResponse(
+        status=str(result.get("status", "failed")),
+        change_batch_id=UUID(str(result.get("change_batch_id", str(change_batch_id)))),
+        commit_sha=result.get("commit_sha"),
+        branch_name=result.get("branch_name"),
+        changed_files=result.get("changed_files", []) or [],
+        log_path=str(result.get("log_path", "")),
+        error_category=result.get("error_category"),
+        error_summary=result.get("error_summary"),
+    )
 
 
 RepositoryTreeNodeResponse.model_rebuild()
