@@ -297,6 +297,66 @@ def test_main_writes_json_file() -> None:
     print("PASS test_main_writes_json_file")
 
 
+def test_cache_visible_but_no_receipt() -> None:
+    """cache_source=provider_reported + no provider_receipt_id →
+    cache_telemetry_visible=true but real_run_receipt_exists=false.
+    """
+    _reset_db_tables()
+    from app.core.db import SessionLocal
+    from app.repositories.project_repository import ProjectRepository
+    from app.repositories.task_repository import TaskRepository
+    from app.repositories.run_repository import RunRepository
+    from app.domain.run import RunStatus
+    from app.domain.project import Project, ProjectStatus, ProjectStage
+    from app.domain.task import Task
+    from uuid import uuid4
+
+    session = SessionLocal()
+    try:
+        proj = ProjectRepository(session).create(Project(
+            id=uuid4(), name="Cache-No-Rcpt", summary="Test.",
+            status=ProjectStatus.ACTIVE, stage=ProjectStage.INTAKE,
+        ))
+        t1 = TaskRepository(session).create(Task(
+            id=uuid4(), project_id=proj.id, title="T1", input_summary="1",
+        ))
+        r1 = RunRepository(session).create_running_run(task_id=t1.id, model_name="a")
+        RunRepository(session).finish_run(
+            run_id=r1.id, status=RunStatus.SUCCEEDED,
+            result_summary="Cache but no receipt.", estimated_cost=0.01,
+            token_accounting_mode="provider_reported",
+            cache_source="provider_reported", cache_read_tokens=10, cache_hit=True,
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    from scripts.v5_backend_closure_evidence_rollup import build_rollup
+    rollup = build_rollup()
+
+    assert rollup["provider"]["cache_telemetry_visible"] is True
+    assert rollup["provider"]["real_run_receipt_exists"] is False, (
+        "real_run_receipt_exists must be false when no provider_receipt_id"
+    )
+    assert any("missing_provider_receipt" in b for b in rollup["blockers"]), (
+        f"Expected missing_provider_receipt: {rollup['blockers']}"
+    )
+    print("PASS test_cache_visible_but_no_receipt")
+
+
+def test_release_gate_unknown_is_blocker() -> None:
+    """release_gate_status=unknown → blocker release_gate_unknown."""
+    from scripts.v5_backend_closure_evidence_rollup import build_rollup
+    rollup = build_rollup()
+
+    assert rollup["repository_git_write"]["release_gate_status"] == "unknown"
+    assert any("release_gate_unknown" in b for b in rollup["blockers"]), (
+        f"Expected release_gate_unknown blocker: {rollup['blockers']}"
+    )
+    assert rollup["pass_ready"] is False
+    print("PASS test_release_gate_unknown_is_blocker")
+
+
 # -- Harness -------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -316,6 +376,8 @@ if __name__ == "__main__":
         test_main_writes_json_file,
         test_no_provider_reported_run_blocked,
         test_seed_data_aggregation,
+        test_cache_visible_but_no_receipt,
+        test_release_gate_unknown_is_blocker,
     ]:
         try:
             fn()

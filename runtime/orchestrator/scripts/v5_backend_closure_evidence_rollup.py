@@ -235,9 +235,9 @@ def build_rollup() -> dict:
 
                 if run.provider_receipt_id:
                     any_provider_receipt = True
+                    result["provider"]["real_run_receipt_exists"] = True
                 if cs == "provider_reported":
                     result["provider"]["cache_telemetry_visible"] = True
-                    result["provider"]["real_run_receipt_exists"] = True
 
             # Project diagnostics via BCL-02 service
             diag_entry = _build_project_diag(session, pid)
@@ -381,11 +381,29 @@ def build_rollup() -> dict:
             blockers.append(
                 "missing_provider_receipt: no run has a provider_receipt_id"
             )
-        if projects and any(
-            d.get("overall_status") == "blocked" for d in diag_projects
-        ):
+        if projects:
+            if any(d.get("overall_status") == "blocked" for d in diag_projects):
+                blockers.append(
+                    "project_diagnostics_blocked: at least one project closure diagnostics shows blocked"
+                )
+            if any(
+                d.get("overall_status") == "unknown"
+                or "diagnostics_unavailable" in d.get("blocking_reason_codes", [])
+                or "project_not_found" in d.get("blocking_reason_codes", [])
+                for d in diag_projects
+            ):
+                blockers.append(
+                    "diagnostics_unavailable: project closure diagnostics could not be evaluated"
+                )
+
+        # --- Gate blockers ------------------------------------------------
+        if release_gate_status == "unknown":
             blockers.append(
-                "project_diagnostics_blocked: at least one project closure diagnostics shows blocked"
+                "release_gate_unknown: no approved release gate evidence found"
+            )
+        elif release_gate_status == "pending_or_rejected":
+            blockers.append(
+                "release_gate_not_approved: release gate is not approved"
             )
 
         # Warnings
@@ -421,9 +439,15 @@ def build_rollup() -> dict:
             and mode_counter.get("provider_reported", 0) > 0
             and any_provider_receipt
             and not any(
-                d.get("overall_status") == "blocked" for d in diag_projects
+                d.get("overall_status") in ("blocked", "unknown")
+                for d in diag_projects
             )
-            and release_gate_status in ("approved",)
+            and not any(
+                "diagnostics_unavailable" in d.get("blocking_reason_codes", [])
+                or "project_not_found" in d.get("blocking_reason_codes", [])
+                for d in diag_projects
+            )
+            and release_gate_status == "approved"
             and not blockers
         )
 
