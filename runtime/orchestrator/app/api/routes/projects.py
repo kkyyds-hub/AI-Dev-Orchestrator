@@ -647,7 +647,32 @@ class ProjectCostDashboardFallbackContractResponse(BaseModel):
 
     provider_reported_run_count: int
     heuristic_run_count: int
-    missing_mode_run_count: int
+    missing_mode_run_count: int = Field(
+        description="Count of runs where token_accounting_mode is missing (NULL). "
+        "These are legacy / replay / abnormal runs — not normal worker output."
+    )
+    legacy_missing_run_count: int = Field(
+        default=0,
+        description="Alias for missing_mode_run_count. "
+        "These runs predate Day06 token accounting or were produced by "
+        "replay/abnormal paths.  The normal worker main chain does NOT "
+        "write missing mode."
+    )
+    missing_source_note: str = Field(
+        default=(
+            "missing / legacy_missing represents legacy-or-replay compatibility "
+            "boundary.  Normal worker main chain writes provider_reported, "
+            "heuristic, or provider_mock.  This count reflects historical runs "
+            "from before Day06 token accounting, replay-produced runs, or "
+            "abnormal execution paths."
+        )
+    )
+    missing_source_breakdown: dict[str, int] = Field(
+        default_factory=dict,
+        description="Breakdown of missing source categories: "
+        "legacy_or_replay (pre-Day06 or replay runs), "
+        "abnormal (unexpected NULL)."
+    )
     fallback_active: bool
     fallback_reason: str
 
@@ -2164,6 +2189,10 @@ def get_project_cost_dashboard_snapshot(
             provider_reported_run_count=provider_reported_run_count,
             heuristic_run_count=heuristic_run_count,
             missing_mode_run_count=missing_mode_run_count,
+            legacy_missing_run_count=missing_mode_run_count,
+            missing_source_breakdown={
+                "legacy_or_replay": missing_mode_run_count,
+            },
             fallback_active=fallback_active,
             fallback_reason=fallback_reason,
         ),

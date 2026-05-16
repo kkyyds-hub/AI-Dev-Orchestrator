@@ -827,6 +827,7 @@ https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git
 | 2026-05-16 | BCL-04 category 返工 | `c605d18` | smoke 6/6 passed; compileall clean | Pass（返工） | 删除 evaluate_before_execution 中重复的 BLOCKED 分支（第一分支误报 bg-retry-limit / RETRY_LIMIT_EXCEEDED，遮蔽真正的预算 BLOCKED）；强化 daily_budget smoke 断言 failure_category/strategy_code/summary；强化 worker smoke 硬断言 failure_category 预算相关/log_path 必存在/JSONL guard_blocked 必存在/executor 未调用 |
 | 2026-05-16 | BCL-05 | `55612a3` | smoke 6/6 passed; compileall clean | Pass（初版，需返工） | ProviderUsageReceipt/TokenAccountingSnapshot/Run/RunTable 新增 cache_read_tokens/cache_write_tokens/cache_hit/cache_source；_extract_usage 从 OpenAI usage.prompt_tokens_details 提取缓存字段；cost dashboard 新增 provider_cache 聚合（reported/not_reported/hit/breakdown）；旧 run 缺失缓存字段稳定归类 missing |
 | 2026-05-16 | BCL-05 返工 | `d484334` | smoke 8/8 passed; compileall clean | Pass（返工） | 返工修复：1) _extract_usage 补全 Responses input_tokens_details + 兼容网关顶层共 10+ 个 cache 字段解析；2) smoke 新增 5 个直接 _extract_usage payload 解析测试；3) cost dashboard provider_cache 拆开 not_reported/missing + 新增 missing_run_count；4) cache 字段存在即使值为 0 仍标 provider_reported |
+| 2026-05-16 | BCL-06 | `e84309d` | smoke 3/3 passed; compileall clean | Pass | 方案 A：missing 产品化为 legacy_missing 口径。fallback_contract 新增 legacy_missing_run_count/missing_source_note/missing_source_breakdown；旧 missing_mode_run_count 保留；正常 worker 写入 provider_reported/heuristic/provider_mock 不计入 legacy_missing |
 
 ---
 
