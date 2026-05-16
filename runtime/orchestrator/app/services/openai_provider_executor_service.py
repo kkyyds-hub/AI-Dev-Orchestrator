@@ -156,11 +156,15 @@ class OpenAIProviderExecutorService:
                         api_family=api_family,
                     )
                     latency_ms = int((time.perf_counter() - t0) * 1000)
+                    # Validate response content matches expected OpenAI structure.
+                    # A 200-level JSON response that lacks usable output text is not a pass.
+                    self._extract_output_text(response_payload, api_family=api_family)
                     used_api_family = api_family
                     used_endpoint = endpoint
                     break
                 except OpenAIProviderExecutionError as exc:
                     last_error = exc
+                    response_payload = None
                     if not self._is_retriable_compat_error(exc):
                         break
                     continue
