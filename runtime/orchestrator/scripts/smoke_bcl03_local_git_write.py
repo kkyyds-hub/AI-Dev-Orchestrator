@@ -419,6 +419,70 @@ def test_unrelated_dirty_file_not_committed(client: TestClient) -> None:
     print("PASS test_unrelated_dirty_file_not_committed")
 
 
+def test_pre_staged_unrelated_file_not_committed(client: TestClient) -> None:
+    """Pre-staged files in the git index must NOT leak into the commit.
+
+    git_commit executes 'git reset -- .' before staging, which clears the
+    index of any unrelated pre-staged files.  This test verifies that a file
+    that was explicitly staged before apply-local is NOT included in the commit.
+    """
+    repo_dir = _create_temp_git_repo()
+
+    # Pre-create and STAGE an unrelated file
+    unrelated_staged = repo_dir / "unrelated_staged.txt"
+    unrelated_staged.write_text("this was staged before apply\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "unrelated_staged.txt"],
+        cwd=str(repo_dir), check=True, capture_output=True,
+    )
+
+    # Verify it IS staged
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=str(repo_dir), capture_output=True, text=True,
+    )
+    staged_before = result.stdout.strip().splitlines()
+    assert "unrelated_staged.txt" in staged_before, (
+        f"unrelated_staged.txt should be staged before test, got {staged_before}"
+    )
+
+    _pid, batch_id = _seed_chain(client, repo_dir)
+
+    with patch(
+        "app.services.local_git_write_service._check_gate_approved",
+        return_value=_DummyGate(),
+    ):
+        # apply-local writes only src/a.txt
+        apply_body = _request_json(
+            client, "POST", f"/repositories/change-batches/{batch_id}/apply-local", 200,
+            {"files": [{"relative_path": "src/a.txt", "content": "committed content\n"}]},
+        )
+        assert apply_body["status"] == "applied"
+
+        commit_body = _request_json(
+            client, "POST", f"/repositories/change-batches/{batch_id}/git-commit", 200,
+        )
+        assert commit_body["status"] == "committed"
+        assert commit_body["commit_sha"]
+
+        # The commit must contain src/a.txt but NOT unrelated_staged.txt
+        result = subprocess.run(
+            ["git", "diff-tree", "--no-commit-id", "-r", "--name-only",
+             commit_body["commit_sha"]],
+            cwd=str(repo_dir), capture_output=True, text=True,
+        )
+        committed_files = {f.strip() for f in result.stdout.strip().splitlines() if f.strip()}
+
+        assert "src/a.txt" in committed_files, (
+            f"src/a.txt must be in commit, got {committed_files}"
+        )
+        assert "unrelated_staged.txt" not in committed_files, (
+            f"unrelated_staged.txt must NOT be in commit (was pre-staged before apply), "
+            f"got {committed_files}"
+        )
+    print("PASS test_pre_staged_unrelated_file_not_committed")
+
+
 def test_success_path(client: TestClient) -> None:
     """Happy path: apply-local → git-commit → commit_sha + git_write_actions_triggered.
 
@@ -493,6 +557,7 @@ if __name__ == "__main__":
         ("test_path_traversal_blocked", test_path_traversal_blocked),
         ("test_verification_failure_blocks_commit", test_verification_failure_blocks_commit),
         ("test_unrelated_dirty_file_not_committed", test_unrelated_dirty_file_not_committed),
+        ("test_pre_staged_unrelated_file_not_committed", test_pre_staged_unrelated_file_not_committed),
         ("test_success_path", test_success_path),
     ]
     for name, fn in tests:

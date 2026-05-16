@@ -575,9 +575,22 @@ class LocalGitWriteService:
             for rel_path in changed_files_list:
                 _validate_and_resolve_file_path(rel_path, workspace_root)
 
-            # 7. Stage ONLY the apply-local changed_files (not unrelated dirty files)
+            # 7. Clear any pre-staged files, then stage ONLY the apply-local
+            #    changed_files.  This prevents unrelated staged files from
+            #    leaking into the commit.
             branch = _get_current_branch(workspace_root)
 
+            # 7a. Reset index to HEAD to discard any pre-staged files.
+            exit_code, _stdout, stderr = _run_git(
+                "reset", "--", ".", cwd=workspace_root
+            )
+            if exit_code != 0:
+                raise LocalGitWriteError(
+                    category="git_reset_failed",
+                    message=f"git reset failed: {stderr}",
+                )
+
+            # 7b. Stage only the apply-local files.
             for rel_path in changed_files_list:
                 exit_code, _stdout, stderr = _run_git(
                     "add", "--", rel_path, cwd=workspace_root
@@ -587,6 +600,29 @@ class LocalGitWriteService:
                         category="git_add_failed",
                         message=f"git add {rel_path} failed: {stderr}",
                     )
+
+            # 7c. Verify staged files match apply-local changed_files exactly.
+            exit_code, staged_output, _stderr = _run_git(
+                "diff", "--cached", "--name-only", cwd=workspace_root
+            )
+            if exit_code != 0:
+                raise LocalGitWriteError(
+                    category="staged_files_check_failed",
+                    message="Failed to read staged file list.",
+                )
+            staged_files = {f.strip() for f in staged_output.splitlines() if f.strip()}
+            expected_files = set(changed_files_list)
+
+            extra = staged_files - expected_files
+            missing = expected_files - staged_files
+            if extra or missing:
+                raise LocalGitWriteError(
+                    category="staged_files_mismatch",
+                    message=(
+                        f"Staged files do not match apply-local changed_files. "
+                        f"Extra: {sorted(extra)}, Missing: {sorted(missing)}"
+                    ),
+                )
 
             # 8. Get commit message from candidate
             versions = candidate.versions
