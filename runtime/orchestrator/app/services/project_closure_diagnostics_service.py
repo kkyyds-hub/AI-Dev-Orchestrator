@@ -10,7 +10,7 @@ from datetime import datetime
 from uuid import UUID
 
 from app.domain._base import utc_now
-from app.domain.project import Project, ProjectStage
+from app.domain.project import Project
 from app.domain.run import Run, RunStatus
 from app.domain.task import Task, TaskStatus
 from app.repositories.agent_session_repository import AgentSessionRepository
@@ -128,20 +128,31 @@ def _derive_overall_status(
     has_completed_tasks: bool,
     task_count: int,
 ) -> str:
-    """Derive a stable `overall_status` from blocking reasons and task state."""
+    """Derive a stable `overall_status` from blocking reasons and task state.
 
+    Priority:
+    1. Any blocking reasons → "blocked" (always wins).
+    2. Running tasks → "running".
+    3. No blocking reasons + pending tasks → "ready".
+    4. No blocking reasons + all tasks terminal → "completed".
+    5. Fallback → "blocked".
+    """
+
+    if blocking_reason_codes:
+        return "blocked"
     if has_running_tasks:
         return "running"
+    if task_count > 0 and has_pending_tasks:
+        return "ready"
     if task_count > 0 and not has_pending_tasks and not has_running_tasks:
         return "completed"
-    if not blocking_reason_codes:
-        return "ready"
     return "blocked"
 
 
 def _build_blocking_reason_codes(
     *,
     provider_configured: bool,
+    provider_tested: bool,
     repository_bound: bool,
     repository_snapshot_exists: bool,
     task_count: int,
@@ -153,6 +164,8 @@ def _build_blocking_reason_codes(
 
     if not provider_configured:
         codes.append("provider_not_configured")
+    elif not provider_tested:
+        codes.append("provider_not_tested")
     if not repository_bound:
         codes.append("repository_not_bound")
     elif not repository_snapshot_exists:
@@ -190,12 +203,12 @@ def _build_next_actions(
         actions.append(
             ClosureDiagnosticsNextAction(
                 code="test_provider",
-                label="测试 Provider 连接",
+                label="测试 Provider 连接（配置后）",
                 api="POST /provider-settings/openai/test",
             )
         )
-    elif provider_configured:
-        # Provider is configured; suggest a test if never tested
+    elif "provider_not_tested" in blocking_reason_codes:
+        # Provider is configured but never tested; suggest testing.
         actions.append(
             ClosureDiagnosticsNextAction(
                 code="test_provider",
@@ -237,19 +250,17 @@ def _build_next_actions(
 def _derive_day15_flow_status(
     *,
     repository_bound: bool,
-    project_stage: ProjectStage | None,
-) -> str | None:
+) -> str:
     """Derive a coarse day15 flow status from available data.
 
-    This is a simplified derivation based on project stage and repository
-    binding state.  It does NOT run the full Day15 flow snapshot builder.
+    The full Day15 flow snapshot builder requires RepositoryReleaseGateService
+    and its dependency graph.  Connecting this service to the full Day15 builder
+    is a future step.  Until then we return honest not_available / not_applicable.
     """
 
     if not repository_bound:
         return "not_applicable"
-    if project_stage is None:
-        return "unknown"
-    return project_stage.value
+    return "not_available"
 
 
 # -- Builder ------------------------------------------------------------------
@@ -281,6 +292,8 @@ def build_project_closure_diagnostics(
     provider_configured = provider_summary.configured
     # There is no persisted test-status store; we report honest defaults.
     provider_last_test_status = "not_tested" if provider_configured else "not_applicable"
+    # Provider is "tested" only if there is a persisted test record (currently none).
+    provider_tested = False
 
     # --- Repository -----------------------------------------------------------
     workspace = workspace_repository.get_by_project_id(project_id)
@@ -292,7 +305,6 @@ def build_project_closure_diagnostics(
     )
     repository_day15_flow_status = _derive_day15_flow_status(
         repository_bound=repository_bound,
-        project_stage=project.stage,
     )
 
     # --- Task runtime ---------------------------------------------------------
@@ -355,6 +367,7 @@ def build_project_closure_diagnostics(
     # --- Blocking reasons -----------------------------------------------------
     blocking_reason_codes = _build_blocking_reason_codes(
         provider_configured=provider_configured,
+        provider_tested=provider_tested,
         repository_bound=repository_bound,
         repository_snapshot_exists=repository_snapshot_exists,
         task_count=task_count,
