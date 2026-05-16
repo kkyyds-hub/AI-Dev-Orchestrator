@@ -304,23 +304,6 @@ class BudgetGuardService:
             )
 
         if budget_snapshot.pressure_level == RunBudgetPressureLevel.BLOCKED:
-            return BudgetGuardDecision(
-                allowed=False,
-                summary=(
-                    "Budget guard blocked execution because the task exceeded the retry "
-                    f"limit. Max retries: {retry_status.max_task_retries}; "
-                    f"recorded execution attempts: {retry_status.execution_attempts}."
-                ),
-                failure_category=RunFailureCategory.RETRY_LIMIT_EXCEEDED,
-                pressure_level=budget_snapshot.pressure_level,
-                suggested_action=RunBudgetStrategyAction.BLOCK,
-                strategy_code="bg-retry-limit",
-                budget=budget_snapshot,
-                retry_status=retry_status,
-                budget_policy_source=policy_source,
-            )
-
-        if budget_snapshot.pressure_level == RunBudgetPressureLevel.BLOCKED:
             failure_category = (
                 RunFailureCategory.DAILY_BUDGET_EXCEEDED
                 if budget_snapshot.daily_budget_exceeded

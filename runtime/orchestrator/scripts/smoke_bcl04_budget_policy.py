@@ -166,6 +166,26 @@ def test_hard_stop_daily_budget_blocked(client: TestClient) -> None:
             f"Expected 0.02 daily_budget, got {decision.budget.daily_budget_usd}"
         )
         assert decision.budget.daily_budget_exceeded is True
+        # Must use budget-related failure_category, NOT retry limit
+        assert decision.failure_category is not None
+        assert decision.failure_category.value == "daily_budget_exceeded", (
+            f"Expected daily_budget_exceeded, got {decision.failure_category.value}"
+        )
+        # strategy_code must NOT be bg-retry-limit
+        assert decision.strategy_code != "bg-retry-limit", (
+            f"strategy_code must not be bg-retry-limit, got {decision.strategy_code}"
+        )
+        assert decision.strategy_code == "bg-blocked-stop", (
+            f"Expected bg-blocked-stop, got {decision.strategy_code}"
+        )
+        # summary must NOT mention retry limit
+        summary_lower = (decision.summary or "").lower()
+        assert "retry limit" not in summary_lower, (
+            f"summary must not mention retry limit: {decision.summary}"
+        )
+        assert "budget pressure" in summary_lower, (
+            f"summary should describe budget pressure: {decision.summary}"
+        )
     finally:
         session.close()
     print("PASS test_hard_stop_daily_budget_blocked")
@@ -280,30 +300,58 @@ def test_worker_run_once_blocked_by_project_policy(client: TestClient) -> None:
     assert result.get("claimed") is True, (
         f"Worker should claim a pending task, got {result}"
     )
-    # Execution mode should be None (no provider call)
-    assert result.get("execution_mode") is None or result.get("execution_mode") == "", (
-        f"execution_mode should be None when blocked, got {result.get('execution_mode')}"
-    )
-    # Provider must NOT have been called
-    assert called_executor is False, "Executor.execute() must NOT be called when blocked"
 
-    # Verify run log has budget_policy_source
+    # Execution mode must be None (no provider call)
+    assert result.get("execution_mode") is None or result.get("execution_mode") == "", (
+        f"execution_mode must be None when blocked, got {result.get('execution_mode')}"
+    )
+
+    # failure_category must be budget-related, NOT retry_limit_exceeded
+    fc = result.get("failure_category")
+    assert fc is not None, "failure_category must not be None when blocked"
+    fc_str = str(fc).lower()
+    assert "retry" not in fc_str, (
+        f"failure_category must not be retry-related, got {fc}"
+    )
+    assert "budget" in fc_str or "daily" in fc_str, (
+        f"failure_category must be budget-related, got {fc}"
+    )
+
+    # strategy_code / message must NOT reference retry limit
+    msg = str(result.get("message", "")).lower()
+    assert "retry limit" not in msg, (
+        f"message must not mention retry limit: {result.get('message')}"
+    )
+    sc = str(result.get("budget_strategy_code", "") or result.get("strategy_code", ""))
+    assert sc != "bg-retry-limit", (
+        f"strategy_code must not be bg-retry-limit, got {sc}"
+    )
+
+    # Provider must NOT have been called
+    assert called_executor is False, (
+        "Executor.execute_task() must NOT be called when blocked"
+    )
+
+    # log_path must exist (not conditional)
     log_path = result.get("log_path")
-    if log_path:
-        log_full = Path(os.environ["RUNTIME_DATA_DIR"]) / log_path
-        if log_full.exists():
-            lines = log_full.read_text(encoding="utf-8").strip().splitlines()
-            guard_events = [
-                _json.loads(line) for line in lines
-                if "guard_blocked" in line
-            ]
-            if guard_events:
-                data = guard_events[0].get("data", {})
-                source = data.get("budget_policy_source", "")
-                assert source == "project_team_control", (
-                    f"JSONL budget_policy_source expected project_team_control, got {source}"
-                )
-                print("    [log] budget_policy_source verified in JSONL")
+    assert log_path, "log_path must not be empty when worker is blocked"
+    log_full = Path(os.environ["RUNTIME_DATA_DIR"]) / str(log_path)
+    assert log_full.exists(), f"log file must exist: {log_full}"
+
+    # JSONL must contain guard_blocked event with budget_policy_source
+    lines = log_full.read_text(encoding="utf-8").strip().splitlines()
+    guard_events = [
+        _json.loads(line) for line in lines
+        if "guard_blocked" in line
+    ]
+    assert len(guard_events) > 0, (
+        f"JSONL must contain at least one guard_blocked event, got {len(guard_events)} lines"
+    )
+    data = guard_events[0].get("data", {})
+    source = data.get("budget_policy_source", "")
+    assert source == "project_team_control", (
+        f"JSONL budget_policy_source must be project_team_control, got {source}"
+    )
 
     print("PASS test_worker_run_once_blocked_by_project_policy")
 
