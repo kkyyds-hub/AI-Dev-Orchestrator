@@ -485,6 +485,8 @@ def _build_project_diag(session, project_id: UUID) -> dict:
         from app.services.project_memory_service import ProjectMemoryService
         from app.repositories.deliverable_repository import DeliverableRepository
         from app.services.failure_review_service import FailureReviewService
+        from app.repositories.failure_review_repository import FailureReviewRepository
+        from app.services.run_logging_service import RunLoggingService
 
         result = build_project_closure_diagnostics(
             project_id=project_id,
@@ -505,8 +507,8 @@ def _build_project_diag(session, project_id: UUID) -> dict:
                 deliverable_repository=DeliverableRepository(session),
                 project_repository=ProjectRepository(session),
                 failure_review_service=FailureReviewService(
-                    run_repository=RunRepository(session),
-                    task_repository=TaskRepository(session),
+                    failure_review_repository=FailureReviewRepository(),
+                    run_logging_service=RunLoggingService(),
                 ),
             ),
         )
