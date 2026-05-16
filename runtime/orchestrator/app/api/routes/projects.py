@@ -118,6 +118,13 @@ from app.services.task_readiness_service import TaskReadinessService
 from app.services.task_state_machine_service import TaskStateMachineService
 from app.services.memory_compaction_service import MemoryCompactionService
 from app.services.run_logging_service import RunLoggingService
+from app.services.provider_config_service import ProviderConfigService
+from app.services.project_closure_diagnostics_service import (
+    ClosureDiagnosticsNextAction,
+    ClosureDiagnosticsResult,
+    ProjectClosureDiagnosticsProjectNotFoundError,
+    build_project_closure_diagnostics,
+)
 
 
 class ProjectCreateRequest(BaseModel):
@@ -1619,6 +1626,69 @@ def get_repository_release_gate_service(
     )
 
 
+def get_provider_config_service() -> ProviderConfigService:
+    """Create the BCL-01 provider-config dependency (not DB-backed)."""
+    return ProviderConfigService()
+
+
+class ClosureDiagnosticsNextActionResponse(BaseModel):
+    """One suggested next action in a closure diagnostics snapshot."""
+
+    code: str
+    label: str
+    api: str
+
+
+class ClosureDiagnosticsProviderSnapshotResponse(BaseModel):
+    """Provider subsection of closure diagnostics."""
+
+    configured: bool
+    last_test_status: str
+
+
+class ClosureDiagnosticsRepositorySnapshotResponse(BaseModel):
+    """Repository subsection of closure diagnostics."""
+
+    bound: bool
+    snapshot_exists: bool
+    snapshot_status: str | None = None
+    day15_flow_status: str | None = None
+
+
+class ClosureDiagnosticsTaskRuntimeSnapshotResponse(BaseModel):
+    """Task / run subsection of closure diagnostics."""
+
+    task_count: int
+    pending_task_count: int
+    run_count: int
+    latest_run_status: str | None = None
+    latest_run_log_path: str | None = None
+
+
+class ClosureDiagnosticsGovernanceSnapshotResponse(BaseModel):
+    """Governance subsection of closure diagnostics."""
+
+    memory_checkpoint_count: int
+    agent_session_count: int
+    approval_count: int
+    change_batch_count: int
+    commit_candidate_count: int
+
+
+class ProjectClosureDiagnosticsResponse(BaseModel):
+    """BCL-02 read-only project closure diagnostics snapshot."""
+
+    project_id: UUID
+    generated_at: datetime
+    overall_status: str
+    blocking_reason_codes: list[str] = Field(default_factory=list)
+    provider: ClosureDiagnosticsProviderSnapshotResponse
+    repository: ClosureDiagnosticsRepositorySnapshotResponse
+    task_runtime: ClosureDiagnosticsTaskRuntimeSnapshotResponse
+    governance: ClosureDiagnosticsGovernanceSnapshotResponse
+    next_actions: list[ClosureDiagnosticsNextActionResponse] = Field(default_factory=list)
+
+
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
@@ -2316,6 +2386,89 @@ def advance_project_stage(
         )
 
     return ProjectStageAdvanceResponse.from_result(result)
+
+
+@router.get(
+    "/{project_id}/closure-diagnostics",
+    response_model=ProjectClosureDiagnosticsResponse,
+    summary="Get the BCL-02 read-only project closure diagnostics snapshot",
+)
+def get_project_closure_diagnostics(
+    project_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    provider_config_service: Annotated[
+        ProviderConfigService, Depends(get_provider_config_service)
+    ],
+    project_memory_service: Annotated[
+        ProjectMemoryService, Depends(get_project_memory_service)
+    ],
+) -> ProjectClosureDiagnosticsResponse:
+    """Return a read-only diagnostic snapshot showing why a project cannot yet
+    form a closed loop from configuration through delivery evidence.
+
+    This endpoint does NOT call OpenAI, trigger workers, write to repositories,
+    create tasks, or produce any side effects.
+    """
+
+    try:
+        result: ClosureDiagnosticsResult = build_project_closure_diagnostics(
+            project_id=project_id,
+            project_repository=ProjectRepository(session),
+            task_repository=TaskRepository(session),
+            run_repository=RunRepository(session),
+            workspace_repository=RepositoryWorkspaceRepository(session),
+            snapshot_repository=RepositorySnapshotRepository(session),
+            agent_session_repository=AgentSessionRepository(session),
+            approval_repository=ApprovalRepository(session),
+            change_batch_repository=ChangeBatchRepository(session),
+            commit_candidate_repository=CommitCandidateRepository(session),
+            provider_config_service=provider_config_service,
+            project_memory_service=project_memory_service,
+        )
+    except ProjectClosureDiagnosticsProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return ProjectClosureDiagnosticsResponse(
+        project_id=result.project_id,
+        generated_at=result.generated_at,
+        overall_status=result.overall_status,
+        blocking_reason_codes=result.blocking_reason_codes,
+        provider=ClosureDiagnosticsProviderSnapshotResponse(
+            configured=result.provider_configured,
+            last_test_status=result.provider_last_test_status,
+        ),
+        repository=ClosureDiagnosticsRepositorySnapshotResponse(
+            bound=result.repository_bound,
+            snapshot_exists=result.repository_snapshot_exists,
+            snapshot_status=result.repository_snapshot_status,
+            day15_flow_status=result.repository_day15_flow_status,
+        ),
+        task_runtime=ClosureDiagnosticsTaskRuntimeSnapshotResponse(
+            task_count=result.task_count,
+            pending_task_count=result.pending_task_count,
+            run_count=result.run_count,
+            latest_run_status=result.latest_run_status,
+            latest_run_log_path=result.latest_run_log_path,
+        ),
+        governance=ClosureDiagnosticsGovernanceSnapshotResponse(
+            memory_checkpoint_count=result.memory_checkpoint_count,
+            agent_session_count=result.agent_session_count,
+            approval_count=result.approval_count,
+            change_batch_count=result.change_batch_count,
+            commit_candidate_count=result.commit_candidate_count,
+        ),
+        next_actions=[
+            ClosureDiagnosticsNextActionResponse(
+                code=a.code,
+                label=a.label,
+                api=a.api,
+            )
+            for a in result.next_actions
+        ],
+    )
 
 
 ProjectDetailResponse.model_rebuild()
