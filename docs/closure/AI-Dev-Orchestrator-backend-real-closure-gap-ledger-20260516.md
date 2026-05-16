@@ -814,7 +814,7 @@ https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git
 | 日期 | 缺口编号 | Codex 提交 | build / test | 验收结论 | 备注 |
 |---|---|---|---|---|---|
 | 2026-05-16 | 初始台账 | - | - | 待执行 | 基于 origin/main `558eea61` 生成 |
-| 2026-05-16 | BCL-01 | `e0363af`→待填入 | smoke 5/5 passed; app loads | Pass | 新增 POST /provider-settings/openai/test；复用 ProviderConfigService + OpenAIProviderExecutorService；5 场景 smoke 通过 |
+| 2026-05-16 | BCL-01 | `4a5bb9e` | smoke 5/5 passed; app loads | Pass | 新增 POST /provider-settings/openai/test；复用 ProviderConfigService + OpenAIProviderExecutorService；5 场景 smoke 通过 |
 
 ---
 
