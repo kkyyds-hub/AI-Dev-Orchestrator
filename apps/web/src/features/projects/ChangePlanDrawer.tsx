@@ -1,4 +1,4 @@
-﻿import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
@@ -324,20 +324,32 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
     }
   };
 
+  const handleOverlayClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (event.target === event.currentTarget) {
+      props.onClose();
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm">
+      {/* Overlay click-away */}
       <button
         type="button"
-        aria-label="关闭变更计划抽屉"
-        className="flex-1 cursor-default"
-        onClick={props.onClose}
+        aria-label="关闭变更计划弹窗"
+        className="absolute inset-0 cursor-default"
+        onClick={handleOverlayClick}
       />
 
-      <aside className="flex h-full w-full max-w-5xl flex-col border-l border-[#333333] bg-[#111111]">
-        <header className="border-b border-[#333333] px-6 py-5">
+      <section
+        role="dialog"
+        aria-modal="true"
+        className="relative z-10 flex w-full max-w-6xl max-h-[88vh] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#111111]/95 shadow-2xl ring-1 ring-white/10"
+      >
+        {/* ── Header ─────────────────────────────────────────── */}
+        <header className="shrink-0 border-b border-white/10 px-6 py-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-xs uppercase tracking-[0.24em] text-zinc-400">
+            <div className="min-w-0 flex-1">
+              <div className="text-xs uppercase tracking-[0.24em] text-zinc-500">
                 变更计划
               </div>
               <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
@@ -345,7 +357,7 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
               </h2>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
                 label={selectedPlanId ? "追加版本" : "新建草案"}
                 tone={selectedPlanId ? "warning" : "success"}
@@ -358,6 +370,27 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
                 }
                 tone={props.codeContextPack ? "info" : "neutral"}
               />
+              <button
+                type="button"
+                aria-label="关闭变更计划弹窗"
+                onClick={props.onClose}
+                className="ml-1 rounded-2xl p-1.5 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-300"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -366,520 +399,529 @@ export function ChangePlanDrawer(props: ChangePlanDrawerProps) {
           </p>
         </header>
 
-        <div className="grid flex-1 gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <section className="border-b border-[#333333] px-6 py-5 lg:border-b-0 lg:border-r">
-            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-              任务映射
-            </div>
-            <select
-              value={selectedTaskId}
-              onChange={(event) => {
-                setSelectedTaskId(event.target.value);
-                setSelectedPlanId(null);
-              }}
-              disabled={Boolean(selectedPlanId)}
-              className="mt-3 w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-500"
-            >
-              {props.tasks.length === 0 ? <option value="">暂无任务</option> : null}
-              {props.tasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.title}
-                </option>
-              ))}
-            </select>
-
-            {selectedTask ? (
-              <div className="mt-3 border border-[#333333] bg-transparent/60 p-4 text-sm leading-6 text-zinc-400">
-                <div className="font-medium text-zinc-100">{selectedTask.title}</div>
-                <div className="mt-2">{selectedTask.input_summary}</div>
-                <div className="mt-2 text-xs text-zinc-500">
-                  更新时间 {formatDateTime(selectedTask.updated_at)}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-3 border border-dashed border-[#333333] bg-transparent/40 p-4 text-sm leading-6 text-zinc-400">
-                当前项目还没有可映射的任务。
-              </div>
-            )}
-
-            <div className="mt-5 flex items-center justify-between gap-3">
+        {/* ── Body (single scroll region) ────────────────────── */}
+        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-y-auto">
+          <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
+            {/* Left sidebar */}
+            <aside className="border-b border-white/10 px-6 py-5 lg:border-b-0 lg:border-r lg:border-white/10">
               <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                草案历史
+                任务映射
               </div>
-              <button
-                type="button"
-                onClick={() => {
+              <select
+                value={selectedTaskId}
+                onChange={(event) => {
+                  setSelectedTaskId(event.target.value);
                   setSelectedPlanId(null);
-                  setSuccessMessage(null);
-                  setErrorMessage(null);
                 }}
-                disabled={!canCreateNewDraft}
-                className="rounded-xl border border-[#3a3a3a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-100 transition hover:bg-transparent disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-transparent disabled:text-zinc-500"
+                disabled={Boolean(selectedPlanId)}
+                className="mt-3 w-full rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 outline-none ring-0 transition focus:border-white/20 disabled:cursor-not-allowed disabled:border-white/[0.04] disabled:text-zinc-500"
               >
-                新建草案
-              </button>
-            </div>
+                {props.tasks.length === 0 ? <option value="">暂无任务</option> : null}
+                {props.tasks.map((task) => (
+                  <option key={task.id} value={task.id} className="bg-[#1a1a1a] text-zinc-100">
+                    {task.title}
+                  </option>
+                ))}
+              </select>
 
-            <div className="mt-3 space-y-3">
-              {changePlansForTask.length > 0 ? (
-                changePlansForTask.map((item) => {
-                  const isSelected = item.id === selectedPlanId;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSelectedPlanId(item.id)}
-                      className={`w-full border px-4 py-3 text-left transition ${
-                        isSelected
-                          ? "border-[#3a3a3a] bg-transparent"
-                          : "border-[#333333] bg-transparent/60 hover:border-[#333333]"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-sm font-medium text-zinc-100">
-                          {item.title}
-                        </div>
-                        <StatusBadge label={`v${item.current_version_number}`} tone="info" />
-                      </div>
-                      <div className="mt-2 text-xs leading-5 text-zinc-400">
-                        {item.latest_version.intent_summary}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {item.latest_version.related_deliverables.map((deliverable) => (
-                          <StatusBadge
-                            key={`${item.id}-${deliverable.deliverable_id}`}
-                            label={deliverable.title}
-                            tone="neutral"
-                          />
-                        ))}
-                      </div>
-                    </button>
-                  );
-                })
+              {selectedTask ? (
+                <div className="mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 text-sm leading-6 text-zinc-400">
+                  <div className="font-medium text-zinc-100">{selectedTask.title}</div>
+                  <div className="mt-2">{selectedTask.input_summary}</div>
+                  <div className="mt-2 text-xs text-zinc-500">
+                    更新时间 {formatDateTime(selectedTask.updated_at)}
+                  </div>
+                </div>
               ) : (
-                <div className="border border-dashed border-[#333333] bg-transparent/40 p-4 text-sm leading-6 text-zinc-400">
-                  {canCreateNewDraft
-                    ? "当前任务还没有变更计划草案，可以直接从当前候选文件包新建。"
-                    : "请先在仓库页生成候选文件包，再新建草案。"}
+                <div className="mt-3 rounded-2xl border border-dashed border-white/[0.06] bg-white/[0.02] p-4 text-sm leading-6 text-zinc-500">
+                  当前项目还没有可映射的任务。
                 </div>
               )}
-            </div>
-          </section>
 
-          <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
-            <div className="flex-1 overflow-y-auto px-6 py-5">
-              <section className="border border-[#333333] bg-transparent/60 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium text-zinc-100">当前映射来源</div>
-                    <div className="mt-2 text-sm leading-6 text-zinc-400">
-                      {activeSourceSummary || "尚未提供映射来源。"}
-                    </div>
-                    {activeContextPackGeneratedAt ? (
-                      <div className="mt-2 text-xs text-zinc-500">
-                        来源时间 {formatDateTime(activeContextPackGeneratedAt)}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {activeFocusTerms.map((term) => (
-                      <StatusBadge key={term} label={`焦点 ${term}`} tone="neutral" />
-                    ))}
-                  </div>
+              <div className="mt-5 flex items-center justify-between gap-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  草案历史
                 </div>
-
-                {props.codeContextPack ? (
-                  <div className="mt-3 border border-[#3a3a3a] bg-transparent px-4 py-3 text-sm leading-6 text-zinc-100">
-                    本次保存将优先使用当前候选文件包中的文件集合。
-                  </div>
-                ) : selectedPlanSummary ? (
-                  <div className="mt-3 border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
-                    当前没有新的候选文件包，将沿用《{selectedPlanSummary.title}》最新版本中的目标文件与来源摘要继续追加版本。
-                  </div>
-                ) : (
-                  <div className="mt-3 border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
-                    新建草案需要先在仓库页生成候选文件包。
-                  </div>
-                )}
-              </section>
-
-              <div className="mt-5 grid gap-5 xl:grid-cols-2">
-                <FieldBlock
-                  label="草案标题"
-                  description="默认会按“任务 / 交付件 / 变更计划”自动生成，可按需覆写。"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPlanId(null);
+                    setSuccessMessage(null);
+                    setErrorMessage(null);
+                  }}
+                  disabled={!canCreateNewDraft}
+                  className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-zinc-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:border-white/[0.04] disabled:text-zinc-600"
                 >
-                  <input
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
-                  />
-                </FieldBlock>
-
-                <FieldBlock
-                  label="主交付件"
-                  description="同一交付件可持续累积多版草案，便于保留调整记录。"
-                >
-                  <select
-                    value={primaryDeliverableId}
-                    onChange={(event) => setPrimaryDeliverableId(event.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
-                  >
-                    {deliverables.length === 0 ? <option value="">暂无交付件</option> : null}
-                    {deliverables.map((deliverable) => (
-                      <option key={deliverable.id} value={deliverable.id}>
-                        {deliverable.title} · v{deliverable.current_version_number}
-                      </option>
-                    ))}
-                  </select>
-                </FieldBlock>
+                  新建草案
+                </button>
               </div>
 
-              <FieldBlock
-                className="mt-5"
-                label="关联交付件"
-                description="至少保留一个交付件，供项目详情和后续时间线反查映射关系。"
-              >
-                {deliverables.length > 0 ? (
-                  <div className="space-y-3">
-                    {deliverables.map((deliverable) => {
-                      const checked = selectedDeliverableIds.includes(deliverable.id);
-                      return (
-                        <label
-                          key={deliverable.id}
-                          className="flex items-start gap-3 border border-[#333333] bg-transparent/60 px-4 py-3"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              setSelectedDeliverableIds((current) => {
-                                if (checked) {
-                                  const next = current.filter((item) => item !== deliverable.id);
-                                  if (primaryDeliverableId === deliverable.id) {
-                                    setPrimaryDeliverableId(next[0] ?? "");
-                                  }
-                                  return next;
-                                }
-                                return [...current, deliverable.id];
-                              });
-                            }}
-                            className="mt-1 h-4 w-4 rounded border-[#333333] bg-transparent text-zinc-400"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-medium text-zinc-100">
-                                {deliverable.title}
-                              </div>
-                              <StatusBadge
-                                label={DELIVERABLE_TYPE_LABELS[deliverable.type] ?? deliverable.type}
-                                tone="info"
-                              />
-                              <StatusBadge label={`v${deliverable.current_version_number}`} tone="neutral" />
-                            </div>
-                            <div className="mt-2 text-xs leading-5 text-zinc-500">
-                              {deliverable.latest_version.summary}
-                            </div>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
-                    当前项目还没有可关联的交付件，请先在交付件中心补齐最小产物。
-                  </div>
-                )}
-              </FieldBlock>
-
-              <FieldBlock
-                className="mt-5"
-                label="本次变更意图"
-                description="描述本次调整目标和预期范围。"
-              >
-                <textarea
-                  value={intentSummary}
-                  onChange={(event) => setIntentSummary(event.target.value)}
-                  rows={5}
-                  className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
-                />
-              </FieldBlock>
-
-              <div className="mt-5 grid gap-5 xl:grid-cols-3">
-                <FieldBlock
-                  label="预期动作"
-                  description="一行一条，例如“更新仓储层查询”“补前端抽屉展示”。"
-                >
-                  <textarea
-                    value={expectedActionsText}
-                    onChange={(event) => setExpectedActionsText(event.target.value)}
-                    rows={8}
-                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
-                  />
-                </FieldBlock>
-
-                <FieldBlock
-                  label="风险说明"
-                  description="记录可能影响范围、交付质量或验证结果的风险。"
-                >
-                  <textarea
-                    value={riskNotesText}
-                    onChange={(event) => setRiskNotesText(event.target.value)}
-                    rows={8}
-                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
-                  />
-                </FieldBlock>
-
-                <FieldBlock
-                  label="自定义验证命令"
-                  description="可补充本次草案需要执行的验证命令。"
-                >
-                  <textarea
-                    value={verificationCommandsText}
-                    onChange={(event) => setVerificationCommandsText(event.target.value)}
-                    rows={8}
-                    className="w-full rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-[#3a3a3a]"
-                  />
-                </FieldBlock>
-              </div>
-
-              <FieldBlock
-                className="mt-5"
-                label="验证模板"
-                description="引用仓库级 build / test / lint / typecheck 基线，减少重复填写。"
-              >
-                {verificationBaselineQuery.isLoading ? (
-                  <div className="text-sm leading-6 text-zinc-400">
-                    正在加载验证模板...
-                  </div>
-                ) : verificationBaselineQuery.isError ? (
-                  <div className="border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
-                    验证模板加载失败：{verificationBaselineQuery.error.message}
-                  </div>
-                ) : verificationTemplates.length > 0 ? (
-                  <div className="space-y-3">
-                    {verificationTemplates.map((template) => {
-                      const checked = selectedVerificationTemplateIds.includes(template.id);
-                      return (
-                        <label
-                          key={template.id}
-                          className="flex items-start gap-3 border border-[#333333] bg-transparent/60 px-4 py-3"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              setSelectedVerificationTemplateIds((current) =>
-                                checked
-                                  ? current.filter((item) => item !== template.id)
-                                  : [...current, template.id],
-                              );
-                            }}
-                            className="mt-1 h-4 w-4 rounded border-[#333333] bg-transparent text-zinc-400"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-medium text-zinc-100">
-                                {template.name}
-                              </div>
-                              <StatusBadge
-                                label={
-                                  REPOSITORY_VERIFICATION_CATEGORY_LABELS[
-                                    template.category
-                                  ]
-                                }
-                                tone="info"
-                              />
-                              <StatusBadge
-                                label={template.enabled_by_default ? "默认启用" : "按需启用"}
-                                tone={template.enabled_by_default ? "success" : "neutral"}
-                              />
-                              <StatusBadge
-                                label={`${template.timeout_seconds}s`}
-                                tone="warning"
-                              />
-                            </div>
-                            <div className="mt-2 text-sm leading-6 text-zinc-400">
-                              {template.description ?? "未提供模板说明。"}
-                            </div>
-                            <div className="mt-2 text-xs leading-5 text-zinc-500">
-                              工作目录 {template.working_directory} · {template.command}
-                            </div>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
-                    当前项目尚未初始化验证模板，请先在仓库页补齐命令基线。
-                  </div>
-                )}
-              </FieldBlock>
-
-              <FieldBlock
-                className="mt-5"
-                label="本次草案的验证基线"
-                description="合并模板命令与当前草案补充命令，便于提交前确认。"
-              >
-                {resolvedVerificationCommands.length > 0 ? (
-                  <div className="space-y-2">
-                    {resolvedVerificationCommands.map((command) => (
-                      <div
-                        key={command}
-                        className="rounded-xl border border-[#333333] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100"
-                      >
-                        {command}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
-                    尚未选择验证模板，也未填写自定义验证命令。
-                  </div>
-                )}
-              </FieldBlock>
-
-              <FieldBlock
-                className="mt-5"
-                label="目标文件集合"
-                description="选择本次草案涉及的目标文件。"
-              >
-                {activeTargetFiles.length > 0 ? (
-                  <div className="space-y-3">
-                    {activeTargetFiles.map((item) => {
-                      const checked = selectedTargetPaths.includes(item.relative_path);
-                      return (
-                        <label
-                          key={item.relative_path}
-                          className="flex items-start gap-3 border border-[#333333] bg-transparent/60 px-4 py-3"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
-                              setSelectedTargetPaths((current) =>
-                                checked
-                                  ? current.filter((path) => path !== item.relative_path)
-                                  : [...current, item.relative_path],
-                              )
-                            }
-                            className="mt-1 h-4 w-4 rounded border-[#333333] bg-transparent text-zinc-400"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="break-all text-sm font-medium text-zinc-100">
-                              {item.relative_path}
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <StatusBadge label={item.language} tone="success" />
-                              <StatusBadge label={item.file_type} tone="warning" />
-                              {item.match_reasons.map((reason) => (
-                                <StatusBadge
-                                  key={`${item.relative_path}-${reason}`}
-                                  label={reason}
-                                  tone="neutral"
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="border border-dashed border-[#333333] bg-transparent/60 px-4 py-3 text-sm leading-6 text-zinc-400">
-                    暂无目标文件；请先生成候选文件包，或打开已有草案查看上一版映射。
-                  </div>
-                )}
-              </FieldBlock>
-
-              {selectedPlanDetail ? (
-                <FieldBlock
-                  className="mt-5"
-                  label="版本时间线"
-                  description="同一交付件下可连续沉淀多版草案，保留调整时间线。"
-                >
-                  <div className="space-y-3">
-                    {selectedPlanDetail.versions.map((version) => (
-                      <div
-                        key={version.id}
-                        className="border border-[#333333] bg-transparent/60 px-4 py-3"
+              <div className="mt-3 space-y-2">
+                {changePlansForTask.length > 0 ? (
+                  changePlansForTask.map((item) => {
+                    const isSelected = item.id === selectedPlanId;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedPlanId(item.id)}
+                        className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                          isSelected
+                            ? "border-white/20 bg-white/[0.05] ring-1 ring-white/10"
+                            : "border-white/[0.06] bg-white/[0.02] hover:border-white/10"
+                        }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="text-sm font-medium text-zinc-100">
-                            v{version.version_number}
+                            {item.title}
                           </div>
-                          <StatusBadge label={`${version.target_files.length} 文件`} tone="info" />
-                          <StatusBadge
-                            label={`${version.verification_commands.length} 验证命令`}
-                            tone="warning"
-                          />
-                          <StatusBadge
-                            label={`${version.verification_templates.length} 模板`}
-                            tone="neutral"
-                          />
+                          <StatusBadge label={`v${item.current_version_number}`} tone="info" />
                         </div>
-                        <div className="mt-2 text-sm leading-6 text-zinc-400">
-                          {version.intent_summary}
+                        <div className="mt-2 text-xs leading-5 text-zinc-400 line-clamp-2">
+                          {item.latest_version.intent_summary}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
-                          {version.verification_templates.map((template) => (
+                          {item.latest_version.related_deliverables.map((deliverable) => (
                             <StatusBadge
-                              key={`${version.id}-${template.id}`}
-                              label={`${REPOSITORY_VERIFICATION_CATEGORY_LABELS[template.category]} · ${template.name}`}
-                              tone="info"
-                            />
-                          ))}
-                          {version.related_deliverables.map((deliverable) => (
-                            <StatusBadge
-                              key={`${version.id}-${deliverable.deliverable_id}`}
+                              key={`${item.id}-${deliverable.deliverable_id}`}
                               label={deliverable.title}
                               tone="neutral"
                             />
                           ))}
                         </div>
-                        <div className="mt-2 text-xs text-zinc-500">
-                          创建于 {formatDateTime(version.created_at)}
-                        </div>
-                      </div>
-                    ))}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-white/[0.06] bg-white/[0.02] p-4 text-sm leading-6 text-zinc-500">
+                    {canCreateNewDraft
+                      ? "当前任务还没有变更计划草案，可以直接从当前候选文件包新建。"
+                      : "请先在仓库页生成候选文件包，再新建草案。"}
                   </div>
+                )}
+              </div>
+            </aside>
+
+            {/* Right form area */}
+            <form onSubmit={handleSubmit} className="flex min-w-0 flex-col">
+              <div className="px-6 py-5">
+                {/* Mapping source */}
+                <section className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-zinc-100">当前映射来源</div>
+                      <div className="mt-2 text-sm leading-6 text-zinc-400">
+                        {activeSourceSummary || "尚未提供映射来源。"}
+                      </div>
+                      {activeContextPackGeneratedAt ? (
+                        <div className="mt-2 text-xs text-zinc-500">
+                          来源时间 {formatDateTime(activeContextPackGeneratedAt)}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {activeFocusTerms.map((term) => (
+                        <StatusBadge key={term} label={`焦点 ${term}`} tone="neutral" />
+                      ))}
+                    </div>
+                  </div>
+
+                  {props.codeContextPack ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-zinc-100">
+                      本次保存将优先使用当前候选文件包中的文件集合。
+                    </div>
+                  ) : selectedPlanSummary ? (
+                    <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.08] px-4 py-3 text-sm leading-6 text-amber-100">
+                      当前没有新的候选文件包，将沿用《{selectedPlanSummary.title}》最新版本中的目标文件与来源摘要继续追加版本。
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-2xl border border-rose-500/[0.15] bg-rose-500/[0.06] px-4 py-3 text-sm leading-6 text-rose-200">
+                      新建草案需要先在仓库页生成候选文件包。
+                    </div>
+                  )}
+                </section>
+
+                <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                  <FieldBlock
+                    label="草案标题"
+                    description="默认会按「任务 / 交付件 / 变更计划」自动生成，可按需覆写。"
+                  >
+                    <input
+                      value={title}
+                      onChange={(event) => setTitle(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+                    />
+                  </FieldBlock>
+
+                  <FieldBlock
+                    label="主交付件"
+                    description="同一交付件可持续累积多版草案，便于保留调整记录。"
+                  >
+                    <select
+                      value={primaryDeliverableId}
+                      onChange={(event) => setPrimaryDeliverableId(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+                    >
+                      {deliverables.length === 0 ? <option value="">暂无交付件</option> : null}
+                      {deliverables.map((deliverable) => (
+                        <option key={deliverable.id} value={deliverable.id} className="bg-[#1a1a1a] text-zinc-100">
+                          {deliverable.title} · v{deliverable.current_version_number}
+                        </option>
+                      ))}
+                    </select>
+                  </FieldBlock>
+                </div>
+
+                <FieldBlock
+                  className="mt-5"
+                  label="关联交付件"
+                  description="至少保留一个交付件，供项目详情和后续时间线反查映射关系。"
+                >
+                  {deliverables.length > 0 ? (
+                    <div className="space-y-2">
+                      {deliverables.map((deliverable) => {
+                        const checked = selectedDeliverableIds.includes(deliverable.id);
+                        return (
+                          <label
+                            key={deliverable.id}
+                            className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 transition hover:border-white/10"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setSelectedDeliverableIds((current) => {
+                                  if (checked) {
+                                    const next = current.filter((item) => item !== deliverable.id);
+                                    if (primaryDeliverableId === deliverable.id) {
+                                      setPrimaryDeliverableId(next[0] ?? "");
+                                    }
+                                    return next;
+                                  }
+                                  return [...current, deliverable.id];
+                                });
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-white/20 bg-transparent text-zinc-400 accent-zinc-400"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-medium text-zinc-100">
+                                  {deliverable.title}
+                                </div>
+                                <StatusBadge
+                                  label={DELIVERABLE_TYPE_LABELS[deliverable.type] ?? deliverable.type}
+                                  tone="info"
+                                />
+                                <StatusBadge label={`v${deliverable.current_version_number}`} tone="neutral" />
+                              </div>
+                              <div className="mt-2 text-xs leading-5 text-zinc-500 line-clamp-2">
+                                {deliverable.latest_version.summary}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/[0.06] bg-white/[0.02] px-4 py-3 text-sm leading-6 text-zinc-500">
+                      当前项目还没有可关联的交付件，请先在交付件中心补齐最小产物。
+                    </div>
+                  )}
                 </FieldBlock>
-              ) : null}
 
-              {errorMessage ? (
-                <div className="mt-5 border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-100">
-                  {errorMessage}
+                <FieldBlock
+                  className="mt-5"
+                  label="本次变更意图"
+                  description="描述本次调整目标和预期范围。"
+                >
+                  <textarea
+                    value={intentSummary}
+                    onChange={(event) => setIntentSummary(event.target.value)}
+                    rows={5}
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm leading-6 text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+                  />
+                </FieldBlock>
+
+                <div className="mt-5 grid gap-5 xl:grid-cols-3">
+                  <FieldBlock
+                    label="预期动作"
+                    description="一行一条，例如「更新仓储层查询」「补前端抽屉展示」。"
+                  >
+                    <textarea
+                      value={expectedActionsText}
+                      onChange={(event) => setExpectedActionsText(event.target.value)}
+                      rows={8}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm leading-6 text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+                    />
+                  </FieldBlock>
+
+                  <FieldBlock
+                    label="风险说明"
+                    description="记录可能影响范围、交付质量或验证结果的风险。"
+                  >
+                    <textarea
+                      value={riskNotesText}
+                      onChange={(event) => setRiskNotesText(event.target.value)}
+                      rows={8}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm leading-6 text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+                    />
+                  </FieldBlock>
+
+                  <FieldBlock
+                    label="自定义验证命令"
+                    description="可补充本次草案需要执行的验证命令。"
+                  >
+                    <textarea
+                      value={verificationCommandsText}
+                      onChange={(event) => setVerificationCommandsText(event.target.value)}
+                      rows={8}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm leading-6 text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+                    />
+                  </FieldBlock>
                 </div>
-              ) : null}
 
-              {successMessage ? (
-                <div className="mt-5 border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
-                  {successMessage}
+                <FieldBlock
+                  className="mt-5"
+                  label="验证模板"
+                  description="引用仓库级 build / test / lint / typecheck 基线，减少重复填写。"
+                >
+                  {verificationBaselineQuery.isLoading ? (
+                    <div className="text-sm leading-6 text-zinc-400">
+                      正在加载验证模板...
+                    </div>
+                  ) : verificationBaselineQuery.isError ? (
+                    <div className="rounded-2xl border border-rose-500/[0.15] bg-rose-500/[0.06] px-4 py-3 text-sm leading-6 text-rose-200">
+                      验证模板加载失败：{verificationBaselineQuery.error.message}
+                    </div>
+                  ) : verificationTemplates.length > 0 ? (
+                    <div className="space-y-2">
+                      {verificationTemplates.map((template) => {
+                        const checked = selectedVerificationTemplateIds.includes(template.id);
+                        return (
+                          <label
+                            key={template.id}
+                            className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 transition hover:border-white/10"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setSelectedVerificationTemplateIds((current) =>
+                                  checked
+                                    ? current.filter((item) => item !== template.id)
+                                    : [...current, template.id],
+                                );
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-white/20 bg-transparent text-zinc-400 accent-zinc-400"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-medium text-zinc-100">
+                                  {template.name}
+                                </div>
+                                <StatusBadge
+                                  label={
+                                    REPOSITORY_VERIFICATION_CATEGORY_LABELS[
+                                      template.category
+                                    ]
+                                  }
+                                  tone="info"
+                                />
+                                <StatusBadge
+                                  label={template.enabled_by_default ? "默认启用" : "按需启用"}
+                                  tone={template.enabled_by_default ? "success" : "neutral"}
+                                />
+                                <StatusBadge
+                                  label={`${template.timeout_seconds}s`}
+                                  tone="warning"
+                                />
+                              </div>
+                              <div className="mt-2 text-sm leading-6 text-zinc-400">
+                                {template.description ?? "未提供模板说明。"}
+                              </div>
+                              <div className="mt-2 text-xs leading-5 text-zinc-500 truncate">
+                                工作目录 {template.working_directory} · {template.command}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/[0.06] bg-white/[0.02] px-4 py-3 text-sm leading-6 text-zinc-500">
+                      当前项目尚未初始化验证模板，请先在仓库页补齐命令基线。
+                    </div>
+                  )}
+                </FieldBlock>
+
+                <FieldBlock
+                  className="mt-5"
+                  label="本次草案的验证基线"
+                  description="合并模板命令与当前草案补充命令，便于提交前确认。"
+                >
+                  {resolvedVerificationCommands.length > 0 ? (
+                    <div className="space-y-2">
+                      {resolvedVerificationCommands.map((command) => (
+                        <div
+                          key={command}
+                          className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm leading-6 text-zinc-100 break-all"
+                        >
+                          {command}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/[0.06] bg-white/[0.02] px-4 py-3 text-sm leading-6 text-zinc-500">
+                      尚未选择验证模板，也未填写自定义验证命令。
+                    </div>
+                  )}
+                </FieldBlock>
+
+                <FieldBlock
+                  className="mt-5"
+                  label="目标文件集合"
+                  description="选择本次草案涉及的目标文件。"
+                >
+                  {activeTargetFiles.length > 0 ? (
+                    <div className="space-y-2">
+                      {activeTargetFiles.map((item) => {
+                        const checked = selectedTargetPaths.includes(item.relative_path);
+                        return (
+                          <label
+                            key={item.relative_path}
+                            className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 transition hover:border-white/10"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setSelectedTargetPaths((current) =>
+                                  checked
+                                    ? current.filter((path) => path !== item.relative_path)
+                                    : [...current, item.relative_path],
+                                )
+                              }
+                              className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-transparent text-zinc-400 accent-zinc-400"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="break-all text-sm font-medium text-zinc-100">
+                                {item.relative_path}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <StatusBadge label={item.language} tone="success" />
+                                <StatusBadge label={item.file_type} tone="warning" />
+                                {item.match_reasons.map((reason) => (
+                                  <StatusBadge
+                                    key={`${item.relative_path}-${reason}`}
+                                    label={reason}
+                                    tone="neutral"
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/[0.06] bg-white/[0.02] px-4 py-3 text-sm leading-6 text-zinc-500">
+                      暂无目标文件；请先生成候选文件包，或打开已有草案查看上一版映射。
+                    </div>
+                  )}
+                </FieldBlock>
+
+                {selectedPlanDetail ? (
+                  <FieldBlock
+                    className="mt-5"
+                    label="版本时间线"
+                    description="同一交付件下可连续沉淀多版草案，保留调整时间线。"
+                  >
+                    <div className="space-y-2">
+                      {selectedPlanDetail.versions.map((version) => (
+                        <div
+                          key={version.id}
+                          className="rounded-2xl border border-white/[0.06] bg-white/[0.03] px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-medium text-zinc-100">
+                              v{version.version_number}
+                            </div>
+                            <StatusBadge label={`${version.target_files.length} 文件`} tone="info" />
+                            <StatusBadge
+                              label={`${version.verification_commands.length} 验证命令`}
+                              tone="warning"
+                            />
+                            <StatusBadge
+                              label={`${version.verification_templates.length} 模板`}
+                              tone="neutral"
+                            />
+                          </div>
+                          <div className="mt-2 text-sm leading-6 text-zinc-400">
+                            {version.intent_summary}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {version.verification_templates.map((template) => (
+                              <StatusBadge
+                                key={`${version.id}-${template.id}`}
+                                label={`${REPOSITORY_VERIFICATION_CATEGORY_LABELS[template.category]} · ${template.name}`}
+                                tone="info"
+                              />
+                            ))}
+                            {version.related_deliverables.map((deliverable) => (
+                              <StatusBadge
+                                key={`${version.id}-${deliverable.deliverable_id}`}
+                                label={deliverable.title}
+                                tone="neutral"
+                              />
+                            ))}
+                          </div>
+                          <div className="mt-2 text-xs text-zinc-500">
+                            创建于 {formatDateTime(version.created_at)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </FieldBlock>
+                ) : null}
+
+                {errorMessage ? (
+                  <div className="mt-5 rounded-2xl border border-rose-500/[0.15] bg-rose-500/[0.06] px-4 py-3 text-sm leading-6 text-rose-200">
+                    {errorMessage}
+                  </div>
+                ) : null}
+
+                {successMessage ? (
+                  <div className="mt-5 rounded-2xl border border-emerald-500/[0.15] bg-emerald-500/[0.06] px-4 py-3 text-sm leading-6 text-emerald-200">
+                    {successMessage}
+                  </div>
+                ) : null}
+              </div>
+
+              {/* ── Footer ────────────────────────────────────── */}
+              <footer className="shrink-0 border-t border-white/10 px-6 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={props.onClose}
+                    className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-400 transition hover:border-white/20 hover:text-zinc-200"
+                  >
+                    关闭
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={isSaving || (!selectedPlanId && !canCreateNewDraft)}
+                    className="rounded-2xl border border-white/20 bg-white/[0.06] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-white/30 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:border-white/[0.04] disabled:bg-white/[0.02] disabled:text-zinc-600"
+                  >
+                    {isSaving ? "保存中..." : selectedPlanId ? "追加草案版本" : "创建草案"}
+                  </button>
                 </div>
-              ) : null}
-            </div>
-
-            <footer className="flex items-center justify-between gap-3 border-t border-[#333333] px-6 py-4">
-              <button
-                type="button"
-                onClick={props.onClose}
-                className="rounded-xl border border-[#333333] px-4 py-2 text-sm font-medium text-zinc-400 transition hover:border-[#333333] hover:text-zinc-100"
-              >
-                关闭
-              </button>
-
-              <button
-                type="submit"
-                disabled={isSaving || (!selectedPlanId && !canCreateNewDraft)}
-                className="rounded-xl border border-[#3a3a3a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-transparent disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-transparent disabled:text-zinc-500"
-              >
-                {isSaving ? "保存中..." : selectedPlanId ? "追加草案版本" : "创建草案"}
-              </button>
-            </footer>
-          </form>
+              </footer>
+            </form>
+          </div>
         </div>
-      </aside>
+      </section>
     </div>
   );
 }
@@ -892,7 +934,7 @@ function FieldBlock(props: {
 }) {
   return (
     <section
-      className={`${props.className ?? ""} border border-[#333333] bg-transparent/60 p-4`}
+      className={`${props.className ?? ""} rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4`}
     >
       <div className="text-sm font-medium text-zinc-100">{props.label}</div>
       <div className="mt-1 text-xs leading-5 text-zinc-400">
