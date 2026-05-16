@@ -162,7 +162,7 @@ class ExecutorService:
             )
 
         provider_key = primary_target.provider_key.strip().lower()
-        if provider_key == "openai":
+        if provider_key in {"openai", "deepseek", "openai_compatible"}:
             openai_provider_executor_service = self._resolve_openai_provider_executor_service()
             if not openai_provider_executor_service.is_enabled:
                 return self._execute_provider_mock_with_fallback(
@@ -174,7 +174,7 @@ class ExecutorService:
                     fallback_reason=ProviderFallbackReason(
                         code="missing_api_key",
                         message=(
-                            "OpenAI API key is not configured in provider settings "
+                            "Provider API key is not configured in provider settings "
                             "or OPENAI_API_KEY environment variable."
                         ),
                     ),

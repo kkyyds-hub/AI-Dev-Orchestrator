@@ -6,6 +6,9 @@ import { requestJson } from "../../../lib/http";
 import type { BossProjectItem, ProjectDetail } from "../types";
 
 type ProviderSource = "saved_config" | "env" | "none";
+type ProviderModelPreset = "openai" | "deepseek" | "custom";
+type ProviderType = "openai" | "deepseek" | "openai_compatible";
+type TierModelNames = { economy: string; balanced: string; premium: string };
 
 type OpenAIProviderSettingsSummary = {
   provider_key: string;
@@ -13,6 +16,9 @@ type OpenAIProviderSettingsSummary = {
   base_url: string;
   timeout_seconds: number;
   source: ProviderSource;
+  detected_provider_type: ProviderType;
+  model_preset: ProviderModelPreset;
+  model_names: TierModelNames;
 };
 
 function fetchOpenAIProviderSettings(): Promise<OpenAIProviderSettingsSummary> {

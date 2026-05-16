@@ -11,20 +11,28 @@ import type { RepositoryWorkspace } from "../projects/types";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
 
 type ProviderSource = "saved_config" | "env" | "none";
+type ProviderModelPreset = "openai" | "deepseek" | "custom";
+type ProviderType = "openai" | "deepseek" | "openai_compatible";
+type TierModelNames = { economy: string; balanced: string; premium: string };
 
 type OpenAIProviderSettingsSummary = {
   provider_key: string;
   configured: boolean;
+  masked_api_key?: string | null;
   base_url: string;
   timeout_seconds: number;
   source: ProviderSource;
-  [key: string]: unknown;
+  detected_provider_type: ProviderType;
+  model_preset: ProviderModelPreset;
+  model_names: TierModelNames;
 };
 
 type OpenAIProviderSettingsUpdateRequest = {
+  api_key?: string;
   base_url: string;
   timeout_seconds: number;
-  [key: string]: string | number;
+  model_preset?: ProviderModelPreset;
+  model_names?: TierModelNames;
 };
 
 type RepositoryWorkspaceBindRequest = {
@@ -49,6 +57,32 @@ const SOURCE_LABELS: Record<ProviderSource, string> = {
   saved_config: "已保存",
   env: "环境变量",
   none: "未配置",
+};
+
+
+const PRESET_MODELS: Record<Exclude<ProviderModelPreset, "custom">, TierModelNames> = {
+  deepseek: {
+    economy: "deepseek-v4-pro",
+    balanced: "deepseek-v4-pro",
+    premium: "deepseek-v4-pro",
+  },
+  openai: {
+    economy: "gpt-5.5",
+    balanced: "gpt-5.5",
+    premium: "gpt-5.5",
+  },
+};
+
+const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
+  openai: "OpenAI",
+  deepseek: "DeepSeek",
+  openai_compatible: "OpenAI-compatible",
+};
+
+const PRESET_LABELS: Record<ProviderModelPreset, string> = {
+  deepseek: "DeepSeek preset",
+  openai: "OpenAI preset",
+  custom: "Custom",
 };
 
 function fetchOpenAIProviderSettings(): Promise<OpenAIProviderSettingsSummary> {
@@ -150,6 +184,8 @@ function ModelConfigurationSection() {
   const [secretInput, setSecretInput] = useState("");
   const [baseUrlInput, setBaseUrlInput] = useState("https://api.openai.com/v1");
   const [timeoutSecondsInput, setTimeoutSecondsInput] = useState("30");
+  const [selectedPreset, setSelectedPreset] = useState<ProviderModelPreset>("openai");
+  const [modelNamesInput, setModelNamesInput] = useState<TierModelNames>(PRESET_MODELS.openai);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
@@ -158,6 +194,8 @@ function ModelConfigurationSection() {
     }
     setBaseUrlInput(providerSettingsQuery.data.base_url);
     setTimeoutSecondsInput(String(providerSettingsQuery.data.timeout_seconds));
+    setSelectedPreset(providerSettingsQuery.data.model_preset);
+    setModelNamesInput(providerSettingsQuery.data.model_names);
   }, [providerSettingsQuery.data]);
 
   const updateMutation = useMutation({
@@ -166,7 +204,9 @@ function ModelConfigurationSection() {
       setSecretInput("");
       setBaseUrlInput(result.base_url);
       setTimeoutSecondsInput(String(result.timeout_seconds));
-      setFeedback("模型配置已保存。");
+      setSelectedPreset(result.model_preset);
+      setModelNamesInput(result.model_names);
+      setFeedback("Provider model settings saved.");
       await queryClient.invalidateQueries({
         queryKey: ["provider-settings", "openai"],
       });
@@ -178,9 +218,26 @@ function ModelConfigurationSection() {
     return (
       !updateMutation.isPending &&
       baseUrlInput.trim().length > 0 &&
-      timeoutSecondsInput.trim().length > 0
+      timeoutSecondsInput.trim().length > 0 &&
+      Object.values(modelNamesInput).every((value) => value.trim().length > 0)
     );
-  }, [baseUrlInput, timeoutSecondsInput, updateMutation.isPending]);
+  }, [baseUrlInput, modelNamesInput, timeoutSecondsInput, updateMutation.isPending]);
+
+  const applyPreset = (preset: Exclude<ProviderModelPreset, "custom">) => {
+    setSelectedPreset(preset);
+    setModelNamesInput(PRESET_MODELS[preset]);
+    if (preset === "deepseek") {
+      setBaseUrlInput("https://api.deepseek.com");
+    }
+    if (preset === "openai") {
+      setBaseUrlInput("https://api.openai.com/v1");
+    }
+  };
+
+  const updateModelNameInput = (tier: keyof TierModelNames, value: string) => {
+    setSelectedPreset("custom");
+    setModelNamesInput((current) => ({ ...current, [tier]: value }));
+  };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -188,17 +245,25 @@ function ModelConfigurationSection() {
 
     const timeoutSeconds = Number.parseInt(timeoutSecondsInput, 10);
     if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1) {
-      setFeedback("超时时间必须是大于等于 1 的整数。");
+      setFeedback("Timeout seconds must be an integer greater than or equal to 1.");
       return;
     }
 
     const payload: OpenAIProviderSettingsUpdateRequest = {
       base_url: baseUrlInput.trim(),
       timeout_seconds: timeoutSeconds,
+      model_preset: selectedPreset,
     };
+    if (selectedPreset === "custom") {
+      payload.model_names = {
+        economy: modelNamesInput.economy.trim(),
+        balanced: modelNamesInput.balanced.trim(),
+        premium: modelNamesInput.premium.trim(),
+      };
+    }
     const enteredSecret = secretInput.trim();
     if (enteredSecret.length > 0) {
-      payload[["api", "key"].join("_") as "api_key"] = enteredSecret;
+      payload.api_key = enteredSecret;
     }
 
     void updateMutation.mutateAsync(payload);
@@ -209,44 +274,57 @@ function ModelConfigurationSection() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            模型配置
+            Provider Model Configuration
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            在这里配置模型密钥、服务地址和请求超时时间。保存后，工作台和任务执行会使用这套连接配置。
+            Configure API credentials, base URL, timeout, and the economy / balanced / premium model names used by worker routing.
           </p>
         </div>
         <StatusBadge
-          label={summary?.configured ? "已配置" : "待配置"}
+          label={summary?.configured ? "configured" : "not configured"}
           tone={summary?.configured ? "success" : "warning"}
         />
       </div>
 
       {providerSettingsQuery.isLoading ? (
-        <p className="mt-4 text-sm leading-6 text-zinc-500">正在加载模型配置...</p>
+        <p className="mt-4 text-sm leading-6 text-zinc-500">Loading provider model configuration...</p>
       ) : providerSettingsQuery.isError ? (
         <p className="mt-4 text-sm leading-6 text-rose-100">
-          模型配置加载失败：{providerSettingsQuery.error.message}
+          Failed to load provider model configuration: {providerSettingsQuery.error.message}
         </p>
       ) : (
         <>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <InfoLine label="当前密钥" value={formatMaskedKey(summary?.masked_api_key)} />
-            <InfoLine label="配置来源" value={summary ? SOURCE_LABELS[summary.source] : "未配置"} />
-            <InfoLine label="超时时间" value={`${summary?.timeout_seconds ?? 30} 秒`} />
+            <InfoLine label="Current key" value={formatMaskedKey(summary?.masked_api_key)} />
+            <InfoLine label="Source" value={summary ? SOURCE_LABELS[summary.source] : "not configured"} />
+            <InfoLine label="Provider type" value={summary ? PROVIDER_TYPE_LABELS[summary.detected_provider_type] : "OpenAI"} />
+            <InfoLine label="Model preset" value={summary ? PRESET_LABELS[summary.model_preset] : "OpenAI preset"} />
+            <InfoLine label="Timeout" value={`${summary?.timeout_seconds ?? 30} seconds`} />
+            <InfoLine label="Tier models" value={formatTierModels(summary?.model_names ?? modelNamesInput)} />
           </div>
 
           <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={secondaryButtonClassName} onClick={() => applyPreset("deepseek")}>
+                Use DeepSeek preset
+              </button>
+              <button type="button" className={secondaryButtonClassName} onClick={() => applyPreset("openai")}>
+                Use OpenAI preset
+              </button>
+              <span className="text-sm leading-9 text-zinc-500">Selected: {PRESET_LABELS[selectedPreset]}</span>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="模型密钥">
+              <Field label="API key">
                 <input
                   type="password"
                   value={secretInput}
                   onChange={(event) => setSecretInput(event.target.value)}
-                  placeholder="留空则保留当前密钥"
+                  placeholder="Leave blank to keep the current key"
                   className={inputClassName}
                 />
               </Field>
-              <Field label="超时时间（秒）">
+              <Field label="Timeout seconds">
                 <input
                   type="number"
                   min={1}
@@ -258,7 +336,7 @@ function ModelConfigurationSection() {
               </Field>
             </div>
 
-            <Field label="服务地址">
+            <Field label="Base URL">
               <input
                 type="url"
                 value={baseUrlInput}
@@ -268,16 +346,43 @@ function ModelConfigurationSection() {
               />
             </Field>
 
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Economy model">
+                <input
+                  value={modelNamesInput.economy}
+                  onChange={(event) => updateModelNameInput("economy", event.target.value)}
+                  placeholder="deepseek-v4-pro"
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Balanced model">
+                <input
+                  value={modelNamesInput.balanced}
+                  onChange={(event) => updateModelNameInput("balanced", event.target.value)}
+                  placeholder="deepseek-v4-pro"
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Premium model">
+                <input
+                  value={modelNamesInput.premium}
+                  onChange={(event) => updateModelNameInput("premium", event.target.value)}
+                  placeholder="deepseek-v4-pro"
+                  className={inputClassName}
+                />
+              </Field>
+            </div>
+
             <div className="flex flex-wrap items-center gap-3">
               <button type="submit" disabled={!canSubmit} className={buttonClassName}>
-                {updateMutation.isPending ? "保存中..." : "保存模型配置"}
+                {updateMutation.isPending ? "Saving..." : "Save model configuration"}
               </button>
               {feedback ? (
                 <span className="text-sm leading-6 text-zinc-400">{feedback}</span>
               ) : null}
               {updateMutation.isError ? (
                 <span className="text-sm leading-6 text-rose-100">
-                  保存失败：{updateMutation.error.message}
+                  Save failed: {updateMutation.error.message}
                 </span>
               ) : null}
             </div>
@@ -740,8 +845,15 @@ function formatMaskedKey(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : "未配置";
 }
 
+function formatTierModels(modelNames: TierModelNames) {
+  return `economy ${modelNames.economy} / balanced ${modelNames.balanced} / premium ${modelNames.premium}`;
+}
+
 const inputClassName =
   "w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500";
 
 const buttonClassName =
   "rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600";
+
+const secondaryButtonClassName =
+  "rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]";

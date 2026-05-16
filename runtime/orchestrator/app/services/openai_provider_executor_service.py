@@ -222,7 +222,7 @@ class OpenAIProviderExecutorService:
             )
 
         provider_key = target.provider_key.strip().lower()
-        if provider_key != "openai":
+        if provider_key not in {"openai", "deepseek", "openai_compatible"}:
             raise OpenAIProviderExecutionError(
                 category="provider_not_supported",
                 message=f"Provider '{target.provider_key}' is not supported by OpenAI executor.",
@@ -261,7 +261,7 @@ class OpenAIProviderExecutorService:
             else _OPENAI_CHAT_COMPLETIONS_PRICING_SOURCE
         )
         provider_usage_receipt = ProviderUsageReceipt(
-            provider_key="openai",
+            provider_key=provider_key,
             model_name=target.model_name,
             receipt_id=receipt_id,
             receipt_source=ProviderReceiptSource.REAL_PROVIDER,
@@ -279,8 +279,8 @@ class OpenAIProviderExecutorService:
         )
 
         summary = (
-            "OpenAI provider execution succeeded. "
-            f"Target openai/{target.model_name} via {api_family} at {endpoint}. "
+            "OpenAI-compatible provider execution succeeded. "
+            f"Target {provider_key}/{target.model_name} via {api_family} at {endpoint}. "
             f"Receipt {receipt_id}. Output: {output_snippet}"
         )
         return OpenAIProviderExecutionResponse(

@@ -32,6 +32,7 @@ from app.services.role_catalog_service import (
     RoleCatalogService,
 )
 from app.services.skill_registry_service import SkillRegistryService
+from app.services.provider_config_service import ProviderConfigService
 
 
 _MODEL_TIERS = ("economy", "balanced", "premium")
@@ -147,19 +148,19 @@ def _default_rule_set() -> StrategyRuleSet:
             "economy": StrategyModelProfile(
                 tier="economy",
                 label="经济模型",
-                model_name="gpt-4.1-mini",
+                model_name="gpt-5.5",
                 summary="预算紧张时优先选用的经济档模型。",
             ),
             "balanced": StrategyModelProfile(
                 tier="balanced",
                 label="均衡模型",
-                model_name="gpt-4.1",
+                model_name="gpt-5.5",
                 summary="默认档位模型，兼顾质量与成本。",
             ),
             "premium": StrategyModelProfile(
                 tier="premium",
                 label="高质量模型",
-                model_name="gpt-5",
+                model_name="gpt-5.5",
                 summary="高风险或验证阶段优先使用的高质量模型。",
             ),
         },
@@ -284,11 +285,13 @@ class StrategyEngineService:
         role_catalog_service: RoleCatalogService,
         skill_registry_service: SkillRegistryService,
         budget_guard_service: BudgetGuardService,
+        provider_config_service: ProviderConfigService | None = None,
     ) -> None:
         self.project_repository = project_repository
         self.role_catalog_service = role_catalog_service
         self.skill_registry_service = skill_registry_service
         self.budget_guard_service = budget_guard_service
+        self.provider_config_service = provider_config_service or ProviderConfigService()
         self.rules_path = (
             settings.runtime_data_dir / "strategy-rules" / "strategy-rule-set.json"
         )
@@ -539,14 +542,39 @@ class StrategyEngineService:
         """Load the configured rule set with a safe default fallback."""
 
         if not self.rules_path.exists():
-            return _default_rule_set(), "default"
+            return self._apply_provider_model_config(_default_rule_set()), "default"
 
         try:
             raw_payload = json.loads(self.rules_path.read_text(encoding="utf-8"))
-            return StrategyRuleSet.model_validate(raw_payload), "runtime_override"
+            rules = StrategyRuleSet.model_validate(raw_payload)
+            return self._apply_provider_model_config(rules), "runtime_override"
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError):
-            return _default_rule_set(), "default_fallback"
-    def _select_skills(
+            return self._apply_provider_model_config(_default_rule_set()), "default_fallback"
+
+    def _apply_provider_model_config(self, rules: StrategyRuleSet) -> StrategyRuleSet:
+        """Overlay Provider model settings onto economy/balanced/premium profiles."""
+
+        runtime_config = self.provider_config_service.resolve_openai_runtime_config()
+        payload = rules.model_dump(mode="json")
+        raw_profiles = payload.setdefault("model_profiles", {})
+        if not isinstance(raw_profiles, dict):
+            return rules
+
+        default_profiles = _default_rule_set().model_profiles
+        for tier in _MODEL_TIERS:
+            configured_model_name = runtime_config.model_names.get(tier)
+            if not configured_model_name:
+                continue
+            profile_payload = raw_profiles.get(tier)
+            if not isinstance(profile_payload, dict):
+                default_profile = default_profiles[tier]
+                profile_payload = default_profile.model_dump(mode="json")
+                raw_profiles[tier] = profile_payload
+            profile_payload["model_name"] = configured_model_name
+
+        return StrategyRuleSet.model_validate(payload)
+
+    def _select_skills(
         self,
         *,
         project_id,

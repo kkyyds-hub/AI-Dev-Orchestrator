@@ -11,6 +11,7 @@ from app.domain.model_policy import (
     ExecutorRoutingTarget,
 )
 from app.domain.run import RunStrategyDecision
+from app.services.provider_config_service import ProviderConfigService
 
 
 @dataclass(slots=True, frozen=True)
@@ -24,6 +25,13 @@ class _ProviderBinding:
 class ModelRoutingService:
     """Build minimal provider-routing contracts from strategy decisions."""
 
+    def __init__(
+        self,
+        *,
+        provider_config_service: ProviderConfigService | None = None,
+    ) -> None:
+        self.provider_config_service = provider_config_service or ProviderConfigService()
+
     def build_contract_from_strategy_decision(
         self,
         strategy_decision: RunStrategyDecision | None,
@@ -35,7 +43,10 @@ class ModelRoutingService:
         if strategy_decision.model_name is None:
             return None
 
-        provider_binding = self._resolve_provider_binding(strategy_decision.model_name)
+        model_name = self.provider_config_service.get_model_name_for_tier(
+            strategy_decision.model_tier
+        )
+        provider_binding = self._resolve_provider_binding(model_name)
         route_reason = (
             strategy_decision.summary.strip()
             or f"Route selected by strategy {strategy_decision.strategy_code}."
@@ -45,7 +56,7 @@ class ModelRoutingService:
             primary_mode=ExecutorRouteMode.PROVIDER,
             primary_target=ExecutorRoutingTarget(
                 provider_key=provider_binding.provider_key,
-                model_name=strategy_decision.model_name,
+                model_name=model_name,
                 api_family=provider_binding.api_family,
             ),
             route_reason=route_reason,
@@ -73,9 +84,17 @@ class ModelRoutingService:
             ),
         )
 
-    @staticmethod
-    def _resolve_provider_binding(model_name: str) -> _ProviderBinding:
+    def _resolve_provider_binding(self, model_name: str) -> _ProviderBinding:
         """Infer one provider key and API family from the routed model name."""
+
+        runtime_config = self.provider_config_service.resolve_openai_runtime_config()
+        if runtime_config.detected_provider_type == "deepseek":
+            return _ProviderBinding(provider_key="deepseek", api_family="chat_completions")
+        if runtime_config.detected_provider_type == "openai_compatible":
+            return _ProviderBinding(
+                provider_key="openai_compatible",
+                api_family="chat_completions",
+            )
 
         normalized_name = model_name.strip().lower()
         if normalized_name.startswith("gpt-"):

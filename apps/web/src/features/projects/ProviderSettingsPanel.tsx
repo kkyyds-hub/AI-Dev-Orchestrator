@@ -5,6 +5,9 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { requestJson } from "../../lib/http";
 
 type ProviderSource = "saved_config" | "env" | "none";
+type ProviderModelPreset = "openai" | "deepseek" | "custom";
+type ProviderType = "openai" | "deepseek" | "openai_compatible";
+type TierModelNames = { economy: string; balanced: string; premium: string };
 
 type OpenAIProviderSettingsSummary = {
   provider_key: string;
@@ -13,12 +16,17 @@ type OpenAIProviderSettingsSummary = {
   base_url: string;
   timeout_seconds: number;
   source: ProviderSource;
+  detected_provider_type: ProviderType;
+  model_preset: ProviderModelPreset;
+  model_names: TierModelNames;
 };
 
 type OpenAIProviderSettingsUpdateRequest = {
   api_key?: string;
   base_url: string;
   timeout_seconds: number;
+  model_preset?: ProviderModelPreset;
+  model_names?: TierModelNames;
 };
 
 const SOURCE_LABELS: Record<ProviderSource, string> = {
@@ -155,6 +163,8 @@ export function ProviderSettingsPanel() {
             <InfoItem label="Configured" value={summary?.configured ? "Yes" : "No"} />
             <InfoItem label="Masked API Key" value={maskedKeyText} />
             <InfoItem label="Source" value={sourceLabel} />
+            <InfoItem label="Provider" value={summary?.detected_provider_type ?? "openai"} />
+            <InfoItem label="Models" value={formatTierModels(summary?.model_names)} />
           </div>
 
           <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
@@ -232,4 +242,11 @@ function InfoItem(props: { label: string; value: string }) {
       <div className="mt-2 text-sm text-zinc-200">{props.value}</div>
     </div>
   );
+}
+
+function formatTierModels(modelNames: TierModelNames | undefined) {
+  if (!modelNames) {
+    return "not loaded";
+  }
+  return `economy ${modelNames.economy} / balanced ${modelNames.balanced} / premium ${modelNames.premium}`;
 }
