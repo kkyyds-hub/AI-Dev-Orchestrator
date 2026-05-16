@@ -6,9 +6,11 @@ configuration through repository, task, worker, run, and delivery evidence?"
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from uuid import UUID
 
+from app.core.config import settings
 from app.domain._base import utc_now
 from app.domain.project import Project
 from app.domain.run import Run, RunStatus
@@ -290,10 +292,75 @@ def build_project_closure_diagnostics(
     # --- Provider -------------------------------------------------------------
     provider_summary = provider_config_service.get_openai_summary()
     provider_configured = provider_summary.configured
-    # There is no persisted test-status store; we report honest defaults.
-    provider_last_test_status = "not_tested" if provider_configured else "not_applicable"
-    # Provider is "tested" only if there is a persisted test record (currently none).
+    # Read live connectivity test evidence if it exists
+    _test_evidence_path = (
+        settings.runtime_data_dir
+        / "provider-settings"
+        / "live-connectivity-test-result.json"
+    )
     provider_tested = False
+    provider_last_test_status = "not_tested" if provider_configured else "not_applicable"
+    try:
+        if _test_evidence_path.exists():
+            _test_evidence = json.loads(_test_evidence_path.read_text(encoding="utf-8"))
+            if isinstance(_test_evidence, dict):
+                _ev_status = _test_evidence.get("status")
+                # Base URL mismatch guard: do not trust evidence from a different provider endpoint
+                _ev_base_url = _test_evidence.get("base_url")
+                _current_base_url = provider_summary.base_url
+                _base_url_match = (
+                    isinstance(_ev_base_url, str)
+                    and _ev_base_url == _current_base_url
+                )
+                if not _base_url_match:
+                    provider_last_test_status = (
+                        f"evidence_stale:base_url_mismatch "
+                        f"(evidence={_ev_base_url} current={_current_base_url})"
+                    )
+                elif _ev_status == "passed":
+                    # Full field validation — all must pass for provider_tested=True
+                    _auth_ok = _test_evidence.get("auth_valid") is True
+                    _reachable_ok = _test_evidence.get("endpoint_reachable") is True
+                    _model_ok = _test_evidence.get("model_usable") is True
+                    _receipt_id = _test_evidence.get("provider_receipt_id")
+                    _receipt_ok = (
+                        isinstance(_receipt_id, str)
+                        and bool(_receipt_id.strip())
+                        and not _receipt_id.startswith("mock-")
+                    )
+                    _accounting_ok = (
+                        _test_evidence.get("token_accounting_mode")
+                        == "provider_reported"
+                    )
+                    _all_ok = (
+                        _auth_ok and _reachable_ok and _model_ok
+                        and _receipt_ok and _accounting_ok
+                    )
+                    if _all_ok:
+                        provider_tested = True
+                        provider_last_test_status = "passed"
+                    else:
+                        provider_tested = False
+                        _missing: list[str] = []
+                        if not _auth_ok:
+                            _missing.append("auth_valid")
+                        if not _reachable_ok:
+                            _missing.append("endpoint_reachable")
+                        if not _model_ok:
+                            _missing.append("model_usable")
+                        if not _receipt_ok:
+                            _missing.append("provider_receipt_id")
+                        if not _accounting_ok:
+                            _missing.append("token_accounting_mode")
+                        provider_last_test_status = (
+                            f"failed:evidence_incomplete missing={','.join(_missing)}"
+                        )
+                elif _ev_status == "failed":
+                    provider_tested = False
+                    _err_cat = _test_evidence.get("error_category", "unknown")
+                    provider_last_test_status = f"failed:{_err_cat}"
+    except Exception:
+        pass
 
     # --- Repository -----------------------------------------------------------
     workspace = workspace_repository.get_by_project_id(project_id)

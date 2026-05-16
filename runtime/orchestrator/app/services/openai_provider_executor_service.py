@@ -180,6 +180,7 @@ class OpenAIProviderExecutorService:
                 "latency_ms": latency_ms,
                 "status": "passed",
                 "tested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "provider_receipt_id": response_payload.get("id"),
             })
             return result
 
