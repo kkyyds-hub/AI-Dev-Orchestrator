@@ -92,6 +92,113 @@ class OpenAIProviderExecutorService:
 
         return bool(self.api_key)
 
+    def test_connectivity(
+        self,
+        *,
+        model_name: str = "gpt-4.1-mini",
+    ) -> dict[str, object]:
+        """Run a minimal connectivity test and return a structured result.
+
+        This is intentionally separate from execute() so that the test
+        endpoint does not need a full Task / routing contract / prompt
+        envelope.
+        """
+
+        import time
+
+        result: dict[str, object] = {
+            "provider_key": "openai",
+            "configured": bool(self.api_key),
+            "base_url": self.base_url,
+            "auth_valid": False,
+            "endpoint_reachable": False,
+            "api_family": "unknown",
+            "model_name": model_name,
+            "model_usable": False,
+            "latency_ms": 0,
+            "status": "failed",
+            "error_category": None,
+            "error_summary": None,
+            "tested_at": None,
+        }
+
+        if not self.api_key:
+            result["error_category"] = "not_configured"
+            result["error_summary"] = "Provider key is not configured."
+            return result
+
+        minimal_prompt = 'Say "ok".'
+        candidates = self._build_api_base_candidates()
+        response_payload = None
+        last_error: OpenAIProviderExecutionError | None = None
+        used_api_family = "unknown"
+        used_endpoint = ""
+
+        for api_family in ("responses", "chat_completions"):
+            if api_family == "responses":
+                payload = {
+                    "model": model_name,
+                    "input": [{"role": "user", "content": [{"type": "input_text", "text": minimal_prompt}]}],
+                }
+            else:
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": minimal_prompt}],
+                }
+
+            for api_base in candidates:
+                endpoint = f"{api_base}/{api_family if api_family == 'responses' else 'chat/completions'}"
+                try:
+                    t0 = time.perf_counter()
+                    response_payload = self._post_json_request(
+                        endpoint=endpoint,
+                        payload=payload,
+                        api_family=api_family,
+                    )
+                    latency_ms = int((time.perf_counter() - t0) * 1000)
+                    used_api_family = api_family
+                    used_endpoint = endpoint
+                    break
+                except OpenAIProviderExecutionError as exc:
+                    last_error = exc
+                    if not self._is_retriable_compat_error(exc):
+                        break
+                    continue
+            if response_payload is not None:
+                break
+
+        if response_payload is not None:
+            result.update({
+                "auth_valid": True,
+                "endpoint_reachable": True,
+                "api_family": used_api_family,
+                "model_usable": True,
+                "latency_ms": latency_ms,
+                "status": "passed",
+                "tested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+            return result
+
+        if last_error is not None:
+            error_category = last_error.category
+            error_summary = last_error.message
+        else:
+            error_category = "request_error"
+            error_summary = "All endpoint attempts exhausted."
+
+        result.update({
+            "error_category": error_category,
+            "error_summary": error_summary,
+            "tested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+
+        if error_category == "network_error":
+            result["endpoint_reachable"] = False
+        elif error_category == "auth_error":
+            result["endpoint_reachable"] = True
+
+        return result
+
     def execute(
         self,
         *,

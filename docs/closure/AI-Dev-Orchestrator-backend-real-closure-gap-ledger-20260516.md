@@ -154,14 +154,14 @@ POST /provider-settings/openai/test
 
 ### 验收打勾项
 
-- [ ] 未配置 key 时返回 `configured=false`，不抛 500。
-- [ ] key 错误时返回稳定错误分类，例如 `auth_error`。
-- [ ] base_url 错误时返回 `network_error` 或 `endpoint_not_supported`。
-- [ ] model 不可用时返回 `model_error` 或 `request_schema_error`。
-- [ ] 成功时返回 `status=passed`、`latency_ms`、`api_family`。
-- [ ] 响应不得泄露明文 API Key。
-- [ ] 复用现有 `ProviderConfigService` / `OpenAIProviderExecutorService`，不重写一套 provider。
-- [ ] 后端最小测试或 smoke 覆盖通过。
+- [x] 未配置 key 时返回 `configured=false`，不抛 500。
+- [x] key 错误时返回稳定错误分类，例如 `auth_error`。
+- [x] base_url 错误时返回 `network_error` 或 `endpoint_not_supported`。
+- [x] model 不可用时返回 `model_error` 或 `request_schema_error`。
+- [x] 成功时返回 `status=passed`、`latency_ms`、`api_family`。
+- [x] 响应不得泄露明文 API Key。
+- [x] 复用现有 `ProviderConfigService` / `OpenAIProviderExecutorService`，不重写一套 provider。
+- [x] 后端最小测试或 smoke 覆盖通过。
 
 ### owner skill
 
@@ -814,6 +814,7 @@ https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git
 | 日期 | 缺口编号 | Codex 提交 | build / test | 验收结论 | 备注 |
 |---|---|---|---|---|---|
 | 2026-05-16 | 初始台账 | - | - | 待执行 | 基于 origin/main `558eea61` 生成 |
+| 2026-05-16 | BCL-01 | `e0363af`→待填入 | smoke 5/5 passed; app loads | Pass | 新增 POST /provider-settings/openai/test；复用 ProviderConfigService + OpenAIProviderExecutorService；5 场景 smoke 通过 |
 
 ---
 

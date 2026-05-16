@@ -7,6 +7,9 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.services.openai_provider_executor_service import (
+    OpenAIProviderExecutorService,
+)
 from app.services.provider_config_service import (
     OpenAIProviderConfigSummary,
     ProviderConfigService,
@@ -38,6 +41,24 @@ class OpenAIProviderSettingsSummaryResponse(BaseModel):
             timeout_seconds=summary.timeout_seconds,
             source=summary.source,
         )
+
+
+class OpenAIProviderTestResponse(BaseModel):
+    """Structured result of one provider connectivity test."""
+
+    provider_key: str
+    configured: bool
+    base_url: str
+    auth_valid: bool = False
+    endpoint_reachable: bool = False
+    api_family: str = "unknown"
+    model_name: str
+    model_usable: bool = False
+    latency_ms: int = 0
+    status: str = "failed"
+    error_category: str | None = None
+    error_summary: str | None = None
+    tested_at: str | None = None
 
 
 class OpenAIProviderSettingsUpdateRequest(BaseModel):
@@ -111,3 +132,26 @@ def update_openai_provider_settings(
         ) from exc
 
     return OpenAIProviderSettingsSummaryResponse.from_summary(summary)
+
+
+@router.post(
+    "/openai/test",
+    response_model=OpenAIProviderTestResponse,
+    summary="Test OpenAI provider connectivity",
+)
+def test_openai_provider_connection(
+    provider_config_service: Annotated[
+        ProviderConfigService,
+        Depends(get_provider_config_service),
+    ],
+) -> OpenAIProviderTestResponse:
+    """Run one minimal connectivity test against the configured OpenAI provider."""
+
+    runtime_config = provider_config_service.resolve_openai_runtime_config()
+    executor = OpenAIProviderExecutorService(
+        api_key=runtime_config.api_key,
+        base_url=runtime_config.base_url,
+        timeout_seconds=runtime_config.timeout_seconds,
+    )
+    result = executor.test_connectivity()
+    return OpenAIProviderTestResponse(**result)
