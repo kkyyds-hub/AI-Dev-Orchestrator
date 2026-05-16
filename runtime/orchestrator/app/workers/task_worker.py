@@ -220,7 +220,10 @@ class TaskWorker:
                 previous_status=routing_decision.selected_task.status,
             )
 
-            guard_decision = self.budget_guard_service.evaluate_before_execution(task.id)
+            guard_decision = self.budget_guard_service.evaluate_before_execution(
+                task.id,
+                project_id=task.project_id,
+            )
             if not guard_decision.allowed:
                 run = self.run_repository.create_running_run(
                     task_id=task.id,
@@ -1016,6 +1019,9 @@ class TaskWorker:
                 "execution_attempts": decision.retry_status.execution_attempts,
                 "retries_used": decision.retry_status.retries_used,
                 "retries_remaining": decision.retry_status.retries_remaining,
+                "budget_policy_source": getattr(
+                    decision, "budget_policy_source", "not_configured"
+                ),
             },
         )
 
@@ -1442,7 +1448,10 @@ def build_task_worker(*, session: Session) -> TaskWorker:
 
     task_repository = TaskRepository(session)
     run_repository = RunRepository(session)
-    budget_guard_service = BudgetGuardService(run_repository=run_repository)
+    budget_guard_service = BudgetGuardService(
+        run_repository=run_repository,
+        db_session=session,
+    )
     executor_service = ExecutorService()
     verifier_service = VerifierService(executor_service=executor_service)
     model_routing_service = ModelRoutingService()

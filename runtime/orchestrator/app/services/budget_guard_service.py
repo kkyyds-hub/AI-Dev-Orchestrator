@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+import json as _json
+
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.domain._base import ensure_utc_datetime, utc_now
 from app.domain.run import (
@@ -18,6 +22,20 @@ from app.repositories.run_repository import RunRepository
 _SESSION_STARTED_AT = utc_now()
 _WARNING_USAGE_RATIO = 0.6
 _CRITICAL_USAGE_RATIO = 0.85
+
+_BUDGET_POLICY_SOURCE_PROJECT = "project_team_control"
+_BUDGET_POLICY_SOURCE_DEFAULT = "default_budget_guard"
+_BUDGET_POLICY_SOURCE_NONE = "not_configured"
+
+
+@dataclass(slots=True, frozen=True)
+class _ProjectBudgetPolicy:
+    """Minimal parsed project budget policy from Team Control Center."""
+
+    hard_stop_enabled: bool
+    daily_budget_usd: float
+    per_run_budget_usd: float
+    source: str  # project_team_control | default_budget_guard | not_configured
 
 
 @dataclass(slots=True, frozen=True)
@@ -56,6 +74,7 @@ class BudgetSnapshot:
     preferred_model_tier: str
     budget_blocked_runs_daily: int
     budget_blocked_runs_session: int
+    budget_policy_source: str = _BUDGET_POLICY_SOURCE_DEFAULT
 
 
 @dataclass(slots=True, frozen=True)
@@ -82,19 +101,155 @@ class BudgetGuardDecision:
     strategy_code: str
     budget: BudgetSnapshot
     retry_status: RetryStatus
+    budget_policy_source: str = _BUDGET_POLICY_SOURCE_DEFAULT
 
 
 class BudgetGuardService:
-    """Apply conservative budget and retry checks before execution starts."""
+    """Apply conservative budget and retry checks before execution starts.
 
-    def __init__(self, run_repository: RunRepository) -> None:
+    When a project has a Team Control budget_policy with hard_stop_enabled=true,
+    the project-level daily_budget_usd and per_run_budget_usd override the default
+    settings.  Without a project policy, the existing default behaviour is preserved.
+    """
+
+    def __init__(
+        self,
+        run_repository: RunRepository,
+        db_session: Session | None = None,
+    ) -> None:
         self.run_repository = run_repository
+        self._db_session = db_session
 
-    def evaluate_before_execution(self, task_id: UUID) -> BudgetGuardDecision:
-        """Return whether one task is allowed to continue into execution."""
+    # -- Project policy helpers -----------------------------------------------
+
+    def _load_project_budget_policy(
+        self,
+        project_id: UUID,
+    ) -> _ProjectBudgetPolicy:
+        """Load and parse the Team Control budget_policy for one project."""
+        if self._db_session is None:
+            return _ProjectBudgetPolicy(
+                hard_stop_enabled=False,
+                daily_budget_usd=0.0,
+                per_run_budget_usd=0.0,
+                source=_BUDGET_POLICY_SOURCE_NONE,
+            )
+
+        try:
+            from app.core.db_tables import ProjectTable
+        except Exception:
+            return _ProjectBudgetPolicy(
+                hard_stop_enabled=False,
+                daily_budget_usd=0.0,
+                per_run_budget_usd=0.0,
+                source=_BUDGET_POLICY_SOURCE_NONE,
+            )
+
+        try:
+            row = self._db_session.get(ProjectTable, project_id)
+            if row is None:
+                return _ProjectBudgetPolicy(
+                    hard_stop_enabled=False,
+                    daily_budget_usd=0.0,
+                    per_run_budget_usd=0.0,
+                    source=_BUDGET_POLICY_SOURCE_NONE,
+                )
+
+            raw_json = row.budget_policy_json
+            if not raw_json or raw_json == "{}":
+                return _ProjectBudgetPolicy(
+                    hard_stop_enabled=False,
+                    daily_budget_usd=0.0,
+                    per_run_budget_usd=0.0,
+                    source=_BUDGET_POLICY_SOURCE_NONE,
+                )
+
+            policy_dict = _json.loads(raw_json)
+            if not isinstance(policy_dict, dict) or not policy_dict:
+                return _ProjectBudgetPolicy(
+                    hard_stop_enabled=False,
+                    daily_budget_usd=0.0,
+                    per_run_budget_usd=0.0,
+                    source=_BUDGET_POLICY_SOURCE_NONE,
+                )
+
+            hard_stop = bool(policy_dict.get("hard_stop_enabled", False))
+            daily_usd = float(policy_dict.get("daily_budget_usd", 0) or 0)
+            per_run_usd = float(policy_dict.get("per_run_budget_usd", 0) or 0)
+            source = (
+                _BUDGET_POLICY_SOURCE_PROJECT if hard_stop or daily_usd > 0
+                else _BUDGET_POLICY_SOURCE_DEFAULT
+            )
+            return _ProjectBudgetPolicy(
+                hard_stop_enabled=hard_stop,
+                daily_budget_usd=daily_usd,
+                per_run_budget_usd=per_run_usd,
+                source=source,
+            )
+        except Exception:
+            return _ProjectBudgetPolicy(
+                hard_stop_enabled=False,
+                daily_budget_usd=0.0,
+                per_run_budget_usd=0.0,
+                source=_BUDGET_POLICY_SOURCE_NONE,
+            )
+
+    # -- Main guard entry -----------------------------------------------------
+
+    def evaluate_before_execution(
+        self,
+        task_id: UUID,
+        *,
+        project_id: UUID | None = None,
+    ) -> BudgetGuardDecision:
+        """Return whether one task is allowed to continue into execution.
+
+        Args:
+            task_id: The task being evaluated.
+            project_id: Optional project scope for reading Team Control budget_policy.
+        """
+
+        # Load project budget policy if available
+        project_policy: _ProjectBudgetPolicy | None = None
+        if project_id is not None:
+            project_policy = self._load_project_budget_policy(project_id)
+
+        policy_source = (
+            project_policy.source if project_policy is not None
+            else _BUDGET_POLICY_SOURCE_NONE
+        )
 
         retry_status = self.build_retry_status(task_id)
-        budget_snapshot = self.build_budget_snapshot()
+
+        # Compute budget with project-level overrides when hard_stop is enabled.
+        budget_snapshot = self.build_budget_snapshot(
+            project_policy=project_policy if project_policy is not None and project_policy.hard_stop_enabled else None,
+        )
+        # Stamp the source regardless of hard_stop.
+        budget_snapshot = BudgetSnapshot(
+            daily_budget_usd=budget_snapshot.daily_budget_usd,
+            daily_cost_used=budget_snapshot.daily_cost_used,
+            daily_cost_remaining=budget_snapshot.daily_cost_remaining,
+            daily_usage_ratio=budget_snapshot.daily_usage_ratio,
+            daily_budget_exceeded=budget_snapshot.daily_budget_exceeded,
+            daily_window_started_at=budget_snapshot.daily_window_started_at,
+            session_budget_usd=budget_snapshot.session_budget_usd,
+            session_cost_used=budget_snapshot.session_cost_used,
+            session_cost_remaining=budget_snapshot.session_cost_remaining,
+            session_usage_ratio=budget_snapshot.session_usage_ratio,
+            session_budget_exceeded=budget_snapshot.session_budget_exceeded,
+            session_started_at=budget_snapshot.session_started_at,
+            max_task_retries=budget_snapshot.max_task_retries,
+            pressure_level=budget_snapshot.pressure_level,
+            suggested_action=budget_snapshot.suggested_action,
+            strategy_code=budget_snapshot.strategy_code,
+            strategy_label=budget_snapshot.strategy_label,
+            strategy_summary=budget_snapshot.strategy_summary,
+            preferred_model_tier=budget_snapshot.preferred_model_tier,
+            budget_blocked_runs_daily=budget_snapshot.budget_blocked_runs_daily,
+            budget_blocked_runs_session=budget_snapshot.budget_blocked_runs_session,
+            budget_policy_source=policy_source,
+        )
 
         if retry_status.retry_limit_reached:
             return BudgetGuardDecision(
@@ -110,6 +265,7 @@ class BudgetGuardService:
                 strategy_code="bg-retry-limit",
                 budget=budget_snapshot,
                 retry_status=retry_status,
+                budget_policy_source=policy_source,
             )
 
         if budget_snapshot.pressure_level == RunBudgetPressureLevel.BLOCKED:
@@ -131,6 +287,7 @@ class BudgetGuardService:
                 strategy_code=budget_snapshot.strategy_code,
                 budget=budget_snapshot,
                 retry_status=retry_status,
+                budget_policy_source=policy_source,
             )
 
         summary = None
@@ -149,6 +306,7 @@ class BudgetGuardService:
             strategy_code=budget_snapshot.strategy_code,
             budget=budget_snapshot,
             retry_status=retry_status,
+            budget_policy_source=policy_source,
         )
 
     def build_routing_directive(
@@ -234,8 +392,25 @@ class BudgetGuardService:
             ),
         )
 
-    def build_budget_snapshot(self, now: datetime | None = None) -> BudgetSnapshot:
-        """Return the current day/session budget usage."""
+    def build_budget_snapshot(
+        self,
+        now: datetime | None = None,
+        *,
+        project_policy: _ProjectBudgetPolicy | None = None,
+    ) -> BudgetSnapshot:
+        """Return the current day/session budget usage.
+
+        When project_policy is provided and hard_stop_enabled=True, the project's
+        daily_budget_usd overrides settings.daily_budget_usd.
+        """
+
+        # Determine effective budget limits
+        effective_daily_budget = settings.daily_budget_usd
+        effective_session_budget = settings.session_budget_usd
+        if project_policy is not None and project_policy.hard_stop_enabled:
+            if project_policy.daily_budget_usd > 0:
+                effective_daily_budget = project_policy.daily_budget_usd
+            # per_run_budget_usd is checked in evaluate_before_execution
 
         current_time = ensure_utc_datetime(now) or utc_now()
         daily_window_started_at = current_time.replace(
@@ -253,21 +428,21 @@ class BudgetGuardService:
         )
 
         daily_cost_remaining = _round_currency(
-            max(settings.daily_budget_usd - daily_cost_used, 0.0)
+            max(effective_daily_budget - daily_cost_used, 0.0)
         )
         session_cost_remaining = _round_currency(
-            max(settings.session_budget_usd - session_cost_used, 0.0)
+            max(effective_session_budget - session_cost_used, 0.0)
         )
         daily_usage_ratio = _calculate_usage_ratio(
             used=daily_cost_used,
-            budget=settings.daily_budget_usd,
+            budget=effective_daily_budget,
         )
         session_usage_ratio = _calculate_usage_ratio(
             used=session_cost_used,
-            budget=settings.session_budget_usd,
+            budget=effective_session_budget,
         )
-        daily_budget_exceeded = daily_cost_used >= settings.daily_budget_usd
-        session_budget_exceeded = session_cost_used >= settings.session_budget_usd
+        daily_budget_exceeded = daily_cost_used >= effective_daily_budget
+        session_budget_exceeded = session_cost_used >= effective_session_budget
         pressure_level = _determine_pressure_level(
             daily_budget_exceeded=daily_budget_exceeded,
             session_budget_exceeded=session_budget_exceeded,
@@ -283,13 +458,13 @@ class BudgetGuardService:
         )
 
         return BudgetSnapshot(
-            daily_budget_usd=settings.daily_budget_usd,
+            daily_budget_usd=effective_daily_budget,
             daily_cost_used=daily_cost_used,
             daily_cost_remaining=daily_cost_remaining,
             daily_usage_ratio=daily_usage_ratio,
             daily_budget_exceeded=daily_budget_exceeded,
             daily_window_started_at=daily_window_started_at,
-            session_budget_usd=settings.session_budget_usd,
+            session_budget_usd=effective_session_budget,
             session_cost_used=session_cost_used,
             session_cost_remaining=session_cost_remaining,
             session_usage_ratio=session_usage_ratio,
@@ -304,6 +479,10 @@ class BudgetGuardService:
             preferred_model_tier=_preferred_model_tier_by_pressure_level(pressure_level),
             budget_blocked_runs_daily=budget_blocked_runs_daily,
             budget_blocked_runs_session=budget_blocked_runs_session,
+            budget_policy_source=(
+                project_policy.source if project_policy is not None
+                else _BUDGET_POLICY_SOURCE_DEFAULT
+            ),
         )
 
     def build_retry_status(self, task_id: UUID) -> RetryStatus:

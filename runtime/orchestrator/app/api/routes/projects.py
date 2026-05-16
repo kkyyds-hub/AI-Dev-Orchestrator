@@ -672,6 +672,13 @@ class ProjectCostDashboardSnapshotResponse(BaseModel):
     thread_breakdown: list[ProjectCostDashboardThreadBreakdownResponse]
     cache_summary: ProjectCostDashboardCacheSummaryResponse
     fallback_contract: ProjectCostDashboardFallbackContractResponse
+    budget_policy_source: str = Field(
+        default="not_configured",
+        description=(
+            "Source of the budget policy: project_team_control, "
+            "default_budget_guard, or not_configured."
+        ),
+    )
     day15_smoke_routes: list[str] = Field(default_factory=list)
 
 
@@ -2050,6 +2057,22 @@ def get_project_cost_dashboard_snapshot(
         else "All runs in the current slice are provider_reported."
     )
 
+    # Determine budget_policy_source from project's Team Control configuration.
+    budget_policy_source = "not_configured"
+    try:
+        from app.core.db_tables import ProjectTable
+        import json as _json_inner
+        proj_row = session.get(ProjectTable, project_id)
+        if proj_row is not None and proj_row.budget_policy_json:
+            raw = _json_inner.loads(proj_row.budget_policy_json)
+            if isinstance(raw, dict) and raw and raw != {}:
+                if raw.get("hard_stop_enabled") or raw.get("daily_budget_usd", 0) > 0:
+                    budget_policy_source = "project_team_control"
+                else:
+                    budget_policy_source = "default_budget_guard"
+    except Exception:
+        budget_policy_source = "not_configured"
+
     return ProjectCostDashboardSnapshotResponse(
         project_id=project.id,
         project_name=project.name,
@@ -2080,6 +2103,7 @@ def get_project_cost_dashboard_snapshot(
             fallback_active=fallback_active,
             fallback_reason=fallback_reason,
         ),
+        budget_policy_source=budget_policy_source,
         day15_smoke_routes=[
             "GET /projects/{project_id}/team-control-center",
             "GET /projects/{project_id}/cost-dashboard",
