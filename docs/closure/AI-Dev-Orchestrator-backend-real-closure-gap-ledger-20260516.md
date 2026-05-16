@@ -820,7 +820,7 @@ https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git
 | 2026-05-16 | BCL-02 返工 | `f443e80` | smoke 6/6 passed; compileall clean | Pass（返工） | 返工修复：1) day15_flow_status 改为 not_available（不伪造 project.stage）；2) overall_status 修正为 blocking_reason_codes 优先 blocked；3) 新增 provider_not_tested 阻塞码；4) smoke 扩至 6 场景覆盖 404/fresh/provider-not-tested/tasks-blocked/completed-blocked/partial-config |
 | 2026-05-16 | BCL-02 next_actions 路径修正 | `df6c95a` | smoke 6/6 passed; compileall clean | Pass | 修正 next_actions.api：bind_repository 改为 PUT /repositories/projects/{project_id}；apply_sop_plan 改为 create_plan_draft 指向 POST /planning/drafts；smoke 新增 _assert_actions_have_real_api_paths 验证每个 api 真实存在 |
 | 2026-05-16 | BCL-03 | `02370b9` | smoke 4/4 passed; compileall clean | Pass（初版，需返工） | 新增 POST apply-local + git-commit；接入 workspace/gate/preflight/commit_candidate 完整 guard chain；安全校验：路径穿越/.git/workspace 边界；git_write_actions_triggered 动态追踪；不做 push/PR |
-| 2026-05-16 | BCL-03 返工 | `f70ae0a` | smoke 7/7 passed; compileall clean | Pass（返工） | 返工修复：1) git add --all → git add -- <apply.changed_files>，禁止提交无关脏文件；2) verification 失败时 status=applied_with_failed_verification，git_commit 被 apply_verification_failed 阻断；3) 新增 preflight/candidate/verification-fail/dirty-file 4 个 smoke 场景；4) 失败记录含 rollback_performed=false |
+| 2026-05-16 | BCL-03 返工 | `afed0c3` | smoke 7/7 passed; compileall clean | Pass（返工） | 返工修复：1) git add --all → git add -- <apply.changed_files>，禁止提交无关脏文件；2) verification 失败时 status=applied_with_failed_verification，git_commit 被 apply_verification_failed 阻断；3) 新增 preflight/candidate/verification-fail/dirty-file 4 个 smoke 场景；4) 失败记录含 rollback_performed=false |
 
 ---
 
