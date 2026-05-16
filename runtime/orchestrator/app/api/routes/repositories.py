@@ -137,6 +137,11 @@ from app.services.repository_workspace_service import (
     RepositoryWorkspaceProjectNotFoundError,
     RepositoryWorkspaceService,
 )
+from app.services.repository_workspace_settings_service import (
+    RepositoryWorkspaceSettingsError,
+    RepositoryWorkspaceSettingsService,
+    RepositoryWorkspaceSettingsSummary,
+)
 from app.services.repository_release_gate_service import (
     ProjectRepositoryReleaseGateInbox,
     RepositoryReleaseChecklistItem,
@@ -182,6 +187,37 @@ class RepositoryWorkspaceBindRequest(BaseModel):
         default_factory=list,
         max_length=20,
         description="Optional ignore-rule summary. Defaults to the Day01 conservative baseline.",
+    )
+
+
+class RepositoryWorkspaceSettingsResponse(BaseModel):
+    """DTO returned by the repository workspace settings endpoints."""
+
+    allowed_workspace_roots: list[str]
+    default_workspace_root: str
+    using_default: bool
+
+    @classmethod
+    def from_summary(
+        cls,
+        summary: RepositoryWorkspaceSettingsSummary,
+    ) -> "RepositoryWorkspaceSettingsResponse":
+        """Convert one settings summary into an API DTO."""
+
+        return cls(
+            allowed_workspace_roots=list(summary.allowed_workspace_roots),
+            default_workspace_root=summary.default_workspace_root,
+            using_default=summary.using_default,
+        )
+
+
+class RepositoryWorkspaceSettingsUpdateRequest(BaseModel):
+    """Editable repository workspace safety boundary settings."""
+
+    allowed_workspace_roots: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Absolute local directories that may contain bindable Git repositories.",
     )
 
 
@@ -1642,7 +1678,14 @@ def get_repository_workspace_service(
     return RepositoryWorkspaceService(
         project_repository=project_repository,
         repository_workspace_repository=RepositoryWorkspaceRepository(session),
+        repository_workspace_settings_service=RepositoryWorkspaceSettingsService(),
     )
+
+
+def get_repository_workspace_settings_service() -> RepositoryWorkspaceSettingsService:
+    """Create the repository workspace settings dependency."""
+
+    return RepositoryWorkspaceSettingsService()
 
 
 def get_repository_scan_service(
@@ -1799,6 +1842,57 @@ def get_local_git_write_service(
 
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
+
+
+@router.get(
+    "/workspace-settings",
+    response_model=RepositoryWorkspaceSettingsResponse,
+    summary="Get repository workspace safety boundary settings",
+)
+def get_repository_workspace_settings(
+    repository_workspace_settings_service: Annotated[
+        RepositoryWorkspaceSettingsService,
+        Depends(get_repository_workspace_settings_service),
+    ],
+) -> RepositoryWorkspaceSettingsResponse:
+    """Return the effective allowed repository workspace roots."""
+
+    try:
+        summary = repository_workspace_settings_service.get_summary()
+    except RepositoryWorkspaceSettingsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return RepositoryWorkspaceSettingsResponse.from_summary(summary)
+
+
+@router.put(
+    "/workspace-settings",
+    response_model=RepositoryWorkspaceSettingsResponse,
+    summary="Update repository workspace safety boundary settings",
+)
+def update_repository_workspace_settings(
+    request: RepositoryWorkspaceSettingsUpdateRequest,
+    repository_workspace_settings_service: Annotated[
+        RepositoryWorkspaceSettingsService,
+        Depends(get_repository_workspace_settings_service),
+    ],
+) -> RepositoryWorkspaceSettingsResponse:
+    """Persist the user-maintained repository workspace root allow-list."""
+
+    try:
+        summary = repository_workspace_settings_service.update_allowed_workspace_roots(
+            request.allowed_workspace_roots
+        )
+    except RepositoryWorkspaceSettingsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return RepositoryWorkspaceSettingsResponse.from_summary(summary)
 
 
 @router.put(

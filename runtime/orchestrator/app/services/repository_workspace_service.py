@@ -13,6 +13,10 @@ from app.repositories.project_repository import ProjectRepository
 from app.repositories.repository_workspace_repository import (
     RepositoryWorkspaceRepository,
 )
+from app.services.repository_workspace_settings_service import (
+    RepositoryWorkspaceSettingsError,
+    RepositoryWorkspaceSettingsService,
+)
 
 
 DEFAULT_REPOSITORY_IGNORE_RULE_SUMMARY = (
@@ -49,9 +53,15 @@ class RepositoryWorkspaceService:
         *,
         project_repository: ProjectRepository,
         repository_workspace_repository: RepositoryWorkspaceRepository,
+        repository_workspace_settings_service: RepositoryWorkspaceSettingsService | None = None,
     ) -> None:
         self.project_repository = project_repository
         self.repository_workspace_repository = repository_workspace_repository
+        self.repository_workspace_settings_service = (
+            repository_workspace_settings_service
+            if repository_workspace_settings_service is not None
+            else RepositoryWorkspaceSettingsService()
+        )
 
     def bind_project_repository(
         self,
@@ -70,7 +80,10 @@ class RepositoryWorkspaceService:
                 f"Project not found: {project_id}"
             )
 
-        normalized_root_path = self._validate_and_resolve_root_path(root_path)
+        (
+            normalized_root_path,
+            matched_allowed_workspace_root,
+        ) = self._validate_and_resolve_root_path(root_path)
         existing_workspace = self.repository_workspace_repository.get_by_project_id(
             project_id
         )
@@ -85,7 +98,7 @@ class RepositoryWorkspaceService:
             access_mode=access_mode,
             default_base_branch=self._normalize_base_branch(default_base_branch),
             ignore_rule_summary=self._normalize_ignore_rule_summary(ignore_rule_summary),
-            allowed_workspace_root=str(self._get_allowed_workspace_root()),
+            allowed_workspace_root=str(matched_allowed_workspace_root),
             created_at=(
                 existing_workspace.created_at if existing_workspace is not None else now
             ),
@@ -164,7 +177,7 @@ class RepositoryWorkspaceService:
 
         return list(DEFAULT_REPOSITORY_IGNORE_RULE_SUMMARY)
 
-    def _validate_and_resolve_root_path(self, root_path: str) -> Path:
+    def _validate_and_resolve_root_path(self, root_path: str) -> tuple[Path, Path]:
         """Normalize and validate one candidate local repository path."""
 
         normalized_input = root_path.strip()
@@ -189,13 +202,9 @@ class RepositoryWorkspaceService:
                 "Repository root_path must point to one local directory."
             )
 
-        allowed_workspace_root = self._get_allowed_workspace_root()
-        try:
-            resolved_root_path.relative_to(allowed_workspace_root)
-        except ValueError as exc:
-            raise RepositoryWorkspacePathError(
-                "Repository root_path exceeds the configured allowed workspace root."
-            ) from exc
+        allowed_workspace_root = self._find_matching_allowed_workspace_root(
+            resolved_root_path
+        )
 
         runtime_data_dir = settings.runtime_data_dir.resolve(strict=False)
         if (
@@ -220,20 +229,25 @@ class RepositoryWorkspaceService:
                 "Repository root_path must point to one local Git repository root."
             )
 
-        return resolved_root_path
+        return resolved_root_path, allowed_workspace_root
 
-    @staticmethod
-    def _get_allowed_workspace_root() -> Path:
-        """Return the configured Day01 workspace boundary as one existing directory."""
+    def _find_matching_allowed_workspace_root(self, root_path: Path) -> Path:
+        """Return the configured allow-list root that contains one repository path."""
 
-        candidate_root = settings.repository_workspace_root_dir
-        if not candidate_root.exists():
-            raise RepositoryWorkspacePathError(
-                "Configured allowed workspace root does not exist."
+        try:
+            allowed_workspace_roots = (
+                self.repository_workspace_settings_service.get_effective_allowed_workspace_roots()
             )
-        if not candidate_root.is_dir():
-            raise RepositoryWorkspacePathError(
-                "Configured allowed workspace root must be a directory."
-            )
+        except RepositoryWorkspaceSettingsError as exc:
+            raise RepositoryWorkspacePathError(str(exc)) from exc
 
-        return candidate_root.resolve(strict=True)
+        for allowed_workspace_root in allowed_workspace_roots:
+            try:
+                root_path.relative_to(allowed_workspace_root)
+            except ValueError:
+                continue
+            return allowed_workspace_root
+
+        raise RepositoryWorkspacePathError(
+            "Repository root_path exceeds the configured allowed workspace roots."
+        )

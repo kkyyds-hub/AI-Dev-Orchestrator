@@ -35,6 +35,16 @@ type RepositoryWorkspaceBindRequest = {
   ignore_rule_summary: string[];
 };
 
+type RepositoryWorkspaceSettingsSummary = {
+  allowed_workspace_roots: string[];
+  default_workspace_root: string;
+  using_default: boolean;
+};
+
+type RepositoryWorkspaceSettingsUpdateRequest = {
+  allowed_workspace_roots: string[];
+};
+
 const SOURCE_LABELS: Record<ProviderSource, string> = {
   saved_config: "已保存",
   env: "环境变量",
@@ -64,6 +74,19 @@ function bindProjectRepository(input: {
   });
 }
 
+function fetchRepositoryWorkspaceSettings(): Promise<RepositoryWorkspaceSettingsSummary> {
+  return requestJson<RepositoryWorkspaceSettingsSummary>("/repositories/workspace-settings");
+}
+
+function updateRepositoryWorkspaceSettings(
+  payload: RepositoryWorkspaceSettingsUpdateRequest,
+): Promise<RepositoryWorkspaceSettingsSummary> {
+  return requestJson<RepositoryWorkspaceSettingsSummary>("/repositories/workspace-settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function SettingsPage() {
   return (
     <div className="space-y-7">
@@ -83,6 +106,7 @@ export function SettingsPage() {
         <SettingsSideNav />
         <div className="space-y-7">
           <ModelConfigurationSection />
+          <RepositoryWorkspaceSettingsSection />
           <RepositoryBindingSection />
         </div>
       </div>
@@ -93,6 +117,7 @@ export function SettingsPage() {
 function SettingsSideNav() {
   const items = [
     { label: "模型配置", href: "#model-config" },
+    { label: "仓库安全边界", href: "#repository-workspace-settings" },
     { label: "仓库绑定", href: "#repository-binding" },
   ];
 
@@ -258,6 +283,116 @@ function ModelConfigurationSection() {
             </div>
           </form>
         </>
+      )}
+    </section>
+  );
+}
+
+function RepositoryWorkspaceSettingsSection() {
+  const queryClient = useQueryClient();
+  const workspaceSettingsQuery = useQuery({
+    queryKey: ["repository-workspace-settings"],
+    queryFn: fetchRepositoryWorkspaceSettings,
+  });
+  const [rootsInput, setRootsInput] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workspaceSettingsQuery.data) {
+      return;
+    }
+    setRootsInput(workspaceSettingsQuery.data.allowed_workspace_roots.join("\n"));
+  }, [workspaceSettingsQuery.data]);
+
+  const updateMutation = useMutation({
+    mutationFn: updateRepositoryWorkspaceSettings,
+    onSuccess: async (result) => {
+      setRootsInput(result.allowed_workspace_roots.join("\n"));
+      setFeedback("仓库安全边界已保存，新的允许根目录已立即生效。");
+      await queryClient.invalidateQueries({
+        queryKey: ["repository-workspace-settings"],
+      });
+    },
+  });
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFeedback(null);
+    void updateMutation.mutateAsync({
+      allowed_workspace_roots: parseLines(rootsInput),
+    });
+  };
+
+  const summary = workspaceSettingsQuery.data ?? null;
+
+  return (
+    <section
+      id="repository-workspace-settings"
+      className="scroll-mt-24 border-b border-[#333333] pb-7"
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
+            仓库安全边界
+          </div>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
+            维护允许工作区根目录列表。项目绑定时，主仓库根目录必须位于其中任一根目录下；未保存用户配置时继续使用默认 REPOSITORY_WORKSPACE_ROOT_DIR。
+          </p>
+        </div>
+        <StatusBadge
+          label={summary?.using_default ? "使用默认边界" : "用户配置已生效"}
+          tone={summary?.using_default ? "warning" : "success"}
+        />
+      </div>
+
+      {workspaceSettingsQuery.isLoading ? (
+        <p className="mt-4 text-sm leading-6 text-zinc-500">正在加载仓库安全边界...</p>
+      ) : workspaceSettingsQuery.isError ? (
+        <p className="mt-4 text-sm leading-6 text-rose-100">
+          仓库安全边界加载失败：{workspaceSettingsQuery.error.message}
+        </p>
+      ) : (
+        <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+          <Field label="允许工作区根目录列表">
+            <textarea
+              rows={5}
+              value={rootsInput}
+              onChange={(event) => setRootsInput(event.target.value)}
+              placeholder={"每行一个本地目录，例如：\nE:\\test\nD:\\workspace"}
+              className={inputClassName}
+            />
+          </Field>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <InfoLine label="默认兜底根目录" value={summary?.default_workspace_root ?? "—"} />
+            <InfoLine
+              label="当前生效根目录"
+              value={(summary?.allowed_workspace_roots ?? []).join("；") || "—"}
+            />
+          </div>
+
+          <p className="text-sm leading-6 text-zinc-500">
+            删除某一行即可移除对应根目录；留空保存后将回到默认兜底行为。系统仍会拒绝非 Git 目录、运行时数据目录、临时目录和未在边界内的路径。
+          </p>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={updateMutation.isPending}
+              className={buttonClassName}
+            >
+              {updateMutation.isPending ? "保存中..." : "保存仓库安全边界"}
+            </button>
+            {feedback ? (
+              <span className="text-sm leading-6 text-zinc-400">{feedback}</span>
+            ) : null}
+            {updateMutation.isError ? (
+              <span className="text-sm leading-6 text-rose-100">
+                保存失败：{updateMutation.error.message}
+              </span>
+            ) : null}
+          </div>
+        </form>
       )}
     </section>
   );
@@ -459,7 +594,7 @@ function RepositoryBindingSection() {
                 <input
                   value={rootPathInput}
                   onChange={(event) => setRootPathInput(event.target.value)}
-                  placeholder="填写允许工作区根目录下的本地仓库路径"
+                  placeholder="填写已允许根目录下的本地 Git 仓库路径，例如 E:\test\my-repo"
                   className={inputClassName}
                 />
               </Field>
@@ -500,7 +635,7 @@ function RepositoryBindingSection() {
                 ) : null}
                 {bindMutation.isError ? (
                   <span className="text-sm leading-6 text-rose-100">
-                    {buildRepositoryBindingErrorMessage(bindMutation.error)}
+                    {buildRepositoryBindingErrorMessage(bindMutation.error, rootPathInput)}
                   </span>
                 ) : null}
               </div>
@@ -559,10 +694,13 @@ function parseLines(value: string) {
   );
 }
 
-function buildRepositoryBindingErrorMessage(error: Error) {
+function buildRepositoryBindingErrorMessage(error: Error, rootPathInput: string) {
   const message = error.message;
   if (message.includes("exceeds the configured allowed workspace root")) {
-    return "保存失败：仓库路径不在允许的工作区根目录内。请复制设置页提示的允许工作区根，并选择它下面的真实仓库目录。";
+    const suggestedRoot = inferSuggestedWorkspaceRoot(rootPathInput);
+    return suggestedRoot
+      ? `保存失败：仓库路径不在允许的工作区根目录内。请先在仓库安全边界中添加 ${suggestedRoot}，或把仓库移动到已允许的根目录下。`
+      : "保存失败：仓库路径不在允许的工作区根目录内。请先在仓库安全边界中添加该仓库的上级工作区根目录，或把仓库移动到已允许的根目录下。";
   }
   if (message.includes("does not exist")) {
     return "保存失败：这个仓库路径不存在。请确认路径拼写正确，并且该目录已经在本机创建。";
@@ -570,10 +708,32 @@ function buildRepositoryBindingErrorMessage(error: Error) {
   if (message.includes("must be a directory")) {
     return "保存失败：填写的路径不是目录。请选择项目主仓库所在的文件夹。";
   }
-  if (message.includes("does not look like a Git repository")) {
+  if (
+    message.includes("does not look like a Git repository") ||
+    message.includes("must point to one local Git repository root")
+  ) {
     return "保存失败：这个目录不像 Git 仓库。请确认目录内存在 .git，或先完成仓库初始化。";
   }
   return `保存失败：${message}`;
+}
+
+function inferSuggestedWorkspaceRoot(rootPathInput: string) {
+  const normalizedInput = rootPathInput.trim().replace(/\//g, "\\");
+  if (!normalizedInput) {
+    return "";
+  }
+
+  const windowsMatch = normalizedInput.match(/^([A-Za-z]:\\[^\\]+)(?:\\.*)?$/);
+  if (windowsMatch) {
+    return windowsMatch[1];
+  }
+
+  const posixParts = rootPathInput.trim().split("/").filter(Boolean);
+  if (rootPathInput.trim().startsWith("/") && posixParts.length >= 2) {
+    return `/${posixParts.slice(0, 2).join("/")}`;
+  }
+
+  return rootPathInput.trim();
 }
 
 function formatMaskedKey(value: unknown) {

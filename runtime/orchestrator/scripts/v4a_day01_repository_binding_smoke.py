@@ -18,6 +18,7 @@ SMOKE_RUNTIME_DATA_DIR = SMOKE_ROOT / "runtime-data"
 SMOKE_DB_PATH = SMOKE_RUNTIME_DATA_DIR / "db" / "orchestrator.db"
 SMOKE_ALLOWED_WORKSPACE_ROOT = SMOKE_ROOT / "allowed-workspaces"
 SMOKE_BOUND_REPOSITORY_ROOT = SMOKE_ALLOWED_WORKSPACE_ROOT / "bound-repository"
+SMOKE_NON_GIT_REPOSITORY_ROOT = SMOKE_ALLOWED_WORKSPACE_ROOT / "not-a-git-repository"
 SMOKE_OUTSIDE_WORKSPACE_ROOT = SMOKE_ROOT / "outside-workspaces"
 SMOKE_OUTSIDE_REPOSITORY_ROOT = SMOKE_OUTSIDE_WORKSPACE_ROOT / "outside-repository"
 
@@ -32,10 +33,12 @@ def _prepare_env() -> None:
         shutil.rmtree(SMOKE_ROOT)
 
     SMOKE_BOUND_REPOSITORY_ROOT.mkdir(parents=True, exist_ok=True)
+    SMOKE_NON_GIT_REPOSITORY_ROOT.mkdir(parents=True, exist_ok=True)
     SMOKE_OUTSIDE_REPOSITORY_ROOT.mkdir(parents=True, exist_ok=True)
     (SMOKE_BOUND_REPOSITORY_ROOT / ".git").mkdir(parents=True, exist_ok=True)
     (SMOKE_OUTSIDE_REPOSITORY_ROOT / ".git").mkdir(parents=True, exist_ok=True)
     (SMOKE_BOUND_REPOSITORY_ROOT / "src").mkdir(parents=True, exist_ok=True)
+    (SMOKE_NON_GIT_REPOSITORY_ROOT / "src").mkdir(parents=True, exist_ok=True)
     (SMOKE_OUTSIDE_REPOSITORY_ROOT / "src").mkdir(parents=True, exist_ok=True)
     (SMOKE_BOUND_REPOSITORY_ROOT / "README.md").write_text(
         "# Bound repo\n",
@@ -43,6 +46,10 @@ def _prepare_env() -> None:
     )
     (SMOKE_OUTSIDE_REPOSITORY_ROOT / "README.md").write_text(
         "# Outside repo\n",
+        encoding="utf-8",
+    )
+    (SMOKE_NON_GIT_REPOSITORY_ROOT / "README.md").write_text(
+        "# Not a Git repo\n",
         encoding="utf-8",
     )
 
@@ -302,6 +309,22 @@ def main() -> None:
             },
         )
 
+        initial_workspace_settings = _request_json(
+            client,
+            "GET",
+            "/repositories/workspace-settings",
+            expected_status=200,
+        )
+        _assert(
+            initial_workspace_settings["using_default"] is True,
+            "Repository workspace settings should use the env fallback before user config exists.",
+        )
+        _assert(
+            initial_workspace_settings["allowed_workspace_roots"]
+            == [str(SMOKE_ALLOWED_WORKSPACE_ROOT.resolve())],
+            "Repository workspace settings should expose the default env workspace root.",
+        )
+
         binding_request = {
             "root_path": str(SMOKE_BOUND_REPOSITORY_ROOT.resolve()),
             "display_name": "Smoke Bound Repository",
@@ -400,6 +423,67 @@ def main() -> None:
             "Repository paths outside the configured workspace boundary should be rejected.",
         )
 
+        non_git_response = _request_error(
+            client,
+            "PUT",
+            f"/repositories/projects/{project['id']}",
+            expected_status=422,
+            json_body={
+                "root_path": str(SMOKE_NON_GIT_REPOSITORY_ROOT.resolve()),
+                "display_name": "Non Git repo",
+                "access_mode": "read_only",
+                "default_base_branch": "main",
+                "ignore_rule_summary": [],
+            },
+        )
+        _assert(
+            "Git repository root" in non_git_response["detail"],
+            "Non-Git directories under an allowed root should still be rejected.",
+        )
+
+        updated_workspace_settings = _request_json(
+            client,
+            "PUT",
+            "/repositories/workspace-settings",
+            expected_status=200,
+            json_body={
+                "allowed_workspace_roots": [str(SMOKE_OUTSIDE_WORKSPACE_ROOT.resolve())],
+            },
+        )
+        _assert(
+            updated_workspace_settings["using_default"] is False,
+            "Saved repository workspace settings should take effect immediately.",
+        )
+        _assert(
+            updated_workspace_settings["allowed_workspace_roots"]
+            == [str(SMOKE_OUTSIDE_WORKSPACE_ROOT.resolve())],
+            "Saved repository workspace settings should expose the user-maintained root.",
+        )
+
+        outside_repository_binding = _request_json(
+            client,
+            "PUT",
+            f"/repositories/projects/{project['id']}",
+            expected_status=200,
+            json_body={
+                "root_path": str(SMOKE_OUTSIDE_REPOSITORY_ROOT.resolve()),
+                "display_name": "Outside repo after settings update",
+                "access_mode": "read_only",
+                "default_base_branch": "main",
+                "ignore_rule_summary": [],
+            },
+        )
+        _assert(
+            outside_repository_binding["root_path"]
+            == str(SMOKE_OUTSIDE_REPOSITORY_ROOT.resolve()),
+            "Repository binding should accept a repo under a newly saved allowed root without restart.",
+        )
+        _assert(
+            outside_repository_binding["allowed_workspace_root"]
+            == str(SMOKE_OUTSIDE_WORKSPACE_ROOT.resolve()),
+            "Repository binding should persist the matching user-configured allowed root.",
+        )
+
         removed_repository_binding = _request_json(
             client,
             "DELETE",
@@ -407,7 +491,7 @@ def main() -> None:
             expected_status=200,
         )
         _assert(
-            removed_repository_binding == repository_binding,
+            removed_repository_binding == outside_repository_binding,
             "Repository DELETE should return the removed binding payload.",
         )
 
