@@ -14,6 +14,7 @@ import { TaskTableSection } from "../../app/sections/TaskTableSection";
 import { WorkerPoolResultSection } from "../../app/sections/WorkerPoolResultSection";
 import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
+import { useProjectScope } from "../shared/useProjectScope";
 
 type BossDrilldownNavigateDetail = {
   source: "home_latest_run" | "home_manual_run";
@@ -40,6 +41,7 @@ export function WorkbenchPage() {
     enablePollingFallback: realtime.status !== "open",
   });
   const healthQuery = useBackendHealth();
+  const { selectedProjectId, selectedProjectName } = useProjectScope();
   const runWorkerOnceMutation = useRunWorkerOnce();
   const runWorkerPoolOnceMutation = useRunWorkerPoolOnce();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -89,6 +91,7 @@ export function WorkbenchPage() {
         taskId,
         runId: options?.runId ?? null,
         from: "workbench",
+        projectId: selectedProjectId === "all" ? null : selectedProjectId,
       }),
     );
   };
@@ -99,6 +102,7 @@ export function WorkbenchPage() {
         runId,
         taskId,
         from: "workbench",
+        projectId: selectedProjectId === "all" ? null : selectedProjectId,
       }),
     );
   };
@@ -125,6 +129,14 @@ export function WorkbenchPage() {
             void handleRefresh();
           }}
         />
+
+        {selectedProjectId !== "all" ? (
+          <div className="flex items-center gap-2 text-xs text-zinc-500">
+            <span className="uppercase tracking-[0.2em]">当前项目视角</span>
+            <span className="text-zinc-300">{selectedProjectName}</span>
+            <span className="text-zinc-600">· 以下为全部项目总览，具体项目请进入任务页/运行页查看</span>
+          </div>
+        ) : null}
 
         <HomeMetricsSection
           totalTasks={overviewQuery.data?.total_tasks ?? 0}

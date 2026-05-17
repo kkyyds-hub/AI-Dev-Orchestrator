@@ -9,6 +9,7 @@ import {
   type ProjectOverviewPageView,
 } from "../../features/projects/lib/overviewNavigation";
 import { buildTaskRoute } from "../../lib/task-route";
+import { useProjectScope } from "../shared/useProjectScope";
 
 type ProjectOverviewRouteContainerProps = {
   routeProjectView?: Exclude<ProjectOverviewPageView, "overview"> | null;
@@ -22,6 +23,14 @@ export function ProjectOverviewRouteContainer(
   const { projectId } = useParams();
   const [searchParams] = useSearchParams();
   const routeProjectView = props.routeProjectView ?? null;
+  const { selectedProjectId, setSelectedProjectId } = useProjectScope();
+
+  // Sync shared project context when navigating to a specific project route
+  useEffect(() => {
+    if (projectId && projectId !== selectedProjectId) {
+      setSelectedProjectId(projectId);
+    }
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!projectId || !location.hash || location.hash.startsWith("#boss-drilldown")) {
