@@ -145,6 +145,21 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
     }
   }, [projects, props.routeProjectId, selectedProjectId]);
 
+  // Strong-project sub-views that must NOT fallback to a random recent
+  // project when the global scope is "all".  They require an explicit
+  // route param or a concrete useProjectScope selection.
+  const isStrongProjectView = useMemo(() => {
+    const view = props.routeProjectView;
+    return (
+      view === "repository-workspace" ||
+      view === "deliverable-center" ||
+      view === "approval-inbox" ||
+      view === "memory-role-governance" ||
+      view === "collaboration-control" ||
+      view === "timeline-retrospective"
+    );
+  }, [props.routeProjectView]);
+
   useEffect(() => {
     if (!projects.length) {
       if (selectedProjectId !== null) {
@@ -165,10 +180,26 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
     const scopeId = projectScope.selectedProjectId;
     if (scopeId !== "all" && projects.some((p) => p.id === scopeId)) {
       setSelectedProjectId(scopeId);
-    } else if (defaultSelectedProjectId) {
+      return;
+    }
+
+    // scopeId is "all" — only fallback to recent project on the overview
+    // dashboard.  Strong-project sub-views stay null so they show the
+    // "please select a project" guide instead of a random project.
+    if (isStrongProjectView) {
+      return;
+    }
+
+    if (defaultSelectedProjectId) {
       setSelectedProjectId(defaultSelectedProjectId);
     }
-  }, [defaultSelectedProjectId, projects, selectedProjectId, projectScope.selectedProjectId]);
+  }, [
+    defaultSelectedProjectId,
+    isStrongProjectView,
+    projects,
+    selectedProjectId,
+    projectScope.selectedProjectId,
+  ]);
 
   const selectedProject = useMemo<BossProjectItem | null>(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,

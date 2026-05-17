@@ -6,7 +6,7 @@ import { useProjectScope } from "../shared/useProjectScope";
 
 export function DeliverablesPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const requestedDeliverableId = searchParams.get("deliverableId");
   const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName, projectNotFound } =
     useProjectScope();
@@ -15,12 +15,12 @@ export function DeliverablesPage() {
 
   const handleProjectChange = (nextId: string) => {
     setSelectedProjectId(nextId);
-    // Clear stale deliverableId when switching projects
-    if (searchParams.get("deliverableId")) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("deliverableId");
-      setSearchParams(next, { replace: true });
-    }
+    // Navigate to the canonical URL so setSearchParams inside
+    // setSelectedProjectId can't race-stomp the deliverableId cleanup.
+    navigate(
+      nextId === "all" ? "/deliverables" : `/deliverables?projectId=${encodeURIComponent(nextId)}`,
+      { replace: true },
+    );
   };
 
   return (

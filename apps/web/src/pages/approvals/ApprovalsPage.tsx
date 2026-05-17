@@ -1,10 +1,11 @@
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { ApprovalInboxPage } from "../../features/approvals/ApprovalInboxPage";
 import { useProjectScope } from "../shared/useProjectScope";
 
 export function ApprovalsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const requestedApprovalId = searchParams.get("approvalId");
   const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName, projectNotFound } =
     useProjectScope();
@@ -13,12 +14,12 @@ export function ApprovalsPage() {
 
   const handleProjectChange = (nextId: string) => {
     setSelectedProjectId(nextId);
-    // Clear stale approvalId when switching projects
-    if (searchParams.get("approvalId")) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("approvalId");
-      setSearchParams(next, { replace: true });
-    }
+    // Navigate to the canonical URL so setSearchParams inside
+    // setSelectedProjectId can't race-stomp the approvalId cleanup.
+    navigate(
+      nextId === "all" ? "/approvals" : `/approvals?projectId=${encodeURIComponent(nextId)}`,
+      { replace: true },
+    );
   };
 
   return (
