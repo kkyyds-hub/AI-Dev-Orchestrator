@@ -67,6 +67,61 @@ function formatRunStatus(status: string): string {
   }
 }
 
+// ── detection helpers (aligned with runUserSummary.ts) ──────────────
+
+function isMockExecution(run: ConsoleRun): boolean {
+  const summary = (run.result_summary ?? "").toLowerCase();
+  const provider = (run.provider_key ?? "").toLowerCase();
+  return (
+    summary.includes("provider_mock") ||
+    summary.includes("mock execution") ||
+    summary.includes("mock provider") ||
+    provider.includes("mock")
+  );
+}
+
+function isFallbackExecution(run: ConsoleRun): boolean {
+  const summary = (run.result_summary ?? "").toLowerCase();
+  return (
+    summary.includes("fallback_applied") ||
+    summary.includes("fallback")
+  );
+}
+
+/**
+ * 真实模型执行成功：status=succeeded、provider_key 不含 mock、
+ * result_summary 不含 mock/fallback、且有 provider_receipt_id。
+ */
+function isRealProviderExecution(run: ConsoleRun): boolean {
+  const summary = (run.result_summary ?? "").toLowerCase();
+  const provider = (run.provider_key ?? "").toLowerCase();
+  return (
+    run.status === "succeeded" &&
+    !!run.provider_key &&
+    !provider.includes("mock") &&
+    !summary.includes("provider_mock") &&
+    !summary.includes("mock execution") &&
+    !summary.includes("mock provider") &&
+    !summary.includes("fallback") &&
+    !!run.provider_receipt_id
+  );
+}
+
+function isTimeoutExecution(run: ConsoleRun): boolean {
+  const haystack = [
+    run.result_summary ?? "",
+    run.verification_summary ?? "",
+    run.route_reason ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    haystack.includes("timeout") ||
+    haystack.includes("timed out") ||
+    haystack.includes("超时")
+  );
+}
+
 // ── main builder ───────────────────────────────────────────────────
 
 export function buildTechnicalLog(
@@ -75,6 +130,10 @@ export function buildTechnicalLog(
 ): TechnicalLogData {
   const sections: TechnicalLogSection[] = [];
 
+  const realExec = isRealProviderExecution(run);
+  const mockExec = isMockExecution(run);
+  const fallbackExec = isFallbackExecution(run);
+
   // ── A. 状态概览 ─────────────────────────────────────────────
   sections.push({
     id: "status-overview",
@@ -82,8 +141,9 @@ export function buildTechnicalLog(
     fields: [
       field("运行状态", formatRunStatus(run.status)),
       field("执行模式", formatExecutionMode(run)),
-      field("是否真实模型执行", fmtBool(isRealProvider(run))),
-      field("是否发生降级", fmtBool(isFallback(run))),
+      field("是否真实模型执行", fmtBool(realExec)),
+      field("是否发生降级", fmtBool(fallbackExec)),
+      field("是否模拟执行", fmtBool(mockExec)),
       field("质量检查", formatQualityGate(run.quality_gate_passed)),
       field("失败分类", formatFailureCategory(run.failure_category)),
       field("开始时间", formatDateTime(run.started_at)),
@@ -110,13 +170,14 @@ export function buildTechnicalLog(
     title: "模型调用",
     fields: [
       field("模型服务", formatProviderLabel(run.provider_key)),
-      field("模型名称", run.provider_key ?? "暂无"),
+      field("模型服务 Key", run.provider_key ?? "暂无", { mono: true }),
+      field("模型名称", "未记录（ConsoleRun 暂不携带 model_name 字段）"),
       field("接口类型", "OpenAI-compatible"),
       field("模型回执", run.provider_receipt_id ?? "不存在", { mono: true, long: true }),
       field("提示词模板", run.prompt_template_key ?? "暂无", { mono: true }),
       field("提示词版本", run.prompt_template_version ?? "暂无"),
       field("提示词字符数", run.prompt_char_count != null ? String(run.prompt_char_count) : "暂无"),
-      field("是否降级", fmtBool(isFallback(run))),
+      field("是否降级", fmtBool(fallbackExec)),
     ],
   });
 
@@ -154,6 +215,9 @@ export function buildTechnicalLog(
   sections.push({
     id: "deliverable-approval",
     title: "交付件与审批",
+    content:
+      "当前运行记录未携带交付件 / 审批 ID（ConsoleRun 暂不包含 deliverable_id / approval_id 字段）。" +
+      "请到交付件页或审批页按项目查看后端自动生成结果。",
     fields: [
       field("运行 ID", run.id, { mono: true }),
       field("日志路径", run.log_path ?? "暂无", { mono: true }),
@@ -161,7 +225,7 @@ export function buildTechnicalLog(
     ],
   });
 
-  // ── G. 原始摘要 / 原始日志 ──────────────────────────────────
+  // ── G. 原始摘要 ────────────────────────────────────────────
   const rawLines: string[] = [];
   if (run.result_summary) {
     rawLines.push("=== result_summary ===");
@@ -213,24 +277,6 @@ export function buildTechnicalLog(
 
 // ── internal helpers ───────────────────────────────────────────────
 
-function isRealProvider(run: ConsoleRun): boolean {
-  const summary = (run.result_summary ?? "").toLowerCase();
-  const provider = (run.provider_key ?? "").toLowerCase();
-  return (
-    run.status === "succeeded" &&
-    !summary.includes("provider_mock") &&
-    !summary.includes("mock execution") &&
-    !summary.includes("mock provider") &&
-    !provider.includes("mock") &&
-    !summary.includes("fallback")
-  );
-}
-
-function isFallback(run: ConsoleRun): boolean {
-  const summary = (run.result_summary ?? "").toLowerCase();
-  return summary.includes("fallback");
-}
-
 function formatExecutionMode(run: ConsoleRun): string {
   const summary = (run.result_summary ?? "").toLowerCase();
   const provider = (run.provider_key ?? "").toLowerCase();
@@ -240,8 +286,11 @@ function formatExecutionMode(run: ConsoleRun): string {
   if (summary.includes("fallback")) {
     return "降级执行（fallback）";
   }
-  if (run.status === "succeeded" && run.provider_receipt_id) {
+  if (isRealProviderExecution(run)) {
     return "真实模型执行";
+  }
+  if (run.status === "succeeded" && !run.provider_receipt_id) {
+    return "运行已完成（未确认模型回执）";
   }
   if (run.status === "failed") {
     return "执行失败";
@@ -278,19 +327,25 @@ function buildExecutionTrace(run: ConsoleRun): string {
 
   if (run.status === "failed" || run.status === "succeeded" || run.status === "cancelled") {
     const summary = (run.result_summary ?? "").toLowerCase();
-    if (summary.includes("timeout")) {
+    const provider = (run.provider_key ?? "").toLowerCase();
+
+    if (isTimeoutExecution(run)) {
       steps.push("3. 调用模型服务超时");
       steps.push("4. 本次运行已标记失败");
       steps.push("5. 未生成交付件和审批");
-    } else if (summary.includes("provider_mock") || (run.provider_key ?? "").toLowerCase().includes("mock")) {
-      steps.push("3. 使用模拟模型执行");
-      steps.push("4. 已完成模拟执行（非真实结果）");
-    } else if (run.status === "succeeded") {
+    } else if (summary.includes("provider_mock") || provider.includes("mock")) {
+      steps.push("3. 使用模拟模型执行（非真实结果）");
+    } else if (summary.includes("fallback")) {
+      steps.push("3. 发生降级执行");
+      steps.push("4. 未使用真实模型服务");
+    } else if (isRealProviderExecution(run)) {
       steps.push(`3. 已调用模型服务（${formatProviderLabel(run.provider_key)}）`);
       steps.push("4. 已收到模型回执");
       steps.push("5. 已完成验证");
-      steps.push("6. 已生成交付件");
-      steps.push("7. 已创建审批记录");
+      steps.push("6. 运行成功。若后端自动交付件/审批闭环已生效，请前往交付件页和审批页确认。");
+    } else if (run.status === "succeeded") {
+      steps.push(`3. 已调用模型服务（${formatProviderLabel(run.provider_key)}）`);
+      steps.push("4. 运行已完成。若后端自动交付件/审批闭环已生效，请前往交付件页和审批页确认。");
     } else {
       steps.push(`3. 已调用模型服务（${formatProviderLabel(run.provider_key)}）`);
       steps.push("4. 执行过程出现异常");
@@ -345,7 +400,7 @@ function buildCopyAllText(
   run: ConsoleRun,
 ): string {
   const lines: string[] = [];
-  lines.push(`===== 技术日志 · 运行详情 =====`);
+  lines.push("===== 技术日志 · 运行详情 =====");
   lines.push(`任务：${taskTitle}`);
   lines.push(`运行 ID：${run.id}`);
   lines.push("");

@@ -612,6 +612,14 @@ AI 可建议：
 > - 技术日志通过弹窗查看，含 8 个分区 + 复制运行 ID / 复制全部
 > - 不破坏原有按钮闭环和 data-testid
 > - `npm run build` 通过
+>
+> **阶段 1 返工** `[2026-05-17]`：修正规则摘要误判与技术日志语义过度承诺
+> - timeout 判断不再将 failure_category="execution_failed" 等同于超时
+> - 真实模型成功增加 provider_receipt_id 必要条件
+> - mock/fallback 文案分离，不再合并为"模拟/降级执行"
+> - 技术日志"模型名称"改为"模型服务 Key"，不再用 provider_key 填充
+> - 执行轨迹不再对所有 succeeded run 声称"已生成交付件""已创建审批记录"
+> - "交付件与审批"分区增加免责说明（ConsoleRun 暂不携带 deliverable_id/approval_id）
 
 ### 阶段 2：AI 运行摘要生成
 

@@ -41,13 +41,23 @@ function isFallbackExecution(run: ConsoleRun): boolean {
   );
 }
 
+/**
+ * timeout 只能由 result_summary / verification_summary / route_reason
+ * 中明确包含 timeout、timed out、超时等信息判断。
+ * 不允许把 failure_category === "execution_failed" 直接等同于 timeout。
+ */
 function isTimeout(run: ConsoleRun): boolean {
-  const summary = (run.result_summary ?? "").toLowerCase();
+  const haystack = [
+    run.result_summary ?? "",
+    run.verification_summary ?? "",
+    run.route_reason ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
   return (
-    summary.includes("timeout") ||
-    summary.includes("timed out") ||
-    summary.includes("超时") ||
-    run.failure_category === "execution_failed"
+    haystack.includes("timeout") ||
+    haystack.includes("timed out") ||
+    haystack.includes("超时")
   );
 }
 
@@ -60,6 +70,40 @@ function detectProviderName(run: ConsoleRun): string {
   return run.provider_key ?? "未知模型服务";
 }
 
+/**
+ * 真实模型执行成功至少应满足：
+ * - run.status === "succeeded"
+ * - provider_key 存在且不包含 mock
+ * - result_summary 不包含 provider_mock / fallback
+ * - provider_receipt_id 存在
+ */
+function isRealProviderExecution(run: ConsoleRun): boolean {
+  const summary = (run.result_summary ?? "").toLowerCase();
+  const provider = (run.provider_key ?? "").toLowerCase();
+  return (
+    run.status === "succeeded" &&
+    !!run.provider_key &&
+    !provider.includes("mock") &&
+    !summary.includes("provider_mock") &&
+    !summary.includes("mock execution") &&
+    !summary.includes("mock provider") &&
+    !summary.includes("fallback") &&
+    !!run.provider_receipt_id
+  );
+}
+
+/**
+ * 运行已完成但缺少 provider_receipt_id，不能确认模型服务回执。
+ */
+function isSucceededWithoutReceipt(run: ConsoleRun): boolean {
+  return (
+    run.status === "succeeded" &&
+    !isMockExecution(run) &&
+    !isFallbackExecution(run) &&
+    !run.provider_receipt_id
+  );
+}
+
 // ── main generator ─────────────────────────────────────────────────
 
 export function generateRunUserSummary(run: ConsoleRun): RunUserSummary {
@@ -67,7 +111,8 @@ export function generateRunUserSummary(run: ConsoleRun): RunUserSummary {
   const fallback = isFallbackExecution(run);
   const timeout = isTimeout(run);
   const providerName = detectProviderName(run);
-  const isReal = !mock && !fallback && run.status === "succeeded";
+  const isReal = isRealProviderExecution(run);
+  const isSucceededNoReceipt = isSucceededWithoutReceipt(run);
   const isSimulated = run.verification_mode === "simulate";
   const qgPassed = run.quality_gate_passed;
 
@@ -84,11 +129,13 @@ export function generateRunUserSummary(run: ConsoleRun): RunUserSummary {
 
   // ── execution mode label ────────────────────────────────────
   if (mock) {
-    summary.executionModeLabel = "模拟执行（不可作为真实交付依据）";
+    summary.executionModeLabel = "模拟模型执行（不可作为真实交付依据）";
   } else if (fallback) {
     summary.executionModeLabel = "降级执行（不可作为真实交付依据）";
   } else if (isReal) {
     summary.executionModeLabel = `模型服务 ${providerName} 已真实执行成功`;
+  } else if (isSucceededNoReceipt) {
+    summary.executionModeLabel = "运行已完成，但未确认模型服务回执";
   } else if (timeout) {
     summary.executionModeLabel = "模型请求超时，本次未完成";
   } else if (run.status === "failed") {
@@ -105,9 +152,11 @@ export function generateRunUserSummary(run: ConsoleRun): RunUserSummary {
   if (isReal) {
     summary.conclusion = `本次任务已由 ${providerName} 成功执行。`;
   } else if (mock) {
-    summary.conclusion = "本次为模拟执行结果，不能作为真实交付依据。";
+    summary.conclusion = "本次为模拟模型执行结果，不能作为真实交付依据。";
   } else if (fallback) {
-    summary.conclusion = "本次为降级执行结果，不能作为真实交付依据。";
+    summary.conclusion = "本次发生降级执行，不能作为真实交付依据。";
+  } else if (isSucceededNoReceipt) {
+    summary.conclusion = "运行已完成，但未确认模型服务回执。请查看技术日志了解详情。";
   } else if (timeout) {
     summary.conclusion = "模型请求超时，本次未完成或需要重试。";
   } else if (run.status === "failed") {
@@ -146,17 +195,22 @@ export function generateRunUserSummary(run: ConsoleRun): RunUserSummary {
   }
   if (mock) {
     summary.warnings.push(
-      "模拟 / 降级执行，不能作为真实交付依据。请检查模型服务配置是否正确。"
+      "模拟模型执行，不能作为真实交付依据。请检查模型服务配置是否正确。"
     );
   }
   if (fallback) {
     summary.warnings.push(
-      "本次发生了降级执行，未使用真实模型服务。请确认 Provider 配置和网络状态。"
+      "发生降级执行，未使用真实模型服务。请确认 Provider 配置和网络状态。"
     );
   }
   if (timeout) {
     summary.warnings.push(
       "模型请求超时，本次未完成或需要重试。建议检查网络状态或提高超时时间（当前默认 120 秒）。"
+    );
+  }
+  if (isSucceededNoReceipt) {
+    summary.warnings.push(
+      "运行已完成但缺少模型服务回执，无法确认是否由真实模型执行。建议查看技术日志中的原始字段。"
     );
   }
   if (qgPassed === false) {
@@ -170,19 +224,23 @@ export function generateRunUserSummary(run: ConsoleRun): RunUserSummary {
 
   // ── next steps ──────────────────────────────────────────────
   if (isReal) {
-    summary.nextSteps.push("查看本次运行生成的交付件。");
-    summary.nextSteps.push("审批或退回交付件。");
+    summary.nextSteps.push("前往交付件页和审批页查看后端自动生成结果。");
   }
   if (isSimulated) {
     summary.nextSteps.push("为该项目配置真实验证命令。");
   }
-  if (mock || fallback) {
-    summary.nextSteps.push("检查并修复模型服务配置。");
+  if (mock) {
+    summary.nextSteps.push("检查并修复模型服务配置（当前为模拟模型）。");
+    summary.nextSteps.push("重新运行任务以获取真实结果。");
+  } else if (fallback) {
+    summary.nextSteps.push("排查降级原因，确认 Provider 配置和网络状态。");
     summary.nextSteps.push("重新运行任务以获取真实结果。");
   }
   if (timeout || run.status === "failed") {
     summary.nextSteps.push("排查失败原因后重新运行任务。");
-    summary.nextSteps.push("如需帮助，请查看技术日志。");
+  }
+  if (isSucceededNoReceipt) {
+    summary.nextSteps.push("查看技术日志确认执行详情。");
   }
   if (run.status === "running") {
     summary.nextSteps.push("等待任务执行完成。");

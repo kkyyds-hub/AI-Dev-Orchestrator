@@ -921,13 +921,14 @@ AI 摘要不能每次刷新都生成。
 | 默认展示中文用户摘要（规则摘要，不调用 AI） | 已实现 - `RunUserSummaryCard` + `runUserSummary.ts` |
 | 默认不展示大段英文 raw result_summary | 已实现 - 从 header 移除 line-clamp-2 原始文本 |
 | 新增”查看技术日志”按钮 | 已实现 - 按钮在操作栏中，data-testid=`open-tech-log-modal` |
-| 技术日志弹窗含 8 个分区 | 已实现 - 状态概览/执行轨迹/模型调用/质量检查/用量成本/交付件与审批/原始摘要/原始字段 |
+| 技术日志弹窗含 8 个分区 | 已实现 - 状态概览/执行轨迹/模型调用/质量检查/用量成本/交付件与审批（含免责说明）/原始摘要/原始字段 |
 | 弹窗支持复制运行 ID、复制全部日志 | 已实现 - 弹窗 header 含复制全部 + 复制运行 ID 按钮 |
 | 长 ID 自动换行、不撑破页面 | 已实现 - break-all + truncate + max-h-96 overflow-y-auto |
 | raw result_summary / verification_summary / route_reason 移入弹窗 | 已实现 - 进入弹窗”原始摘要”+”原始字段”分区 |
-| provider 真实成功有中文说明 | 已实现 - “模型服务 DeepSeek 已真实执行成功” |
-| provider timeout 有中文说明 | 已实现 - “模型请求超时，本次未完成或需要重试” |
-| mock / fallback 明确标记 | 已实现 - “模拟/降级执行，不能作为真实交付依据” |
+| provider 真实成功有中文说明 | 已实现 - “模型服务 DeepSeek 已真实执行成功”（需满足 receipt_id 存在等条件） |
+| provider timeout 有中文说明 | 已实现 - “模型请求超时，本次未完成或需要重试”（仅由文本关键字判定） |
+| mock 执行明确标记 | 已实现 - “模拟模型执行，不能作为真实交付依据” |
+| fallback 执行明确标记 | 已实现 - “发生降级执行，不能作为真实交付依据” |
 | 模拟验证明确提示 | 已实现 - “当前为模拟验证，不代表代码真实构建通过” |
 | 质量检查拦截提示 | 已实现 - “本次运行被质量检查拦截，请查看技术日志定位原因” |
 | TaskDetailRuntimeContractSection 诊断文本分层 | 已实现 - `hideRawDiagnosticTexts` prop，默认页不展示原始长文本 |
@@ -960,3 +961,20 @@ AI 摘要不能每次刷新都生成。
 - `apps/web/src/pages/runs/components/RunTechnicalLogModal.tsx` — 新增
 - `apps/web/src/pages/runs/components/RunsTaskDetailSection.tsx` — 修改
 - `apps/web/src/features/task-detail/components/TaskDetailRuntimeContractSection.tsx` — 修改
+
+### 阶段 1 返工：修正规则摘要误判与技术日志语义过度承诺
+
+**返工日期**：2026-05-17
+**返工提交哈希**：`（本次提交）`
+
+#### 修正内容
+
+| 问题 | 修正 |
+|---|---|
+| timeout 误判 - failure_category="execution_failed" 被当作 timeout | timeout 仅由 result_summary/verification_summary/route_reason 中明确包含 timeout/timed out/超时 判定 |
+| 真实模型成功缺少 provider_receipt_id 检查 | 新增 receipt_id 必要条件；无 receipt 时显示"运行已完成，但未确认模型服务回执" |
+| mock/fallback 文案混淆 - "模拟 / 降级执行"合并描述 | mock 与 fallback 分别说明，各有独立 warning |
+| 技术日志"模型名称"字段用 provider_key 填充 | 改为"模型服务 Key：{provider_key}" + "模型名称：未记录（ConsoleRun 暂不携带 model_name 字段）" |
+| 执行轨迹对所有 succeeded run 声称"已生成交付件""已创建审批记录" | 改为条件表述："运行成功。若后端自动交付件/审批闭环已生效，请前往交付件页和审批页确认。" |
+| "交付件与审批"分区暗示已持有 deliverable_id/approval_id | 新增免责说明："当前运行记录未携带交付件 / 审批 ID（ConsoleRun 暂不包含 deliverable_id / approval_id 字段）。请到交付件页或审批页按项目查看后端自动生成结果。" |
+| 文档回填中"模拟/降级执行"合并表述 | 已拆分为 mock 和 fallback 各自独立的已实现条目 |
