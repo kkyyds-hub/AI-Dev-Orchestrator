@@ -38,14 +38,14 @@ export function RunsPage() {
     [allTasks, selectedProjectId],
   );
 
-  const tasksLoaded = !overviewQuery.isLoading && filteredTasks.length > 0;
+  const overviewLoaded = !overviewQuery.isLoading;
 
   // ── Clear runId / taskId when the selected run doesn't belong to
   //     the current project scope ────────────────────────────────────
   useEffect(() => {
     if (selectedProjectId === "all") return;
     if (!runId) return;
-    if (overviewQuery.isLoading) return;
+    if (!overviewLoaded) return;
     const runInScope = filteredTasks.some(
       (task) => task.latest_run?.id === runId,
     );
@@ -58,12 +58,12 @@ export function RunsPage() {
       navigate(`/runs?${next.toString()}`, { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, runId, tasksLoaded]);
+  }, [selectedProjectId, runId, overviewLoaded, filteredTasks]);
 
   useEffect(() => {
     if (selectedProjectId === "all") return;
     if (!routeTaskId) return;
-    if (overviewQuery.isLoading) return;
+    if (!overviewLoaded) return;
     const taskInScope = filteredTasks.some((task) => task.id === routeTaskId);
     if (!taskInScope) {
       const next = new URLSearchParams(searchParams);
@@ -73,7 +73,7 @@ export function RunsPage() {
       setSearchParams(next, { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, routeTaskId, tasksLoaded]);
+  }, [selectedProjectId, routeTaskId, overviewLoaded, filteredTasks]);
 
   const runSelection = useRunSelection({
     tasks: filteredTasks,
