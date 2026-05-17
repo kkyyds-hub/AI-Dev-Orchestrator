@@ -1,9 +1,11 @@
 """Database infrastructure for the local orchestrator runtime."""
 
 from collections.abc import Generator
+from hashlib import sha256
 import sqlite3
+from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -155,6 +157,92 @@ def migrate_database_schema() -> None:
             connection.exec_driver_sql(statement)
 
 
+def _backfill_run_ai_summaries() -> None:
+    """Backfill historical run_ai_summaries rows that are missing required fields.
+
+    SQLite migration ALTER … ADD COLUMN leaves NULL or '' for existing rows.
+    This routine fills those gaps so Repository._to_domain does not trip
+    on domain-model validators that reject blank fingerprint/hash/timestamp.
+    """
+
+    now = datetime.now(timezone.utc).isoformat(" ")
+
+    with engine.begin() as conn:
+        # ── timestamp backfills ──────────────────────────────
+        # generated_at NULL → CURRENT_TIMESTAMP
+        conn.exec_driver_sql(
+            "UPDATE run_ai_summaries SET generated_at = :now "
+            "WHERE generated_at IS NULL",
+            {"now": now},
+        )
+        # created_at NULL → generated_at
+        conn.exec_driver_sql(
+            "UPDATE run_ai_summaries SET created_at = generated_at "
+            "WHERE created_at IS NULL"
+        )
+        # updated_at NULL → generated_at (or created_at if generated_at was also NULL)
+        conn.exec_driver_sql(
+            "UPDATE run_ai_summaries SET updated_at = "
+            "COALESCE(generated_at, created_at, :now) "
+            "WHERE updated_at IS NULL",
+            {"now": now},
+        )
+
+        # ── status / source backfills ─────────────────────────
+        conn.exec_driver_sql(
+            "UPDATE run_ai_summaries SET status = 'succeeded' "
+            "WHERE status IS NULL OR status = ''"
+        )
+        conn.exec_driver_sql(
+            "UPDATE run_ai_summaries SET source = 'rule_fallback' "
+            "WHERE source IS NULL OR source = ''"
+        )
+
+        # ── fingerprint / hash backfills ──────────────────────
+        # Fetch rows where source_fingerprint is empty/NULL
+        rows = conn.exec_driver_sql(
+            "SELECT id, run_id, source_fingerprint, source_hash, prompt_hash "
+            "FROM run_ai_summaries "
+            "WHERE source_fingerprint IS NULL OR source_fingerprint = ''"
+            "   OR source_hash IS NULL OR source_hash = ''"
+            "   OR prompt_hash IS NULL OR prompt_hash = ''"
+        ).fetchall()
+
+        for row in rows:
+            row_id, run_id, fp, sh, ph = row
+
+            fp = (fp or "").strip()
+            sh = (sh or "").strip()
+            ph = (ph or "").strip()
+
+            # source_fingerprint empty: borrow from source_hash or compute fallback
+            if not fp:
+                if sh:
+                    fp = sh
+                else:
+                    fp = sha256(
+                        f"legacy-run-ai-summary:{run_id}:{row_id}".encode()
+                    ).hexdigest()
+                    sh = fp  # both were empty → unify
+
+            # source_hash empty: borrow from source_fingerprint
+            if not sh:
+                sh = fp
+
+            # prompt_hash empty: stable fallback
+            if not ph:
+                ph = sha256(
+                    f"legacy-run-ai-summary-prompt:{fp}".encode()
+                ).hexdigest()
+
+            conn.exec_driver_sql(
+                "UPDATE run_ai_summaries "
+                "SET source_fingerprint = :fp, source_hash = :sh, prompt_hash = :ph "
+                "WHERE id = :id",
+                {"fp": fp, "sh": sh, "ph": ph, "id": row_id},
+            )
+
+
 def init_database() -> None:
     """Create the core schema and apply local, additive upgrades."""
 
@@ -164,6 +252,7 @@ def init_database() -> None:
 
     ORMBase.metadata.create_all(bind=engine)
     migrate_database_schema()
+    _backfill_run_ai_summaries()
 
 
 def get_db_session() -> Generator[Session, None, None]:

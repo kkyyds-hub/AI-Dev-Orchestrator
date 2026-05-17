@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db_tables import RunAISummaryTable
+from app.domain._base import utc_now
 from app.domain.run_ai_summary import (
     RunAISummary,
+    RunAISummarySource,
     RunAISummaryStatus,
     RunAISummaryType,
 )
@@ -157,7 +160,13 @@ class RunAISummaryRepository:
 
         If an active summary already exists for this run+type it is marked
         stale before the new PENDING record is created.
+
+        The stored record is **always** forced to ``status=pending``,
+        regardless of what the caller passed.
         """
+
+        if summary.status != RunAISummaryStatus.PENDING:
+            object.__setattr__(summary, "status", RunAISummaryStatus.PENDING)
 
         self.mark_active_stale(
             run_id=summary.run_id,
@@ -173,7 +182,11 @@ class RunAISummaryRepository:
         source_fingerprint: str | None = None,
         prompt_hash: str | None = None,
     ) -> RunAISummary | None:
-        """Transition one summary to SUCCEEDED with final content."""
+        """Transition one summary to SUCCEEDED with final content.
+
+        When ``source_fingerprint`` is updated, ``source_hash`` is kept in
+        sync so the two fields always carry the same value for new/updated rows.
+        """
 
         row = self.session.get(RunAISummaryTable, summary_id)
         if row is None:
@@ -184,6 +197,7 @@ class RunAISummaryRepository:
         row.updated_at = datetime.now(timezone.utc)
         if source_fingerprint is not None:
             row.source_fingerprint = source_fingerprint
+            row.source_hash = source_fingerprint
         if prompt_hash is not None:
             row.prompt_hash = prompt_hash
         row.error_summary = None
@@ -244,7 +258,38 @@ class RunAISummaryRepository:
 
     @staticmethod
     def _to_domain(row: RunAISummaryTable) -> RunAISummary:
-        """Convert one ORM row into a domain summary."""
+        """Convert one ORM row into a domain summary.
+
+        Read-time tolerance for legacy rows: if a required text field is
+        empty or ``NULL`` a deterministic fallback value is computed so the
+        domain validators never reject the row at read time.
+        """
+
+        fp = (row.source_fingerprint or "").strip()
+        sh = (row.source_hash or "").strip()
+        ph = (row.prompt_hash or "").strip()
+
+        if not fp:
+            if sh:
+                fp = sh
+            else:
+                fp = sha256(
+                    f"legacy-run-ai-summary:{row.run_id}:{row.id}".encode()
+                ).hexdigest()
+                sh = fp
+
+        if not sh:
+            sh = fp
+
+        if not ph:
+            ph = sha256(
+                f"legacy-run-ai-summary-prompt:{fp}".encode()
+            ).hexdigest()
+
+        now = utc_now()
+        generated_at = row.generated_at or now
+        created_at = row.created_at or generated_at
+        updated_at = row.updated_at or created_at
 
         return RunAISummary(
             id=row.id,
@@ -253,19 +298,19 @@ class RunAISummaryRepository:
             task_id=row.task_id,
             deliverable_id=row.deliverable_id,
             summary_type=row.summary_type,
-            status=row.status,
-            source=row.source,
-            summary_markdown=row.summary_markdown,
-            source_version=row.source_version,
-            source_fingerprint=row.source_fingerprint,
-            source_hash=row.source_hash,
+            status=row.status or RunAISummaryStatus.SUCCEEDED,
+            source=row.source or RunAISummarySource.RULE_FALLBACK,
+            summary_markdown=row.summary_markdown or "(legacy summary)",
+            source_version=row.source_version or "legacy",
+            source_fingerprint=fp,
+            source_hash=sh,
             model_provider=row.model_provider,
             model_name=row.model_name,
-            prompt_hash=row.prompt_hash,
+            prompt_hash=ph,
             provider_receipt_id=row.provider_receipt_id,
-            generated_at=row.generated_at,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
+            generated_at=generated_at,
+            created_at=created_at,
+            updated_at=updated_at,
             error_summary=row.error_summary,
-            stale=row.stale,
+            stale=bool(row.stale),
         )

@@ -363,3 +363,206 @@ def test_markdown_contains_tech_basis_section(client, seeded_run):
     assert "模型服务 Key" in md
     assert "模型名称" in md
     assert "模型回执 ID" in md
+
+
+# ── 2A-R3: historical data tolerance tests ──────────────────────────
+
+
+def test_old_row_with_empty_fields_does_not_500(db_session, seeded_run, client):
+    """Legacy row with empty fingerprints/hashes is readable via repository + API."""
+    _, _, run_id = seeded_run
+
+    from app.domain.run_ai_summary import RunAISummary, RunAISummaryType, RunAISummarySource
+    from uuid import uuid4 as _uuid4
+    from app.domain._base import utc_now as _utc_now
+
+    now = _utc_now()
+    repo = RunAISummaryRepository(db_session)
+
+    # Create a summary via repository (valid fields)
+    legacy = repo.create(RunAISummary(
+        id=_uuid4(),
+        run_id=run_id,
+        summary_type=RunAISummaryType.RUN,
+        status=RunAISummaryStatus.SUCCEEDED,
+        source=RunAISummarySource.RULE_FALLBACK,
+        summary_markdown="# legacy",
+        source_version="legacy.v1",
+        source_fingerprint="placeholder",
+        source_hash="placeholder",
+        prompt_hash="placeholder",
+        generated_at=now,
+        created_at=now,
+        updated_at=now,
+    ))
+
+    # Corrupt the row to simulate a pre-migration legacy state
+    from sqlalchemy import text
+    db_session.execute(
+        text(
+            "UPDATE run_ai_summaries "
+            "SET source_fingerprint = '', source_hash = '', prompt_hash = '' "
+            "WHERE id = :id"
+        ),
+        {"id": str(legacy.id)},
+    )
+    db_session.commit()
+    db_session.expire_all()
+
+    # Repository list should tolerate the corrupted row without exception
+    summaries = repo.list_by_run_id(run_id)
+    match = next((s for s in summaries if s.id == legacy.id), None)
+    assert match is not None, "legacy row not returned by list_by_run_id"
+    assert match.source_fingerprint, "fingerprint should be backfilled"
+    assert match.source_hash, "source_hash should be backfilled"
+    assert match.prompt_hash, "prompt_hash should be backfilled"
+
+    # GET /ai-summary should not 500 when legacy row exists (stale=0)
+    response = client.get(f"/runs/{run_id}/ai-summary")
+    assert response.status_code == 200
+    payload = response.json()
+    if payload["active_summary"] is not None:
+        assert payload["active_summary"]["status"] == "succeeded"
+        assert payload["active_summary"]["created_at"] is not None
+        assert payload["active_summary"]["updated_at"] is not None
+
+
+def test_generate_works_with_old_rows_present(db_session, seeded_run, client):
+    """generate/regenerate still work when legacy rows (empty fingerprints) exist."""
+    _, _, run_id = seeded_run
+
+    from app.domain.run_ai_summary import RunAISummary, RunAISummaryType, RunAISummarySource
+    from uuid import uuid4 as _uuid4
+    from app.domain._base import utc_now as _utc_now
+
+    now = _utc_now()
+    repo = RunAISummaryRepository(db_session)
+
+    legacy = repo.create(RunAISummary(
+        id=_uuid4(),
+        run_id=run_id,
+        summary_type=RunAISummaryType.RUN,
+        status=RunAISummaryStatus.SUCCEEDED,
+        source=RunAISummarySource.RULE_FALLBACK,
+        summary_markdown="# legacy2",
+        source_version="legacy.v2",
+        source_fingerprint="p",
+        source_hash="p",
+        prompt_hash="p",
+        generated_at=now,
+        created_at=now,
+        updated_at=now,
+    ))
+
+    # Corrupt to simulate legacy state with empty fingerprints
+    from sqlalchemy import text
+    db_session.execute(
+        text("UPDATE run_ai_summaries SET source_fingerprint='', source_hash='', prompt_hash='' WHERE id=:id"),
+        {"id": str(legacy.id)},
+    )
+    db_session.commit()
+    db_session.expire_all()
+
+    # generate should succeed — old row gets marked stale, new one created
+    gen = client.post(f"/runs/{run_id}/ai-summary/generate")
+    assert gen.status_code == 200
+    gen_payload = gen.json()
+    assert gen_payload["id"] != str(legacy.id)
+    assert gen_payload["created_at"] is not None
+    assert gen_payload["updated_at"] is not None
+    assert gen_payload["source_fingerprint"]
+
+    # regenerate should also work
+    regen = client.post(f"/runs/{run_id}/ai-summary/regenerate")
+    assert regen.status_code == 201
+
+
+def test_mark_succeeded_syncs_source_hash(db_session, seeded_run):
+    """When source_fingerprint is updated, source_hash must be synced."""
+    _, _, run_id = seeded_run
+
+    from app.domain.run_ai_summary import RunAISummary, RunAISummaryType
+    from uuid import uuid4 as _uuid4
+    from app.domain._base import utc_now as _utc_now
+    from hashlib import sha256
+
+    now = _utc_now()
+    fp_old = sha256(b"old-fingerprint").hexdigest()
+
+    repo = RunAISummaryRepository(db_session)
+    summary = RunAISummary(
+        id=_uuid4(),
+        run_id=run_id,
+        summary_type=RunAISummaryType.RUN,
+        status=RunAISummaryStatus.PENDING,
+        source=RunAISummarySource.RULE_FALLBACK,
+        summary_markdown="# pending",
+        source_version="test.v1",
+        source_fingerprint=fp_old,
+        source_hash="OLD_HASH_NOT_EQUAL",
+        prompt_hash=sha256(b"test-prompt").hexdigest(),
+        generated_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    created = repo.create(summary)
+    assert created.source_fingerprint == fp_old
+    assert created.source_hash == "OLD_HASH_NOT_EQUAL"  # pre-condition
+
+    fp_new = sha256(b"new-fingerprint").hexdigest()
+    updated = repo.mark_succeeded(
+        summary_id=created.id,
+        summary_markdown="# succeeded",
+        source_fingerprint=fp_new,
+    )
+    assert updated is not None
+    assert updated.source_fingerprint == fp_new
+    assert updated.source_hash == fp_new  # must be synced
+
+
+def test_upsert_pending_forces_status_pending(db_session, seeded_run):
+    """upsert_pending must store status=pending even when passed succeeded."""
+    _, _, run_id = seeded_run
+
+    from app.domain.run_ai_summary import RunAISummary, RunAISummaryType
+    from uuid import uuid4 as _uuid4
+    from app.domain._base import utc_now as _utc_now
+    from hashlib import sha256
+
+    now = _utc_now()
+    fp = sha256(b"upsert-test-fp").hexdigest()
+
+    repo = RunAISummaryRepository(db_session)
+
+    # Create summary with status=SUCCEEDED
+    summary = RunAISummary(
+        id=_uuid4(),
+        run_id=run_id,
+        summary_type=RunAISummaryType.RUN,
+        status=RunAISummaryStatus.SUCCEEDED,  # <-- NOT pending
+        source=RunAISummarySource.RULE_FALLBACK,
+        summary_markdown="# should be forced to pending",
+        source_version="test.upsert",
+        source_fingerprint=fp,
+        source_hash=fp,
+        prompt_hash=sha256(b"test-upsert-prompt").hexdigest(),
+        generated_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+    result = repo.upsert_pending(summary)
+    assert result.status == RunAISummaryStatus.PENDING
+
+    # Re-read to confirm persistence
+    reloaded = repo.get_by_id(result.id)
+    assert reloaded is not None
+    assert reloaded.status == RunAISummaryStatus.PENDING
+
+
+def test_singular_404_for_missing_run_all_paths(client):
+    """All singular paths return 404 for non-existent run_id."""
+    missing = uuid4()
+    assert client.get(f"/runs/{missing}/ai-summary").status_code == 404
+    assert client.post(f"/runs/{missing}/ai-summary/generate").status_code == 404
+    assert client.post(f"/runs/{missing}/ai-summary/regenerate").status_code == 404
