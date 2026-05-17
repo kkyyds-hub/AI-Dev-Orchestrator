@@ -118,6 +118,26 @@ class WorkerRunResult:
     run: Run | None = None
 
 
+def _truncate_deliverable_text(value: str, max_length: int) -> str:
+    """Truncate one text field to the deliverable domain length limit.
+
+    If the value is empty after stripping, returns a safe fallback so the
+    domain validation (min_length=1) never rejects it.
+    """
+
+    stripped = value.strip()
+    if not stripped:
+        return "Worker run completed successfully."
+    if len(stripped) <= max_length:
+        return stripped
+    return stripped[: max_length - 3] + "..."
+
+
+_DELIVERABLE_TITLE_MAX = 200
+_DELIVERABLE_SUMMARY_MAX = 1_000
+_DELIVERABLE_CONTENT_MAX = 40_000
+
+
 def _auto_create_run_deliverable(
     *,
     worker: "TaskWorker",
@@ -131,7 +151,7 @@ def _auto_create_run_deliverable(
     Guards:
     - task.project_id must be non-null
     - execution must have succeeded
-    - verification (if present) must have passed its quality gate
+    - verification (if present) must have passed AND quality_gate_passed
     - idempotent: skips if a deliverable already links to this source_run_id
     """
 
@@ -141,8 +161,9 @@ def _auto_create_run_deliverable(
         return
     if not execution.success:
         return
-    if verification is not None and not verification.success:
-        return
+    if verification is not None:
+        if not verification.success or not verification.quality_gate_passed:
+            return
 
     try:
         existing = worker.deliverable_service.deliverable_repository.find_by_source_run_id(
@@ -160,11 +181,13 @@ def _auto_create_run_deliverable(
 
         owner_role = run.owner_role_code or task.owner_role_code or ProjectRoleCode.ENGINEER
 
-        title = f"运行交付快照 · {task.title}"
-        summary_parts = [execution.summary.strip()]
-        if verification is not None and verification.summary:
-            summary_parts.append(verification.summary.strip())
-        summary = "\n".join(summary_parts)
+        raw_title = f"运行交付快照 · {task.title}"
+        title = _truncate_deliverable_text(raw_title, _DELIVERABLE_TITLE_MAX)
+
+        safe_exec_summary = _truncate_deliverable_text(
+            execution.summary, _DELIVERABLE_SUMMARY_MAX,
+        )
+        summary = safe_exec_summary
 
         content_lines = [
             f"# 运行交付快照",
@@ -177,7 +200,7 @@ def _auto_create_run_deliverable(
             "",
             "## 执行摘要",
             "",
-            execution.summary.strip(),
+            _truncate_deliverable_text(execution.summary, 20_000),
         ]
         if verification is not None:
             content_lines.extend([
@@ -187,7 +210,7 @@ def _auto_create_run_deliverable(
                 f"- **验证模式**: {verification.mode}",
                 f"- **验证通过**: {verification.success}",
                 f"- **质量门**: {'通过' if verification.quality_gate_passed else '未通过'}",
-                f"- **摘要**: {verification.summary.strip() if verification.summary else '无'}",
+                f"- **摘要**: {_truncate_deliverable_text(verification.summary or '', 5_000)}",
             ])
         if hasattr(run, "total_tokens") and run.total_tokens:
             content_lines.extend([
@@ -197,7 +220,9 @@ def _auto_create_run_deliverable(
                 f"- **Total tokens**: {getattr(run, 'total_tokens', 0)}",
                 f"- **Estimated cost**: ${getattr(run, 'estimated_cost', 0):.6f}",
             ])
-        content = "\n".join(content_lines)
+        content = _truncate_deliverable_text(
+            "\n".join(content_lines), _DELIVERABLE_CONTENT_MAX,
+        )
 
         worker.deliverable_service.create_deliverable(
             project_id=task.project_id,
@@ -211,7 +236,7 @@ def _auto_create_run_deliverable(
             source_task_id=task.id,
             source_run_id=run.id,
         )
-    except Exception:
+    except Exception as exc:
         # Never let a deliverable creation failure break the worker.
         # Log and continue — the run outcome is not affected.
         try:
@@ -220,6 +245,10 @@ def _auto_create_run_deliverable(
                     log_path=run.log_path,
                     event="deliverable_auto_create_failed",
                     message="Auto-generate deliverable snapshot failed.",
+                    data={
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc)[:500],
+                    },
                 )
         except Exception:
             pass
