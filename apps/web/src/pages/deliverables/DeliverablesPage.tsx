@@ -6,12 +6,22 @@ import { useProjectScope } from "../shared/useProjectScope";
 
 export function DeliverablesPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const requestedDeliverableId = searchParams.get("deliverableId");
   const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName, projectNotFound } =
     useProjectScope();
 
   const selectedProjectNameOrNull = selectedProjectId === "all" ? null : selectedProjectName;
+
+  const handleProjectChange = (nextId: string) => {
+    setSelectedProjectId(nextId);
+    // Clear stale deliverableId when switching projects
+    if (searchParams.get("deliverableId")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("deliverableId");
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -35,7 +45,7 @@ export function DeliverablesPage() {
             </label>
             <select
               value={selectedProjectId}
-              onChange={(event) => setSelectedProjectId(event.target.value)}
+              onChange={(event) => handleProjectChange(event.target.value)}
               className="mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 outline-none ring-0 transition focus:border-white/20"
             >
               <option value="all" className="bg-[#161616] text-zinc-100">

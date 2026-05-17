@@ -14,6 +14,7 @@ import {
 } from "../hooks";
 import type { BossProjectItem, BossProjectLatestTask } from "../types";
 import type { TaskDetail } from "../../task-detail/types";
+import { useProjectScope } from "../../../pages/shared/useProjectScope";
 
 export type ProjectOverviewPageProps = {
   onNavigateToTask?: (taskId: string, options?: { runId?: string | null }) => void;
@@ -87,8 +88,13 @@ function useProjectDay15FlowOverview(projectId: string | null) {
 
 export function useProjectOverviewPageController(props: ProjectOverviewPageProps) {
   const overviewQuery = useBossProjectOverview();
+  const projectScope = useProjectScope();
+
+  // Priority: routeProjectId → useProjectScope (if not "all") → null
+  // The useEffect below will apply the fallback once projects load.
+  const initialProjectId: string | null = props.routeProjectId ?? null;
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    props.routeProjectId ?? null,
+    initialProjectId,
   );
   const [stageActionFeedback, setStageActionFeedback] =
     useState<StageActionFeedback>(null);
@@ -147,13 +153,22 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
       return;
     }
 
+    // Already has a valid selection from route or prior pick — keep it.
     const hasSelection = projects.some(
       (project) => project.id === selectedProjectId,
     );
-    if ((!selectedProjectId || !hasSelection) && defaultSelectedProjectId) {
+    if (selectedProjectId && hasSelection) {
+      return;
+    }
+
+    // No valid selection yet — prefer useProjectScope, then recent project.
+    const scopeId = projectScope.selectedProjectId;
+    if (scopeId !== "all" && projects.some((p) => p.id === scopeId)) {
+      setSelectedProjectId(scopeId);
+    } else if (defaultSelectedProjectId) {
       setSelectedProjectId(defaultSelectedProjectId);
     }
-  }, [defaultSelectedProjectId, projects, selectedProjectId]);
+  }, [defaultSelectedProjectId, projects, selectedProjectId, projectScope.selectedProjectId]);
 
   const selectedProject = useMemo<BossProjectItem | null>(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,

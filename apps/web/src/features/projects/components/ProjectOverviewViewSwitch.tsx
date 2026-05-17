@@ -71,6 +71,21 @@ export function ProjectOverviewViewSwitch(props: ProjectOverviewViewSwitchProps)
   }
 
   if (props.activeView === "repository-workspace") {
+    if (!controller.selectedProject) {
+      return (
+        <div
+          id="project-overview-view-repository-workspace"
+          data-testid="project-overview-view-repository-workspace"
+          className="border-y border-dashed border-white/10 py-6"
+        >
+          <h2 className="text-base font-semibold text-zinc-100">请选择项目后查看仓库工作区</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+            仓库工作区需要先选定一个项目。请在项目列表中选择一个项目，或从任务页/运行页进入项目仓库。
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div
         id="project-overview-view-repository-workspace"
