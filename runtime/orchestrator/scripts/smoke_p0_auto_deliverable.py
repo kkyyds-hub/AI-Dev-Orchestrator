@@ -365,6 +365,113 @@ def main() -> int:
             check(len(latest.content) <= _DELIVERABLE_CONTENT_MAX,
                   f"content truncated ({len(latest.content)} <= {_DELIVERABLE_CONTENT_MAX})")
 
+    # -- Phase 6: P0-2 — approval auto-generation --------------------
+    print()
+    print("=" * 60)
+    print("PHASE 6: P0-2 — auto approval request")
+    print("=" * 60)
+
+    from app.workers.task_worker import _auto_create_run_approval
+
+    # 6a: existing deliverable (from guard test run that generated) → create approval
+    # Find a guard-test deliverable that doesn't have an approval yet
+    deliverable_session = SessionLocal()
+    from app.repositories.deliverable_repository import DeliverableRepository
+    from app.repositories.approval_repository import ApprovalRepository
+    dr = DeliverableRepository(deliverable_session)
+    ar = ApprovalRepository(deliverable_session)
+    all_delivs = dr.list_records_by_project_id(project_id)
+    print(f"  total deliverables in project: {len(all_delivs)}")
+
+    # Find a deliverable without approval
+    target_deliv = None
+    for d in all_delivs:
+        existing_approval = ar.get_latest_record_by_deliverable_id(d.deliverable.id)
+        if existing_approval is None:
+            target_deliv = d
+            break
+
+    check(target_deliv is not None, f"found deliverable without approval (deliverable_id={target_deliv.deliverable.id if target_deliv else 'N/A'})")
+
+    if target_deliv:
+        deliv_id = target_deliv.deliverable.id
+        # Find which run this deliverable belongs to
+        source_run_id = target_deliv.versions[0].source_run_id if target_deliv.versions else None
+        source_task_id = target_deliv.versions[0].source_task_id if target_deliv.versions else None
+        print(f"  deliverable_id: {deliv_id}")
+        print(f"  source_run_id: {source_run_id}")
+
+        # Get the task and run for approval creation
+        target_task = task_repo.get_by_id(source_task_id) if source_task_id else None
+        target_run = run_repo.get_by_id(source_run_id) if source_run_id else base_run
+
+        # Call approval auto-create via real function
+        _auto_create_run_approval(
+            worker=worker,
+            deliverable_record=target_deliv,
+            task=target_task or base_task,
+            run=target_run or base_run,
+        )
+        worker_session.commit()
+
+        # Verify approval was created
+        deliverable_session2 = SessionLocal()
+        try:
+            ar2 = ApprovalRepository(deliverable_session2)
+            created_approval = ar2.get_latest_record_by_deliverable_id(deliv_id)
+            check(created_approval is not None, "approval record created")
+            if created_approval:
+                ap = created_approval.approval
+                print(f"    approval.status: {ap.status.value}")
+                print(f"    approval.deliverable_id: {ap.deliverable_id}")
+                check(ap.status.value in ("pending_approval", "pending"), f"approval is pending (got {ap.status.value})")
+                check(ap.deliverable_id == deliv_id, f"approval.deliverable_id matches ({ap.deliverable_id})")
+                check(ap.project_id == project_id, f"approval.project_id matches ({ap.project_id})")
+        finally:
+            deliverable_session2.close()
+
+        # 6b: idempotency — call again with same deliverable → should skip
+        _auto_create_run_approval(
+            worker=worker,
+            deliverable_record=target_deliv,
+            task=target_task or base_task,
+            run=target_run or base_run,
+        )
+        worker_session.commit()
+
+        deliverable_session3 = SessionLocal()
+        try:
+            ar3 = ApprovalRepository(deliverable_session3)
+            # Count approvals for this deliverable — should still be 1
+            all_approvals_for_deliv = ar3.list_records_by_project_id(project_id)
+            matching = [a for a in all_approvals_for_deliv if a.approval.deliverable_id == deliv_id]
+            check(len(matching) == 1, f"idempotent — only 1 approval for deliverable (got {len(matching)})")
+        finally:
+            deliverable_session3.close()
+
+    deliverable_session.close()
+
+    # -- Phase 7: API-level joint data closure check -----------------
+    print()
+    print("=" * 60)
+    print("PHASE 7: API-level joint data closure")
+    print("=" * 60)
+
+    with TestClient(app) as client2:
+        dr = client2.get(f"/deliverables/projects/{project_id}").json()
+        total_deliv = dr.get("total_deliverables", 0)
+        check(total_deliv >= 1, f"GET /deliverables returns data (total={total_deliv})")
+
+        ar = client2.get(f"/approvals/projects/{project_id}").json()
+        total_approval = ar.get("total_requests", 0)
+        check(total_approval >= 1, f"GET /approvals returns data (total_requests={total_approval})")
+
+        if dr.get("deliverables") and ar.get("approvals"):
+            deliv_id_list = {d["id"] for d in dr["deliverables"]}
+            approval_deliv_ids = {a.get("deliverable_id") for a in ar["approvals"] if a.get("deliverable_id")}
+            overlap = deliv_id_list & approval_deliv_ids
+            check(len(overlap) >= 1, f"deliverable <-> approval linkage exists (overlap={len(overlap)})")
+
     worker_session.close()
 
     print()

@@ -38,6 +38,7 @@ from app.services.context_budget_service import ContextBudgetService
 from app.services.context_builder_service import ContextBuilderService, TaskContextPackage
 from app.services.cost_estimator_service import CostEstimate, CostEstimatorService
 from app.services.deliverable_service import DeliverableService
+from app.services.approval_service import ApprovalService
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionPlan, ExecutionResult, ExecutorService
 from app.services.failure_review_service import FailureReviewService
@@ -145,32 +146,36 @@ def _auto_create_run_deliverable(
     run: Run,
     execution: ExecutionResult,
     verification: VerificationResult | None,
-) -> None:
+):
     """Auto-generate a deliverable snapshot after a successful provider run.
+
+    Returns the deliverable's ``DeliverableRecord`` on success or when an
+    existing deliverable already links to this source_run_id (idempotent).
+    Returns None when guard conditions block creation.
 
     Guards:
     - task.project_id must be non-null
     - execution must have succeeded
     - verification (if present) must have passed AND quality_gate_passed
-    - idempotent: skips if a deliverable already links to this source_run_id
+    - idempotent: returns existing record if already present
     """
 
     if worker.deliverable_service is None:
-        return
+        return None
     if task.project_id is None:
-        return
+        return None
     if not execution.success:
-        return
+        return None
     if verification is not None:
         if not verification.success or not verification.quality_gate_passed:
-            return
+            return None
 
     try:
         existing = worker.deliverable_service.deliverable_repository.find_by_source_run_id(
             run.id,
         )
         if existing is not None:
-            return  # already created — idempotent
+            return existing  # already created — idempotent; return it for approval
 
         from app.domain.deliverable import DeliverableContentFormat, DeliverableType
         from app.domain.project import ProjectStage
@@ -224,7 +229,7 @@ def _auto_create_run_deliverable(
             "\n".join(content_lines), _DELIVERABLE_CONTENT_MAX,
         )
 
-        worker.deliverable_service.create_deliverable(
+        deliverable_detail = worker.deliverable_service.create_deliverable(
             project_id=task.project_id,
             type=DeliverableType.STAGE_ARTIFACT,
             title=title,
@@ -235,6 +240,10 @@ def _auto_create_run_deliverable(
             content_format=DeliverableContentFormat.MARKDOWN,
             source_task_id=task.id,
             source_run_id=run.id,
+        )
+        # Return the persisted record so the caller can chain approval creation.
+        return worker.deliverable_service.deliverable_repository.get_record_by_id(
+            deliverable_detail.deliverable.id,
         )
     except Exception as exc:
         # Never let a deliverable creation failure break the worker.
@@ -248,6 +257,100 @@ def _auto_create_run_deliverable(
                     data={
                         "exception_type": type(exc).__name__,
                         "exception_message": str(exc)[:500],
+                    },
+                )
+        except Exception:
+            pass
+
+
+def _auto_create_run_approval(
+    *,
+    worker: "TaskWorker",
+    deliverable_record,
+    task: Task,
+    run: Run,
+) -> None:
+    """Auto-create a pending approval request for an auto-generated deliverable.
+
+    Guards:
+    - worker.approval_service is not None
+    - deliverable_record has versions
+    - idempotent: skips if the same deliverable version already has an approval
+    """
+
+    if worker.approval_service is None:
+        return
+    if not deliverable_record.versions:
+        return
+
+    try:
+        deliverable_id = deliverable_record.deliverable.id
+
+        # idempotency check — only create if no pending approval for this version
+        from app.repositories.approval_repository import ApprovalRepository
+        existing_approval = ApprovalRepository(worker.session).get_latest_record_by_deliverable_id(
+            deliverable_id,
+        )
+        current_version = deliverable_record.versions[0]
+        if (
+            existing_approval is not None
+            and existing_approval.approval.deliverable_version_number
+            == current_version.version_number
+        ):
+            # Already has an approval for this version — skip
+            if run.log_path:
+                worker.run_logging_service.append_event(
+                    log_path=run.log_path,
+                    event="approval_auto_create_skipped",
+                    message="Approval already exists for this deliverable version.",
+                    data={
+                        "deliverable_id": str(deliverable_id),
+                        "deliverable_version": current_version.version_number,
+                        "existing_approval_status": existing_approval.approval.status.value,
+                    },
+                )
+            return
+
+        from app.domain.project_role import ProjectRoleCode
+
+        owner_role = run.owner_role_code or task.owner_role_code or ProjectRoleCode.ENGINEER
+        request_note = (
+            f"[自动生成] Worker 成功运行后自动创建的交付件审批。\n"
+            f"Task ID: {task.id}\n"
+            f"Run ID: {run.id}"
+        )
+
+        worker.approval_service.request_deliverable_approval(
+            deliverable_id=deliverable_id,
+            requester_role_code=owner_role,
+            request_note=request_note,
+            due_in_hours=24,
+        )
+
+        if run.log_path:
+            worker.run_logging_service.append_event(
+                log_path=run.log_path,
+                event="approval_auto_created",
+                message="Auto-created pending approval for deliverable.",
+                data={
+                    "deliverable_id": str(deliverable_id),
+                    "deliverable_version": current_version.version_number,
+                },
+            )
+    except Exception as exc:
+        # Never let approval failure break the worker.
+        try:
+            if run.log_path:
+                worker.run_logging_service.append_event(
+                    log_path=run.log_path,
+                    event="approval_auto_create_failed",
+                    message="Auto-create approval request failed.",
+                    data={
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc)[:500],
+                        "deliverable_id": str(deliverable_record.deliverable.id)
+                        if deliverable_record
+                        else None,
                     },
                 )
         except Exception:
@@ -278,6 +381,7 @@ class TaskWorker:
         failure_review_service: FailureReviewService,
         agent_conversation_service: AgentConversationService,
         deliverable_service: DeliverableService | None = None,
+        approval_service: ApprovalService | None = None,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -297,6 +401,7 @@ class TaskWorker:
         self.failure_review_service = failure_review_service
         self.agent_conversation_service = agent_conversation_service
         self.deliverable_service = deliverable_service
+        self.approval_service = approval_service
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -683,13 +788,21 @@ class TaskWorker:
             self._record_failure_review_if_needed(task=task, run=run)
 
             # Auto-generate a deliverable snapshot on successful provider runs
-            _auto_create_run_deliverable(
+            deliverable_record = _auto_create_run_deliverable(
                 worker=self,
                 task=task,
                 run=run,
                 execution=execution,
                 verification=verification,
             )
+            # If a deliverable was created (or already existed), auto-create approval
+            if deliverable_record is not None:
+                _auto_create_run_approval(
+                    worker=self,
+                    deliverable_record=deliverable_record,
+                    task=task,
+                    run=run,
+                )
 
             return WorkerRunResult(
                 claimed=True,
@@ -1675,6 +1788,12 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         run_repository=run_repository,
         deliverable_repository=deliverable_repository,
     )
+    approval_repository = ApprovalRepository(session)
+    approval_service = ApprovalService(
+        project_repository=ProjectRepository(session),
+        deliverable_repository=deliverable_repository,
+        approval_repository=approval_repository,
+    )
     return TaskWorker(
         session=session,
         task_repository=task_repository,
@@ -1694,4 +1813,5 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         failure_review_service=failure_review_service,
         agent_conversation_service=agent_conversation_service,
         deliverable_service=deliverable_service,
+        approval_service=approval_service,
     )
