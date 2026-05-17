@@ -1,6 +1,7 @@
 type BuildRunRouteInput = {
   runId?: string | null;
   taskId?: string | null;
+  projectId?: string | null;
   from?: "workbench" | "tasks" | "runs";
 };
 
@@ -13,6 +14,10 @@ export function buildRunRoute(input: BuildRunRouteInput = {}) {
 
   if (input.taskId) {
     searchParams.set("taskId", input.taskId);
+  }
+
+  if (input.projectId && input.projectId !== "all") {
+    searchParams.set("projectId", input.projectId);
   }
 
   if (input.from) {

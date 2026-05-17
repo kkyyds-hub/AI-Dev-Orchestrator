@@ -1,51 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useConsoleOverview } from "../../features/console/hooks";
 import type { ConsoleTask } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
-import { useBossProjectOverview } from "../../features/projects/hooks";
 import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 import { buildBossDrilldownHash } from "../shared/boss-drilldown-route";
+import { useProjectScope } from "../shared/useProjectScope";
 import { TasksPageContent } from "./components/TasksPageContent";
 import { TasksPageHeader } from "./components/TasksPageHeader";
 import { TasksTaskNotFoundNotice } from "./components/TasksTaskNotFoundNotice";
 import { useTaskSelection } from "./hooks/useTaskSelection";
-
-const LOCALSTORAGE_KEY = "ai-dev-orchestrator:tasks-selected-project-id";
-
-function readStoredProjectId(): string | null {
-  try {
-    const value = localStorage.getItem(LOCALSTORAGE_KEY);
-    return value ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredProjectId(projectId: string | null) {
-  try {
-    if (projectId) {
-      localStorage.setItem(LOCALSTORAGE_KEY, projectId);
-    } else {
-      localStorage.removeItem(LOCALSTORAGE_KEY);
-    }
-  } catch {
-    // storage unavailable — ignore
-  }
-}
-
-/** Resolve the effective projectId for the tasks page.
- *  Priority: URL query ?projectId= → localStorage → "all" */
-function resolveInitialProjectId(searchParams: URLSearchParams): string {
-  const urlId = searchParams.get("projectId");
-  if (urlId) return urlId;
-  const stored = readStoredProjectId();
-  if (stored) return stored;
-  return "all";
-}
 
 export function TasksPage() {
   const navigate = useNavigate();
@@ -56,39 +23,13 @@ export function TasksPage() {
   const overviewQuery = useConsoleOverview({
     enablePollingFallback: realtime.status !== "open",
   });
-  const projectOverviewQuery = useBossProjectOverview({ enablePolling: false });
-  const projects = projectOverviewQuery.data?.projects ?? [];
+  const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName } =
+    useProjectScope();
 
   const allTasks: ConsoleTask[] = overviewQuery.data?.tasks ?? [];
   const requestedRunId = searchParams.get("runId");
 
-  // ── Project selection state ──────────────────────────────────────
-  const [selectedProjectId, setSelectedProjectIdState] = useState<string>(
-    () => resolveInitialProjectId(searchParams),
-  );
-
-  const setSelectedProjectId = useCallback(
-    (nextId: string) => {
-      setSelectedProjectIdState(nextId);
-      writeStoredProjectId(nextId === "all" ? null : nextId);
-      const nextParams = new URLSearchParams(searchParams);
-      if (nextId === "all") {
-        nextParams.delete("projectId");
-      } else {
-        nextParams.set("projectId", nextId);
-      }
-      setSearchParams(nextParams, { replace: true });
-    },
-    [searchParams, setSearchParams],
-  );
-
-  // Sync URL → state (for browser back/forward)
-  useEffect(() => {
-    const urlId = searchParams.get("projectId") ?? "all";
-    setSelectedProjectIdState((current) => (current !== urlId ? urlId : current));
-  }, [searchParams]);
-
-  // ── Filter tasks ─────────────────────────────────────────────────
+  // ── Filter tasks by selected project ─────────────────────────────
   const filteredTasks = useMemo(
     () =>
       selectedProjectId === "all"
@@ -108,7 +49,6 @@ export function TasksPage() {
       setSearchParams(next, { replace: true });
       navigate("/tasks", { replace: true });
     }
-    // Only re-check on scope change
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId]);
 
@@ -118,7 +58,6 @@ export function TasksPage() {
     if (!taskId) return;
     const taskInScope = filteredTasks.some((task) => task.id === taskId);
     if (!taskInScope) {
-      // runId bound to an out-of-scope task — clear it
       const next = new URLSearchParams(searchParams);
       next.delete("runId");
       setSearchParams(next, { replace: true });
@@ -137,11 +76,6 @@ export function TasksPage() {
     : taskId
       ? "未命中任务"
       : "未选择";
-
-  const selectedProjectName = useMemo(() => {
-    if (selectedProjectId === "all") return "全部项目";
-    return projects.find((p) => p.id === selectedProjectId)?.name ?? "未知项目";
-  }, [projects, selectedProjectId]);
 
   const handleNavigateToDeliverable = (input: {
     projectId: string;
@@ -163,6 +97,16 @@ export function TasksPage() {
     navigate(`/projects${buildBossDrilldownHash(detail)}`);
   };
 
+  const perProjectCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of allTasks) {
+      if (task.project_id) {
+        counts[task.project_id] = (counts[task.project_id] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [allTasks]);
+
   return (
     <div className="space-y-6">
       <TasksPageHeader
@@ -171,7 +115,7 @@ export function TasksPage() {
         realtimeStatus={realtime.status}
       />
 
-      {/* Project scope selector */}
+      {/* Project scope selector — shared across tasks page */}
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-xs uppercase tracking-[0.2em] text-zinc-500">
           当前项目
@@ -185,16 +129,14 @@ export function TasksPage() {
             全部项目 · {allTasks.length} 条任务
           </option>
           {projects.map((project) => {
-            const count = allTasks.filter(
-              (task) => task.project_id === project.id,
-            ).length;
+            const count = perProjectCounts[project.id] ?? 0;
             return (
               <option
                 key={project.id}
                 value={project.id}
                 className="bg-[#161616] text-zinc-100"
               >
-              {project.name} · {count} 条任务
+                {project.name} · {count} 条任务
               </option>
             );
           })}
