@@ -23,7 +23,7 @@ export function TasksPage() {
   const overviewQuery = useConsoleOverview({
     enablePollingFallback: realtime.status !== "open",
   });
-  const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName } =
+  const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName, projectNotFound } =
     useProjectScope();
 
   const allTasks: ConsoleTask[] = overviewQuery.data?.tasks ?? [];
@@ -42,28 +42,30 @@ export function TasksPage() {
   useEffect(() => {
     if (selectedProjectId === "all") return;
     if (!taskId) return;
+    if (overviewQuery.isLoading) return;
     const taskInScope = filteredTasks.some((task) => task.id === taskId);
     if (!taskInScope) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("runId");
-      setSearchParams(next, { replace: true });
-      navigate("/tasks", { replace: true });
+      navigate(
+        buildTaskRoute({ projectId: selectedProjectId }),
+        { replace: true },
+      );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, filteredTasks.length > 0, overviewQuery.isLoading]);
 
   useEffect(() => {
     if (selectedProjectId === "all") return;
     if (!requestedRunId) return;
     if (!taskId) return;
+    if (overviewQuery.isLoading) return;
     const taskInScope = filteredTasks.some((task) => task.id === taskId);
     if (!taskInScope) {
       const next = new URLSearchParams(searchParams);
       next.delete("runId");
       setSearchParams(next, { replace: true });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, filteredTasks.length > 0, overviewQuery.isLoading]);
 
   // ── Task selection ───────────────────────────────────────────────
   const taskSelection = useTaskSelection({
@@ -148,6 +150,19 @@ export function TasksPage() {
         ) : null}
       </div>
 
+      {projectNotFound ? (
+        <div className="rounded-2xl border border-amber-500/[0.15] bg-amber-500/[0.06] px-4 py-3 text-sm leading-6 text-amber-200">
+          当前项目不存在或已被删除。{" "}
+          <button
+            type="button"
+            onClick={() => setSelectedProjectId("all")}
+            className="underline transition hover:text-amber-100"
+          >
+            切回全部项目
+          </button>
+        </div>
+      ) : null}
+
       {taskSelection.taskNotFound ? (
         <TasksTaskNotFoundNotice taskId={taskId ?? ""} />
       ) : null}
@@ -162,7 +177,13 @@ export function TasksPage() {
         budget={overviewQuery.data?.budget ?? null}
         realtimeStatus={realtime.status}
         onSelectTask={(nextTaskId) => {
-          navigate(buildTaskRoute({ taskId: nextTaskId, from: "tasks" }));
+          navigate(
+            buildTaskRoute({
+              taskId: nextTaskId,
+              from: "tasks",
+              projectId: selectedProjectId === "all" ? null : selectedProjectId,
+            }),
+          );
         }}
         onNavigateToRun={(nextRunId, nextTaskId) => {
           navigate(
@@ -170,6 +191,7 @@ export function TasksPage() {
               runId: nextRunId,
               taskId: nextTaskId,
               from: "tasks",
+              projectId: selectedProjectId === "all" ? null : selectedProjectId,
             }),
           );
         }}

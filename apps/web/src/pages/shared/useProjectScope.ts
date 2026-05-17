@@ -50,11 +50,16 @@ export function useProjectScope() {
   );
 
   // Sync URL → state (browser back/forward)
+  // Only override from URL when URL explicitly has a projectId.
+  // When URL has no projectId, keep current state (from localStorage init
+  // or a prior selection) — do NOT force "all".
   useEffect(() => {
-    const urlId = searchParams.get("projectId") ?? "all";
-    _setSelectedProjectId((current) =>
-      current !== urlId ? urlId : current,
-    );
+    const urlId = searchParams.get("projectId");
+    if (urlId) {
+      _setSelectedProjectId((current) =>
+        current !== urlId ? urlId : current,
+      );
+    }
   }, [searchParams]);
 
   const setSelectedProjectId = useCallback(
@@ -70,6 +75,17 @@ export function useProjectScope() {
       setSearchParams(nextParams, { replace: true });
     },
     [searchParams, setSearchParams],
+  );
+
+  /** Whether project list is loaded AND selectedProjectId is a
+   *  specific (non-"all") ID that doesn't exist in the project list. */
+  const projectNotFound = useMemo(
+    () =>
+      selectedProjectId !== "all" &&
+      !projectOverviewQuery.isLoading &&
+      projects.length > 0 &&
+      !projects.some((p) => p.id === selectedProjectId),
+    [projects, projectOverviewQuery.isLoading, selectedProjectId],
   );
 
   const selectedProjectName = useMemo(() => {
@@ -90,5 +106,7 @@ export function useProjectScope() {
     projects,
     /** Whether the projects query is still loading */
     projectsLoading: projectOverviewQuery.isLoading,
+    /** True when a specific project ID was requested but isn't in the list */
+    projectNotFound,
   };
 }
