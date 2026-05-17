@@ -174,6 +174,9 @@ class RunAISummaryResponse(BaseModel):
     prompt_hash: str
     provider_receipt_id: str | None = None
     generated_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    error_summary: str | None = None
     stale: bool
 
     @classmethod
@@ -198,7 +201,35 @@ class RunAISummaryResponse(BaseModel):
             prompt_hash=summary.prompt_hash,
             provider_receipt_id=summary.provider_receipt_id,
             generated_at=summary.generated_at,
+            created_at=summary.created_at,
+            updated_at=summary.updated_at,
+            error_summary=summary.error_summary,
             stale=summary.stale,
+        )
+
+
+class RunAISummaryCurrentResponse(BaseModel):
+    """Singular current-summary response (GET /{run_id}/ai-summary)."""
+
+    run_id: UUID
+    active_summary: RunAISummaryResponse | None = None
+
+    @classmethod
+    def from_active(
+        cls,
+        *,
+        run_id: UUID,
+        active_summary: RunAISummary | None,
+    ) -> "RunAISummaryCurrentResponse":
+        """Build the singular current-summary response envelope."""
+
+        return cls(
+            run_id=run_id,
+            active_summary=(
+                RunAISummaryResponse.from_summary(active_summary)
+                if active_summary is not None
+                else None
+            ),
         )
 
 
@@ -712,6 +743,94 @@ def regenerate_run_ai_summary(
             run_id=run_id,
             regenerate=True,
         )
+    except RunAISummaryRunNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RunAISummaryResponse.from_summary(summary)
+
+
+# ── Singular current-summary endpoints (stage 2B frontend entry) ──
+
+
+@router.get(
+    "/{run_id}/ai-summary",
+    response_model=RunAISummaryCurrentResponse,
+    summary="获取当前运行 AI 摘要",
+)
+def get_current_run_ai_summary(
+    run_id: UUID,
+    run_ai_summary_service: Annotated[
+        RunAISummaryService,
+        Depends(get_run_ai_summary_service),
+    ],
+) -> RunAISummaryCurrentResponse:
+    """Return the current active AI summary for one run.
+
+    Returns ``active_summary=null`` when no summary has been generated yet.
+    """
+
+    try:
+        active = run_ai_summary_service.get_active_summary(run_id=run_id)
+    except RunAISummaryRunNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RunAISummaryCurrentResponse.from_active(
+        run_id=run_id,
+        active_summary=active,
+    )
+
+
+@router.post(
+    "/{run_id}/ai-summary/generate",
+    response_model=RunAISummaryResponse,
+    summary="生成当前运行 AI 摘要（单数入口）",
+)
+def generate_current_run_ai_summary(
+    run_id: UUID,
+    run_ai_summary_service: Annotated[
+        RunAISummaryService,
+        Depends(get_run_ai_summary_service),
+    ],
+) -> RunAISummaryResponse:
+    """Create or reuse the active AI summary for one run.
+
+    Reuses the existing active summary when the run data has not changed.
+    """
+
+    try:
+        summary = run_ai_summary_service.generate_current_summary(run_id=run_id)
+    except RunAISummaryRunNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RunAISummaryResponse.from_summary(summary)
+
+
+@router.post(
+    "/{run_id}/ai-summary/regenerate",
+    response_model=RunAISummaryResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="重新生成当前运行 AI 摘要（单数入口）",
+)
+def regenerate_current_run_ai_summary(
+    run_id: UUID,
+    run_ai_summary_service: Annotated[
+        RunAISummaryService,
+        Depends(get_run_ai_summary_service),
+    ],
+) -> RunAISummaryResponse:
+    """Force a new summary snapshot and mark the prior active summary stale."""
+
+    try:
+        summary = run_ai_summary_service.regenerate_current_summary(run_id=run_id)
     except RunAISummaryRunNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -23,6 +23,20 @@ from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.run_ai_summary_service import RunAISummaryService
 
+_REQUIRED_MARKDOWN_HEADINGS = [
+    "## 运行结论",
+    "## 已完成内容",
+    "## 风险与注意事项",
+    "## 下一步建议",
+    "## 技术依据",
+]
+
+_FORBIDDEN_MARKDOWN_HEADINGS = [
+    "## 一句话结论",
+    "## 本次完成内容",
+    "## 关键结果",
+]
+
 
 @pytest.fixture()
 def sqlite_session_factory(tmp_path):
@@ -68,6 +82,9 @@ def seeded_run(db_session):
             result_summary="执行完成，交付结果已记录。",
             verification_summary="验证通过。",
             quality_gate_passed=True,
+            provider_key="deepseek",
+            model_name="deepseek-v4-pro",
+            provider_receipt_id="receipt-test-001",
             created_at=utc_now(),
             started_at=utc_now() - timedelta(minutes=5),
             finished_at=utc_now(),
@@ -106,6 +123,8 @@ def client(sqlite_session_factory):
     app.dependency_overrides.clear()
 
 
+# ── Plural endpoint tests (existing, kept intact) ──────────────────
+
 def test_generate_and_regenerate_run_ai_summary(run_ai_summary_service, db_session, seeded_run):
     project, task, run_id = seeded_run
 
@@ -121,6 +140,17 @@ def test_generate_and_regenerate_run_ai_summary(run_ai_summary_service, db_sessi
     assert first.model_name == "run_summary.rule_fallback.v2"
     assert first.prompt_hash
     assert first.summary_markdown.count("## ") == 5
+
+    # DTO fields
+    assert first.created_at is not None
+    assert first.updated_at is not None
+    assert first.error_summary is None
+
+    # Markdown headings
+    for heading in _REQUIRED_MARKDOWN_HEADINGS:
+        assert heading in first.summary_markdown, f"Missing heading: {heading}"
+    for forbidden in _FORBIDDEN_MARKDOWN_HEADINGS:
+        assert forbidden not in first.summary_markdown, f"Forbidden heading present: {forbidden}"
 
     assert regenerated.id != first.id
     assert regenerated.stale is False
@@ -146,6 +176,9 @@ def test_run_ai_summary_endpoints(client, seeded_run):
     assert created_payload["source_fingerprint"] == created_payload["source_hash"]
     assert created_payload["prompt_hash"]
     assert created_payload["summary_markdown"].count("## ") == 5
+    assert created_payload["created_at"] is not None
+    assert created_payload["updated_at"] is not None
+    assert created_payload["error_summary"] is None
 
     history = client.get(f"/runs/{run_id}/ai-summaries")
     assert history.status_code == 200
@@ -173,3 +206,160 @@ def test_run_ai_summary_endpoint_returns_404_for_missing_run(client):
     missing_run_id = uuid4()
     response = client.post(f"/runs/{missing_run_id}/ai-summaries")
     assert response.status_code == 404
+
+
+# ── Singular endpoint tests ────────────────────────────────────────
+
+
+def test_get_ai_summary_returns_null_when_no_summary(client, seeded_run):
+    """GET /{run_id}/ai-summary without prior generation returns active_summary=null."""
+    _, _, run_id = seeded_run
+
+    response = client.get(f"/runs/{run_id}/ai-summary")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == str(run_id)
+    assert payload["active_summary"] is None
+
+
+def test_get_ai_summary_returns_active_after_generation(client, seeded_run):
+    """GET /{run_id}/ai-summary returns the active summary after generate."""
+    _, _, run_id = seeded_run
+
+    # Generate via singular endpoint
+    gen = client.post(f"/runs/{run_id}/ai-summary/generate")
+    assert gen.status_code == 200
+    gen_payload = gen.json()
+
+    # Fetch current
+    response = client.get(f"/runs/{run_id}/ai-summary")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_summary"] is not None
+    assert payload["active_summary"]["id"] == gen_payload["id"]
+
+
+def test_singular_generate_creates_rule_fallback_summary(client, seeded_run):
+    """POST /{run_id}/ai-summary/generate creates a rule_fallback summary."""
+    _, _, run_id = seeded_run
+
+    response = client.post(f"/runs/{run_id}/ai-summary/generate")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == RunAISummaryStatus.SUCCEEDED.value
+    assert payload["source"] == RunAISummarySource.RULE_FALLBACK.value
+    assert payload["summary_markdown"].count("## ") == 5
+
+    # DTO must contain created_at / updated_at / error_summary
+    assert payload["created_at"] is not None
+    assert payload["updated_at"] is not None
+    assert payload["error_summary"] is None
+
+    # Markdown headings exactly the 5 required
+    for heading in _REQUIRED_MARKDOWN_HEADINGS:
+        assert heading in payload["summary_markdown"], f"Missing: {heading}"
+    for forbidden in _FORBIDDEN_MARKDOWN_HEADINGS:
+        assert forbidden not in payload["summary_markdown"], f"Forbidden: {forbidden}"
+
+
+def test_singular_generate_reuses_active_on_duplicate_call(client, seeded_run):
+    """Repeat POST /{run_id}/ai-summary/generate reuses the same active summary."""
+    _, _, run_id = seeded_run
+
+    first = client.post(f"/runs/{run_id}/ai-summary/generate")
+    second = client.post(f"/runs/{run_id}/ai-summary/generate")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+
+
+def test_singular_regenerate_creates_new_and_marks_old_stale(client, seeded_run):
+    """POST /{run_id}/ai-summary/regenerate creates new, marks old stale."""
+    _, _, run_id = seeded_run
+
+    first = client.post(f"/runs/{run_id}/ai-summary/generate")
+    first_id = first.json()["id"]
+
+    regen = client.post(f"/runs/{run_id}/ai-summary/regenerate")
+    assert regen.status_code == 201
+    regen_payload = regen.json()
+    assert regen_payload["id"] != first_id
+    assert regen_payload["stale"] is False
+
+    # Current should be the regenerated one
+    current = client.get(f"/runs/{run_id}/ai-summary")
+    assert current.json()["active_summary"]["id"] == regen_payload["id"]
+
+
+def test_singular_endpoints_return_404_for_missing_run(client):
+    """All singular endpoints return 404 for non-existent run."""
+    missing = uuid4()
+
+    assert client.get(f"/runs/{missing}/ai-summary").status_code == 404
+    assert client.post(f"/runs/{missing}/ai-summary/generate").status_code == 404
+    assert client.post(f"/runs/{missing}/ai-summary/regenerate").status_code == 404
+
+
+def test_mark_failed_writes_error_summary(db_session, seeded_run):
+    """Repository mark_failed writes error_summary correctly."""
+    _, _, run_id = seeded_run
+
+    repo = RunAISummaryRepository(db_session)
+
+    # Create a pending summary first
+    from app.domain.run_ai_summary import RunAISummary, RunAISummaryType
+    from uuid import uuid4 as _uuid4
+    from app.domain._base import utc_now as _utc_now
+    from hashlib import sha256
+
+    now = _utc_now()
+    fp = sha256(b"test-fingerprint").hexdigest()
+
+    summary = RunAISummary(
+        id=_uuid4(),
+        run_id=run_id,
+        summary_type=RunAISummaryType.RUN,
+        status=RunAISummaryStatus.PENDING,
+        source=RunAISummarySource.RULE_FALLBACK,
+        summary_markdown="# pending",
+        source_version="test.v1",
+        source_fingerprint=fp,
+        source_hash=fp,
+        prompt_hash=sha256(b"test-prompt").hexdigest(),
+        generated_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    created = repo.create(summary)
+
+    # Mark as failed
+    failed = repo.mark_failed(
+        summary_id=created.id,
+        error_summary="AI provider timed out after 120s",
+    )
+    assert failed is not None
+    assert failed.status == RunAISummaryStatus.FAILED
+    assert failed.error_summary == "AI provider timed out after 120s"
+
+    # Re-read to confirm persistence
+    reloaded = repo.get_by_id(created.id)
+    assert reloaded is not None
+    assert reloaded.status == RunAISummaryStatus.FAILED
+    assert reloaded.error_summary == "AI provider timed out after 120s"
+
+
+def test_markdown_contains_tech_basis_section(client, seeded_run):
+    """技术依据 section contains run metadata with field-fallback language."""
+    _, _, run_id = seeded_run
+
+    gen = client.post(f"/runs/{run_id}/ai-summary/generate")
+    md = gen.json()["summary_markdown"]
+
+    assert "## 技术依据" in md
+    assert "运行状态" in md
+    assert "结果摘要" in md
+    assert "验证摘要" in md
+    assert "质量检查" in md
+    assert "模型服务 Key" in md
+    assert "模型名称" in md
+    assert "模型回执 ID" in md

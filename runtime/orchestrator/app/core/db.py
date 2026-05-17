@@ -63,6 +63,9 @@ _RUN_AI_SUMMARY_TABLE_COLUMN_UPGRADES = {
     "model_provider": "ALTER TABLE run_ai_summaries ADD COLUMN model_provider VARCHAR(100)",
     "model_name": "ALTER TABLE run_ai_summaries ADD COLUMN model_name VARCHAR(100)",
     "prompt_hash": "ALTER TABLE run_ai_summaries ADD COLUMN prompt_hash TEXT NOT NULL DEFAULT ''",
+    "created_at": "ALTER TABLE run_ai_summaries ADD COLUMN created_at TIMESTAMP",
+    "updated_at": "ALTER TABLE run_ai_summaries ADD COLUMN updated_at TIMESTAMP",
+    "error_summary": "ALTER TABLE run_ai_summaries ADD COLUMN error_summary TEXT",
 }
 
 _PROJECT_TABLE_COLUMN_UPGRADES = {

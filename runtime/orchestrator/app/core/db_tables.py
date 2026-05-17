@@ -815,6 +815,17 @@ class RunAISummaryTable(ORMBase):
         nullable=False,
         default=utc_now,
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     run: Mapped[RunTable] = relationship(back_populates="ai_summaries")

@@ -56,12 +56,16 @@ class RunAISummary(DomainModel):
     prompt_hash: str = Field(min_length=1, max_length=128)
     provider_receipt_id: str | None = Field(default=None, max_length=100)
     generated_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    error_summary: str | None = Field(default=None, max_length=2_000)
     stale: bool = False
 
     @field_validator(
         "model_provider",
         "model_name",
         "provider_receipt_id",
+        "error_summary",
     )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
@@ -91,8 +95,10 @@ class RunAISummary(DomainModel):
         return normalized_value
 
     @model_validator(mode="after")
-    def validate_generated_at(self) -> "RunAISummary":
+    def validate_timestamps(self) -> "RunAISummary":
         """Normalize timestamps to UTC-aware values."""
 
         object.__setattr__(self, "generated_at", ensure_utc_datetime(self.generated_at))
+        object.__setattr__(self, "created_at", ensure_utc_datetime(self.created_at))
+        object.__setattr__(self, "updated_at", ensure_utc_datetime(self.updated_at))
         return self

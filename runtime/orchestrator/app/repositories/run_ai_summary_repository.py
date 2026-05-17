@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.db_tables import RunAISummaryTable
 from app.domain.run_ai_summary import (
     RunAISummary,
+    RunAISummaryStatus,
     RunAISummaryType,
 )
 
@@ -41,6 +43,9 @@ class RunAISummaryRepository:
             prompt_hash=summary.prompt_hash,
             provider_receipt_id=summary.provider_receipt_id,
             generated_at=summary.generated_at,
+            created_at=summary.created_at,
+            updated_at=summary.updated_at,
+            error_summary=summary.error_summary,
             stale=summary.stale,
         )
         self.session.add(row)
@@ -70,6 +75,19 @@ class RunAISummaryRepository:
         )
         rows = self.session.execute(statement).scalars().all()
         return [self._to_domain(row) for row in rows]
+
+    def get_active_by_run_id(
+        self,
+        run_id: UUID,
+    ) -> RunAISummary | None:
+        """Return the current non-stale RUN-type summary for one run.
+
+        This is the convenience alias used by the singular /ai-summary endpoints.
+        """
+        return self.get_active_by_run_id_and_type(
+            run_id=run_id,
+            summary_type=RunAISummaryType.RUN,
+        )
 
     def get_active_by_run_id_and_type(
         self,
@@ -118,8 +136,105 @@ class RunAISummaryRepository:
             )
         )
         rows = self.session.execute(statement).scalars().all()
+        now = datetime.now(timezone.utc)
         for row in rows:
             row.stale = True
+            row.updated_at = now
+
+        if rows:
+            self.session.flush()
+            self.session.commit()
+
+        return [self._to_domain(row) for row in rows]
+
+    # ── State-flow helpers ───────────────────────────────────────
+
+    def upsert_pending(
+        self,
+        summary: RunAISummary,
+    ) -> RunAISummary:
+        """Insert or replace a PENDING summary for one run.
+
+        If an active summary already exists for this run+type it is marked
+        stale before the new PENDING record is created.
+        """
+
+        self.mark_active_stale(
+            run_id=summary.run_id,
+            summary_type=summary.summary_type,
+        )
+        return self.create(summary)
+
+    def mark_succeeded(
+        self,
+        *,
+        summary_id: UUID,
+        summary_markdown: str,
+        source_fingerprint: str | None = None,
+        prompt_hash: str | None = None,
+    ) -> RunAISummary | None:
+        """Transition one summary to SUCCEEDED with final content."""
+
+        row = self.session.get(RunAISummaryTable, summary_id)
+        if row is None:
+            return None
+
+        row.status = RunAISummaryStatus.SUCCEEDED
+        row.summary_markdown = summary_markdown
+        row.updated_at = datetime.now(timezone.utc)
+        if source_fingerprint is not None:
+            row.source_fingerprint = source_fingerprint
+        if prompt_hash is not None:
+            row.prompt_hash = prompt_hash
+        row.error_summary = None
+
+        self.session.flush()
+        self.session.commit()
+        return self._to_domain(row)
+
+    def mark_failed(
+        self,
+        *,
+        summary_id: UUID,
+        error_summary: str,
+    ) -> RunAISummary | None:
+        """Transition one summary to FAILED and record the reason."""
+
+        row = self.session.get(RunAISummaryTable, summary_id)
+        if row is None:
+            return None
+
+        row.status = RunAISummaryStatus.FAILED
+        row.error_summary = error_summary
+        row.updated_at = datetime.now(timezone.utc)
+
+        self.session.flush()
+        self.session.commit()
+        return self._to_domain(row)
+
+    def mark_stale_if_source_changed(
+        self,
+        *,
+        run_id: UUID,
+        current_fingerprint: str,
+        summary_type: RunAISummaryType = RunAISummaryType.RUN,
+    ) -> list[RunAISummary]:
+        """Mark active summaries stale when the source fingerprint changed."""
+
+        statement = (
+            select(RunAISummaryTable)
+            .where(
+                RunAISummaryTable.run_id == run_id,
+                RunAISummaryTable.summary_type == summary_type,
+                RunAISummaryTable.stale.is_(False),
+                RunAISummaryTable.source_fingerprint != current_fingerprint,
+            )
+        )
+        rows = self.session.execute(statement).scalars().all()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            row.stale = True
+            row.updated_at = now
 
         if rows:
             self.session.flush()
@@ -149,5 +264,8 @@ class RunAISummaryRepository:
             prompt_hash=row.prompt_hash,
             provider_receipt_id=row.provider_receipt_id,
             generated_at=row.generated_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            error_summary=row.error_summary,
             stale=row.stale,
         )

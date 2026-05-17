@@ -61,11 +61,41 @@ class RunAISummaryService:
         self.task_repository = task_repository
         self.run_ai_summary_repository = run_ai_summary_repository
 
+    # ── Singular current-summary helpers ──────────────────────────
+
+    def get_active_summary(self, *, run_id: UUID) -> RunAISummary | None:
+        """Return the current active RUN-type summary or None."""
+
+        self._require_run(run_id=run_id)
+        return self.run_ai_summary_repository.get_active_by_run_id(run_id)
+
+    def generate_current_summary(
+        self,
+        *,
+        run_id: UUID,
+    ) -> RunAISummary:
+        """Create or reuse the active summary (singular entry point)."""
+
+        return self.generate_run_summary(run_id=run_id, regenerate=False)
+
+    def regenerate_current_summary(
+        self,
+        *,
+        run_id: UUID,
+    ) -> RunAISummary:
+        """Force a new active summary, marking the prior one stale."""
+
+        return self.generate_run_summary(run_id=run_id, regenerate=True)
+
+    # ── History / plural helpers (kept for debug) ──────────────────
+
     def get_run_summary_history(self, *, run_id: UUID) -> list[RunAISummary]:
         """Return all stored AI summary snapshots for one run."""
 
         self._require_run(run_id=run_id)
         return self.run_ai_summary_repository.list_by_run_id(run_id)
+
+    # ── Core generation ────────────────────────────────────────────
 
     def generate_run_summary(
         self,
@@ -97,6 +127,7 @@ class RunAISummaryService:
                 summary_type=RunAISummaryType.RUN,
             )
 
+        now = utc_now()
         summary = RunAISummary(
             run_id=context.run.id,
             project_id=context.task.project_id if context.task is not None else None,
@@ -113,7 +144,10 @@ class RunAISummaryService:
             model_name=self.SUMMARY_MODEL_NAME,
             prompt_hash=context.prompt_hash,
             provider_receipt_id=None,
-            generated_at=utc_now(),
+            generated_at=now,
+            created_at=now,
+            updated_at=now,
+            error_summary=None,
             stale=False,
         )
         return self.run_ai_summary_repository.create(summary)
@@ -203,11 +237,11 @@ class RunAISummaryService:
         lines = [
             "你是 AI 运行摘要生成器，只输出中文 Markdown。",
             "请使用固定五个标题：",
-            "## 一句话结论",
-            "## 本次完成内容",
-            "## 关键结果",
+            "## 运行结论",
+            "## 已完成内容",
             "## 风险与注意事项",
             "## 下一步建议",
+            "## 技术依据",
             "",
             "源数据：",
             f"- 运行 ID：{run.id}",
@@ -265,28 +299,38 @@ class RunAISummaryService:
         else:
             next_step = "可继续查看交付件、审批或技术日志。"
 
+        # ── 技术依据 ──────────────────────────────────────────
+        provider_label = run.provider_key or "未记录"
+        model_label = run.model_name or "未记录"
+        receipt_label = run.provider_receipt_id or "未记录"
+
         lines = [
-            "## 一句话结论",
+            "## 运行结论",
             conclusion,
             "",
-            "## 本次完成内容",
+            "## 已完成内容",
             f"- 任务：{task_title}",
             f"- 任务输入：{task_input}",
             f"- 运行状态：{run.status.value}",
             f"- 摘要来源：规则回退",
             f"- 模型服务：{self.SUMMARY_MODEL_PROVIDER} / {self.SUMMARY_MODEL_NAME}",
             "",
-            "## 关键结果",
-            f"- 执行摘要：{completion_summary}",
-            f"- 验证摘要：{verification_summary}",
-            f"- 来源指纹：{source_fingerprint}",
-            f"- 提示词哈希：{prompt_hash}",
-            "",
             "## 风险与注意事项",
             f"- {risk_line}",
             "",
             "## 下一步建议",
             f"- {next_step}",
+            "",
+            "## 技术依据",
+            f"- 运行状态：{run.status.value}",
+            f"- 结果摘要：{completion_summary}",
+            f"- 验证摘要：{verification_summary}",
+            f"- 质量检查：{'通过' if run.quality_gate_passed is True else ('拦截' if run.quality_gate_passed is False else '未记录')}",
+            f"- 模型服务 Key：{provider_label}",
+            f"- 模型名称：{model_label}",
+            f"- 模型回执 ID：{receipt_label}",
+            f"- 来源指纹：{source_fingerprint}",
+            f"- 提示词哈希：{prompt_hash}",
         ]
         return "\n".join(lines).strip()
 
