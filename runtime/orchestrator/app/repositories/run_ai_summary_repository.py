@@ -8,7 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db_tables import RunAISummaryTable
-from app.domain.run_ai_summary import RunAISummary, RunAISummaryType
+from app.domain.run_ai_summary import (
+    RunAISummary,
+    RunAISummaryType,
+)
 
 
 class RunAISummaryRepository:
@@ -27,10 +30,15 @@ class RunAISummaryRepository:
             task_id=summary.task_id,
             deliverable_id=summary.deliverable_id,
             summary_type=summary.summary_type,
+            status=summary.status,
+            source=summary.source,
             summary_markdown=summary.summary_markdown,
             source_version=summary.source_version,
+            source_fingerprint=summary.source_fingerprint,
             source_hash=summary.source_hash,
-            generated_by_model=summary.generated_by_model,
+            model_provider=summary.model_provider,
+            model_name=summary.model_name,
+            prompt_hash=summary.prompt_hash,
             provider_receipt_id=summary.provider_receipt_id,
             generated_at=summary.generated_at,
             stale=summary.stale,
@@ -130,10 +138,15 @@ class RunAISummaryRepository:
             task_id=row.task_id,
             deliverable_id=row.deliverable_id,
             summary_type=row.summary_type,
+            status=row.status,
+            source=row.source,
             summary_markdown=row.summary_markdown,
             source_version=row.source_version,
+            source_fingerprint=row.source_fingerprint,
             source_hash=row.source_hash,
-            generated_by_model=row.generated_by_model,
+            model_provider=row.model_provider,
+            model_name=row.model_name,
+            prompt_hash=row.prompt_hash,
             provider_receipt_id=row.provider_receipt_id,
             generated_at=row.generated_at,
             stale=row.stale,

@@ -39,7 +39,11 @@ from app.domain.repository_snapshot import RepositorySnapshotStatus
 from app.domain.repository_verification import RepositoryVerificationCategory
 from app.domain.repository_workspace import RepositoryAccessMode
 from app.domain.run import RunFailureCategory, RunStatus
-from app.domain.run_ai_summary import RunAISummaryType
+from app.domain.run_ai_summary import (
+    RunAISummarySource,
+    RunAISummaryStatus,
+    RunAISummaryType,
+)
 from app.domain.skill import SkillBindingSource
 from app.domain.task import (
     TaskHumanStatus,
@@ -778,10 +782,33 @@ class RunAISummaryTable(ORMBase):
         nullable=False,
         default=RunAISummaryType.RUN,
     )
+    status: Mapped[RunAISummaryStatus] = mapped_column(
+        Enum(
+            RunAISummaryStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=RunAISummaryStatus.PENDING,
+    )
+    source: Mapped[RunAISummarySource] = mapped_column(
+        Enum(
+            RunAISummarySource,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=RunAISummarySource.RULE_FALLBACK,
+    )
     summary_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     source_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
     source_hash: Mapped[str] = mapped_column(String(128), nullable=False)
-    generated_by_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model_provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    prompt_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     provider_receipt_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

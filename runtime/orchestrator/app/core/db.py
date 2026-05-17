@@ -56,6 +56,15 @@ _RUN_TABLE_COLUMN_UPGRADES = {
     "cache_source": "ALTER TABLE runs ADD COLUMN cache_source VARCHAR(40)",
 }
 
+_RUN_AI_SUMMARY_TABLE_COLUMN_UPGRADES = {
+    "status": "ALTER TABLE run_ai_summaries ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
+    "source": "ALTER TABLE run_ai_summaries ADD COLUMN source TEXT NOT NULL DEFAULT 'rule_fallback'",
+    "source_fingerprint": "ALTER TABLE run_ai_summaries ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''",
+    "model_provider": "ALTER TABLE run_ai_summaries ADD COLUMN model_provider VARCHAR(100)",
+    "model_name": "ALTER TABLE run_ai_summaries ADD COLUMN model_name VARCHAR(100)",
+    "prompt_hash": "ALTER TABLE run_ai_summaries ADD COLUMN prompt_hash TEXT NOT NULL DEFAULT ''",
+}
+
 _PROJECT_TABLE_COLUMN_UPGRADES = {
     "sop_template_code": "ALTER TABLE projects ADD COLUMN sop_template_code VARCHAR(100)",
     "stage_history_json": "ALTER TABLE projects ADD COLUMN stage_history_json TEXT NOT NULL DEFAULT '[]'",
@@ -76,6 +85,7 @@ _TABLE_COLUMN_UPGRADES = {
     "projects": _PROJECT_TABLE_COLUMN_UPGRADES,
     "tasks": _TASK_TABLE_COLUMN_UPGRADES,
     "runs": _RUN_TABLE_COLUMN_UPGRADES,
+    "run_ai_summaries": _RUN_AI_SUMMARY_TABLE_COLUMN_UPGRADES,
     "change_plan_versions": _CHANGE_PLAN_VERSION_TABLE_COLUMN_UPGRADES,
     "change_batches": _CHANGE_BATCH_TABLE_COLUMN_UPGRADES,
 }

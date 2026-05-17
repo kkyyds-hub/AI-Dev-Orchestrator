@@ -10,7 +10,7 @@ from app.domain._base import DomainModel, ensure_utc_datetime, utc_now
 
 
 class RunAISummaryType(StrEnum):
-    """Supported AI summary scopes stored in the run summary ledger."""
+    """Supported AI summary scopes stored in the summary ledger."""
 
     RUN = "run"
     TASK = "task"
@@ -19,6 +19,21 @@ class RunAISummaryType(StrEnum):
     APPROVAL = "approval"
     PROJECT_CONFIG = "project_config"
     RUN_LOG = "run_log"
+
+
+class RunAISummaryStatus(StrEnum):
+    """Lifecycle status for one stored AI summary."""
+
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class RunAISummarySource(StrEnum):
+    """Where one summary snapshot came from."""
+
+    AI = "ai"
+    RULE_FALLBACK = "rule_fallback"
 
 
 class RunAISummary(DomainModel):
@@ -30,16 +45,22 @@ class RunAISummary(DomainModel):
     task_id: UUID | None = None
     deliverable_id: UUID | None = None
     summary_type: RunAISummaryType = Field(default=RunAISummaryType.RUN)
+    status: RunAISummaryStatus = Field(default=RunAISummaryStatus.PENDING)
+    source: RunAISummarySource = Field(default=RunAISummarySource.RULE_FALLBACK)
     summary_markdown: str = Field(min_length=1, max_length=20_000)
-    source_version: str = Field(default="run.summary.v1", min_length=1, max_length=40)
+    source_version: str = Field(default="run.summary.v2", min_length=1, max_length=40)
+    source_fingerprint: str = Field(min_length=1, max_length=128)
     source_hash: str = Field(min_length=1, max_length=128)
-    generated_by_model: str | None = Field(default=None, max_length=100)
+    model_provider: str | None = Field(default=None, max_length=100)
+    model_name: str | None = Field(default=None, max_length=100)
+    prompt_hash: str = Field(min_length=1, max_length=128)
     provider_receipt_id: str | None = Field(default=None, max_length=100)
     generated_at: datetime = Field(default_factory=utc_now)
     stale: bool = False
 
     @field_validator(
-        "generated_by_model",
+        "model_provider",
+        "model_name",
         "provider_receipt_id",
     )
     @classmethod
@@ -52,7 +73,13 @@ class RunAISummary(DomainModel):
         normalized_value = value.strip()
         return normalized_value or None
 
-    @field_validator("summary_markdown", "source_version", "source_hash")
+    @field_validator(
+        "summary_markdown",
+        "source_version",
+        "source_fingerprint",
+        "source_hash",
+        "prompt_hash",
+    )
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         """Trim required text fields and reject blank values."""

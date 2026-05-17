@@ -15,6 +15,7 @@ from app.core.db_tables import ORMBase, RunTable
 from app.domain._base import utc_now
 from app.domain.project import Project
 from app.domain.run import RunStatus
+from app.domain.run_ai_summary import RunAISummarySource, RunAISummaryStatus
 from app.domain.task import Task, TaskPriority, TaskRiskLevel, TaskStatus
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.run_ai_summary_repository import RunAISummaryRepository
@@ -113,7 +114,14 @@ def test_generate_and_regenerate_run_ai_summary(run_ai_summary_service, db_sessi
     regenerated = run_ai_summary_service.generate_run_summary(run_id=run_id, regenerate=True)
 
     assert first.id == second.id
-    assert second.stale is False
+    assert first.status == RunAISummaryStatus.SUCCEEDED
+    assert first.source == RunAISummarySource.RULE_FALLBACK
+    assert first.source_fingerprint == first.source_hash
+    assert first.model_provider == "local_rule_engine"
+    assert first.model_name == "run_summary.rule_fallback.v2"
+    assert first.prompt_hash
+    assert first.summary_markdown.count("## ") == 5
+
     assert regenerated.id != first.id
     assert regenerated.stale is False
 
@@ -133,7 +141,11 @@ def test_run_ai_summary_endpoints(client, seeded_run):
     assert created.status_code == 200
     created_payload = created.json()
     assert created_payload["run_id"] == str(run_id)
-    assert created_payload["stale"] is False
+    assert created_payload["status"] == RunAISummaryStatus.SUCCEEDED.value
+    assert created_payload["source"] == RunAISummarySource.RULE_FALLBACK.value
+    assert created_payload["source_fingerprint"] == created_payload["source_hash"]
+    assert created_payload["prompt_hash"]
+    assert created_payload["summary_markdown"].count("## ") == 5
 
     history = client.get(f"/runs/{run_id}/ai-summaries")
     assert history.status_code == 200
@@ -146,6 +158,8 @@ def test_run_ai_summary_endpoints(client, seeded_run):
     assert regenerated.status_code == 201
     regenerated_payload = regenerated.json()
     assert regenerated_payload["id"] != created_payload["id"]
+    assert regenerated_payload["status"] == RunAISummaryStatus.SUCCEEDED.value
+    assert regenerated_payload["source"] == RunAISummarySource.RULE_FALLBACK.value
 
     history_after = client.get(f"/runs/{run_id}/ai-summaries")
     assert history_after.status_code == 200
