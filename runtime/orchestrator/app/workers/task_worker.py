@@ -166,6 +166,14 @@ def _auto_create_run_deliverable(
         return None
     if not execution.success:
         return None
+    # Do NOT auto-generate deliverable/approval when the execution fell
+    # back to mock after a live provider failure.  Only real provider
+    # successes (or explicit shell / simulate modes) should produce
+    # deliverable evidence.
+    if getattr(execution, "fallback_applied", False):
+        return None
+    if getattr(execution, "actual_execution_mode", "") == "provider_mock":
+        return None
     if verification is not None:
         if not verification.success or not verification.quality_gate_passed:
             return None

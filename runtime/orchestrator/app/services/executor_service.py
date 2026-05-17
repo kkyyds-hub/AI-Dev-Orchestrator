@@ -188,6 +188,29 @@ class ExecutorService:
                     prompt_envelope=prompt_envelope,
                 )
             except OpenAIProviderExecutionError as exc:
+                # When the provider IS configured with a real key, timeout /
+                # network errors must NOT silently fallback to mock success.
+                # They should surface as real failures so the user can see
+                # what happened and adjust timeout / network / quota.
+                if openai_provider_executor_service.is_enabled and exc.category in (
+                    "timeout",
+                    "network_error",
+                ):
+                    return ExecutionResult(
+                        success=False,
+                        mode="provider_openai",
+                        summary=(
+                            f"Provider request failed [{exc.category}]. "
+                            f"provider_key={primary_target.provider_key}, "
+                            f"model_name={primary_target.model_name}. "
+                            f"timeout_seconds={openai_provider_executor_service.timeout_seconds}. "
+                            f"{exc.message}"
+                        )[:2000],
+                        requested_provider_key=provider_key,
+                        actual_execution_mode="provider_openai",
+                        fallback_applied=False,
+                        fallback_reason_category=exc.category,
+                    )
                 return self._execute_provider_mock_with_fallback(
                     task=task,
                     payload=payload,

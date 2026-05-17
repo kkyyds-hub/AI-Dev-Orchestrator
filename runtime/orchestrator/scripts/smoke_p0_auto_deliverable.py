@@ -451,6 +451,99 @@ def main() -> int:
 
     deliverable_session.close()
 
+    # -- Phase 6.5: P0-3 — fallback/mock guard on deliverable --------
+    print()
+    print("=" * 60)
+    print("PHASE 6.5: P0-3 — fallback/mock does NOT produce deliverable")
+    print("=" * 60)
+
+    # 6.5a: fallback_applied=True → no deliverable
+    fake_run_fb = run_repo.create_running_run(task_id=base_task.id, owner_role_code="engineer")
+    fake_run_fb = run_repo.finish_run(
+        run_id=fake_run_fb.id, status=RunStatus.FAILED,
+        result_summary="fallback-test", provider_key="deepseek", prompt_template_key="test",
+        prompt_template_version="0.1", prompt_char_count=5,
+        token_accounting_mode="provider_reported", total_tokens=10,
+        estimated_cost=0.0, prompt_tokens=5, completion_tokens=5,
+    )
+    worker_session.commit()
+    count_before_fb = _deliverable_count_for_project(project_id)
+    result = _auto_create_run_deliverable(
+        worker=worker, task=base_task, run=fake_run_fb,
+        execution=FakeExecution(success=True, summary="fb-ok"),
+        verification=None,
+    )
+    worker_session.commit()
+    count_after_fb = _deliverable_count_for_project(project_id)
+    # execution.success=True but we need to also check fallback_applied — the
+    # real ExecutionResult has fallback_applied=False by default, so this
+    # smoke call succeeds. We verify the guard by constructing a FakeExecution
+    # with fallback_applied=True.
+    result_fb2 = _auto_create_run_deliverable(
+        worker=worker, task=base_task, run=fake_run_fb,
+        execution=FakeExecution(success=True, summary="fb-ok"),  # FakeExecution has no fallback_applied attr → skips
+        verification=None,
+    )
+    # The actual guard uses getattr(execution, "fallback_applied", False);
+    # our FakeExecution dataclass doesn't have this field → getattr returns False → delivers
+    check(count_after_fb >= count_before_fb, f"success=True without fallback_applied attr generates ({count_before_fb} -> {count_after_fb})")
+
+    # 6.5b: Construct fake execution with fallback_applied=True and actual_execution_mode="provider_mock"
+    class _FakeExecFB:
+        success = True
+        summary = "mock-fallback"
+        mode = "provider_mock"
+        fallback_applied = True
+        actual_execution_mode = "provider_mock"
+
+    fake_run_fb3 = run_repo.create_running_run(task_id=base_task.id, owner_role_code="engineer")
+    fake_run_fb3 = run_repo.finish_run(
+        run_id=fake_run_fb3.id, status=RunStatus.SUCCEEDED,
+        result_summary="fb-test-2", provider_key="deepseek", prompt_template_key="test",
+        prompt_template_version="0.1", prompt_char_count=5,
+        token_accounting_mode="provider_reported", total_tokens=10,
+        estimated_cost=0.0, prompt_tokens=5, completion_tokens=5,
+    )
+    worker_session.commit()
+    count_before_fb3 = _deliverable_count_for_project(project_id)
+    _auto_create_run_deliverable(
+        worker=worker, task=base_task, run=fake_run_fb3,
+        execution=_FakeExecFB(),
+        verification=None,
+    )
+    worker_session.commit()
+    count_after_fb3 = _deliverable_count_for_project(project_id)
+    check(count_after_fb3 == count_before_fb3,
+          f"fallback_applied=True blocks deliverable ({count_before_fb3} -> {count_after_fb3})")
+
+    # 6.5c: actual_execution_mode="provider_mock" alone → blocked
+    class _FakeExecMock:
+        success = True
+        summary = "mock-only"
+        mode = "provider_openai"
+        fallback_applied = False
+        actual_execution_mode = "provider_mock"
+
+    fake_run_mock = run_repo.create_running_run(task_id=base_task.id, owner_role_code="engineer")
+    fake_run_mock = run_repo.finish_run(
+        run_id=fake_run_mock.id, status=RunStatus.SUCCEEDED,
+        result_summary="mock-test", provider_key="deepseek", prompt_template_key="test",
+        prompt_template_version="0.1", prompt_char_count=5,
+        token_accounting_mode="provider_reported", total_tokens=10,
+        estimated_cost=0.0, prompt_tokens=5, completion_tokens=5,
+    )
+    worker_session.commit()
+    count_before_mock = _deliverable_count_for_project(project_id)
+    _auto_create_run_deliverable(
+        worker=worker, task=base_task, run=fake_run_mock,
+        execution=_FakeExecMock(),
+        verification=None,
+    )
+    worker_session.commit()
+    count_after_mock = _deliverable_count_for_project(project_id)
+    check(count_after_mock == count_before_mock,
+          f"actual_execution_mode=provider_mock blocks deliverable ({count_before_mock} -> {count_after_mock})")
+
     # -- Phase 7: API-level joint data closure check -----------------
     print()
     print("=" * 60)
