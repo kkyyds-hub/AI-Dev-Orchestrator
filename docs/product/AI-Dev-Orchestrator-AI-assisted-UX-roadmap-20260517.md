@@ -620,6 +620,8 @@ AI 可建议：
 > - 技术日志"模型名称"改为"模型服务 Key"，不再用 provider_key 填充
 > - 执行轨迹不再对所有 succeeded run 声称"已生成交付件""已创建审批记录"
 > - "交付件与审批"分区增加免责说明（ConsoleRun 暂不携带 deliverable_id/approval_id）
+>
+> **阶段 1B** `[2026-05-17]`：摘要卡片视觉风格收口 — 移除 emerald/amber/rose 强彩色状态块，统一为中性灰黑线条式后台风格。
 
 ### 阶段 2：AI 运行摘要生成
 
