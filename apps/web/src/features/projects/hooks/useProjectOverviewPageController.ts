@@ -168,6 +168,20 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
       return;
     }
 
+    // Strong-project sub-view with global "all" scope: a stale
+    // selectedProjectId from overview fallback must be cleared so
+    // the ViewSwitch shows the "select a project" guide.
+    if (
+      isStrongProjectView &&
+      projectScope.selectedProjectId === "all" &&
+      !props.routeProjectId &&
+      selectedProjectId
+    ) {
+      setSelectedProjectId(null);
+      setStageActionFeedback(null);
+      return;
+    }
+
     // Already has a valid selection from route or prior pick — keep it.
     const hasSelection = projects.some(
       (project) => project.id === selectedProjectId,
@@ -197,6 +211,7 @@ export function useProjectOverviewPageController(props: ProjectOverviewPageProps
     defaultSelectedProjectId,
     isStrongProjectView,
     projects,
+    props.routeProjectId,
     selectedProjectId,
     projectScope.selectedProjectId,
   ]);
