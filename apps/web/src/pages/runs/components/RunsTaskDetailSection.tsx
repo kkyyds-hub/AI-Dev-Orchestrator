@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 import { StatusBadge } from "../../../components/StatusBadge";
 import { formatCurrencyUsd, formatDateTime, formatTokenCount } from "../../../lib/format";
@@ -13,6 +13,10 @@ import {
   mapQualityGateTone,
   mapRunStatusTone,
 } from "../../../lib/status";
+import { generateRunUserSummary } from "../lib/runUserSummary";
+import { buildTechnicalLog } from "../lib/runTechnicalLog";
+import { RunUserSummaryCard } from "./RunUserSummaryCard";
+import { RunTechnicalLogModal } from "./RunTechnicalLogModal";
 
 type RunsTaskDetailSectionProps = {
   runId: string | undefined;
@@ -31,6 +35,8 @@ type RunsTaskDetailSectionProps = {
 };
 
 export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
+  const [techLogOpen, setTechLogOpen] = useState(false);
+
   const detailQuery = useTaskDetail(props.selectedTask?.id ?? null, {
     enablePollingFallback: props.realtimeStatus !== "open",
   });
@@ -47,6 +53,22 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
   } = useSelectedRunRuntimeContract(selectedRun);
 
   const currentTaskId = detail?.id ?? props.selectedTask?.id ?? "";
+
+  const userSummary = useMemo(
+    () => (selectedRun ? generateRunUserSummary(selectedRun) : null),
+    [selectedRun],
+  );
+
+  const technicalLog = useMemo(
+    () =>
+      selectedRun
+        ? buildTechnicalLog(
+            selectedRun,
+            props.selectedTask?.title ?? "未命名任务",
+          )
+        : null,
+    [selectedRun, props.selectedTask?.title],
+  );
 
   return (
     <section
@@ -102,15 +124,16 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
                     {formatCurrencyUsd(selectedRun.estimated_cost)}
                   </span>
                 </div>
-
-                {selectedRun.result_summary ? (
-                  <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-400">
-                    {selectedRun.result_summary}
-                  </p>
-                ) : null}
               </div>
             </div>
           </div>
+
+          {/* ── 用户摘要卡片 ──────────────────────────────────── */}
+          {userSummary ? (
+            <div className="border-b border-[#333333] px-5 py-4">
+              <RunUserSummaryCard summary={userSummary} />
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap gap-2 border-b border-[#333333] px-5 py-3">
             {props.onNavigateToStrategyPreview ? (
@@ -132,6 +155,11 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
                 onClick={() => props.onNavigateToRun?.(selectedRun.id, currentTaskId)}
               />
             ) : null}
+            <ActionBtn
+              label="查看技术日志"
+              data-testid="open-tech-log-modal"
+              onClick={() => setTechLogOpen(true)}
+            />
             <CopyBtn label="复制任务 ID" value={currentTaskId} />
             <CopyBtn label="复制运行 ID" value={selectedRun.id} />
           </div>
@@ -145,10 +173,18 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
               hasRoleModelPolicyData={hasRoleModelPolicyData}
               surfaceVariant="line"
               hideHeaderAndActions
+              hideRawDiagnosticTexts
               onNavigateToRun={props.onNavigateToRun}
               onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
             />
           </div>
+
+          {/* ── 技术日志弹窗 ──────────────────────────────────── */}
+          <RunTechnicalLogModal
+            open={techLogOpen}
+            onClose={() => setTechLogOpen(false)}
+            log={technicalLog}
+          />
         </div>
       )}
     </section>

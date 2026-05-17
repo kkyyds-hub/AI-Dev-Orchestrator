@@ -23,6 +23,7 @@ export function TaskDetailRuntimeContractSection(props: {
   hasRoleModelPolicyData: boolean;
   surfaceVariant?: TaskDetailSurfaceVariant;
   hideHeaderAndActions?: boolean;
+  hideRawDiagnosticTexts?: boolean;
   onNavigateToRun?: (runId: string, taskId: string) => void;
   onNavigateToStrategyPreview?: (input: {
     taskId: string;
@@ -124,7 +125,7 @@ export function TaskDetailRuntimeContractSection(props: {
             : null}
         </DetailGridSection>
 
-        <DiagnosisPanel run={selectedRun} />
+        <DiagnosisPanel run={selectedRun} hideRawTexts={props.hideRawDiagnosticTexts} />
       </div>
     </div>
   );
@@ -141,7 +142,7 @@ function DetailGridSection(props: { title: string; children: React.ReactNode }) 
   );
 }
 
-function DiagnosisPanel(props: { run: ConsoleRun }) {
+function DiagnosisPanel(props: { run: ConsoleRun; hideRawTexts?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const run = props.run;
 
@@ -159,7 +160,11 @@ function DiagnosisPanel(props: { run: ConsoleRun }) {
         <MiniField label="验证模式" value={run.verification_mode ?? "未记录"} />
         <MiniField label="失败分类" value={run.failure_category ? formatFailureCategoryLabel(run.failure_category) : "无"} />
       </div>
-      {lines.length > 0 ? (
+      {props.hideRawTexts ? (
+        <p className="mt-3 text-xs text-zinc-500">
+          详细诊断文本请点击上方"查看技术日志"按钮查看。
+        </p>
+      ) : lines.length > 0 ? (
         <div className="mt-3">
           <div className="border-l border-[#333333] px-4 py-3">
             {lines.slice(0, expanded ? lines.length : 3).map((line, i) => (
