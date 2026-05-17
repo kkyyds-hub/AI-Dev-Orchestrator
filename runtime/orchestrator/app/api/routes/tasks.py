@@ -389,6 +389,7 @@ class TaskConsoleItemResponse(BaseModel):
     downstream_role_code: ProjectRoleCode | None = None
     human_status: TaskHumanStatus
     paused_reason: str | None = None
+    project_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     latest_run: TaskConsoleRunResponse | None = None
@@ -411,6 +412,7 @@ class TaskConsoleItemResponse(BaseModel):
             downstream_role_code=item.task.downstream_role_code,
             human_status=item.task.human_status,
             paused_reason=item.task.paused_reason,
+            project_id=item.task.project_id,
             created_at=item.task.created_at,
             updated_at=item.task.updated_at,
             latest_run=(

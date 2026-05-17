@@ -93,6 +93,7 @@ export type ConsoleTask = {
   downstream_role_code: string | null;
   human_status: string;
   paused_reason: string | null;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
   latest_run: ConsoleRun | null;
