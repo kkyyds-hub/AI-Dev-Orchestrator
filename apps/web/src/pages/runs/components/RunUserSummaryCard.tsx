@@ -1,10 +1,8 @@
 import type { RunUserSummary } from "../lib/runUserSummary";
 
-type RunUserSummaryCardProps = {
-  summary: RunUserSummary;
-};
+// ── Content-only component (no card wrapper) ────────────────────────
 
-export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
+export function RunUserSummaryContent({ summary }: { summary: RunUserSummary }) {
   const {
     conclusion,
     executionModeLabel,
@@ -16,11 +14,8 @@ export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
   } = summary;
 
   return (
-    <div
-      data-testid="run-user-summary-card"
-      className="space-y-4 rounded-lg border border-[#333333] bg-[#0f0f0f]/60 p-4"
-    >
-      {/* ── Header: execution mode badge + conclusion ────────── */}
+    <div data-testid="run-user-summary-content">
+      {/* execution mode badge + conclusion */}
       <div>
         <span className="inline-block rounded border border-[#333333] bg-[#0f0f0f] px-2.5 py-0.5 text-xs font-medium text-zinc-300">
           {executionModeLabel}
@@ -28,9 +23,9 @@ export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
         <p className="mt-3 text-sm leading-6 text-zinc-200">{conclusion}</p>
       </div>
 
-      {/* ── Completed items ──────────────────────────────────── */}
+      {/* completed items */}
       {completedItems.length > 0 ? (
-        <div>
+        <div className="mt-4">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
             完成内容
           </h4>
@@ -48,18 +43,15 @@ export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
         </div>
       ) : null}
 
-      {/* ── Warnings ─────────────────────────────────────────── */}
+      {/* warnings */}
       {warnings.length > 0 ? (
-        <div className="border-l-2 border-zinc-600 bg-[#0a0a0a] px-3 py-2.5">
+        <div className="mt-4 border-l-2 border-zinc-600 bg-[#0a0a0a] px-3 py-2.5">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
             需要注意
           </h4>
           <ul className="mt-2 space-y-1">
             {warnings.map((w, i) => (
-              <li
-                key={i}
-                className="text-sm leading-6 text-zinc-400"
-              >
+              <li key={i} className="text-sm leading-6 text-zinc-400">
                 {w}
               </li>
             ))}
@@ -67,8 +59,8 @@ export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
         </div>
       ) : null}
 
-      {/* ── Status indicators ────────────────────────────────── */}
-      <div className="flex flex-wrap gap-2">
+      {/* status indicators */}
+      <div className="mt-4 flex flex-wrap gap-2">
         {isSimulatedVerification ? (
           <span className="inline-block rounded border border-[#333333] bg-[#0f0f0f]/80 px-2 py-0.5 text-xs text-zinc-400">
             模拟验证
@@ -85,9 +77,9 @@ export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
         ) : null}
       </div>
 
-      {/* ── Next steps ───────────────────────────────────────── */}
+      {/* next steps */}
       {nextSteps.length > 0 ? (
-        <div className="border-t border-[#333333] pt-3">
+        <div className="mt-4 border-t border-[#333333] pt-3">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
             建议下一步
           </h4>
@@ -104,6 +96,23 @@ export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
           </ul>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ── Card wrapper (backward-compatible) ──────────────────────────────
+
+type RunUserSummaryCardProps = {
+  summary: RunUserSummary;
+};
+
+export function RunUserSummaryCard({ summary }: RunUserSummaryCardProps) {
+  return (
+    <div
+      data-testid="run-user-summary-card"
+      className="space-y-4 rounded-lg border border-[#333333] bg-[#0f0f0f]/60 p-4"
+    >
+      <RunUserSummaryContent summary={summary} />
     </div>
   );
 }

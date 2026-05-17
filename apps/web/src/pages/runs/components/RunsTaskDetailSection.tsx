@@ -15,8 +15,7 @@ import {
 } from "../../../lib/status";
 import { generateRunUserSummary } from "../lib/runUserSummary";
 import { buildTechnicalLog } from "../lib/runTechnicalLog";
-import { RunUserSummaryCard } from "./RunUserSummaryCard";
-import { RunAiSummaryCard } from "./RunAiSummaryCard";
+import { RunPrimarySummaryCard } from "./RunPrimarySummaryCard";
 import { RunTechnicalLogModal } from "./RunTechnicalLogModal";
 
 type RunsTaskDetailSectionProps = {
@@ -129,17 +128,15 @@ export function RunsTaskDetailSection(props: RunsTaskDetailSectionProps) {
             </div>
           </div>
 
-          {/* ── 用户摘要卡片 ──────────────────────────────────── */}
+          {/* ── 运行摘要主卡片 ────────────────────────────────── */}
           {userSummary ? (
             <div className="border-b border-[#333333] px-5 py-4">
-              <RunUserSummaryCard summary={userSummary} />
+              <RunPrimarySummaryCard
+                runId={selectedRun.id}
+                fallbackSummary={userSummary}
+              />
             </div>
           ) : null}
-
-          {/* ── AI 摘要卡片 ────────────────────────────────────── */}
-          <div className="border-b border-[#333333] px-5 py-4">
-            <RunAiSummaryCard runId={selectedRun.id} />
-          </div>
 
           <div className="flex flex-wrap gap-2 border-b border-[#333333] px-5 py-3">
             {props.onNavigateToStrategyPreview ? (
