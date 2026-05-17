@@ -6,6 +6,7 @@ import {
   fetchRunAiSummary,
   generateRunAiSummary,
   regenerateRunAiSummary,
+  type AiSummaryError,
   type RunAISummaryDTO,
 } from "../api/runAiSummary";
 import { RunAiSummaryMarkdown } from "./RunAiSummaryMarkdown";
@@ -22,7 +23,7 @@ function truncateHash(hash: string | null | undefined): string | null {
 
 type AiState =
   | { kind: "loading" }
-  | { kind: "unavailable" }
+  | { kind: "unavailable"; fetchError: AiSummaryError | null }
   | { kind: "empty" }
   | { kind: "ready"; summary: RunAISummaryDTO }
   | { kind: "failed"; errorSummary: string | null };
@@ -40,11 +41,14 @@ export function RunPrimarySummaryCard({
 }: RunPrimarySummaryCardProps) {
   const [aiState, setAiState] = useState<AiState>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
+  const [lastActionError, setLastActionError] =
+    useState<AiSummaryError | null>(null);
 
   // ── auto-fetch on runId change ──────────────────────────────
   useEffect(() => {
     let cancelled = false;
     setAiState({ kind: "loading" });
+    setLastActionError(null);
 
     fetchRunAiSummary(runId)
       .then((res) => {
@@ -55,9 +59,13 @@ export function RunPrimarySummaryCard({
           setAiState({ kind: "empty" });
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (cancelled) return;
-        setAiState({ kind: "unavailable" });
+        const classified = err as AiSummaryError;
+        setAiState({
+          kind: "unavailable",
+          fetchError: classified,
+        });
       });
 
     return () => {
@@ -68,11 +76,13 @@ export function RunPrimarySummaryCard({
   // ── generate ────────────────────────────────────────────────
   const handleGenerate = useCallback(async () => {
     setBusy(true);
+    setLastActionError(null);
     try {
       const summary = await generateRunAiSummary(runId);
       setAiState({ kind: "ready", summary });
-    } catch {
-      // keep existing state, show brief error status
+    } catch (err: unknown) {
+      const classified = err as AiSummaryError;
+      setLastActionError(classified);
     } finally {
       setBusy(false);
     }
@@ -81,11 +91,13 @@ export function RunPrimarySummaryCard({
   // ── regenerate ──────────────────────────────────────────────
   const handleRegenerate = useCallback(async () => {
     setBusy(true);
+    setLastActionError(null);
     try {
       const summary = await regenerateRunAiSummary(runId);
       setAiState({ kind: "ready", summary });
-    } catch {
-      // keep existing state, show brief error status
+    } catch (err: unknown) {
+      const classified = err as AiSummaryError;
+      setLastActionError(classified);
     } finally {
       setBusy(false);
     }
@@ -99,11 +111,10 @@ export function RunPrimarySummaryCard({
   const aiStale = aiReady && aiState.summary.stale;
   const showAiMarkdown = aiSucceeded;
 
+  // Short header subtitle — no "当前显示本地规则摘要" repetition
   const subtitle = (() => {
     if (aiSucceeded) return "AI 摘要已保存，刷新页面不会丢失";
-    if (aiState.kind === "unavailable") return "AI 摘要服务暂不可用，当前显示本地规则摘要";
-    if (aiFailed) return "AI 摘要生成失败，当前显示本地规则摘要";
-    if (aiState.kind === "empty") return "当前显示本地规则摘要，可生成 AI 摘要";
+    if (aiState.kind === "loading") return "正在检查 AI 摘要…";
     return "当前显示本地规则摘要";
   })();
 
@@ -169,36 +180,38 @@ export function RunPrimarySummaryCard({
       {/* ── AI status strip (only when AI summary present) ─── */}
       {aiReady ? <AiStatusStrip summary={aiState.summary} /> : null}
 
-      {/* ── AI unavailable hint ────────────────────────────── */}
+      {/* ── Status hints (body area, shown only once per state) ── */}
       {aiState.kind === "unavailable" ? (
-        <div className="border-t border-[#333333] pt-3">
-          <p className="text-xs text-zinc-500">
-            AI 摘要服务暂不可用，当前显示本地规则摘要。
-          </p>
-        </div>
-      ) : null}
-
-      {/* ── AI pending hint ────────────────────────────────── */}
-      {aiPending ? (
-        <div className="border-t border-[#333333] pt-3">
-          <p className="text-xs text-zinc-500">
-            AI 摘要生成中，当前先显示本地规则摘要。
-          </p>
-        </div>
-      ) : null}
-
-      {/* ── AI failed hint ─────────────────────────────────── */}
-      {aiFailed ? (
-        <div className="border-t border-[#333333] pt-3">
-          <p className="text-xs text-zinc-500">
-            AI 摘要生成失败，当前显示本地规则摘要。
-          </p>
-          {aiState.summary.error_summary ? (
-            <p className="mt-1 text-xs text-zinc-600">
-              {aiState.summary.error_summary}
-            </p>
+        <HintBox>
+          无法获取 AI 摘要。
+          {aiState.fetchError ? (
+            <span> {aiState.fetchError.userMessage}</span>
           ) : null}
-        </div>
+        </HintBox>
+      ) : null}
+
+      {aiPending ? (
+        <HintBox>
+          AI 摘要生成中，当前先显示本地规则摘要。
+        </HintBox>
+      ) : null}
+
+      {aiFailed ? (
+        <HintBox>
+          AI 摘要生成失败，当前显示本地规则摘要。
+          {aiState.summary.error_summary ? (
+            <span className="block mt-1 text-zinc-600">
+              {aiState.summary.error_summary}
+            </span>
+          ) : null}
+        </HintBox>
+      ) : null}
+
+      {/* ── Action error hint (generate/regenerate failure) ──── */}
+      {lastActionError ? (
+        <HintBox>
+          {lastActionError.userMessage}
+        </HintBox>
       ) : null}
 
       {/* ── Body: AI markdown or fallback ──────────────────── */}
@@ -223,6 +236,14 @@ export function RunPrimarySummaryCard({
 }
 
 // ── sub-components ──────────────────────────────────────────────────
+
+function HintBox({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-t border-[#333333] pt-3">
+      <p className="text-xs text-zinc-500">{children}</p>
+    </div>
+  );
+}
 
 function AiStatusStrip({ summary }: { summary: RunAISummaryDTO }) {
   const fp8 = truncateHash(summary.source_fingerprint);
