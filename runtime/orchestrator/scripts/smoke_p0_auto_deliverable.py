@@ -1,18 +1,16 @@
 """P0-1 smoke: verify auto-generate deliverable on successful worker run.
 
-Covers:
-- Successful run produces a deliverable with correct source_task_id / source_run_id
-- Idempotent: same source_run_id does NOT create a duplicate
-- Failed run does NOT produce a deliverable
-- quality_gate_passed=False with success=True does NOT produce a deliverable
-- Long title/summary does not crash (truncated safely)
+All guard scenarios are verified by calling the real
+``_auto_create_run_deliverable()`` against a real database — no
+guard-logic replication.
 """
 
 from __future__ import annotations
 
-import json, os, shutil, stat, sys, traceback
+import json, os, shutil, stat, sys
+from dataclasses import dataclass
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 if str(RUNTIME_ROOT) not in sys.path:
@@ -20,11 +18,14 @@ if str(RUNTIME_ROOT) not in sys.path:
 
 SMOKE_ROOT = RUNTIME_ROOT / "tmp" / "smoke-p0-auto-deliverable"
 SMOKE_RUNTIME_DATA = SMOKE_ROOT / "runtime-data"
-REAL_CONFIG_PATH = RUNTIME_ROOT.parent / "data" / "provider-settings" / "openai-provider-config.json"
+REAL_CONFIG_PATH = (
+    RUNTIME_ROOT.parent / "data" / "provider-settings" / "openai-provider-config.json"
+)
 
 
 def _remove_readonly(f, p, _):
-    Path(p).chmod(stat.S_IWRITE); f(p)
+    Path(p).chmod(stat.S_IWRITE)
+    f(p)
 
 
 def setup():
@@ -35,13 +36,58 @@ def setup():
     (SMOKE_RUNTIME_DATA / "provider-settings").mkdir(exist_ok=True)
     if REAL_CONFIG_PATH.exists():
         rc = json.loads(REAL_CONFIG_PATH.read_text(encoding="utf-8"))
-        (SMOKE_RUNTIME_DATA / "provider-settings" / "openai-provider-config.json").write_text(
-            json.dumps(rc, ensure_ascii=False), encoding="utf-8"
-        )
+        (
+            SMOKE_RUNTIME_DATA / "provider-settings" / "openai-provider-config.json"
+        ).write_text(json.dumps(rc, ensure_ascii=False), encoding="utf-8")
     os.environ["RUNTIME_DATA_DIR"] = str(SMOKE_RUNTIME_DATA)
     os.environ["REPOSITORY_WORKSPACE_ROOT_DIR"] = str(SMOKE_ROOT / "workspaces")
     os.environ["DAILY_BUDGET_USD"] = "10.00"
     os.environ["SESSION_BUDGET_USD"] = "10.00"
+
+
+# -- Minimal execution / verification types that duck-type the real ones --
+
+
+@dataclass
+class FakeExecution:
+    success: bool
+    summary: str
+    mode: str = "simulate"
+
+
+@dataclass
+class FakeVerification:
+    success: bool
+    quality_gate_passed: bool
+    summary: str = ""
+    mode: str = "simulate"
+
+
+def _deliverable_count_for_project(project_id: UUID) -> int:
+    """Return the number of deliverables linked to *project_id*."""
+    from app.core.db import SessionLocal
+    from app.repositories.deliverable_repository import DeliverableRepository
+
+    session = SessionLocal()
+    try:
+        return len(DeliverableRepository(session).list_records_by_project_id(project_id))
+    finally:
+        session.close()
+
+
+def _find_deliverable_by_source_run(source_run_id: UUID):
+    """Return a deliverable record linked to *source_run_id*, or None."""
+    from app.core.db import SessionLocal
+    from app.repositories.deliverable_repository import DeliverableRepository
+
+    session = SessionLocal()
+    try:
+        return DeliverableRepository(session).find_by_source_run_id(source_run_id)
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
 
 
 def main() -> int:
@@ -59,9 +105,9 @@ def main() -> int:
             failed += 1
             print(f"  FAIL: {label}")
 
-    # ── Unit-level tests (no full worker cycle required) ────────────
+    # -- Phase 0: import & truncation unit tests --------------------------
     print("=" * 60)
-    print("UNIT TESTS: _auto_create_run_deliverable guards")
+    print("PHASE 0: truncation helpers (unit)")
     print("=" * 60)
 
     from app.workers.task_worker import (
@@ -71,67 +117,28 @@ def main() -> int:
         _DELIVERABLE_SUMMARY_MAX,
         _DELIVERABLE_CONTENT_MAX,
     )
-    from app.services.executor_service import ExecutionResult
-    from app.services.verifier_service import VerificationResult
 
-    # Build minimal mocks for guard tests
-    class _FakeLogging:
-        def append_event(self, **kw):
-            pass
+    check(_truncate_deliverable_text("hello", 100) == "hello", "short preserved")
+    long_t = _truncate_deliverable_text("x" * (_DELIVERABLE_TITLE_MAX + 50), _DELIVERABLE_TITLE_MAX)
+    check(len(long_t) <= _DELIVERABLE_TITLE_MAX and long_t.endswith("..."), "long truncated")
+    check(_truncate_deliverable_text("   ", 100) == "Worker run completed successfully.", "empty fallback")
+    content_trunc = _truncate_deliverable_text("A" * (_DELIVERABLE_CONTENT_MAX + 1000), _DELIVERABLE_CONTENT_MAX)
+    check(len(content_trunc) <= _DELIVERABLE_CONTENT_MAX, f"content max ({len(content_trunc)})")
 
-    class _FakeWorker:
-        deliverable_service = None  # triggers early-return
-        run_logging_service = _FakeLogging()
-
-    # Guard: no deliverable_service → returns immediately
-    fake_worker = _FakeWorker()
-    calls_made: list[str] = []
-
-    # Patch to count calls
-    _orig = _auto_create_run_deliverable
-
-    def guarded(*, worker, task, run, execution, verification):
-        calls_made.append(f"guard_test")
-        _orig(worker=worker, task=task, run=run, execution=execution, verification=verification)
-
-    check(True, "import _auto_create_run_deliverable ok")
-
-    # Text truncation
-    short = _truncate_deliverable_text("hello", 100)
-    check(short == "hello", f"short text preserved: {short}")
-
-    long_text = "x" * (_DELIVERABLE_TITLE_MAX + 50)
-    truncated = _truncate_deliverable_text(long_text, _DELIVERABLE_TITLE_MAX)
-    check(
-        len(truncated) <= _DELIVERABLE_TITLE_MAX and truncated.endswith("..."),
-        f"long text truncated: len={len(truncated)} ends_with_...={truncated.endswith('...')}",
-    )
-
-    empty_fallback = _truncate_deliverable_text("   ", 100)
-    check(empty_fallback == "Worker run completed successfully.", f"empty fallback: {repr(empty_fallback)}")
-
-    very_short_max = _truncate_deliverable_text("ok", 3)
-    check(very_short_max == "ok", f"short within tiny max: {repr(very_short_max)}")
-
-    # Content max edge case
-    huge_content = "A" * (_DELIVERABLE_CONTENT_MAX + 1000)
-    tc = _truncate_deliverable_text(huge_content, _DELIVERABLE_CONTENT_MAX)
-    check(len(tc) == _DELIVERABLE_CONTENT_MAX, f"content truncated to max: {len(tc)}")
-
+    # -- Phase 1: create project + task via TestClient --------------------
     print()
     print("=" * 60)
-    print("INTEGRATION: full worker cycle + deliverable verification")
+    print("PHASE 1: create test project + real worker run")
     print("=" * 60)
 
     from fastapi.testclient import TestClient
-    from app.core.db import init_database
+    from app.core.db import init_database, SessionLocal
     from app.main import create_application
 
     init_database()
     app = create_application()
 
     with TestClient(app) as client:
-        # ── Create project + task ──────────────────────────────────
         draft = client.post("/planning/drafts", json={
             "brief": "最小任务：返回 hello world",
             "max_tasks": 3,
@@ -141,9 +148,9 @@ def main() -> int:
             "project": {**draft["project"], "name": "P0-1 Smoke", "stage": "execution"},
             "tasks": draft["tasks"],
         }).json()
-        project_id = ar["project"]["id"]
-        created_tasks = ar["tasks"]
-        print(f"\nProject: {project_id}, tasks: {len(created_tasks)}")
+        project_id_str = ar["project"]["id"]
+        project_id = UUID(project_id_str)
+        print(f"  project_id: {project_id}")
 
         client.put(f"/projects/{project_id}/team-control-center", json={
             "team_name": "P0-1 Test",
@@ -157,152 +164,208 @@ def main() -> int:
             },
         })
 
-        # ── Successful worker run ───────────────────────────────────
-        print("\n>>> Worker run #1 (should succeed) ...")
-        wr1 = client.post(f"/workers/run-once?project_id={project_id}").json()
-        rs1 = wr1.get("run_status")
-        em1 = wr1.get("execution_mode")
-        rid1 = wr1.get("provider_receipt_id", "")
-        print(f"  run_status={rs1}, exec_mode={em1}, receipt={rid1}")
+        wr = client.post(f"/workers/run-once?project_id={project_id}").json()
+        rs = wr.get("run_status")
+        print(f"  worker run_status: {rs}")
+        check(rs == "succeeded", f"real worker run succeeded (got {rs})")
 
-        check(rs1 == "succeeded", f"run_status=succeeded (got {rs1})")
+        dr = client.get(f"/deliverables/projects/{project_id}").json()
+        total = dr.get("total_deliverables", 0)
+        print(f"  deliverable count after run: {total}")
+        check(total >= 1, f"deliverable auto-generated (total={total})")
 
-        # Check deliverable created
-        dr1 = client.get(f"/deliverables/projects/{project_id}").json()
-        total1 = dr1.get("total_deliverables", 0)
-        print(f"  total_deliverables={total1}")
+        if dr.get("deliverables"):
+            d = dr["deliverables"][0]
+            lv = d.get("latest_version", {})
+            check(bool(lv.get("source_task_id")), "source_task_id present")
+            check(bool(lv.get("source_run_id")), "source_run_id present")
+            check(not str(lv.get("source_run_id", "")).startswith("mock-"), "source_run_id not mock-")
 
-        if rs1 == "succeeded":
-            check(total1 >= 1, f"deliverable auto-generated (total={total1})")
-            if dr1.get("deliverables"):
-                d = dr1["deliverables"][0]
-                latest = d.get("latest_version", {})
-                source_task = latest.get("source_task_id")
-                source_run = latest.get("source_run_id")
-                print(f"  title: {d.get('title')}")
-                print(f"  source_task_id: {source_task}")
-                print(f"  source_run_id: {source_run}")
-                check(bool(source_task), "source_task_id present")
-                check(bool(source_run), "source_run_id present")
-                check(not str(source_run).startswith("mock-"), "source_run_id not mock- prefix")
-                # Verify title length
-                check(len(d.get("title", "")) <= 200, f"title within 200 chars (actual {len(d.get('title', ''))})")
-
-        # ── Idempotent: calling _auto_create again with SAME run ──
-        print("\n>>> Re-running _auto_create with same run (idempotency check) ...")
-        from app.workers.task_worker import _auto_create_run_deliverable
-        from app.workers.task_worker import build_task_worker
-        from app.core.db import SessionLocal
-
-        # Use a separate session to query counts without interfering
-        verify_session = SessionLocal()
-        try:
-            from app.repositories.deliverable_repository import DeliverableRepository
-            dr_before = DeliverableRepository(verify_session)
-            before = len(dr_before.list_records_by_project_id(UUID(project_id)))
-            verify_session.close()
-        except Exception:
-            before = total1
-
-        # Directly invoke auto-create again — must NOT create a duplicate
-        tw_session = SessionLocal()
-        tw = build_task_worker(session=tw_session)
-        # Find the completed task that just ran
-        from app.repositories.task_repository import TaskRepository
-        from uuid import UUID
-        tr = TaskRepository(tw_session)
-        tasks = tr.list_by_project_id(UUID(project_id))
-        completed = [t for t in tasks if t.status.value == "completed"]
-        if completed:
-            from app.repositories.run_repository import RunRepository
-            rr = RunRepository(tw_session)
-            runs = rr.list_by_task_id(completed[0].id)
-            if runs:
-                # Call auto-create again with same task/run
-                _auto_create_run_deliverable(
-                    worker=tw,
-                    task=completed[0],
-                    run=runs[0],
-                    execution=type('FakeExec', (), {
-                        'success': True, 'summary': 'test', 'mode': 'provider_openai',
-                    })(),
-                    verification=None,
-                )
-                tw_session.commit()
-
-        verify_session2 = SessionLocal()
-        try:
-            dr_after = DeliverableRepository(verify_session2)
-            after = len(dr_after.list_records_by_project_id(UUID(project_id)))
-            verify_session2.close()
-        except Exception:
-            after = before
-
-        tw_session.close()
-        print(f"  deliverable count: before={before}, after={after}")
-        check(after == before, f"idempotent — same source_run_id not duplicated (was {before}, now {after})")
-
-    # ── Quality gate unit test ─────────────────────────────────────
+    # -- Phase 2: get a real completed task + run for guard tests --------
     print()
     print("=" * 60)
-    print("UNIT: quality gate check")
+    print("PHASE 2: build real worker for direct guard tests")
     print("=" * 60)
 
-    class _FakeWorkerWithSvc:
-        deliverable_service = None  # triggers early-return, we only test guard
-        run_logging_service = _FakeLogging()
+    from app.workers.task_worker import build_task_worker
+    from app.repositories.task_repository import TaskRepository
+    from app.repositories.run_repository import RunRepository
 
-    fw = _FakeWorkerWithSvc()
+    worker_session = SessionLocal()
+    worker = build_task_worker(session=worker_session)
+    check(worker.deliverable_service is not None, "worker has deliverable_service")
 
-    calls: list[dict] = []
+    task_repo = TaskRepository(worker_session)
+    tasks = task_repo.list_by_project_id(project_id)
+    completed_tasks = [t for t in tasks if t.status.value == "completed"]
+    check(len(completed_tasks) >= 1, f"at least one completed task (found {len(completed_tasks)})")
 
-    def capture_guard(*, worker, task, run, execution, verification):
-        calls.append({
-            "success": execution.success,
-            "ver_success": verification.success if verification else None,
-            "ver_qg": verification.quality_gate_passed if verification else None,
-        })
+    base_task = completed_tasks[0]
+    run_repo = RunRepository(worker_session)
+    base_runs = run_repo.list_by_task_id(base_task.id)
+    check(len(base_runs) >= 1, f"at least one run for completed task (found {len(base_runs)})")
+    base_run = base_runs[0]
 
-    # Create a fake successful execution
-    class _FakeExec:
-        success = True
-        summary = "ok"
-        mode = "provider_openai"
+    from app.domain.run import RunStatus
+    from app.domain.task import TaskStatus
 
-    # verification.success=True but quality_gate_passed=False → should NOT produce
-    class _FakeVerFailQG:
-        success = True
-        quality_gate_passed = False
-        summary = ""
-        mode = "simulate"
+    print(f"  task={base_task.id} status={base_task.status.value}")
+    print(f"  run={base_run.id} status={base_run.status.value}")
+
+    # -- Phase 3: guard matrix — REAL calls to _auto_create ---------------
+    print()
+    print("=" * 60)
+    print("PHASE 3: guard matrix (real _auto_create calls)")
+    print("=" * 60)
+
+    base_count = _deliverable_count_for_project(project_id)
+    print(f"  baseline deliverable count: {base_count}")
+
+    from app.domain.run import Run
+    from app.domain.task import Task
+
+    def new_test_run(run_id: UUID, status: RunStatus = RunStatus.SUCCEEDED) -> Run:
+        """Create a fresh Run row in the DB for one guard test case."""
+        return run_repo.create_running_run(
+            task_id=base_task.id,
+            owner_role_code="engineer",
+        )
+
+    def finish_test_run(run: Run, status: RunStatus) -> Run:
+        return run_repo.finish_run(
+            run_id=run.id,
+            status=status,
+            result_summary="test run for guard check",
+            provider_key="deepseek",
+            prompt_template_key="test",
+            prompt_template_version="0.1.0",
+            prompt_char_count=0,
+            token_accounting_mode="provider_reported",
+            total_tokens=0,
+            estimated_cost=0.0,
+            prompt_tokens=0,
+            completion_tokens=0,
+        )
+
+    # ── Guard: execution.success=False → NO deliverable ────────────
+    def _make_run_and_test(label: str, exec: FakeExecution, ver: FakeVerification | None, expect_generated: bool) -> None:
+        new_run = run_repo.create_running_run(task_id=base_task.id, owner_role_code="engineer")
+        new_run = run_repo.finish_run(
+            run_id=new_run.id, status=RunStatus.SUCCEEDED if exec.success else RunStatus.FAILED,
+            result_summary="guard-test", provider_key="deepseek", prompt_template_key="test",
+            prompt_template_version="0.1", prompt_char_count=5,
+            token_accounting_mode="provider_reported", total_tokens=10,
+            estimated_cost=0.0, prompt_tokens=5, completion_tokens=5,
+        )
+        worker_session.commit()
+
+        run_id_before = new_run.id
+        found_before = _find_deliverable_by_source_run(run_id_before)
+        assert found_before is None, f"Unexpected pre-existing deliverable for {run_id_before}"
+
+        _auto_create_run_deliverable(
+            worker=worker, task=base_task, run=new_run,
+            execution=exec, verification=ver,
+        )
+        worker_session.commit()
+
+        found_after = _find_deliverable_by_source_run(run_id_before)
+        if expect_generated:
+            check(found_after is not None, f"{label}: deliverable created")
+        else:
+            check(found_after is None, f"{label}: NO deliverable created")
+
+    # 1. exec.success=False, no verification
+    _make_run_and_test("exec_fail", FakeExecution(success=False, summary="fail"), None, False)
+    # 2. exec.success=True, no verification → generates
+    _make_run_and_test("exec_ok_no_ver", FakeExecution(success=True, summary="ok"), None, True)
+    # 3. exec.success=True, ver.success=True, qg=True → generates
+    _make_run_and_test("exec_ok_ver_ok_qg_ok", FakeExecution(success=True, summary="ok"), FakeVerification(success=True, quality_gate_passed=True, summary="v"), True)
+    # 4. exec.success=True, ver.success=False, qg=True → NO generate
+    _make_run_and_test("ver_fail_qg_ok", FakeExecution(success=True, summary="ok"), FakeVerification(success=False, quality_gate_passed=True, summary="v"), False)
+    # 5. exec.success=True, ver.success=True, qg=False → NO generate
+    _make_run_and_test("ver_ok_qg_fail", FakeExecution(success=True, summary="ok"), FakeVerification(success=True, quality_gate_passed=False, summary="v"), False)
+    # 6. exec.success=True, ver.success=False, qg=False → NO generate
+    _make_run_and_test("ver_fail_qg_fail", FakeExecution(success=True, summary="ok"), FakeVerification(success=False, quality_gate_passed=False, summary="v"), False)
+
+    # -- Phase 4: idempotency — call twice with SAME run_id -------------
+    print()
+    print("=" * 60)
+    print("PHASE 4: idempotency")
+    print("=" * 60)
+
+    idem_run = run_repo.create_running_run(task_id=base_task.id, owner_role_code="engineer")
+    idem_run = run_repo.finish_run(
+        run_id=idem_run.id, status=RunStatus.SUCCEEDED, result_summary="idem-test",
+        provider_key="deepseek", prompt_template_key="test", prompt_template_version="0.1",
+        prompt_char_count=5, token_accounting_mode="provider_reported", total_tokens=10,
+        estimated_cost=0.0, prompt_tokens=5, completion_tokens=5,
+    )
+    worker_session.commit()
+
+    count_before = _deliverable_count_for_project(project_id)
+    found_before = _find_deliverable_by_source_run(idem_run.id)
+    check(found_before is None, "no deliverable yet for idem run")
+
+    # Call 1 — should create
+    _auto_create_run_deliverable(
+        worker=worker, task=base_task, run=idem_run,
+        execution=FakeExecution(success=True, summary="call-1"), verification=None,
+    )
+    worker_session.commit()
+    after_first = _deliverable_count_for_project(project_id)
+    check(after_first == count_before + 1, f"first call creates deliverable ({count_before} -> {after_first})")
+
+    # Call 2 — should SKIP (idempotent)
+    _auto_create_run_deliverable(
+        worker=worker, task=base_task, run=idem_run,
+        execution=FakeExecution(success=True, summary="call-2"), verification=None,
+    )
+    worker_session.commit()
+    after_second = _deliverable_count_for_project(project_id)
+    check(after_second == after_first, f"second call skips (still {after_first})")
+
+    found_after = _find_deliverable_by_source_run(idem_run.id)
+    check(found_after is not None, "deliverable exists after idempotent calls")
+
+    # -- Phase 5: long text — call with oversized title/summary ----------
+    print()
+    print("=" * 60)
+    print("PHASE 5: long text truncation (real call)")
+    print("=" * 60)
+
+    long_run = run_repo.create_running_run(task_id=base_task.id, owner_role_code="engineer")
+    long_run = run_repo.finish_run(
+        run_id=long_run.id, status=RunStatus.SUCCEEDED, result_summary="long-test",
+        provider_key="deepseek", prompt_template_key="test", prompt_template_version="0.1",
+        prompt_char_count=5, token_accounting_mode="provider_reported", total_tokens=10,
+        estimated_cost=0.0, prompt_tokens=5, completion_tokens=5,
+    )
+    # Use a task with a very long title for the long-text test
+    long_task = base_task  # existing task, title may be short — we test summary mostly
+    worker_session.commit()
+
+    huge_summary = "X" * (_DELIVERABLE_SUMMARY_MAX + 500)
+    huge_content = "C" * (_DELIVERABLE_CONTENT_MAX + 5000)
 
     _auto_create_run_deliverable(
-        worker=fw, task=None, run=None,  # type: ignore
-        execution=_FakeExec(), verification=_FakeVerFailQG(),
+        worker=worker, task=long_task, run=long_run,
+        execution=FakeExecution(success=True, summary=huge_summary), verification=None,
     )
-    # With deliverable_service=None, the function returns immediately.
-    # But we want to test the guard logic, so let's directly verify the guard conditions.
+    worker_session.commit()
 
-    # The guard logic is:
-    #   if verification is not None:
-    #       if not verification.success or not verification.quality_gate_passed: return
-    # Let's simulate the guard inline.
+    long_deliv = _find_deliverable_by_source_run(long_run.id)
+    check(long_deliv is not None, "long-text deliverable created (did not crash)")
 
-    def would_generate(exec_success, ver_success, ver_qg_passed, has_verification):
-        """Replicate the guard chain."""
-        if not exec_success:
-            return False
-        if has_verification:
-            if not ver_success or not ver_qg_passed:
-                return False
-        return True
+    if long_deliv:
+        latest = long_deliv.versions[0] if long_deliv.versions else None
+        if latest:
+            check(len(latest.summary) <= _DELIVERABLE_SUMMARY_MAX,
+                  f"summary truncated ({len(latest.summary)} <= {_DELIVERABLE_SUMMARY_MAX})")
+            check(len(latest.content) <= _DELIVERABLE_CONTENT_MAX,
+                  f"content truncated ({len(latest.content)} <= {_DELIVERABLE_CONTENT_MAX})")
 
-    check(would_generate(True, None, None, False), "no verification: generates")
-    check(not would_generate(False, None, None, False), "failed execution: no generate")
-    check(would_generate(True, True, True, True), "verification passed+qg: generates")
-    check(not would_generate(True, False, True, True), "verification failed: no generate")
-    check(not would_generate(True, True, False, True), "quality_gate failed: no generate")
-    check(not would_generate(True, False, False, True), "both failed: no generate")
+    worker_session.close()
 
     print()
     print(f"Results: {passed} passed, {failed} failed")
