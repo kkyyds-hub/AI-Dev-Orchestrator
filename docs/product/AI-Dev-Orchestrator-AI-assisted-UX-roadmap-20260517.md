@@ -587,11 +587,31 @@ AI 可建议：
 - 将英文内部字段移出默认视图。
 
 验收：
-
 - 运行详情默认不出现大段英文日志；
 - mock fallback、provider timeout、真实 provider success 都有中文说明；
 - 技术用户可点击按钮查看完整日志；
 - 日志弹窗排版清晰，可复制。
+
+> **实施状态：已完成** `[2026-05-17]`
+>
+> 提交哈希：`9cefbe6`
+>
+> 修改范围：
+> - `apps/web/src/pages/runs/components/RunsTaskDetailSection.tsx` — 移除 raw result_summary，集成摘要卡片与技术日志弹窗
+> - `apps/web/src/features/task-detail/components/TaskDetailRuntimeContractSection.tsx` — 新增 `hideRawDiagnosticTexts` 支持，原始诊断文本移入弹窗
+> - 新增 `apps/web/src/pages/runs/components/RunUserSummaryCard.tsx` — 中文规则摘要卡片
+> - 新增 `apps/web/src/pages/runs/components/RunTechnicalLogModal.tsx` — 技术日志弹窗（8 分区 + 复制能力）
+> - 新增 `apps/web/src/pages/runs/lib/runUserSummary.ts` — 规则摘要生成器
+> - 新增 `apps/web/src/pages/runs/lib/runTechnicalLog.ts` — 技术日志格式化
+>
+> 验收结果：
+> - 默认不展示 raw result_summary / verification_summary / route_reason 大段英文
+> - provider 成功 / timeout / mock / fallback 各有中文说明
+> - 模拟验证明确提示"不代表代码真实构建通过"
+> - 质量检查拦截明确提示"请查看技术日志定位原因"
+> - 技术日志通过弹窗查看，含 8 个分区 + 复制运行 ID / 复制全部
+> - 不破坏原有按钮闭环和 data-testid
+> - `npm run build` 通过
 
 ### 阶段 2：AI 运行摘要生成
 

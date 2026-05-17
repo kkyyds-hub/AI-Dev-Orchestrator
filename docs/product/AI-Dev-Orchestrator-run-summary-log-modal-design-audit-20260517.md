@@ -902,4 +902,61 @@ AI 摘要不能每次刷新都生成。
 - AI 摘要后续按需生成并保存。
 - 懂技术的用户可以深入查看，不懂技术的用户也能完成审核。
 
-这份报告作为后续开发标准，后续每个子阶段必须围绕“用户摘要 / 操作建议 / 技术日志弹窗”三层模型推进。
+这份报告作为后续开发标准，后续每个子阶段必须围绕”用户摘要 / 操作建议 / 技术日志弹窗”三层模型推进。
+
+---
+
+## 16. 阶段实施记录
+
+### 阶段 1：运行页规则摘要 + 技术日志弹窗第一阶段
+
+**实施日期**：2026-05-17
+**提交哈希**：`9cefbe6`
+**Build 结果**：通过（tsc + vite build，3.14s）
+
+#### 已实现的审计建议
+
+| 审计建议 | 实现情况 |
+|---|---|
+| 默认展示中文用户摘要（规则摘要，不调用 AI） | 已实现 - `RunUserSummaryCard` + `runUserSummary.ts` |
+| 默认不展示大段英文 raw result_summary | 已实现 - 从 header 移除 line-clamp-2 原始文本 |
+| 新增”查看技术日志”按钮 | 已实现 - 按钮在操作栏中，data-testid=`open-tech-log-modal` |
+| 技术日志弹窗含 8 个分区 | 已实现 - 状态概览/执行轨迹/模型调用/质量检查/用量成本/交付件与审批/原始摘要/原始字段 |
+| 弹窗支持复制运行 ID、复制全部日志 | 已实现 - 弹窗 header 含复制全部 + 复制运行 ID 按钮 |
+| 长 ID 自动换行、不撑破页面 | 已实现 - break-all + truncate + max-h-96 overflow-y-auto |
+| raw result_summary / verification_summary / route_reason 移入弹窗 | 已实现 - 进入弹窗”原始摘要”+”原始字段”分区 |
+| provider 真实成功有中文说明 | 已实现 - “模型服务 DeepSeek 已真实执行成功” |
+| provider timeout 有中文说明 | 已实现 - “模型请求超时，本次未完成或需要重试” |
+| mock / fallback 明确标记 | 已实现 - “模拟/降级执行，不能作为真实交付依据” |
+| 模拟验证明确提示 | 已实现 - “当前为模拟验证，不代表代码真实构建通过” |
+| 质量检查拦截提示 | 已实现 - “本次运行被质量检查拦截，请查看技术日志定位原因” |
+| TaskDetailRuntimeContractSection 诊断文本分层 | 已实现 - `hideRawDiagnosticTexts` prop，默认页不展示原始长文本 |
+| 不破坏现有按钮闭环 | 已验证 - 策略预览/运行中心/复制任务ID/复制运行ID 保持不变 |
+| 不破坏现有 data-testid | 已验证 - 原有 testid 全部保留，新增按钮补 testid |
+
+#### 暂未实现的审计建议
+
+| 建议 | 原因 | 后续阶段 |
+|---|---|---|
+| AI 摘要生成（调用 DeepSeek 生成中文 Markdown） | 阶段 1 目标仅为规则摘要 | 阶段 2 |
+| 摘要保存与过期策略 | 需要后端支持 | 阶段 2 |
+| 交付件/审批 ID 实时展示（需接口支持） | 当前 `ConsoleRun` 不含 deliverable_id/approval_id | 阶段 4 |
+| 弹窗内交付件/审批跳转按钮 | 前端暂未持有 deliverable_id/approval_id 字段 | 阶段 4 |
+| 全站中文化 | 仅完成运行页摘要中文化 | 阶段 6 |
+| 术语统一（Provider→模型服务等全站替换） | 仅运行页范围内替换 | 阶段 6 |
+
+#### 后续待做
+
+1. **阶段 2**：接入 AI 摘要生成后端接口，支持”生成 AI 摘要”按钮
+2. **阶段 2**：摘要保存、过期标记、重新生成
+3. **阶段 4**：弹窗内增加交付件/审批 ID 展示与跳转入口
+4. **阶段 6**：全站术语统一、按钮治理、空状态引导
+
+#### 修改文件清单
+
+- `apps/web/src/pages/runs/lib/runUserSummary.ts` — 新增
+- `apps/web/src/pages/runs/lib/runTechnicalLog.ts` — 新增
+- `apps/web/src/pages/runs/components/RunUserSummaryCard.tsx` — 新增
+- `apps/web/src/pages/runs/components/RunTechnicalLogModal.tsx` — 新增
+- `apps/web/src/pages/runs/components/RunsTaskDetailSection.tsx` — 修改
+- `apps/web/src/features/task-detail/components/TaskDetailRuntimeContractSection.tsx` — 修改
