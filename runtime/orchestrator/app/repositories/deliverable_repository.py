@@ -114,6 +114,22 @@ class DeliverableRepository:
         deliverable_rows = self.session.execute(statement).scalars().all()
         return [self._to_record(deliverable_row) for deliverable_row in deliverable_rows]
 
+    def find_by_source_run_id(self, source_run_id: UUID) -> DeliverableRecord | None:
+        """Return the deliverable whose latest version references the given run.
+
+        Returns None when no version row links to that run id.
+        """
+
+        version_row = (
+            self.session.query(DeliverableVersionTable)
+            .filter(DeliverableVersionTable.source_run_id == source_run_id)
+            .order_by(DeliverableVersionTable.created_at.desc())
+            .first()
+        )
+        if version_row is None:
+            return None
+        return self.get_record_by_id(version_row.deliverable_id)
+
     @staticmethod
     def _build_version_row(version: DeliverableVersion) -> DeliverableVersionTable:
         """Convert one domain version snapshot into its ORM row."""

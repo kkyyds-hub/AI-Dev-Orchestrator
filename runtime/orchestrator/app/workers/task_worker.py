@@ -37,6 +37,7 @@ from app.services.budget_guard_service import BudgetGuardDecision, BudgetGuardSe
 from app.services.context_budget_service import ContextBudgetService
 from app.services.context_builder_service import ContextBuilderService, TaskContextPackage
 from app.services.cost_estimator_service import CostEstimate, CostEstimatorService
+from app.services.deliverable_service import DeliverableService
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionPlan, ExecutionResult, ExecutorService
 from app.services.failure_review_service import FailureReviewService
@@ -117,6 +118,113 @@ class WorkerRunResult:
     run: Run | None = None
 
 
+def _auto_create_run_deliverable(
+    *,
+    worker: "TaskWorker",
+    task: Task,
+    run: Run,
+    execution: ExecutionResult,
+    verification: VerificationResult | None,
+) -> None:
+    """Auto-generate a deliverable snapshot after a successful provider run.
+
+    Guards:
+    - task.project_id must be non-null
+    - execution must have succeeded
+    - verification (if present) must have passed its quality gate
+    - idempotent: skips if a deliverable already links to this source_run_id
+    """
+
+    if worker.deliverable_service is None:
+        return
+    if task.project_id is None:
+        return
+    if not execution.success:
+        return
+    if verification is not None and not verification.success:
+        return
+
+    try:
+        existing = worker.deliverable_service.deliverable_repository.find_by_source_run_id(
+            run.id,
+        )
+        if existing is not None:
+            return  # already created — idempotent
+
+        from app.domain.deliverable import DeliverableContentFormat, DeliverableType
+        from app.domain.project import ProjectStage
+
+        project_repo = ProjectRepository(worker.session)
+        project = project_repo.get_by_id(task.project_id)
+        stage = project.stage if project is not None else ProjectStage.EXECUTION
+
+        owner_role = run.owner_role_code or task.owner_role_code or ProjectRoleCode.ENGINEER
+
+        title = f"运行交付快照 · {task.title}"
+        summary_parts = [execution.summary.strip()]
+        if verification is not None and verification.summary:
+            summary_parts.append(verification.summary.strip())
+        summary = "\n".join(summary_parts)
+
+        content_lines = [
+            f"# 运行交付快照",
+            "",
+            f"- **Task ID**: `{task.id}`",
+            f"- **Run ID**: `{run.id}`",
+            f"- **Task**: {task.title}",
+            f"- **Execution mode**: {execution.mode}",
+            f"- **Run status**: {run.status.value}",
+            "",
+            "## 执行摘要",
+            "",
+            execution.summary.strip(),
+        ]
+        if verification is not None:
+            content_lines.extend([
+                "",
+                "## 验证结果",
+                "",
+                f"- **验证模式**: {verification.mode}",
+                f"- **验证通过**: {verification.success}",
+                f"- **质量门**: {'通过' if verification.quality_gate_passed else '未通过'}",
+                f"- **摘要**: {verification.summary.strip() if verification.summary else '无'}",
+            ])
+        if hasattr(run, "total_tokens") and run.total_tokens:
+            content_lines.extend([
+                "",
+                "## Token / 成本",
+                "",
+                f"- **Total tokens**: {getattr(run, 'total_tokens', 0)}",
+                f"- **Estimated cost**: ${getattr(run, 'estimated_cost', 0):.6f}",
+            ])
+        content = "\n".join(content_lines)
+
+        worker.deliverable_service.create_deliverable(
+            project_id=task.project_id,
+            type=DeliverableType.STAGE_ARTIFACT,
+            title=title,
+            stage=stage,
+            created_by_role_code=owner_role,
+            summary=summary,
+            content=content,
+            content_format=DeliverableContentFormat.MARKDOWN,
+            source_task_id=task.id,
+            source_run_id=run.id,
+        )
+    except Exception:
+        # Never let a deliverable creation failure break the worker.
+        # Log and continue — the run outcome is not affected.
+        try:
+            if run.log_path:
+                worker.run_logging_service.append_event(
+                    log_path=run.log_path,
+                    event="deliverable_auto_create_failed",
+                    message="Auto-generate deliverable snapshot failed.",
+                )
+        except Exception:
+            pass
+
+
 class TaskWorker:
     """Claim one pending task, execute it and persist the outcome."""
 
@@ -140,6 +248,7 @@ class TaskWorker:
         task_state_machine_service: TaskStateMachineService,
         failure_review_service: FailureReviewService,
         agent_conversation_service: AgentConversationService,
+        deliverable_service: DeliverableService | None = None,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -158,6 +267,7 @@ class TaskWorker:
         self.task_state_machine_service = task_state_machine_service
         self.failure_review_service = failure_review_service
         self.agent_conversation_service = agent_conversation_service
+        self.deliverable_service = deliverable_service
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -542,6 +652,15 @@ class TaskWorker:
 
             self.session.commit()
             self._record_failure_review_if_needed(task=task, run=run)
+
+            # Auto-generate a deliverable snapshot on successful provider runs
+            _auto_create_run_deliverable(
+                worker=self,
+                task=task,
+                run=run,
+                execution=execution,
+                verification=verification,
+            )
 
             return WorkerRunResult(
                 claimed=True,
@@ -1520,6 +1639,13 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         budget_guard_service=budget_guard_service,
         strategy_engine_service=strategy_engine_service,
     )
+    deliverable_repository = DeliverableRepository(session)
+    deliverable_service = DeliverableService(
+        project_repository=ProjectRepository(session),
+        task_repository=task_repository,
+        run_repository=run_repository,
+        deliverable_repository=deliverable_repository,
+    )
     return TaskWorker(
         session=session,
         task_repository=task_repository,
@@ -1538,4 +1664,5 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         task_state_machine_service=task_state_machine_service,
         failure_review_service=failure_review_service,
         agent_conversation_service=agent_conversation_service,
+        deliverable_service=deliverable_service,
     )
