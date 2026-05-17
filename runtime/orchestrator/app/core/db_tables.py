@@ -39,6 +39,7 @@ from app.domain.repository_snapshot import RepositorySnapshotStatus
 from app.domain.repository_verification import RepositoryVerificationCategory
 from app.domain.repository_workspace import RepositoryAccessMode
 from app.domain.run import RunFailureCategory, RunStatus
+from app.domain.run_ai_summary import RunAISummaryType
 from app.domain.skill import SkillBindingSource
 from app.domain.task import (
     TaskHumanStatus,
@@ -747,6 +748,49 @@ class RunTable(ORMBase):
         back_populates="run",
         cascade="all, delete-orphan",
     )
+    ai_summaries: Mapped[list["RunAISummaryTable"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+    )
+
+
+class RunAISummaryTable(ORMBase):
+    """Run-level AI summary snapshots."""
+
+    __tablename__ = "run_ai_summaries"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    run_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[UUID | None] = mapped_column(SqlUuid(as_uuid=True), nullable=True)
+    task_id: Mapped[UUID | None] = mapped_column(SqlUuid(as_uuid=True), nullable=True)
+    deliverable_id: Mapped[UUID | None] = mapped_column(SqlUuid(as_uuid=True), nullable=True)
+    summary_type: Mapped[RunAISummaryType] = mapped_column(
+        Enum(
+            RunAISummaryType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=RunAISummaryType.RUN,
+    )
+    summary_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    source_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    generated_by_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider_receipt_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    run: Mapped[RunTable] = relationship(back_populates="ai_summaries")
 
 
 class AgentSessionTable(ORMBase):

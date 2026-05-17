@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.repositories.failure_review_repository import FailureReviewRepository
+from app.repositories.run_ai_summary_repository import RunAISummaryRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.change_batch_repository import ChangeBatchRepository
 from app.repositories.change_plan_repository import ChangePlanRepository
@@ -20,6 +21,7 @@ from app.repositories.repository_verification_repository import (
 from app.repositories.repository_workspace_repository import (
     RepositoryWorkspaceRepository,
 )
+from app.repositories.task_repository import TaskRepository
 from app.repositories.verification_run_repository import VerificationRunRepository
 from app.services.decision_replay_service import (
     DecisionReplayService,
@@ -27,6 +29,10 @@ from app.services.decision_replay_service import (
     DecisionTraceItem,
 )
 from app.services.failure_review_service import FailureReviewRecord, FailureReviewService
+from app.services.run_ai_summary_service import (
+    RunAISummaryRunNotFoundError,
+    RunAISummaryService,
+)
 from app.services.run_logging_service import RunLogEvent, RunLogReadResult, RunLoggingService
 from app.services.verification_run_service import (
     VerificationRunAssociationError,
@@ -44,6 +50,7 @@ from app.domain.verification_run import (
     VerificationRunFailureCategory,
     VerificationRunStatus,
 )
+from app.domain.run_ai_summary import RunAISummary, RunAISummaryType
 
 
 class RunLogEventResponse(BaseModel):
@@ -139,6 +146,82 @@ class FailureReviewResponse(BaseModel):
             action_summary=review.action_summary,
             conclusion=review.conclusion,
             storage_path=review.storage_path,
+        )
+
+
+class RunAISummaryResponse(BaseModel):
+    """Persisted AI summary record returned by the run summary APIs."""
+
+    id: UUID
+    run_id: UUID
+    project_id: UUID | None = None
+    task_id: UUID | None = None
+    deliverable_id: UUID | None = None
+    summary_type: RunAISummaryType
+    summary_markdown: str
+    source_version: str
+    source_hash: str
+    generated_by_model: str | None = None
+    provider_receipt_id: str | None = None
+    generated_at: datetime
+    stale: bool
+
+    @classmethod
+    def from_summary(cls, summary: RunAISummary) -> "RunAISummaryResponse":
+        """Convert one stored summary into an API DTO."""
+
+        return cls(
+            id=summary.id,
+            run_id=summary.run_id,
+            project_id=summary.project_id,
+            task_id=summary.task_id,
+            deliverable_id=summary.deliverable_id,
+            summary_type=summary.summary_type,
+            summary_markdown=summary.summary_markdown,
+            source_version=summary.source_version,
+            source_hash=summary.source_hash,
+            generated_by_model=summary.generated_by_model,
+            provider_receipt_id=summary.provider_receipt_id,
+            generated_at=summary.generated_at,
+            stale=summary.stale,
+        )
+
+
+class RunAISummaryHistoryResponse(BaseModel):
+    """Run AI summary history with current active snapshot."""
+
+    run_id: UUID
+    active_summary_id: UUID | None = None
+    active_summary: RunAISummaryResponse | None = None
+    summaries: list[RunAISummaryResponse]
+
+    @classmethod
+    def from_history(
+        cls,
+        *,
+        run_id: UUID,
+        summaries: list[RunAISummary],
+    ) -> "RunAISummaryHistoryResponse":
+        """Convert a summary history into an API DTO."""
+
+        response_summaries = [RunAISummaryResponse.from_summary(summary) for summary in summaries]
+        active_summary = next(
+            (
+                summary
+                for summary in summaries
+                if summary.summary_type == RunAISummaryType.RUN and not summary.stale
+            ),
+            None,
+        )
+        return cls(
+            run_id=run_id,
+            active_summary_id=active_summary.id if active_summary is not None else None,
+            active_summary=(
+                RunAISummaryResponse.from_summary(active_summary)
+                if active_summary is not None
+                else None
+            ),
+            summaries=response_summaries,
         )
 
 
@@ -339,6 +422,18 @@ def get_failure_review_service() -> FailureReviewService:
     )
 
 
+def get_run_ai_summary_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> RunAISummaryService:
+    """Create the run AI summary service dependency."""
+
+    return RunAISummaryService(
+        run_repository=RunRepository(session),
+        task_repository=TaskRepository(session),
+        run_ai_summary_repository=RunAISummaryRepository(session),
+    )
+
+
 def get_verification_run_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> VerificationRunService:
@@ -530,3 +625,82 @@ def get_run_failure_review(
 
     review = failure_review_service.get_review(run_id=run_id)
     return FailureReviewResponse.from_review(review) if review is not None else None
+
+
+@router.get(
+    "/{run_id}/ai-summaries",
+    response_model=RunAISummaryHistoryResponse,
+    summary="获取运行 AI 摘要历史",
+)
+def get_run_ai_summaries(
+    run_id: UUID,
+    run_ai_summary_service: Annotated[
+        RunAISummaryService,
+        Depends(get_run_ai_summary_service),
+    ],
+) -> RunAISummaryHistoryResponse:
+    """Return the stored AI summary history for one run."""
+
+    try:
+        summaries = run_ai_summary_service.get_run_summary_history(run_id=run_id)
+    except RunAISummaryRunNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RunAISummaryHistoryResponse.from_history(run_id=run_id, summaries=summaries)
+
+
+@router.post(
+    "/{run_id}/ai-summaries",
+    response_model=RunAISummaryResponse,
+    summary="生成运行 AI 摘要",
+)
+def generate_run_ai_summary(
+    run_id: UUID,
+    run_ai_summary_service: Annotated[
+        RunAISummaryService,
+        Depends(get_run_ai_summary_service),
+    ],
+) -> RunAISummaryResponse:
+    """Create or reuse the active AI summary for one run."""
+
+    try:
+        summary = run_ai_summary_service.generate_run_summary(run_id=run_id)
+    except RunAISummaryRunNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RunAISummaryResponse.from_summary(summary)
+
+
+@router.post(
+    "/{run_id}/ai-summaries/regenerate",
+    response_model=RunAISummaryResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="重新生成运行 AI 摘要",
+)
+def regenerate_run_ai_summary(
+    run_id: UUID,
+    run_ai_summary_service: Annotated[
+        RunAISummaryService,
+        Depends(get_run_ai_summary_service),
+    ],
+) -> RunAISummaryResponse:
+    """Force a new summary snapshot and mark the prior active summary stale."""
+
+    try:
+        summary = run_ai_summary_service.generate_run_summary(
+            run_id=run_id,
+            regenerate=True,
+        )
+    except RunAISummaryRunNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return RunAISummaryResponse.from_summary(summary)
