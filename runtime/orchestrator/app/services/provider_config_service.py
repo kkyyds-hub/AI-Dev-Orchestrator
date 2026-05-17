@@ -17,7 +17,7 @@ DetectedProviderType = Literal["openai", "deepseek", "openai_compatible"]
 
 MODEL_TIERS: tuple[str, str, str] = ("economy", "balanced", "premium")
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
-_DEFAULT_TIMEOUT_SECONDS = 30
+_DEFAULT_TIMEOUT_SECONDS = 120
 _MASKED_SUFFIX_LENGTH = 4
 _MASK_PREFIX = "********"
 _OPENAI_PRESET_MODELS = {

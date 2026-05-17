@@ -150,7 +150,7 @@ def load_settings() -> Settings:
         openai_api_key=_read_optional_str("OPENAI_API_KEY"),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         or "https://api.openai.com/v1",
-        openai_timeout_seconds=_read_int("OPENAI_TIMEOUT_SECONDS", 30, minimum=1),
+        openai_timeout_seconds=_read_int("OPENAI_TIMEOUT_SECONDS", 120, minimum=1),
     )
 
 

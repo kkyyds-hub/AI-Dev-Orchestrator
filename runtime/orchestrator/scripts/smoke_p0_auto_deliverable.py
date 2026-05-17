@@ -125,6 +125,42 @@ def main() -> int:
     content_trunc = _truncate_deliverable_text("A" * (_DELIVERABLE_CONTENT_MAX + 1000), _DELIVERABLE_CONTENT_MAX)
     check(len(content_trunc) <= _DELIVERABLE_CONTENT_MAX, f"content max ({len(content_trunc)})")
 
+    # -- Phase 0.5: timeout config defaults ------------------------------
+    print()
+    print("=" * 60)
+    print("PHASE 0.5: timeout configuration")
+    print("=" * 60)
+
+    from app.services.provider_config_service import ProviderConfigService, _DEFAULT_TIMEOUT_SECONDS
+
+    check(_DEFAULT_TIMEOUT_SECONDS == 120, f"_DEFAULT_TIMEOUT_SECONDS == 120 (got {_DEFAULT_TIMEOUT_SECONDS})")
+
+    # Test: no saved config, no env → defaults to 120
+    svc = ProviderConfigService(config_path=SMOKE_RUNTIME_DATA / "nonexistent.json")
+    rt_cfg = svc.resolve_openai_runtime_config()
+    check(rt_cfg.timeout_seconds == 120, f"no config → 120 (got {rt_cfg.timeout_seconds})")
+
+    # Test: explicit timeout is respected — use an isolated config path
+    # so we don't overwrite the real saved config that Phase 1 needs.
+    _tmp_path1 = SMOKE_RUNTIME_DATA / "provider-settings" / "timeout-test-1.json"
+    svc2 = ProviderConfigService(config_path=_tmp_path1)
+    svc2.update_openai_config(api_key="sk-test", timeout_seconds=180)
+    rt_cfg2 = svc2.resolve_openai_runtime_config()
+    check(rt_cfg2.timeout_seconds == 180, f"explicit 180 preserved (got {rt_cfg2.timeout_seconds})")
+
+    # Test: invalid timeout (< 1) falls back to 120
+    _tmp_path2 = SMOKE_RUNTIME_DATA / "provider-settings" / "timeout-test-2.json"
+    svc3 = ProviderConfigService(config_path=_tmp_path2)
+    svc3.update_openai_config(api_key="sk-test", timeout_seconds=0)
+    rt_cfg3 = svc3.resolve_openai_runtime_config()
+    check(rt_cfg3.timeout_seconds == 120, f"invalid 0 → 120 (got {rt_cfg3.timeout_seconds})")
+
+    # Clean up
+    try: _tmp_path1.unlink()
+    except: pass
+    try: _tmp_path2.unlink()
+    except: pass
+
     # -- Phase 1: create project + task via TestClient --------------------
     print()
     print("=" * 60)
