@@ -1036,7 +1036,7 @@ AI 摘要不能每次刷新都生成。
 ### 阶段 2C-A：真实 AI 摘要后端最小闭环
 
 **日期**：2026-05-18
-**提交哈希**：`a3b1700`
+**提交哈希**：`bdfd6ed`（完整：`bdfd6edde8f1ba591e57724d25e7c71887ca14a4`）
 **Build / 测试结果**：后端 28 测试通过，前端 build 通过
 
 #### 已实现
@@ -1057,3 +1057,27 @@ AI 摘要不能每次刷新都生成。
 - `runtime/orchestrator/app/services/run_ai_summary_service.py` — AI 优先 + fallback + 校验
 - `runtime/orchestrator/app/api/routes/runs.py` — DI 注入
 - `runtime/orchestrator/tests/test_run_ai_summaries.py` — 新增 12 个测试
+
+### 阶段 2C-A-R1：Provider/env/prompt_hash/provider_key 硬化
+
+**日期**：2026-05-18
+**提交哈希**：`915f0a9`
+**Build / 测试结果**：后端 35 测试通过，前端 build 通过
+
+#### 已实现
+
+| 项目 | 说明 |
+|---|---|
+| ProviderConfigService 注入 | 始终注入，不再依赖配置文件存在 |
+| env-only provider | 仅环境变量配 api_key 也能触发 AI |
+| AI prompt_hash | source=ai 使用实际 AI prompt hash，与规则 fallback 区分 |
+| rule_fallback prompt_hash | 保持稳定，使用规则 prompt hash |
+| generate_text provider_key | 不再硬编码 openai，传递 detected_provider_type |
+| 前端无改动 | 现有 UI 无需修改 |
+
+#### 修改文件清单
+
+- `runtime/orchestrator/app/api/routes/runs.py` — 修改
+- `runtime/orchestrator/app/services/run_ai_summary_service.py` — 修改
+- `runtime/orchestrator/app/services/openai_provider_executor_service.py` — 修改
+- `runtime/orchestrator/tests/test_run_ai_summaries.py` — 新增 7 个测试

@@ -473,19 +473,9 @@ def get_run_ai_summary_service(
 ) -> RunAISummaryService:
     """Create the run AI summary service dependency."""
 
-    provider_config_service = None
-    try:
-        from app.services.provider_config_service import ProviderConfigService
-        from app.core.config import settings as _settings
-        config_path = (
-            _settings.runtime_data_dir
-            / "provider-settings"
-            / "openai-provider-config.json"
-        )
-        if config_path.exists():
-            provider_config_service = ProviderConfigService(config_path=config_path)
-    except Exception:
-        provider_config_service = None
+    from app.services.provider_config_service import ProviderConfigService
+
+    provider_config_service = ProviderConfigService()
 
     return RunAISummaryService(
         run_repository=RunRepository(session),

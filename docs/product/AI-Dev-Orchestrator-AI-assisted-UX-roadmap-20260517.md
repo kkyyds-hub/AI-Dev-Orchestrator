@@ -802,7 +802,7 @@ AI 可建议：
 >
 > 任务：真实 AI 运行摘要后端最小闭环
 >
-> 提交哈希：`a3b1700`
+> 提交哈希：`bdfd6ed`（完整：`bdfd6edde8f1ba591e57724d25e7c71887ca14a4`）
 >
 > Build / 测试结果：后端 28 测试通过，前端 build 通过
 >
@@ -820,6 +820,27 @@ AI 可建议：
 > - POST generate/regenerate 优先尝试 AI
 > - 前端无需改动，现有 source 展示可区分 AI / 规则回退
 > - 不修改 worker/provider 主执行流程
+>
+> **阶段 2C-A-R1 实施记录** `[2026-05-18]`
+>
+> 任务：真实 AI 运行摘要后端硬化返工
+>
+> 提交哈希：`915f0a9`
+>
+> Build / 测试结果：后端 35 测试通过，前端 build 通过
+>
+> 修改范围：
+> - `runtime/orchestrator/app/api/routes/runs.py` — 始终注入 ProviderConfigService
+> - `runtime/orchestrator/app/services/run_ai_summary_service.py` — source=ai 使用 AI prompt_hash
+> - `runtime/orchestrator/app/services/openai_provider_executor_service.py` — generate_text 传递 provider_key
+> - `runtime/orchestrator/tests/test_run_ai_summaries.py` — 新增 7 个测试
+>
+> 已完成：
+> - 修复 env-only provider 配置不触发 AI 的问题
+> - source=ai 的 prompt_hash 现在来自实际 AI prompt
+> - source=rule_fallback 的 prompt_hash 保持稳定（规则 prompt hash）
+> - generate_text 的 provider_key 不再硬编码 openai
+> - 前端 UI 仍无需改动
 
 ### 阶段 3：项目页 AI 总结按钮
 

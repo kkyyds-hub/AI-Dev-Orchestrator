@@ -212,6 +212,7 @@ class OpenAIProviderExecutorService:
         prompt_text: str,
         request_id: str,
         prompt_key: str = "run_ai_summary",
+        provider_key: str = "openai",
     ) -> OpenAIProviderExecutionResponse:
         """Generate one plain-text completion for run AI summaries.
 
@@ -246,7 +247,7 @@ class OpenAIProviderExecutorService:
             else _OPENAI_CHAT_COMPLETIONS_PRICING_SOURCE
         )
         provider_usage_receipt = ProviderUsageReceipt(
-            provider_key="openai",
+            provider_key=provider_key,
             model_name=model_name,
             receipt_id=receipt_id,
             receipt_source=ProviderReceiptSource.REAL_PROVIDER,

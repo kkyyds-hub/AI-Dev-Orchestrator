@@ -60,6 +60,7 @@ class RunAISummaryContext:
     source_fingerprint: str
     prompt_text: str
     prompt_hash: str
+    ai_prompt_hash: str
     summary_markdown: str
 
 
@@ -150,6 +151,9 @@ class RunAISummaryService:
 
         # Determine the expected source for reuse checks.
         expected_source = RunAISummarySource.AI if can_try_ai else RunAISummarySource.RULE_FALLBACK
+        expected_prompt_hash = (
+            context.ai_prompt_hash if can_try_ai else context.prompt_hash
+        )
 
         # ── Reuse check ────────────────────────────────────────
         if (
@@ -158,7 +162,7 @@ class RunAISummaryService:
             and active_summary.status == RunAISummaryStatus.SUCCEEDED
             and active_summary.source == expected_source
             and active_summary.source_fingerprint == context.source_fingerprint
-            and active_summary.prompt_hash == context.prompt_hash
+            and active_summary.prompt_hash == expected_prompt_hash
         ):
             return active_summary
 
@@ -206,12 +210,19 @@ class RunAISummaryService:
             source_fingerprint=source_fingerprint,
             prompt_hash=prompt_hash,
         )
+        # Pre-compute AI prompt hash so source=ai and reuse checks can use it
+        ai_prompt_text = self._build_ai_prompt_text_direct(
+            run=run,
+            task=task,
+        )
+        ai_prompt_hash = sha256(ai_prompt_text.encode("utf-8")).hexdigest()
         return RunAISummaryContext(
             run=run,
             task=task,
             source_fingerprint=source_fingerprint,
             prompt_text=prompt_text,
             prompt_hash=prompt_hash,
+            ai_prompt_hash=ai_prompt_hash,
             summary_markdown=summary_markdown,
         )
 
@@ -458,7 +469,7 @@ class RunAISummaryService:
             source_hash=context.source_fingerprint,
             model_provider=provider_type,
             model_name=model_name,
-            prompt_hash=context.prompt_hash,
+            prompt_hash=context.ai_prompt_hash,
             provider_receipt_id=receipt_id,
             generated_at=now,
             created_at=now,
@@ -468,15 +479,14 @@ class RunAISummaryService:
         )
         return self.run_ai_summary_repository.create(summary)
 
-    def _build_ai_prompt_text(self, *, context: RunAISummaryContext) -> str:
-        """Build the AI prompt text for real provider generation.
+    def _build_ai_prompt_text_direct(
+        self,
+        *,
+        run: Run,
+        task: Task | None,
+    ) -> str:
+        """Build the AI prompt text without requiring a RunAISummaryContext."""
 
-        This is a stricter version of _build_prompt_text that instructs the
-        model about the exact output format required.
-        """
-
-        run = context.run
-        task = context.task
         task_title = task.title if task is not None else "未记录"
         task_input = task.input_summary if task is not None else "未记录"
         provider_label = run.provider_key or "未记录"
@@ -521,6 +531,14 @@ class RunAISummaryService:
             lines.append(f"- 失败分类：{run.failure_category.value}")
         return "\n".join(lines).strip()
 
+    def _build_ai_prompt_text(self, *, context: RunAISummaryContext) -> str:
+        """Build the AI prompt text from a context (for use during generation)."""
+
+        return self._build_ai_prompt_text_direct(
+            run=context.run,
+            task=context.task,
+        )
+
     def _call_provider_text(
         self,
         *,
@@ -548,6 +566,7 @@ class RunAISummaryService:
             prompt_text=prompt_text,
             request_id=request_id,
             prompt_key="run_ai_summary",
+            provider_key=runtime_config.detected_provider_type,
         )
         receipt_id = None
         if response.provider_usage_receipt is not None:
