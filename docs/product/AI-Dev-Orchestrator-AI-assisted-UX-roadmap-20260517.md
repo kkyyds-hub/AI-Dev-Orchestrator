@@ -750,6 +750,34 @@ AI 可建议：
 - 能区分真实 provider 成功、provider timeout、mock fallback、验证失败；
 - 摘要保存后刷新不丢。
 
+> **阶段 2B-R3 实施记录** `[2026-05-18]`
+>
+> 任务：运行摘要来源文案收口 + 文档回填
+>
+> 提交哈希：`4c4672a`
+>
+> Build 结果：通过（tsc + vite build）
+>
+> 修改范围：
+> - `apps/web/src/pages/runs/components/RunPrimarySummaryCard.tsx` — 主卡片文案收口
+> - `apps/web/src/pages/runs/api/runAiSummary.ts` — API 错误消息文案收口
+>
+> 已完成：
+> - 前端已接入保存摘要接口（GET + POST generate + POST regenerate）
+> - 当前摘要来源仍为 rule_fallback，不真实调用 DeepSeek/OpenAI
+> - 真实 AI 摘要生成仍未接入，保留到阶段 2C
+> - 主卡片标题固定为"运行摘要"，不再出现"AI 摘要"/"AI 运行摘要"/"智能摘要"
+> - 按钮文案收口：无摘要时"生成运行摘要"，有摘要时"重新生成摘要"，生成中"生成中…"
+> - source=rule_fallback 时状态条显示"摘要来源：规则回退 · 尚未调用真实 AI"
+> - source=ai 时预留显示"摘要来源：AI 生成 · {model_provider 或 model_name}"
+> - 错误/空状态文案统一为"运行摘要服务暂不可用"/"摘要生成失败"/"当前显示本地规则摘要"，不再出现"AI 摘要生成失败"
+> - 空状态：active_summary=null 时显示"当前显示本地规则摘要。可以生成一份可保存的运行摘要，刷新页面后仍可查看。"
+> - Footer 低调说明："当前阶段的保存摘要由规则回退生成；真实 AI 摘要将在后续阶段接入。"
+> - 原始 run 的模型执行与摘要生成方式在 UI 上已明确区分
+> - 视觉风格保持中性灰黑线条式，未新增 emerald/amber/rose 大色块和 AI 图标
+> - 技术日志弹窗保持不变
+> - 未修改后端、不真实调用 AI、不进入阶段 2C
+
 ### 阶段 3：项目页 AI 总结按钮
 
 目标：

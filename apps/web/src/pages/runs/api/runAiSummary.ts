@@ -65,7 +65,7 @@ function classifyError(
       action,
       category: "not_found",
       userMessage:
-        "AI 摘要接口暂不可用。请确认后端服务已重启到包含 /runs/{run_id}/ai-summary 的版本，且当前运行记录存在。",
+        "运行摘要接口暂不可用。请确认后端服务已重启到包含 /runs/{run_id}/ai-summary 的版本，且当前运行记录存在。",
       debugMessage: msg,
     };
   }
@@ -82,7 +82,7 @@ function classifyError(
       action,
       category: "server_error",
       userMessage:
-        "AI 摘要生成失败，后端返回错误。当前继续显示本地规则摘要。",
+        "摘要生成失败，后端返回错误。当前继续显示本地规则摘要。",
       debugMessage: msg,
     };
   }
@@ -100,7 +100,7 @@ function classifyError(
       action,
       category: "network_error",
       userMessage:
-        "无法连接 AI 摘要服务，当前继续显示本地规则摘要。",
+        "无法连接运行摘要服务，当前继续显示本地规则摘要。",
       debugMessage: msg,
     };
   }
@@ -109,7 +109,7 @@ function classifyError(
   return {
     action,
     category: "unknown",
-    userMessage: "AI 摘要暂时不可用，当前继续显示本地规则摘要。",
+    userMessage: "运行摘要暂时不可用，当前继续显示本地规则摘要。",
     debugMessage: msg,
   };
 }

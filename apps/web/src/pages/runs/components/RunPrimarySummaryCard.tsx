@@ -111,10 +111,15 @@ export function RunPrimarySummaryCard({
   const aiStale = aiReady && aiState.summary.stale;
   const showAiMarkdown = aiSucceeded;
 
-  // Short header subtitle — no "当前显示本地规则摘要" repetition
+  // Short header subtitle — source-aware
   const subtitle = (() => {
-    if (aiSucceeded) return "AI 摘要已保存，刷新页面不会丢失";
-    if (aiState.kind === "loading") return "正在检查 AI 摘要…";
+    if (aiState.kind === "loading") return "正在检查运行摘要…";
+    if (aiSucceeded) {
+      if (aiState.summary.source === "rule_fallback") {
+        return "摘要已保存，当前由规则回退生成，刷新页面不会丢失。";
+      }
+      return "摘要已保存，刷新页面不会丢失。";
+    }
     return "当前显示本地规则摘要";
   })();
 
@@ -140,7 +145,7 @@ export function RunPrimarySummaryCard({
           onClick={handleRegenerate}
           className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
         >
-          重新生成
+          重新生成摘要
         </button>
       );
     }
@@ -149,11 +154,11 @@ export function RunPrimarySummaryCard({
       return (
         <button
           type="button"
-          data-testid="primary-generate-ai-summary"
+          data-testid="primary-generate-run-summary"
           onClick={handleGenerate}
           className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
         >
-          生成 AI 摘要
+          生成运行摘要
         </button>
       );
     }
@@ -183,22 +188,28 @@ export function RunPrimarySummaryCard({
       {/* ── Status hints (body area, shown only once per state) ── */}
       {aiState.kind === "unavailable" ? (
         <HintBox>
-          无法获取 AI 摘要。
+          运行摘要服务暂不可用，当前显示本地规则摘要。
           {aiState.fetchError ? (
             <span> {aiState.fetchError.userMessage}</span>
           ) : null}
         </HintBox>
       ) : null}
 
+      {aiState.kind === "empty" ? (
+        <HintBox>
+          当前显示本地规则摘要。可以生成一份可保存的运行摘要，刷新页面后仍可查看。
+        </HintBox>
+      ) : null}
+
       {aiPending ? (
         <HintBox>
-          AI 摘要生成中，当前先显示本地规则摘要。
+          摘要生成中，当前先显示本地规则摘要。
         </HintBox>
       ) : null}
 
       {aiFailed ? (
         <HintBox>
-          AI 摘要生成失败，当前显示本地规则摘要。
+          摘要生成失败，当前显示本地规则摘要。
           {aiState.summary.error_summary ? (
             <span className="block mt-1 text-zinc-600">
               {aiState.summary.error_summary}
@@ -227,7 +238,9 @@ export function RunPrimarySummaryCard({
       {aiReady ? (
         <div className="border-t border-[#333333] pt-3">
           <p className="text-xs text-zinc-600">
-            当前摘要来自后端保存记录，刷新页面不会丢失。
+            {aiState.summary.source === "rule_fallback"
+              ? "当前阶段的保存摘要由规则回退生成；真实 AI 摘要将在后续阶段接入。"
+              : "当前摘要来自后端保存记录，刷新页面不会丢失。"}
           </p>
         </div>
       ) : null}
@@ -252,9 +265,14 @@ function AiStatusStrip({ summary }: { summary: RunAISummaryDTO }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
       {summary.source === "rule_fallback" ? (
-        <span>规则回退摘要 · 尚未调用真实 AI</span>
+        <span>摘要来源：规则回退 · 尚未调用真实 AI</span>
       ) : (
-        <span>AI 生成摘要</span>
+        <span>
+          摘要来源：AI 生成
+          {summary.model_provider || summary.model_name ? (
+            <> · {summary.model_provider || summary.model_name}</>
+          ) : null}
+        </span>
       )}
       {summary.stale ? <span>摘要可能已过期</span> : null}
       {summary.generated_at ? (
