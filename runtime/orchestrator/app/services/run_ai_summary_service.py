@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+import logging
+from typing import Callable
 from uuid import UUID
 
 from app.domain.run import Run, RunStatus
@@ -19,6 +21,26 @@ from app.domain._base import utc_now
 from app.repositories.run_ai_summary_repository import RunAISummaryRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
+
+logger = logging.getLogger(__name__)
+
+# ── Markdown validation constants ─────────────────────────────────
+
+_REQUIRED_HEADINGS = [
+    "## 运行结论",
+    "## 已完成内容",
+    "## 风险与注意事项",
+    "## 下一步建议",
+    "## 技术依据",
+]
+
+_MAX_MARKDOWN_LENGTH = 8_000
+
+# Type alias for a callable that generates summary text via a provider.
+AISummaryTextGenerator = Callable[
+    [str, str, str],  # model_name, prompt_text, request_id
+    tuple[str, str | None],  # (output_text, provider_receipt_id | None)
+]
 
 
 class RunAISummaryError(ValueError):
@@ -56,10 +78,15 @@ class RunAISummaryService:
         run_repository: RunRepository,
         task_repository: TaskRepository,
         run_ai_summary_repository: RunAISummaryRepository,
+        provider_config_service: object | None = None,
+        ai_text_generator: AISummaryTextGenerator | None = None,
     ) -> None:
         self.run_repository = run_repository
         self.task_repository = task_repository
         self.run_ai_summary_repository = run_ai_summary_repository
+        self._provider_config_service = provider_config_service
+        self._ai_text_generator = ai_text_generator
+        self._last_ai_error: str | None = None
 
     # ── Singular current-summary helpers ──────────────────────────
 
@@ -103,7 +130,15 @@ class RunAISummaryService:
         run_id: UUID,
         regenerate: bool = False,
     ) -> RunAISummary:
-        """Create a new run summary or reuse the current active snapshot."""
+        """Create a new run summary or reuse the current active snapshot.
+
+        Priority:
+        1. If provider is configured → attempt real AI generation.
+        2. If AI succeeds with valid markdown → save as source=ai.
+        3. If AI fails / times out / returns invalid markdown → fallback
+           to rule_fallback with a short error_summary.
+        4. If provider is not configured → rule_fallback directly.
+        """
 
         context = self._build_context(run_id=run_id)
         active_summary = self.run_ai_summary_repository.get_active_by_run_id_and_type(
@@ -111,46 +146,44 @@ class RunAISummaryService:
             summary_type=RunAISummaryType.RUN,
         )
 
+        can_try_ai = self._can_try_ai()
+
+        # Determine the expected source for reuse checks.
+        expected_source = RunAISummarySource.AI if can_try_ai else RunAISummarySource.RULE_FALLBACK
+
+        # ── Reuse check ────────────────────────────────────────
         if (
             not regenerate
             and active_summary is not None
-            and active_summary.status == self.SUMMARY_STATUS
-            and active_summary.source == self.SUMMARY_SOURCE
+            and active_summary.status == RunAISummaryStatus.SUCCEEDED
+            and active_summary.source == expected_source
             and active_summary.source_fingerprint == context.source_fingerprint
             and active_summary.prompt_hash == context.prompt_hash
         ):
             return active_summary
 
+        # ── Mark old active stale ──────────────────────────────
         if active_summary is not None:
             self.run_ai_summary_repository.mark_active_stale(
                 run_id=run_id,
                 summary_type=RunAISummaryType.RUN,
             )
 
-        now = utc_now()
-        summary = RunAISummary(
-            run_id=context.run.id,
-            project_id=context.task.project_id if context.task is not None else None,
-            task_id=context.run.task_id,
-            deliverable_id=None,
-            summary_type=RunAISummaryType.RUN,
-            status=self.SUMMARY_STATUS,
-            source=self.SUMMARY_SOURCE,
-            summary_markdown=context.summary_markdown,
-            source_version=self.SOURCE_VERSION,
-            source_fingerprint=context.source_fingerprint,
-            source_hash=context.source_fingerprint,
-            model_provider=self.SUMMARY_MODEL_PROVIDER,
-            model_name=self.SUMMARY_MODEL_NAME,
-            prompt_hash=context.prompt_hash,
-            provider_receipt_id=None,
-            generated_at=now,
-            created_at=now,
-            updated_at=now,
-            error_summary=None,
-            stale=False,
+        # ── Try AI generation ──────────────────────────────────
+        if can_try_ai:
+            ai_result = self._try_ai_summary(context=context)
+            if ai_result is not None:
+                return ai_result
+            # AI failed → fall through to rule_fallback with error_summary set.
+            error_reason = self._last_ai_error or "AI 摘要生成失败，已使用规则回退"
+        else:
+            error_reason = None
+
+        # ── Rule fallback ──────────────────────────────────────
+        return self._create_rule_fallback_summary(
+            context=context,
+            error_summary=error_reason,
         )
-        return self.run_ai_summary_repository.create(summary)
 
     def _build_context(self, *, run_id: UUID) -> RunAISummaryContext:
         """Resolve the source run and build deterministic summary inputs."""
@@ -333,6 +366,265 @@ class RunAISummaryService:
             f"- 调试指纹：已记录，可在前端状态条或技术日志中查看完整值",
         ]
         return "\n".join(lines).strip()
+
+    # ── AI generation helpers ──────────────────────────────────────
+
+    def _can_try_ai(self) -> bool:
+        """Check whether real AI summary generation is possible."""
+
+        # Test-injectable fake generator always wins.
+        if self._ai_text_generator is not None:
+            return True
+
+        if self._provider_config_service is None:
+            return False
+        try:
+            runtime_config = self._provider_config_service.resolve_openai_runtime_config()
+        except Exception:
+            return False
+        return bool(runtime_config.api_key)
+
+    def _try_ai_summary(self, *, context: RunAISummaryContext) -> RunAISummary | None:
+        """Attempt real AI summary generation. Returns None on any failure."""
+
+        self._last_ai_error = None
+
+        request_id = str(context.run.id)
+        ai_prompt = self._build_ai_prompt_text(context=context)
+
+        # Resolve config: test-injected generator vs. real provider config
+        if self._ai_text_generator is not None:
+            model_name = "test_model"
+            provider_type = "openai_compatible"
+            try:
+                output_text, receipt_id = self._ai_text_generator(
+                    model_name, ai_prompt, request_id
+                )
+            except Exception as exc:
+                category = getattr(exc, "category", "unknown")
+                brief = str(exc)[:200]
+                self._last_ai_error = f"真实 AI 摘要生成失败，已使用规则回退：{category}"
+                logger.warning("run_ai_summary: AI fake-generator failed [%s]: %s", category, brief)
+                return None
+        else:
+            try:
+                runtime_config = self._provider_config_service.resolve_openai_runtime_config()
+            except Exception as exc:
+                self._last_ai_error = f"无法读取 Provider 配置：{exc}"
+                logger.warning("run_ai_summary: cannot read provider config: %s", exc)
+                return None
+
+            model_name = runtime_config.model_names.get("balanced", "gpt-4.1-mini")
+            provider_type = runtime_config.detected_provider_type
+
+            try:
+                output_text, receipt_id = self._call_provider_text(
+                    runtime_config=runtime_config,
+                    model_name=model_name,
+                    prompt_text=ai_prompt,
+                    request_id=request_id,
+                )
+            except Exception as exc:
+                category = getattr(exc, "category", "unknown")
+                brief = str(exc)[:200]
+                self._last_ai_error = f"真实 AI 摘要生成失败，已使用规则回退：{category}"
+                logger.warning("run_ai_summary: AI generation failed [%s]: %s", category, brief)
+                return None
+
+        # Validate the AI output
+        validation_error = self._validate_ai_summary_markdown(output_text)
+        if validation_error is not None:
+            self._last_ai_error = f"AI 摘要格式不符合要求，已使用规则回退：{validation_error}"
+            logger.warning("run_ai_summary: markdown validation failed: %s", validation_error)
+            return None
+
+        # Truncate if needed
+        if len(output_text) > _MAX_MARKDOWN_LENGTH:
+            output_text = output_text[:_MAX_MARKDOWN_LENGTH]
+
+        # Save source=ai summary
+        now = utc_now()
+        summary = RunAISummary(
+            run_id=context.run.id,
+            project_id=context.task.project_id if context.task is not None else None,
+            task_id=context.run.task_id,
+            deliverable_id=None,
+            summary_type=RunAISummaryType.RUN,
+            status=RunAISummaryStatus.SUCCEEDED,
+            source=RunAISummarySource.AI,
+            summary_markdown=output_text,
+            source_version=self.SOURCE_VERSION,
+            source_fingerprint=context.source_fingerprint,
+            source_hash=context.source_fingerprint,
+            model_provider=provider_type,
+            model_name=model_name,
+            prompt_hash=context.prompt_hash,
+            provider_receipt_id=receipt_id,
+            generated_at=now,
+            created_at=now,
+            updated_at=now,
+            error_summary=None,
+            stale=False,
+        )
+        return self.run_ai_summary_repository.create(summary)
+
+    def _build_ai_prompt_text(self, *, context: RunAISummaryContext) -> str:
+        """Build the AI prompt text for real provider generation.
+
+        This is a stricter version of _build_prompt_text that instructs the
+        model about the exact output format required.
+        """
+
+        run = context.run
+        task = context.task
+        task_title = task.title if task is not None else "未记录"
+        task_input = task.input_summary if task is not None else "未记录"
+        provider_label = run.provider_key or "未记录"
+        model_label = run.model_name or "未记录"
+        receipt_label = run.provider_receipt_id or "未记录"
+        quality_label = (
+            "通过" if run.quality_gate_passed is True
+            else ("拦截" if run.quality_gate_passed is False else "未记录")
+        )
+
+        lines = [
+            "你是 AI 运行摘要生成器。只输出中文 Markdown，严格使用以下五个标题，不得增减：",
+            "",
+            "## 运行结论",
+            "## 已完成内容",
+            "## 风险与注意事项",
+            "## 下一步建议",
+            "## 技术依据",
+            "",
+            "要求：",
+            "- 不输出 JSON。",
+            "- 不用 ``` 代码块包裹全文。",
+            "- 不编造未在源数据中出现的事实。",
+            '- 区分「原始任务运行的 provider 执行结果」和「摘要生成来源」。',
+            "- 不在正文里输出完整 source_fingerprint / prompt_hash。",
+            "- 技术依据可引用运行状态、结果摘要、验证摘要、质量检查、模型服务 Key、模型名称、模型回执 ID。",
+            "- 内容简洁，面向后台用户。",
+            "",
+            "源数据：",
+            f"- 运行 ID：{run.id}",
+            f"- 任务标题：{task_title}",
+            f"- 任务输入：{task_input}",
+            f"- 运行状态：{run.status.value}",
+            f"- 结果摘要：{run.result_summary or '未记录'}",
+            f"- 验证摘要：{run.verification_summary or '未记录'}",
+            f"- 质量检查：{quality_label}",
+            f"- 模型服务 Key：{provider_label}",
+            f"- 模型名称：{model_label}",
+            f"- 模型回执 ID：{receipt_label}",
+        ]
+        if run.failure_category is not None:
+            lines.append(f"- 失败分类：{run.failure_category.value}")
+        return "\n".join(lines).strip()
+
+    def _call_provider_text(
+        self,
+        *,
+        runtime_config: object,
+        model_name: str,
+        prompt_text: str,
+        request_id: str,
+    ) -> tuple[str, str | None]:
+        """Invoke the real provider to generate summary text.
+
+        Returns (output_text, provider_receipt_id).
+        """
+
+        from app.services.openai_provider_executor_service import (
+            OpenAIProviderExecutorService,
+        )
+
+        executor = OpenAIProviderExecutorService(
+            api_key=runtime_config.api_key,
+            base_url=runtime_config.base_url,
+            timeout_seconds=runtime_config.timeout_seconds,
+        )
+        response = executor.generate_text(
+            model_name=model_name,
+            prompt_text=prompt_text,
+            request_id=request_id,
+            prompt_key="run_ai_summary",
+        )
+        receipt_id = None
+        if response.provider_usage_receipt is not None:
+            receipt_id = response.provider_usage_receipt.receipt_id
+        output_text = response.output_text or response.summary
+        return output_text, receipt_id
+
+    def _create_rule_fallback_summary(
+        self,
+        *,
+        context: RunAISummaryContext,
+        error_summary: str | None,
+    ) -> RunAISummary:
+        """Create and persist a rule_fallback summary."""
+
+        now = utc_now()
+        summary = RunAISummary(
+            run_id=context.run.id,
+            project_id=context.task.project_id if context.task is not None else None,
+            task_id=context.run.task_id,
+            deliverable_id=None,
+            summary_type=RunAISummaryType.RUN,
+            status=RunAISummaryStatus.SUCCEEDED,
+            source=RunAISummarySource.RULE_FALLBACK,
+            summary_markdown=context.summary_markdown,
+            source_version=self.SOURCE_VERSION,
+            source_fingerprint=context.source_fingerprint,
+            source_hash=context.source_fingerprint,
+            model_provider=self.SUMMARY_MODEL_PROVIDER,
+            model_name=self.SUMMARY_MODEL_NAME,
+            prompt_hash=context.prompt_hash,
+            provider_receipt_id=None,
+            generated_at=now,
+            created_at=now,
+            updated_at=now,
+            error_summary=error_summary,
+            stale=False,
+        )
+        return self.run_ai_summary_repository.create(summary)
+
+    @staticmethod
+    def _validate_ai_summary_markdown(markdown: str) -> str | None:
+        """Validate AI-generated markdown meets format requirements.
+
+        Returns None if valid, or an error description string if invalid.
+        """
+
+        trimmed = markdown.strip()
+        if not trimmed:
+            return "AI 返回空文本"
+
+        # Must not be wrapped in a code block as the entire body
+        if trimmed.startswith("```") and trimmed.endswith("```"):
+            return "AI 输出被代码块包裹"
+
+        # Must not be a JSON object
+        if trimmed.startswith("{") and trimmed.endswith("}"):
+            try:
+                json.loads(trimmed)
+                return "AI 输出为 JSON 对象而非 Markdown"
+            except (json.JSONDecodeError, ValueError):
+                pass  # not actually JSON, continue
+
+        # Check for required headings
+        for heading in _REQUIRED_HEADINGS:
+            if heading not in trimmed:
+                return f"缺少必要标题：{heading}"
+
+        # Must have meaningful content beyond just headings
+        content_lines = [
+            line for line in trimmed.split("\n")
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        if len(content_lines) < 3:
+            return "AI 输出内容过短，仅有标题"
+
+        return None
 
     @staticmethod
     def _compact_text(value: str | None) -> str | None:

@@ -1032,3 +1032,28 @@ AI 摘要不能每次刷新都生成。
 #### 修改文件清单
 
 - `runtime/orchestrator/app/services/run_ai_summary_service.py` — 修改
+
+### 阶段 2C-A：真实 AI 摘要后端最小闭环
+
+**日期**：2026-05-18
+**提交哈希**：`a3b1700`
+**Build / 测试结果**：后端 28 测试通过，前端 build 通过
+
+#### 已实现
+
+| 项目 | 说明 |
+|---|---|
+| AI 优先生成 | Provider 配置存在时优先尝试真实 AI 生成，成功则 source=ai |
+| 规则回退兜底 | AI 失败/超时/未配置/格式不合格时自动回退 source=rule_fallback |
+| GET 只读 | GET 不触发 AI，只返回 active_summary |
+| POST 触发生成 | POST generate / regenerate 优先尝试 AI |
+| Markdown 校验 | 校验五标题、无代码块包裹、无 JSON、非空、长度上限 |
+| 前端无改动 | 现有 RunPrimarySummaryCard 无需修改，根据 source 字段自动区分展示 |
+| 不改 worker | worker/provider 主执行流程不变 |
+
+#### 修改文件清单
+
+- `runtime/orchestrator/app/services/openai_provider_executor_service.py` — 新增 generate_text()
+- `runtime/orchestrator/app/services/run_ai_summary_service.py` — AI 优先 + fallback + 校验
+- `runtime/orchestrator/app/api/routes/runs.py` — DI 注入
+- `runtime/orchestrator/tests/test_run_ai_summaries.py` — 新增 12 个测试

@@ -797,6 +797,29 @@ AI 可建议：
 > - 前端状态条仍保留 8 位短 hash + title 悬停完整值
 > - 当前仍为 rule_fallback，不真实调用 AI
 > - 真实 DeepSeek 摘要仍保留到 2C
+>
+> **阶段 2C-A 实施记录** `[2026-05-18]`
+>
+> 任务：真实 AI 运行摘要后端最小闭环
+>
+> 提交哈希：`a3b1700`
+>
+> Build / 测试结果：后端 28 测试通过，前端 build 通过
+>
+> 修改范围：
+> - `runtime/orchestrator/app/services/openai_provider_executor_service.py` — 新增 `generate_text()` 纯文本生成方法
+> - `runtime/orchestrator/app/services/run_ai_summary_service.py` — AI 优先生成 + rule_fallback + Markdown 校验
+> - `runtime/orchestrator/app/api/routes/runs.py` — DI 注入 ProviderConfigService
+> - `runtime/orchestrator/tests/test_run_ai_summaries.py` — 新增 12 个测试
+>
+> 已完成：
+> - Provider 配置存在时优先尝试真实 AI 生成运行摘要
+> - AI 成功时保存 source=ai，含 model_provider / model_name / provider_receipt_id
+> - AI 失败/超时/格式不合格/未配置时自动回退 source=rule_fallback
+> - GET /ai-summary 不触发 AI，只读 active_summary
+> - POST generate/regenerate 优先尝试 AI
+> - 前端无需改动，现有 source 展示可区分 AI / 规则回退
+> - 不修改 worker/provider 主执行流程
 
 ### 阶段 3：项目页 AI 总结按钮
 

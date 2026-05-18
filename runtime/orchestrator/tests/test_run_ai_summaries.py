@@ -22,6 +22,8 @@ from app.repositories.run_ai_summary_repository import RunAISummaryRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.run_ai_summary_service import RunAISummaryService
+from app.api.routes.runs import get_run_ai_summary_service as _original_get_run_ai_summary_service
+from fastapi import Depends as _FastAPIDepends
 
 _REQUIRED_MARKDOWN_HEADINGS = [
     "## 运行结论",
@@ -117,6 +119,24 @@ def client(sqlite_session_factory):
             session.close()
 
     app.dependency_overrides[get_db_session] = override_get_db_session
+
+    # Override to NOT inject ProviderConfigService so legacy tests stay
+    # rule_fallback-only.  2C-A tests can create their own client with AI enabled.
+    from sqlalchemy.orm import Session as _Session
+
+    def _no_provider_summary_service(
+        session: _Session = _FastAPIDepends(get_db_session),
+    ):
+        return RunAISummaryService(
+            run_repository=RunRepository(session),
+            task_repository=TaskRepository(session),
+            run_ai_summary_repository=RunAISummaryRepository(session),
+        )
+
+    app.dependency_overrides[_original_get_run_ai_summary_service] = (
+        _no_provider_summary_service
+    )
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -566,3 +586,278 @@ def test_singular_404_for_missing_run_all_paths(client):
     assert client.get(f"/runs/{missing}/ai-summary").status_code == 404
     assert client.post(f"/runs/{missing}/ai-summary/generate").status_code == 404
     assert client.post(f"/runs/{missing}/ai-summary/regenerate").status_code == 404
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 2C-A  tests — real AI summary generation with fake provider client
+# ═══════════════════════════════════════════════════════════════════
+
+_VALID_AI_MARKDOWN = """## 运行结论
+本次运行已成功完成，由 AI 生成摘要。
+
+## 已完成内容
+- 任务：测试任务
+- 运行状态：succeeded
+
+## 风险与注意事项
+- 当前没有额外风险信号。
+
+## 下一步建议
+- 可继续查看交付件或审批。
+
+## 技术依据
+- 运行状态：succeeded
+- 结果摘要：执行完成
+- 验证摘要：验证通过
+- 质量检查：通过
+- 模型服务 Key：deepseek
+- 模型名称：deepseek-v4-pro
+- 模型回执 ID：receipt-ai-001"""
+
+
+def _fake_ai_success(model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
+    return _VALID_AI_MARKDOWN, "receipt-ai-001"
+
+
+def _fake_ai_timeout(model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
+    from app.services.openai_provider_executor_service import OpenAIProviderExecutionError
+    raise OpenAIProviderExecutionError(
+        category="timeout",
+        message="OpenAI request timed out after 120 seconds",
+    )
+
+
+def _fake_ai_empty(model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
+    return "   ", None
+
+
+def _fake_ai_json(model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
+    return '{"summary": "not markdown"}', None
+
+
+def _fake_ai_missing_heading(model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
+    return """## 运行结论
+Done.
+
+## 已完成内容
+- OK
+
+## 风险与注意事项
+- None
+
+## 下一步建议
+- Go ahead
+""", None  # missing 技术依据
+
+
+# ── provider unconfigured ──────────────────────────────────────────
+
+def test_ai_summary_no_provider_returns_rule_fallback(run_ai_summary_service, db_session, seeded_run):
+    """Without provider config, generate returns source=rule_fallback."""
+    _, _, run_id = seeded_run
+
+    summary = run_ai_summary_service.generate_run_summary(run_id=run_id)
+    assert summary.source == RunAISummarySource.RULE_FALLBACK
+    assert summary.model_provider == "local_rule_engine"
+    assert summary.model_name == "run_summary.rule_fallback.v2"
+    assert summary.provider_receipt_id is None
+    assert summary.status == RunAISummaryStatus.SUCCEEDED
+
+
+# ── AI success ─────────────────────────────────────────────────────
+
+def test_ai_summary_provider_success_returns_source_ai(db_session, seeded_run):
+    """With a fake AI generator that returns valid markdown, source=ai."""
+    _, _, run_id = seeded_run
+
+    service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=_fake_ai_success,
+    )
+    summary = service.generate_run_summary(run_id=run_id)
+    assert summary.source == RunAISummarySource.AI
+    assert summary.status == RunAISummaryStatus.SUCCEEDED
+    assert summary.model_provider is not None
+    assert summary.model_name is not None
+    assert summary.provider_receipt_id == "receipt-ai-001"
+    assert "## 运行结论" in summary.summary_markdown
+    assert summary.summary_markdown == _VALID_AI_MARKDOWN
+    assert summary.error_summary is None
+
+
+# ── AI timeout fallback ────────────────────────────────────────────
+
+def test_ai_summary_timeout_falls_back_to_rule(db_session, seeded_run):
+    """AI timeout does not 500; falls back to rule_fallback with error_summary."""
+    _, _, run_id = seeded_run
+
+    service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=_fake_ai_timeout,
+    )
+    summary = service.generate_run_summary(run_id=run_id)
+    assert summary.source == RunAISummarySource.RULE_FALLBACK
+    assert summary.status == RunAISummaryStatus.SUCCEEDED
+    assert summary.error_summary is not None
+    assert "timeout" in summary.error_summary
+    # error_summary must NOT contain a traceback or API key
+    assert "Traceback" not in (summary.error_summary or "")
+
+
+# ── AI bad markdown fallbacks ──────────────────────────────────────
+
+def test_ai_summary_empty_text_falls_back_to_rule(db_session, seeded_run):
+    """Empty AI output → rule_fallback."""
+    _, _, run_id = seeded_run
+
+    service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=_fake_ai_empty,
+    )
+    summary = service.generate_run_summary(run_id=run_id)
+    assert summary.source == RunAISummarySource.RULE_FALLBACK
+    assert summary.error_summary is not None
+    assert "空文本" in (summary.error_summary or "")
+
+
+def test_ai_summary_json_output_falls_back_to_rule(db_session, seeded_run):
+    """JSON output from AI → rule_fallback."""
+    _, _, run_id = seeded_run
+
+    service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=_fake_ai_json,
+    )
+    summary = service.generate_run_summary(run_id=run_id)
+    assert summary.source == RunAISummarySource.RULE_FALLBACK
+    assert "JSON" in (summary.error_summary or "")
+
+
+def test_ai_summary_missing_heading_falls_back_to_rule(db_session, seeded_run):
+    """AI output missing 技术依据 → rule_fallback."""
+    _, _, run_id = seeded_run
+
+    service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=_fake_ai_missing_heading,
+    )
+    summary = service.generate_run_summary(run_id=run_id)
+    assert summary.source == RunAISummarySource.RULE_FALLBACK
+    assert "缺少必要标题" in (summary.error_summary or "")
+
+
+# ── GET does not trigger AI ───────────────────────────────────────
+
+def test_get_ai_summary_does_not_trigger_ai(db_session, seeded_run):
+    """GET only reads existing active_summary; it never generates."""
+    _, _, run_id = seeded_run
+
+    # Service with a fake generator that would succeed — but GET should
+    # never call it because get_active_summary is read-only.
+    call_count = [0]
+
+    def counting_generator(model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
+        call_count[0] += 1
+        return _VALID_AI_MARKDOWN, "receipt-count"
+
+    service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=counting_generator,
+    )
+    # GET should return None (no active summary) without calling AI
+    active = service.get_active_summary(run_id=run_id)
+    assert active is None
+    assert call_count[0] == 0
+
+    # Even after generating, GET just reads
+    summary = service.generate_run_summary(run_id=run_id)
+    assert call_count[0] == 1
+    active = service.get_active_summary(run_id=run_id)
+    assert active is not None
+    assert active.id == summary.id
+    assert call_count[0] == 1  # still 1 — GET did not call AI
+
+
+# ── regenerate with AI ────────────────────────────────────────────
+
+def test_ai_summary_regenerate_retries_ai(db_session, seeded_run):
+    """Regenerate with AI available should produce a new source=ai summary."""
+    _, _, run_id = seeded_run
+
+    service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=_fake_ai_success,
+    )
+    first = service.generate_run_summary(run_id=run_id)
+    assert first.source == RunAISummarySource.AI
+
+    second = service.generate_run_summary(run_id=run_id, regenerate=True)
+    assert second.source == RunAISummarySource.AI
+    assert second.id != first.id
+
+    history = RunAISummaryRepository(db_session).list_by_run_id(run_id)
+    assert len(history) == 2
+    assert history[1].stale is True
+
+
+# ── existing rule_fallback + provider now available → AI retry ─────
+
+def test_ai_summary_rule_fallback_active_with_provider_retries_ai(db_session, seeded_run):
+    """When active summary is rule_fallback but provider is now configured,
+    POST /generate should attempt AI generation."""
+    _, _, run_id = seeded_run
+
+    # First create a rule_fallback summary (no AI generator)
+    no_ai_service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+    )
+    first = no_ai_service.generate_run_summary(run_id=run_id)
+    assert first.source == RunAISummarySource.RULE_FALLBACK
+
+    # Now with AI generator available, generate should try AI
+    ai_service = RunAISummaryService(
+        run_repository=RunRepository(db_session),
+        task_repository=TaskRepository(db_session),
+        run_ai_summary_repository=RunAISummaryRepository(db_session),
+        ai_text_generator=_fake_ai_success,
+    )
+    second = ai_service.generate_run_summary(run_id=run_id)
+    assert second.source == RunAISummarySource.AI
+    assert second.id != first.id
+
+
+# ── markdown heading validation ────────────────────────────────────
+
+def test_validate_ai_summary_markdown_accepts_valid():
+    """Five headings + content passes validation."""
+    from app.services.run_ai_summary_service import RunAISummaryService
+    assert RunAISummaryService._validate_ai_summary_markdown(_VALID_AI_MARKDOWN) is None
+
+
+def test_validate_ai_summary_markdown_rejects_empty():
+    """Empty text fails validation."""
+    from app.services.run_ai_summary_service import RunAISummaryService
+    assert RunAISummaryService._validate_ai_summary_markdown("   ") is not None
+
+
+def test_validate_ai_summary_markdown_rejects_code_wrapped():
+    """Code-block-wrapped text fails validation."""
+    from app.services.run_ai_summary_service import RunAISummaryService
+    wrapped = "```\n" + _VALID_AI_MARKDOWN + "\n```"
+    assert RunAISummaryService._validate_ai_summary_markdown(wrapped) is not None

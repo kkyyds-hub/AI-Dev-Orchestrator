@@ -41,6 +41,7 @@ class OpenAIProviderExecutionResponse:
     prompt_key: str | None = None
     prompt_char_count: int = 0
     provider_usage_receipt: ProviderUsageReceipt | None = None
+    output_text: str | None = None
 
 
 class OpenAIProviderExecutionError(RuntimeError):
@@ -204,6 +205,79 @@ class OpenAIProviderExecutorService:
 
         return result
 
+    def generate_text(
+        self,
+        *,
+        model_name: str,
+        prompt_text: str,
+        request_id: str,
+        prompt_key: str = "run_ai_summary",
+    ) -> OpenAIProviderExecutionResponse:
+        """Generate one plain-text completion for run AI summaries.
+
+        Reuses the existing OpenAI-compatible call stack but does **not**
+        require a full ``Task`` / routing-contract / prompt-envelope.
+        """
+
+        response_payload, api_family, endpoint = self._execute_compat_request(
+            request_id=request_id,
+            model_name=model_name,
+            prompt_text=prompt_text,
+            prompt_key=prompt_key,
+        )
+        output_text = self._extract_output_text(response_payload, api_family=api_family)
+        output_snippet = self._truncate(output_text, _OUTPUT_SNIPPET_MAX_LENGTH)
+
+        usage = self._extract_usage(response_payload, api_family=api_family)
+        prompt_tokens = usage["prompt_tokens"]
+        completion_tokens = usage["completion_tokens"]
+        total_tokens = usage["total_tokens"]
+        cache_read_tokens = usage.get("cache_read_tokens", 0)
+        cache_write_tokens = usage.get("cache_write_tokens", 0)
+        cache_hit_flag = usage.get("cache_hit", 0)
+        cache_provider_reported = bool(usage.get("cache_provider_reported", False))
+
+        receipt_id = str(
+            response_payload.get("id") or f"openai-{api_family}-{request_id[:12]}"
+        )
+        pricing_source = (
+            _OPENAI_RESPONSES_PRICING_SOURCE
+            if api_family == "responses"
+            else _OPENAI_CHAT_COMPLETIONS_PRICING_SOURCE
+        )
+        provider_usage_receipt = ProviderUsageReceipt(
+            provider_key="openai",
+            model_name=model_name,
+            receipt_id=receipt_id,
+            receipt_source=ProviderReceiptSource.REAL_PROVIDER,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=0.0,
+            pricing_source=pricing_source,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            cache_hit=bool(cache_hit_flag),
+            cache_source=(
+                "provider_reported" if cache_provider_reported else "not_reported"
+            ),
+        )
+
+        summary = (
+            "OpenAI-compatible text generation succeeded. "
+            f"Model {model_name} via {api_family} at {endpoint}. "
+            f"Receipt {receipt_id}. Output: {output_snippet}"
+        )
+        return OpenAIProviderExecutionResponse(
+            success=True,
+            mode="provider_openai",
+            summary=summary,
+            prompt_key=prompt_key,
+            prompt_char_count=len(prompt_text.encode("utf-8")),
+            provider_usage_receipt=provider_usage_receipt,
+            output_text=output_text,
+        )
+
     def execute(
         self,
         *,
@@ -235,7 +309,7 @@ class OpenAIProviderExecutorService:
             )
 
         response_payload, api_family, endpoint = self._execute_compat_request(
-            task=task,
+            request_id=str(task.id),
             model_name=target.model_name,
             prompt_text=prompt_envelope.prompt_text,
             prompt_key=prompt_envelope.template_ref.prompt_key,
@@ -295,7 +369,7 @@ class OpenAIProviderExecutorService:
     def _execute_compat_request(
         self,
         *,
-        task: Task,
+        request_id: str,
         model_name: str,
         prompt_text: str,
         prompt_key: str,
@@ -303,7 +377,7 @@ class OpenAIProviderExecutorService:
         """Execute one request with minimal compatibility retry for gateway variants."""
 
         attempts = self._build_request_attempts(
-            task=task,
+            request_id=request_id,
             model_name=model_name,
             prompt_text=prompt_text,
             prompt_key=prompt_key,
@@ -340,7 +414,7 @@ class OpenAIProviderExecutorService:
     def _build_request_attempts(
         self,
         *,
-        task: Task,
+        request_id: str,
         model_name: str,
         prompt_text: str,
         prompt_key: str,
@@ -363,7 +437,7 @@ class OpenAIProviderExecutorService:
                 request_payload = self._build_responses_payload(
                     model_name=model_name,
                     prompt_text=prompt_text,
-                    task_id=str(task.id),
+                    task_id=request_id,
                     prompt_key=prompt_key,
                 )
             else:
@@ -371,7 +445,7 @@ class OpenAIProviderExecutorService:
                 request_payload = self._build_chat_completions_payload(
                     model_name=model_name,
                     prompt_text=prompt_text,
-                    task_id=str(task.id),
+                    task_id=request_id,
                     prompt_key=prompt_key,
                 )
 
