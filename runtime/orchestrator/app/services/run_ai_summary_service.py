@@ -329,8 +329,8 @@ class RunAISummaryService:
             f"- 模型服务 Key：{provider_label}",
             f"- 模型名称：{model_label}",
             f"- 模型回执 ID：{receipt_label}",
-            f"- 来源指纹：{source_fingerprint}",
-            f"- 提示词哈希：{prompt_hash}",
+            f"- 摘要依据：运行状态、结果摘要、验证摘要、质量检查、模型服务记录",
+            f"- 调试指纹：已记录，可在前端状态条或技术日志中查看完整值",
         ]
         return "\n".join(lines).strip()
 

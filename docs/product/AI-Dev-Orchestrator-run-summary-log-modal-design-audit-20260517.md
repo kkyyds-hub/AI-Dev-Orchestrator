@@ -1011,3 +1011,24 @@ AI 摘要不能每次刷新都生成。
 
 - `apps/web/src/pages/runs/components/RunPrimarySummaryCard.tsx` — 修改
 - `apps/web/src/pages/runs/api/runAiSummary.ts` — 修改
+
+### 阶段 2B-R5：运行摘要正文技术噪音收口
+
+**日期**：2026-05-18
+**提交哈希**：`57d5e9a`
+**Build / 测试结果**：后端 16 测试通过，前端 build 通过
+
+#### 已实现
+
+| 项目 | 说明 |
+|---|---|
+| 摘要正文技术噪音收口 | 默认摘要正文不再展示完整 source_fingerprint / prompt_hash |
+| 技术依据章节 | 改为 "摘要依据：运行状态、结果摘要、验证摘要、质量检查、模型服务记录" + "调试指纹：已记录，可在前端状态条或技术日志中查看完整值" |
+| Markdown 五标题 | 保持不变（运行结论/已完成内容/风险与注意事项/下一步建议/技术依据） |
+| 前端状态条 | 仍保留 8 位短 hash + title 悬停完整值 |
+| 规则回退 | 当前仍为 rule_fallback，不真实调用 AI |
+| 技术日志弹窗 | 保持不变 |
+
+#### 修改文件清单
+
+- `runtime/orchestrator/app/services/run_ai_summary_service.py` — 修改

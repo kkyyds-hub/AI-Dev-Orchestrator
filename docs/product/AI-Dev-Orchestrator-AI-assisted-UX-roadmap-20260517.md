@@ -777,6 +777,26 @@ AI 可建议：
 > - 视觉风格保持中性灰黑线条式，未新增 emerald/amber/rose 大色块和 AI 图标
 > - 技术日志弹窗保持不变
 > - 未修改后端、不真实调用 AI、不进入阶段 2C
+>
+> **阶段 2B-R5 实施记录** `[2026-05-18]`
+>
+> 任务：运行摘要正文技术噪音收口
+>
+> 提交哈希：`57d5e9a`
+>
+> Build / 测试结果：后端 16 测试通过，前端 build 通过
+>
+> 修改范围：
+> - `runtime/orchestrator/app/services/run_ai_summary_service.py` — `_build_summary_markdown()` 移除完整 source_fingerprint / prompt_hash
+>
+> 已完成：
+> - 默认摘要正文不再展示完整 source_fingerprint / prompt_hash
+> - 技术依据章节改为 "摘要依据：运行状态、结果摘要、验证摘要、质量检查、模型服务记录"
+> - 调试指纹说明 "已记录，可在前端状态条或技术日志中查看完整值"
+> - Markdown 五标题结构保持不变
+> - 前端状态条仍保留 8 位短 hash + title 悬停完整值
+> - 当前仍为 rule_fallback，不真实调用 AI
+> - 真实 DeepSeek 摘要仍保留到 2C
 
 ### 阶段 3：项目页 AI 总结按钮
 
