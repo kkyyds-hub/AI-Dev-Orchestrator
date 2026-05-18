@@ -5,7 +5,6 @@ import { useBackendHealth, useConsoleOverview } from "../../features/console/hoo
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { useRunWorkerOnce } from "../../features/task-actions/hooks";
 import { formatDateTime } from "../../lib/format";
-import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 import { useProjectScope } from "../shared/useProjectScope";
 import { DirectorChatEntry } from "./components/DirectorChatEntry";
@@ -34,38 +33,14 @@ export function WorkbenchPage() {
     await Promise.all([overviewQuery.refetch(), healthQuery.refetch()]);
   };
 
-  const handleNavigateToTask = (taskId: string, options?: { runId?: string | null }) => {
+  const handleNavigateToTask = (taskId: string, projectId?: string | null) => {
     navigate(
       buildTaskRoute({
         taskId,
-        runId: options?.runId ?? null,
         from: "workbench",
-        projectId: selectedProjectId === "all" ? null : selectedProjectId,
+        projectId: projectId ?? (selectedProjectId === "all" ? null : selectedProjectId),
       }),
     );
-  };
-
-  const handleNavigateToRun = (runId: string, taskId: string) => {
-    navigate(
-      buildRunRoute({
-        runId,
-        taskId,
-        from: "workbench",
-        projectId: selectedProjectId === "all" ? null : selectedProjectId,
-      }),
-    );
-  };
-
-  const handleNavigateToProjectDrilldown = (detail: {
-    source: "home_latest_run" | "home_manual_run";
-    taskId: string;
-    runId?: string | null;
-  }) => {
-    const params = new URLSearchParams();
-    params.set("source", detail.source);
-    params.set("taskId", detail.taskId);
-    if (detail.runId) params.set("runId", detail.runId);
-    navigate(`/projects#boss-drilldown?${params.toString()}`);
   };
 
   const handleNavigateToTasks = () => {
@@ -73,6 +48,22 @@ export function WorkbenchPage() {
       navigate(`/tasks?projectId=${selectedProjectId}`);
     } else {
       navigate("/tasks");
+    }
+  };
+
+  const handleNavigateToProjects = () => {
+    if (selectedProjectId !== "all") {
+      navigate(`/projects?projectId=${selectedProjectId}`);
+    } else {
+      navigate("/projects");
+    }
+  };
+
+  const handleNavigateToRuns = () => {
+    if (selectedProjectId !== "all") {
+      navigate(`/runs?projectId=${selectedProjectId}`);
+    } else {
+      navigate("/runs");
     }
   };
 
@@ -114,31 +105,10 @@ export function WorkbenchPage() {
         overviewData={overviewQuery.data}
         selectedProjectId={selectedProjectId}
         onNavigateToTasks={handleNavigateToTasks}
-      />
-
-      {/* Preserve existing navigation helpers for future use via refs or other components */}
-      <NavigationSilent
         onNavigateToTask={handleNavigateToTask}
-        onNavigateToRun={handleNavigateToRun}
-        onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
+        onNavigateToProjects={handleNavigateToProjects}
+        onNavigateToRuns={handleNavigateToRuns}
       />
     </div>
   );
-}
-
-/**
- * Invisible component that preserves the navigation functions as callable
- * from other components that may be added later. This keeps the functions
- * from being tree-shaken while not rendering anything.
- */
-function NavigationSilent(_props: {
-  onNavigateToTask: (taskId: string, options?: { runId?: string | null }) => void;
-  onNavigateToRun: (runId: string, taskId: string) => void;
-  onNavigateToProjectDrilldown: (detail: {
-    source: "home_latest_run" | "home_manual_run";
-    taskId: string;
-    runId?: string | null;
-  }) => void;
-}) {
-  return null;
 }

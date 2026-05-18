@@ -77,9 +77,12 @@ export function SituationPanel({
       )}
 
       <div className="border-t border-[#333333] pt-4">
-        <h4 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
-          AI 主管当前建议
+        <h4 className="mb-1 text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
+          规则建议 · 待接入真实 AI 主管建议
         </h4>
+        <p className="mb-3 text-xs leading-relaxed text-zinc-600">
+          当前建议基于已有任务状态生成，真实 AI 项目主管建议待会话接口接入。
+        </p>
         {suggestions.length > 0 ? (
           <ul className="space-y-2">
             {suggestions.map((s, i) => (

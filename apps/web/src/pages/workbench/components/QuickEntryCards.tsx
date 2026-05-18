@@ -6,6 +6,9 @@ type QuickEntryCardsProps = {
   overviewData: ConsoleOverview | undefined;
   selectedProjectId: string;
   onNavigateToTasks: () => void;
+  onNavigateToTask: (taskId: string, projectId?: string | null) => void;
+  onNavigateToProjects: () => void;
+  onNavigateToRuns: () => void;
 };
 
 type ModalKind = "battleplan" | "agents" | "flow" | "confirmations" | null;
@@ -14,6 +17,9 @@ export function QuickEntryCards({
   overviewData,
   selectedProjectId,
   onNavigateToTasks,
+  onNavigateToTask,
+  onNavigateToProjects,
+  onNavigateToRuns,
 }: QuickEntryCardsProps) {
   const [modalKind, setModalKind] = useState<ModalKind>(null);
   const closeModal = () => setModalKind(null);
@@ -24,6 +30,20 @@ export function QuickEntryCards({
 
   const agentSummary = buildAgentSummary(tasks);
   const waitingHumanTasks = tasks.filter((t) => t.status === "waiting_human");
+  const blockedTasks = tasks.filter((t) => t.status === "blocked");
+
+  const handleBlockingClick = () => {
+    if (blockedTasks.length > 0) {
+      const task = blockedTasks[0];
+      onNavigateToTask(task.id, task.project_id);
+    } else {
+      onNavigateToTasks();
+    }
+  };
+
+  const handleConfirmationsClick = () => {
+    setModalKind("confirmations");
+  };
 
   return (
     <>
@@ -51,14 +71,14 @@ export function QuickEntryCards({
           title="待确认"
           badge={waitingHumanCount > 0 ? waitingHumanCount : undefined}
           description="需要人工确认的事项与决策"
-          onClick={() => setModalKind("confirmations")}
+          onClick={handleConfirmationsClick}
         />
         <EntryCard
           icon="🚧"
           title="阻塞处理"
           badge={blockedCount > 0 ? blockedCount : undefined}
           description={blockedCount > 0 ? `${blockedCount} 个任务阻塞，点击查看` : "当前无阻塞任务"}
-          onClick={onNavigateToTasks}
+          onClick={handleBlockingClick}
         />
       </section>
 
@@ -74,12 +94,20 @@ export function QuickEntryCards({
 
       {/* 项目流程弹窗 */}
       <DetailModal open={modalKind === "flow"} onClose={closeModal} title="项目流程">
-        <ProjectFlowContent />
+        <ProjectFlowContent
+          onNavigateToProjects={onNavigateToProjects}
+          onNavigateToTasks={onNavigateToTasks}
+          onNavigateToRuns={onNavigateToRuns}
+        />
       </DetailModal>
 
       {/* 待确认弹窗 */}
       <DetailModal open={modalKind === "confirmations"} onClose={closeModal} title="待确认事项">
-        <PendingConfirmationsContent tasks={waitingHumanTasks} />
+        <PendingConfirmationsContent
+          tasks={waitingHumanTasks}
+          onNavigateToTask={onNavigateToTask}
+          onNavigateToTasks={onNavigateToTasks}
+        />
       </DetailModal>
     </>
   );
@@ -189,9 +217,20 @@ function AgentMovementContent({
   );
 }
 
-function ProjectFlowContent() {
+function ProjectFlowContent({
+  onNavigateToProjects,
+  onNavigateToTasks,
+  onNavigateToRuns,
+}: {
+  onNavigateToProjects: () => void;
+  onNavigateToTasks: () => void;
+  onNavigateToRuns: () => void;
+}) {
   return (
     <div className="space-y-3 text-sm text-zinc-300">
+      <div className="rounded border border-yellow-800 bg-yellow-900/20 px-3 py-2 text-xs text-yellow-300">
+        当前仅展示静态流程，真实阶段定位待接入项目计划接口。以下流程节点不可点击。
+      </div>
       <p className="text-xs text-zinc-500">
         AI-Dev-Orchestrator 端到端闭环流程：
       </p>
@@ -211,17 +250,55 @@ function ProjectFlowContent() {
       <p className="text-xs text-zinc-600">
         详细流程图请参阅 docs/product/ai-project-director/closure-flow-20260518.md
       </p>
+      <div className="flex flex-wrap gap-2 border-t border-[#333333] pt-3">
+        <button
+          type="button"
+          onClick={onNavigateToProjects}
+          className="rounded border border-[#444444] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#2f2f2f]"
+        >
+          查看项目页
+        </button>
+        <button
+          type="button"
+          onClick={onNavigateToTasks}
+          className="rounded border border-[#444444] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#2f2f2f]"
+        >
+          查看任务队列
+        </button>
+        <button
+          type="button"
+          onClick={onNavigateToRuns}
+          className="rounded border border-[#444444] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#2f2f2f]"
+        >
+          查看运行观测
+        </button>
+      </div>
     </div>
   );
 }
 
 function PendingConfirmationsContent({
   tasks,
+  onNavigateToTask,
+  onNavigateToTasks,
 }: {
-  tasks: { id: string; title: string; status: string }[];
+  tasks: { id: string; title: string; status: string; project_id?: string | null }[];
+  onNavigateToTask: (taskId: string, projectId?: string | null) => void;
+  onNavigateToTasks: () => void;
 }) {
   if (tasks.length === 0) {
-    return <p className="text-sm text-zinc-500">当前无待确认事项。</p>;
+    return (
+      <div className="space-y-3 text-sm text-zinc-300">
+        <p className="text-sm text-zinc-500">当前无待确认事项。</p>
+        <button
+          type="button"
+          onClick={onNavigateToTasks}
+          className="rounded border border-[#444444] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#2f2f2f]"
+        >
+          前往任务页
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -252,6 +329,22 @@ function PendingConfirmationsContent({
       <p className="text-xs text-zinc-600">
         确认 / 驳回操作待接入确认流转接口。当前请前往任务页手动处理。
       </p>
+      <div className="flex flex-wrap gap-2 border-t border-[#333333] pt-3">
+        <button
+          type="button"
+          onClick={() => onNavigateToTask(tasks[0].id, tasks[0].project_id)}
+          className="rounded border border-[#444444] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#2f2f2f]"
+        >
+          查看第一个待确认任务
+        </button>
+        <button
+          type="button"
+          onClick={onNavigateToTasks}
+          className="rounded border border-[#444444] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#2f2f2f]"
+        >
+          前往任务页
+        </button>
+      </div>
     </div>
   );
 }
