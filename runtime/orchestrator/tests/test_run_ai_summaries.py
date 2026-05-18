@@ -941,36 +941,141 @@ def test_ai_summary_can_try_ai_no_generator_no_provider(db_session):
 
 
 def test_generate_text_passes_provider_key(db_session, seeded_run):
-    """generate_text receives the correct provider_key from _call_provider_text."""
+    """generate_text receives correct provider_key from _call_provider_text path.
+
+    Uses monkeypatch on OpenAIProviderExecutorService.generate_text so we
+    exercise the real _call_provider_text → generate_text call stack.
+    """
+    from unittest.mock import MagicMock, patch
+    from app.services.openai_provider_executor_service import (
+        OpenAIProviderExecutionResponse,
+        OpenAIProviderExecutorService,
+        ProviderUsageReceipt,
+    )
+    from app.domain.prompt_contract import ProviderReceiptSource
+
     _, _, run_id = seeded_run
 
-    captured_provider_keys: list[str] = []
+    captured: dict[str, str] = {}
 
-    def key_capture_generator(model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
-        # This generator can't capture the provider_key from generate_text directly
-        # because generate_text is bypassed when ai_text_generator is used.
-        # Instead, test that the summary's model_provider is correct.
-        return _VALID_AI_MARKDOWN, "receipt-key-test"
+    def fake_generate_text(
+        self,
+        *,
+        model_name: str = "",
+        prompt_text: str = "",
+        request_id: str = "",
+        prompt_key: str = "run_ai_summary",
+        provider_key: str = "openai",
+    ) -> OpenAIProviderExecutionResponse:
+        captured["model_name"] = model_name
+        captured["provider_key"] = provider_key
+        captured["prompt_key"] = prompt_key
+        captured["request_id"] = request_id
+        receipt = ProviderUsageReceipt(
+            provider_key=provider_key,
+            model_name=model_name,
+            receipt_id="receipt-cap-001",
+            receipt_source=ProviderReceiptSource.REAL_PROVIDER,
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            estimated_cost_usd=0.0,
+            pricing_source="openai.chat_completions.usage",
+        )
+        return OpenAIProviderExecutionResponse(
+            success=True,
+            mode="provider_openai",
+            summary="ok",
+            output_text=_VALID_AI_MARKDOWN,
+            prompt_key=prompt_key,
+            prompt_char_count=len(prompt_text.encode("utf-8")),
+            provider_usage_receipt=receipt,
+        )
+
+    mock_config = MagicMock()
+    mock_runtime_config = MagicMock()
+    mock_runtime_config.api_key = "sk-test-deepseek"
+    mock_runtime_config.base_url = "https://api.deepseek.com/v1"
+    mock_runtime_config.timeout_seconds = 120
+    mock_runtime_config.detected_provider_type = "deepseek"
+    mock_runtime_config.model_names = {"balanced": "deepseek-v4-pro"}
+    mock_config.resolve_openai_runtime_config.return_value = mock_runtime_config
 
     service = RunAISummaryService(
         run_repository=RunRepository(db_session),
         task_repository=TaskRepository(db_session),
         run_ai_summary_repository=RunAISummaryRepository(db_session),
-        ai_text_generator=key_capture_generator,
+        provider_config_service=mock_config,
+        # No ai_text_generator — forces _call_provider_text → generate_text
     )
-    summary = service.generate_run_summary(run_id=run_id)
+
+    with patch.object(
+        OpenAIProviderExecutorService, "generate_text", fake_generate_text
+    ):
+        summary = service.generate_run_summary(run_id=run_id)
+
+    assert captured["provider_key"] == "deepseek", (
+        f"generate_text should receive provider_key='deepseek', got {captured.get('provider_key')}"
+    )
+    assert captured["model_name"] == "deepseek-v4-pro"
+    assert captured["prompt_key"] == "run_ai_summary"
+    assert captured["request_id"] == str(run_id)
+
     assert summary.source == RunAISummarySource.AI
-    # Fake generator path uses provider_type="openai_compatible"
-    assert summary.model_provider == "openai_compatible"
+    assert summary.model_provider == "deepseek"
+    assert summary.model_name == "deepseek-v4-pro"
+    assert summary.provider_receipt_id == "receipt-cap-001"
 
 
 def test_env_only_provider_respected(db_session, seeded_run):
-    """ProviderConfigService with env-only api_key should trigger AI path."""
-    from unittest.mock import MagicMock
+    """env-only api_key triggers AI via provider_config_service + generate_text path.
+
+    No ai_text_generator — exercises the real _can_try_ai → _try_ai_summary
+    → _call_provider_text → generate_text call stack.
+    """
+    from unittest.mock import MagicMock, patch
+    from app.services.openai_provider_executor_service import (
+        OpenAIProviderExecutionResponse,
+        OpenAIProviderExecutorService,
+        ProviderUsageReceipt,
+    )
+    from app.domain.prompt_contract import ProviderReceiptSource
 
     _, _, run_id = seeded_run
 
-    # Create a mock provider_config_service that returns a valid api_key
+    call_count = [0]
+
+    def fake_generate_text(
+        self,
+        *,
+        model_name: str = "",
+        prompt_text: str = "",
+        request_id: str = "",
+        prompt_key: str = "run_ai_summary",
+        provider_key: str = "openai",
+    ) -> OpenAIProviderExecutionResponse:
+        call_count[0] += 1
+        receipt = ProviderUsageReceipt(
+            provider_key=provider_key,
+            model_name=model_name,
+            receipt_id="receipt-env-001",
+            receipt_source=ProviderReceiptSource.REAL_PROVIDER,
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            estimated_cost_usd=0.0,
+            pricing_source="openai.chat_completions.usage",
+        )
+        return OpenAIProviderExecutionResponse(
+            success=True,
+            mode="provider_openai",
+            summary="ok",
+            output_text=_VALID_AI_MARKDOWN,
+            prompt_key=prompt_key,
+            prompt_char_count=len(prompt_text.encode("utf-8")),
+            provider_usage_receipt=receipt,
+        )
+
     mock_config = MagicMock()
     mock_runtime_config = MagicMock()
     mock_runtime_config.api_key = "sk-test-env-key"
@@ -985,11 +1090,21 @@ def test_env_only_provider_respected(db_session, seeded_run):
         task_repository=TaskRepository(db_session),
         run_ai_summary_repository=RunAISummaryRepository(db_session),
         provider_config_service=mock_config,
-        ai_text_generator=_fake_ai_success,
+        # No ai_text_generator
     )
     assert service._can_try_ai() is True
-    summary = service.generate_run_summary(run_id=run_id)
+
+    with patch.object(
+        OpenAIProviderExecutorService, "generate_text", fake_generate_text
+    ):
+        summary = service.generate_run_summary(run_id=run_id)
+
+    assert call_count[0] == 1, "generate_text should be called exactly once"
     assert summary.source == RunAISummarySource.AI
+    assert summary.model_provider == "deepseek"
+    assert summary.model_name == "deepseek-v4-pro"
+    assert summary.provider_receipt_id == "receipt-env-001"
+    assert "## 运行结论" in summary.summary_markdown
 
 
 def test_no_env_no_config_still_falls_back():

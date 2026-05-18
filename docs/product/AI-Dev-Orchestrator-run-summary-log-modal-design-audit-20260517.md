@@ -1061,7 +1061,7 @@ AI 摘要不能每次刷新都生成。
 ### 阶段 2C-A-R1：Provider/env/prompt_hash/provider_key 硬化
 
 **日期**：2026-05-18
-**提交哈希**：`915f0a9`
+**提交哈希**：`914b404`（完整：`914b404d249185eae75b3046438414aebab14f6e`）
 **Build / 测试结果**：后端 35 测试通过，前端 build 通过
 
 #### 已实现
@@ -1081,3 +1081,23 @@ AI 摘要不能每次刷新都生成。
 - `runtime/orchestrator/app/services/run_ai_summary_service.py` — 修改
 - `runtime/orchestrator/app/services/openai_provider_executor_service.py` — 修改
 - `runtime/orchestrator/tests/test_run_ai_summaries.py` — 新增 7 个测试
+
+### 阶段 2C-A-R2：测试补强与文档追溯修正
+
+**日期**：2026-05-18
+**提交哈希**：`976d1a2`
+**Build / 测试结果**：后端 35 测试通过，前端 build 通过
+
+#### 已实现
+
+| 项目 | 说明 |
+|---|---|
+| 文档哈希修正 | 2C-A-R1 哈希从 `915f0a9` 修正为 `914b404` 完整哈希 |
+| provider_key 测试 | 已真正 monkeypatch generate_text，覆盖 _call_provider_text 路径 |
+| env-only 测试 | 不再用 ai_text_generator，真正走 provider_config_service + generate_text |
+| 无 config fallback | 保留并确认 |
+
+#### 修改文件清单
+
+- `runtime/orchestrator/tests/test_run_ai_summaries.py` — 重写 2 个测试
+- `docs/product/` 3 份 — 修正哈希 + 追加记录

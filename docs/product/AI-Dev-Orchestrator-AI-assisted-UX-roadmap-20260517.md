@@ -825,7 +825,7 @@ AI 可建议：
 >
 > 任务：真实 AI 运行摘要后端硬化返工
 >
-> 提交哈希：`915f0a9`
+> 提交哈希：`914b404`（完整：`914b404d249185eae75b3046438414aebab14f6e`）
 >
 > Build / 测试结果：后端 35 测试通过，前端 build 通过
 >
@@ -841,6 +841,25 @@ AI 可建议：
 > - source=rule_fallback 的 prompt_hash 保持稳定（规则 prompt hash）
 > - generate_text 的 provider_key 不再硬编码 openai
 > - 前端 UI 仍无需改动
+>
+> **阶段 2C-A-R2 实施记录** `[2026-05-18]`
+>
+> 任务：测试补强与文档追溯修正
+>
+> 提交哈希：`976d1a2`
+>
+> Build / 测试结果：后端 35 测试通过，前端 build 通过
+>
+> 修改范围：
+> - `runtime/orchestrator/tests/test_run_ai_summaries.py` — 重写 provider_key/env 测试为真正的 monkeypatch
+> - `docs/product/` 3 份 — 修正 2C-A-R1 哈希 + 追加 2C-A-R2 记录
+>
+> 已完成：
+> - 2C-A-R1 哈希修正为 `914b404` 完整哈希
+> - provider_key 测试已真正覆盖 _call_provider_text → generate_text 路径
+> - env-only/provider_config 测试已真正覆盖 provider_config_service 路径
+> - 未真实调用外部 AI
+> - 未进入 2C-B
 
 ### 阶段 3：项目页 AI 总结按钮
 
