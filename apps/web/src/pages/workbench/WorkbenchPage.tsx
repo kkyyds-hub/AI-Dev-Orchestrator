@@ -1,38 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useBackendHealth, useConsoleOverview } from "../../features/console/hooks";
-import type { ConsoleTask } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
-import { useRunWorkerOnce, useRunWorkerPoolOnce } from "../../features/task-actions/hooks";
+import { useRunWorkerOnce } from "../../features/task-actions/hooks";
 import { formatDateTime } from "../../lib/format";
-import { HomeHeaderSection } from "../../app/sections/HomeHeaderSection";
-import { HomeMetricsSection } from "../../app/sections/HomeMetricsSection";
-import { ManualRunResultSection } from "../../app/sections/ManualRunResultSection";
-import { RightSidebarOverviewSection } from "../../app/sections/RightSidebarOverviewSection";
-import { TaskTableSection } from "../../app/sections/TaskTableSection";
-import { WorkerPoolResultSection } from "../../app/sections/WorkerPoolResultSection";
 import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 import { useProjectScope } from "../shared/useProjectScope";
-
-type BossDrilldownNavigateDetail = {
-  source: "home_latest_run" | "home_manual_run";
-  taskId: string;
-  runId?: string | null;
-};
-
-function buildBossDrilldownHash(detail: BossDrilldownNavigateDetail) {
-  const params = new URLSearchParams();
-  params.set("source", detail.source);
-  params.set("taskId", detail.taskId);
-
-  if (detail.runId) {
-    params.set("runId", detail.runId);
-  }
-
-  return `#boss-drilldown?${params.toString()}`;
-}
+import { DirectorChatEntry } from "./components/DirectorChatEntry";
+import { QuickEntryCards } from "./components/QuickEntryCards";
+import { SituationPanel } from "./components/SituationPanel";
+import { WorkbenchHeader } from "./components/WorkbenchHeader";
 
 export function WorkbenchPage() {
   const navigate = useNavigate();
@@ -43,41 +22,11 @@ export function WorkbenchPage() {
   const healthQuery = useBackendHealth();
   const { selectedProjectId, selectedProjectName } = useProjectScope();
   const runWorkerOnceMutation = useRunWorkerOnce();
-  const runWorkerPoolOnceMutation = useRunWorkerPoolOnce();
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [requestedRunId, setRequestedRunId] = useState<string | null>(null);
-  const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
-
-  const tasks = overviewQuery.data?.tasks ?? [];
-
-  useEffect(() => {
-    if (!tasks.length) {
-      if (selectedTaskId !== null) {
-        setSelectedTaskId(null);
-      }
-      if (isTaskDetailOpen) {
-        setIsTaskDetailOpen(false);
-      }
-      return;
-    }
-
-    const hasSelection = tasks.some((task) => task.id === selectedTaskId);
-    if (!selectedTaskId || !hasSelection) {
-      setSelectedTaskId(tasks[0].id);
-      setRequestedRunId(null);
-    }
-  }, [isTaskDetailOpen, tasks, selectedTaskId]);
-
-  const selectedTask = useMemo<ConsoleTask | null>(
-    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [tasks, selectedTaskId],
-  );
 
   const lastUpdatedText = useMemo(() => {
     if (!overviewQuery.dataUpdatedAt) {
       return "暂未刷新";
     }
-
     return formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString());
   }, [overviewQuery.dataUpdatedAt]);
 
@@ -107,92 +56,89 @@ export function WorkbenchPage() {
     );
   };
 
-  const handleNavigateToProjectDrilldown = (detail: BossDrilldownNavigateDetail) => {
-    navigate(`/projects${buildBossDrilldownHash(detail)}`);
+  const handleNavigateToProjectDrilldown = (detail: {
+    source: "home_latest_run" | "home_manual_run";
+    taskId: string;
+    runId?: string | null;
+  }) => {
+    const params = new URLSearchParams();
+    params.set("source", detail.source);
+    params.set("taskId", detail.taskId);
+    if (detail.runId) params.set("runId", detail.runId);
+    navigate(`/projects#boss-drilldown?${params.toString()}`);
+  };
+
+  const handleNavigateToTasks = () => {
+    if (selectedProjectId !== "all") {
+      navigate(`/tasks?projectId=${selectedProjectId}`);
+    } else {
+      navigate("/tasks");
+    }
   };
 
   return (
-    <div className="relative min-w-0">
-      <div className="space-y-7">
-        <HomeHeaderSection
-          backendStatus={healthQuery.data?.status}
-          backendService={healthQuery.data?.service}
-          realtimeStatus={realtime.status}
-          realtimeLastEventType={realtime.lastEventType}
-          realtimeLastEventAt={realtime.lastEventAt}
-          lastUpdatedText={lastUpdatedText}
-          isRunWorkerOncePending={runWorkerOnceMutation.isPending}
-          isRunWorkerPoolOncePending={runWorkerPoolOnceMutation.isPending}
-          onRunWorkerOnce={() => runWorkerOnceMutation.mutate()}
-          onRunWorkerPoolOnce={() => runWorkerPoolOnceMutation.mutate()}
-          onRefresh={() => {
-            void handleRefresh();
-          }}
-        />
+    <div className="relative min-w-0 space-y-6">
+      <WorkbenchHeader
+        backendStatus={healthQuery.data?.status}
+        realtimeStatus={realtime.status}
+        lastUpdatedText={lastUpdatedText}
+        selectedProjectName={selectedProjectName}
+        selectedProjectId={selectedProjectId}
+      />
 
-        {selectedProjectId !== "all" ? (
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
-            <span className="uppercase tracking-[0.2em]">当前项目视角</span>
-            <span className="text-zinc-300">{selectedProjectName}</span>
-            <span className="text-zinc-600">· 以下为全部项目总览，具体项目请进入任务页/运行页查看</span>
-          </div>
-        ) : null}
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="flex-1 lg:min-w-0">
+          <DirectorChatEntry
+            isRunWorkerOncePending={runWorkerOnceMutation.isPending}
+            onRunWorkerOnce={() => runWorkerOnceMutation.mutate()}
+            workerOnceData={runWorkerOnceMutation.data}
+            workerOnceIsError={runWorkerOnceMutation.isError}
+            workerOnceErrorMessage={
+              runWorkerOnceMutation.isError ? runWorkerOnceMutation.error.message : null
+            }
+          />
+        </div>
 
-        <HomeMetricsSection
-          totalTasks={overviewQuery.data?.total_tasks ?? 0}
-          runningTasks={overviewQuery.data?.running_tasks ?? 0}
-          pendingTasks={overviewQuery.data?.pending_tasks ?? 0}
-          pausedTasks={overviewQuery.data?.paused_tasks ?? 0}
-          waitingHumanTasks={overviewQuery.data?.waiting_human_tasks ?? 0}
-          completedTasks={overviewQuery.data?.completed_tasks ?? 0}
-          failedTasks={overviewQuery.data?.failed_tasks ?? 0}
-          totalPromptTokens={overviewQuery.data?.total_prompt_tokens ?? 0}
-          totalCompletionTokens={overviewQuery.data?.total_completion_tokens ?? 0}
-          totalEstimatedCost={overviewQuery.data?.total_estimated_cost ?? 0}
-        />
-
-        <div className="min-w-0 space-y-5">
-          <TaskTableSection
-            tasks={tasks}
-            selectedTaskId={selectedTaskId}
+        <div className="w-full lg:w-80 xl:w-96 shrink-0">
+          <SituationPanel
+            overviewData={overviewQuery.data}
             overviewIsLoading={overviewQuery.isLoading}
-            overviewIsError={overviewQuery.isError}
-            onSelectTask={(taskId) => {
-              setSelectedTaskId(taskId);
-              setRequestedRunId(null);
-              setIsTaskDetailOpen(true);
+            onRefresh={() => {
+              void handleRefresh();
             }}
-            onNavigateToTask={handleNavigateToTask}
-            onNavigateToRun={handleNavigateToRun}
-            onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-          />
-
-          <ManualRunResultSection
-            data={runWorkerOnceMutation.data}
-            isError={runWorkerOnceMutation.isError}
-            errorMessage={runWorkerOnceMutation.isError ? runWorkerOnceMutation.error.message : null}
-            onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-          />
-
-          <WorkerPoolResultSection
-            data={runWorkerPoolOnceMutation.data}
-            isError={runWorkerPoolOnceMutation.isError}
-            errorMessage={runWorkerPoolOnceMutation.isError ? runWorkerPoolOnceMutation.error.message : null}
           />
         </div>
       </div>
 
-      <RightSidebarOverviewSection
-        isOpen={isTaskDetailOpen}
-        onClose={() => setIsTaskDetailOpen(false)}
-        requestedRunId={requestedRunId}
-        selectedTask={selectedTask}
-        budget={overviewQuery.data?.budget ?? null}
-        realtimeStatus={realtime.status}
+      <QuickEntryCards
+        overviewData={overviewQuery.data}
+        selectedProjectId={selectedProjectId}
+        onNavigateToTasks={handleNavigateToTasks}
+      />
+
+      {/* Preserve existing navigation helpers for future use via refs or other components */}
+      <NavigationSilent
         onNavigateToTask={handleNavigateToTask}
         onNavigateToRun={handleNavigateToRun}
         onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
       />
     </div>
   );
+}
+
+/**
+ * Invisible component that preserves the navigation functions as callable
+ * from other components that may be added later. This keeps the functions
+ * from being tree-shaken while not rendering anything.
+ */
+function NavigationSilent(_props: {
+  onNavigateToTask: (taskId: string, options?: { runId?: string | null }) => void;
+  onNavigateToRun: (runId: string, taskId: string) => void;
+  onNavigateToProjectDrilldown: (detail: {
+    source: "home_latest_run" | "home_manual_run";
+    taskId: string;
+    runId?: string | null;
+  }) => void;
+}) {
+  return null;
 }
