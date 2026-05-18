@@ -860,6 +860,19 @@ AI 可建议：
 > - env-only/provider_config 测试已真正覆盖 provider_config_service 路径
 > - 未真实调用外部 AI
 > - 未进入 2C-B
+>
+> **阶段 2C-B 实施记录** `[2026-05-18]`
+>
+> 任务：真实 DeepSeek 运行时联调验收
+>
+> 提交哈希：`f25556a`
+>
+> 结论：**Pass** — 真实 DeepSeek 生成 source=ai 运行摘要成功
+>
+> 运行时验收：
+> - Provider：DeepSeek，连通性测试 passed
+> - run_id：`fa552a28`，POST /regenerate → source=ai，model_provider=deepseek，receipt 非空
+> - 35 tests / build 通过，未暴露 API key
 
 ### 阶段 3：项目页 AI 总结按钮
 

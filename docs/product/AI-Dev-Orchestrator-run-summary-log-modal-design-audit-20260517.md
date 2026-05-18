@@ -1101,3 +1101,26 @@ AI 摘要不能每次刷新都生成。
 
 - `runtime/orchestrator/tests/test_run_ai_summaries.py` — 重写 2 个测试
 - `docs/product/` 3 份 — 修正哈希 + 追加记录
+
+### 阶段 2C-B：真实 DeepSeek 运行时联调验收
+
+**日期**：2026-05-18
+**提交哈希**：`f25556a`
+**结论**：**Pass**
+
+#### 运行时验收结果
+
+| 项目 | 结果 |
+|---|---|
+| Provider 配置 | DeepSeek, masked_key=********0780 |
+| Connectivity test | passed, auth_valid=true, chat_completions, 2401ms |
+| run_id | `fa552a28-9502-40c9-b05f-19585fe8ea5d` |
+| GET /ai-summary | 只读，初始 rule_fallback |
+| POST /regenerate | source=ai, model_provider=deepseek, model_name=deepseek-v4-pro |
+| provider_receipt_id | ec7b2cb9-c2b5-4110-bbb8-0355d4f4e308（非空） |
+| prompt_hash | 与 rule_fallback 不同（真实 AI prompt） |
+| Markdown | 五标题完整，中文，非 JSON |
+| 持久化 | GET 再次读取返回 ai summary |
+| 测试 | 35 passed |
+| Build | 通过 |
+| API key 暴露 | 否 |
