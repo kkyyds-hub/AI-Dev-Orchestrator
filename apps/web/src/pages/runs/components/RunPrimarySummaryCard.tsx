@@ -188,10 +188,9 @@ export function RunPrimarySummaryCard({
       {/* ── Status hints (body area, shown only once per state) ── */}
       {aiState.kind === "unavailable" ? (
         <HintBox>
-          运行摘要服务暂不可用，当前显示本地规则摘要。
-          {aiState.fetchError ? (
-            <span> {aiState.fetchError.userMessage}</span>
-          ) : null}
+          {aiState.fetchError
+            ? aiState.fetchError.userMessage
+            : "运行摘要服务暂不可用，当前显示本地规则摘要。"}
         </HintBox>
       ) : null}
 
