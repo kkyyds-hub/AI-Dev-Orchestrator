@@ -190,7 +190,7 @@
 | DEL-06 | 正文是否用弹窗 | DeliverableVersionList 面板展示版本正文，非全屏铺开 | 不常驻铺开 | Pass | 2026-05-19 |
 | DEL-07 | 证据链是否用弹窗 | ChangeEvidencePanel 按需加载 | 不挤占主页面 | Pass | 2026-05-19 |
 | DEL-08 | 版本记录是否用弹窗 | DeliverableVersionList 版本切换面板 | 可追溯 | Pass | 2026-05-19 |
-| DEL-09 | 发起审批是否创建真实审批请求 | POST /approvals → 审批页出现待审项 | 审批页出现待审项 | Pass | 2026-05-19: 发起审批在审批页通过 createApprovalRequest API |
+| DEL-09 | 发起审批是否创建真实审批请求 | POST /approvals → 审批页出现待审项；交付物页本身不直接发起审批 | 审批页出现待审项 | Partial | 2026-05-19: 真实 API 已存在，但入口在 /approvals 页，/deliverables 页不直接发起审批（符合"交付物页不做审批决策"） |
 | DEL-10 | 要求返工是否进入任务/返工链路 | ApprovalActionDrawer "要求修改" 调用 applyApprovalAction | 不只是文案 | Partial | 2026-05-19: 审批动作真实写后端；返工→任务队列闭环需后端验证 |
 | DEL-11 | 交付物页是否不做审批决策 | 交付物页无审批按钮，审批在 /approvals | 通过/驳回在审批页 | Pass | 2026-05-19 |
 

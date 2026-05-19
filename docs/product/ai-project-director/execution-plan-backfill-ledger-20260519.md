@@ -114,7 +114,7 @@
 | `/runs` 路由兼容 | 保留运行观测独立路由 | UI Pass | API Pass | N/A | Partial | 已记录 | **Pass** | 保持兼容 |
 | `/execution?tab=repository` 仓库工作区 | Phase1 状态+步骤工作区 | UI Pass | API Pass | Partial | Partial | checklist 已回填 REPO-01~15 | **Pass（Phase1）** | 后续补变更需求入口、文件定位/上下文包页签内证据 |
 | 侧边栏导航 | 收敛导航 | UI Pass | N/A | N/A | Partial | 已记录 | **Pass** | 不恢复任务/运行观测一级入口 |
-| 成果中心：交付物 | Phase1 审计回填 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 DEL-01~11 | **Pass（Phase1）** | 后续补运行截图证据 |
+| 成果中心：交付物 | Phase1 审计回填 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 DEL-01~11（9 Pass / 2 Partial） | **Pass（Phase1）** | DEL-09/DEL-10 保持 Partial；后续补运行截图 |
 | 成果中心：审批 | Phase1 审计回填 | UI Pass | API Pass | Backend Pass（审批动作真实写状态） | Partial | checklist 已回填 APV-01~10 | **Pass（Phase1）** | 审批闭环证据已具备，后续补端到端截图 |
 | 治理中心 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 成果中心后处理 |
 | 设置页 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 治理中心后处理 |
@@ -203,8 +203,8 @@
 | 运行证据 | Partial：build 通过，代码级审计完成；需最终人工审批截图验证 |
 | 文档状态 | `closure-checklist` DEL-01~11、APV-01~10 已回填；`verification-delivery-center-phase1` 已创建 |
 | 后端缺口清单 | DEL-10 返工→任务队列链路需后端端到端验证（审批要求修改后是否在任务页可见返工请求）；其余无后端缺口 |
-| 当前结论 | **Phase1 Pass，运行证据级 Partial** |
-| Gate 结论 | Pass（页面职责+API 接入+后端闭环均完成） |
+| 当前结论 | **Phase1 Pass，运行证据级 Partial**（DEL 9 Pass / 2 Partial；APV 10 Pass） |
+| Gate 结论 | Pass（页面职责+API 接入+审批后端闭环均完成；DEL-09/DEL-10 保持 Partial） |
 | 假审批按钮检查 | **无假按钮**。通过/驳回/要求修改均调用 `applyApprovalAction()` → POST /approvals/:id/actions |
 | 后续动作 | 总 Gate 时补审批截图证据；返工闭环在任务队列侧补充端到端测试 |
 
