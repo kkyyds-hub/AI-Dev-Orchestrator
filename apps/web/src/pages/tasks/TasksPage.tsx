@@ -1,23 +1,18 @@
-import { useEffect, useMemo } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useMemo } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { useConsoleOverview } from "../../features/console/hooks";
 import type { ConsoleTask } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
-import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
-import { buildBossDrilldownHash } from "../shared/boss-drilldown-route";
 import { useProjectScope } from "../shared/useProjectScope";
 import { TasksPageContent } from "./components/TasksPageContent";
 import { TasksPageHeader } from "./components/TasksPageHeader";
-import { TasksTaskNotFoundNotice } from "./components/TasksTaskNotFoundNotice";
-import { useTaskSelection } from "./hooks/useTaskSelection";
 
 export function TasksPage() {
   const navigate = useNavigate();
   const { taskId } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
 
   const realtime = useConsoleEventStream();
   const overviewQuery = useConsoleOverview({
@@ -27,7 +22,6 @@ export function TasksPage() {
     useProjectScope();
 
   const allTasks: ConsoleTask[] = overviewQuery.data?.tasks ?? [];
-  const requestedRunId = searchParams.get("runId");
 
   // ── Filter tasks by selected project ─────────────────────────────
   const filteredTasks = useMemo(
@@ -38,65 +32,58 @@ export function TasksPage() {
     [allTasks, selectedProjectId],
   );
 
-  // ── Clear taskId / runId when task doesn't belong to current scope
-  useEffect(() => {
-    if (selectedProjectId === "all") return;
-    if (!taskId) return;
-    if (overviewQuery.isLoading) return;
-    const taskInScope = filteredTasks.some((task) => task.id === taskId);
-    if (!taskInScope) {
-      navigate(
-        buildTaskRoute({ projectId: selectedProjectId }),
-        { replace: true },
-      );
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, filteredTasks.length > 0, overviewQuery.isLoading]);
+  // ── Task counts ─────────────────────────────────────────────────
+  const waitingHuman = useMemo(
+    () => filteredTasks.filter((t) => t.status === "waiting_human").length,
+    [filteredTasks],
+  );
+  const running = useMemo(
+    () => filteredTasks.filter((t) => t.status === "running").length,
+    [filteredTasks],
+  );
+  const failed = useMemo(
+    () => filteredTasks.filter((t) => t.status === "failed").length,
+    [filteredTasks],
+  );
+  const completed = useMemo(
+    () => filteredTasks.filter((t) => t.status === "completed").length,
+    [filteredTasks],
+  );
 
-  useEffect(() => {
-    if (selectedProjectId === "all") return;
-    if (!requestedRunId) return;
-    if (!taskId) return;
-    if (overviewQuery.isLoading) return;
-    const taskInScope = filteredTasks.some((task) => task.id === taskId);
-    if (!taskInScope) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("runId");
-      setSearchParams(next, { replace: true });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, filteredTasks.length > 0, overviewQuery.isLoading]);
-
-  // ── Task selection ───────────────────────────────────────────────
-  const taskSelection = useTaskSelection({
-    tasks: filteredTasks,
-    taskId,
-    overviewIsLoading: overviewQuery.isLoading,
-  });
-  const selectedTaskLabel = taskSelection.selectedTask
-    ? taskSelection.selectedTask.title
-    : taskId
-      ? "未命中任务"
-      : "未选择";
-
-  const handleNavigateToDeliverable = (input: {
-    projectId: string;
-    deliverableId: string;
-  }) => {
+  // ── Navigation ──────────────────────────────────────────────────
+  const handleSelectTask = (nextTaskId: string) => {
     navigate(
-      buildDeliverablesRoute({
-        projectId: input.projectId,
-        deliverableId: input.deliverableId,
+      buildTaskRoute({
+        taskId: nextTaskId,
+        from: "tasks",
+        projectId: selectedProjectId === "all" ? null : selectedProjectId,
       }),
     );
   };
 
-  const handleNavigateToProjectDrilldown = (detail: {
-    source: "home_latest_run" | "home_manual_run";
-    taskId: string;
-    runId?: string | null;
-  }) => {
-    navigate(`/projects${buildBossDrilldownHash(detail)}`);
+  const handleNavigateToRun = (
+    runId: string,
+    nextTaskId: string,
+    projectId: string | null,
+  ) => {
+    navigate(
+      buildRunRoute({
+        runId,
+        taskId: nextTaskId,
+        from: "tasks",
+        projectId: projectId ?? (selectedProjectId === "all" ? null : selectedProjectId),
+      }),
+    );
+  };
+
+  const handleNavigateToRepository = (
+    nextTaskId: string,
+    projectId: string | null,
+  ) => {
+    const targetProjectId = projectId ?? selectedProjectId;
+    if (targetProjectId !== "all") {
+      navigate(`/projects/${targetProjectId}/repository?taskId=${nextTaskId}`);
+    }
   };
 
   const perProjectCounts = useMemo(() => {
@@ -110,14 +97,17 @@ export function TasksPage() {
   }, [allTasks]);
 
   return (
-    <div className="space-y-6">
+    <div className="relative min-w-0 space-y-5">
       <TasksPageHeader
-        tasksCount={filteredTasks.length}
-        selectedTaskLabel={selectedTaskLabel}
+        total={filteredTasks.length}
+        waitingHuman={waitingHuman}
+        running={running}
+        failed={failed}
+        completed={completed}
         realtimeStatus={realtime.status}
       />
 
-      {/* Project scope selector — shared across tasks page */}
+      {/* Project scope selector */}
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-xs uppercase tracking-[0.2em] text-zinc-500">
           当前项目
@@ -151,59 +141,24 @@ export function TasksPage() {
       </div>
 
       {projectNotFound ? (
-        <div className="rounded-2xl border border-amber-500/[0.15] bg-amber-500/[0.06] px-4 py-3 text-sm leading-6 text-amber-200">
+        <div className="rounded border border-zinc-700 px-4 py-3 text-sm text-zinc-400">
           当前项目不存在或已被删除。{" "}
           <button
             type="button"
             onClick={() => setSelectedProjectId("all")}
-            className="underline transition hover:text-amber-100"
+            className="underline transition hover:text-zinc-200"
           >
             切回全部项目
           </button>
         </div>
       ) : null}
 
-      {taskSelection.taskNotFound ? (
-        <TasksTaskNotFoundNotice taskId={taskId ?? ""} />
-      ) : null}
-
       <TasksPageContent
-        selectedTaskId={taskSelection.selectedTask?.id ?? taskId ?? null}
-        selectedTask={taskSelection.selectedTask}
-        overviewIsLoading={overviewQuery.isLoading}
-        overviewIsError={overviewQuery.isError}
-        requestedRunId={requestedRunId}
+        selectedTaskId={taskId ?? null}
         tasks={filteredTasks}
-        budget={overviewQuery.data?.budget ?? null}
-        realtimeStatus={realtime.status}
-        onSelectTask={(nextTaskId) => {
-          navigate(
-            buildTaskRoute({
-              taskId: nextTaskId,
-              from: "tasks",
-              projectId: selectedProjectId === "all" ? null : selectedProjectId,
-            }),
-          );
-        }}
-        onNavigateToRun={(nextRunId, nextTaskId) => {
-          navigate(
-            buildRunRoute({
-              runId: nextRunId,
-              taskId: nextTaskId,
-              from: "tasks",
-              projectId: selectedProjectId === "all" ? null : selectedProjectId,
-            }),
-          );
-        }}
-        onNavigateToProjectDrilldown={handleNavigateToProjectDrilldown}
-        onNavigateToDeliverable={handleNavigateToDeliverable}
-        onNavigateToStrategyPreview={({ taskId: nextTaskId, runId }) =>
-          handleNavigateToProjectDrilldown({
-            source: "home_latest_run",
-            taskId: nextTaskId,
-            runId,
-          })
-        }
+        onSelectTask={handleSelectTask}
+        onNavigateToRun={handleNavigateToRun}
+        onNavigateToRepository={handleNavigateToRepository}
       />
     </div>
   );

@@ -13,6 +13,7 @@ export function AppShell() {
   const isWorkbenchRoute = location.pathname === "/workbench";
   const isProjectRoute = location.pathname === "/projects" || location.pathname.startsWith("/projects/");
   const isExecutionRoute = location.pathname === "/execution" || location.pathname.startsWith("/execution/");
+  const isTasksRoute = location.pathname === "/tasks" || location.pathname.startsWith("/tasks/");
   const usesWideWorkspace = isWorkbenchRoute || isProjectRoute || isExecutionRoute;
   const contentMaxWidthClassName = usesWideWorkspace ? "max-w-[1560px]" : "max-w-[1200px]";
 
@@ -42,7 +43,7 @@ export function AppShell() {
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className={`mx-auto flex w-full ${contentMaxWidthClassName} min-w-0 flex-col ${isWorkbenchRoute ? "gap-7" : "gap-5"}`}>
-            {(isWorkbenchRoute || isExecutionRoute) ? null : <Breadcrumbs />}
+            {(isWorkbenchRoute || isExecutionRoute || isTasksRoute) ? null : <Breadcrumbs />}
             <Outlet />
           </div>
         </main>

@@ -1,61 +1,38 @@
-import { TaskTableSection } from "../../../app/sections/TaskTableSection";
-import { TaskDetailPanel } from "../../../features/task-detail/TaskDetailPanel";
-import type { ConsoleBudget, ConsoleTask } from "../../../features/console/types";
-import type { StreamConnectionStatus } from "../../../features/events/types";
-import type { BossDrilldownNavigateDetail } from "../../shared/boss-drilldown-route";
+import type { ConsoleTask } from "../../../features/console/types";
+import { TaskExecutionSituationPanel } from "./TaskExecutionSituationPanel";
+import { TaskQueueList } from "./TaskQueueList";
 
 type TasksPageContentProps = {
   selectedTaskId: string | null;
-  selectedTask: ConsoleTask | null;
-  overviewIsLoading: boolean;
-  overviewIsError: boolean;
-  requestedRunId: string | null;
   tasks: ConsoleTask[];
-  budget: ConsoleBudget | null;
-  realtimeStatus: StreamConnectionStatus;
   onSelectTask: (taskId: string) => void;
-  onNavigateToRun: (nextRunId: string, nextTaskId: string) => void;
-  onNavigateToProjectDrilldown: (detail: BossDrilldownNavigateDetail) => void;
-  onNavigateToDeliverable: (input: {
-    projectId: string;
-    deliverableId: string;
-  }) => void;
-  onNavigateToStrategyPreview: (input: {
-    taskId: string;
-    runId?: string | null;
-  }) => void;
+  onNavigateToRun: (runId: string, taskId: string, projectId: string | null) => void;
+  onNavigateToRepository: (taskId: string, projectId: string | null) => void;
 };
 
-export function TasksPageContent(props: TasksPageContentProps) {
+export function TasksPageContent({
+  selectedTaskId,
+  tasks,
+  onSelectTask,
+  onNavigateToRun,
+  onNavigateToRepository,
+}: TasksPageContentProps) {
   return (
-    <section
-      className="grid min-h-0 gap-0 xl:grid-cols-[minmax(0,1fr)_minmax(420px,1fr)]"
-      style={{ height: "calc(100vh - 10rem)" }}
-    >
-      <TaskTableSection
-        layoutVariant="workspace"
-        tasks={props.tasks}
-        selectedTaskId={props.selectedTaskId}
-        overviewIsLoading={props.overviewIsLoading}
-        overviewIsError={props.overviewIsError}
-        onSelectTask={props.onSelectTask}
-        onNavigateToRun={props.onNavigateToRun}
-        onNavigateToProjectDrilldown={props.onNavigateToProjectDrilldown}
-      />
-
+    <section className="flex flex-col gap-5 xl:grid xl:grid-cols-[55fr_45fr] xl:items-start min-h-0">
+      {/* 左侧：轻量任务队列 */}
       <div className="min-h-0 overflow-y-auto">
-        <TaskDetailPanel
-          panelId="tasks-detail-panel"
-          runLogPanelId="tasks-run-log-panel"
-          requestedRunId={props.requestedRunId}
-          selectedTask={props.selectedTask}
-          budget={props.budget}
-          realtimeStatus={props.realtimeStatus}
-          surfaceVariant="line"
-          onNavigateToDeliverable={props.onNavigateToDeliverable}
-          onNavigateToRun={props.onNavigateToRun}
-          onNavigateToStrategyPreview={props.onNavigateToStrategyPreview}
+        <TaskQueueList
+          tasks={tasks}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={onSelectTask}
+          onNavigateToRun={onNavigateToRun}
+          onNavigateToRepository={onNavigateToRepository}
         />
+      </div>
+
+      {/* 右侧：执行态势面板 */}
+      <div className="min-h-0">
+        <TaskExecutionSituationPanel tasks={tasks} />
       </div>
     </section>
   );
