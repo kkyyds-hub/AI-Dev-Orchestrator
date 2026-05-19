@@ -53,13 +53,17 @@ export function TaskDetailDrawer({
   const depIds = task.depends_on_task_ids ?? [];
   const priorityLabel = task.priority ? task.priority.toUpperCase() : null;
 
-  /* State-based action visibility */
+  /* State-based action visibility — aligned with TaskStateMachineService */
   const canPause =
-    task.status === "running" ||
     task.status === "pending" ||
+    task.status === "failed" ||
     task.status === "blocked";
   const canResume = task.status === "paused";
-  const canRequestHuman = task.status !== "waiting_human";
+  const canRequestHuman =
+    task.status === "pending" ||
+    task.status === "failed" ||
+    task.status === "blocked" ||
+    task.status === "paused";
   const canResolveHuman = task.status === "waiting_human";
   const canRetry = task.status === "failed" || task.status === "blocked";
 

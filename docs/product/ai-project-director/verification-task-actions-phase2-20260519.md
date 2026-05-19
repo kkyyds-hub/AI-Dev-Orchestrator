@@ -40,18 +40,21 @@
 
 所有 mutation 的 onSuccess 回调均调用 `queryClient.invalidateQueries` 刷新 console-overview 和 task-detail 等查询缓存，操作后任务列表和抽屉数据会自动更新。
 
-## 按钮状态控制
+## 按钮状态控制 (已对齐后端 TaskStateMachineService)
 
-| 按钮 | 可见条件 | 不可见状态 |
-|---|---|---|
-| 暂停 | running / pending / blocked | paused / waiting_human / completed / failed |
-| 恢复 | paused | 非 paused |
-| 请求人工 | 非 waiting_human | waiting_human |
-| 人工已处理 | waiting_human | 非 waiting_human |
-| 重新入队 | failed / blocked | 非 failed/blocked |
+| 按钮 | 前端可见条件 | 后端 allowed_statuses | 来源 |
+|---|---|---|---|
+| 暂停 | pending / failed / blocked | PENDING, FAILED, BLOCKED | build_pause_transition:115 |
+| 恢复 | paused | PAUSED | build_resume_transition:134 |
+| 请求人工 | pending / failed / blocked / paused | PENDING, FAILED, BLOCKED, PAUSED | build_request_human_review_transition:159-163 |
+| 人工已处理 | waiting_human | WAITING_HUMAN | build_resolve_human_review_transition:191 |
+| 重新入队 | failed / blocked | FAILED, BLOCKED | build_retry_transition:95 |
+
+前端状态条件已严格对齐后端 TaskStateMachineService 的 `_ensure_allowed` 检查。
+running / completed 状态下所有操作按钮均隐去，避免前端显示后点击即 409。
 
 操作中 (isPending) 时按钮显示处理中状态并 disabled，操作失败时按钮变红并显示错误信息。
 
 ## Gate 结论
 
-**Pass** — 全部 5 项操作闭环验收通过。所有按钮调用真实 POST API，按钮按状态控制可见性，操作后数据自动刷新，重新入队文案准确。
+**Pass** — 全部 5 项操作闭环验收通过。前端按钮可见条件已对齐后端状态机，所有按钮调用真实 POST API，操作后数据自动刷新，重新入队文案准确。
