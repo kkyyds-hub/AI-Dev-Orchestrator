@@ -5,6 +5,7 @@ import { useBackendHealth, useConsoleOverview } from "../../features/console/hoo
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { formatDateTime } from "../../lib/format";
 import { useProjectScope } from "../shared/useProjectScope";
+import { ExecutionRunsTab } from "./components/ExecutionRunsTab";
 import { ExecutionTasksTab } from "./components/ExecutionTasksTab";
 
 const TABS = [
@@ -49,18 +50,7 @@ export function ExecutionCenterPage() {
     return formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString());
   }, [overviewQuery.dataUpdatedAt]);
 
-  const completed = overviewQuery.data?.completed_tasks ?? 0;
-  const failed = overviewQuery.data?.failed_tasks ?? 0;
-  const running = overviewQuery.data?.running_tasks ?? 0;
   const hasSpecificProject = selectedProjectId !== "all";
-
-  const handleNavigateToRuns = () => {
-    if (hasSpecificProject) {
-      navigate(`/runs?projectId=${selectedProjectId}`);
-    } else {
-      navigate("/runs");
-    }
-  };
 
   const handleNavigateToRepository = () => {
     if (hasSpecificProject) {
@@ -121,23 +111,7 @@ export function ExecutionCenterPage() {
         )}
 
         {activeTab === "runs" && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-2 max-w-sm">
-              <StatItem label="已完成" value={completed} />
-              <StatItem label="失败" value={failed} />
-              <StatItem label="运行中" value={running} />
-            </div>
-            <button
-              type="button"
-              onClick={handleNavigateToRuns}
-              className="rounded border border-[#444444] px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
-            >
-              打开完整运行观测
-            </button>
-            <p className="text-xs text-zinc-600">
-              运行观测内容待接入执行中心页签
-            </p>
-          </div>
+          <ExecutionRunsTab />
         )}
 
         {activeTab === "repository" && (
@@ -174,11 +148,3 @@ export function ExecutionCenterPage() {
   );
 }
 
-function StatItem({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded border border-[#333333] px-3 py-2 text-center">
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className="text-lg font-medium text-zinc-300">{value}</div>
-    </div>
-  );
-}

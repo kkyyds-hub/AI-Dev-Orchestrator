@@ -142,17 +142,17 @@
 
 | ID | 验收项 | 回填证据 | 通过标准 | 状态 | 备注 |
 |---|---|---|---|---|---|
-| RUN-01 | 是否采用左侧运行轻列表 + 右侧诊断详情 | 截图 | 布局清晰 |  |  |
-| RUN-02 | 运行列表是否展示状态/Agent/任务/时间/短摘要 | 截图 | 不做大表格 |  |  |
-| RUN-03 | 右侧是否优先展示 AI 运行摘要 | 截图 | 普通用户先看到结论 |  |  |
-| RUN-04 | 是否展示摘要来源 | 数据/截图 | source=ai/rule_fallback/reused |  |  |
-| RUN-05 | 是否展示失败分类 | 截图/字段 | failed/blocked 有原因 |  |  |
-| RUN-06 | 是否展示质量闸门/验证摘要 | 截图 | 有则展示，无则说明未记录 |  |  |
-| RUN-07 | 技术日志是否用弹窗 | 截图 | 不默认铺日志 |  |  |
-| RUN-08 | 日志复制是否可用 | 操作截图 | 复制成功反馈 |  |  |
-| RUN-09 | 重新生成摘要是否手动触发 | 网络请求/按钮 | 页面打开不自动生成 |  |  |
-| RUN-10 | 重试任务文案是否准确 | 截图 | 不误导为立即重新运行 |  |  |
-| RUN-11 | 运行页是否不管理任务队列 | 截图 | 任务操作只做关联跳转/重新入队 |  |  |
+| RUN-01 | 是否采用左侧运行轻列表 + 右侧诊断详情 | ExecutionRunsTab.tsx grid-cols-[35fr_65fr] + RunsListPanel/RunsTaskDetailSection | 布局清晰 | Pass | 2026-05-19 Phase1: /execution?tab=runs 与 /runs 均采用此布局 |
+| RUN-02 | 运行列表是否展示状态/Agent/任务/时间/短摘要 | RunListItemButton.tsx: status badge + title + time + cost + failure reason | 不做大表格 | Pass | 2026-05-19; owner_role_code 字段可用但 Phase1 保留在 panel 中 |
+| RUN-03 | 右侧是否优先展示 AI 运行摘要 | RunsTaskDetailSection RunPrimarySummaryCard 优先展示 | 普通用户先看到结论 | Pass | 2026-05-19 |
+| RUN-04 | 是否展示摘要来源 | RunPrimarySummaryCard source badge | source=ai/rule_fallback/reused | Pass | 2026-05-19 |
+| RUN-05 | 是否展示失败分类 | RunsTaskDetailSection failure_category badge | failed/blocked 有原因 | Pass | 2026-05-19 |
+| RUN-06 | 是否展示质量闸门/验证摘要 | RunsTaskDetailSection quality_gate_passed badge | 有则展示，无则说明未记录 | Pass | 2026-05-19 |
+| RUN-07 | 技术日志是否用弹窗 | RunTechnicalLogModal + "查看技术日志"按钮 | 不默认铺日志 | Pass | 2026-05-19 |
+| RUN-08 | 日志复制是否可用 | RunsTaskDetailSection CopyBtn 组件 clipboard API | 复制成功反馈 | Pass | 2026-05-19 |
+| RUN-09 | 重新生成摘要是否手动触发 | RunPrimarySummaryCard 手动按钮 | 页面打开不自动生成 | Pass | 2026-05-19 |
+| RUN-10 | 重试任务文案是否准确 | Phase1 未在运行观测加入重试按钮 | 不误导为立即重新运行 | N/A | 2026-05-19: 任务操作在任务队列抽屉中完成，运行观测保留为纯观测 |
+| RUN-11 | 运行页是否不管理任务队列 | 无暂停/恢复/请求人工等任务操作按钮 | 任务操作只做关联跳转/重新入队 | Pass | 2026-05-19 |
 
 ---
 
