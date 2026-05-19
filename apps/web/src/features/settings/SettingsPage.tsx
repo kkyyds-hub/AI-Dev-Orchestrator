@@ -102,6 +102,16 @@ export function SettingsPage() {
         <p className="mt-1 text-sm text-zinc-500">Provider 连接、运行环境、安全边界与系统诊断</p>
       </header>
 
+      {/* 当前访问状态摘要 */}
+      <div className="rounded border border-[#333333] px-4 py-3 text-xs text-zinc-500">
+        <span className="text-zinc-300">当前状态：直接访问</span>
+        <span className="mx-2 text-zinc-700">|</span>
+        账号登录尚未开放
+        <span className="mx-2 text-zinc-700">|</span>
+        账户体系待后端接入
+        <span className="ml-2 text-zinc-600">— 系统级配置请使用下方四个区块</span>
+      </div>
+
       <div className="space-y-8">
         <ProviderSection />
         <EnvironmentSection />

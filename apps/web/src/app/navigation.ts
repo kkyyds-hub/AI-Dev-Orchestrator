@@ -44,12 +44,6 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     description: "AI 团队资产治理：角色、Skill、策略、成本与记忆。",
   },
   {
-    label: "账户",
-    shortLabel: "账",
-    to: "/me",
-    description: "管理账户设置与访问状态。",
-  },
-  {
     label: "设置",
     shortLabel: "设",
     to: "/settings",
@@ -187,10 +181,10 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
 
   if (pathname.startsWith("/me")) {
     return {
-      section: "账户",
+      section: "设置",
       title: "我的账户",
-      description: "管理账户资料、安全与个人偏好。",
-      breadcrumbs: ["账户"],
+      description: "重定向至系统设置。",
+      breadcrumbs: ["设置"],
     };
   }
 
