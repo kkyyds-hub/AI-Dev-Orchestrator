@@ -37,7 +37,7 @@ export function AppShell() {
       <Sidebar isCollapsed={isSidebarCollapsed} onToggle={() => setIsSidebarCollapsed((current) => !current)} />
 
       <div className="flex min-h-screen min-w-0 flex-col bg-[#212121]">
-        <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} />
+        <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} usesWideWorkspace={usesWideWorkspace} />
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className={`mx-auto flex w-full ${contentMaxWidthClassName} min-w-0 flex-col ${isWorkbenchRoute ? "gap-7" : "gap-5"}`}>

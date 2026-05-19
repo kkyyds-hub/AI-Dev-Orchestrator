@@ -5,15 +5,17 @@ import { resolveRouteMeta } from "../navigation";
 type TopbarProps = {
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
+  usesWideWorkspace?: boolean;
 };
 
 export function Topbar(props: TopbarProps) {
   const location = useLocation();
   const routeMeta = resolveRouteMeta(location.pathname);
+  const innerMaxWidth = props.usesWideWorkspace ? "max-w-[1560px]" : "max-w-[1200px]";
 
   return (
     <header className="border-b border-[#333333] bg-[#212121]/95 px-4 py-3 sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4">
+      <div className={`mx-auto flex w-full ${innerMaxWidth} items-center justify-between gap-4`}>
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
