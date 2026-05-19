@@ -37,12 +37,13 @@
 
 | API | 前端入口 | 状态 |
 |---|---|---|
-| GET /roles/catalog | 角色目录（旧 API） | Existing |
-| GET /roles/projects/:id | 项目角色（旧 API） | Existing |
-| PUT /roles/projects/:id/:code | 更新角色（旧 API，Phase1 未接入按钮） | Existing |
-| GET /skills/registry | Skill 注册表（旧 API） | Existing |
-| PUT /skills/:code | upsert Skill（旧 API，Phase1 未接入按钮） | Existing |
-| GET /projects/:id/cost-dashboard | 成本仪表板（旧 API） | Existing |
+| GET /roles/catalog | useSystemRoleCatalog — 角色治理页签左侧系统角色列表 | 已接入读取 |
+| GET /roles/projects/:id | useProjectRoleCatalog — 角色治理页签左侧项目角色实例列表 | 本轮接入读取 |
+| PUT /roles/projects/:id/:code | 更新角色（Phase1 未接入按钮，禁用） | Existing |
+| GET /skills/registry | useSkillRegistry — Skill 治理页签左侧注册表列表 | 已接入读取 |
+| GET /skills/projects/:id/bindings | useProjectSkillBindings — Skill 治理页签左侧项目绑定列表 | 本轮接入读取 |
+| PUT /skills/:code | upsert Skill（Phase1 未接入按钮，禁用） | Existing |
+| GET /projects/:id/cost-dashboard | useProjectCostDashboardSnapshot — 成本与记忆页签 | 已接入读取 |
 
 ## 禁用按钮清单
 
