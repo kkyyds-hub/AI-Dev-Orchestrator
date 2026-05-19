@@ -29,19 +29,7 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     label: "执行中心",
     shortLabel: "执",
     to: "/execution",
-    description: "任务队列、运行观测与仓库工作区入口。",
-  },
-  {
-    label: "任务",
-    shortLabel: "任",
-    to: "/tasks",
-    description: "处理任务列表、详情与流转。",
-  },
-  {
-    label: "运行观测",
-    shortLabel: "运",
-    to: "/runs",
-    description: "查看运行状态与日志链路。",
+    description: "任务队列、运行观测与仓库工作区。",
   },
   {
     label: "交付物",
