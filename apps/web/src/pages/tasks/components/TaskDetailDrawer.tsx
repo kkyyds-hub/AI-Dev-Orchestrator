@@ -1,10 +1,26 @@
 import type { ConsoleTask } from "../../../features/console/types";
 
+type TaskActionState = {
+  isPending: boolean;
+  isError: boolean;
+  errorMessage: string | null;
+};
+
 type TaskDetailDrawerProps = {
   task: ConsoleTask;
   onClose: () => void;
   onNavigateToRun: (runId: string, taskId: string, projectId: string | null) => void;
   onNavigateToRepository: (taskId: string, projectId: string | null) => void;
+  onPause: (taskId: string) => void;
+  onResume: (taskId: string) => void;
+  onRequestHuman: (taskId: string) => void;
+  onResolveHuman: (taskId: string) => void;
+  onRetry: (taskId: string) => void;
+  pauseState: TaskActionState;
+  resumeState: TaskActionState;
+  requestHumanState: TaskActionState;
+  resolveHumanState: TaskActionState;
+  retryState: TaskActionState;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -22,20 +38,35 @@ export function TaskDetailDrawer({
   onClose,
   onNavigateToRun,
   onNavigateToRepository,
+  onPause,
+  onResume,
+  onRequestHuman,
+  onResolveHuman,
+  onRetry,
+  pauseState,
+  resumeState,
+  requestHumanState,
+  resolveHumanState,
+  retryState,
 }: TaskDetailDrawerProps) {
   const hasRun = Boolean(task.latest_run?.id);
   const depIds = task.depends_on_task_ids ?? [];
   const priorityLabel = task.priority ? task.priority.toUpperCase() : null;
 
+  /* State-based action visibility */
+  const canPause =
+    task.status === "running" ||
+    task.status === "pending" ||
+    task.status === "blocked";
+  const canResume = task.status === "paused";
+  const canRequestHuman = task.status !== "waiting_human";
+  const canResolveHuman = task.status === "waiting_human";
+  const canRetry = task.status === "failed" || task.status === "blocked";
+
   return (
-    <div
-      className="fixed inset-0 z-40 flex justify-end"
-      onClick={onClose}
-    >
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50" />
 
-      {/* Panel */}
       <div
         className="relative w-full max-w-md bg-[#1a1a1a] border-l border-[#333333] overflow-y-auto shadow-xl"
         onClick={(e) => e.stopPropagation()}
@@ -82,7 +113,7 @@ export function TaskDetailDrawer({
 
           {/* Block reason */}
           {task.paused_reason && (
-            <Field label="阻塞原因" value={task.paused_reason} />
+            <Field label="暂停/阻塞原因" value={task.paused_reason} />
           )}
           {task.status === "waiting_human" && (
             <Field label="状态说明" value="待人工确认" />
@@ -110,7 +141,7 @@ export function TaskDetailDrawer({
             <Field label="输入摘要" value={task.input_summary.slice(0, 120)} />
           )}
 
-          {/* Actions */}
+          {/* Navigation actions */}
           <div className="flex flex-wrap gap-2 border-t border-[#333333] pt-4">
             {hasRun ? (
               <button
@@ -154,6 +185,72 @@ export function TaskDetailDrawer({
               </button>
             )}
           </div>
+
+          {/* State action buttons */}
+          <div className="flex flex-wrap gap-2 border-t border-[#333333] pt-4">
+            {canPause && (
+              <ActionButton
+                label={pauseState.isPending ? "暂停中..." : "暂停"}
+                isPending={pauseState.isPending}
+                isError={pauseState.isError}
+                onClick={() => onPause(task.id)}
+              />
+            )}
+            {canResume && (
+              <ActionButton
+                label={resumeState.isPending ? "恢复中..." : "恢复"}
+                isPending={resumeState.isPending}
+                isError={resumeState.isError}
+                onClick={() => onResume(task.id)}
+              />
+            )}
+            {canRequestHuman && (
+              <ActionButton
+                label={requestHumanState.isPending ? "处理中..." : "请求人工"}
+                isPending={requestHumanState.isPending}
+                isError={requestHumanState.isError}
+                onClick={() => onRequestHuman(task.id)}
+              />
+            )}
+            {canResolveHuman && (
+              <ActionButton
+                label={resolveHumanState.isPending ? "处理中..." : "人工已处理"}
+                isPending={resolveHumanState.isPending}
+                isError={resolveHumanState.isError}
+                onClick={() => onResolveHuman(task.id)}
+              />
+            )}
+            {canRetry && (
+              <div>
+                <ActionButton
+                  label={retryState.isPending ? "重新入队中..." : "重新入队"}
+                  isPending={retryState.isPending}
+                  isError={retryState.isError}
+                  onClick={() => onRetry(task.id)}
+                />
+                <p className="mt-1 text-[10px] text-zinc-600">
+                  重置为待执行，下一次 Worker 调度时执行
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Error feedback */}
+          {pauseState.isError && pauseState.errorMessage && (
+            <p className="text-xs text-red-400">暂停失败：{pauseState.errorMessage}</p>
+          )}
+          {resumeState.isError && resumeState.errorMessage && (
+            <p className="text-xs text-red-400">恢复失败：{resumeState.errorMessage}</p>
+          )}
+          {requestHumanState.isError && requestHumanState.errorMessage && (
+            <p className="text-xs text-red-400">请求人工失败：{requestHumanState.errorMessage}</p>
+          )}
+          {resolveHumanState.isError && resolveHumanState.errorMessage && (
+            <p className="text-xs text-red-400">处理失败：{resolveHumanState.errorMessage}</p>
+          )}
+          {retryState.isError && retryState.errorMessage && (
+            <p className="text-xs text-red-400">重新入队失败：{retryState.errorMessage}</p>
+          )}
         </div>
       </div>
     </div>
@@ -166,5 +263,32 @@ function Field({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-zinc-500 mb-0.5">{label}</p>
       <p className="text-sm text-zinc-300">{value}</p>
     </div>
+  );
+}
+
+function ActionButton({
+  label,
+  isPending,
+  isError,
+  onClick,
+}: {
+  label: string;
+  isPending: boolean;
+  isError: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isPending}
+      className={`rounded border px-3 py-1.5 text-xs transition ${
+        isError
+          ? "border-red-800 text-red-400 hover:border-red-700 hover:bg-[#2a1111]"
+          : "border-[#444444] text-zinc-300 hover:border-zinc-400 hover:bg-[#222222] disabled:cursor-not-allowed disabled:text-zinc-600"
+      }`}
+    >
+      {label}
+    </button>
   );
 }

@@ -6,6 +6,13 @@ import type { ConsoleTask } from "../../../features/console/types";
 import { useConsoleEventStream } from "../../../features/events/hooks";
 import { buildRunRoute } from "../../../lib/run-route";
 import { buildTaskRoute } from "../../../lib/task-route";
+import {
+  usePauseTask,
+  useRequestHumanReview,
+  useResolveHumanReview,
+  useResumeTask,
+  useRetryTask,
+} from "../../../features/task-actions/hooks";
 import { TaskDetailDrawer } from "../../tasks/components/TaskDetailDrawer";
 import { TaskExecutionSituationPanel } from "../../tasks/components/TaskExecutionSituationPanel";
 import { TaskQueueList } from "../../tasks/components/TaskQueueList";
@@ -24,6 +31,13 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
   });
   const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName, projectNotFound } =
     useProjectScope();
+
+  // Task action mutations
+  const pauseMutation = usePauseTask();
+  const resumeMutation = useResumeTask();
+  const requestHumanMutation = useRequestHumanReview();
+  const resolveHumanMutation = useResolveHumanReview();
+  const retryMutation = useRetryTask();
 
   const allTasks: ConsoleTask[] = overviewQuery.data?.tasks ?? [];
 
@@ -124,6 +138,19 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
     }
   };
 
+  // Task action handlers
+  const handlePause = (targetId: string) => pauseMutation.mutate(targetId);
+  const handleResume = (targetId: string) => resumeMutation.mutate(targetId);
+  const handleRequestHuman = (targetId: string) => requestHumanMutation.mutate(targetId);
+  const handleResolveHuman = (targetId: string) => resolveHumanMutation.mutate(targetId);
+  const handleRetry = (targetId: string) => retryMutation.mutate(targetId);
+
+  const mkState = (m: { isPending: boolean; isError: boolean; error: Error | null }) => ({
+    isPending: m.isPending,
+    isError: m.isError,
+    errorMessage: m.isError ? m.error?.message ?? null : null,
+  });
+
   const perProjectCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const task of allTasks) {
@@ -200,12 +227,24 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
         onNavigateToRun={handleNavigateToRun}
         onNavigateToRepository={handleNavigateToRepository}
         onCloseDrawer={handleCloseDrawer}
+        onPause={handlePause}
+        onResume={handleResume}
+        onRequestHuman={handleRequestHuman}
+        onResolveHuman={handleResolveHuman}
+        onRetry={handleRetry}
+        pauseState={mkState(pauseMutation)}
+        resumeState={mkState(resumeMutation)}
+        requestHumanState={mkState(requestHumanMutation)}
+        resolveHumanState={mkState(resolveHumanMutation)}
+        retryState={mkState(retryMutation)}
       />
     </div>
   );
 }
 
 /* ─── Layout ─── */
+
+type ActionState = { isPending: boolean; isError: boolean; errorMessage: string | null };
 
 function ExecutionTasksLayout({
   selectedTaskId,
@@ -214,6 +253,8 @@ function ExecutionTasksLayout({
   onNavigateToRun,
   onNavigateToRepository,
   onCloseDrawer,
+  onPause, onResume, onRequestHuman, onResolveHuman, onRetry,
+  pauseState, resumeState, requestHumanState, resolveHumanState, retryState,
 }: {
   selectedTaskId: string | null;
   tasks: ConsoleTask[];
@@ -221,6 +262,16 @@ function ExecutionTasksLayout({
   onNavigateToRun: (runId: string, taskId: string, projectId: string | null) => void;
   onNavigateToRepository: (taskId: string, projectId: string | null) => void;
   onCloseDrawer: () => void;
+  onPause: (taskId: string) => void;
+  onResume: (taskId: string) => void;
+  onRequestHuman: (taskId: string) => void;
+  onResolveHuman: (taskId: string) => void;
+  onRetry: (taskId: string) => void;
+  pauseState: ActionState;
+  resumeState: ActionState;
+  requestHumanState: ActionState;
+  resolveHumanState: ActionState;
+  retryState: ActionState;
 }) {
   const selectedTask = selectedTaskId
     ? tasks.find((t) => t.id === selectedTaskId) ?? null
@@ -277,6 +328,16 @@ function ExecutionTasksLayout({
           onClose={onCloseDrawer}
           onNavigateToRun={onNavigateToRun}
           onNavigateToRepository={onNavigateToRepository}
+          onPause={onPause}
+          onResume={onResume}
+          onRequestHuman={onRequestHuman}
+          onResolveHuman={onResolveHuman}
+          onRetry={onRetry}
+          pauseState={pauseState}
+          resumeState={resumeState}
+          requestHumanState={requestHumanState}
+          resolveHumanState={resolveHumanState}
+          retryState={retryState}
         />
       )}
     </>

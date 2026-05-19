@@ -126,11 +126,11 @@
 | TASK-03 | 每个任务是否只展示核心 6 项 | TaskQueueList.tsx:210-291 TaskQueueItem | 标题、状态、Agent、优先级、阻塞/依赖、最近运行 | Pass | 2026-05-19 验收 |
 | TASK-04 | 右侧是否为执行态势面板 | TaskExecutionSituationPanel.tsx | Agent 负载、阻塞原因、最近运行、AI 建议 | Pass | 2026-05-19 |
 | TASK-05 | 任务详情是否用抽屉 | ExecutionTasksTab.tsx:274 TaskDetailDrawer | 不做常驻大右栏 | Pass | 2026-05-19 验收 |
-| TASK-06 | 暂停是否真实调用后端 | 操作按钮未在当前任务行展示 | 状态改变 | N/A | 本阶段任务行不设暂停按钮 |
-| TASK-07 | 恢复是否真实调用后端 | 操作按钮未在当前任务行展示 | 状态改变 | N/A | 本阶段任务行不设恢复按钮 |
-| TASK-08 | 请求人工是否真实调用后端 | 操作按钮未在当前任务行展示 | waiting_human 状态 | N/A | 本阶段任务行不设请求人工按钮 |
-| TASK-09 | 人工已处理是否真实调用后端 | 操作按钮未在当前任务行展示 | 状态回到可调度 | N/A | 本阶段任务行不设人工已处理按钮 |
-| TASK-10 | 重新入队文案是否准确 | 操作按钮未在当前任务行展示 | 说明”下一次调度执行” | N/A | 本阶段任务行不设重新入队按钮 |
+| TASK-06 | 暂停是否真实调用后端 | TaskDetailDrawer 暂停按钮 → POST /tasks/:id/pause | 状态改变 | Pass | 2026-05-19 Phase2 验收，按钮按状态条件可见 |
+| TASK-07 | 恢复是否真实调用后端 | TaskDetailDrawer 恢复按钮 → POST /tasks/:id/resume | 状态改变 | Pass | 2026-05-19 Phase2 验收 |
+| TASK-08 | 请求人工是否真实调用后端 | TaskDetailDrawer 请求人工按钮 → POST /tasks/:id/request-human | waiting_human 状态 | Pass | 2026-05-19 Phase2 验收 |
+| TASK-09 | 人工已处理是否真实调用后端 | TaskDetailDrawer 人工已处理按钮 → POST /tasks/:id/resolve-human | 状态回到可调度 | Pass | 2026-05-19 Phase2 验收 |
+| TASK-10 | 重新入队文案是否准确 | TaskDetailDrawer 重新入队按钮 + “重置为待执行，下一次 Worker 调度时执行” | 说明”下一次调度执行” | Pass | 2026-05-19 Phase2 验收 |
 | TASK-11 | 查看运行是否跳运行观测 | buildRunRoute({runId, taskId, projectId}) | 带 runId/taskId | Pass | 2026-05-19 验收 |
 | TASK-12 | 查看仓库上下文是否跳仓库工作区 | /projects/:pid/repository?taskId=xxx | 带 taskId/projectId | Pass | 2026-05-19 验收 |
 | TASK-13 | 任务页是否不展示完整日志 | 无完整日志渲染 | 日志去运行观测 | Pass | 2026-05-19 确认 |

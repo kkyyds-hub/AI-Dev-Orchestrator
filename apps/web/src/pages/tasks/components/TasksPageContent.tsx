@@ -3,6 +3,9 @@ import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { TaskExecutionSituationPanel } from "./TaskExecutionSituationPanel";
 import { TaskQueueList } from "./TaskQueueList";
 
+const noop = () => {};
+const emptyState = { isPending: false, isError: false, errorMessage: null };
+
 type TasksPageContentProps = {
   selectedTaskId: string | null;
   tasks: ConsoleTask[];
@@ -54,6 +57,16 @@ export function TasksPageContent({
           onClose={onCloseDrawer}
           onNavigateToRun={onNavigateToRun}
           onNavigateToRepository={onNavigateToRepository}
+          onPause={noop}
+          onResume={noop}
+          onRequestHuman={noop}
+          onResolveHuman={noop}
+          onRetry={noop}
+          pauseState={emptyState}
+          resumeState={emptyState}
+          requestHumanState={emptyState}
+          resolveHumanState={emptyState}
+          retryState={emptyState}
         />
       )}
     </>
