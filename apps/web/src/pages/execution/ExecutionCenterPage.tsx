@@ -1,19 +1,38 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useBackendHealth, useConsoleOverview } from "../../features/console/hooks";
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { formatDateTime } from "../../lib/format";
 import { useProjectScope } from "../shared/useProjectScope";
 
+const TABS = [
+  { key: "tasks", label: "任务队列" },
+  { key: "runs", label: "运行观测" },
+  { key: "repository", label: "仓库工作区" },
+] as const;
+
+type TabKey = (typeof TABS)[number]["key"];
+
 export function ExecutionCenterPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const realtime = useConsoleEventStream();
   const overviewQuery = useConsoleOverview({
     enablePollingFallback: realtime.status !== "open",
   });
   const healthQuery = useBackendHealth();
   const { selectedProjectId, selectedProjectName } = useProjectScope();
+
+  const rawTab = searchParams.get("tab") ?? "";
+  const activeTab: TabKey =
+    rawTab === "runs" || rawTab === "repository" ? rawTab : "tasks";
+
+  const setActiveTab = (tab: TabKey) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", tab);
+    setSearchParams(next, { replace: true });
+  };
 
   const lastUpdatedText = useMemo(() => {
     if (!overviewQuery.dataUpdatedAt) return "暂未刷新";
@@ -25,6 +44,7 @@ export function ExecutionCenterPage() {
   const blocked = overviewQuery.data?.blocked_tasks ?? 0;
   const failed = overviewQuery.data?.failed_tasks ?? 0;
   const completed = overviewQuery.data?.completed_tasks ?? 0;
+  const waitingHuman = overviewQuery.data?.waiting_human_tasks ?? 0;
 
   const hasSpecificProject = selectedProjectId !== "all";
 
@@ -51,7 +71,7 @@ export function ExecutionCenterPage() {
   };
 
   return (
-    <div className="relative min-w-0 space-y-6">
+    <div className="relative min-w-0 space-y-5">
       {/* Header */}
       <header className="border-b border-[#333333] pb-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -67,22 +87,10 @@ export function ExecutionCenterPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-            <span
-              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs ${
-                healthQuery.data?.status === "ok"
-                  ? "border-zinc-600 text-zinc-400"
-                  : "border-zinc-700 text-zinc-500"
-              }`}
-            >
+            <span className="inline-flex items-center gap-1 rounded-full border border-zinc-600 px-2.5 py-0.5 text-xs text-zinc-400">
               {healthQuery.data?.status === "ok" ? "后端在线" : "后端未知"}
             </span>
-            <span
-              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs ${
-                realtime.status === "open"
-                  ? "border-zinc-600 text-zinc-400"
-                  : "border-zinc-700 text-zinc-500"
-              }`}
-            >
+            <span className="inline-flex items-center gap-1 rounded-full border border-zinc-600 px-2.5 py-0.5 text-xs text-zinc-400">
               {realtime.status === "open" ? "实时已连接" : "实时未连接"}
             </span>
             <span className="text-zinc-600">更新 {lastUpdatedText}</span>
@@ -90,128 +98,183 @@ export function ExecutionCenterPage() {
         </div>
       </header>
 
-      {/* 说明 */}
+      {/* 执行摘要：只一行 */}
       <p className="text-sm text-zinc-500">
-        查看 AI 项目主管调度后的任务队列、运行观测与仓库证据。
+        {running} 运行中 / {blocked} 阻塞 / {failed} 失败 / {waitingHuman} 待确认
       </p>
 
-      {/* 三个同级入口卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 任务队列 */}
-        <ExecutionEntryCard
-          title="任务队列"
-          description="管理 AI 项目主管调度后的任务列表、状态与优先级"
-          stats={[
-            { label: "总计", value: total },
-            { label: "运行中", value: running },
-            { label: "阻塞", value: blocked },
-          ]}
-          buttonLabel="进入任务队列"
-          onClick={handleNavigateToTasks}
-        />
+      {/* 页签 */}
+      <div className="flex gap-1 border-b border-[#333333]">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-2 text-sm transition border-b-2 -mb-[1px] ${
+              activeTab === t.key
+                ? "border-zinc-400 text-zinc-200"
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        {/* 运行观测 */}
-        <ExecutionEntryCard
-          title="运行观测"
-          description="查看每次任务执行的运行状态、摘要与日志证据"
-          stats={[
-            { label: "已完成", value: completed },
-            { label: "失败", value: failed },
-            { label: "运行中", value: running },
-          ]}
-          buttonLabel="进入运行观测"
-          onClick={handleNavigateToRuns}
-        />
+      {/* 页签内容 */}
+      <div className="min-h-[320px]">
+        {activeTab === "tasks" && (
+          <TabTasks
+            total={total}
+            running={running}
+            blocked={blocked}
+            failed={failed}
+            waitingHuman={waitingHuman}
+            onOpenFull={handleNavigateToTasks}
+          />
+        )}
 
-        {/* 仓库工作区 */}
-        <ExecutionEntryCard
-          title="仓库工作区"
-          description="基于代码证据管理变更需求、文件定位与提交草案"
-          stats={[
-            { label: "关联项目", value: hasSpecificProject ? 1 : 0 },
-            { label: "关联任务", value: total },
-            { label: "已完成", value: completed },
-          ]}
-          buttonLabel={
-            hasSpecificProject ? "进入仓库工作区" : "仓库工作区（待选择项目）"
-          }
-          onClick={hasSpecificProject ? handleNavigateToRepository : undefined}
-          disabled={!hasSpecificProject}
-          disabledReason={
-            hasSpecificProject
-              ? undefined
-              : "仓库工作区需在项目上下文内使用，请先在上方选择具体项目"
-          }
-        />
+        {activeTab === "runs" && (
+          <TabRuns
+            completed={completed}
+            failed={failed}
+            running={running}
+            onOpenFull={handleNavigateToRuns}
+          />
+        )}
+
+        {activeTab === "repository" && (
+          <TabRepository
+            hasSpecificProject={hasSpecificProject}
+            projectName={selectedProjectName}
+            onOpenRepository={
+              hasSpecificProject ? handleNavigateToRepository : undefined
+            }
+          />
+        )}
       </div>
     </div>
   );
 }
 
-/* ─── Entry Card ─── */
+/* ─── Tab: 任务队列 ─── */
 
-function ExecutionEntryCard({
-  title,
-  description,
-  stats,
-  buttonLabel,
-  onClick,
-  disabled,
-  disabledReason,
+function TabTasks({
+  total,
+  running,
+  blocked,
+  failed,
+  waitingHuman,
+  onOpenFull,
 }: {
-  title: string;
-  description: string;
-  stats: { label: string; value: number | string }[];
-  buttonLabel: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  disabledReason?: string;
+  total: number;
+  running: number;
+  blocked: number;
+  failed: number;
+  waitingHuman: number;
+  onOpenFull: () => void;
 }) {
   return (
-    <div className="flex flex-col rounded-lg border border-[#333333] bg-[#1a1a1a] p-5">
-      <h3 className="text-base font-semibold text-zinc-200">{title}</h3>
-      <p className="mt-1.5 text-sm text-zinc-500">{description}</p>
-
-      {/* 数量/状态摘要 */}
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {stats.map((s) => (
-          <div
-            key={s.label}
-            className="rounded border border-[#333333] px-2 py-1.5 text-center"
-          >
-            <div className="text-[10px] text-zinc-500">{s.label}</div>
-            <div className="text-sm font-medium text-zinc-300">
-              {typeof s.value === "number" ? s.value : s.value}
-            </div>
-          </div>
-        ))}
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+        <StatItem label="总数" value={total} />
+        <StatItem label="运行中" value={running} />
+        <StatItem label="阻塞" value={blocked} />
+        <StatItem label="失败" value={failed} />
+        <StatItem label="待确认" value={waitingHuman} />
       </div>
 
-      {/* 跳转按钮 */}
-      <div className="mt-4 pt-4 border-t border-[#333333]">
-        {onClick ? (
-          <button
-            type="button"
-            onClick={onClick}
-            className="w-full rounded border border-[#444444] px-3 py-2 text-sm text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
-          >
-            {buttonLabel}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled
-            className="w-full rounded border border-[#333333] px-3 py-2 text-sm text-zinc-600 cursor-not-allowed"
-          >
-            {buttonLabel}
-          </button>
-        )}
-        {disabled && disabledReason && (
-          <p className="mt-1.5 text-[10px] text-zinc-700">
-            {disabledReason}
-          </p>
-        )}
+      <button
+        type="button"
+        onClick={onOpenFull}
+        className="rounded border border-[#444444] px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
+      >
+        打开完整任务队列
+      </button>
+    </div>
+  );
+}
+
+/* ─── Tab: 运行观测 ─── */
+
+function TabRuns({
+  completed,
+  failed,
+  running,
+  onOpenFull,
+}: {
+  completed: number;
+  failed: number;
+  running: number;
+  onOpenFull: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2 max-w-sm">
+        <StatItem label="已完成" value={completed} />
+        <StatItem label="失败" value={failed} />
+        <StatItem label="运行中" value={running} />
       </div>
+
+      <button
+        type="button"
+        onClick={onOpenFull}
+        className="rounded border border-[#444444] px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
+      >
+        打开完整运行观测
+      </button>
+    </div>
+  );
+}
+
+/* ─── Tab: 仓库工作区 ─── */
+
+function TabRepository({
+  hasSpecificProject,
+  projectName,
+  onOpenRepository,
+}: {
+  hasSpecificProject: boolean;
+  projectName: string;
+  onOpenRepository: (() => void) | undefined;
+}) {
+  if (!hasSpecificProject) {
+    return (
+      <div className="space-y-3">
+        <button
+          type="button"
+          disabled
+          className="rounded border border-[#333333] px-4 py-2 text-sm text-zinc-600 cursor-not-allowed"
+        >
+          打开仓库工作区
+        </button>
+        <p className="text-xs text-zinc-600">需先选择具体项目</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-zinc-500">当前项目：{projectName}</p>
+
+      <button
+        type="button"
+        onClick={onOpenRepository}
+        className="rounded border border-[#444444] px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
+      >
+        打开仓库工作区
+      </button>
+    </div>
+  );
+}
+
+/* ─── Stat Item ─── */
+
+function StatItem({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded border border-[#333333] px-3 py-2 text-center">
+      <div className="text-xs text-zinc-500">{label}</div>
+      <div className="text-lg font-medium text-zinc-300">{value}</div>
     </div>
   );
 }
