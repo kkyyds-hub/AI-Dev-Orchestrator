@@ -327,6 +327,28 @@
 | Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing，同 Phase1） |
 
 
+### 5.5.2 BCG-02 Phase1 — Plan Version / Plan Approval（2026-05-19）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-02 Phase1：计划版本生成与确认 |
+| 阶段性质 | 后端闭环补齐 |
+| 起始 commit | `c260f0a` |
+| 结束 commit | （本次提交） |
+| 新增文件 | `app/domain/project_director_plan_version.py`、`app/repositories/project_director_plan_version_repository.py`、`app/services/project_director_plan_service.py`、`tests/test_project_director_plan_versions.py` |
+| 修改文件 | `app/core/db_tables.py`、`app/api/routes/project_director.py` |
+| 涉及页面 | 无（未改前端） |
+| 涉及接口 | `POST /project-director/sessions/{id}/plan-versions`、`GET /project-director/sessions/{id}/plan-versions`、`GET /project-director/plan-versions/{id}`、`POST /project-director/plan-versions/{id}/confirm` |
+| 页面职责 | N/A |
+| 前端真实接入 | N/A（未改前端） |
+| 后端闭环 | Backend Pass：4 个 API 真实读写；确定性计划生成；状态机 pending_confirmation→confirmed/superseded；版本递增；confirmed 不创建任务 |
+| 运行证据 | Runtime Evidence Missing |
+| 测试结果 | 21/21 通过（+ 原有 38/38 无回归 = 总计 59/59） |
+| verification 文档 | `docs/product/ai-project-director/verification-project-director-plan-version-phase1-20260519.md` |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing） |
+| 后续动作 | 后续接 Task Creation 阶段，需单独触发 |
+
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |

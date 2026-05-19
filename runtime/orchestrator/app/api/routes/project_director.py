@@ -1,6 +1,7 @@
-"""AI Project Director session API routes.
+"""AI Project Director session & plan version API routes.
 
-Phase 1: goal intake → clarification → confirmation.
+BCG-01: goal intake → clarification → confirmation.
+BCG-02: plan version generation → pending_confirmation → confirmed.
 No AI, no Provider, no planning/apply, no task creation, no worker dispatch.
 """
 
@@ -14,14 +15,24 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.project_director_plan_version import (
+    PlanPhase as PlanPhaseDomain,
+    PlanVersionStatus,
+    ProjectDirectorPlanVersion,
+    ProposedTask as ProposedTaskDomain,
+)
 from app.domain.project_director_session import (
     ClarifyingAnswer,
     ClarifyingQuestion,
     ProjectDirectorSessionStatus,
 )
+from app.repositories.project_director_plan_version_repository import (
+    ProjectDirectorPlanVersionRepository,
+)
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.services.project_director_plan_service import ProjectDirectorPlanService
 from app.services.project_director_service import ProjectDirectorService
 
 
@@ -33,6 +44,17 @@ def _get_service(
 ) -> ProjectDirectorService:
     repo = ProjectDirectorSessionRepository(session)
     return ProjectDirectorService(session_repository=repo)
+
+
+def _get_plan_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorPlanService:
+    plan_repo = ProjectDirectorPlanVersionRepository(session)
+    session_repo = ProjectDirectorSessionRepository(session)
+    return ProjectDirectorPlanService(
+        plan_version_repository=plan_repo,
+        session_repository=session_repo,
+    )
 
 
 # ── Request / Response DTOs ─────────────────────────────────────────
@@ -351,3 +373,275 @@ def confirm_goal(
         ) from exc
 
     return SessionResponse.from_domain(session_obj)
+
+
+# ── Plan Version DTOs ────────────────────────────────────────────────
+
+
+class PlanPhaseResponse(BaseModel):
+    sequence: int
+    name: str
+    goal: str
+    task_count_hint: int
+
+    @classmethod
+    def from_domain(cls, p: PlanPhaseDomain) -> "PlanPhaseResponse":
+        return cls(
+            sequence=p.sequence,
+            name=p.name,
+            goal=p.goal,
+            task_count_hint=p.task_count_hint,
+        )
+
+
+class ProposedTaskResponse(BaseModel):
+    title: str
+    description: str
+    suggested_role_code: str
+    priority_hint: str
+
+    @classmethod
+    def from_domain(cls, t: ProposedTaskDomain) -> "ProposedTaskResponse":
+        return cls(
+            title=t.title,
+            description=t.description,
+            suggested_role_code=t.suggested_role_code,
+            priority_hint=t.priority_hint,
+        )
+
+
+class PlanVersionResponse(BaseModel):
+    id: UUID
+    session_id: UUID
+    project_id: UUID | None
+    version_no: int
+    status: PlanVersionStatus
+    plan_summary: str
+    phases: list[PlanPhaseResponse] = Field(default_factory=list)
+    proposed_tasks: list[ProposedTaskResponse] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    forbidden_actions: list[str] = Field(default_factory=list)
+    confirmed_at: str | None
+    created_at: str
+    updated_at: str
+    next_action: str
+    missing_info: list[str] = Field(default_factory=list)
+    needs_user_confirmation: bool
+    gate_conclusion: str
+
+    @classmethod
+    def from_domain(cls, pv: ProjectDirectorPlanVersion) -> "PlanVersionResponse":
+        next_action, missing_info, needs_confirmation, gate = (
+            _compute_plan_contract_fields(pv)
+        )
+
+        return cls(
+            id=pv.id,
+            session_id=pv.session_id,
+            project_id=pv.project_id,
+            version_no=pv.version_no,
+            status=pv.status,
+            plan_summary=pv.plan_summary,
+            phases=[PlanPhaseResponse.from_domain(p) for p in pv.phases],
+            proposed_tasks=[
+                ProposedTaskResponse.from_domain(t) for t in pv.proposed_tasks
+            ],
+            acceptance_criteria=pv.acceptance_criteria,
+            risks=pv.risks,
+            forbidden_actions=pv.forbidden_actions,
+            confirmed_at=pv.confirmed_at.isoformat() if pv.confirmed_at else None,
+            created_at=pv.created_at.isoformat(),
+            updated_at=pv.updated_at.isoformat(),
+            next_action=next_action,
+            missing_info=missing_info,
+            needs_user_confirmation=needs_confirmation,
+            gate_conclusion=gate,
+        )
+
+
+class PlanVersionListResponse(BaseModel):
+    session_id: UUID
+    plan_versions: list[PlanVersionResponse]
+
+
+def _compute_plan_contract_fields(
+    pv: ProjectDirectorPlanVersion,
+) -> tuple[str, list[str], bool, str]:
+    """Compute the output contract fields for a plan version."""
+
+    if pv.status == PlanVersionStatus.DRAFT:
+        return (
+            "计划版本尚未提交确认",
+            ["提交确认"],
+            False,
+            "Partial",
+        )
+
+    if pv.status == PlanVersionStatus.PENDING_CONFIRMATION:
+        return (
+            "计划版本已生成，请审阅后确认。确认后不会自动创建任务",
+            ["用户确认"],
+            True,
+            "Partial",
+        )
+
+    if pv.status == PlanVersionStatus.CONFIRMED:
+        return (
+            "计划版本已确认。后续可进入任务创建阶段，但需单独触发",
+            ["任务创建（需单独触发）", "Worker 调度", "运行证据"],
+            False,
+            "Partial（计划闭环 Pass，总闭环未完成）",
+        )
+
+    if pv.status == PlanVersionStatus.SUPERSEDED:
+        return (
+            "此计划版本已被新版本取代",
+            [],
+            False,
+            "Partial",
+        )
+
+    if pv.status == PlanVersionStatus.REJECTED:
+        return (
+            "此计划版本已被拒绝",
+            [],
+            False,
+            "Partial",
+        )
+
+    return ("未知状态", [], False, "Partial")
+
+
+# ── Plan Version Routes ──────────────────────────────────────────────
+
+
+@router.post(
+    "/sessions/{session_id}/plan-versions",
+    response_model=PlanVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a plan version from a confirmed session",
+)
+def create_plan_version(
+    session_id: UUID,
+    plan_service: Annotated[ProjectDirectorPlanService, Depends(_get_plan_service)],
+) -> PlanVersionResponse:
+    """Generate a deterministic plan version from a confirmed session.
+
+    Only `confirmed` sessions can generate plan versions.
+    No AI, no Provider, no task creation, no worker dispatch.
+    """
+
+    try:
+        plan_version = plan_service.create_plan_version(session_id=session_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "only confirmed sessions" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return PlanVersionResponse.from_domain(plan_version)
+
+
+@router.get(
+    "/sessions/{session_id}/plan-versions",
+    response_model=PlanVersionListResponse,
+    summary="List plan versions for a session",
+)
+def list_plan_versions(
+    session_id: UUID,
+    plan_service: Annotated[ProjectDirectorPlanService, Depends(_get_plan_service)],
+) -> PlanVersionListResponse:
+    """List all plan versions for a session, newest version_no first."""
+
+    try:
+        versions = plan_service.list_plan_versions(session_id=session_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return PlanVersionListResponse(
+        session_id=session_id,
+        plan_versions=[PlanVersionResponse.from_domain(v) for v in versions],
+    )
+
+
+@router.get(
+    "/plan-versions/{plan_version_id}",
+    response_model=PlanVersionResponse,
+    summary="Get a plan version by ID",
+)
+def get_plan_version(
+    plan_version_id: UUID,
+    plan_service: Annotated[ProjectDirectorPlanService, Depends(_get_plan_service)],
+) -> PlanVersionResponse:
+    """Read a single plan version detail."""
+
+    plan_version = plan_service.get_plan_version(plan_version_id)
+    if plan_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Plan version {plan_version_id} not found",
+        )
+
+    return PlanVersionResponse.from_domain(plan_version)
+
+
+@router.post(
+    "/plan-versions/{plan_version_id}/confirm",
+    response_model=PlanVersionResponse,
+    summary="Confirm a plan version",
+)
+def confirm_plan_version(
+    plan_version_id: UUID,
+    plan_service: Annotated[ProjectDirectorPlanService, Depends(_get_plan_service)],
+) -> PlanVersionResponse:
+    """Confirm a plan version.
+
+    Transitions: pending_confirmation → confirmed.
+    Supersedes any previously confirmed plan version for the same session.
+    Does NOT create tasks or call planning/apply.
+    Re-confirming an already confirmed plan version is idempotent.
+    """
+
+    try:
+        plan_version = plan_service.confirm_plan_version(
+            plan_version_id=plan_version_id
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "only 'pending_confirmation'" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return PlanVersionResponse.from_domain(plan_version)

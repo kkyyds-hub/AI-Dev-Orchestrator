@@ -34,6 +34,7 @@ from app.domain.change_session import (
 from app.domain.change_plan import ChangePlanStatus
 from app.domain.deliverable import DeliverableContentFormat, DeliverableType
 from app.domain.project import ProjectStage, ProjectStatus
+from app.domain.project_director_plan_version import PlanVersionStatus
 from app.domain.project_director_session import ProjectDirectorSessionStatus
 from app.domain.project_role import ProjectRoleCode
 from app.domain.repository_snapshot import RepositorySnapshotStatus
@@ -1605,6 +1606,60 @@ class ProjectDirectorSessionTable(ORMBase):
         default="[]",
     )
     goal_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class ProjectDirectorPlanVersionTable(ORMBase):
+    """AI Project Director plan version rows — reviewable drafts, not real tasks."""
+
+    __tablename__ = "project_director_plan_versions"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[PlanVersionStatus] = mapped_column(
+        Enum(
+            PlanVersionStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=PlanVersionStatus.DRAFT,
+    )
+    plan_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    phases_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    proposed_tasks_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    acceptance_criteria_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    risks_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    forbidden_actions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
     confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
