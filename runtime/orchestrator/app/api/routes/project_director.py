@@ -48,10 +48,11 @@ class ClarifyingQuestionResponse(BaseModel):
     id: str
     question: str
     hint: str
+    required: bool
 
     @classmethod
     def from_domain(cls, q: ClarifyingQuestion) -> "ClarifyingQuestionResponse":
-        return cls(id=q.id, question=q.question, hint=q.hint)
+        return cls(id=q.id, question=q.question, hint=q.hint, required=q.required)
 
 
 class ClarifyingAnswerResponse(BaseModel):
@@ -143,18 +144,26 @@ def _compute_contract_fields(
 
     if s.status == ProjectDirectorSessionStatus.CLARIFYING:
         answered_count = len(s.clarifying_answers)
-        total_count = len(s.clarifying_questions)
-        missing = []
+        total_required = sum(1 for q in s.clarifying_questions if q.required)
+        missing: list[str] = []
         if s.clarifying_questions:
             answered_ids = {a.question_id for a in s.clarifying_answers}
             missing = [
-                q.question
+                f"[必答] {q.question}"
                 for q in s.clarifying_questions
-                if q.id not in answered_ids
+                if q.required and q.id not in answered_ids
             ]
+        if missing:
+            return (
+                f"请继续回答 {len(missing)} 个必答问题后提交答案",
+                missing,
+                True,
+                ["不生成计划", "不创建任务", "不调度 Worker", "不写仓库"],
+                "Partial",
+            )
         return (
-            "请回答澄清问题后提交答案",
-            missing if missing else [f"已回答 {answered_count}/{total_count} 个问题"],
+            f"已回答全部 {total_required} 个必答问题，请提交答案进入确认",
+            [],
             True,
             ["不生成计划", "不创建任务", "不调度 Worker", "不写仓库"],
             "Partial",
@@ -192,28 +201,6 @@ def _compute_contract_fields(
     return ("未知状态", [], False, [], "Partial")
 
 
-class ConfirmResponse(BaseModel):
-    status: str
-    message: str
-    confirmed_at: str | None
-
-    @classmethod
-    def from_session(cls, s: "ProjectDirectorSession") -> "ConfirmResponse":  # noqa: F821
-        from app.domain.project_director_session import ProjectDirectorSession
-
-        msg = (
-            "目标已确认。AI 项目主管不会自动生成计划或创建任务，"
-            "后续阶段需单独触发。"
-            if s.status == ProjectDirectorSessionStatus.CONFIRMED
-            else f"当前状态为 {s.status.value}"
-        )
-        return cls(
-            status=s.status.value,
-            message=msg,
-            confirmed_at=s.confirmed_at.isoformat() if s.confirmed_at else None,
-        )
-
-
 # ── Router ──────────────────────────────────────────────────────────
 
 
@@ -238,6 +225,12 @@ def create_session(
     The session starts in `clarifying` status with deterministic questions.
     No AI or Provider is called.
     """
+
+    if not request.goal_text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="goal_text must not be empty or whitespace-only",
+        )
 
     try:
         session_obj = service.create_session(
@@ -318,16 +311,17 @@ def submit_answers(
 
 @router.post(
     "/sessions/{session_id}/confirm",
-    response_model=ConfirmResponse,
+    response_model=SessionResponse,
     summary="Confirm the goal summary",
 )
 def confirm_goal(
     session_id: UUID,
     service: Annotated[ProjectDirectorService, Depends(_get_service)],
-) -> ConfirmResponse:
+) -> SessionResponse:
     """Confirm the goal summary.
 
     Transitions the session from `ready_to_confirm` to `confirmed`.
+    All required clarifying questions must be answered first.
     Confirmed does NOT auto-generate plans or create tasks.
     Re-confirming an already confirmed session is idempotent.
     """
@@ -341,6 +335,11 @@ def confirm_goal(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=detail,
             ) from exc
+        if "cannot confirm" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
         if "expected 'ready_to_confirm'" in detail.lower():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -351,4 +350,4 @@ def confirm_goal(
             detail=detail,
         ) from exc
 
-    return ConfirmResponse.from_session(session_obj)
+    return SessionResponse.from_domain(session_obj)

@@ -135,6 +135,14 @@ class TestCreateSession:
         )
         assert resp.status_code == 422
 
+    def test_create_session_rejects_whitespace_only_goal(self, client):
+        resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": "   "},
+        )
+        assert resp.status_code == 422
+        assert "whitespace" in resp.json()["detail"].lower() or "empty" in resp.json()["detail"].lower()
+
     def test_create_session_generates_questions_for_short_goal(self, client):
         """Very short goal should trigger the 'short goal' question."""
         resp = client.post(
@@ -147,6 +155,31 @@ class TestCreateSession:
             q["question"] for q in data["clarifying_questions"]
         )
         assert "简短" in questions_text or len(data["clarifying_questions"]) >= 3
+
+    def test_chinese_long_goal_not_misjudged_as_short(self, client):
+        """A 20+ character Chinese goal should NOT be flagged as 'short'."""
+        long_goal = "构建一个完整的用户认证和授权系统，支持OAuth2.0和JWT"
+        resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": long_goal},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        questions_text = " ".join(
+            q["question"] for q in data["clarifying_questions"]
+        )
+        # Should NOT contain the "简短" short-goal warning
+        assert "简短" not in questions_text
+
+    def test_questions_have_required_field(self, client):
+        resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": "构建一个用户认证系统"},
+        )
+        assert resp.status_code == 201
+        for q in resp.json()["clarifying_questions"]:
+            assert "required" in q
+            assert q["required"] is True
 
     def test_create_session_questions_have_ids_and_hints(self, client):
         resp = client.post(
@@ -237,10 +270,10 @@ class TestSubmitAnswers:
         assert "目标摘要" in data["goal_summary"]
         assert data["needs_user_confirmation"] is True
 
-    def test_submit_partial_answers_is_allowed(self, client):
+    def test_submit_partial_answers_stays_clarifying(self, client):
         session_id, questions = self._create_and_get_questions(client)
 
-        # Answer only the first question
+        # Answer only the first question (all questions are required=true)
         answers = [
             {
                 "question_id": questions[0]["id"],
@@ -254,7 +287,68 @@ class TestSubmitAnswers:
 
         assert resp.status_code == 200
         data = resp.json()
+        # With required questions unanswered, status must stay clarifying
+        assert data["status"] == ProjectDirectorSessionStatus.CLARIFYING.value
+
+    def test_partial_answers_missing_info_lists_unanswered(self, client):
+        session_id, questions = self._create_and_get_questions(client)
+
+        # Answer only the first question
+        answers = [
+            {
+                "question_id": questions[0]["id"],
+                "answer": "部分回答",
+            }
+        ]
+        resp = client.post(
+            f"/project-director/sessions/{session_id}/answers",
+            json={"answers": answers},
+        )
+
+        data = resp.json()
+        assert data["status"] == ProjectDirectorSessionStatus.CLARIFYING.value
+        # missing_info must list unanswered required questions
+        assert len(data["missing_info"]) > 0
+        assert any("[必答]" in m for m in data["missing_info"])
+        # next_action must indicate more answers needed
+        assert "继续回答" in data["next_action"] or "必答" in data["next_action"]
+
+    def test_all_required_answers_transitions_to_ready_to_confirm(self, client):
+        session_id, questions = self._create_and_get_questions(client)
+
+        # Answer ALL questions
+        answers = [
+            {"question_id": q["id"], "answer": f"完整回答 {i}"}
+            for i, q in enumerate(questions)
+        ]
+        resp = client.post(
+            f"/project-director/sessions/{session_id}/answers",
+            json={"answers": answers},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
         assert data["status"] == ProjectDirectorSessionStatus.READY_TO_CONFIRM.value
+
+    def test_confirm_with_partial_answers_returns_409(self, client):
+        session_id, questions = self._create_and_get_questions(client)
+
+        # Answer only the first question (NOT all required)
+        answers = [
+            {
+                "question_id": questions[0]["id"],
+                "answer": "只回答了一个问题",
+            }
+        ]
+        client.post(
+            f"/project-director/sessions/{session_id}/answers",
+            json={"answers": answers},
+        )
+
+        # Confirm should return 409 because required questions are unanswered
+        resp = client.post(f"/project-director/sessions/{session_id}/confirm")
+        assert resp.status_code == 409
+        assert "cannot confirm" in resp.json()["detail"].lower()
 
     def test_submit_answers_for_nonexistent_session_returns_404(self, client):
         fake_id = str(uuid4())
@@ -361,7 +455,33 @@ class TestConfirmGoal:
         data = resp.json()
         assert data["status"] == ProjectDirectorSessionStatus.CONFIRMED.value
         assert data["confirmed_at"] is not None
-        assert "已确认" in data["message"]
+        # Confirm now returns full SessionResponse with contract fields
+        assert "next_action" in data
+        assert "forbidden_actions" in data
+        assert "gate_conclusion" in data
+
+    def test_confirm_returns_full_session_response(self, client):
+        session_id = self._prepare_ready_to_confirm(client)
+
+        resp = client.post(f"/project-director/sessions/{session_id}/confirm")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Must include all SessionResponse fields
+        assert "id" in data
+        assert "goal_text" in data
+        assert "status" in data
+        assert "clarifying_questions" in data
+        assert "clarifying_answers" in data
+        assert "goal_summary" in data
+        assert "confirmed_at" in data
+        assert "next_action" in data
+        assert "missing_info" in data
+        assert "needs_user_confirmation" in data
+        assert "forbidden_actions" in data
+        assert "gate_conclusion" in data
+        assert data["status"] == ProjectDirectorSessionStatus.CONFIRMED.value
+        assert data["needs_user_confirmation"] is False
+        assert "不自动生成计划" in str(data["forbidden_actions"])
 
     def test_confirm_twice_is_idempotent(self, client):
         session_id = self._prepare_ready_to_confirm(client)
@@ -382,7 +502,8 @@ class TestConfirmGoal:
 
         resp = client.post(f"/project-director/sessions/{session_id}/confirm")
         assert resp.status_code == 409
-        assert "ready_to_confirm" in resp.json()["detail"].lower()
+        detail = resp.json()["detail"].lower()
+        assert "cannot confirm" in detail or "ready_to_confirm" in detail
 
     def test_confirm_nonexistent_session_returns_404(self, client):
         fake_id = str(uuid4())
@@ -463,7 +584,7 @@ class TestService:
         session_obj = service.create_session(
             goal_text="构建一个用户认证系统",
         )
-        with pytest.raises(ValueError, match="ready_to_confirm"):
+        with pytest.raises(ValueError, match="Cannot confirm"):
             service.confirm_goal(session_obj.id)
 
     def test_submit_answers_before_clarifying_raises(self, service):

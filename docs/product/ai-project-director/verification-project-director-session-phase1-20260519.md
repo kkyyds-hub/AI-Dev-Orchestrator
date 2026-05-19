@@ -106,7 +106,31 @@ python -m pytest tests/test_project_director_sessions.py -v
 
 ---
 
-## 8. Gate 结论
+## 8. Hardening Patch（2026-05-19）
+
+在第一版 BCG-01 Phase1 基础上做了小范围 hardening。
+
+### 行为变化
+
+| 变化 | 说明 |
+|---|---|
+| ClarifyingQuestion 新增 `required` 字段 | 默认 `true`，Phase1 生成的问题全部 required=true |
+| submit_answers 不再无条件进入 ready_to_confirm | 只有全部 required 问题已回答后才进入 ready_to_confirm；否则保持 clarifying |
+| missing_info 只列出未回答的 required 问题 | 前缀 `[必答]` 标识，next_action 提示继续补充 |
+| confirm_goal 增加 required 校验 | 无论状态如何，required 问题未回答就返回 409 |
+| confirm 返回完整 SessionResponse | 替代之前的 {status, message, confirmed_at} 三字段，统一输出契约 |
+| 空白 goal_text 拒绝 | 纯空格目标返回 422，不允许穿透到服务层 |
+| 短目标检测改用字符数 | `len(goal_text.strip()) < 20` 替代 `word_count < 10`，中文目标不会误判 |
+
+### 测试更新
+
+- 新增 7 个测试：partial answers → clarifying、missing_info 列出未答问题、partial 时 confirm → 409、全部必答 → ready_to_confirm、confirm 返回完整 SessionResponse、空白 goal → 422、中文长目标不误判
+- 更新 3 个已有测试对 required 规则和 confirm 响应格式的断言
+- 总计 38 个测试全部通过
+
+---
+
+## 9. Gate 结论
 
 ```text
 Gate 结论：Partial
@@ -120,5 +144,5 @@ Gate 结论：Partial
 - 4 个 API 真实读写数据库，状态机完整
 - 确定性澄清规则可生成 3-6 个结构化问题
 - 输出契约字段覆盖全部端点
-- 31 个测试全部通过，覆盖正常路径和错误路径
+- 38 个测试全部通过，覆盖正常路径、错误路径、required 规则、契约字段
 - 未改前端、未接 AI、未创建任务、未调度 Worker、未写仓库

@@ -24,6 +24,7 @@ class ClarifyingQuestion(DomainModel):
     id: str = Field(default_factory=lambda: f"q_{uuid4().hex[:8]}")
     question: str = Field(min_length=1, max_length=500)
     hint: str = Field(default="", max_length=200)
+    required: bool = Field(default=True)
 
 
 class ClarifyingAnswer(DomainModel):

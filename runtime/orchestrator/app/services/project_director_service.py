@@ -32,10 +32,12 @@ def _generate_clarifying_questions(
 
     questions: list[ClarifyingQuestion] = []
     text_lower = goal_text.lower()
-    word_count = len(goal_text.split())
+    char_count = len(goal_text.strip())
 
     # 1. Very short goal → ask for more detail
-    if word_count < 10:
+    # Use character count as a language-agnostic measure (Chinese text
+    # would be misjudged as "short" by word-count alone).
+    if char_count < 20:
         questions.append(
             ClarifyingQuestion(
                 question=(
@@ -187,6 +189,9 @@ class ProjectDirectorService:
     ) -> ProjectDirectorSession:
         """Create a new Project Director session and generate clarifying questions."""
 
+        if not goal_text.strip():
+            raise ValueError("goal_text must not be empty or whitespace-only")
+
         questions = _generate_clarifying_questions(goal_text, constraints)
 
         now = datetime.now(timezone.utc)
@@ -217,7 +222,8 @@ class ProjectDirectorService:
     ) -> ProjectDirectorSession:
         """Submit user answers to clarifying questions.
 
-        Transitions status: clarifying → ready_to_confirm.
+        If all required questions are answered → ready_to_confirm.
+        If any required question is still unanswered → stays clarifying.
         """
 
         session_obj = self._session_repo.get_by_id(session_id)
@@ -245,6 +251,20 @@ class ProjectDirectorService:
 
         merged_answers = list(existing_map.values())
 
+        # Determine status: only ready_to_confirm if ALL required are answered
+        answered_ids = {a.question_id for a in merged_answers}
+        all_required_answered = all(
+            q.id in answered_ids
+            for q in session_obj.clarifying_questions
+            if q.required
+        )
+
+        new_status = (
+            ProjectDirectorSessionStatus.READY_TO_CONFIRM
+            if all_required_answered
+            else ProjectDirectorSessionStatus.CLARIFYING
+        )
+
         # Generate goal summary
         goal_summary = _generate_goal_summary(
             goal_text=session_obj.goal_text,
@@ -258,7 +278,7 @@ class ProjectDirectorService:
             project_id=session_obj.project_id,
             goal_text=session_obj.goal_text,
             constraints=session_obj.constraints,
-            status=ProjectDirectorSessionStatus.READY_TO_CONFIRM,
+            status=new_status,
             clarifying_questions=session_obj.clarifying_questions,
             clarifying_answers=merged_answers,
             goal_summary=goal_summary,
@@ -273,6 +293,7 @@ class ProjectDirectorService:
         """Confirm the goal summary.
 
         Transitions status: ready_to_confirm → confirmed.
+        Requires all required clarifying questions to be answered.
         """
 
         session_obj = self._session_repo.get_by_id(session_id)
@@ -282,6 +303,18 @@ class ProjectDirectorService:
         if session_obj.status == ProjectDirectorSessionStatus.CONFIRMED:
             # Already confirmed — idempotent, return as-is
             return session_obj
+
+        # Validate all required questions are answered
+        answered_ids = {a.question_id for a in session_obj.clarifying_answers}
+        unanswered_required = [
+            q for q in session_obj.clarifying_questions
+            if q.required and q.id not in answered_ids
+        ]
+        if unanswered_required:
+            raise ValueError(
+                "Cannot confirm: the following required questions have not been answered: "
+                + "; ".join(q.question[:80] for q in unanswered_required)
+            )
 
         if session_obj.status != ProjectDirectorSessionStatus.READY_TO_CONFIRM:
             raise ValueError(

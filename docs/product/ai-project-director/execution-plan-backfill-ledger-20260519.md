@@ -312,6 +312,21 @@
 | 后续动作 | Phase2 补运行证据；后续 Plan Draft 阶段需单独触发 |
 
 
+### 5.5.1 BCG-01 Hardening Patch（2026-05-19）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-01 Phase1 Hardening Patch |
+| 阶段性质 | 后端闭环修补（不新增功能，强化流程约束） |
+| 起始 commit | `49a6edf` |
+| 结束 commit | （本次提交） |
+| 修改文件 | `app/domain/project_director_session.py`、`app/services/project_director_service.py`、`app/api/routes/project_director.py`、`tests/test_project_director_sessions.py` |
+| 行为变化 | ClarifyingQuestion 新增 required 字段；submit_answers 检查 required 才进入 ready_to_confirm；confirm_goal 校验 required；confirm 返回完整 SessionResponse；空白 goal 返回 422；短目标检测改用字符数 |
+| 涉及接口 | 4 个端点行为微调，无新增/删除 |
+| 测试结果 | 38/38 通过（新增 7 个，更新 3 个） |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing，同 Phase1） |
+
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
