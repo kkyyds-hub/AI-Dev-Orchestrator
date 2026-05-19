@@ -349,6 +349,20 @@
 | 后续动作 | 后续接 Task Creation 阶段，需单独触发 |
 
 
+### 5.5.2.1 BCG-02 Hardening Patch（2026-05-19）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-02 Phase1 Hardening Patch |
+| 阶段性质 | 后端闭环修补（role code 对齐 ProjectRoleCode + TaskTable 行数断言） |
+| 起始 commit | `68fed10` |
+| 结束 commit | （本次提交） |
+| 修改文件 | `app/domain/project_director_plan_version.py`、`app/services/project_director_plan_service.py`、`tests/test_project_director_plan_versions.py` |
+| 行为变化 | ProposedTask.suggested_role_code → ProjectRoleCode 枚举；developer→engineer；frontend_developer→engineer；tester→reviewer；confirm 后 TaskTable 行数断言 |
+| 测试结果 | 24/24 通过（新增 3 个 role code 测试）+ 38/38 无回归 = 62/62 |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing，同 BCG-02） |
+
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |

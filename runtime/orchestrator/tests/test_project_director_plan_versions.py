@@ -13,11 +13,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from sqlalchemy import func, select
+
 from app.api.router import api_router
 from app.core.db import get_db_session
-from app.core.db_tables import ORMBase
+from app.core.db_tables import ORMBase, TaskTable
 from app.domain.project_director_plan_version import PlanVersionStatus
 from app.domain.project_director_session import ProjectDirectorSessionStatus
+from app.domain.project_role import ProjectRoleCode
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
 )
@@ -135,10 +138,55 @@ class TestCreatePlanVersion:
         assert len(data["plan_summary"]) > 0
         assert len(data["phases"]) >= 2
         assert len(data["proposed_tasks"]) >= 4
+        # All suggested_role_code values must be valid ProjectRoleCode members
+        valid_roles = {r.value for r in ProjectRoleCode}
+        for task in data["proposed_tasks"]:
+            assert task["suggested_role_code"] in valid_roles, (
+                f"Invalid role code: {task['suggested_role_code']}"
+            )
         assert len(data["forbidden_actions"]) >= 3
         assert "不自动创建任务" in data["forbidden_actions"]
         assert data["needs_user_confirmation"] is True
         assert data["gate_conclusion"] == "Partial"
+
+    def test_frontend_task_uses_engineer_role(self, client):
+        """Frontend tasks must use engineer, not frontend_developer."""
+        session_id = _prepare_confirmed_session(client)
+        resp = client.post(
+            f"/project-director/sessions/{session_id}/plan-versions"
+        )
+        data = resp.json()
+        frontend_tasks = [
+            t for t in data["proposed_tasks"] if "前端" in t["title"]
+        ]
+        if frontend_tasks:
+            assert frontend_tasks[0]["suggested_role_code"] == ProjectRoleCode.ENGINEER.value
+
+    def test_testing_task_uses_reviewer_role(self, client):
+        """Testing tasks must use reviewer, not tester."""
+        session_id = _prepare_confirmed_session(client)
+        resp = client.post(
+            f"/project-director/sessions/{session_id}/plan-versions"
+        )
+        data = resp.json()
+        test_tasks = [
+            t for t in data["proposed_tasks"] if "测试" in t["title"]
+        ]
+        if test_tasks:
+            assert test_tasks[0]["suggested_role_code"] == ProjectRoleCode.REVIEWER.value
+
+    def test_no_developer_or_tester_role_codes(self, client):
+        """No proposed task should use invalid role codes like developer or tester."""
+        session_id = _prepare_confirmed_session(client)
+        resp = client.post(
+            f"/project-director/sessions/{session_id}/plan-versions"
+        )
+        data = resp.json()
+        invalid_codes = {"developer", "frontend_developer", "tester"}
+        for task in data["proposed_tasks"]:
+            assert task["suggested_role_code"] not in invalid_codes, (
+                f"Found invalid role code: {task['suggested_role_code']}"
+            )
 
     def test_create_from_unconfirmed_session_returns_409(self, client):
         # Create a session but don't confirm
@@ -395,9 +443,14 @@ class TestConfirmPlanVersion:
         assert "gate_conclusion" in data
         assert data["needs_user_confirmation"] is False
 
-    def test_confirmed_plan_does_not_create_tasks(self, client):
-        """Verify confirming a plan version does NOT interact with the tasks API."""
+    def test_confirmed_plan_does_not_create_tasks(self, client, db_session):
+        """Verify confirming a plan version does NOT create real tasks."""
         _, pv_id = self._create_plan_version(client)
+
+        # Count tasks before confirming
+        task_count_before = db_session.execute(
+            select(func.count()).select_from(TaskTable)
+        ).scalar_one()
 
         # Confirm the plan
         resp = client.post(
@@ -405,7 +458,17 @@ class TestConfirmPlanVersion:
         )
         assert resp.status_code == 200
 
-        # Verify no tasks were created — check the forbidden_actions
+        # Count tasks after confirming — must be identical
+        task_count_after = db_session.execute(
+            select(func.count()).select_from(TaskTable)
+        ).scalar_one()
+        assert task_count_after == task_count_before, (
+            f"TaskTable row count changed from {task_count_before} "
+            f"to {task_count_after} after plan confirmation"
+        )
+        assert task_count_after == 0
+
+        # Verify forbidden_actions are present
         data = resp.json()
         assert "不自动创建任务" in data["forbidden_actions"]
         assert "不自动调用 Worker" in data["forbidden_actions"]
@@ -446,6 +509,10 @@ class TestPlanService:
         assert pv.version_no == 1
         assert len(pv.phases) >= 2
         assert len(pv.proposed_tasks) >= 4
+        # All role codes must be valid ProjectRoleCode members
+        for task in pv.proposed_tasks:
+            assert isinstance(task.suggested_role_code, ProjectRoleCode)
+            assert task.suggested_role_code in ProjectRoleCode
 
         # 3. Read plan version
         retrieved = plan_service.get_plan_version(pv.id)

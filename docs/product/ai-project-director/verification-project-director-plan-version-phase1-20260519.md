@@ -143,6 +143,38 @@ python -m pytest tests/test_project_director_sessions.py tests/test_project_dire
 
 ---
 
+## 8.5 Hardening Patch（2026-05-19）
+
+### role code 对齐
+
+`ProposedTask.suggested_role_code` 从 `str` 改为 `ProjectRoleCode` 枚举，确保只使用合法角色。
+
+| 旧值 | 新值 |
+|---|---|
+| `developer` | `engineer` (ProjectRoleCode.ENGINEER) |
+| `frontend_developer` | `engineer` (ProjectRoleCode.ENGINEER) |
+| `tester` | `reviewer` (ProjectRoleCode.REVIEWER) |
+| `architect` | 不变 (ProjectRoleCode.ARCHITECT) |
+
+### TaskTable 验证
+
+`test_confirmed_plan_does_not_create_tasks` 现在真实查询数据库 `TaskTable` 行数：
+- 确认前 count → 确认后 count 必须相等且为 0
+
+### 新增测试
+
+- `test_frontend_task_uses_engineer_role` — 前端任务使用 engineer
+- `test_testing_task_uses_reviewer_role` — 测试任务使用 reviewer
+- `test_no_developer_or_tester_role_codes` — 无非法 role code
+- `test_create_from_confirmed_session` 新增 role code 合法性断言
+
+### 测试更新
+
+- 24 个测试全部通过（原 21 + 新增 3）
+- 62/62 完整回归（含 session 38 个测试）
+
+---
+
 ## 9. Gate 结论
 
 ```text
@@ -159,5 +191,5 @@ Gate 结论：Partial
 - 版本递增正确，同一 session 只有一个 active confirmed
 - 确认后不创建任务、不调用 planning/apply、不调用 worker
 - forbidden_actions 明确列出 5 项禁止动作
-- 21 个测试全部通过，原有 38 个 session 测试无回归
+- 24 个测试全部通过（含 role code 校验 + TaskTable 行数检查），原有 38 个 session 测试无回归
 - 未改前端、未接 AI、未创建任务、未调度 Worker、未写仓库

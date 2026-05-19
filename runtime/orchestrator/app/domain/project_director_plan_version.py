@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from pydantic import Field
 
 from app.domain._base import DomainModel
+from app.domain.project_role import ProjectRoleCode
 
 
 class PlanVersionStatus(StrEnum):
@@ -37,7 +38,7 @@ class ProposedTask(DomainModel):
 
     title: str = Field(min_length=1, max_length=300)
     description: str = Field(default="", max_length=2000)
-    suggested_role_code: str = Field(default="developer", max_length=80)
+    suggested_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
     priority_hint: str = Field(default="normal", max_length=40)
 
 

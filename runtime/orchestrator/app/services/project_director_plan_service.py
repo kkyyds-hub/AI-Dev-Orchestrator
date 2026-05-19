@@ -16,6 +16,7 @@ from app.domain.project_director_plan_version import (
     ProposedTask,
 )
 from app.domain.project_director_session import ProjectDirectorSessionStatus
+from app.domain.project_role import ProjectRoleCode
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
 )
@@ -105,13 +106,13 @@ def _generate_plan_from_session(
         ProposedTask(
             title="需求分析与范围确认",
             description="整理并确认所有需求、范围边界、验收标准",
-            suggested_role_code="architect",
+            suggested_role_code=ProjectRoleCode.ARCHITECT,
             priority_hint="high",
         ),
         ProposedTask(
             title="技术方案设计",
             description="设计技术方案、数据模型、接口定义",
-            suggested_role_code="architect",
+            suggested_role_code=ProjectRoleCode.ARCHITECT,
             priority_hint="high",
         ),
     ]
@@ -121,7 +122,7 @@ def _generate_plan_from_session(
             ProposedTask(
                 title="前端界面开发",
                 description="实现前端页面和交互逻辑",
-                suggested_role_code="frontend_developer",
+                suggested_role_code=ProjectRoleCode.ENGINEER,
                 priority_hint="normal",
             )
         )
@@ -131,7 +132,7 @@ def _generate_plan_from_session(
             ProposedTask(
                 title="后端核心逻辑实现",
                 description="实现核心业务逻辑、API 接口",
-                suggested_role_code="developer",
+                suggested_role_code=ProjectRoleCode.ENGINEER,
                 priority_hint="normal",
             )
         )
@@ -140,13 +141,13 @@ def _generate_plan_from_session(
         ProposedTask(
             title="测试与验证",
             description="编写和运行测试，验证功能正确性",
-            suggested_role_code="tester",
+            suggested_role_code=ProjectRoleCode.REVIEWER,
             priority_hint="normal",
         ),
         ProposedTask(
             title="文档与交付物整理",
             description="整理代码文档、部署说明、交付物",
-            suggested_role_code="developer",
+            suggested_role_code=ProjectRoleCode.ENGINEER,
             priority_hint="low",
         ),
     ])
