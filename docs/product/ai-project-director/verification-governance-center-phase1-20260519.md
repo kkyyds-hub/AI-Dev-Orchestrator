@@ -1,8 +1,7 @@
-# 治理中心 Phase1：AI 团队资产治理中心职责收口
+# 治理中心 Phase1：AI 团队资产治理中心职责收口（含返工）
 
 > 验收日期：2026-05-19
-> 起始 commit：0ff5abc
-> 结束 commit：(本次)
+> 起始 commit：0ff5abc → a74ec1c（五页签骨架）→ (本次)（对齐返工：资产治理工作区）
 > 验收范围：GOV-01 ~ GOV-15
 > 验收方法：代码审查 + 实现 + build 验证
 > 评判依据：page-information-architecture-20260518.md, closure-checklist-20260518.md
@@ -89,6 +88,17 @@
 | 成本仪表板数据连调 | GOV-13 为 Partial |
 | 角色/Skill 导航入口实现 | 两个按钮 disabled |
 
+## 本轮返工（a74ec1c 对齐）
+
+a74ec1c 已将 /governance 改为五页签，但页面像静态展示稿。本轮返工：
+
+1. 前三个页签改为 **左侧资产轻列表 + 右侧选中项摘要面板** 治理工作区形态
+2. **角色治理** 接入真实 `useSystemRoleCatalog` API 读取系统角色目录
+3. **Skill 治理** 接入真实 `useSkillRegistry` API 读取 Skill 注册表
+4. **成本与记忆** 尝试接入真实 `useProjectCostDashboardSnapshot` API；已去掉固定 `$0.05`/`$0.20`
+5. 静态数据明确标注"静态基线 / fallback / 待接入"
+6. 所有无闭环按钮继续 disabled
+
 ## Gate 结论
 
-**Pass（Phase1）** — 治理中心从旧 section nav 重构为 5 页签 AI 团队资产治理中心。5/15 Pass，10/15 Partial（均为后端依赖缺口，不是前端造假）。零假按钮。COST-* 合理延后。
+**Partial** — 治理中心 Phase1 前端职责收口完成，对齐产品计划书（左侧资产列表+右侧面板）。GOV 6/15 Pass，9/15 Partial（均为后端依赖缺口）。零假按钮。COST-* 合理延后。

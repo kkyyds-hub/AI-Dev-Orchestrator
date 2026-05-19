@@ -116,7 +116,7 @@
 | 侧边栏导航 | 收敛导航 | UI Pass | N/A | N/A | Partial | 已记录 | **Pass** | 不恢复任务/运行观测一级入口 |
 | 成果中心：交付物 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 DEL-01~11（9 Pass / 2 Partial） | **Pass（Phase1）** | 返工: /delivery 父页面收敛双页签；DEL-09/DEL-10 保持 Partial |
 | 成果中心：审批 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass（审批动作真实写状态） | Partial | checklist 已回填 APV-01~10 | **Pass（Phase1）** | 返工: 审批页签收敛至成果中心；后续补端到端截图 |
-| 治理中心 | Phase1 职责收口 | UI Pass | Partial（前端使用旧 API，Phase1 未接入新按钮） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist 已回填 GOV-01~15（6 Pass / 9 Partial） | **Partial** | GOV-04~10/13~14 为后端缺口；COST-* 合理延后 |
+| 治理中心 | Phase1 职责收口+返工 | UI Pass | Partial（角色/Skill/成本 API 实时读取；写操作按钮禁用） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist 已回填 GOV-01~15（6 Pass / 9 Partial） | **Partial** | 返工: 左侧资产列表+右侧面板；接入 roles/skills/costs 真实 API |
 | 设置页 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 治理中心后处理 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
 | 总闭环 CL-01~18 | 未做总 Gate | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 页面阶段完成后统一回填 |
