@@ -31,6 +31,11 @@ export function ExecutionCenterPage() {
   const setActiveTab = (tab: TabKey) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", tab);
+    if (selectedProjectId !== "all") {
+      next.set("projectId", selectedProjectId);
+    } else {
+      next.delete("projectId");
+    }
     setSearchParams(next, { replace: true });
   };
 

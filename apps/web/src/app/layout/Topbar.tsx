@@ -6,6 +6,7 @@ type TopbarProps = {
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   usesWideWorkspace?: boolean;
+  suppressRouteIdentity?: boolean;
 };
 
 export function Topbar(props: TopbarProps) {
@@ -25,10 +26,12 @@ export function Topbar(props: TopbarProps) {
           >
             ☰
           </button>
-          <div className="min-w-0 truncate text-sm text-zinc-500">
-            <span className="font-medium text-zinc-200">{routeMeta.title}</span>
-            <span className="ml-3 hidden sm:inline">AI 开发编排平台 / {routeMeta.section}</span>
-          </div>
+          {props.suppressRouteIdentity ? null : (
+            <div className="min-w-0 truncate text-sm text-zinc-500">
+              <span className="font-medium text-zinc-200">{routeMeta.title}</span>
+              <span className="ml-3 hidden sm:inline">AI 开发编排平台 / {routeMeta.section}</span>
+            </div>
+          )}
         </div>
 
         <div className="hidden shrink-0 items-center gap-3 text-sm text-zinc-500 sm:flex">
