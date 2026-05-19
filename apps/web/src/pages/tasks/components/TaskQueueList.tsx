@@ -9,30 +9,43 @@ type TaskQueueListProps = {
   onNavigateToRepository: (taskId: string, projectId: string | null) => void;
 };
 
-/* Group tasks: critical (waiting_human/blocked), running, active others, completed/failed */
+/* Group tasks into 5 scheduling-priority groups:
+   1. 待人工 / 阻塞 / 失败   (waiting_human | blocked | failed)
+   2. 执行中                (running)
+   3. 可调度 / 待执行        (pending without deps)
+   4. 等待依赖 / 暂停        (paused | has depends_on_task_ids)
+   5. 已完成                (completed) — default collapsed
+*/
 function groupTasks(tasks: ConsoleTask[]) {
-  const critical: ConsoleTask[] = [];
-  const running: ConsoleTask[] = [];
-  const active: ConsoleTask[] = [];
-  const completed: ConsoleTask[] = [];
+  const critical: ConsoleTask[] = [];   // waiting_human | blocked | failed
+  const running: ConsoleTask[] = [];    // running
+  const schedulable: ConsoleTask[] = []; // pending, no deps, not paused
+  const waiting: ConsoleTask[] = [];    // paused | has deps (not already captured)
+  const completed: ConsoleTask[] = [];  // completed
 
   for (const t of tasks) {
-    if (t.status === "waiting_human" || t.status === "blocked") {
+    if (t.status === "waiting_human" || t.status === "blocked" || t.status === "failed") {
       critical.push(t);
     } else if (t.status === "running") {
       running.push(t);
-    } else if (t.status === "completed" || t.status === "failed") {
+    } else if (t.status === "completed") {
       completed.push(t);
+    } else if (
+      t.status === "paused" ||
+      (t.depends_on_task_ids && t.depends_on_task_ids.length > 0)
+    ) {
+      waiting.push(t);
     } else {
-      active.push(t);
+      schedulable.push(t);
     }
   }
 
   const groups: { key: string; label: string; tasks: ConsoleTask[]; collapsible?: boolean }[] = [];
-  if (critical.length > 0) groups.push({ key: "critical", label: "待人工 / 阻塞", tasks: critical });
+  if (critical.length > 0) groups.push({ key: "critical", label: "待人工 / 阻塞 / 失败", tasks: critical });
   if (running.length > 0) groups.push({ key: "running", label: "执行中", tasks: running });
-  if (active.length > 0) groups.push({ key: "active", label: "可调度 / 等待中", tasks: active });
-  if (completed.length > 0) groups.push({ key: "completed", label: "已完成 / 失败", tasks: completed, collapsible: true });
+  if (schedulable.length > 0) groups.push({ key: "schedulable", label: "可调度 / 待执行", tasks: schedulable });
+  if (waiting.length > 0) groups.push({ key: "waiting", label: "等待依赖 / 暂停", tasks: waiting });
+  if (completed.length > 0) groups.push({ key: "completed", label: "已完成", tasks: completed, collapsible: true });
 
   return groups;
 }
@@ -153,6 +166,21 @@ function mapStatusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
 
+const PRIORITY_LABELS: Record<string, string> = {
+  p0: "P0",
+  p1: "P1",
+  p2: "P2",
+  p3: "P3",
+  high: "高",
+  medium: "中",
+  low: "低",
+};
+
+function mapPriorityLabel(p: string): string | null {
+  const lower = p.toLowerCase();
+  return PRIORITY_LABELS[lower] ?? p.toUpperCase().slice(0, 3);
+}
+
 function TaskQueueItem({
   task,
   isSelected,
@@ -168,6 +196,7 @@ function TaskQueueItem({
 }) {
   const hasRun = Boolean(task.latest_run?.id);
   const depIds = task.depends_on_task_ids ?? [];
+  const prioLabel = task.priority ? mapPriorityLabel(task.priority) : null;
 
   return (
     <div
@@ -178,14 +207,19 @@ function TaskQueueItem({
           : "border-[#333333] bg-[#1a1a1a] hover:border-zinc-600 hover:bg-[#1f1f1f]"
       }`}
     >
-      {/* Row: title + status */}
+      {/* Row: title + status + priority */}
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm text-zinc-200 truncate min-w-0 flex-1">
           {task.title}
         </span>
-        <span className="text-[10px] text-zinc-500 rounded border border-[#333333] px-1.5 py-0.5 shrink-0">
-          {mapStatusLabel(task.status)}
-        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {prioLabel && (
+            <span className="text-[10px] text-zinc-600">{prioLabel}</span>
+          )}
+          <span className="text-[10px] text-zinc-500 rounded border border-[#333333] px-1.5 py-0.5">
+            {mapStatusLabel(task.status)}
+          </span>
+        </div>
       </div>
 
       {/* Row: agent + deps + block reason */}
