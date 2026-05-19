@@ -1,10 +1,11 @@
 import { useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { useBackendHealth, useConsoleOverview } from "../../features/console/hooks";
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { formatDateTime } from "../../lib/format";
 import { useProjectScope } from "../shared/useProjectScope";
+import { ExecutionRepositoryTab } from "./components/ExecutionRepositoryTab";
 import { ExecutionRunsTab } from "./components/ExecutionRunsTab";
 import { ExecutionTasksTab } from "./components/ExecutionTasksTab";
 
@@ -17,7 +18,6 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 export function ExecutionCenterPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const realtime = useConsoleEventStream();
   const overviewQuery = useConsoleOverview({
@@ -49,14 +49,6 @@ export function ExecutionCenterPage() {
     if (!overviewQuery.dataUpdatedAt) return "暂未刷新";
     return formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString());
   }, [overviewQuery.dataUpdatedAt]);
-
-  const hasSpecificProject = selectedProjectId !== "all";
-
-  const handleNavigateToRepository = () => {
-    if (hasSpecificProject) {
-      navigate(`/projects/${selectedProjectId}/repository`);
-    }
-  };
 
   return (
     <div className="relative min-w-0 space-y-5">
@@ -115,33 +107,7 @@ export function ExecutionCenterPage() {
         )}
 
         {activeTab === "repository" && (
-          <div className="space-y-3">
-            {hasSpecificProject ? (
-              <>
-                <p className="text-sm text-zinc-500">
-                  当前项目：{selectedProjectName}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleNavigateToRepository}
-                  className="rounded border border-[#444444] px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
-                >
-                  打开仓库工作区
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled
-                  className="rounded border border-[#333333] px-4 py-2 text-sm text-zinc-600 cursor-not-allowed"
-                >
-                  打开仓库工作区
-                </button>
-                <p className="text-xs text-zinc-600">需先选择具体项目</p>
-              </>
-            )}
-          </div>
+          <ExecutionRepositoryTab />
         )}
       </div>
     </div>
