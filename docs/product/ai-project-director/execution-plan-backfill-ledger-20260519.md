@@ -287,7 +287,32 @@
 | 重点对象 | AI 主管会话、作战计划确认、交付物审批、返工请求、角色/Skill 沉淀、成本台账 |
 | Gate | 后端测试通过 + 前端按钮解除禁用 + 文档回填 |
 
-### 5.5 端到端闭环总验收
+### 5.5 后端闭环补齐：BCG-01 Phase1 — AI Project Director Session
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-01 Phase1：AI 项目主管目标澄清与会话闭环 |
+| 阶段性质 | 后端闭环补齐 |
+| 起始 commit | `472d028` |
+| 结束 commit | （本次提交） |
+| 修改文件 | `app/core/db_tables.py`、`app/api/router.py`、`docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` |
+| 新增文件 | `.kkr/skills/ai-project-director/SKILL.md`、`app/domain/project_director_session.py`、`app/repositories/project_director_session_repository.py`、`app/services/project_director_service.py`、`app/api/routes/project_director.py`、`tests/test_project_director_sessions.py`、`docs/product/ai-project-director/verification-project-director-session-phase1-20260519.md` |
+| 涉及页面 | 无（未改前端） |
+| 涉及接口 | `POST /project-director/sessions`、`GET /project-director/sessions/{id}`、`POST /project-director/sessions/{id}/answers`、`POST /project-director/sessions/{id}/confirm` |
+| 页面职责 | N/A |
+| 前端真实接入 | N/A（未改前端） |
+| 后端闭环 | Backend Pass：4 个 API 真实读写，确定性澄清规则，状态机 draft→clarifying→ready_to_confirm→confirmed |
+| 运行证据 | Runtime Evidence Missing：当前环境未做 E2E 运行截图 |
+| checklist 回填 | 不适用（后端闭环任务，非页面任务） |
+| verification 文档 | `docs/product/ai-project-director/verification-project-director-session-phase1-20260519.md` |
+| 禁用按钮清单 | N/A |
+| 假按钮检查 | 无（纯后端） |
+| 越界检查 | 无：未改前端、未接 AI Provider、未创建任务、未调度 Worker、未写仓库、未改现有接口语义 |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing） |
+| 后续动作 | Phase2 补运行证据；后续 Plan Draft 阶段需单独触发 |
+
+
+### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
 |---|---|
@@ -361,7 +386,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 
 | 事项 | 当前判断 | 原因 |
 |---|---|---|
-| AI 项目主管真实对话 | Partial | 工作台主视觉已收口，但真实主管会话、目标澄清、计划确认仍需后端闭环 |
+| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；目标澄清/确认后端已完成（BCG-01 Phase1 Backend Pass）；计划草案/任务创建/Worker 调度尚未接续 |
 | 自动作战计划生成与确认 | Partial | 尚未作为完整目标→计划→确认链路验收 |
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |

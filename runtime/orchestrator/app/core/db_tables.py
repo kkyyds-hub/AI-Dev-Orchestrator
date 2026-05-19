@@ -34,6 +34,7 @@ from app.domain.change_session import (
 from app.domain.change_plan import ChangePlanStatus
 from app.domain.deliverable import DeliverableContentFormat, DeliverableType
 from app.domain.project import ProjectStage, ProjectStatus
+from app.domain.project_director_session import ProjectDirectorSessionStatus
 from app.domain.project_role import ProjectRoleCode
 from app.domain.repository_snapshot import RepositorySnapshotStatus
 from app.domain.repository_verification import RepositoryVerificationCategory
@@ -1568,3 +1569,54 @@ class ApprovalDecisionTable(ORMBase):
     )
 
     approval: Mapped[ApprovalRequestTable] = relationship(back_populates="decisions")
+
+
+class ProjectDirectorSessionTable(ORMBase):
+    """AI Project Director top-level goal-intake session rows."""
+
+    __tablename__ = "project_director_sessions"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    goal_text: Mapped[str] = mapped_column(Text, nullable=False)
+    constraints: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[ProjectDirectorSessionStatus] = mapped_column(
+        Enum(
+            ProjectDirectorSessionStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ProjectDirectorSessionStatus.DRAFT,
+    )
+    clarifying_questions_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    clarifying_answers_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )
+    goal_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )

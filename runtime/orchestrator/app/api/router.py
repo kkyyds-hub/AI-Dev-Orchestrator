@@ -9,6 +9,7 @@ from app.api.routes.deliverables import router as deliverables_router
 from app.api.routes.events import router as events_router
 from app.api.routes.health import router as health_router
 from app.api.routes.planning import router as planning_router
+from app.api.routes.project_director import router as project_director_router
 from app.api.routes.provider_settings import router as provider_settings_router
 from app.api.routes.projects import router as projects_router
 from app.api.routes.repositories import router as repositories_router
@@ -37,6 +38,7 @@ api_router.include_router(roles_router)
 api_router.include_router(skills_router)
 api_router.include_router(strategy_router)
 api_router.include_router(planning_router)
+api_router.include_router(project_director_router)
 api_router.include_router(runs_router)
 api_router.include_router(team_control_center_router)
 api_router.include_router(workers_router)
