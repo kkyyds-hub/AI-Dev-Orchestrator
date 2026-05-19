@@ -42,7 +42,7 @@ export function AppShell() {
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className={`mx-auto flex w-full ${contentMaxWidthClassName} min-w-0 flex-col ${isWorkbenchRoute ? "gap-7" : "gap-5"}`}>
-            {isWorkbenchRoute ? null : <Breadcrumbs />}
+            {(isWorkbenchRoute || isExecutionRoute) ? null : <Breadcrumbs />}
             <Outlet />
           </div>
         </main>

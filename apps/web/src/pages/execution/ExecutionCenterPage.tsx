@@ -98,11 +98,6 @@ export function ExecutionCenterPage() {
         </div>
       </header>
 
-      {/* 执行摘要：只一行 */}
-      <p className="text-sm text-zinc-500">
-        {running} 运行中 / {blocked} 阻塞 / {failed} 失败 / {waitingHuman} 待确认
-      </p>
-
       {/* 页签 */}
       <div className="flex gap-1 border-b border-[#333333]">
         {TABS.map((t) => (
