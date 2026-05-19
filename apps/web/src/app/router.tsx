@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
 import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
+import { DeliveryCenterPage } from "../pages/delivery/DeliveryCenterPage";
 import { ExecutionCenterPage } from "../pages/execution/ExecutionCenterPage";
 import { GovernancePage } from "../pages/governance/GovernancePage";
 import { MePage } from "../pages/me/MePage";
@@ -79,6 +80,10 @@ export const router = createBrowserRouter([
       {
         path: "runs/:runId",
         element: <RunsPage />,
+      },
+      {
+        path: "delivery",
+        element: <DeliveryCenterPage />,
       },
       {
         path: "deliverables",

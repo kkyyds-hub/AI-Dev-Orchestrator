@@ -1,17 +1,28 @@
-# 成果中心 Phase1：交付物 / 审批审计验收
+# 成果中心 Phase1：交付物 / 审批审计验收 + 返工收敛
 
 > 验收日期：2026-05-19
-> 起始 commit：594d0cc
-> 结束 commit：(本次)
+> 起始 commit：594d0cc → d82e6d7（审计回填）→ (本次)（返工收敛）
 > 验收范围：DEL-01~DEL-11, APV-01~APV-10
-> 验收方法：代码审查 + build 验证（不改代码）
+> 验收方法：代码审查 + 实现 + build 验证
 > 评判依据：page-information-architecture-20260518.md, closure-checklist-20260518.md
 
 ---
 
-## 审计结论：成果中心已存在且完整
+## 返工内容
 
-本次审计发现 /deliverables 和 /approvals 并非"未开始"，而是**早已实现**，具备：
+上一轮 5da6dc8/d82e6d7 审计发现交付物/审批页面早已存在且 API 真实，但它们是两个散开的一级入口（/deliverables、/approvals），侧边栏两个独立入口。
+
+本轮真正建立：
+- **成果中心父页面** `/delivery`（DeliveryCenterPage.tsx）
+- 两个页签：交付物（默认）、审批
+- `/deliverables` → 重定向到 `/delivery?tab=deliverables`
+- `/approvals` → 重定向到 `/delivery?tab=approvals`
+- 侧边栏收敛为唯一"成果中心"入口
+- /projects/:id/deliverables 和 /projects/:id/approvals 保持不变
+
+## 成果中心已真实接入
+
+交付物和审批 API、组件早已实现，本次只是收敛入口和导航：
 - 完整的前端页面组件
 - 真实的 API hooks（全部 POST/GET 调用真实后端）
 - 审批动作通过/要求修改/驳回全部调用真实接口
@@ -82,8 +93,21 @@
 
 | 风险 | 级别 | 说明 |
 |---|---|---|
-| 交付物页不直接发起审批 | 低 | DEL-09 Partial，需跳转 /approvals；符合"交付物页不做审批决策"的文档要求 |
-| 审批页预检/发布门禁偏仓库方向 | 低 | 复杂审批类型与成果中心核心交付物审批并列，后续可收敛 |
+| DEL-09 发起审批入口 | 低 | 发起审批在审批页签内，交付物页签不直接发起；符合"交付物页不做审批决策" |
+| DEL-10 返工端到端验证 | 低 | 审批要求修改后返工→任务队列可见仍需端到端验证 |
+
+## 路由兼容
+
+| 旧路由 | 处理方式 |
+|---|---|
+| `/deliverables` | 重定向到 `/delivery?tab=deliverables`（保留 projectId/deliverableId） |
+| `/approvals` | 重定向到 `/delivery?tab=approvals`（保留 projectId/approvalId） |
+| `/projects/:id/deliverables` | 不变，ProjectDeliverablesRoutePage |
+| `/projects/:id/approvals` | 不变，ProjectApprovalsRoutePage |
+
+## 侧边栏
+
+移除"交付物""审批"两个一级入口，统一为"成果中心" → `/delivery`。
 
 ## 统计口径
 
@@ -94,4 +118,4 @@
 
 ## Gate 结论
 
-**Pass（Phase1）** — 成果中心交付物和审批均已真实接入。DEL 9/11 Pass + 2 Partial（DEL-09 入口在审批页、DEL-10 返工端到端待验证），APV 10/10 Pass。无假按钮。
+**Pass（Phase1）** — 成果中心父页面已建立，交付物/审批双页签收敛。DEL 9/11 Pass + 2 Partial，APV 10/10 Pass。无假按钮。旧路由兼容重定向。

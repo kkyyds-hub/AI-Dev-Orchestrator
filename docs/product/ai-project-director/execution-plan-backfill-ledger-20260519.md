@@ -114,8 +114,8 @@
 | `/runs` 路由兼容 | 保留运行观测独立路由 | UI Pass | API Pass | N/A | Partial | 已记录 | **Pass** | 保持兼容 |
 | `/execution?tab=repository` 仓库工作区 | Phase1 状态+步骤工作区 | UI Pass | API Pass | Partial | Partial | checklist 已回填 REPO-01~15 | **Pass（Phase1）** | 后续补变更需求入口、文件定位/上下文包页签内证据 |
 | 侧边栏导航 | 收敛导航 | UI Pass | N/A | N/A | Partial | 已记录 | **Pass** | 不恢复任务/运行观测一级入口 |
-| 成果中心：交付物 | Phase1 审计回填 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 DEL-01~11（9 Pass / 2 Partial） | **Pass（Phase1）** | DEL-09/DEL-10 保持 Partial；后续补运行截图 |
-| 成果中心：审批 | Phase1 审计回填 | UI Pass | API Pass | Backend Pass（审批动作真实写状态） | Partial | checklist 已回填 APV-01~10 | **Pass（Phase1）** | 审批闭环证据已具备，后续补端到端截图 |
+| 成果中心：交付物 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 DEL-01~11（9 Pass / 2 Partial） | **Pass（Phase1）** | 返工: /delivery 父页面收敛双页签；DEL-09/DEL-10 保持 Partial |
+| 成果中心：审批 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass（审批动作真实写状态） | Partial | checklist 已回填 APV-01~10 | **Pass（Phase1）** | 返工: 审批页签收敛至成果中心；后续补端到端截图 |
 | 治理中心 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 成果中心后处理 |
 | 设置页 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 治理中心后处理 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
@@ -190,14 +190,15 @@
 
 ## 5. 待处理阶段计划
 
-### 4.5 成果中心 Phase1：交付物 / 审批审计回填
+### 4.5 成果中心 Phase1：交付物 / 审批审计回填 + 返工收敛
 
 | 字段 | 回填 |
 |---|---|
-| 阶段名称 | 成果中心交付物 / 审批审计与回填 |
-| 关键提交 | (本次) |
-| 页面目标 | 审计 /deliverables 与 /approvals 现有实现，回填 checklist 与台账 |
-| 页面职责 | UI Pass：两个独立路由页面，交付物轻列表+版本详情，审批队列+决策抽屉 |
+| 阶段名称 | 成果中心交付物 / 审批审计回填 + 返工建立父页面 |
+| 关键提交 | 5da6dc8（审计回填）、d82e6d7（口径修正）、(本次)（返工收敛） |
+| 页面目标 | 建立 /delivery 成果中心父页面，页签收敛交付物+审批；旧路由兼容重定向 |
+| 页面职责 | UI Pass：/delivery 成果中心父页面（双页签），/deliverables 和 /approvals 重定向兼容 |
+| 说明 | 5da6dc8 是旧散页审计回填，本轮才是成果中心父页面收敛 |
 | 前端真实接入 | API Pass：交付物 snapshot/detail/diff/evidence；审批 inbox/detail/history/action；全部真实 GET/POST |
 | 后端闭环 | Backend Pass：审批通过/驳回/要求修改 → POST /approvals/:id/actions → 真实状态变更 |
 | 运行证据 | Partial：build 通过，代码级审计完成；需最终人工审批截图验证 |

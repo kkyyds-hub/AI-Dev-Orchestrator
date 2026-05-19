@@ -32,16 +32,10 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     description: "任务队列、运行观测与仓库工作区。",
   },
   {
-    label: "交付物",
-    shortLabel: "交",
-    to: "/deliverables",
-    description: "管理交付物与版本快照。",
-  },
-  {
-    label: "审批",
-    shortLabel: "审",
-    to: "/approvals",
-    description: "处理审批队列与人工决策。",
+    label: "成果中心",
+    shortLabel: "果",
+    to: "/delivery",
+    description: "查看交付物与处理审批决策。",
   },
   {
     label: "治理",
@@ -155,21 +149,30 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
     };
   }
 
+  if (pathname.startsWith("/delivery")) {
+    return {
+      section: "成果中心",
+      title: "成果中心",
+      description: "查看交付物与处理审批决策。",
+      breadcrumbs: ["成果中心"],
+    };
+  }
+
   if (pathname.startsWith("/deliverables")) {
     return {
-      section: "交付物",
-      title: "交付物中心",
-      description: "在统一入口查看交付物、版本快照与关联上下文。",
-      breadcrumbs: ["交付物"],
+      section: "成果中心",
+      title: "交付物",
+      description: "查看交付物、版本快照与关联上下文。",
+      breadcrumbs: ["成果中心", "交付物"],
     };
   }
 
   if (pathname.startsWith("/approvals")) {
     return {
-      section: "审批",
-      title: "审批中心",
-      description: "集中处理审批流、人工确认与关键决策节点。",
-      breadcrumbs: ["审批"],
+      section: "成果中心",
+      title: "审批",
+      description: "处理审批流、人工确认与关键决策节点。",
+      breadcrumbs: ["成果中心", "审批"],
     };
   }
 
