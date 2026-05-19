@@ -13,7 +13,6 @@ import { useProjectScope } from "../../shared/useProjectScope";
 
 type ExecutionTasksTabProps = {
   taskId: string | null;
-  /** "execution" navigates relative to /execution, "tasks" relative to /tasks */
   sourceRoute: "execution" | "tasks";
 };
 
@@ -137,47 +136,39 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
 
   return (
     <div className="space-y-4">
-      {/* 任务摘要 */}
-      <p className="text-sm text-zinc-500">
-        待人工 {waitingHuman} / 阻塞 {blocked} / 执行中 {running} / 失败 {failed} / 已完成 {completed}
-      </p>
-
-      {/* 项目选择器 */}
+      {/* 顶部工具栏：任务摘要 + 项目选择器 一行化 */}
       <div className="flex flex-wrap items-center gap-3">
-        <label className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-          当前项目
-        </label>
+        <span className="text-sm text-zinc-500">
+          待人工 {waitingHuman} / 阻塞 {blocked} / 执行中 {running} / 失败 {failed} / 已完成 {completed}
+        </span>
+        <span className="text-zinc-700">|</span>
         <select
           value={selectedProjectId}
           onChange={(event) => setSelectedProjectId(event.target.value)}
-          className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 pr-8 text-sm text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+          className="min-w-0 rounded border border-[#333333] bg-[#1a1a1a] px-2.5 py-1 text-xs text-zinc-300 outline-none focus:border-zinc-500"
         >
-          <option value="all" className="bg-[#161616] text-zinc-100">
-            全部项目 · {allTasks.length} 条任务
+          <option value="all" className="bg-[#161616]">
+            全部项目 ({allTasks.length})
           </option>
           {projects.map((project) => {
             const count = perProjectCounts[project.id] ?? 0;
             return (
-              <option
-                key={project.id}
-                value={project.id}
-                className="bg-[#161616] text-zinc-100"
-              >
-                {project.name} · {count} 条任务
+              <option key={project.id} value={project.id} className="bg-[#161616]">
+                {project.name} ({count})
               </option>
             );
           })}
         </select>
-        {selectedProjectId !== "all" ? (
-          <span className="truncate text-sm text-zinc-400">
-            {selectedProjectName} · {filteredTasks.length} 条任务
+        {selectedProjectId !== "all" && (
+          <span className="text-xs text-zinc-500 truncate">
+            {selectedProjectName}
           </span>
-        ) : null}
+        )}
       </div>
 
       {projectNotFound ? (
-        <div className="rounded border border-zinc-700 px-4 py-3 text-sm text-zinc-400">
-          当前项目不存在或已被删除。{" "}
+        <div className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-400">
+          项目不存在或已删除。{" "}
           <button
             type="button"
             onClick={() => setSelectedProjectId("all")}
@@ -189,19 +180,19 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
       ) : null}
 
       {taskIdExists === false && (
-        <div className="rounded border border-zinc-700 px-4 py-3 text-sm text-zinc-400 flex items-center justify-between">
+        <div className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-400 flex items-center justify-between">
           <span>未命中任务</span>
           <button
             type="button"
             onClick={handleClearTaskId}
-            className="rounded border border-[#444444] px-3 py-1 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
+            className="rounded border border-[#444444] px-2 py-0.5 text-[10px] text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
           >
             清除选择
           </button>
         </div>
       )}
 
-      {/* 主体：任务队列 + 态势面板 + 抽屉 */}
+      {/* 主体工作区：固定高度，左侧滚动，右侧 sticky */}
       <ExecutionTasksLayout
         selectedTaskId={taskId}
         tasks={filteredTasks}
@@ -214,7 +205,7 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
   );
 }
 
-/* ─── Layout (shared between /execution and /tasks) ─── */
+/* ─── Layout ─── */
 
 function ExecutionTasksLayout({
   selectedTaskId,
@@ -237,8 +228,14 @@ function ExecutionTasksLayout({
 
   return (
     <>
-      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[55fr_45fr] xl:items-start min-h-0">
-        <div className="min-h-0 overflow-y-auto">
+      {/*
+        Fixed-height work area: left scrolls, right is sticky.
+        h-[calc(100vh-260px)] keeps the workspace stable regardless of task count.
+      */}
+      <div className="hidden xl:grid xl:grid-cols-[55fr_45fr] xl:gap-5"
+           style={{ height: "calc(100vh - 260px)" }}>
+        {/* 左侧：任务队列 — 内部滚动 */}
+        <div className="min-h-0 overflow-y-auto pr-1">
           <TaskQueueList
             tasks={tasks}
             selectedTaskId={selectedTaskId}
@@ -247,12 +244,31 @@ function ExecutionTasksLayout({
             onNavigateToRepository={onNavigateToRepository}
           />
         </div>
+
+        {/* 右侧：态势面板 — sticky 顶部 */}
         <div className="min-h-0">
-          <TaskExecutionSituationPanel
-            tasks={tasks}
-            onNavigateToRun={onNavigateToRun}
-          />
+          <div className="sticky top-0">
+            <TaskExecutionSituationPanel
+              tasks={tasks}
+              onNavigateToRun={onNavigateToRun}
+            />
+          </div>
         </div>
+      </div>
+
+      {/* Mobile: stack vertically */}
+      <div className="xl:hidden flex flex-col gap-5">
+        <TaskQueueList
+          tasks={tasks}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={onSelectTask}
+          onNavigateToRun={onNavigateToRun}
+          onNavigateToRepository={onNavigateToRepository}
+        />
+        <TaskExecutionSituationPanel
+          tasks={tasks}
+          onNavigateToRun={onNavigateToRun}
+        />
       </div>
 
       {selectedTask && (
