@@ -12,7 +12,8 @@ export function AppShell() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const isWorkbenchRoute = location.pathname === "/workbench";
   const isProjectRoute = location.pathname === "/projects" || location.pathname.startsWith("/projects/");
-  const usesWideWorkspace = isWorkbenchRoute || isProjectRoute;
+  const isExecutionRoute = location.pathname === "/execution" || location.pathname.startsWith("/execution/");
+  const usesWideWorkspace = isWorkbenchRoute || isProjectRoute || isExecutionRoute;
   const contentMaxWidthClassName = usesWideWorkspace ? "max-w-[1560px]" : "max-w-[1200px]";
 
   useEffect(() => {

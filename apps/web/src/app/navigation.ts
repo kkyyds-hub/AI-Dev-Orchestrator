@@ -26,6 +26,12 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     description: "管理项目总览与关键上下文。",
   },
   {
+    label: "执行中心",
+    shortLabel: "执",
+    to: "/execution",
+    description: "任务队列、运行观测与仓库工作区入口。",
+  },
+  {
     label: "任务",
     shortLabel: "任",
     to: "/tasks",
@@ -194,6 +200,15 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
       title: "我的账户",
       description: "管理账户资料、安全与个人偏好。",
       breadcrumbs: ["账户"],
+    };
+  }
+
+  if (pathname.startsWith("/execution")) {
+    return {
+      section: "执行中心",
+      title: "执行中心",
+      description: "查看 AI 项目主管调度后的任务队列、运行观测与仓库证据。",
+      breadcrumbs: ["执行中心"],
     };
   }
 

@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
 import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
+import { ExecutionCenterPage } from "../pages/execution/ExecutionCenterPage";
 import { GovernancePage } from "../pages/governance/GovernancePage";
 import { MePage } from "../pages/me/MePage";
 import { ProjectApprovalsRoutePage } from "../pages/projects/ProjectApprovalsRoutePage";
@@ -94,6 +95,10 @@ export const router = createBrowserRouter([
       {
         path: "me",
         element: <MePage />,
+      },
+      {
+        path: "execution",
+        element: <ExecutionCenterPage />,
       },
       {
         path: "settings",
