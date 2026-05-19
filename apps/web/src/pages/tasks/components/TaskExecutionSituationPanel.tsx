@@ -2,9 +2,13 @@ import type { ConsoleTask } from "../../../features/console/types";
 
 type SituationPanelProps = {
   tasks: ConsoleTask[];
+  onNavigateToRun: (runId: string, taskId: string, projectId: string | null) => void;
 };
 
-export function TaskExecutionSituationPanel({ tasks }: SituationPanelProps) {
+export function TaskExecutionSituationPanel({
+  tasks,
+  onNavigateToRun,
+}: SituationPanelProps) {
   /* Agent load */
   const agentLoad = buildAgentLoad(tasks);
 
@@ -82,21 +86,30 @@ export function TaskExecutionSituationPanel({ tasks }: SituationPanelProps) {
         ) : (
           <ul className="space-y-1.5">
             {recentRuns.map((t) => (
-              <li
-                key={t.id}
-                className="rounded border border-[#333333] px-2.5 py-1.5 text-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300 truncate">{t.title}</span>
-                  <span className="text-zinc-500 shrink-0 ml-2">
-                    {t.latest_run?.status ?? "未知"}
-                  </span>
-                </div>
-                {t.latest_run?.result_summary && (
-                  <p className="text-zinc-600 mt-0.5 truncate">
-                    {t.latest_run.result_summary.slice(0, 80)}
-                  </p>
-                )}
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onNavigateToRun(
+                      t.latest_run!.id,
+                      t.id,
+                      t.project_id,
+                    )
+                  }
+                  className="w-full text-left rounded border border-[#444444] px-2.5 py-1.5 text-xs transition hover:border-zinc-400 hover:bg-[#222222]"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-300 truncate">{t.title}</span>
+                    <span className="text-zinc-500 shrink-0 ml-2">
+                      {t.latest_run?.status ?? "未知"}
+                    </span>
+                  </div>
+                  {t.latest_run?.result_summary && (
+                    <p className="text-zinc-600 mt-0.5 truncate">
+                      {t.latest_run.result_summary.slice(0, 80)}
+                    </p>
+                  )}
+                </button>
               </li>
             ))}
           </ul>

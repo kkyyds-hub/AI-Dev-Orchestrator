@@ -1,6 +1,6 @@
 type TasksPageHeaderProps = {
-  total: number;
   waitingHuman: number;
+  blocked: number;
   running: number;
   failed: number;
   completed: number;
@@ -19,7 +19,7 @@ export function TasksPageHeader(props: TasksPageHeaderProps) {
             任务队列
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            待处理 {props.waitingHuman + props.running + props.failed} / 执行中{" "}
+            待人工 {props.waitingHuman} / 阻塞 {props.blocked} / 执行中{" "}
             {props.running} / 失败 {props.failed} / 已完成 {props.completed}
           </p>
         </div>

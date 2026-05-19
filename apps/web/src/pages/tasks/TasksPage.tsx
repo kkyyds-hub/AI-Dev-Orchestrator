@@ -37,6 +37,10 @@ export function TasksPage() {
     () => filteredTasks.filter((t) => t.status === "waiting_human").length,
     [filteredTasks],
   );
+  const blocked = useMemo(
+    () => filteredTasks.filter((t) => t.status === "blocked").length,
+    [filteredTasks],
+  );
   const running = useMemo(
     () => filteredTasks.filter((t) => t.status === "running").length,
     [filteredTasks],
@@ -50,6 +54,15 @@ export function TasksPage() {
     [filteredTasks],
   );
 
+  // ── TaskId hit / miss ────────────────────────────────────────────
+  const taskIdExists = useMemo(
+    () =>
+      !taskId || overviewQuery.isLoading
+        ? null  // null = unknown / not relevant
+        : filteredTasks.some((t) => t.id === taskId),
+    [taskId, filteredTasks, overviewQuery.isLoading],
+  );
+
   // ── Navigation ──────────────────────────────────────────────────
   const handleSelectTask = (nextTaskId: string) => {
     navigate(
@@ -59,6 +72,22 @@ export function TasksPage() {
         projectId: selectedProjectId === "all" ? null : selectedProjectId,
       }),
     );
+  };
+
+  const handleCloseDrawer = () => {
+    navigate(
+      buildTaskRoute({
+        projectId: selectedProjectId === "all" ? null : selectedProjectId,
+      }),
+    );
+  };
+
+  const handleClearTaskId = () => {
+    if (selectedProjectId !== "all") {
+      navigate(`/tasks?projectId=${selectedProjectId}`, { replace: true });
+    } else {
+      navigate("/tasks", { replace: true });
+    }
   };
 
   const handleNavigateToRun = (
@@ -99,8 +128,8 @@ export function TasksPage() {
   return (
     <div className="relative min-w-0 space-y-5">
       <TasksPageHeader
-        total={filteredTasks.length}
         waitingHuman={waitingHuman}
+        blocked={blocked}
         running={running}
         failed={failed}
         completed={completed}
@@ -153,12 +182,27 @@ export function TasksPage() {
         </div>
       ) : null}
 
+      {/* taskId 未命中提示 */}
+      {taskIdExists === false && (
+        <div className="rounded border border-zinc-700 px-4 py-3 text-sm text-zinc-400 flex items-center justify-between">
+          <span>未命中任务</span>
+          <button
+            type="button"
+            onClick={handleClearTaskId}
+            className="rounded border border-[#444444] px-3 py-1 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
+          >
+            清除选择
+          </button>
+        </div>
+      )}
+
       <TasksPageContent
         selectedTaskId={taskId ?? null}
         tasks={filteredTasks}
         onSelectTask={handleSelectTask}
         onNavigateToRun={handleNavigateToRun}
         onNavigateToRepository={handleNavigateToRepository}
+        onCloseDrawer={handleCloseDrawer}
       />
     </div>
   );
