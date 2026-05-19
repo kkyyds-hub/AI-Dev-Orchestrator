@@ -206,8 +206,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/settings")) {
     return {
       section: "设置",
-      title: "系统设置",
-      description: "配置环境、连接状态与平台级参数。",
+      title: "系统配置中心",
+      description: "管理 Provider、运行环境、安全边界与系统诊断。",
       breadcrumbs: ["设置"],
     };
   }

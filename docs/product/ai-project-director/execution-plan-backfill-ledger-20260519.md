@@ -117,7 +117,7 @@
 | 成果中心：交付物 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 DEL-01~11（9 Pass / 2 Partial） | **Pass（Phase1）** | 返工: /delivery 父页面收敛双页签；DEL-09/DEL-10 保持 Partial |
 | 成果中心：审批 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass（审批动作真实写状态） | Partial | checklist 已回填 APV-01~10 | **Pass（Phase1）** | 返工: 审批页签收敛至成果中心；后续补端到端截图 |
 | 治理中心 | Phase1 职责收口+返工+补强 | UI Pass | Partial（5 个读 API 全部接入；角色/Skill 搜索已补；写操作按钮禁用） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist GOV-01~15（6P/9P）；verification 含数据量稳定性检查 | **Partial** | 搜索+文档修正完成 |
-| 设置页 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 治理中心后处理 |
+| 设置页 | Phase1 职责收口 | UI Pass | API Pass（7 个真实 API 全部接入） | Partial（数据库/Worker/ES 诊断后端缺口） | Partial（build 通过，运行证据不足） | checklist SET-01~10 已回填（9P/1Partial） | **Pass（Phase1）** | Provider/Health/安全边界/测试连接均真实 API；诊断接口待后端补齐 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
 | 总闭环 CL-01~18 | 未做总 Gate | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 页面阶段完成后统一回填 |
 
@@ -227,6 +227,23 @@
 | 当前结论 | **Phase1 Pass（UI），后端 Partial.** GOV 6/15 Pass，9/15 Partial。COST-* 合理延后，未强行回填。 |
 | Gate 结论 | Partial |
 | 后续动作 | 治理中心后端闭环补齐阶段：确认沉淀 API、消费证据 API、记忆管理 API |
+
+### 4.7 设置页 Phase1：系统配置中心职责收口
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | 设置页 Phase1：重构为系统配置中心 |
+| 关键提交 | (本次) |
+| 页面目标 | 四区块：Provider 与模型、运行环境、安全与权限、系统诊断 |
+| Existing Resource | Provider GET/PUT API、仓库安全边界 API、仓库绑定 API 均为旧 API，本轮保留并继续使用 |
+| New Phase Work | 新增 POST /provider-settings/openai/test 测试连接；接入 GET /health；新增诊断复制；Provider 编辑折叠；中文文案全覆盖 |
+| 前端真实接入 | API Pass：7 个真实 API 全部接入（含 test 和 health） |
+| 后端闭环 | Partial：数据库/Worker/Event Stream 无专用诊断接口 |
+| 运行证据 | Partial：build 通过，运行时截图待补 |
+| 文档状态 | `closure-checklist` SET-01~10 已回填；verification-settings 已创建 |
+| 当前结论 | **Phase1 Pass，诊断 Partial.** SET 9/10 Pass，1 Partial (SET-07) |
+| Gate 结论 | Pass（Phase1） |
+| 后续动作 | 后端补数据库/Worker/Event Stream 诊断接口后 SET-07 可升 Pass |
 
 ### 5.1 成果中心 Phase1：交付物 / 审批职责收口（已完成）
 

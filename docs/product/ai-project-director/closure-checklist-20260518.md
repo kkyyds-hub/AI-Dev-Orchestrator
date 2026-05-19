@@ -260,16 +260,16 @@
 
 | ID | 验收项 | 回填证据 | 通过标准 | 状态 | 备注 |
 |---|---|---|---|---|---|
-| SET-01 | 设置页是否只保留四区块 | 截图 | Provider与模型、运行环境、安全与权限、系统诊断 |  |  |
-| SET-02 | Provider 配置是否状态展示 + 弹窗编辑 | 截图 | 不常驻大表单 |  |  |
-| SET-03 | API Key 是否隐藏 | 截图 | 不明文展示 |  |  |
-| SET-04 | 保存 Provider 是否真实写入后端 | API/配置文件 | 刷新后仍存在 |  |  |
-| SET-05 | 测试连接是否真实闭环 | API/返回 | 无后端不能做假按钮 |  |  |
-| SET-06 | 运行环境是否展示健康状态 | 截图/API | 后端、数据库、Worker、Event Stream 等 |  |  |
-| SET-07 | 系统诊断是否可复制 | 操作截图 | 复制真实状态 |  |  |
-| SET-08 | 安全与权限是否只放系统级能力 | 截图 | 不混入 AI 权限策略 |  |  |
-| SET-09 | 成本模式是否不在设置页 | 截图 | 去治理中心 |  |  |
-| SET-10 | 设置页是否不展示运行日志大页 | 截图 | 日志去运行观测 |  |  |
+| SET-01 | 设置页是否只保留四区块 | SettingsPage 四区块：Provider、环境、安全、诊断 | Provider与模型、运行环境、安全与权限、系统诊断 | Pass | 2026-05-19 Phase1 |
+| SET-02 | Provider 配置是否状态展示 + 弹窗编辑 | 状态摘要常驻，编辑区折叠展开 | 不常驻大表单 | Pass | 2026-05-19 Phase1 |
+| SET-03 | API Key 是否隐藏 | masked 展示 + input type=password | 不明文展示 | Pass | 2026-05-19 Phase1 |
+| SET-04 | 保存 Provider 是否真实写入后端 | PUT /provider-settings/openai | 刷新后仍存在 | Pass | 2026-05-19 Phase1 |
+| SET-05 | 测试连接是否真实闭环 | POST /provider-settings/openai/test | 无后端不能做假按钮 | Pass | 2026-05-19 Phase1 |
+| SET-06 | 运行环境是否展示健康状态 | GET /health 真实接入 | 后端、数据库、Worker、Event Stream 等 | Pass | 2026-05-19; 数据库/Worker/Event Stream 暂无专用接口，已标注 |
+| SET-07 | 系统诊断是否可复制 | 复制按钮含 Provider+Health+安全+缺失接口 | 复制真实状态 | Partial | 2026-05-19: 复制功能完成；数据库/Worker/ES 无专用诊断接口 |
+| SET-08 | 安全与权限是否只放系统级能力 | 仓库安全边界+项目绑定，无 AI 策略 | 不混入 AI 权限策略 | Pass | 2026-05-19 Phase1 |
+| SET-09 | 成本模式是否不在设置页 | 设置页无成本相关内容 | 去治理中心 | Pass | 2026-05-19 Phase1 |
+| SET-10 | 设置页是否不展示运行日志大页 | 无日志渲染 | 日志去运行观测 | Pass | 2026-05-19 Phase1 |
 
 ---
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -10,850 +10,541 @@ import { buildProjectOverviewRoute } from "../projects/lib/overviewNavigation";
 import type { RepositoryWorkspace } from "../projects/types";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
 
+/* ─── types ─── */
+
 type ProviderSource = "saved_config" | "env" | "none";
 type ProviderModelPreset = "openai" | "deepseek" | "custom";
 type ProviderType = "openai" | "deepseek" | "openai_compatible";
 type TierModelNames = { economy: string; balanced: string; premium: string };
 
-type OpenAIProviderSettingsSummary = {
-  provider_key: string;
-  configured: boolean;
-  masked_api_key?: string | null;
-  base_url: string;
-  timeout_seconds: number;
-  source: ProviderSource;
-  detected_provider_type: ProviderType;
-  model_preset: ProviderModelPreset;
+type ProviderSettingsSummary = {
+  provider_key: string; configured: boolean; masked_api_key?: string | null;
+  base_url: string; timeout_seconds: number; source: ProviderSource;
+  detected_provider_type: ProviderType; model_preset: ProviderModelPreset;
   model_names: TierModelNames;
 };
 
-type OpenAIProviderSettingsUpdateRequest = {
-  api_key?: string;
-  base_url: string;
-  timeout_seconds: number;
-  model_preset?: ProviderModelPreset;
-  model_names?: TierModelNames;
+type ProviderTestResponse = {
+  provider_key: string; configured: boolean; base_url: string;
+  auth_valid: boolean; endpoint_reachable: boolean;
+  api_family: string; model_name: string; model_usable: boolean;
+  latency_ms: number; status: string; error_category: string | null;
+  error_summary: string | null; tested_at: string | null;
 };
 
-type RepositoryWorkspaceBindRequest = {
-  root_path: string;
-  display_name?: string | null;
-  access_mode: "read_only";
-  default_base_branch: string;
-  ignore_rule_summary: string[];
+type ProviderUpdateRequest = {
+  api_key?: string; base_url: string; timeout_seconds: number;
+  model_preset?: ProviderModelPreset; model_names?: TierModelNames;
 };
 
-type RepositoryWorkspaceSettingsSummary = {
-  allowed_workspace_roots: string[];
-  default_workspace_root: string;
-  using_default: boolean;
+type WorkspaceSettings = {
+  allowed_workspace_roots: string[]; default_workspace_root: string; using_default: boolean;
 };
 
-type RepositoryWorkspaceSettingsUpdateRequest = {
-  allowed_workspace_roots: string[];
+type WorkspaceSettingsUpdate = { allowed_workspace_roots: string[] };
+
+type WorkspaceBindRequest = {
+  root_path: string; display_name?: string | null;
+  access_mode: "read_only"; default_base_branch: string; ignore_rule_summary: string[];
 };
 
-const SOURCE_LABELS: Record<ProviderSource, string> = {
-  saved_config: "已保存",
-  env: "环境变量",
-  none: "未配置",
-};
+type HealthStatus = { status: string; detail?: string };
 
+/* ─── API ─── */
+
+function fetchProvider(): Promise<ProviderSettingsSummary> {
+  return requestJson("/provider-settings/openai");
+}
+function updateProvider(payload: ProviderUpdateRequest): Promise<ProviderSettingsSummary> {
+  return requestJson("/provider-settings/openai", { method: "PUT", body: JSON.stringify(payload) });
+}
+function testProviderConnection(): Promise<ProviderTestResponse> {
+  return requestJson("/provider-settings/openai/test", { method: "POST" });
+}
+function fetchHealth(): Promise<HealthStatus> {
+  return requestJson("/health");
+}
+function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
+  return requestJson("/repositories/workspace-settings");
+}
+function updateWorkspaceSettings(payload: WorkspaceSettingsUpdate): Promise<WorkspaceSettings> {
+  return requestJson("/repositories/workspace-settings", { method: "PUT", body: JSON.stringify(payload) });
+}
+function bindProjectRepo(input: { projectId: string; payload: WorkspaceBindRequest }): Promise<RepositoryWorkspace> {
+  return requestJson(`/repositories/projects/${input.projectId}`, { method: "PUT", body: JSON.stringify(input.payload) });
+}
+
+/* ─── constants ─── */
 
 const PRESET_MODELS: Record<Exclude<ProviderModelPreset, "custom">, TierModelNames> = {
-  deepseek: {
-    economy: "deepseek-v4-pro",
-    balanced: "deepseek-v4-pro",
-    premium: "deepseek-v4-pro",
-  },
-  openai: {
-    economy: "gpt-5.5",
-    balanced: "gpt-5.5",
-    premium: "gpt-5.5",
-  },
-};
-
-const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
-  openai: "OpenAI",
-  deepseek: "DeepSeek",
-  openai_compatible: "OpenAI-compatible",
+  deepseek: { economy: "deepseek-v4-pro", balanced: "deepseek-v4-pro", premium: "deepseek-v4-pro" },
+  openai: { economy: "gpt-5.5", balanced: "gpt-5.5", premium: "gpt-5.5" },
 };
 
 const PRESET_LABELS: Record<ProviderModelPreset, string> = {
-  deepseek: "DeepSeek preset",
-  openai: "OpenAI preset",
-  custom: "Custom",
+  deepseek: "DeepSeek", openai: "OpenAI", custom: "自定义",
+};
+const SOURCE_LABELS: Record<ProviderSource, string> = {
+  saved_config: "已保存", env: "环境变量", none: "未配置",
 };
 
-function fetchOpenAIProviderSettings(): Promise<OpenAIProviderSettingsSummary> {
-  return requestJson<OpenAIProviderSettingsSummary>("/provider-settings/openai");
-}
+const inputClass = "w-full border border-[#333333] bg-[#111111] px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-500 rounded";
+const btnClass = "rounded border border-[#444444] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600";
+const btnPrimaryClass = "rounded border border-zinc-400 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600";
 
-function updateOpenAIProviderSettings(
-  payload: OpenAIProviderSettingsUpdateRequest,
-): Promise<OpenAIProviderSettingsSummary> {
-  return requestJson<OpenAIProviderSettingsSummary>("/provider-settings/openai", {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
-
-function bindProjectRepository(input: {
-  projectId: string;
-  payload: RepositoryWorkspaceBindRequest;
-}): Promise<RepositoryWorkspace> {
-  return requestJson<RepositoryWorkspace>(`/repositories/projects/${input.projectId}`, {
-    method: "PUT",
-    body: JSON.stringify(input.payload),
-  });
-}
-
-function fetchRepositoryWorkspaceSettings(): Promise<RepositoryWorkspaceSettingsSummary> {
-  return requestJson<RepositoryWorkspaceSettingsSummary>("/repositories/workspace-settings");
-}
-
-function updateRepositoryWorkspaceSettings(
-  payload: RepositoryWorkspaceSettingsUpdateRequest,
-): Promise<RepositoryWorkspaceSettingsSummary> {
-  return requestJson<RepositoryWorkspaceSettingsSummary>("/repositories/workspace-settings", {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
+/* ═══════════ Page ═══════════ */
 
 export function SettingsPage() {
   return (
-    <div className="space-y-7">
-      <section className="border-l border-[#333333] px-4 py-1">
-        <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-          系统设置
-        </div>
-        <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
-          系统设置
-        </h2>
-        <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400">
-          集中管理模型连接、项目仓库绑定和运行环境配置。
-        </p>
-      </section>
+    <div className="relative min-w-0 space-y-6">
+      <header className="border-b border-[#333333] pb-5">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">系统配置中心</h1>
+        <p className="mt-1 text-sm text-zinc-500">Provider 连接、运行环境、安全边界与系统诊断</p>
+      </header>
 
-      <div className="grid gap-8 xl:grid-cols-[220px_minmax(0,1fr)]">
-        <SettingsSideNav />
-        <div className="space-y-7">
-          <ModelConfigurationSection />
-          <RepositoryWorkspaceSettingsSection />
-          <RepositoryBindingSection />
-        </div>
+      <div className="space-y-8">
+        <ProviderSection />
+        <EnvironmentSection />
+        <SecuritySection />
+        <DiagnosticsSection />
       </div>
     </div>
   );
 }
 
-function SettingsSideNav() {
-  const items = [
-    { label: "模型配置", href: "#model-config" },
-    { label: "仓库安全边界", href: "#repository-workspace-settings" },
-    { label: "仓库绑定", href: "#repository-binding" },
-  ];
+/* ═══════════ Section 1: Provider ═══════════ */
 
+function ProviderSection() {
   return (
-    <nav className="hidden xl:block">
-      <div className="sticky top-20 space-y-1 border-l border-[#333333] pl-4">
-        <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-          设置分组
-        </div>
-        {items.map((item) => (
-          <a
-            key={item.href}
-            href={item.href}
-            className="block text-sm leading-7 text-zinc-400 transition hover:text-zinc-100"
-          >
-            {item.label}
-          </a>
-        ))}
-      </div>
-    </nav>
-  );
-}
-
-function ModelConfigurationSection() {
-  const queryClient = useQueryClient();
-  const providerSettingsQuery = useQuery({
-    queryKey: ["provider-settings", "openai"],
-    queryFn: fetchOpenAIProviderSettings,
-  });
-  const [secretInput, setSecretInput] = useState("");
-  const [baseUrlInput, setBaseUrlInput] = useState("https://api.openai.com/v1");
-  const [timeoutSecondsInput, setTimeoutSecondsInput] = useState("30");
-  const [selectedPreset, setSelectedPreset] = useState<ProviderModelPreset>("openai");
-  const [modelNamesInput, setModelNamesInput] = useState<TierModelNames>(PRESET_MODELS.openai);
-  const [feedback, setFeedback] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!providerSettingsQuery.data) {
-      return;
-    }
-    setBaseUrlInput(providerSettingsQuery.data.base_url);
-    setTimeoutSecondsInput(String(providerSettingsQuery.data.timeout_seconds));
-    setSelectedPreset(providerSettingsQuery.data.model_preset);
-    setModelNamesInput(providerSettingsQuery.data.model_names);
-  }, [providerSettingsQuery.data]);
-
-  const updateMutation = useMutation({
-    mutationFn: updateOpenAIProviderSettings,
-    onSuccess: async (result) => {
-      setSecretInput("");
-      setBaseUrlInput(result.base_url);
-      setTimeoutSecondsInput(String(result.timeout_seconds));
-      setSelectedPreset(result.model_preset);
-      setModelNamesInput(result.model_names);
-      setFeedback("Provider model settings saved.");
-      await queryClient.invalidateQueries({
-        queryKey: ["provider-settings", "openai"],
-      });
-    },
-  });
-
-  const summary = providerSettingsQuery.data ?? null;
-  const canSubmit = useMemo(() => {
-    return (
-      !updateMutation.isPending &&
-      baseUrlInput.trim().length > 0 &&
-      timeoutSecondsInput.trim().length > 0 &&
-      Object.values(modelNamesInput).every((value) => value.trim().length > 0)
-    );
-  }, [baseUrlInput, modelNamesInput, timeoutSecondsInput, updateMutation.isPending]);
-
-  const applyPreset = (preset: Exclude<ProviderModelPreset, "custom">) => {
-    setSelectedPreset(preset);
-    setModelNamesInput(PRESET_MODELS[preset]);
-    if (preset === "deepseek") {
-      setBaseUrlInput("https://api.deepseek.com");
-    }
-    if (preset === "openai") {
-      setBaseUrlInput("https://api.openai.com/v1");
-    }
-  };
-
-  const updateModelNameInput = (tier: keyof TierModelNames, value: string) => {
-    setSelectedPreset("custom");
-    setModelNamesInput((current) => ({ ...current, [tier]: value }));
-  };
-
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setFeedback(null);
-
-    const timeoutSeconds = Number.parseInt(timeoutSecondsInput, 10);
-    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1) {
-      setFeedback("Timeout seconds must be an integer greater than or equal to 1.");
-      return;
-    }
-
-    const payload: OpenAIProviderSettingsUpdateRequest = {
-      base_url: baseUrlInput.trim(),
-      timeout_seconds: timeoutSeconds,
-      model_preset: selectedPreset,
-    };
-    if (selectedPreset === "custom") {
-      payload.model_names = {
-        economy: modelNamesInput.economy.trim(),
-        balanced: modelNamesInput.balanced.trim(),
-        premium: modelNamesInput.premium.trim(),
-      };
-    }
-    const enteredSecret = secretInput.trim();
-    if (enteredSecret.length > 0) {
-      payload.api_key = enteredSecret;
-    }
-
-    void updateMutation.mutateAsync(payload);
-  };
-
-  return (
-    <section id="model-config" className="scroll-mt-24 border-b border-[#333333] pb-7">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            Provider Model Configuration
-          </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            Configure API credentials, base URL, timeout, and the economy / balanced / premium model names used by worker routing.
-          </p>
-        </div>
-        <StatusBadge
-          label={summary?.configured ? "configured" : "not configured"}
-          tone={summary?.configured ? "success" : "warning"}
-        />
-      </div>
-
-      {providerSettingsQuery.isLoading ? (
-        <p className="mt-4 text-sm leading-6 text-zinc-500">Loading provider model configuration...</p>
-      ) : providerSettingsQuery.isError ? (
-        <p className="mt-4 text-sm leading-6 text-rose-100">
-          Failed to load provider model configuration: {providerSettingsQuery.error.message}
-        </p>
-      ) : (
-        <>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <InfoLine label="Current key" value={formatMaskedKey(summary?.masked_api_key)} />
-            <InfoLine label="Source" value={summary ? SOURCE_LABELS[summary.source] : "not configured"} />
-            <InfoLine label="Provider type" value={summary ? PROVIDER_TYPE_LABELS[summary.detected_provider_type] : "OpenAI"} />
-            <InfoLine label="Model preset" value={summary ? PRESET_LABELS[summary.model_preset] : "OpenAI preset"} />
-            <InfoLine label="Timeout" value={`${summary?.timeout_seconds ?? 30} seconds`} />
-            <InfoLine label="Tier models" value={formatTierModels(summary?.model_names ?? modelNamesInput)} />
-          </div>
-
-          <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className={secondaryButtonClassName} onClick={() => applyPreset("deepseek")}>
-                Use DeepSeek preset
-              </button>
-              <button type="button" className={secondaryButtonClassName} onClick={() => applyPreset("openai")}>
-                Use OpenAI preset
-              </button>
-              <span className="text-sm leading-9 text-zinc-500">Selected: {PRESET_LABELS[selectedPreset]}</span>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="API key">
-                <input
-                  type="password"
-                  value={secretInput}
-                  onChange={(event) => setSecretInput(event.target.value)}
-                  placeholder="Leave blank to keep the current key"
-                  className={inputClassName}
-                />
-              </Field>
-              <Field label="Timeout seconds">
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={timeoutSecondsInput}
-                  onChange={(event) => setTimeoutSecondsInput(event.target.value)}
-                  className={inputClassName}
-                />
-              </Field>
-            </div>
-
-            <Field label="Base URL">
-              <input
-                type="url"
-                value={baseUrlInput}
-                onChange={(event) => setBaseUrlInput(event.target.value)}
-                placeholder="https://api.openai.com/v1"
-                className={inputClassName}
-              />
-            </Field>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Economy model">
-                <input
-                  value={modelNamesInput.economy}
-                  onChange={(event) => updateModelNameInput("economy", event.target.value)}
-                  placeholder="deepseek-v4-pro"
-                  className={inputClassName}
-                />
-              </Field>
-              <Field label="Balanced model">
-                <input
-                  value={modelNamesInput.balanced}
-                  onChange={(event) => updateModelNameInput("balanced", event.target.value)}
-                  placeholder="deepseek-v4-pro"
-                  className={inputClassName}
-                />
-              </Field>
-              <Field label="Premium model">
-                <input
-                  value={modelNamesInput.premium}
-                  onChange={(event) => updateModelNameInput("premium", event.target.value)}
-                  placeholder="deepseek-v4-pro"
-                  className={inputClassName}
-                />
-              </Field>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" disabled={!canSubmit} className={buttonClassName}>
-                {updateMutation.isPending ? "Saving..." : "Save model configuration"}
-              </button>
-              {feedback ? (
-                <span className="text-sm leading-6 text-zinc-400">{feedback}</span>
-              ) : null}
-              {updateMutation.isError ? (
-                <span className="text-sm leading-6 text-rose-100">
-                  Save failed: {updateMutation.error.message}
-                </span>
-              ) : null}
-            </div>
-          </form>
-        </>
-      )}
+    <section className="rounded-lg border border-[#333333] bg-[#1a1a1a] p-5 space-y-5">
+      <SectionHeader title="Provider 与模型" desc="管理 AI 模型连接的 API 凭证、Base URL、超时与模型名配置" />
+      <ProviderStatus />
+      <ProviderEdit />
+      <ProviderTest />
     </section>
   );
 }
 
-function RepositoryWorkspaceSettingsSection() {
-  const queryClient = useQueryClient();
-  const workspaceSettingsQuery = useQuery({
-    queryKey: ["repository-workspace-settings"],
-    queryFn: fetchRepositoryWorkspaceSettings,
-  });
-  const [rootsInput, setRootsInput] = useState("");
-  const [feedback, setFeedback] = useState<string | null>(null);
+function ProviderStatus() {
+  const q = useQuery({ queryKey: ["provider-settings", "openai"], queryFn: fetchProvider });
+  const s = q.data;
+  if (q.isLoading) return <p className="text-xs text-zinc-600">加载 Provider 配置...</p>;
+  if (q.isError) return <p className="text-xs text-red-400">加载失败：{q.error.message}</p>;
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <StatItem label="配置状态" value={s?.configured ? "已配置" : "未配置"} />
+      <StatItem label="来源" value={s ? SOURCE_LABELS[s.source] : "未知"} />
+      <StatItem label="检测到类型" value={s?.detected_provider_type ?? "—"} />
+      <StatItem label="API Key" value={s?.masked_api_key || "未设置"} />
+      <StatItem label="Base URL" value={s?.base_url ? truncateUrl(s.base_url) : "—"} />
+      <StatItem label="超时" value={`${s?.timeout_seconds ?? 30} 秒`} />
+      <StatItem label="预设" value={s ? PRESET_LABELS[s.model_preset] : "—"} />
+      <StatItem label="模型等级" value={s ? `${s.model_names.economy} / ${s.model_names.balanced} / ${s.model_names.premium}` : "—"} />
+    </div>
+  );
+}
+
+function ProviderEdit() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["provider-settings", "openai"], queryFn: fetchProvider });
+  const [expanded, setExpanded] = useState(false);
+  const [secret, setSecret] = useState("");
+  const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
+  const [timeoutSec, setTimeoutSec] = useState("30");
+  const [preset, setPreset] = useState<ProviderModelPreset>("openai");
+  const [models, setModels] = useState<TierModelNames>(PRESET_MODELS.openai);
+  const [fb, setFb] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!workspaceSettingsQuery.data) {
-      return;
-    }
-    setRootsInput(workspaceSettingsQuery.data.allowed_workspace_roots.join("\n"));
-  }, [workspaceSettingsQuery.data]);
+    if (!q.data) return;
+    setBaseUrl(q.data.base_url);
+    setTimeoutSec(String(q.data.timeout_seconds));
+    setPreset(q.data.model_preset);
+    setModels(q.data.model_names);
+  }, [q.data]);
 
-  const updateMutation = useMutation({
-    mutationFn: updateRepositoryWorkspaceSettings,
-    onSuccess: async (result) => {
-      setRootsInput(result.allowed_workspace_roots.join("\n"));
-      setFeedback("仓库安全边界已保存，新的允许根目录已立即生效。");
-      await queryClient.invalidateQueries({
-        queryKey: ["repository-workspace-settings"],
-      });
+  const m = useMutation({
+    mutationFn: updateProvider,
+    onSuccess: async (r) => {
+      setSecret(""); setBaseUrl(r.base_url); setTimeoutSec(String(r.timeout_seconds));
+      setPreset(r.model_preset); setModels(r.model_names);
+      setFb("保存成功。"); await qc.invalidateQueries({ queryKey: ["provider-settings", "openai"] });
     },
   });
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setFeedback(null);
-    void updateMutation.mutateAsync({
-      allowed_workspace_roots: parseLines(rootsInput),
-    });
+  const applyPreset = (p: Exclude<ProviderModelPreset, "custom">) => {
+    setPreset(p); setModels(PRESET_MODELS[p]);
+    setBaseUrl(p === "deepseek" ? "https://api.deepseek.com" : "https://api.openai.com/v1");
   };
 
-  const summary = workspaceSettingsQuery.data ?? null;
+  const canSave = !m.isPending && baseUrl.trim() && timeoutSec.trim() && Object.values(models).every((v) => v.trim());
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault(); setFb(null);
+    const t = Number.parseInt(timeoutSec, 10);
+    if (!Number.isFinite(t) || t < 1) { setFb("超时秒数必须是大于等于 1 的整数。"); return; }
+    const p: ProviderUpdateRequest = { base_url: baseUrl.trim(), timeout_seconds: t, model_preset: preset };
+    if (preset === "custom") p.model_names = { economy: models.economy.trim(), balanced: models.balanced.trim(), premium: models.premium.trim() };
+    if (secret.trim()) p.api_key = secret.trim();
+    void m.mutateAsync(p);
+  };
 
   return (
-    <section
-      id="repository-workspace-settings"
-      className="scroll-mt-24 border-b border-[#333333] pb-7"
-    >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            仓库安全边界
+    <div>
+      <button type="button" onClick={() => setExpanded((v) => !v)} className={`${btnClass}`}>
+        {expanded ? "收起编辑区" : "编辑 Provider 配置"}
+      </button>
+      {expanded && (
+        <form className="mt-4 space-y-4 border-t border-[#333333] pt-4" onSubmit={handleSubmit}>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={btnClass} onClick={() => applyPreset("deepseek")}>DeepSeek 预设</button>
+            <button type="button" className={btnClass} onClick={() => applyPreset("openai")}>OpenAI 预设</button>
+            <span className="text-xs text-zinc-500 self-center">当前：{PRESET_LABELS[preset]}</span>
           </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            维护允许工作区根目录列表。项目绑定时，主仓库根目录必须位于其中任一根目录下；未保存用户配置时继续使用默认 REPOSITORY_WORKSPACE_ROOT_DIR。
-          </p>
-        </div>
-        <StatusBadge
-          label={summary?.using_default ? "使用默认边界" : "用户配置已生效"}
-          tone={summary?.using_default ? "warning" : "success"}
-        />
-      </div>
-
-      {workspaceSettingsQuery.isLoading ? (
-        <p className="mt-4 text-sm leading-6 text-zinc-500">正在加载仓库安全边界...</p>
-      ) : workspaceSettingsQuery.isError ? (
-        <p className="mt-4 text-sm leading-6 text-rose-100">
-          仓库安全边界加载失败：{workspaceSettingsQuery.error.message}
-        </p>
-      ) : (
-        <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
-          <Field label="允许工作区根目录列表">
-            <textarea
-              rows={5}
-              value={rootsInput}
-              onChange={(event) => setRootsInput(event.target.value)}
-              placeholder={"每行一个本地目录，例如：\nE:\\test\nD:\\workspace"}
-              className={inputClassName}
-            />
-          </Field>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <InfoLine label="默认兜底根目录" value={summary?.default_workspace_root ?? "—"} />
-            <InfoLine
-              label="当前生效根目录"
-              value={(summary?.allowed_workspace_roots ?? []).join("；") || "—"}
-            />
+          <div className="grid gap-4 md:grid-cols-2">
+            <FieldL label="API Key"><input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="留空保留当前 Key" className={inputClass} /></FieldL>
+            <FieldL label="超时（秒）"><input type="number" min={1} step={1} value={timeoutSec} onChange={(e) => setTimeoutSec(e.target.value)} className={inputClass} /></FieldL>
           </div>
-
-          <p className="text-sm leading-6 text-zinc-500">
-            删除某一行即可移除对应根目录；留空保存后将回到默认兜底行为。系统仍会拒绝非 Git 目录、运行时数据目录、临时目录和未在边界内的路径。
-          </p>
-
+          <FieldL label="Base URL"><input type="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className={inputClass} /></FieldL>
+          <div className="grid gap-4 md:grid-cols-3">
+            <FieldL label="经济模型"><input value={models.economy} onChange={(e) => { setPreset("custom"); setModels((c) => ({ ...c, economy: e.target.value })); }} className={inputClass} /></FieldL>
+            <FieldL label="平衡模型"><input value={models.balanced} onChange={(e) => { setPreset("custom"); setModels((c) => ({ ...c, balanced: e.target.value })); }} className={inputClass} /></FieldL>
+            <FieldL label="高级模型"><input value={models.premium} onChange={(e) => { setPreset("custom"); setModels((c) => ({ ...c, premium: e.target.value })); }} className={inputClass} /></FieldL>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={updateMutation.isPending}
-              className={buttonClassName}
-            >
-              {updateMutation.isPending ? "保存中..." : "保存仓库安全边界"}
-            </button>
-            {feedback ? (
-              <span className="text-sm leading-6 text-zinc-400">{feedback}</span>
-            ) : null}
-            {updateMutation.isError ? (
-              <span className="text-sm leading-6 text-rose-100">
-                保存失败：{updateMutation.error.message}
-              </span>
-            ) : null}
+            <button type="submit" disabled={!canSave} className={btnPrimaryClass}>{m.isPending ? "保存中..." : "保存配置"}</button>
+            {fb && <span className="text-xs text-zinc-400">{fb}</span>}
+            {m.isError && <span className="text-xs text-red-400">保存失败：{m.error.message}</span>}
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+function ProviderTest() {
+  const [result, setResult] = useState<ProviderTestResponse | null>(null);
+  const m = useMutation({
+    mutationFn: testProviderConnection,
+    onSuccess: (r) => setResult(r),
+  });
+
+  return (
+    <div className="border-t border-[#333333] pt-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => m.mutate()} disabled={m.isPending} className={btnClass}>
+          {m.isPending ? "测试中..." : "测试连接"}
+        </button>
+        {m.isError && <span className="text-xs text-red-400">{m.error.message}</span>}
+      </div>
+      {result && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <TestStat label="状态" value={result.status} tone={result.status === "ok" ? "ok" : "warn"} />
+          <TestStat label="已配置" value={result.configured ? "是" : "否"} />
+          <TestStat label="认证有效" value={result.auth_valid ? "是" : "否"} tone={result.auth_valid ? "ok" : "warn"} />
+          <TestStat label="端点可达" value={result.endpoint_reachable ? "是" : "否"} tone={result.endpoint_reachable ? "ok" : "warn"} />
+          <TestStat label="模型可用" value={result.model_usable ? "是" : "否"} tone={result.model_usable ? "ok" : "warn"} />
+          <TestStat label="延迟" value={`${result.latency_ms}ms`} />
+          <TestStat label="API 类型" value={result.api_family} />
+          <TestStat label="测试模型" value={result.model_name} />
+          {result.error_summary && (
+            <div className="col-span-full text-xs text-red-400 truncate" title={result.error_summary}>
+              错误：{result.error_summary}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════ Section 2: Environment ═══════════ */
+
+function EnvironmentSection() {
+  const hq = useQuery({ queryKey: ["health"], queryFn: fetchHealth });
+  const h = hq.data;
+
+  return (
+    <section className="rounded-lg border border-[#333333] bg-[#1a1a1a] p-5 space-y-4">
+      <SectionHeader title="运行环境" desc="后端健康状态、数据库、Worker、Event Stream 基础检查" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatItem label="后端状态" value={hq.isLoading ? "加载中..." : h ? "在线" : "未知"} />
+        <StatItem label="数据库" value="暂无专用诊断接口" />
+        <StatItem label="Worker" value="暂无专用诊断接口" />
+        <StatItem label="Event Stream" value="暂无专用诊断接口" />
+      </div>
+      {hq.isError && <p className="text-xs text-red-400">健康检查失败：{hq.error.message}</p>}
+      <p className="text-[11px] text-zinc-600">
+        数据库、Worker、Event Stream 暂无独立诊断 API。当前仅展示基础健康状态（GET /health）。
+        后续后端补齐专用诊断接口后可获得细分状态。页面打开不触发 AI 生成。
+      </p>
     </section>
   );
 }
 
-function RepositoryBindingSection() {
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const queryClient = useQueryClient();
-  const overviewQuery = useBossProjectOverview({ enablePolling: false });
-  const projects = overviewQuery.data?.projects ?? [];
-  const requestedProjectId = searchParams.get("projectId") ?? "";
-  const [selectedProjectId, setSelectedProjectId] = useState(requestedProjectId);
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
-  const hasInvalidRequestedProject =
-    requestedProjectId.length > 0 &&
-    projects.length > 0 &&
-    !projects.some((project) => project.id === requestedProjectId);
-  const [rootPathInput, setRootPathInput] = useState("");
-  const [displayNameInput, setDisplayNameInput] = useState("");
-  const [baseBranchInput, setBaseBranchInput] = useState("main");
-  const [ignoreRulesInput, setIgnoreRulesInput] = useState(".git\nnode_modules\ndist\nbuild");
-  const [feedback, setFeedback] = useState<string | null>(null);
+/* ═══════════ Section 3: Security ═══════════ */
+
+function SecuritySection() {
+  return (
+    <section className="rounded-lg border border-[#333333] bg-[#1a1a1a] p-5 space-y-5">
+      <SectionHeader title="安全与权限" desc="系统级仓库访问安全边界与项目仓库绑定" />
+      <WorkspaceSettingsBox />
+      <RepositoryBindingBox />
+    </section>
+  );
+}
+
+function WorkspaceSettingsBox() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["repository-workspace-settings"], queryFn: fetchWorkspaceSettings });
+  const [rootsInput, setRootsInput] = useState("");
+  const [fb, setFb] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    if (projects.length === 0) {
-      return;
-    }
+    if (q.data) setRootsInput(q.data.allowed_workspace_roots.join("\n"));
+  }, [q.data]);
 
-    const selectedProjectExists = projects.some(
-      (project) => project.id === selectedProjectId,
-    );
-    if (selectedProjectExists) {
-      return;
-    }
-
-    const fallbackProject =
-      projects.find((project) => project.repository_workspace === null) ?? projects[0];
-    setSelectedProjectId(fallbackProject.id);
-
-    const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.set("projectId", fallbackProject.id);
-    setSearchParams(nextSearchParams, { replace: true });
-  }, [projects, searchParams, selectedProjectId, setSearchParams]);
-
-  useEffect(() => {
-    if (!selectedProject) {
-      return;
-    }
-
-    const workspace = selectedProject.repository_workspace;
-    setRootPathInput(workspace?.root_path ?? "");
-    setDisplayNameInput(workspace?.display_name ?? selectedProject.name);
-    setBaseBranchInput(workspace?.default_base_branch ?? "main");
-    setIgnoreRulesInput(
-      (workspace?.ignore_rule_summary.length
-        ? workspace.ignore_rule_summary
-        : [".git", "node_modules", "dist", "build"]
-      ).join("\n"),
-    );
-  }, [selectedProject]);
-
-  const bindMutation = useMutation({
-    mutationFn: bindProjectRepository,
-    onSuccess: async (workspace) => {
-      setFeedback("主仓库绑定已保存，正在回到仓库工作区。");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["boss-project-overview"] }),
-        queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["project-detail", workspace.project_id],
-        }),
-      ]);
-      navigate(
-        buildProjectOverviewRoute({
-          projectId: workspace.project_id,
-          view: "repository-workspace",
-        }),
-      );
+  const m = useMutation({
+    mutationFn: updateWorkspaceSettings,
+    onSuccess: async (r) => {
+      setRootsInput(r.allowed_workspace_roots.join("\n"));
+      setFb("安全边界已保存。");
+      await qc.invalidateQueries({ queryKey: ["repository-workspace-settings"] });
     },
   });
 
-  const canSubmit = Boolean(
-    selectedProject && rootPathInput.trim() && baseBranchInput.trim() && !bindMutation.isPending,
+  const s = q.data;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <h3 className="text-sm font-medium text-zinc-200">仓库安全边界</h3>
+        <StatusBadge label={s?.using_default ? "默认边界" : "已配置"} tone={s?.using_default ? "warning" : "success"} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <StatItem label="默认根目录" value={s?.default_workspace_root || "—"} />
+        <StatItem label="生效根目录" value={(s?.allowed_workspace_roots ?? []).join("; ") || "—"} />
+      </div>
+      <p className="text-[11px] text-zinc-600">系统级仓库工作区根目录白名单。项目绑定仓库路径必须位于其中之一。当前 access_mode=read_only，不代表真实 git 写入。</p>
+      <button type="button" onClick={() => setExpanded((v) => !v)} className={btnClass}>{expanded ? "收起" : "编辑安全边界"}</button>
+      {expanded && (
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void m.mutateAsync({ allowed_workspace_roots: parseLines(rootsInput) }); }}>
+          <textarea rows={4} value={rootsInput} onChange={(e) => setRootsInput(e.target.value)} placeholder="每行一个本地目录" className={inputClass} />
+          <div className="flex items-center gap-3">
+            <button type="submit" disabled={m.isPending} className={btnPrimaryClass}>{m.isPending ? "保存中..." : "保存"}</button>
+            {fb && <span className="text-xs text-zinc-400">{fb}</span>}
+          </div>
+        </form>
+      )}
+    </div>
   );
+}
 
-  const handleProjectChange = (projectId: string) => {
-    setSelectedProjectId(projectId);
-    const nextSearchParams = new URLSearchParams(searchParams);
-    if (projectId) {
-      nextSearchParams.set("projectId", projectId);
-    } else {
-      nextSearchParams.delete("projectId");
-    }
-    setSearchParams(nextSearchParams, { replace: true });
-    setFeedback(null);
-  };
+function RepositoryBindingBox() {
+  const navigate = useNavigate();
+  const [sp, setSp] = useSearchParams();
+  const qc = useQueryClient();
+  const oq = useBossProjectOverview({ enablePolling: false });
+  const projects = oq.data?.projects ?? [];
+  const reqId = sp.get("projectId") ?? "";
+  const [pid, setPid] = useState(reqId);
+  const sel = projects.find((p) => p.id === pid) ?? null;
+  const [rootPath, setRootPath] = useState("");
+  const [dispName, setDispName] = useState("");
+  const [baseBranch, setBaseBranch] = useState("main");
+  const [ignoreRules, setIgnoreRules] = useState(".git\nnode_modules\ndist\nbuild");
+  const [fb, setFb] = useState<string | null>(null);
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setFeedback(null);
-    if (!selectedProject) {
-      return;
-    }
+  useEffect(() => {
+    if (!sel) return;
+    const w = sel.repository_workspace;
+    setRootPath(w?.root_path ?? "");
+    setDispName(w?.display_name ?? sel.name);
+    setBaseBranch(w?.default_base_branch ?? "main");
+    setIgnoreRules((w?.ignore_rule_summary.length ? w.ignore_rule_summary : [".git", "node_modules", "dist", "build"]).join("\n"));
+  }, [sel]);
 
-    void bindMutation.mutateAsync({
-      projectId: selectedProject.id,
-      payload: {
-        root_path: rootPathInput.trim(),
-        display_name: displayNameInput.trim() || null,
-        access_mode: "read_only",
-        default_base_branch: baseBranchInput.trim(),
-        ignore_rule_summary: parseLines(ignoreRulesInput),
-      },
-    });
-  };
+  const m = useMutation({
+    mutationFn: bindProjectRepo,
+    onSuccess: async (w) => {
+      setFb("绑定已保存。");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["boss-project-overview"] }),
+        qc.invalidateQueries({ queryKey: ["project-detail"] }),
+        qc.invalidateQueries({ queryKey: ["project-detail", w.project_id] }),
+      ]);
+      navigate(buildProjectOverviewRoute({ projectId: w.project_id, view: "repository-workspace" }));
+    },
+  });
 
   return (
-    <section id="repository-binding" className="scroll-mt-24 border-b border-[#333333] pb-7">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-            项目仓库绑定
-          </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-            在这里为项目绑定主仓库根目录。绑定后，可以进入仓库工作区查看文件、定位代码和生成变更计划。
-          </p>
-        </div>
-        <StatusBadge
-          label={selectedProject?.repository_workspace ? "已绑定" : "待绑定"}
-          tone={selectedProject?.repository_workspace ? "success" : "warning"}
-        />
+    <div className="border-t border-[#333333] pt-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <h3 className="text-sm font-medium text-zinc-200">项目仓库绑定</h3>
+        <StatusBadge label={sel?.repository_workspace ? "已绑定" : "待绑定"} tone={sel?.repository_workspace ? "success" : "warning"} />
       </div>
-
-      {hasInvalidRequestedProject ? (
-        <div className="mt-4 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100">
-          当前项目不可用，已切换到可配置项目；也可以在下方重新选择。
-        </div>
-      ) : null}
-
-      {overviewQuery.isLoading ? (
-        <p className="mt-4 text-sm leading-6 text-zinc-500">正在加载项目列表...</p>
-      ) : overviewQuery.isError ? (
-        <p className="mt-4 text-sm leading-6 text-rose-100">
-          项目列表加载失败：{overviewQuery.error.message}
-        </p>
-      ) : (
-        <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
-          <Field label="选择项目">
-            <select
-              value={selectedProjectId}
-              onChange={(event) => handleProjectChange(event.target.value)}
-              className={inputClassName}
-            >
-              <option value="">请选择项目</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          {selectedProject ? (
+      <p className="text-[11px] text-zinc-600">为项目绑定主仓库根目录。access_mode=read_only。绑定后可进入仓库工作区查看文件。</p>
+      {oq.isLoading ? <p className="text-xs text-zinc-600">加载项目列表...</p> : oq.isError ? <p className="text-xs text-red-400">加载失败</p> : (
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (!sel) return; void m.mutateAsync({ projectId: sel.id, payload: { root_path: rootPath.trim(), display_name: dispName.trim() || null, access_mode: "read_only", default_base_branch: baseBranch.trim(), ignore_rule_summary: parseLines(ignoreRules) } }); }}>
+          <select value={pid} onChange={(e) => { setPid(e.target.value); setSp((c) => { const n = new URLSearchParams(c); e.target.value ? n.set("projectId", e.target.value) : n.delete("projectId"); return n; }, { replace: true }); }} className={inputClass}>
+            <option value="">选择项目</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {sel && (
             <>
-              <div className="grid gap-3 md:grid-cols-3">
-                <InfoLine
-                  label="当前状态"
-                  value={selectedProject.repository_workspace ? "主仓库已绑定" : "尚未绑定主仓库"}
-                />
-                <InfoLine
-                  label="项目阶段"
-                  value={PROJECT_STAGE_LABELS[selectedProject.stage] ?? "未识别阶段"}
-                />
-                <InfoLine
-                  label="最近更新"
-                  value={formatDateTime(selectedProject.updated_at)}
-                />
+              <div className="grid grid-cols-3 gap-3">
+                <StatItem label="当前状态" value={sel.repository_workspace ? "已绑定" : "未绑定"} />
+                <StatItem label="阶段" value={PROJECT_STAGE_LABELS[sel.stage] ?? "—"} />
+                <StatItem label="最近更新" value={formatDateTime(sel.updated_at)} />
               </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="仓库显示名">
-                  <input
-                    value={displayNameInput}
-                    onChange={(event) => setDisplayNameInput(event.target.value)}
-                    className={inputClassName}
-                  />
-                </Field>
-                <Field label="默认基线分支">
-                  <input
-                    value={baseBranchInput}
-                    onChange={(event) => setBaseBranchInput(event.target.value)}
-                    className={inputClassName}
-                  />
-                </Field>
+              <div className="grid gap-3 md:grid-cols-2">
+                <FieldL label="显示名"><input value={dispName} onChange={(e) => setDispName(e.target.value)} className={inputClass} /></FieldL>
+                <FieldL label="基线分支"><input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} className={inputClass} /></FieldL>
               </div>
-
-              <Field label="主仓库根目录">
-                <input
-                  value={rootPathInput}
-                  onChange={(event) => setRootPathInput(event.target.value)}
-                  placeholder="填写已允许根目录下的本地 Git 仓库路径，例如 E:\test\my-repo"
-                  className={inputClassName}
-                />
-              </Field>
-
-              <Field label="忽略目录摘要">
-                <textarea
-                  rows={4}
-                  value={ignoreRulesInput}
-                  onChange={(event) => setIgnoreRulesInput(event.target.value)}
-                  className={inputClassName}
-                />
-              </Field>
-
-              {selectedProject.repository_workspace ? (
-                <div className="border-l border-[#333333] px-4 py-3 text-sm leading-6 text-zinc-400">
-                  当前允许工作区根：
-                  <span className="break-all text-zinc-100">
-                    {selectedProject.repository_workspace.allowed_workspace_root}
-                  </span>
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button type="submit" disabled={!canSubmit} className={buttonClassName}>
-                  {bindMutation.isPending ? "保存中..." : "保存主仓库绑定"}
-                </button>
-                <Link
-                  to={buildProjectOverviewRoute({
-                    projectId: selectedProject.id,
-                    view: "repository-workspace",
-                  })}
-                  className="rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
-                >
-                  回到仓库工作区
-                </Link>
-                {feedback ? (
-                  <span className="text-sm leading-6 text-zinc-400">{feedback}</span>
-                ) : null}
-                {bindMutation.isError ? (
-                  <span className="text-sm leading-6 text-rose-100">
-                    {buildRepositoryBindingErrorMessage(bindMutation.error, rootPathInput)}
-                  </span>
-                ) : null}
+              <FieldL label="仓库根目录"><input value={rootPath} onChange={(e) => setRootPath(e.target.value)} placeholder="本地 Git 仓库路径" className={inputClass} /></FieldL>
+              <FieldL label="忽略目录"><textarea rows={3} value={ignoreRules} onChange={(e) => setIgnoreRules(e.target.value)} className={inputClass} /></FieldL>
+              <div className="flex items-center gap-3">
+                <button type="submit" disabled={!sel || !rootPath.trim() || m.isPending} className={btnPrimaryClass}>{m.isPending ? "保存中..." : "保存绑定"}</button>
+                <Link to={buildProjectOverviewRoute({ projectId: sel.id, view: "repository-workspace" })} className={btnClass}>仓库工作区</Link>
+                {fb && <span className="text-xs text-zinc-400">{fb}</span>}
+                {m.isError && <span className="text-xs text-red-400">{buildBindError(m.error, rootPath)}</span>}
               </div>
             </>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm leading-6 text-zinc-500">
-                当前还没有可配置的项目。
-              </p>
-              <Link
-                to="/projects"
-                className="inline-block rounded border border-[#4a4a4a] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929]"
-              >
-                去项目中心
-              </Link>
-            </div>
           )}
         </form>
       )}
-    </section>
-  );
-}
-
-function Field(props: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-        {props.label}
-      </div>
-      <div className="mt-2">{props.children}</div>
-    </label>
-  );
-}
-
-function InfoLine(props: { label: string; value: string }) {
-  return (
-    <div className="border-l border-[#333333] px-4 py-2">
-      <div className="text-xs uppercase tracking-[0.2em] text-zinc-600">
-        {props.label}
-      </div>
-      <div className="mt-2 break-all text-sm leading-6 text-zinc-100">
-        {props.value}
-      </div>
     </div>
   );
 }
 
-function parseLines(value: string) {
-  return Array.from(
-    new Set(
-      value
-        .split(/[\n,]/)
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
+/* ═══════════ Section 4: Diagnostics ═══════════ */
+
+function DiagnosticsSection() {
+  const pq = useQuery({ queryKey: ["provider-settings", "openai"], queryFn: fetchProvider });
+  const hq = useQuery({ queryKey: ["health"], queryFn: fetchHealth });
+  const wq = useQuery({ queryKey: ["repository-workspace-settings"], queryFn: fetchWorkspaceSettings });
+
+  const [testResult, setTestResult] = useState<ProviderTestResponse | null>(null);
+  const tm = useMutation({
+    mutationFn: testProviderConnection,
+    onSuccess: (r) => setTestResult(r),
+  });
+
+  const buildDiagnostics = () => {
+    const p = pq.data;
+    const h = hq.data;
+    const w = wq.data;
+    const t = testResult;
+    const lines = [
+      "=== 系统诊断信息 ===",
+      `时间: ${new Date().toISOString()}`,
+      "",
+      "-- Provider 配置 --",
+      `配置状态: ${p?.configured ? "已配置" : "未配置"}`,
+      `来源: ${p ? SOURCE_LABELS[p.source] : "未知"}`,
+      `检测类型: ${p?.detected_provider_type ?? "—"}`,
+      `Base URL: ${p?.base_url ?? "—"}`,
+      `超时: ${p?.timeout_seconds ?? "?"}s`,
+      `预设: ${p ? PRESET_LABELS[p.model_preset] : "—"}`,
+      `模型: ${p ? `${p.model_names.economy} / ${p.model_names.balanced} / ${p.model_names.premium}` : "—"}`,
+      "",
+      "-- Provider 测试 --",
+      ...(t ? [
+        `状态: ${t.status}`, `认证: ${t.auth_valid}`, `端点: ${t.endpoint_reachable}`,
+        `模型可用: ${t.model_usable}`, `延迟: ${t.latency_ms}ms`, `API: ${t.api_family}`,
+        t.error_summary ? `错误: ${t.error_summary}` : null,
+      ].filter(Boolean) : ["未执行测试。请先点击测试连接。"]),
+      "",
+      "-- 运行环境 --",
+      `健康状态: ${h?.status ?? "未知"}`,
+      `数据库: 暂无专用诊断接口`,
+      `Worker: 暂无专用诊断接口`,
+      `Event Stream: 暂无专用诊断接口`,
+      "",
+      "-- 安全边界 --",
+      `默认根目录: ${w?.default_workspace_root ?? "—"}`,
+      `生效根目录: ${(w?.allowed_workspace_roots ?? []).join("; ") || "—"}`,
+      `使用默认: ${w?.using_default ? "是" : "否"}`,
+      "",
+      "-- 缺失接口 --",
+      "数据库诊断: 无",
+      "Worker 诊断: 无",
+      "Event Stream 诊断: 无",
+      "运行日志: 请前往运行观测页",
+    ];
+    return lines.join("\n");
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(buildDiagnostics());
+    } catch { /* clipboard unavailable */ }
+  };
+
+  return (
+    <section className="rounded-lg border border-[#333333] bg-[#1a1a1a] p-5 space-y-4">
+      <SectionHeader title="系统诊断" desc="一键复制系统配置摘要与诊断信息，用于问题排查" />
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => tm.mutate()} disabled={tm.isPending} className={btnClass}>
+          {tm.isPending ? "测试中..." : "执行测试连接"}
+        </button>
+        <button type="button" onClick={handleCopy} className={btnPrimaryClass}>复制诊断信息</button>
+      </div>
+      {tm.isError && <p className="text-xs text-red-400">测试失败：{tm.error.message}</p>}
+      <div className="rounded border border-[#333333] bg-[#111111] p-3 max-h-[240px] overflow-y-auto">
+        <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap break-all font-mono">{buildDiagnostics()}</pre>
+      </div>
+      <p className="text-[11px] text-zinc-600">诊断信息不含 API Key 明文。完整运行日志请前往运行观测页。</p>
+    </section>
   );
 }
 
-function buildRepositoryBindingErrorMessage(error: Error, rootPathInput: string) {
-  const message = error.message;
-  if (message.includes("exceeds the configured allowed workspace root")) {
-    const suggestedRoot = inferSuggestedWorkspaceRoot(rootPathInput);
-    return suggestedRoot
-      ? `保存失败：仓库路径不在允许的工作区根目录内。请先在仓库安全边界中添加 ${suggestedRoot}，或把仓库移动到已允许的根目录下。`
-      : "保存失败：仓库路径不在允许的工作区根目录内。请先在仓库安全边界中添加该仓库的上级工作区根目录，或把仓库移动到已允许的根目录下。";
-  }
-  if (message.includes("does not exist")) {
-    return "保存失败：这个仓库路径不存在。请确认路径拼写正确，并且该目录已经在本机创建。";
-  }
-  if (message.includes("must be a directory")) {
-    return "保存失败：填写的路径不是目录。请选择项目主仓库所在的文件夹。";
-  }
-  if (
-    message.includes("does not look like a Git repository") ||
-    message.includes("must point to one local Git repository root")
-  ) {
-    return "保存失败：这个目录不像 Git 仓库。请确认目录内存在 .git，或先完成仓库初始化。";
-  }
-  return `保存失败：${message}`;
+/* ─── shared ─── */
+
+function SectionHeader({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div>
+      <h2 className="text-base font-semibold text-zinc-200">{title}</h2>
+      <p className="mt-0.5 text-xs text-zinc-500">{desc}</p>
+    </div>
+  );
 }
 
-function inferSuggestedWorkspaceRoot(rootPathInput: string) {
-  const normalizedInput = rootPathInput.trim().replace(/\//g, "\\");
-  if (!normalizedInput) {
-    return "";
-  }
-
-  const windowsMatch = normalizedInput.match(/^([A-Za-z]:\\[^\\]+)(?:\\.*)?$/);
-  if (windowsMatch) {
-    return windowsMatch[1];
-  }
-
-  const posixParts = rootPathInput.trim().split("/").filter(Boolean);
-  if (rootPathInput.trim().startsWith("/") && posixParts.length >= 2) {
-    return `/${posixParts.slice(0, 2).join("/")}`;
-  }
-
-  return rootPathInput.trim();
+function StatItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-[#333333] px-3 py-2">
+      <div className="text-[10px] text-zinc-500">{label}</div>
+      <div className="text-sm text-zinc-300 mt-0.5 truncate" title={value}>{value}</div>
+    </div>
+  );
 }
 
-function formatMaskedKey(value: unknown) {
-  return typeof value === "string" && value.length > 0 ? value : "未配置";
+function TestStat({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" }) {
+  return (
+    <div className={`rounded border px-3 py-2 ${tone === "ok" ? "border-zinc-600" : tone === "warn" ? "border-zinc-700" : "border-[#333333]"}`}>
+      <div className="text-[10px] text-zinc-500">{label}</div>
+      <div className={`text-sm mt-0.5 truncate ${tone === "ok" ? "text-zinc-300" : tone === "warn" ? "text-zinc-500" : "text-zinc-300"}`}>{value}</div>
+    </div>
+  );
 }
 
-function formatTierModels(modelNames: TierModelNames) {
-  return `economy ${modelNames.economy} / balanced ${modelNames.balanced} / premium ${modelNames.premium}`;
+function FieldL({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="block"><div className="text-xs text-zinc-500 mb-1">{label}</div>{children}</label>;
 }
 
-const inputClassName =
-  "w-full border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm leading-6 text-zinc-100 outline-none transition focus:border-zinc-500";
+function parseLines(v: string) {
+  return Array.from(new Set(v.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)));
+}
 
-const buttonClassName =
-  "rounded border border-[#4a4a4a] bg-transparent px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:border-[#333333] disabled:text-zinc-600";
+function truncateUrl(url: string) {
+  return url.length > 42 ? url.slice(0, 42) + "..." : url;
+}
 
-const secondaryButtonClassName =
-  "rounded border border-[#3a3a3a] bg-transparent px-3 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]";
+function buildBindError(error: Error, _rootPath: string) {
+  const msg = error.message;
+  if (msg.includes("exceeds")) return `保存失败：仓库路径不在允许边界内。请先在安全边界中添加该路径的上级目录。`;
+  if (msg.includes("does not exist")) return "保存失败：仓库路径不存在。";
+  if (msg.includes("must be a directory")) return "保存失败：路径不是目录。";
+  if (msg.includes("Git")) return "保存失败：目录不像 Git 仓库。";
+  return `保存失败：${msg}`;
+}
