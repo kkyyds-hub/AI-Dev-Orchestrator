@@ -60,6 +60,17 @@ class ProjectDirectorPlanVersionRepository:
             return None
         return self._to_domain(row)
 
+    def list_by_status(
+        self, status: PlanVersionStatus
+    ) -> list[ProjectDirectorPlanVersion]:
+        stmt = (
+            select(ProjectDirectorPlanVersionTable)
+            .where(ProjectDirectorPlanVersionTable.status == status)
+            .order_by(ProjectDirectorPlanVersionTable.updated_at.desc())
+        )
+        rows = self._session.execute(stmt).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     def list_by_session_id(
         self, session_id: UUID
     ) -> list[ProjectDirectorPlanVersion]:

@@ -363,6 +363,28 @@
 | Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing，同 BCG-02） |
 
 
+### 5.5.3 BCG-03 Phase1 — Pending Confirmation Inbox（2026-05-19）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-03 Phase1：待确认事项聚合 Inbox（只读） |
+| 阶段性质 | 后端闭环补齐 |
+| 起始 commit | `81da300` |
+| 结束 commit | （本次提交） |
+| 新增文件 | `app/services/project_director_confirmation_service.py`、`tests/test_project_director_confirmations.py` |
+| 修改文件 | `app/repositories/project_director_session_repository.py`、`app/repositories/project_director_plan_version_repository.py`、`app/api/routes/project_director.py` |
+| 涉及页面 | 无（未改前端） |
+| 涉及接口 | `GET /project-director/confirmations`、`GET /project-director/projects/{id}/confirmations`、`GET /project-director/sessions/{id}/confirmations` |
+| 页面职责 | N/A |
+| 前端真实接入 | N/A（未改前端） |
+| 后端闭环 | Backend Pass：3 个只读 API 聚合 goal_confirmation + plan_confirmation；按 project/session 过滤；confirm_api_hint 指引 |
+| 运行证据 | Runtime Evidence Missing |
+| 测试结果 | 12/12 通过（+ 原有 62/62 无回归 = 总计 74/74） |
+| verification 文档 | `docs/product/ai-project-director/verification-project-director-confirmation-inbox-phase1-20260519.md` |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing） |
+| 后续动作 | 后续补确认动作接口 + 扩展更多聚合源 |
+
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |

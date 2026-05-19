@@ -55,6 +55,17 @@ class ProjectDirectorSessionRepository:
             return None
         return self._to_domain(row)
 
+    def list_by_status(
+        self, status: ProjectDirectorSessionStatus
+    ) -> list[ProjectDirectorSession]:
+        stmt = (
+            select(ProjectDirectorSessionTable)
+            .where(ProjectDirectorSessionTable.status == status)
+            .order_by(ProjectDirectorSessionTable.updated_at.desc())
+        )
+        rows = self._session.execute(stmt).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     def update(self, session_obj: ProjectDirectorSession) -> ProjectDirectorSession:
         row = self._session.get(ProjectDirectorSessionTable, session_obj.id)
         if row is None:

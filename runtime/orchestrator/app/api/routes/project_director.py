@@ -1,7 +1,8 @@
-"""AI Project Director session & plan version API routes.
+"""AI Project Director session, plan version & confirmation inbox API routes.
 
 BCG-01: goal intake → clarification → confirmation.
 BCG-02: plan version generation → pending_confirmation → confirmed.
+BCG-03: pending confirmation inbox (read-only aggregation).
 No AI, no Provider, no planning/apply, no task creation, no worker dispatch.
 """
 
@@ -32,6 +33,9 @@ from app.repositories.project_director_plan_version_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.services.project_director_confirmation_service import (
+    ProjectDirectorConfirmationService,
+)
 from app.services.project_director_plan_service import ProjectDirectorPlanService
 from app.services.project_director_service import ProjectDirectorService
 
@@ -54,6 +58,17 @@ def _get_plan_service(
     return ProjectDirectorPlanService(
         plan_version_repository=plan_repo,
         session_repository=session_repo,
+    )
+
+
+def _get_confirmation_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorConfirmationService:
+    session_repo = ProjectDirectorSessionRepository(session)
+    plan_repo = ProjectDirectorPlanVersionRepository(session)
+    return ProjectDirectorConfirmationService(
+        session_repository=session_repo,
+        plan_version_repository=plan_repo,
     )
 
 
@@ -645,3 +660,114 @@ def confirm_plan_version(
         ) from exc
 
     return PlanVersionResponse.from_domain(plan_version)
+
+
+# ── Confirmation Inbox DTOs ──────────────────────────────────────────
+
+
+class ConfirmationItemResponse(BaseModel):
+    id: str
+    source_type: str
+    source_id: UUID
+    project_id: UUID | None
+    session_id: UUID
+    title: str
+    summary: str
+    status: str
+    risk_level: str
+    next_action: str
+    confirm_api_hint: str
+    created_at: str
+    updated_at: str
+
+
+class ConfirmationInboxResponse(BaseModel):
+    items: list[ConfirmationItemResponse] = Field(default_factory=list)
+    total: int = Field(default=0)
+
+
+def _inbox_item_to_response(item) -> ConfirmationItemResponse:
+    return ConfirmationItemResponse(
+        id=item.id,
+        source_type=item.source_type,
+        source_id=item.source_id,
+        project_id=item.project_id,
+        session_id=item.session_id,
+        title=item.title,
+        summary=item.summary,
+        status=item.status,
+        risk_level=item.risk_level,
+        next_action=item.next_action,
+        confirm_api_hint=item.confirm_api_hint,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
+# ── Confirmation Inbox Routes ────────────────────────────────────────
+
+
+@router.get(
+    "/confirmations",
+    response_model=ConfirmationInboxResponse,
+    summary="List all pending confirmations",
+)
+def list_all_confirmations(
+    svc: Annotated[
+        ProjectDirectorConfirmationService, Depends(_get_confirmation_service)
+    ],
+) -> ConfirmationInboxResponse:
+    """Return all pending confirmation items across all sources.
+
+    Aggregates:
+    - Goal confirmations (sessions with status=ready_to_confirm)
+    - Plan confirmations (plan versions with status=pending_confirmation)
+
+    Read-only. Does not change any state, create tasks, or call workers.
+    """
+
+    items = svc.get_all_confirmations()
+    return ConfirmationInboxResponse(
+        items=[_inbox_item_to_response(i) for i in items],
+        total=len(items),
+    )
+
+
+@router.get(
+    "/projects/{project_id}/confirmations",
+    response_model=ConfirmationInboxResponse,
+    summary="List pending confirmations for a project",
+)
+def list_project_confirmations(
+    project_id: UUID,
+    svc: Annotated[
+        ProjectDirectorConfirmationService, Depends(_get_confirmation_service)
+    ],
+) -> ConfirmationInboxResponse:
+    """Return pending confirmation items filtered by project_id."""
+
+    items = svc.get_confirmations_by_project(project_id)
+    return ConfirmationInboxResponse(
+        items=[_inbox_item_to_response(i) for i in items],
+        total=len(items),
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/confirmations",
+    response_model=ConfirmationInboxResponse,
+    summary="List pending confirmations for a session",
+)
+def list_session_confirmations(
+    session_id: UUID,
+    svc: Annotated[
+        ProjectDirectorConfirmationService, Depends(_get_confirmation_service)
+    ],
+) -> ConfirmationInboxResponse:
+    """Return pending confirmation items filtered by session_id."""
+
+    items = svc.get_confirmations_by_session(session_id)
+    return ConfirmationInboxResponse(
+        items=[_inbox_item_to_response(i) for i in items],
+        total=len(items),
+    )
