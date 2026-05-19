@@ -1,244 +1,398 @@
-import { useEffect } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
-import { ProjectMemoryRoleGovernancePage } from "../../features/projects/pages/ProjectMemoryRoleGovernancePage";
-import { buildApprovalsRoute } from "../../lib/approval-route";
-import { buildDeliverablesRoute } from "../../lib/deliverable-route";
-import {
-  buildGovernanceRoute,
-  type GovernanceRouteSection,
-} from "../../lib/governance-route";
-import { buildTaskRoute } from "../../lib/task-route";
 import { useProjectScope } from "../shared/useProjectScope";
 
-const GOVERNANCE_SECTION_TARGETS: Readonly<Record<GovernanceRouteSection, string>> = {
-  memory: "governance-memory-panel",
-  governance: "governance-policy-panel",
-  search: "governance-memory-search",
-  roles: "governance-roles",
-  skills: "governance-skills",
-  workbench: "governance-role-workbench",
-};
-
-const GOVERNANCE_SECTION_NAV: ReadonlyArray<{
-  id: GovernanceRouteSection;
-  label: string;
-  description: string;
-}> = [
-  { id: "memory", label: "记忆", description: "项目沉淀与最新摘要" },
-  { id: "governance", label: "治理", description: "记忆治理动作与状态" },
-  { id: "search", label: "检索", description: "按关键词查找上下文" },
-  { id: "roles", label: "角色", description: "角色目录与项目覆盖" },
-  { id: "skills", label: "技能", description: "技能注册与绑定" },
-  { id: "workbench", label: "工作台", description: "角色协作与交接" },
-];
+const TABS = [
+  { key: "team", label: "本项目 AI 团队" },
+  { key: "roles", label: "角色治理" },
+  { key: "skills", label: "Skill 治理" },
+  { key: "policy", label: "策略与权限" },
+  { key: "cost-memory", label: "成本与记忆" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
 
 export function GovernancePage() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const section = normalizeGovernanceSection(searchParams.get("section"));
-  const {
-    selectedProjectId,
-    setSelectedProjectId,
-    projects,
-    selectedProjectName,
-    projectNotFound,
-  } = useProjectScope();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { selectedProjectId, setSelectedProjectId, projects, selectedProjectName, projectNotFound } =
+    useProjectScope();
 
-  const effectiveProjectId = selectedProjectId === "all" ? null : selectedProjectId;
-  const selectedProjectNameOrNull = selectedProjectId === "all" ? null : selectedProjectName;
+  const rawTab = searchParams.get("tab") ?? "";
+  const activeTab: TabKey = TABS.some((t) => t.key === rawTab) ? rawTab as TabKey : "team";
 
-  useEffect(() => {
-    if (!section) return;
+  const setActiveTab = (tab: TabKey) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", tab);
+    if (selectedProjectId !== "all") next.set("projectId", selectedProjectId);
+    else next.delete("projectId");
+    setSearchParams(next, { replace: true });
+  };
 
-    let cancelled = false;
-    let retryTimer: number | null = null;
-    const targetId = GOVERNANCE_SECTION_TARGETS[section];
-
-    const tryScroll = (retriesLeft: number) => {
-      if (cancelled) return;
-      const element = document.getElementById(targetId);
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
-      if (retriesLeft <= 0) return;
-      retryTimer = window.setTimeout(() => tryScroll(retriesLeft - 1), 120);
-    };
-
-    requestAnimationFrame(() => tryScroll(12));
-
-    return () => {
-      cancelled = true;
-      if (retryTimer !== null) window.clearTimeout(retryTimer);
-    };
-  }, [effectiveProjectId, section]);
+  const hasProject = selectedProjectId !== "all";
 
   return (
-    <div className="space-y-7">
-      <header className="border-b border-white/10 pb-6" data-testid="governance-page-header">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+    <div className="relative min-w-0 space-y-5">
+      {/* Header */}
+      <header className="border-b border-[#333333] pb-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-500">
-              治理中心
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">
-              页面治理
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">
+              AI 团队资产治理中心
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
-              以项目为边界统一查看记忆、检索、角色、技能与角色工作台；先选项目，再进入对应治理模块操作。
+            <p className="mt-1 text-sm text-zinc-500">
+              {hasProject ? `当前项目：${selectedProjectName}` : "全部项目"}
             </p>
           </div>
-
-          <div className="w-full min-w-0 xl:w-[360px]">
-            <label htmlFor="governance-project-select" className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-              当前项目
-            </label>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-zinc-500">项目</label>
             <select
-              id="governance-project-select"
-              data-testid="governance-project-select"
               value={selectedProjectId}
-              onChange={(event) => setSelectedProjectId(event.target.value)}
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 outline-none ring-0 transition focus:border-white/20"
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              className="rounded border border-[#333333] bg-[#1a1a1a] px-2.5 py-1 text-xs text-zinc-300 outline-none focus:border-zinc-500"
             >
-              <option value="all" className="bg-[#161616] text-zinc-100">
-                全部项目 · 请先选择项目开始治理
-              </option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id} className="bg-[#161616] text-zinc-100">
-                  {project.name}
-                </option>
+              <option value="all">全部项目</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            <p className="mt-2 text-xs leading-5 text-zinc-500">
-              选择项目后，下方会切换到对应项目的记忆、角色、技能与治理工作台。
-            </p>
           </div>
         </div>
-
-        {effectiveProjectId ? (
-          <nav
-            aria-label="治理模块导航"
-            className="mt-6 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2 xl:grid-cols-5"
-          >
-            {GOVERNANCE_SECTION_NAV.map((item) => {
-              const isActive = (section ?? "memory") === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() =>
-                    navigate(
-                      buildGovernanceRoute({
-                        projectId: effectiveProjectId,
-                        section: item.id,
-                      }),
-                    )
-                  }
-                  className={`min-w-0 border-l px-3 py-2 text-left transition ${
-                    isActive
-                      ? "border-zinc-100 text-zinc-100"
-                      : "border-white/10 text-zinc-500 hover:border-zinc-500 hover:text-zinc-200"
-                  }`}
-                >
-                  <span className="block text-sm font-medium">{item.label}</span>
-                  <span className="mt-1 block text-xs leading-5 text-zinc-500">
-                    {item.description}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-        ) : null}
       </header>
 
-      {projectNotFound ? (
-        <section className="rounded-2xl border border-amber-500/[0.15] bg-amber-500/[0.06] px-4 py-3 text-sm leading-6 text-amber-200">
-          当前项目不存在或已被删除。{" "}
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-[#333333] overflow-x-auto">
+        {TABS.map((t) => (
           <button
+            key={t.key}
             type="button"
-            onClick={() => setSelectedProjectId("all")}
-            className="underline transition hover:text-amber-100"
+            onClick={() => setActiveTab(t.key)}
+            className={`shrink-0 px-4 py-2 text-sm transition border-b-2 -mb-[1px] ${
+              activeTab === t.key
+                ? "border-zinc-400 text-zinc-200"
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
           >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {projectNotFound ? (
+        <div className="rounded border border-zinc-700 px-4 py-3 text-sm text-zinc-400">
+          项目不存在或已删除。{" "}
+          <button onClick={() => setSelectedProjectId("all")} className="underline hover:text-zinc-200">
             切回全部项目
           </button>
-        </section>
+        </div>
       ) : null}
 
-      {!effectiveProjectId ? (
-        <section className="border-y border-dashed border-white/10 py-6">
-          <h2 className="text-base font-semibold text-zinc-100">选择项目后开始治理</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-            当前治理能力需要先选定一个项目。请使用右上角项目选择器，然后进入对应治理模块。
-          </p>
-          {projects.length === 0 ? (
-            <Link
-              to="/projects"
-              className="mt-4 inline-flex border-b border-zinc-500 pb-0.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-200 hover:text-white"
-            >
-              去项目中心创建项目
-            </Link>
-          ) : null}
-        </section>
+      {/* Tab content */}
+      <div className="min-h-[360px]">
+        {activeTab === "team" && <TeamTab hasProject={hasProject} projectName={selectedProjectName} />}
+        {activeTab === "roles" && <RoleTab hasProject={hasProject} />}
+        {activeTab === "skills" && <SkillTab hasProject={hasProject} />}
+        {activeTab === "policy" && <PolicyTab />}
+        {activeTab === "cost-memory" && <CostMemoryTab hasProject={hasProject} />}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Tab: 本项目 AI 团队 ─── */
+
+const AI_TEAM_ROLES = [
+  { role: "AI 项目主管", code: "project_director", desc: "生成作战计划、拆分任务、分配 Agent、监督运行、识别阻塞", skills: 4 },
+  { role: "前端体验 Agent", code: "frontend_agent", desc: "负责 UI 组件、布局、样式与前端交互闭环", skills: 3 },
+  { role: "后端闭环 Agent", code: "backend_agent", desc: "负责 API 路由、数据模型、业务逻辑与状态机", skills: 3 },
+  { role: "测试验收 Agent", code: "qa_agent", desc: "负责测试用例、验收检查、回归验证", skills: 2 },
+  { role: "文档收口 Agent", code: "docs_agent", desc: "负责产品文档、技术文档、验收记录回填", skills: 2 },
+  { role: "审查 Agent", code: "review_agent", desc: "负责代码审查、风险发现、预检评估", skills: 2 },
+];
+
+function TeamTab({ hasProject, projectName }: { hasProject: boolean; projectName: string }) {
+  return (
+    <div className="space-y-4">
+      {!hasProject ? (
+        <div className="rounded border border-[#333333] px-4 py-6 text-sm text-zinc-500 text-center">
+          请选择一个项目
+        </div>
       ) : (
-        <ProjectMemoryRoleGovernancePage
-          selectedProjectId={effectiveProjectId}
-          selectedProjectName={selectedProjectNameOrNull}
-          projects={projects}
-          defaultTabId={section ?? "memory"}
-          hideTabs
-          onSelectProject={(nextProjectId) =>
-            navigate(
-              buildGovernanceRoute({
-                projectId: nextProjectId,
-                section,
-              }),
-            )
-          }
-          onNavigateToTask={(taskId, options) =>
-            navigate(
-              buildTaskRoute({
-                taskId,
-                runId: options?.runId ?? null,
-                from: "project",
-                projectId: effectiveProjectId,
-              }),
-            )
-          }
-          onNavigateToDeliverable={(input) =>
-            navigate(
-              buildDeliverablesRoute({
-                projectId: input.projectId,
-                deliverableId: input.deliverableId,
-              }),
-            )
-          }
-          onNavigateToApproval={(input) =>
-            navigate(
-              buildApprovalsRoute({
-                projectId: input.projectId,
-                approvalId: input.approvalId,
-              }),
-            )
-          }
-        />
+        <>
+          <p className="text-sm text-zinc-400">
+            {projectName} · AI 团队编队（基于角色目录静态基线，待接入真实运行时消费证据）
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {AI_TEAM_ROLES.map((r) => (
+              <div key={r.code} className="rounded border border-[#333333] bg-[#1a1a1a] p-4">
+                <h3 className="text-sm font-medium text-zinc-200">{r.role}</h3>
+                <p className="mt-1 text-xs text-zinc-500">{r.desc}</p>
+                <div className="mt-3 flex items-center justify-between text-[11px]">
+                  <span className="text-zinc-600">绑定 {r.skills} 个 Skill</span>
+                  <span className="text-zinc-700">暂无消费证据</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-zinc-600">
+            数据来源：角色目录静态基线。运行时 Agent 消费证据与任务执行记录待后端接入。
+          </p>
+        </>
       )}
     </div>
   );
 }
 
-function normalizeGovernanceSection(
-  value: string | null,
-): GovernanceRouteSection | null {
-  if (
-    value === "memory" ||
-    value === "governance" ||
-    value === "search" ||
-    value === "roles" ||
-    value === "skills" ||
-    value === "workbench"
-  ) {
-    return value;
-  }
-  return null;
+/* ─── Tab: 角色治理 ─── */
+
+function RoleTab({ hasProject }: { hasProject: boolean }) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-zinc-400">
+        角色治理 · 区分角色模板与项目角色实例 · 生命周期管理
+      </p>
+      {/* Lifecycle legend */}
+      <div className="flex flex-wrap gap-2 text-[11px]">
+        {[
+          ["project_local", "项目实例"],
+          ["template_candidate", "候选模板"],
+          ["template_stable", "稳定模板"],
+          ["deprecated", "不推荐"],
+          ["archived", "已归档"],
+        ].map(([key, label]) => (
+          <span key={key} className="rounded border border-[#333333] px-2 py-1 text-zinc-500">
+            {label}
+          </span>
+        ))}
+      </div>
+      {!hasProject ? (
+        <div className="rounded border border-[#333333] px-4 py-6 text-sm text-zinc-500 text-center">
+          请选择项目查看角色目录
+        </div>
+      ) : (
+        <div className="rounded border border-[#333333] bg-[#1a1a1a] p-4">
+          <p className="text-sm text-zinc-300">项目角色目录</p>
+          <p className="mt-2 text-xs text-zinc-500">
+            角色目包含项目本地角色与系统模板，可通过角色工作台查看详情。
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              disabled
+              className="rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-600 cursor-not-allowed"
+            >
+              打开角色工作台
+            </button>
+            <span className="text-[10px] text-zinc-700 self-center">
+              角色保存接口已存在，建议沉淀功能待接入用户确认闭环
+            </span>
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+            {AI_TEAM_ROLES.slice(0, 4).map((r) => (
+              <div key={r.code} className="rounded border border-[#333333] px-3 py-2 text-xs">
+                <span className="text-zinc-300">{r.role}</span>
+                <span className="ml-2 text-zinc-600">{r.code}</span>
+                <span className="ml-2 text-zinc-700">project_local</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-zinc-600">
+            AI 建议沉淀仅生成建议，需用户确认后正式保存。当前建议沉淀后端待接入。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Tab: Skill 治理 ─── */
+
+function SkillTab({ hasProject }: { hasProject: boolean }) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-zinc-400">
+        Skill 治理 · 区分正式 Skill / 项目临时 Skill / Skill 迭代候选 · 生命周期管理
+      </p>
+      <div className="flex flex-wrap gap-2 text-[11px]">
+        {[
+          ["draft", "草案"],
+          ["temporary", "临时"],
+          ["candidate", "候选沉淀"],
+          ["stable", "稳定"],
+          ["deprecated", "不推荐"],
+          ["archived", "已归档"],
+        ].map(([key, label]) => (
+          <span key={key} className="rounded border border-[#333333] px-2 py-1 text-zinc-500">
+            {label}
+          </span>
+        ))}
+      </div>
+      {!hasProject ? (
+        <div className="rounded border border-[#333333] px-4 py-6 text-sm text-zinc-500 text-center">
+          请选择项目查看 Skill 注册表
+        </div>
+      ) : (
+        <div className="rounded border border-[#333333] bg-[#1a1a1a] p-4">
+          <p className="text-sm text-zinc-300">Skill 注册表</p>
+          <p className="mt-2 text-xs text-zinc-500">
+            包含正式 Skill、项目临时 Skill、迭代候选。最近消费证据待后端接入。
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              disabled
+              className="rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-600 cursor-not-allowed"
+            >
+              打开 Skill 注册表
+            </button>
+            <span className="text-[10px] text-zinc-700 self-center">
+              Skill upsert API 已存在，沉淀建议待接入用户确认闭环
+            </span>
+          </div>
+          <div className="mt-3 space-y-1">
+            {[
+              { name: "PRD 生成 Skill", status: "stable", evidence: null },
+              { name: "前后端接口联调 Skill", status: "candidate", evidence: null },
+              { name: "代码规范审查 Skill", status: "temporary", evidence: null },
+            ].map((s) => (
+              <div key={s.name} className="flex items-center justify-between rounded border border-[#333333] px-3 py-2 text-xs">
+                <span className="text-zinc-300">{s.name}</span>
+                <span className="text-zinc-600">{s.status}</span>
+                <span className="text-zinc-700">暂无消费证据</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-zinc-600">
+            Skill 迭代候选来源：多次失败/成功复用后 AI 建议生成。
+            临时 Skill 清理策略：按使用次数、绑定角色数、最近消费时间、版本替代关系综合判断。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Tab: 策略与权限 ─── */
+
+const POLICY_CATEGORIES = [
+  {
+    category: "可自动执行",
+    items: ["Worker 单次调度", "运行观测状态读取", "交付物摘要生成", "成本数据读取"],
+  },
+  {
+    category: "需要用户确认",
+    items: ["生成作战计划", "调整任务优先级", "角色/Skill 沉淀建议", "项目阶段推进"],
+  },
+  {
+    category: "禁止自动执行",
+    items: [
+      "git commit",
+      "git push",
+      "发布生产",
+      "删除项目",
+      "删除交付物",
+      "覆盖 Provider Key",
+      "删除运行证据",
+      "永久删除稳定 Skill / 角色模板",
+    ],
+  },
+];
+
+function PolicyTab() {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-zinc-400">
+        策略与权限 · 区分 AI 可自动执行、需确认、禁止自动执行三类动作
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {POLICY_CATEGORIES.map((cat) => (
+          <div key={cat.category} className="rounded border border-[#333333] bg-[#1a1a1a] p-4">
+            <h3 className="text-sm font-medium text-zinc-200 mb-2">{cat.category}</h3>
+            <ul className="space-y-1.5">
+              {cat.items.map((item) => (
+                <li key={item} className="text-xs text-zinc-500">{item}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-zinc-600">
+        策略配置基于产品基线文档静态定义。动态权限引擎与实时策略覆盖待后端接入。
+      </p>
+    </div>
+  );
+}
+
+/* ─── Tab: 成本与记忆 ─── */
+
+function CostMemoryTab({ hasProject }: { hasProject: boolean }) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-zinc-400">
+        成本与记忆 · 成本来源可信度标注 · 记忆生命周期管理
+      </p>
+      {!hasProject ? (
+        <div className="rounded border border-[#333333] px-4 py-6 text-sm text-zinc-500 text-center">
+          请选择项目查看成本与记忆摘要
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Cost summary */}
+          <div className="rounded border border-[#333333] bg-[#1a1a1a] p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-3">
+              成本概览
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "来源可信度", value: "heuristic", note: "基于前端估算" },
+                { label: "日预算", value: "$0.05", note: "默认配置" },
+                { label: "会话预算", value: "$0.20", note: "默认配置" },
+              ].map((c) => (
+                <div key={c.label} className="rounded border border-[#333333] px-3 py-2 text-center">
+                  <div className="text-[10px] text-zinc-500">{c.label}</div>
+                  <div className="text-sm font-medium text-zinc-300 mt-0.5">{c.value}</div>
+                  <div className="text-[10px] text-zinc-600 mt-0.5">{c.note}</div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] text-zinc-600">
+              成本数据来源可信度：provider_reported（提供商上报）/ heuristic（启发估算）/ missing（缺失）。
+              页面打开不触发 AI 生成。
+            </p>
+          </div>
+
+          {/* Memory summary */}
+          <div className="rounded border border-[#333333] bg-[#1a1a1a] p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-3">
+              记忆状态
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled
+                className="rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-600 cursor-not-allowed"
+              >
+                Compact
+              </button>
+              <button
+                type="button"
+                disabled
+                className="rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-600 cursor-not-allowed"
+              >
+                Rehydrate
+              </button>
+              <button
+                type="button"
+                disabled
+                className="rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-600 cursor-not-allowed"
+              >
+                Reset
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] text-zinc-600">
+              Compact / Rehydrate / Reset 无真实后端闭环，按钮已禁用。记忆管理待后端接入。
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

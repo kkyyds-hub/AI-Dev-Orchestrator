@@ -41,7 +41,7 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
     label: "治理",
     shortLabel: "治",
     to: "/governance",
-    description: "管理角色、记忆与策略配置。",
+    description: "AI 团队资产治理：角色、Skill、策略、成本与记忆。",
   },
   {
     label: "账户",
@@ -179,8 +179,8 @@ export function resolveRouteMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/governance")) {
     return {
       section: "治理",
-      title: "治理中心",
-      description: "统一管理角色、记忆、技能与平台治理能力。",
+      title: "AI 团队资产治理中心",
+      description: "管理 AI 团队、角色、Skill、策略、成本与记忆。",
       breadcrumbs: ["治理"],
     };
   }

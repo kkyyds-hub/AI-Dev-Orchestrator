@@ -15,6 +15,7 @@ export function AppShell() {
   const isExecutionRoute = location.pathname === "/execution" || location.pathname.startsWith("/execution/");
   const isTasksRoute = location.pathname === "/tasks" || location.pathname.startsWith("/tasks/");
   const isDeliveryRoute = location.pathname === "/delivery" || location.pathname.startsWith("/delivery/");
+  const isGovernanceRoute = location.pathname === "/governance" || location.pathname.startsWith("/governance/");
   const usesWideWorkspace = isWorkbenchRoute || isProjectRoute || isExecutionRoute;
   const contentMaxWidthClassName = usesWideWorkspace ? "max-w-[1560px]" : "max-w-[1200px]";
 
@@ -40,11 +41,11 @@ export function AppShell() {
       <Sidebar isCollapsed={isSidebarCollapsed} onToggle={() => setIsSidebarCollapsed((current) => !current)} />
 
       <div className="flex min-h-screen min-w-0 flex-col bg-[#212121]">
-        <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} usesWideWorkspace={usesWideWorkspace} suppressRouteIdentity={isExecutionRoute || isDeliveryRoute} />
+        <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} usesWideWorkspace={usesWideWorkspace} suppressRouteIdentity={isExecutionRoute || isDeliveryRoute || isGovernanceRoute} />
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className={`mx-auto flex w-full ${contentMaxWidthClassName} min-w-0 flex-col ${isWorkbenchRoute ? "gap-7" : "gap-5"}`}>
-            {(isWorkbenchRoute || isExecutionRoute || isTasksRoute || isDeliveryRoute) ? null : <Breadcrumbs />}
+            {(isWorkbenchRoute || isExecutionRoute || isTasksRoute || isDeliveryRoute || isGovernanceRoute) ? null : <Breadcrumbs />}
             <Outlet />
           </div>
         </main>

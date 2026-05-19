@@ -217,21 +217,21 @@
 
 | ID | 验收项 | 回填证据 | 通过标准 | 状态 | 备注 |
 |---|---|---|---|---|---|
-| GOV-01 | 治理中心是否定位为 AI 团队资产治理中心 | 文案/截图 | 不是普通设置页 |  |  |
-| GOV-02 | 是否包含五个区块 | 截图 | 本项目AI团队、角色治理、Skill治理、策略与权限、成本与记忆 |  |  |
-| GOV-03 | 默认是否打开本项目 AI 团队 | 路由/截图 | 首屏看团队，不是配置表 |  |  |
-| GOV-04 | 是否区分角色模板和项目角色实例 | 数据/截图 | 来源清晰 |  |  |
-| GOV-05 | 是否区分正式 Skill、项目临时 Skill、Skill 迭代候选 | 数据/截图 | 生命周期清晰 |  |  |
-| GOV-06 | 角色是否有生命周期 | 数据 | project_local/template_candidate/template_stable/deprecated/archived |  |  |
-| GOV-07 | Skill 是否有生命周期 | 数据 | draft/temporary/candidate/stable/deprecated/archived |  |  |
-| GOV-08 | Skill 是否展示最近消费证据 | 截图/Run | 不是只显示已绑定 |  |  |
-| GOV-09 | AI 是否只能建议沉淀角色/Skill | 流程/按钮 | 用户确认后才正式保存 |  |  |
-| GOV-10 | 临时 Skill 是否有清理策略 | 配置/文案 | 不只按时间，还看使用次数/绑定/证据/版本替代 |  |  |
-| GOV-11 | 策略与权限是否分三类 | 截图 | 可自动执行/需确认/禁止自动执行 |  |  |
-| GOV-12 | 危险动作是否默认禁止或需审批 | 配置/文案 | git写入、删除、发布等不自动 |  |  |
-| GOV-13 | 成本与记忆是否展示成本来源可信度 | 截图 | provider_reported/heuristic/missing |  |  |
-| GOV-14 | 记忆 compact/rehydrate/reset 是否真实闭环 | API/状态 | 不是假按钮 |  |  |
-| GOV-15 | 治理中心是否不展示完整任务/运行/审批列表 | 截图 | 只展示证据摘要和跳转 |  |  |
+| GOV-01 | 治理中心是否定位为 AI 团队资产治理中心 | H1 "AI 团队资产治理中心"，5页签结构 | 不是普通设置页 | Pass | 2026-05-19 Phase1 |
+| GOV-02 | 是否包含五个区块 | GovernancePage 5 tabs: team/roles/skills/policy/cost-memory | 本项目AI团队、角色治理、Skill治理、策略与权限、成本与记忆 | Pass | 2026-05-19 Phase1 |
+| GOV-03 | 默认是否打开本项目 AI 团队 | default tab="team" | 首屏看团队，不是配置表 | Pass | 2026-05-19 Phase1 |
+| GOV-04 | 是否区分角色模板和项目角色实例 | lifecycle badge: project_local/template_candidate 等 | 来源清晰 | Partial | 2026-05-19: 前端已展示，后端保存/确认闭环待接入 |
+| GOV-05 | 是否区分正式 Skill、项目临时 Skill、Skill 迭代候选 | status badge: stable/candidate/temporary | 生命周期清晰 | Partial | 2026-05-19: 前端已展示，沉淀流程待用户确认闭环 |
+| GOV-06 | 角色是否有生命周期 | lifecycle badge 展示 5 种状态 | project_local/template_candidate/template_stable/deprecated/archived | Partial | 2026-05-19: 前端已展示，完整流转需后端 |
+| GOV-07 | Skill 是否有生命周期 | lifecycle badge 展示 6 种状态 | draft/temporary/candidate/stable/deprecated/archived | Partial | 2026-05-19: 前端已展示，完整流转需后端 |
+| GOV-08 | Skill 是否展示最近消费证据 | 标注"暂无消费证据" | 不是只显示已绑定 | Partial | 2026-05-19: 消费证据数据待后端接入 |
+| GOV-09 | AI 是否只能建议沉淀角色/Skill | 文案说明+按钮禁用 | 用户确认后才正式保存 | Partial | 2026-05-19: 确认闭环无后端接口，保存按钮禁用 |
+| GOV-10 | 临时 Skill 是否有清理策略 | 文案说明多因素判断 | 不只按时间，还看使用次数/绑定/证据/版本替代 | Partial | 2026-05-19: 前端已完成文案说明 |
+| GOV-11 | 策略与权限是否分三类 | 三列卡片：可自动执行/需确认/禁止自动执行 | 可自动执行/需确认/禁止自动执行 | Pass | 2026-05-19 Phase1 |
+| GOV-12 | 危险动作是否默认禁止或需审批 | 禁止列表含 git commit/push/发布/删除等 8 项 | git写入、删除、发布等不自动 | Pass | 2026-05-19 Phase1: 静态基线 |
+| GOV-13 | 成本与记忆是否展示成本来源可信度 | 标注 heuristic/missing/provider_reported | provider_reported/heuristic/missing | Partial | 2026-05-19: 前端已说明，数据源为静态 |
+| GOV-14 | 记忆 compact/rehydrate/reset 是否真实闭环 | 按钮已禁用+说明原因 | 不是假按钮 | Partial | 2026-05-19: 无后端闭环，按钮正确禁用 |
+| GOV-15 | 治理中心是否不展示完整任务/运行/审批列表 | 无任务/运行/审批列表渲染 | 只展示证据摘要和跳转 | Pass | 2026-05-19 Phase1 |
 
 ---
 

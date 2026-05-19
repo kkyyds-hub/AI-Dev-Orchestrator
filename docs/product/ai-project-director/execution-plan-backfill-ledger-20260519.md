@@ -116,7 +116,7 @@
 | 侧边栏导航 | 收敛导航 | UI Pass | N/A | N/A | Partial | 已记录 | **Pass** | 不恢复任务/运行观测一级入口 |
 | 成果中心：交付物 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 DEL-01~11（9 Pass / 2 Partial） | **Pass（Phase1）** | 返工: /delivery 父页面收敛双页签；DEL-09/DEL-10 保持 Partial |
 | 成果中心：审批 | Phase1 审计+返工收敛 | UI Pass | API Pass | Backend Pass（审批动作真实写状态） | Partial | checklist 已回填 APV-01~10 | **Pass（Phase1）** | 返工: 审批页签收敛至成果中心；后续补端到端截图 |
-| 治理中心 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 成果中心后处理 |
+| 治理中心 | Phase1 职责收口 | UI Pass | Partial（前端使用旧 API，Phase1 未接入新按钮） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist 已回填 GOV-01~15（6 Pass / 9 Partial） | **Partial** | GOV-04~10/13~14 为后端缺口；COST-* 合理延后 |
 | 设置页 | 未开始 | Not Started | Not Started | Not Started | Not Started | 空白 | **Not Started** | 治理中心后处理 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
 | 总闭环 CL-01~18 | 未做总 Gate | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 页面阶段完成后统一回填 |
@@ -208,6 +208,25 @@
 | Gate 结论 | Pass（页面职责+API 接入+审批后端闭环均完成；DEL-09/DEL-10 保持 Partial） |
 | 假审批按钮检查 | **无假按钮**。通过/驳回/要求修改均调用 `applyApprovalAction()` → POST /approvals/:id/actions |
 | 后续动作 | 总 Gate 时补审批截图证据；返工闭环在任务队列侧补充端到端测试 |
+
+### 4.6 治理中心 Phase1：AI 团队资产治理中心职责收口
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | 治理中心 Phase1：AI 团队资产治理中心职责收口 |
+| 关键提交 | (本次) |
+| 页面目标 | 从旧 section nav 重构为 5 页签 AI 团队资产治理中心 |
+| 页面职责 | UI Pass：5 页签（团队、角色、Skill、策略、成本与记忆），默认团队 |
+| Existing Resource Audit | 旧 API 已存在（roles/skills/costs），旧组件（RoleCatalogPage/SkillRegistryPage）未删除；旧 GovernancePage 使用 section nav 已替换 |
+| New Phase Work | 完全重写 GovernancePage：新 Header、新页签、新团队编队卡、新策略三列、新成本与记忆；AppShell 适配 breadcrumb/Topbar |
+| 前端真实接入 | Partial：GOV-01~03/11/12/15 为 Pass；GOV-04~10/13~14 为 Partial（后端确认闭环/消费证据/记忆闭环未完成） |
+| 后端闭环 | Partial：角色/Skill CRUD API 存在，但用户确认沉淀、Skill 消费证据、Compact/Rehydrate/Reset 无后端 |
+| 运行证据 | Partial：build 通过，前端代码完成；后端运行时证据未收集 |
+| 文档状态 | `closure-checklist` GOV-01~15 已回填；`verification-governance-center-phase1` 已创建 |
+| 后端缺口清单 | 角色/Skill 用户确认闭环 API；Skill 消费证据查询 API；记忆 Compact/Rehydrate/Reset API；成本仪表板真实数据连调 |
+| 当前结论 | **Phase1 Pass（UI），后端 Partial.** GOV 6/15 Pass，9/15 Partial。COST-* 合理延后，未强行回填。 |
+| Gate 结论 | Partial |
+| 后续动作 | 治理中心后端闭环补齐阶段：确认沉淀 API、消费证据 API、记忆管理 API |
 
 ### 5.1 成果中心 Phase1：交付物 / 审批职责收口（已完成）
 
