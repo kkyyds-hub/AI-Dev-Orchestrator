@@ -1,158 +1,12 @@
-import { useState } from "react";
-import type { ConsoleOverview } from "../../../features/console/types";
 import { DetailModal } from "./DetailModal";
 
-type QuickEntryCardsProps = {
-  overviewData: ConsoleOverview | undefined;
-  selectedProjectId: string;
-  onNavigateToTasks: () => void;
-  onNavigateToTask: (taskId: string, projectId?: string | null) => void;
-  onNavigateToProjects: () => void;
-  onNavigateToRuns: () => void;
-};
+/* ─── Exported modal content components ─── */
 
-type ModalKind = "battleplan" | "agents" | "flow" | "confirmations" | null;
-
-export function QuickEntryCards({
-  overviewData,
-  selectedProjectId,
-  onNavigateToTasks,
-  onNavigateToTask,
-  onNavigateToProjects,
-  onNavigateToRuns,
-}: QuickEntryCardsProps) {
-  const [modalKind, setModalKind] = useState<ModalKind>(null);
-  const closeModal = () => setModalKind(null);
-
-  const blockedCount = overviewData?.blocked_tasks ?? 0;
-  const waitingHumanCount = overviewData?.waiting_human_tasks ?? 0;
-  const tasks = overviewData?.tasks ?? [];
-
-  const agentSummary = buildAgentSummary(tasks);
-  const waitingHumanTasks = tasks.filter((t) => t.status === "waiting_human");
-  const blockedTasks = tasks.filter((t) => t.status === "blocked");
-
-  const handleBlockingClick = () => {
-    if (blockedTasks.length > 0) {
-      const task = blockedTasks[0];
-      onNavigateToTask(task.id, task.project_id);
-    } else {
-      onNavigateToTasks();
-    }
-  };
-
-  const handleConfirmationsClick = () => {
-    setModalKind("confirmations");
-  };
-
-  return (
-    <>
-      <section data-testid="quick-entry-cards" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <EntryCard
-          icon="📋"
-          title="作战计划"
-          description="查看 AI 作战计划摘要与当前阶段"
-          onClick={() => setModalKind("battleplan")}
-        />
-        <EntryCard
-          icon="🤖"
-          title="Agent 动向"
-          description="当前各 Agent 负载与任务分配概况"
-          onClick={() => setModalKind("agents")}
-        />
-        <EntryCard
-          icon="🔄"
-          title="项目流程"
-          description="端到端闭环流程与当前所处阶段"
-          onClick={() => setModalKind("flow")}
-        />
-        <EntryCard
-          icon="⏳"
-          title="待确认"
-          badge={waitingHumanCount > 0 ? waitingHumanCount : undefined}
-          description="需要人工确认的事项与决策"
-          onClick={handleConfirmationsClick}
-        />
-        <EntryCard
-          icon="🚧"
-          title="阻塞处理"
-          badge={blockedCount > 0 ? blockedCount : undefined}
-          description={blockedCount > 0 ? `${blockedCount} 个任务阻塞，点击查看` : "当前无阻塞任务"}
-          onClick={handleBlockingClick}
-        />
-      </section>
-
-      {/* 作战计划弹窗 */}
-      <DetailModal open={modalKind === "battleplan"} onClose={closeModal} title="作战计划">
-        <BattlePlanContent overviewData={overviewData} selectedProjectId={selectedProjectId} />
-      </DetailModal>
-
-      {/* Agent 动向弹窗 */}
-      <DetailModal open={modalKind === "agents"} onClose={closeModal} title="Agent 动向">
-        <AgentMovementContent agentSummary={agentSummary} totalTasks={tasks.length} />
-      </DetailModal>
-
-      {/* 项目流程弹窗 */}
-      <DetailModal open={modalKind === "flow"} onClose={closeModal} title="项目流程">
-        <ProjectFlowContent
-          onNavigateToProjects={onNavigateToProjects}
-          onNavigateToTasks={onNavigateToTasks}
-          onNavigateToRuns={onNavigateToRuns}
-        />
-      </DetailModal>
-
-      {/* 待确认弹窗 */}
-      <DetailModal open={modalKind === "confirmations"} onClose={closeModal} title="待确认事项">
-        <PendingConfirmationsContent
-          tasks={waitingHumanTasks}
-          onNavigateToTask={onNavigateToTask}
-          onNavigateToTasks={onNavigateToTasks}
-        />
-      </DetailModal>
-    </>
-  );
-}
-
-/* ─── Entry Card ─── */
-
-function EntryCard({
-  icon,
-  title,
-  description,
-  badge,
-  onClick,
-}: {
-  icon: string;
-  title: string;
-  description: string;
-  badge?: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="relative flex flex-col items-start gap-1.5 rounded-lg border border-[#333333] bg-[#1a1a1a] p-4 text-left transition hover:border-zinc-500 hover:bg-[#222222]"
-    >
-      {badge != null && badge > 0 && (
-        <span className="absolute top-2 right-2 rounded-full bg-yellow-700 px-1.5 py-0.5 text-xs font-medium text-yellow-100">
-          {badge}
-        </span>
-      )}
-      <span className="text-lg">{icon}</span>
-      <span className="text-sm font-medium text-zinc-200">{title}</span>
-      <span className="text-xs text-zinc-500">{description}</span>
-    </button>
-  );
-}
-
-/* ─── Modal Contents ─── */
-
-function BattlePlanContent({
+export function BattlePlanContent({
   overviewData,
   selectedProjectId,
 }: {
-  overviewData: ConsoleOverview | undefined;
+  overviewData: { total_tasks?: number; completed_tasks?: number } | undefined;
   selectedProjectId: string;
 }) {
   const total = overviewData?.total_tasks ?? 0;
@@ -175,7 +29,7 @@ function BattlePlanContent({
       </div>
       <div className="w-full rounded-full bg-[#333333] h-2">
         <div
-          className="h-2 rounded-full bg-green-600 transition-all"
+          className="h-2 rounded-full bg-zinc-500 transition-all"
           style={{ width: `${progress}%` }}
         />
       </div>
@@ -186,7 +40,7 @@ function BattlePlanContent({
   );
 }
 
-function AgentMovementContent({
+export function AgentMovementContent({
   agentSummary,
   totalTasks,
 }: {
@@ -217,7 +71,7 @@ function AgentMovementContent({
   );
 }
 
-function ProjectFlowContent({
+export function ProjectFlowContent({
   onNavigateToProjects,
   onNavigateToTasks,
   onNavigateToRuns,
@@ -228,24 +82,23 @@ function ProjectFlowContent({
 }) {
   return (
     <div className="space-y-3 text-sm text-zinc-300">
-      <div className="rounded border border-yellow-800 bg-yellow-900/20 px-3 py-2 text-xs text-yellow-300">
-        当前仅展示静态流程，真实阶段定位待接入项目计划接口。以下流程节点不可点击。
-      </div>
       <p className="text-xs text-zinc-500">
         AI-Dev-Orchestrator 端到端闭环流程：
       </p>
       <ol className="space-y-2 list-decimal list-inside text-zinc-400">
-        <li>用户提出目标 → AI 项目主管澄清范围</li>
+        <li>用户提出目标</li>
+        <li>AI 项目主管澄清范围</li>
         <li>生成作战计划与角色方案</li>
-        <li>用户确认计划 → 创建任务队列</li>
+        <li>用户确认计划</li>
+        <li>创建任务队列</li>
         <li>AI 项目主管调度 Agent 执行任务</li>
         <li>Agent 执行任务并产生运行记录</li>
         <li>运行观测：状态 / 摘要 / 日志 / 证据</li>
         <li>失败处理：重试 / 返工 / 人工介入 / 重规划</li>
-        <li>成功任务 → 生成交付物草案</li>
+        <li>成功任务生成交付物草案</li>
         <li>成果中心审批 Gate</li>
-        <li>审批通过 → 沉淀角色 / Skill / 成本台账</li>
-        <li>项目目标完成 → 闭环</li>
+        <li>审批通过沉淀角色 / Skill / 成本台账</li>
+        <li>项目目标完成</li>
       </ol>
       <p className="text-xs text-zinc-600">
         详细流程图请参阅 docs/product/ai-project-director/closure-flow-20260518.md
@@ -277,7 +130,7 @@ function ProjectFlowContent({
   );
 }
 
-function PendingConfirmationsContent({
+export function PendingConfirmationsContent({
   tasks,
   onNavigateToTask,
   onNavigateToTasks,
@@ -314,7 +167,7 @@ function PendingConfirmationsContent({
           >
             <div className="min-w-0 flex-1">
               <p className="truncate text-zinc-200">{t.title}</p>
-              <p className="text-xs text-zinc-500">ID: {t.id.slice(0, 8)}…</p>
+              <p className="text-xs text-zinc-500">ID: {t.id.slice(0, 8)}...</p>
             </div>
             <button
               type="button"
@@ -349,9 +202,9 @@ function PendingConfirmationsContent({
   );
 }
 
-/* ─── Helper ─── */
+/* ─── Exported helpers ─── */
 
-function buildAgentSummary(
+export function buildAgentSummary(
   tasks: { owner_role_code?: string | null }[],
 ): { role: string; count: number }[] {
   const map = new Map<string, number>();
@@ -362,4 +215,62 @@ function buildAgentSummary(
   return Array.from(map.entries())
     .map(([role, count]) => ({ role, count }))
     .sort((a, b) => b.count - a.count);
+}
+
+/* ─── Entry modals container (used by WorkbenchRightRail) ─── */
+
+export type EntryModalKind = "battleplan" | "agents" | "flow" | "confirmations";
+
+type EntryModalsProps = {
+  modalKind: EntryModalKind | null;
+  onClose: () => void;
+  overviewData: { total_tasks?: number; completed_tasks?: number; tasks?: { id: string; title: string; status: string; project_id?: string | null; owner_role_code?: string | null }[]; blocked_tasks?: number; waiting_human_tasks?: number } | undefined;
+  selectedProjectId: string;
+  onNavigateToTask: (taskId: string, projectId?: string | null) => void;
+  onNavigateToTasks: () => void;
+  onNavigateToProjects: () => void;
+  onNavigateToRuns: () => void;
+};
+
+export function EntryModals({
+  modalKind,
+  onClose,
+  overviewData,
+  selectedProjectId,
+  onNavigateToTask,
+  onNavigateToTasks,
+  onNavigateToProjects,
+  onNavigateToRuns,
+}: EntryModalsProps) {
+  const tasks = overviewData?.tasks ?? [];
+  const agentSummary = buildAgentSummary(tasks);
+  const waitingHumanTasks = tasks.filter((t) => t.status === "waiting_human");
+
+  return (
+    <>
+      <DetailModal open={modalKind === "battleplan"} onClose={onClose} title="作战计划">
+        <BattlePlanContent overviewData={overviewData} selectedProjectId={selectedProjectId} />
+      </DetailModal>
+
+      <DetailModal open={modalKind === "agents"} onClose={onClose} title="Agent 动向">
+        <AgentMovementContent agentSummary={agentSummary} totalTasks={tasks.length} />
+      </DetailModal>
+
+      <DetailModal open={modalKind === "flow"} onClose={onClose} title="项目流程">
+        <ProjectFlowContent
+          onNavigateToProjects={onNavigateToProjects}
+          onNavigateToTasks={onNavigateToTasks}
+          onNavigateToRuns={onNavigateToRuns}
+        />
+      </DetailModal>
+
+      <DetailModal open={modalKind === "confirmations"} onClose={onClose} title="待确认事项">
+        <PendingConfirmationsContent
+          tasks={waitingHumanTasks}
+          onNavigateToTask={onNavigateToTask}
+          onNavigateToTasks={onNavigateToTasks}
+        />
+      </DetailModal>
+    </>
+  );
 }

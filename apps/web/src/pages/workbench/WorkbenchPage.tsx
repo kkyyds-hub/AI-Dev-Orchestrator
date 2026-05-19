@@ -8,9 +8,8 @@ import { formatDateTime } from "../../lib/format";
 import { buildTaskRoute } from "../../lib/task-route";
 import { useProjectScope } from "../shared/useProjectScope";
 import { DirectorChatEntry } from "./components/DirectorChatEntry";
-import { QuickEntryCards } from "./components/QuickEntryCards";
-import { SituationPanel } from "./components/SituationPanel";
 import { WorkbenchHeader } from "./components/WorkbenchHeader";
+import { WorkbenchRightRail } from "./components/WorkbenchRightRail";
 
 export function WorkbenchPage() {
   const navigate = useNavigate();
@@ -77,9 +76,25 @@ export function WorkbenchPage() {
         selectedProjectId={selectedProjectId}
       />
 
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        {/* 主对话区 */}
         <div className="flex-1 lg:min-w-0">
-          <DirectorChatEntry
+          <DirectorChatEntry />
+        </div>
+
+        {/* 右侧短控制栏 */}
+        <div className="w-full lg:w-72 xl:w-80 shrink-0">
+          <WorkbenchRightRail
+            overviewData={overviewQuery.data}
+            overviewIsLoading={overviewQuery.isLoading}
+            selectedProjectId={selectedProjectId}
+            onRefresh={() => {
+              void handleRefresh();
+            }}
+            onNavigateToTasks={handleNavigateToTasks}
+            onNavigateToTask={handleNavigateToTask}
+            onNavigateToProjects={handleNavigateToProjects}
+            onNavigateToRuns={handleNavigateToRuns}
             isRunWorkerOncePending={runWorkerOnceMutation.isPending}
             onRunWorkerOnce={() => runWorkerOnceMutation.mutate()}
             workerOnceData={runWorkerOnceMutation.data}
@@ -89,26 +104,7 @@ export function WorkbenchPage() {
             }
           />
         </div>
-
-        <div className="w-full lg:w-80 xl:w-96 shrink-0">
-          <SituationPanel
-            overviewData={overviewQuery.data}
-            overviewIsLoading={overviewQuery.isLoading}
-            onRefresh={() => {
-              void handleRefresh();
-            }}
-          />
-        </div>
       </div>
-
-      <QuickEntryCards
-        overviewData={overviewQuery.data}
-        selectedProjectId={selectedProjectId}
-        onNavigateToTasks={handleNavigateToTasks}
-        onNavigateToTask={handleNavigateToTask}
-        onNavigateToProjects={handleNavigateToProjects}
-        onNavigateToRuns={handleNavigateToRuns}
-      />
     </div>
   );
 }
