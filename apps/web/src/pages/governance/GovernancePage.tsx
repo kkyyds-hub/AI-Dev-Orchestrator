@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useProjectRoleCatalog, useSystemRoleCatalog } from "../../features/roles/hooks";
@@ -175,11 +175,28 @@ const ROLE_LIFECYCLE = [
 function RolesTab({ hasProject, projectId }: { hasProject: boolean; projectId: string | null }) {
   const systemQuery = useSystemRoleCatalog();
   const projectQuery = useProjectRoleCatalog(projectId);
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<{ source: "system" | "project"; code: string } | null>(null);
 
   const systemRoles = systemQuery.data ?? [];
   const projectRoles = projectQuery.data?.roles ?? [];
   const projectSummary = projectQuery.data;
+
+  const lowerSearch = search.toLowerCase().trim();
+
+  const filteredSystem = useMemo(() => {
+    if (!lowerSearch) return systemRoles;
+    return systemRoles.filter((r) =>
+      (r.code + r.name + r.summary).toLowerCase().includes(lowerSearch));
+  }, [systemRoles, lowerSearch]);
+
+  const filteredProject = useMemo(() => {
+    if (!lowerSearch) return projectRoles;
+    return projectRoles.filter((r) =>
+      (r.role_code + r.name + r.summary).toLowerCase().includes(lowerSearch));
+  }, [projectRoles, lowerSearch]);
+
+  const hasResults = filteredSystem.length > 0 || filteredProject.length > 0;
 
   const selectedRole =
     selected?.source === "system"
@@ -197,51 +214,68 @@ function RolesTab({ hasProject, projectId }: { hasProject: boolean; projectId: s
       ) : (
         <TwoPanel
           left={
-            <div className="space-y-4">
+            <div className="space-y-3">
+              <input
+                type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索角色（名称 / code / 摘要）..."
+                className="w-full rounded border border-[#333333] bg-[#111111] px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              />
+              {!hasResults && lowerSearch ? (
+                <div className="text-xs text-zinc-600 px-3 py-4 text-center">
+                  未找到匹配角色，请调整关键词。
+                </div>
+              ) : (
+                <>
               {/* 系统角色模板 */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">系统角色模板</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">
+                  系统角色模板{lowerSearch ? `（${filteredSystem.length} 条）` : ""}
+                </p>
                 <p className="text-[10px] text-zinc-600 mb-2">来自 GET /roles/catalog</p>
                 {systemQuery.isLoading ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">加载中...</div>
-                ) : systemRoles.length > 0 ? (
-                  systemRoles.map((r) => (
+                ) : filteredSystem.length > 0 ? (
+                  filteredSystem.map((r) => (
                     <button key={r.code} type="button" onClick={() => setSelected({ source: "system", code: r.code })}
                       className={`w-full text-left rounded border px-3 py-2.5 text-xs transition mb-1 ${
                         selected?.source === "system" && selected.code === r.code ? "border-zinc-400 bg-[#222222]" : "border-[#333333] bg-[#1a1a1a] hover:border-zinc-600"
                       }`}
                     >
                       <span className="text-zinc-200 block truncate">{r.name || r.code}</span>
-                      <span className="text-zinc-600">{r.code}</span>
+                      <span className="text-zinc-600 truncate">{r.code}</span>
                     </button>
                   ))
-                ) : (
+                ) : systemRoles.length === 0 ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">系统目录为空</div>
-                )}
+                ) : null}
               </div>
               {/* 项目角色实例 */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">项目角色实例</p>
-                <p className="text-[10px] text-zinc-600 mb-2">来自 GET /roles/projects/:id{projectId ? "" : "（待选择项目）"}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">
+                  项目角色实例{lowerSearch ? `（${filteredProject.length} 条）` : ""}
+                </p>
+                <p className="text-[10px] text-zinc-600 mb-2">来自 GET /roles/projects/:id</p>
                 {!projectId ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">待选择项目</div>
                 ) : projectQuery.isLoading ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">加载中...</div>
-                ) : projectRoles.length > 0 ? (
-                  projectRoles.map((r) => (
+                ) : filteredProject.length > 0 ? (
+                  filteredProject.map((r) => (
                     <button key={r.role_code} type="button" onClick={() => setSelected({ source: "project", code: r.role_code })}
                       className={`w-full text-left rounded border px-3 py-2.5 text-xs transition mb-1 ${
                         selected?.source === "project" && selected.code === r.role_code ? "border-zinc-400 bg-[#222222]" : "border-[#333333] bg-[#1a1a1a] hover:border-zinc-600"
                       }`}
                     >
                       <span className="text-zinc-200 block truncate">{r.name || r.role_code}</span>
-                      <span className="text-zinc-600">{r.role_code} · project_local</span>
+                      <span className="text-zinc-600 truncate">{r.role_code} · project_local</span>
                     </button>
                   ))
-                ) : (
+                ) : projectRoles.length === 0 ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">当前项目暂无角色实例（使用系统角色基线）</div>
-                )}
+                ) : null}
               </div>
+                </>
+              )}
             </div>
           }
           right={
@@ -303,12 +337,32 @@ const SKILL_LIFECYCLE = [
 function SkillsTab({ hasProject, projectId }: { hasProject: boolean; projectId: string | null }) {
   const registryQuery = useSkillRegistry();
   const bindingsQuery = useProjectSkillBindings(projectId);
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<{ source: "registry" | "binding"; code: string } | null>(null);
 
   const registry = registryQuery.data;
   const registrySkills = registry?.skills ?? [];
   const bindings = bindingsQuery.data;
   const bindingRoles = bindings?.roles ?? [];
+
+  const lowerSearch = search.toLowerCase().trim();
+
+  const filteredRegistry = useMemo(() => {
+    if (!lowerSearch) return registrySkills;
+    return registrySkills.filter((s) =>
+      (s.code + s.name + (s.summary ?? "") + (s.purpose ?? "")).toLowerCase().includes(lowerSearch));
+  }, [registrySkills, lowerSearch]);
+
+  const filteredBindings = useMemo(() => {
+    if (!lowerSearch) return bindingRoles;
+    return bindingRoles.filter((r) => {
+      const skillText = r.skills?.map((s) => s.skill_code + s.skill_name + (s.summary ?? "")).join(" ") ?? "";
+      return (r.role_code + r.role_name + skillText).toLowerCase().includes(lowerSearch);
+    });
+  }, [bindingRoles, lowerSearch]);
+
+  const hasResults = filteredRegistry.length > 0 || filteredBindings.length > 0;
+
   const selectedSkill =
     selected?.source === "registry"
       ? registrySkills.find((s) => s.code === selected.code)
@@ -326,51 +380,68 @@ function SkillsTab({ hasProject, projectId }: { hasProject: boolean; projectId: 
       ) : (
         <TwoPanel
           left={
-            <div className="space-y-4">
+            <div className="space-y-3">
+              <input
+                type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索 Skill（名称 / code / 摘要 / 用途）..."
+                className="w-full rounded border border-[#333333] bg-[#111111] px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              />
+              {!hasResults && lowerSearch ? (
+                <div className="text-xs text-zinc-600 px-3 py-4 text-center">
+                  未找到匹配 Skill 或绑定，请调整关键词。
+                </div>
+              ) : (
+                <>
               {/* 正式 Skill 注册表 */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">Skill 注册表</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">
+                  Skill 注册表{lowerSearch ? `（${filteredRegistry.length} 条）` : ""}
+                </p>
                 <p className="text-[10px] text-zinc-600 mb-2">来自 GET /skills/registry</p>
                 {registryQuery.isLoading ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">加载中...</div>
-                ) : registrySkills.length > 0 ? (
-                  registrySkills.map((s) => (
+                ) : filteredRegistry.length > 0 ? (
+                  filteredRegistry.map((s) => (
                     <button key={s.code} type="button" onClick={() => setSelected({ source: "registry", code: s.code })}
                       className={`w-full text-left rounded border px-3 py-2.5 text-xs transition mb-1 ${
                         selected?.source === "registry" && selected.code === s.code ? "border-zinc-400 bg-[#222222]" : "border-[#333333] bg-[#1a1a1a] hover:border-zinc-600"
                       }`}
                     >
                       <span className="text-zinc-200 block truncate">{s.name || s.code}</span>
-                      <span className="text-zinc-600">{s.code} · {s.enabled ? "enabled" : "disabled"}</span>
+                      <span className="text-zinc-600 truncate">{s.code} · {s.enabled ? "enabled" : "disabled"}</span>
                     </button>
                   ))
-                ) : (
+                ) : registrySkills.length === 0 ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">注册表为空</div>
-                )}
+                ) : null}
               </div>
               {/* 项目 Skill 绑定 */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">项目 Skill 绑定</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 mb-2">
+                  项目 Skill 绑定{lowerSearch ? `（${filteredBindings.length} 条）` : ""}
+                </p>
                 <p className="text-[10px] text-zinc-600 mb-2">来自 GET /skills/projects/:id/bindings</p>
                 {!projectId ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">待选择项目</div>
                 ) : bindingsQuery.isLoading ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">加载中...</div>
-                ) : bindingRoles.length > 0 ? (
-                  bindingRoles.map((r) => (
+                ) : filteredBindings.length > 0 ? (
+                  filteredBindings.map((r) => (
                     <button key={r.role_code} type="button" onClick={() => setSelected({ source: "binding", code: r.role_code })}
                       className={`w-full text-left rounded border px-3 py-2.5 text-xs transition mb-1 ${
                         selected?.source === "binding" && selected.code === r.role_code ? "border-zinc-400 bg-[#222222]" : "border-[#333333] bg-[#1a1a1a] hover:border-zinc-600"
                       }`}
                     >
                       <span className="text-zinc-200 block truncate">{r.role_name}</span>
-                      <span className="text-zinc-600">{r.bound_skill_count} 个 Skill</span>
+                      <span className="text-zinc-600 truncate">{r.bound_skill_count} 个 Skill</span>
                     </button>
                   ))
-                ) : (
+                ) : bindingRoles.length === 0 ? (
                   <div className="text-xs text-zinc-600 px-3 py-2">当前项目暂无 Skill 绑定记录</div>
-                )}
+                ) : null}
               </div>
+                </>
+              )}
             </div>
           }
           right={

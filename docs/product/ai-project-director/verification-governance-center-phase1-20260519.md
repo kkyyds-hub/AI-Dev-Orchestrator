@@ -1,7 +1,7 @@
-# 治理中心 Phase1：AI 团队资产治理中心职责收口（含返工）
+# 治理中心 Phase1：AI 团队资产治理中心职责收口（含返工+补强）
 
 > 验收日期：2026-05-19
-> 起始 commit：0ff5abc → a74ec1c（五页签骨架）→ (本次)（对齐返工：资产治理工作区）
+> 起始 commit：0ff5abc → a74ec1c（五页签骨架）→ 0db50fb（返工：资产治理工作区）→ 95612e8（最终补强：项目角色/Skill绑定API）→ (本次)（搜索+文档修正）
 > 验收范围：GOV-01 ~ GOV-15
 > 验收方法：代码审查 + 实现 + build 验证
 > 评判依据：page-information-architecture-20260518.md, closure-checklist-20260518.md
@@ -12,12 +12,12 @@
 
 | 资源 | 类型 | 说明 |
 |---|---|---|
-| GovernancePage.tsx (旧) | Existing | 旧版使用 section nav（记忆/治理/检索/角色/技能/工作台），委托 ProjectMemoryRoleGovernancePage |
-| roles/api.ts + hooks.ts | Existing | 真实 API：系统角色目录 GET /roles/catalog，项目角色目录 GET/PUT |
-| skills/api.ts + hooks.ts | Existing | 真实 API：Skill 注册表 GET，upsert PUT，项目绑定 GET/PUT |
-| costs/api.ts + hooks.ts | Existing | 真实 API：项目成本仪表板 GET /projects/:id/cost-dashboard |
-| RoleCatalogPage / RoleWorkbenchPage | Existing | 旧版角色页面组件 |
-| SkillRegistryPage / RoleSkillBindingPanel | Existing | 旧版 Skill 页面组件 |
+| GovernancePage.tsx (旧) | Existing | 旧版使用 section nav（记忆/治理/检索/角色/技能/工作台），已替换 |
+| roles/api.ts + hooks.ts | Existing | 真实 API：系统角色目录，项目角色目录，角色更新 |
+| skills/api.ts + hooks.ts | Existing | 真实 API：Skill 注册表，upsert，项目绑定 |
+| costs/api.ts + hooks.ts | Existing | 真实 API：项目成本仪表板 |
+| RoleCatalogPage / RoleWorkbenchPage | Existing | 旧版角色页面组件（保留未删除） |
+| SkillRegistryPage / RoleSkillBindingPanel | Existing | 旧版 Skill 页面组件（保留未删除） |
 | CostDashboardSection | Existing | 旧版成本仪表板组件 |
 | ProjectMemoryRoleGovernancePage | Existing | 旧版治理聚合页 |
 
@@ -25,23 +25,24 @@
 
 | 内容 | 类型 | 说明 |
 |---|---|---|
-| GovernancePage.tsx (新) | New | 完全重写：5 页签结构，AI 团队资产治理中心 |
-| 本项目 AI 团队页签 | New | 静态角色编队卡，标注"角色目录静态基线，待接入真实运行时消费证据" |
-| 角色治理页签 | New | 生命周期展示，区分项目实例/模板；建议沉淀按钮禁用（缺用户确认闭环） |
-| Skill 治理页签 | New | 生命周期展示，Skill 示例列表；沉淀按钮禁用；清理策略文案 |
-| 策略与权限页签 | New | 三分类（可自动/需确认/禁止），危险动作黑名单 |
-| 成本与记忆页签 | New | 成本可信度标注，Compact/Rehydrate/Reset 禁用 |
+| GovernancePage.tsx (新) | New | 完全重写：5 页签 + 左列表右面板结构 |
+| 本项目 AI 团队页签 | New | 静态角色编队卡（左列表+右详情），标注"静态基线" |
+| 角色治理页签 | New | useSystemRoleCatalog + useProjectRoleCatalog 双源读取；左侧分段列表+搜索；生命周期展示；沉淀按钮禁用 |
+| Skill 治理页签 | New | useSkillRegistry + useProjectSkillBindings 双源读取；左侧分段列表+搜索；生命周期因 API 无 status 字段按静态基线展示；沉淀/升级/删除按钮禁用 |
+| 策略与权限页签 | New | 左侧三分类列表+右侧选中项解释面板；危险动作黑名单 |
+| 成本与记忆页签 | New | 摘要卡片区（非 TwoPanel）；useProjectCostDashboardSnapshot 真实读取；记忆按钮禁用 |
 | AppShell 更新 | New | /governance 跳过 Breadcrumbs + 抑制 Topbar 身份 |
+| 角色/Skill 搜索框 | New | 前端过滤，不新增 API；搜索 name/code/summary |
 
 ## 真实 API 清单
 
 | API | 前端入口 | 状态 |
 |---|---|---|
 | GET /roles/catalog | useSystemRoleCatalog — 角色治理页签左侧系统角色列表 | 已接入读取 |
-| GET /roles/projects/:id | useProjectRoleCatalog — 角色治理页签左侧项目角色实例列表 | 本轮接入读取 |
+| GET /roles/projects/:id | useProjectRoleCatalog — 角色治理页签左侧项目角色实例列表 | 已接入读取 |
 | PUT /roles/projects/:id/:code | 更新角色（Phase1 未接入按钮，禁用） | Existing |
 | GET /skills/registry | useSkillRegistry — Skill 治理页签左侧注册表列表 | 已接入读取 |
-| GET /skills/projects/:id/bindings | useProjectSkillBindings — Skill 治理页签左侧项目绑定列表 | 本轮接入读取 |
+| GET /skills/projects/:id/bindings | useProjectSkillBindings — Skill 治理页签左侧项目绑定列表 | 已接入读取 |
 | PUT /skills/:code | upsert Skill（Phase1 未接入按钮，禁用） | Existing |
 | GET /projects/:id/cost-dashboard | useProjectCostDashboardSnapshot — 成本与记忆页签 | 已接入读取 |
 
@@ -50,10 +51,8 @@
 | 按钮 | 原因 |
 |---|---|
 | 角色治理：保存/建议沉淀 | 缺用户确认闭环，后端 API 存在但未对接确认流程 |
-| Skill 治理：保存/建议沉淀 | 同上 |
-| Skill 治理：打开 Skill 注册表 | 导航跳转待后续实现 |
+| Skill 治理：提升/生成新版本/删除 | 同上 |
 | Compact / Rehydrate / Reset | 无真实后端闭环 |
-| 角色工作台入口 | 导航跳转待后续实现 |
 
 ## GOV-01~GOV-15 逐项结论
 
@@ -87,19 +86,31 @@
 | Skill 消费证据后端 | GOV-08 为 Partial |
 | Compact/Rehydrate/Reset 后端 | GOV-14 为 Partial |
 | 成本仪表板数据连调 | GOV-13 为 Partial |
-| 角色/Skill 导航入口实现 | 两个按钮 disabled |
 
-## 本轮返工（a74ec1c 对齐）
+## 布局说明
 
-a74ec1c 已将 /governance 改为五页签，但页面像静态展示稿。本轮返工：
+- 团队 / 角色 / Skill / 策略 四个页签采用 **左侧资产轻列表 + 右侧选中项摘要面板**
+- 成本与记忆页签为 **摘要卡片区**，Phase1 不采用资产列表结构
 
-1. 前三个页签改为 **左侧资产轻列表 + 右侧选中项摘要面板** 治理工作区形态
-2. **角色治理** 接入真实 `useSystemRoleCatalog` API 读取系统角色目录
-3. **Skill 治理** 接入真实 `useSkillRegistry` API 读取 Skill 注册表
-4. **成本与记忆** 尝试接入真实 `useProjectCostDashboardSnapshot` API；已去掉固定 `$0.05`/`$0.20`
-5. 静态数据明确标注"静态基线 / fallback / 待接入"
-6. 所有无闭环按钮继续 disabled
+## 数据量变化与布局稳定性检查
+
+| 场景 | 行为 |
+|---|---|
+| 0 个角色 / 0 个 Skill | 显示空状态文案（"系统目录为空""暂无角色实例""注册表为空""暂无 Skill 绑定记录"），不造假数据 |
+| 5 个以内角色 / Skill | 正常轻列表展示，左侧宽度固定 320px |
+| 30 个以上角色 / Skill | 左侧列表 `overflow-y-auto` 内部滚动，整页高度不受资产数量影响；用户可用搜索框按 name/code/summary 快速过滤 |
+| 超长名称 / 超长 code | 列表项和详情标题均使用 `truncate` class，不撑版 |
+| 无消费证据 | 统一显示"暂无消费证据"，不伪造 run/task 数据 |
+| API 缺 lifecycle/status 字段 | Skill 明确标注"API 未返回 status 字段，基于静态基线判断"；角色 lifecycle badge 基于 source（system/project）区分 |
+| 成本与记忆 | 摘要卡片区（3 格 stat grid），不展示大表格，不触发 AI 生成 |
+
+## 本轮返工历程
+
+1. a74ec1c：五页签骨架建立
+2. 0db50fb：对齐返工 — 资产轻列表+右侧面板；接入 3 个真实 API 读取
+3. 95612e8：最终补强 — 接入 useProjectRoleCatalog + useProjectSkillBindings
+4. (本次)：角色/Skill 搜索框补强 + verification 文档口径修正
 
 ## Gate 结论
 
-**Partial** — 治理中心 Phase1 前端职责收口完成，对齐产品计划书（左侧资产列表+右侧面板）。GOV 6/15 Pass，9/15 Partial（均为后端依赖缺口）。零假按钮。COST-* 合理延后。
+**Partial** — 治理中心 Phase1 前端职责收口完成。GOV 6/15 Pass，9/15 Partial（均为后端依赖缺口）。零假按钮。COST-* 合理延后。
