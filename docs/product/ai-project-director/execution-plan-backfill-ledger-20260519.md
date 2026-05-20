@@ -384,6 +384,24 @@
 | Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing） |
 | 后续动作 | 后续补确认动作接口 + 扩展更多聚合源 |
 
+### 5.5.3.1 BCG-03 Hardening Patch（2026-05-20）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-03 Phase1 Hardening Patch |
+| 阶段性质 | 测试证据补强（不新增功能，不新增 API，不改前端） |
+| 起始 commit | `83a7fbf` |
+| 结束 commit | （本次提交） |
+| 修改文件 | `tests/test_project_director_confirmations.py` |
+| 行为变化 | 无（仅新增/增强测试） |
+| 新增测试 | `test_project_id_positive_filter_goal_confirmation`：真实 project + session → project 过滤命中 goal_confirmation；`test_project_id_positive_filter_plan_confirmation`：真实 project + plan version → project 过滤命中 plan_confirmation；`test_plan_version_read_only_state_invariant`：三端点查询后 plan version 状态不变 |
+| 原有测试 | `test_filter_by_project_id` 重命名为 `test_filter_by_random_project_id_returns_empty`（语义更明确），功能不变 |
+| 测试结果 | 确认收件箱 15/15 通过（+3 new）；全局 77/77 通过（38 sessions + 24 plan versions + 15 confirmations） |
+| 涉及接口 | 无新增/删除 |
+| 涉及页面 | 无（未改前端） |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing，同 BCG-03 Phase1） |
+| 后续动作 | 后续补确认动作接口 + 扩展更多聚合源 |
+
 
 ### 5.6 端到端闭环总验收
 

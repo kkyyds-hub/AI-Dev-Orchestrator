@@ -93,14 +93,14 @@ python -m pytest tests/test_project_director_confirmations.py -v
 ## 6. 测试结果
 
 ```
-============================= 12 passed =============================
+============================= 15 passed =============================
 ```
 
 全局回归：
 
 ```
 python -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py -v
-============================= 74 passed =============================
+============================= 77 passed =============================
 ```
 
 ### 测试覆盖
@@ -112,11 +112,14 @@ python -m pytest tests/test_project_director_sessions.py tests/test_project_dire
 | `test_pending_confirmation_plan_version_appears` | pending_confirmation plan 出现在 inbox |
 | `test_confirmed_plan_version_does_not_appear` | confirmed plan 不出现在 inbox |
 | `test_both_goal_and_plan_pending_appear` | goal + plan 同时 pending 都返回 |
-| `test_filter_by_project_id` | 按 project_id 过滤 |
+| `test_filter_by_random_project_id_returns_empty` | 随机 project_id 返回空（负向） |
+| `test_project_id_positive_filter_goal_confirmation` | 创建真实 project + 带 project_id 的 session → project 过滤命中 goal_confirmation |
+| `test_project_id_positive_filter_plan_confirmation` | 创建真实 project + 带 project_id 的 session + plan version → project 过滤命中 plan_confirmation |
+| `test_plan_version_read_only_state_invariant` | 三端点查询后 plan version 状态不变 |
 | `test_filter_by_session_id` | 按 session_id 过滤 |
 | `test_empty_inbox` | 空 inbox |
 | `test_inbox_sorted_by_updated_at_desc` | updated_at 倒序 |
-| `test_does_not_change_source_state` | 查询不改变源状态 |
+| `test_does_not_change_source_state` | 查询不改变源状态（session） |
 | `test_confirm_api_hint_present` | 每个 item 含 confirm_api_hint |
 | `test_all_required_fields_present` | 13 个必需字段齐全 |
 
@@ -134,7 +137,48 @@ python -m pytest tests/test_project_director_sessions.py tests/test_project_dire
 
 ---
 
-## 8. Gate 结论
+## 8. BCG-03 Hardening Patch（2026-05-20）
+
+### 性质
+
+后端闭环测试证据补强（不新增功能，不新增 API，不改前端）。
+
+### 补强内容
+
+1. **project_id 正向过滤测试（goal_confirmation）**：
+   - 创建真实 project，创建带 project_id 的 session 并进入 ready_to_confirm
+   - `GET /project-director/projects/{project_id}/confirmations` 返回 goal_confirmation
+   - `project_id` 字段正确填充，随机 project_id 返回空
+
+2. **project_id 正向过滤测试（plan_confirmation）**：
+   - 创建真实 project，从带 project_id 的 confirmed session 创建 plan version
+   - `GET /project-director/projects/{project_id}/confirmations` 返回 plan_confirmation
+   - plan version 继承 session 的 project_id
+
+3. **plan version 只读状态不变测试**：
+   - 创建 pending_confirmation plan version
+   - 连续调用三个 inbox 端点后，plan version 状态仍为 pending_confirmation
+
+### 测试结果
+
+- 确认收件箱测试：15/15 通过（新增 3 个，原 12 个全部保留）
+- 全局回归：77/77 通过（38 sessions + 24 plan versions + 15 confirmations）
+
+### 严格边界
+
+- 不改前端
+- 不新增写接口
+- 不创建任务
+- 不调用 planning/apply
+- 不调用 Worker
+- 不写仓库
+- 不接真实 AI
+- 不调用 Provider
+- 未运行 apps/web build
+
+---
+
+## 9. Gate 结论
 
 ```text
 Gate 结论：Partial
@@ -147,7 +191,9 @@ Gate 结论：Partial
 
 - 3 个只读 API 聚合 goal_confirmation + plan_confirmation 两种确认类型
 - 支持按 project_id / session_id 过滤，支持全局查询
+- project_id 正向过滤（goal + plan）和负向过滤均已覆盖
+- plan version 查询状态不变已验证
 - confirm_api_hint 指引用户到正确的确认端点
 - 查询不改变任何源对象状态（纯只读）
-- 12 个测试全部通过，原有 62 个测试无回归
+- 15 个测试全部通过，原有 62 个测试无回归
 - 未改前端、未接 AI、未创建任务、未调度 Worker、未写仓库

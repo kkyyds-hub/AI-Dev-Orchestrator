@@ -62,13 +62,16 @@ def client(sqlite_session_factory):
     app.dependency_overrides.clear()
 
 
-def _create_session(client, *, goal_text=None):
+def _create_session(client, *, goal_text=None, project_id=None):
     """Create a session with answers submitted (ready_to_confirm)."""
     if goal_text is None:
         goal_text = "构建一个用户认证系统，包括登录、注册"
+    body: dict = {"goal_text": goal_text}
+    if project_id is not None:
+        body["project_id"] = project_id
     resp = client.post(
         "/project-director/sessions",
-        json={"goal_text": goal_text},
+        json=body,
     )
     assert resp.status_code == 201
     session_id = resp.json()["id"]
@@ -84,6 +87,16 @@ def _create_session(client, *, goal_text=None):
     )
     assert resp.status_code == 200
     return session_id
+
+
+def _create_project(client, *, name="测试项目"):
+    """Create a real project and return its id."""
+    resp = client.post(
+        "/projects",
+        json={"name": name, "summary": f"{name}：用于验证确认收件箱"},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
 
 
 def _confirm_session(client, session_id):
@@ -207,11 +220,10 @@ class TestConfirmationInbox:
         assert "goal_confirmation" in source_types
         assert "plan_confirmation" in source_types
 
-    def test_filter_by_project_id(self, client):
-        """Filter confirmations by project_id."""
-        # Create two sessions in ready_to_confirm status
-        sid1 = _create_session(client)
-        sid2 = _create_session(client, goal_text="另一个项目的目标：数据库迁移方案，范围明确")
+    def test_filter_by_random_project_id_returns_empty(self, client):
+        """Filter by an arbitrary project_id returns empty when no session has it."""
+        _create_session(client)
+        _create_session(client, goal_text="另一个项目的目标：数据库迁移方案，范围明确")
 
         # Global query should see both
         resp = client.get("/project-director/confirmations")
@@ -224,6 +236,99 @@ class TestConfirmationInbox:
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 0
+
+    def test_project_id_positive_filter_goal_confirmation(self, client):
+        """GET /projects/{project_id}/confirmations returns goal_confirmation
+        when a session with matching project_id is ready_to_confirm."""
+        project_id = _create_project(client, name="项目A-目标确认")
+
+        # Create session with project_id
+        sid = _create_session(client, project_id=project_id)
+
+        # Project-filtered query must return the goal_confirmation
+        resp = client.get(
+            f"/project-director/projects/{project_id}/confirmations"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] >= 1
+        goal_items = [
+            i for i in data["items"] if i["source_type"] == "goal_confirmation"
+        ]
+        assert len(goal_items) >= 1
+        goal = goal_items[0]
+        assert goal["source_id"] == sid
+        assert goal["project_id"] == project_id
+        assert goal["status"] == ProjectDirectorSessionStatus.READY_TO_CONFIRM.value
+
+        # Global confirmations also include it
+        resp_all = client.get("/project-director/confirmations")
+        all_ids = {i["source_id"] for i in resp_all.json()["items"]}
+        assert sid in all_ids
+
+        # Another random project_id returns empty
+        resp = client.get(
+            f"/project-director/projects/{uuid4()}/confirmations"
+        )
+        assert resp.json()["total"] == 0
+
+    def test_project_id_positive_filter_plan_confirmation(self, client):
+        """GET /projects/{project_id}/confirmations returns plan_confirmation
+        when a plan version inherits project_id from its confirmed session."""
+        project_id = _create_project(client, name="项目B-计划确认")
+
+        # Create session with project_id, confirm, then create plan version
+        sid = _create_session(client, project_id=project_id)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+
+        # Project-filtered query must return the plan_confirmation
+        resp = client.get(
+            f"/project-director/projects/{project_id}/confirmations"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        plan_items = [
+            i for i in data["items"] if i["source_type"] == "plan_confirmation"
+        ]
+        assert len(plan_items) >= 1
+        plan = plan_items[0]
+        assert plan["source_id"] == pv["id"]
+        assert plan["project_id"] == project_id
+        assert plan["status"] == PlanVersionStatus.PENDING_CONFIRMATION.value
+
+        # Verify the plan version was created with the correct project_id
+        resp_pv = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert resp_pv.json()["project_id"] == project_id
+
+        # Another random project_id returns empty
+        resp = client.get(
+            f"/project-director/projects/{uuid4()}/confirmations"
+        )
+        assert resp.json()["total"] == 0
+
+    def test_plan_version_read_only_state_invariant(self, client):
+        """Querying confirmation inboxes must not change plan version status."""
+        # Create a plan version with project_id for full coverage
+        project_id = _create_project(client, name="项目C-状态不变")
+        sid = _create_session(client, project_id=project_id)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+
+        # Verify initial status is pending_confirmation
+        resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == PlanVersionStatus.PENDING_CONFIRMATION.value
+
+        # Query all three inbox endpoints
+        client.get("/project-director/confirmations")
+        client.get(f"/project-director/sessions/{sid}/confirmations")
+        client.get(f"/project-director/projects/{project_id}/confirmations")
+
+        # Plan version status must still be pending_confirmation
+        resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == PlanVersionStatus.PENDING_CONFIRMATION.value
 
     def test_filter_by_session_id(self, client):
         """Filter confirmations by session_id."""
