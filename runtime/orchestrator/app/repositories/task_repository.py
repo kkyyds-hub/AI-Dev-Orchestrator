@@ -55,6 +55,44 @@ class TaskRepository:
         )
         return task
 
+    def add_no_commit(self, task: Task) -> Task:
+        """Add a task row to the session without committing.
+
+        For batch operations where the caller controls the single commit point.
+        Uses flush (not commit) so the task gets its generated ID.
+        The existing `create()` method is preserved unchanged.
+        """
+
+        task_row = TaskTable(
+            id=task.id,
+            project_id=task.project_id,
+            title=task.title,
+            status=task.status,
+            priority=task.priority,
+            input_summary=task.input_summary,
+            acceptance_criteria=self._serialize_string_list(task.acceptance_criteria),
+            depends_on_task_ids=self._serialize_uuid_list(task.depends_on_task_ids),
+            risk_level=task.risk_level,
+            owner_role_code=task.owner_role_code,
+            upstream_role_code=task.upstream_role_code,
+            downstream_role_code=task.downstream_role_code,
+            human_status=task.human_status,
+            paused_reason=task.paused_reason,
+            source_draft_id=task.source_draft_id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+        )
+
+        self.session.add(task_row)
+        self.session.flush()
+        self.session.refresh(task_row)
+        task = self._to_domain(task_row)
+        event_stream_service.publish_task_updated(
+            task=task,
+            reason=TaskEventReason.CREATED,
+        )
+        return task
+
     def list_all(self) -> list[Task]:
         """Return all tasks ordered by creation time descending."""
 

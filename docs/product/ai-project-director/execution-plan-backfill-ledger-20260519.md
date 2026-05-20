@@ -431,6 +431,25 @@
 | 后续动作 | 后续接 Worker 调度执行；不做本阶段自动执行 |
 
 
+### 5.5.4.1 BCG-04A Hardening Patch（2026-05-20）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-04A Phase1 Hardening Patch |
+| 阶段性质 | 后端闭环加固（不新增功能，不新增 API，不改前端） |
+| 起始 commit | `0c47547` |
+| 结束 commit | （本次提交） |
+| 修改文件 | `app/repositories/task_repository.py`（新增 `add_no_commit`）、`app/services/project_director_task_creation_service.py`（原子事务 + 前置预校验 + 空 description 兜底）、`tests/test_project_director_task_creation.py`（+4 hardening 测试） |
+| 行为变化 | 1) Task + TaskCreationRecord 原子事务（add_no_commit + 单 commit）；2) 前置预校验（title/role_code/priority_hint 在 DB 写入前校验）；3) 空 description → `"由计划版本生成的任务：{title}"` 兜底 |
+| 新增测试 | `test_create_tasks_atomic_task_count_matches_record`：原子性验证；`test_empty_proposed_task_description_falls_back_to_title`：空 description 兜底；`test_duplicate_create_tasks_still_returns_409`：hardening 后重复创建仍 409；`test_atomic_rollback_on_record_creation_failure`：记录失败时无残留 Task |
+| 原有测试 | 13 个测试全部继续通过 |
+| 测试结果 | 任务创建 17/17 通过；全局 94/94 通过（38 + 24 + 15 + 17） |
+| 涉及接口 | 无新增/删除 |
+| 涉及页面 | 无（未改前端） |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing，同 BCG-04A Phase1） |
+| 后续动作 | 后续接 Worker 调度执行 |
+
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |

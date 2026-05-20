@@ -6,7 +6,8 @@ No worker, no planning/apply, no repo writes.
 
 from __future__ import annotations
 
-from uuid import uuid4
+import json
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -16,10 +17,16 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
 from app.core.db import get_db_session
-from app.core.db_tables import ORMBase
+from app.core.db_tables import (
+    ORMBase,
+    ProjectDirectorPlanVersionTable,
+)
 from app.domain.project_director_plan_version import PlanVersionStatus
 from app.domain.project_director_session import ProjectDirectorSessionStatus
 from app.domain.task import TaskPriority
+from app.repositories.project_director_task_creation_repository import (
+    ProjectDirectorTaskCreationRecordRepository,
+)
 
 
 # ── Fixtures ────────────────────────────────────────────────────────
@@ -367,3 +374,134 @@ class TestCreateTasks:
         assert data["next_action"] != ""
         assert len(data["forbidden_actions"]) > 0
         assert data["gate_conclusion"] != ""
+
+    # ── Hardening tests ─────────────────────────────────────────────
+
+    def test_create_tasks_atomic_task_count_matches_record(self, client):
+        """After create-tasks, every task in the response must exist in DB,
+        and the creation record must match exactly."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        # Create tasks
+        create_resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert create_resp.status_code == 201
+        data = create_resp.json()
+
+        # Verify creation record exists
+        get_resp = client.get(
+            f"/project-director/plan-versions/{plan_version['id']}/created-tasks"
+        )
+        assert get_resp.status_code == 200
+        record = get_resp.json()
+
+        # Every task in the record must exist in DB
+        existing_count = 0
+        for task_id in record["created_task_ids"]:
+            task_resp = client.get(f"/tasks/{task_id}")
+            assert task_resp.status_code == 200, (
+                f"Task {task_id} from record does not exist in DB"
+            )
+            existing_count += 1
+
+        # Counts must match: response == record == DB
+        assert existing_count == record["task_count"]
+        assert existing_count == data["task_count"]
+
+    def test_empty_proposed_task_description_falls_back_to_title(
+        self, client, db_session
+    ):
+        """When proposed_task.description is empty, input_summary uses title fallback."""
+        # Setup a confirmed plan version normally
+        plan_version, sid, project_id = _setup_confirmed_plan_with_project(client)
+
+        # Patch the stored plan version to have empty description in first proposed_task
+        pv_id = UUID(plan_version["id"])
+        row = db_session.get(ProjectDirectorPlanVersionTable, pv_id)
+        assert row is not None
+        tasks_data = json.loads(row.proposed_tasks_json)
+        tasks_data[0]["description"] = ""
+        row.proposed_tasks_json = json.dumps(tasks_data, ensure_ascii=False)
+        db_session.commit()
+
+        # Create tasks — should succeed with fallback
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+
+        # The task corresponding to the empty-description proposed_task
+        # must have input_summary containing the fallback
+        first_task_id = data["created_task_ids"][0]
+        task_resp = client.get(f"/tasks/{first_task_id}")
+        assert task_resp.status_code == 200
+        task_data = task_resp.json()
+        assert task_data["input_summary"] != ""
+        assert "由计划版本生成的任务" in task_data["input_summary"]
+        assert tasks_data[0]["title"] in task_data["input_summary"]
+
+    def test_duplicate_create_tasks_still_returns_409(self, client):
+        """Duplicate create-tasks must still return 409 after hardening."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        # First call succeeds
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 201
+
+        # Second call returns 409
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 409
+        assert "already been created" in resp.json()["detail"].lower()
+
+        # Verify no additional tasks were created
+        get_resp = client.get(
+            f"/project-director/plan-versions/{plan_version['id']}/created-tasks"
+        )
+        record = get_resp.json()
+        assert record["task_count"] == len(plan_version["proposed_tasks"])
+
+    def test_atomic_rollback_on_record_creation_failure(
+        self, client, monkeypatch
+    ):
+        """If TaskCreationRecord creation fails after tasks are added to
+        session, no tasks should be left in the database."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        # Monkey-patch the repository's create method to raise
+        original_create = ProjectDirectorTaskCreationRecordRepository.create
+
+        def _failing_create(self, record):
+            raise RuntimeError("Simulated record creation failure")
+
+        monkeypatch.setattr(
+            ProjectDirectorTaskCreationRecordRepository,
+            "create",
+            _failing_create,
+        )
+
+        try:
+            resp = client.post(
+                f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+            )
+            # Should return 422 because the record creation failed
+            assert resp.status_code == 422
+
+            # No tasks should have been persisted
+            # Verify by trying to GET created-tasks — should be 404
+            get_resp = client.get(
+                f"/project-director/plan-versions/{plan_version['id']}/created-tasks"
+            )
+            assert get_resp.status_code == 404
+        finally:
+            # Restore original
+            monkeypatch.setattr(
+                ProjectDirectorTaskCreationRecordRepository,
+                "create",
+                original_create,
+            )
