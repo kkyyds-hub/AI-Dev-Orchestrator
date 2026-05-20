@@ -403,6 +403,34 @@
 | 后续动作 | 后续补确认动作接口 + 扩展更多聚合源 |
 
 
+### 5.5.4 BCG-04A Phase1 — Plan-to-Task Creation（2026-05-20）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | BCG-04A Phase1：Confirmed Plan → Real Task Queue |
+| 阶段性质 | 后端闭环补齐 |
+| 起始 commit | `678f12d` |
+| 结束 commit | （本次提交） |
+| 新增文件 | `app/domain/project_director_task_creation.py`、`app/repositories/project_director_task_creation_repository.py`、`app/services/project_director_task_creation_service.py`、`tests/test_project_director_task_creation.py`、`docs/product/ai-project-director/verification-project-director-task-creation-phase1-20260520.md` |
+| 修改文件 | `app/core/db_tables.py`（新增 `ProjectDirectorTaskCreationRecordTable`）、`app/api/routes/project_director.py`（新增 2 个路由 + DTO + 依赖注入） |
+| 涉及页面 | 无（未改前端） |
+| 涉及接口 | `POST /project-director/plan-versions/{id}/create-tasks`、`GET /project-director/plan-versions/{id}/created-tasks` |
+| 页面职责 | N/A |
+| 前端真实接入 | N/A（未改前端） |
+| 后端闭环 | Backend Pass：confirmed plan version → real task queue；TaskCreationRecord 追溯；重复创建 409；project_id 缺失 409；source_draft_id 追溯 |
+| 运行证据 | Runtime Evidence Missing |
+| 测试结果 | 13/13 通过（+ 原有 77/77 无回归 = 总计 90/90） |
+| 重点策略 | 重复 create-tasks → 409 Conflict；project_id 缺失 → 409 Conflict；不调用 Worker/planning/apply/repo |
+| 优先级映射 | high→HIGH, urgent→URGENT, low→LOW, default→NORMAL |
+| 追溯设计 | `Task.source_draft_id` 存储 `pdv:{plan_version_id}:{version_no}`；新增 `project_director_task_creation_records` 表记录完整映射 |
+| verification 文档 | `docs/product/ai-project-director/verification-project-director-task-creation-phase1-20260520.md` |
+| 禁用按钮清单 | N/A |
+| 假按钮检查 | 无（纯后端） |
+| 越界检查 | 无：未改前端、未接 AI Provider、未调度 Worker、未调用 planning/apply、未写仓库、未改现有接口语义 |
+| Gate 结论 | Partial（Backend Pass / Runtime Evidence Missing） |
+| 后续动作 | 后续接 Worker 调度执行；不做本阶段自动执行 |
+
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |

@@ -1675,3 +1675,49 @@ class ProjectDirectorPlanVersionTable(ORMBase):
         default=utc_now,
         onupdate=utc_now,
     )
+
+
+class ProjectDirectorTaskCreationRecordTable(ORMBase):
+    """BCG-04A: one row per plan-version → task-queue creation batch.
+
+    Immutable by design. Used for idempotency guard, traceability, and GET query.
+    Does NOT modify the Task domain model.
+    """
+
+    __tablename__ = "project_director_task_creation_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "plan_version_id",
+            name="uq_task_creation_records_plan_version",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    plan_version_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_plan_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_type: Mapped[str] = mapped_column(
+        String(80),
+        nullable=False,
+        default="project_director_plan_version",
+    )
+    task_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    task_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )

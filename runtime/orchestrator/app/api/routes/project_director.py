@@ -3,7 +3,8 @@
 BCG-01: goal intake → clarification → confirmation.
 BCG-02: plan version generation → pending_confirmation → confirmed.
 BCG-03: pending confirmation inbox (read-only aggregation).
-No AI, no Provider, no planning/apply, no task creation, no worker dispatch.
+BCG-04A: confirmed plan version → real task queue creation.
+No AI, no Provider, no planning/apply, no worker dispatch.
 """
 
 from __future__ import annotations
@@ -33,11 +34,19 @@ from app.repositories.project_director_plan_version_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.repositories.project_director_task_creation_repository import (
+    ProjectDirectorTaskCreationRecordRepository,
+)
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.task_repository import TaskRepository
 from app.services.project_director_confirmation_service import (
     ProjectDirectorConfirmationService,
 )
 from app.services.project_director_plan_service import ProjectDirectorPlanService
 from app.services.project_director_service import ProjectDirectorService
+from app.services.project_director_task_creation_service import (
+    ProjectDirectorTaskCreationService,
+)
 
 
 # ── Dependencies ────────────────────────────────────────────────────
@@ -69,6 +78,21 @@ def _get_confirmation_service(
     return ProjectDirectorConfirmationService(
         session_repository=session_repo,
         plan_version_repository=plan_repo,
+    )
+
+
+def _get_task_creation_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorTaskCreationService:
+    plan_repo = ProjectDirectorPlanVersionRepository(session)
+    task_repo = TaskRepository(session)
+    creation_repo = ProjectDirectorTaskCreationRecordRepository(session)
+    project_repo = ProjectRepository(session)
+    return ProjectDirectorTaskCreationService(
+        plan_repo=plan_repo,
+        task_repo=task_repo,
+        creation_repo=creation_repo,
+        project_repo=project_repo,
     )
 
 
@@ -770,4 +794,118 @@ def list_session_confirmations(
     return ConfirmationInboxResponse(
         items=[_inbox_item_to_response(i) for i in items],
         total=len(items),
+    )
+
+
+# ── Task Creation DTOs ───────────────────────────────────────────────
+
+
+class TaskCreationResponse(BaseModel):
+    plan_version_id: UUID
+    session_id: UUID
+    project_id: UUID
+    created_task_ids: list[UUID] = Field(default_factory=list)
+    task_count: int = Field(default=0)
+    status: str
+    next_action: str
+    forbidden_actions: list[str] = Field(default_factory=list)
+    gate_conclusion: str
+
+
+# ── Task Creation Routes ─────────────────────────────────────────────
+
+
+@router.post(
+    "/plan-versions/{plan_version_id}/create-tasks",
+    response_model=TaskCreationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create real tasks from a confirmed plan version",
+)
+def create_tasks_from_plan_version(
+    plan_version_id: UUID,
+    svc: Annotated[
+        ProjectDirectorTaskCreationService,
+        Depends(_get_task_creation_service),
+    ],
+) -> TaskCreationResponse:
+    """Create real Task objects from a confirmed Project Director plan version.
+
+    - Only confirmed plan versions can create tasks (409 otherwise).
+    - Plan version must have a project_id (409 otherwise).
+    - Tasks are created only once per plan version (409 on duplicate).
+    - Does NOT call worker, planning/apply, or write repositories.
+    - Tasks enter the queue in pending status.
+    """
+
+    try:
+        result = svc.create_tasks_from_plan_version(plan_version_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if (
+            "only 'confirmed'" in detail.lower()
+            or "must have a project_id" in detail.lower()
+            or "already been created" in detail.lower()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return TaskCreationResponse(
+        plan_version_id=result.plan_version_id,
+        session_id=result.session_id,
+        project_id=result.project_id,
+        created_task_ids=result.created_task_ids,
+        task_count=result.task_count,
+        status=result.status,
+        next_action=result.next_action,
+        forbidden_actions=result.forbidden_actions,
+        gate_conclusion=result.gate_conclusion,
+    )
+
+
+@router.get(
+    "/plan-versions/{plan_version_id}/created-tasks",
+    response_model=TaskCreationResponse,
+    summary="Get created tasks for a plan version",
+)
+def get_created_tasks(
+    plan_version_id: UUID,
+    svc: Annotated[
+        ProjectDirectorTaskCreationService,
+        Depends(_get_task_creation_service),
+    ],
+) -> TaskCreationResponse:
+    """Return the task creation record for a plan version, if tasks have been created."""
+
+    result = svc.get_created_tasks(plan_version_id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No tasks have been created for plan version {plan_version_id}. "
+                f"Use POST /project-director/plan-versions/{plan_version_id}/create-tasks "
+                f"to create tasks from a confirmed plan version."
+            ),
+        )
+
+    return TaskCreationResponse(
+        plan_version_id=result.plan_version_id,
+        session_id=result.session_id,
+        project_id=result.project_id,
+        created_task_ids=result.created_task_ids,
+        task_count=result.task_count,
+        status=result.status,
+        next_action=result.next_action,
+        forbidden_actions=result.forbidden_actions,
+        gate_conclusion=result.gate_conclusion,
     )

@@ -1,0 +1,369 @@
+"""Tests for BCG-04A Plan-to-Task Creation.
+
+Confirmed plan version → real task queue creation.
+No worker, no planning/apply, no repo writes.
+"""
+
+from __future__ import annotations
+
+from uuid import uuid4
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.api.router import api_router
+from app.core.db import get_db_session
+from app.core.db_tables import ORMBase
+from app.domain.project_director_plan_version import PlanVersionStatus
+from app.domain.project_director_session import ProjectDirectorSessionStatus
+from app.domain.task import TaskPriority
+
+
+# ── Fixtures ────────────────────────────────────────────────────────
+
+
+@pytest.fixture()
+def sqlite_session_factory(tmp_path):
+    db_path = tmp_path / "orchestrator-test.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    ORMBase.metadata.create_all(bind=engine)
+    return sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+
+
+@pytest.fixture()
+def db_session(sqlite_session_factory):
+    session = sqlite_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture()
+def client(sqlite_session_factory):
+    app = FastAPI()
+    app.include_router(api_router)
+
+    def override_get_db_session():
+        session = sqlite_session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
+def _create_project(client, *, name="测试项目"):
+    resp = client.post(
+        "/projects",
+        json={"name": name, "summary": f"{name}：Plan-to-Task 创建测试"},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+def _create_session(client, *, goal_text=None, project_id=None):
+    if goal_text is None:
+        goal_text = "构建一个用户认证系统，包括登录、注册"
+    body: dict = {"goal_text": goal_text}
+    if project_id is not None:
+        body["project_id"] = project_id
+    resp = client.post("/project-director/sessions", json=body)
+    assert resp.status_code == 201
+    session_id = resp.json()["id"]
+    questions = resp.json()["clarifying_questions"]
+    answers = [
+        {"question_id": q["id"], "answer": f"回答 {i}"}
+        for i, q in enumerate(questions)
+    ]
+    resp = client.post(
+        f"/project-director/sessions/{session_id}/answers",
+        json={"answers": answers},
+    )
+    assert resp.status_code == 200
+    return session_id
+
+
+def _confirm_session(client, session_id):
+    resp = client.post(f"/project-director/sessions/{session_id}/confirm")
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def _create_plan_version(client, session_id):
+    resp = client.post(
+        f"/project-director/sessions/{session_id}/plan-versions"
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+def _confirm_plan_version(client, plan_version_id):
+    resp = client.post(
+        f"/project-director/plan-versions/{plan_version_id}/confirm"
+    )
+    assert resp.status_code == 200
+
+
+def _setup_confirmed_plan_with_project(client):
+    """Full setup: project → session → confirm → plan version → confirm."""
+    project_id = _create_project(client, name="Plan-to-Task 项目")
+    sid = _create_session(client, project_id=project_id)
+    _confirm_session(client, sid)
+    pv = _create_plan_version(client, sid)
+    _confirm_plan_version(client, pv["id"])
+    # Re-read to get confirmed status
+    resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+    return resp.json(), sid, project_id
+
+
+# ── Tests ────────────────────────────────────────────────────────────
+
+
+class TestCreateTasks:
+    def test_create_tasks_from_confirmed_plan_with_project(self, client):
+        """Happy path: confirmed plan version with project_id creates real tasks."""
+        plan_version, session_id, project_id = _setup_confirmed_plan_with_project(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+
+        assert data["plan_version_id"] == plan_version["id"]
+        assert data["session_id"] == session_id
+        assert data["project_id"] == project_id
+        assert data["task_count"] == len(plan_version["proposed_tasks"])
+        assert len(data["created_task_ids"]) == data["task_count"]
+        assert data["status"] == "created"
+        assert data["next_action"]
+        assert data["forbidden_actions"]
+        assert "不自动调用 Worker" in data["forbidden_actions"]
+        assert "Partial" in data["gate_conclusion"]
+
+    def test_create_tasks_plan_version_not_found_returns_404(self, client):
+        """Non-existent plan version returns 404."""
+        resp = client.post(
+            f"/project-director/plan-versions/{uuid4()}/create-tasks"
+        )
+        assert resp.status_code == 404
+
+    def test_create_tasks_unconfirmed_plan_version_returns_409(self, client):
+        """Plan version not in 'confirmed' status returns 409."""
+        project_id = _create_project(client, name="未确认计划测试")
+        sid = _create_session(client, project_id=project_id)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        # Plan version is in pending_confirmation, NOT confirmed
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-tasks"
+        )
+        assert resp.status_code == 409
+        assert "only 'confirmed'" in resp.json()["detail"].lower()
+
+    def test_create_tasks_plan_version_without_project_id_returns_409(self, client):
+        """Plan version without project_id returns 409."""
+        # Create session without project_id
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-tasks"
+        )
+        assert resp.status_code == 409
+        assert "project_id" in resp.json()["detail"].lower()
+
+    def test_duplicate_create_tasks_returns_409(self, client):
+        """Second call to create-tasks returns 409."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        # First call succeeds
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 201
+
+        # Second call returns 409
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 409
+        assert "already been created" in resp.json()["detail"].lower()
+
+    def test_created_task_count_equals_proposed_task_count(self, client):
+        """Number of created tasks must equal number of proposed_tasks."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+
+        expected_count = len(plan_version["proposed_tasks"])
+        assert data["task_count"] == expected_count
+        assert len(data["created_task_ids"]) == expected_count
+
+    def test_task_source_draft_id_is_set(self, client):
+        """Every created task must have source_draft_id."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        data = resp.json()
+
+        # Read each task and verify source_draft_id
+        for task_id in data["created_task_ids"]:
+            task_resp = client.get(f"/tasks/{task_id}")
+            assert task_resp.status_code == 200
+            task_data = task_resp.json()
+            assert task_data["source_draft_id"]
+            assert f"pdv:{plan_version['id']}" in task_data["source_draft_id"]
+
+    def test_task_role_code_aligns_with_proposed_task(self, client):
+        """Task owner_role_code must match proposed_task.suggested_role_code."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        data = resp.json()
+
+        proposed = plan_version["proposed_tasks"]
+        for i, task_id in enumerate(data["created_task_ids"]):
+            task_resp = client.get(f"/tasks/{task_id}")
+            task_data = task_resp.json()
+            assert task_data["owner_role_code"] == proposed[i]["suggested_role_code"], (
+                f"Task {i} role {task_data['owner_role_code']} != "
+                f"proposed {proposed[i]['suggested_role_code']}"
+            )
+
+    def test_task_priority_mapping_correct(self, client):
+        """Task priority must be correctly mapped from priority_hint."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        # Verify priority_hint values exist in plan
+        proposed = plan_version["proposed_tasks"]
+        priority_hints = {p["priority_hint"] for p in proposed}
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        data = resp.json()
+
+        for i, task_id in enumerate(data["created_task_ids"]):
+            task_resp = client.get(f"/tasks/{task_id}")
+            task_data = task_resp.json()
+            hint = proposed[i]["priority_hint"].lower()
+
+            # Verify mapping
+            if hint == "high":
+                assert task_data["priority"] == TaskPriority.HIGH.value
+            elif hint == "urgent":
+                assert task_data["priority"] == TaskPriority.URGENT.value
+            elif hint == "low":
+                assert task_data["priority"] == TaskPriority.LOW.value
+            else:
+                assert task_data["priority"] == TaskPriority.NORMAL.value
+
+    def test_get_created_tasks_returns_task_ids(self, client):
+        """GET created-tasks must return the task creation record."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        # Create tasks first
+        create_resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+
+        # GET should return same data
+        resp = client.get(
+            f"/project-director/plan-versions/{plan_version['id']}/created-tasks"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["plan_version_id"] == created["plan_version_id"]
+        assert data["session_id"] == created["session_id"]
+        assert data["task_count"] == created["task_count"]
+        assert data["created_task_ids"] == created["created_task_ids"]
+        assert data["status"] == "created"
+
+    def test_get_created_tasks_before_creation_returns_404(self, client):
+        """GET created-tasks before creating any returns 404."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        resp = client.get(
+            f"/project-director/plan-versions/{plan_version['id']}/created-tasks"
+        )
+        assert resp.status_code == 404
+
+    def test_create_tasks_does_not_create_runs(self, client):
+        """Creating tasks must not create any runs."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        data = resp.json()
+
+        # Check each created task has no runs
+        for task_id in data["created_task_ids"]:
+            runs_resp = client.get(f"/runs?task_id={task_id}")
+            # If the runs endpoint filters by task_id, check response
+            if runs_resp.status_code == 200:
+                runs_data = runs_resp.json()
+                task_runs = [
+                    r for r in runs_data
+                    if isinstance(r, dict) and str(r.get("task_id")) == str(task_id)
+                ]
+                assert len(task_runs) == 0, (
+                    f"Task {task_id} has unexpected runs"
+                )
+
+    def test_all_response_fields_present(self, client):
+        """TaskCreationResponse must contain all required fields."""
+        plan_version, session_id, project_id = _setup_confirmed_plan_with_project(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+
+        required_fields = [
+            "plan_version_id", "session_id", "project_id",
+            "created_task_ids", "task_count", "status",
+            "next_action", "forbidden_actions", "gate_conclusion",
+        ]
+        for field in required_fields:
+            assert field in data, f"Missing required field: {field}"
+
+        assert data["plan_version_id"] == plan_version["id"]
+        assert data["session_id"] == session_id
+        assert data["project_id"] == project_id
+        assert data["task_count"] > 0
+        assert len(data["created_task_ids"]) > 0
+        assert data["status"] == "created"
+        assert data["next_action"] != ""
+        assert len(data["forbidden_actions"]) > 0
+        assert data["gate_conclusion"] != ""
