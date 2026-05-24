@@ -766,6 +766,36 @@
 | Gate | **BCG-13 Runtime Evidence Pass (change plan v1+v2 + change batch + read-back)**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
 | Next | BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
 
+### BCG-14A Preflight + Manual Confirmation Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-14A Preflight + Manual Confirmation Live Evidence |
+| Scope | Runtime evidence verification; reuses BCG-13A change batch; tests preflight (low-risk + high-risk), manual approve, illegal-action protection, inbox/day15-flow read-back; no new API; no frontend change |
+| Baseline | `cbb590e` (AI Project Director command governance skill on latest `origin/main`) |
+| End commit | this commit |
+| Evidence project | Reused BCG evidence project `423367da-966b-4c2e-b8c8-a4ff5f7f2377` |
+| Evidence IDs | approved_batch_id `2d07dde6-0216-40ef-ae2b-b4959db58d33`; reject_batch_id: None (active batch conflict) |
+| Changed files | `runtime/orchestrator/scripts/bcg14a_preflight_manual_confirmation_live.py` (new), `docs/product/ai-project-director/verification-project-director-preflight-manual-confirmation-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-14 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| APIs used | `GET /repositories/projects/{id}`, `GET /snapshot`, `GET /change-batches`, `POST /repositories/change-batches/{id}/preflight`, `GET /repositories/change-batches/{id}`, `GET /approvals/repository-preflight/{id}`, `POST /approvals/repository-preflight/{id}/actions`, `GET /approvals/projects/{id}/repository-preflight`, `GET /repositories/projects/{id}/day15-flow` |
+| New write API | None |
+| Low-risk preflight | empty candidate_commands → wide_change_scope (HIGH) triggered by 5 files in 4 dirs → blocked_requires_confirmation (correct) |
+| High-risk preflight | dangerous commands (git push, rm -rf, git reset --hard) → 4 findings (wide_change_scope HIGH, git_push HIGH, shell_force_delete CRITICAL, git_reset_hard CRITICAL) → blocked_requires_confirmation |
+| Manual approve | POST /approvals/repository-preflight/{id}/actions approve → manual_confirmed; blocked=false; ready_for_execution=true; decision_history populated |
+| Manual reject | Skipped: active batch conflict (409) prevents second batch. Reject shares same service path as approve. |
+| Illegal-action protection | Re-approve approved → 422; Reject approved → 422; Non-existent batch → 404 |
+| Inbox | GET /approvals/projects/{id}/repository-preflight: total=1, pending=0, ready=1, rejected=0 |
+| Day15 flow | risk_preflight step: completed |
+| Approvals detail | tasks=2, target_files=5, timeline=5, preflight=manual_confirmed |
+| Live command | `cd runtime/orchestrator && python scripts/bcg14a_preflight_manual_confirmation_live.py` |
+| Live result | 74/74 passed, 0 failed; 1 gap (manual reject skipped due to active batch conflict) |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | 143 passed, 135 warnings in 71.43s |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No apply-local; no git-commit; no command execution; no planning/apply; no Worker dispatch; no repository write to main repo; no new write API; no frontend change; no total closure Pass |
+| Gate | **BCG-14 Runtime Evidence Partial (preflight/approve/readback Pass / reject not tested)**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
+| Next | BCG-15 (commit candidate), Release Gate (BCG-18), governance/cost, total rollup |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
