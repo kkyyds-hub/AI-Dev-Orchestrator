@@ -145,3 +145,86 @@ BCG-08A Real AI Run Summary Evidence: Pass for this evidence phase.
 AI Project Director total closure remains Partial. This proof does not close
 repository, delivery, approval, governance, cost dashboard, or total rollup
 gates by itself.
+---
+
+## BCG-08A-R2 copy guard closure addendum
+
+Date: 2026-05-24
+
+Purpose: close the BCG-08A-R1 acceptance gap without adding product scope or
+entering BCG-09. R2 keeps the same real provider-reported target run and adds
+hard copy-guard assertions to the live evidence script.
+
+### Additional hard assertions
+
+The live script now fails if any of the following is false:
+
+- `summary_markdown.strip()` is not identical to `run.result_summary.strip()`.
+- `summary_markdown.strip()` is not identical to `run.verification_summary.strip()`.
+- The summary is not merely a raw `run.result_summary` excerpt followed only by
+  trailing punctuation/formatting and then end-of-text.
+- The summary is not merely a raw `run.verification_summary` excerpt followed
+  only by trailing punctuation/formatting and then end-of-text.
+
+### R2 live evidence result
+
+Command:
+
+```powershell
+python runtime/orchestrator/scripts/bcg08a_real_ai_run_summary_live.py
+```
+
+Result summary:
+
+```json
+{
+  "phase": "BCG-08A-R2 Real AI Run Summary Evidence Copy Guard Closure",
+  "summary_id": "74fe9426-e869-43a7-95ed-933fcc75edc0",
+  "source": "ai",
+  "fallback_used": false,
+  "error_summary": null,
+  "copy_guard": {
+    "summary_differs_from_result_summary": true,
+    "summary_differs_from_verification_summary": true,
+    "summary_not_result_summary_then_end": true,
+    "summary_not_verification_summary_then_end": true
+  },
+  "evidence_coverage": {
+    "provider_key": true,
+    "model_name": true,
+    "original_run_receipt": true,
+    "execution_mode": true,
+    "token_accounting_mode": true,
+    "total_tokens": true,
+    "estimated_cost": true,
+    "log_path": true,
+    "quality_gate": true
+  }
+}
+```
+
+The R2 run still used the existing APIs only:
+
+- `POST /runs/834b38aa-3669-4121-9424-3aa4999cad2e/ai-summary/regenerate`
+- `GET /runs/834b38aa-3669-4121-9424-3aa4999cad2e/ai-summary`
+- `GET /runs/834b38aa-3669-4121-9424-3aa4999cad2e/ai-summaries`
+
+No new write API was added. No frontend code was changed. The summary service
+was not changed in R2; the fix is a minimum live-evidence acceptance guard and
+documentation update.
+
+### R2 ordinary regression
+
+Command:
+
+```powershell
+cd runtime/orchestrator
+python -m pytest tests
+```
+
+Result: `132 passed, 127 warnings`.
+
+### R2 gate conclusion
+
+BCG-08A-R2 minimum closure: Pass. AI Project Director total closure remains
+Partial, and this addendum does not enter or satisfy BCG-09.

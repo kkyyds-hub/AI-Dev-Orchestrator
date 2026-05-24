@@ -583,6 +583,28 @@
 | Gate | BCG-08A real AI run summary evidence phase Pass. AI Project Director total closure remains Partial; do not mark total closure Pass |
 | Next | Feed BCG-08A summary evidence into later total Gate rollup with repository/delivery/approval/governance/cost evidence. |
 
+### BCG-08A-R2 Real AI Run Summary Copy Guard Closure (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-08A-R2 Real AI Run Summary Evidence minimum closure |
+| Scope | Minimum acceptance hardening only; no new feature work; do not enter BCG-09 |
+| Baseline | `350ed7a` (BCG-08A-R1 real AI summary evidence closure) |
+| Target run | Reused run_id `834b38aa-3669-4121-9424-3aa4999cad2e`; task_id `db204e31-f244-4f9b-a469-abcc5e0b873f`; provider_key `deepseek`; model_name `deepseek-v4-pro`; token_accounting_mode `provider_reported` |
+| Summary API | Reused existing `POST /runs/{run_id}/ai-summary/regenerate`, `GET /runs/{run_id}/ai-summary`, `GET /runs/{run_id}/ai-summaries`; no new API |
+| Service change | None in R2. `run_ai_summary_service.py` was not changed; R2 only tightens live evidence copy-guard assertions and docs |
+| Copy guard | Added hard assertions that `summary_markdown.strip()` differs from raw `run.result_summary.strip()` and raw `run.verification_summary.strip()`, and that markdown is not a raw result/verification excerpt followed only by trailing punctuation/formatting and end-of-text |
+| Live evidence | summary_id `74fe9426-e869-43a7-95ed-933fcc75edc0`; source `ai`; fallback_used `false`; error_summary `null`; history active summary points to generated summary |
+| Copy guard result | `summary_differs_from_result_summary=true`; `summary_differs_from_verification_summary=true`; `summary_not_result_summary_then_end=true`; `summary_not_verification_summary_then_end=true` |
+| Evidence coverage | provider_key/model_name/original_run_receipt/execution_mode/token_accounting_mode/total_tokens/estimated_cost/log_path/quality_gate all `true` |
+| Live command | `python runtime/orchestrator/scripts/bcg08a_real_ai_run_summary_live.py` |
+| Live result | Passed; real provider summary generation persisted and read back; copy guard passed |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests` |
+| Regression result | 132 passed, 127 warnings |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No new write API; no mock/simulate substitute for summary generation; no repository write; no BCG-09 work; not total closure Pass |
+| Gate | BCG-08A-R2 minimum closure Pass. AI Project Director total closure remains Partial |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |

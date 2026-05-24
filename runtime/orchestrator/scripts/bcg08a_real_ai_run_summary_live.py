@@ -76,6 +76,58 @@ def _summarize_markdown(markdown: str) -> str:
     return " ".join(lines)[:500]
 
 
+def _normalize_copy_guard_text(value: Any) -> str:
+    """Normalize text only for copy-guard containment checks."""
+
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).strip()
+
+
+def _raw_excerpt_then_end(markdown: str, raw_text: Any) -> bool:
+    """Return True if markdown merely includes one raw source excerpt and then ends."""
+
+    normalized_markdown = _normalize_copy_guard_text(markdown)
+    normalized_raw = _normalize_copy_guard_text(raw_text)
+    if not normalized_markdown or not normalized_raw:
+        return False
+
+    raw_index = normalized_markdown.find(normalized_raw)
+    if raw_index < 0:
+        return False
+
+    tail = normalized_markdown[raw_index + len(normalized_raw):]
+    trailing_noise = " \t\r\n-—_:：。.!！?？;；,，`*#[]()（）\"'“”"
+    return tail.strip(trailing_noise) == ""
+
+
+def _build_copy_guard(markdown: str, run: dict[str, Any]) -> dict[str, bool]:
+    """Build strict checks that the AI summary is not a raw source copy."""
+
+    result_summary = run.get("result_summary") or ""
+    verification_summary = run.get("verification_summary") or ""
+    markdown_stripped = markdown.strip()
+    result_stripped = result_summary.strip()
+    verification_stripped = verification_summary.strip()
+
+    return {
+        "summary_differs_from_result_summary": (
+            not result_stripped or markdown_stripped != result_stripped
+        ),
+        "summary_differs_from_verification_summary": (
+            not verification_stripped or markdown_stripped != verification_stripped
+        ),
+        "summary_not_result_summary_then_end": not _raw_excerpt_then_end(
+            markdown,
+            result_summary,
+        ),
+        "summary_not_verification_summary_then_end": not _raw_excerpt_then_end(
+            markdown,
+            verification_summary,
+        ),
+    }
+
+
 def main() -> None:
     """Generate and verify one source=ai run summary from the existing APIs."""
 
@@ -132,6 +184,24 @@ def main() -> None:
     _assert(generated["prompt_hash"], "summary prompt_hash missing.")
 
     markdown = generated["summary_markdown"]
+    copy_guard = _build_copy_guard(markdown, run)
+    _assert(
+        copy_guard["summary_differs_from_result_summary"],
+        "summary markdown is identical to raw run.result_summary.",
+    )
+    _assert(
+        copy_guard["summary_differs_from_verification_summary"],
+        "summary markdown is identical to raw run.verification_summary.",
+    )
+    _assert(
+        copy_guard["summary_not_result_summary_then_end"],
+        "summary markdown only includes raw run.result_summary and then ends.",
+    )
+    _assert(
+        copy_guard["summary_not_verification_summary_then_end"],
+        "summary markdown only includes raw run.verification_summary and then ends.",
+    )
+
     for heading in REQUIRED_SUMMARY_HEADINGS:
         _assert(heading in markdown, f"summary missing heading: {heading}")
     _assert(EXPECTED_PROVIDER_KEY in markdown, "summary does not mention provider_key evidence.")
@@ -181,7 +251,7 @@ def main() -> None:
     )
 
     report = {
-        "phase": "BCG-08A-R1 Real AI Run Summary Evidence Closure",
+        "phase": "BCG-08A-R2 Real AI Run Summary Evidence Copy Guard Closure",
         "summary_api": {
             "generate": f"POST /runs/{RUN_ID}/ai-summary/regenerate",
             "read_current": f"GET /runs/{RUN_ID}/ai-summary",
@@ -218,6 +288,7 @@ def main() -> None:
             "markdown_length": len(markdown),
             "content_excerpt": _summarize_markdown(markdown),
             "fallback_used": False,
+            "copy_guard": copy_guard,
             "evidence_coverage": {
                 "provider_key": EXPECTED_PROVIDER_KEY in markdown,
                 "model_name": EXPECTED_MODEL_NAME in markdown,
