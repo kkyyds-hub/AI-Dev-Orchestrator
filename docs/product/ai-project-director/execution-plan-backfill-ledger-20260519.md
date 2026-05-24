@@ -531,6 +531,33 @@
 | Gate | BCG-07A evidence-replay phase Pass. AI Project Director total closure remains Partial; do not mark total closure Pass. |
 | Next | Feed BCG-07A replay evidence into later total Gate rollup together with repository/delivery/approval/governance/cost evidence. |
 
+### IPV4_REDACTED BCG-07B Provider-Reported Run Evidence Replay (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-07B Provider-Reported Run Evidence Replay |
+| Scope | Backend/runtime read evidence only; replay existing provider-reported run; no frontend change; no automatic scheduling |
+| Baseline | `e30d05e` (BCG-07A run logs / decision trace / decision history read-path evidence) |
+| End commit | this commit |
+| Reuse decision | Reused BCG-05B old run `834b38aa-3669-4121-9424-3aa4999cad2e`; no new provider run was triggered because local DB/log evidence was present |
+| Evidence IDs | project_id `423367da-966b-4c2e-b8c8-a4ff5f7f2377`; session_id `1177d06d-1c71-4e17-979a-855645ea87d8`; plan_version_id `8b906cf9-b7c0-49b3-b7e7-1d7a918ad956`; task_id `db204e31-f244-4f9b-a469-abcc5e0b873f`; run_id `834b38aa-3669-4121-9424-3aa4999cad2e` |
+| Provider evidence | provider_key `deepseek`; model_name `deepseek-v4-pro`; execution_mode `provider_openai`; actual_execution_mode `provider_openai`; fallback_applied `false`; token_accounting_mode `provider_reported`; receipt `3d8bf6e7-fdfd-43db-bd9a-3abee685521d`; prompt_tokens 380; completion_tokens 66; total_tokens 446; estimated_cost 0.000768 |
+| Log path | `logs/task-runs/db204e31-f244-4f9b-a469-abcc5e0b873f/834b38aa-3669-4121-9424-3aa4999cad2e.jsonl` |
+| Read-only API | Reused existing `GET /project-director/sessions/{session_id}`, `GET /project-director/plan-versions/{plan_version_id}`, `GET /project-director/plan-versions/{plan_version_id}/created-tasks`, `GET /tasks/{task_id}/runs`, `GET /runs/{run_id}/logs`, `GET /runs/{run_id}/decision-trace`, `GET /tasks/{task_id}/decision-history`; no new read-only API was required |
+| New write API | None |
+| Evidence chain | BCG-05B Project Director session/plan/task -> existing provider Worker run -> persisted provider_reported run row -> JSONL logs -> run decision trace -> task decision history |
+| Runtime events replayed | `task_routed`, `role_handoff`, `run_claimed`, `context_built`, `memory_governance_checkpointed`, `execution_plan_ready`, `prompt_contract_built`, `execution_finished`, `verification_finished`, `token_accounting_ready`, `cost_estimated`, `run_finalized`, `approval_auto_created` |
+| Decision replay summary | `GET /runs/{run_id}/decision-trace` returned 13 trace items including provider execution, provider-reported token accounting, cost, and finalize; `GET /tasks/{task_id}/decision-history` returned one succeeded item with headline `Task and run were finalized.` |
+| Changed files | `runtime/orchestrator/scripts/bcg07b_provider_reported_replay_live.py`, `docs/product/ai-project-director/verification-project-director-provider-reported-run-evidence-replay-20260524.md`, `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` |
+| Live command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe scripts\bcg07b_provider_reported_replay_live.py` |
+| Live result | Passed; reused existing BCG-05B run; log_event_count 13; trace_item_count 13; decision_history_items 1 |
+| Regression command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py -q` |
+| Regression result | 97 passed, 3 existing `HTTP_422_UNPROCESSABLE_ENTITY` deprecation warnings |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No mock/simulate execution substituted for provider evidence; the original run's verifier was simulate, but provider execution was real `provider_openai` with `provider_reported` accounting and no fallback. No planning/apply; no repository write; no new write API; no UI work; this is provider run evidence replay, not total closure Pass |
+| Gate | BCG-07B provider-reported replay phase Pass. AI Project Director total closure remains Partial; do not mark total closure Pass. |
+| Next | Feed BCG-07B provider replay evidence into later total Gate rollup together with repository/delivery/approval/governance/cost evidence. |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
