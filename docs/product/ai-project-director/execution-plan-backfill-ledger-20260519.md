@@ -693,6 +693,7 @@
 | Frontend/build | No frontend files changed; `apps/web` build not run |
 | Boundary | No apply-local; no git-commit; no repository write to main repo; no new write API; no planning/apply; no frontend change; no total closure Pass |
 | Gate | BCG-11A repository binding & snapshot evidence Pass (57/57). BCG-11 is now Runtime Evidence Pass for repository binding/snapshot evidence. AI Project Director total closure remains Partial. |
+| R1 | 2026-05-24 BCG-11A-R1 hardening: sample repo moved outside main repo tree (`E:\bcg11a-workspaces\`), allowed roots preserved (not overwritten), out-of-bounds existing Git repo rejection test added, language assertions strengthened (Markdown/Python/TypeScript/JSON each verified), location assertions added (71/71). |
 | Next | BCG-12 (file locator / context pack), BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
 
 ### 5.6 端到端闭环总验收
