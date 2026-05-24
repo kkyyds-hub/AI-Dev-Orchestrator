@@ -696,6 +696,41 @@
 | R1 | 2026-05-24 BCG-11A-R1 hardening: sample repo moved outside main repo tree (`E:\bcg11a-workspaces\`), allowed roots preserved (not overwritten), out-of-bounds existing Git repo rejection test added, language assertions strengthened (Markdown/Python/TypeScript/JSON each verified), location assertions added (71/71). |
 | Next | BCG-12 (file locator / context pack), BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
 
+### BCG-12A File Locator + Context Pack Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-12A File Locator + Context Pack Live Evidence |
+| Scope | Runtime evidence verification; reuses BCG-11A bound sample repo; validates file-locator search (3 query types) and context-pack build (real file excerpts); no new API; no frontend change |
+| Baseline | `3b05b3c` (Close context pack API acceptance tests on latest `origin/main`) |
+| End commit | this commit |
+| Evidence project | Reused BCG evidence project `423367da-966b-4c2e-b8c8-a4ff5f7f2377` |
+| Reused BCG-11A | Yes. Reused workspace `e1e32ddb-e858-4224-b301-5362f97c1864`, snapshot `4a769201-f0f4-4f64-806a-b09b7606950e`, sample repo `E:\bcg11a-workspaces\bcg11a-sample-repo` |
+| Evidence IDs | project_id `423367da-966b-4c2e-b8c8-a4ff5f7f2377`, workspace_id `e1e32ddb-e858-4224-b301-5362f97c1864`, snapshot_id `4a769201-f0f4-4f64-806a-b09b7606950e` |
+| Changed files | `runtime/orchestrator/scripts/bcg12a_file_locator_context_pack_live.py` (new), `docs/product/ai-project-director/verification-project-director-file-locator-context-pack-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-12 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| APIs used | `GET /repositories/projects/{project_id}`, `GET /repositories/projects/{project_id}/snapshot`, `POST /repositories/projects/{project_id}/file-locator/search`, `POST /repositories/projects/{project_id}/context-pack` |
+| New write API | None (all APIs are existing) |
+| Workspace verification | root_path is absolute, read_only, .git exists, outside main repo/runtime_data_dir/system temp |
+| Snapshot verification | status=success, scan_error=null, file_count=5, languages=Markdown(2)/JSON(1)/Python(1)/TypeScript(1), tree includes README.md/src/web/config/docs, ignored dirs exclude node_modules + __pycache__ files |
+| File locator A (keywords) | keywords: evidence/repository/context, limit=5, candidate_count=4, candidates: README.md/config/app.json/src/main.py/web/app.tsx |
+| File locator B (path_prefixes + file_types) | path_prefixes: src/web/config/docs, file_types: py/tsx/json/md, candidate_count=5, all 5 expected files found |
+| File locator C (task_query) | task_query="build context pack for repository binding snapshot evidence", candidate_count=5, scanned_file_count=5 |
+| Context pack (from locator B) | selected_paths: README.md/src/main.py/web/app.tsx/config/app.json/docs/spec.md, included_file_count=5, total_included_bytes=419, all entries have non-empty excerpt/match_reasons, source_summary from locator, focus_terms=evidence/context/binding/snapshot |
+| Budget truncation | Sample files too small (~215 bytes) to exceed API minimum (512 bytes). Truncation logic verified by `tests/test_repository_context_pack_api.py::test_build_project_context_pack_marks_truncated_when_total_budget_is_exhausted`. |
+| Security ../ | ../outside.txt → 422 (Pass) |
+| Security absolute path | Absolute script path → 422 (Pass) |
+| Security node_modules | node_modules/ignored.js → 200 INCLUDED (**Security Gap**: context-pack reads ignored directory files) |
+| Security __pycache__ | __pycache__/ignored.py → 200 INCLUDED (**Security Gap**: context-pack reads ignored directory files) |
+| Runtime Evidence Gaps | 2 gaps: node_modules + __pycache__ files readable via context-pack API. Context-pack validates path traversal but not ignored_directory_names. |
+| Live command | `cd runtime/orchestrator && python scripts/bcg12a_file_locator_context_pack_live.py` |
+| Live result | 157/157 passed, 0 failed; 2 Runtime Evidence Gaps documented (Security Gap) |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py tests/test_run_ai_summaries.py tests/test_repository_context_pack_api.py -q` |
+| Regression result | 137 passed, 129 warnings in 33.07s |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No apply-local; no git-commit; no repository write to main repo; no new write API; no planning/apply; no frontend change; no mock/simulate; no total closure Pass |
+| Gate | **BCG-12 Runtime Evidence: Partial (File locator + context pack evidence Pass / Security Gap: ignored directory files readable)**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
+| Next | BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
