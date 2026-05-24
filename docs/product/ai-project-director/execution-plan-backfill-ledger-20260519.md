@@ -635,6 +635,38 @@
 | Gate | BCG-09A provider run deliverable/approval evidence Pass. BCG-09 is now Runtime Evidence Pass for provider-run deliverable/approval evidence. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
 | Next | BCG-10 (approval rework → task queue), BCG-11+ (repository binding/snapshots), Release Gate (BCG-18), governance/cost, total rollup |
 
+
+### BCG-10A Approval Request Changes → Rework Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-10A Approval Request Changes → Rework Evidence Chain |
+| Scope | Runtime evidence verification; applies real request_changes decision; no new API; no frontend change |
+| Baseline | `3060b6c` (BCG-09A deliverable/approval evidence on latest `origin/main`) |
+| End commit | this commit |
+| Target approval | Reused BCG-09A auto-generated approval `90714664-41d5-41fb-8156-59fc9a784a22` (pending_approval); project_id `423367da-966b-4c2e-b8c8-a4ff5f7f2377`; deliverable_id `3ae2a721-4396-453e-8d1b-529a50efb29c` |
+| Reused BCG-09A | Yes. Approval was still pending_approval. Applied request_changes via POST /approvals/{id}/actions. |
+| Evidence IDs | project_id `423367da-966b-4c2e-b8c8-a4ff5f7f2377`; task_id `db204e31-f244-4f9b-a469-abcc5e0b873f`; run_id `834b38aa-3669-4121-9424-3aa4999cad2e`; deliverable_id `3ae2a721-4396-453e-8d1b-529a50efb29c`; approval_id `90714664-41d5-41fb-8156-59fc9a784a22`; decision_id `6c1e2340-762f-4e19-a5c0-2ac6a5176c55` |
+| Status change | pending_approval → changes_requested |
+| Action API | `POST /approvals/{approval_id}/actions` with action=request_changes |
+| Request body | action=request_changes, actor_name=老板, summary="BCG-10A requests changes for rework evidence", comment="要求根据 BCG-10A 验收补充返工说明", requested_changes=[2 items], highlighted_risks=[1 item] |
+| Changed files | `runtime/orchestrator/scripts/bcg10a_approval_request_changes_rework_live.py` (new), `docs/product/ai-project-director/verification-project-director-approval-request-changes-rework-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-10 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| Read APIs used | `GET /approvals/{approval_id}`, `POST /approvals/{approval_id}/actions`, `GET /deliverables/tasks/{task_id}`, `GET /approvals/{approval_id}/history`, `GET /approvals/projects/{project_id}`, `GET /approvals/projects/{project_id}/change-rework`, `GET /tasks` |
+| New write API | None (POST /approvals/{id}/actions is existing) |
+| Live command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe scripts\bcg10a_approval_request_changes_rework_live.py` |
+| Live result | 61/61 passed; approval status changed pending_approval → changes_requested; decision persisted; history shows rework_required; change-rework snapshot shows rework cycle |
+| Idempotency | Second run correctly skips Phase 3 and re-verifies all read paths |
+| Approval detail | status=changes_requested; decided_at populated; latest_decision.action=request_changes; requested_changes and highlighted_risks preserved |
+| Approval history | deliverable_id matches; latest_approval_status=changes_requested; negative_decision_count=1; rework_status=rework_required; steps: approval_requested + approval_decided; decided step has decision_action=request_changes with full data |
+| Change-rework snapshot | approval rework item found; deliverable_id matches; decision_action=request_changes; chain_source=approval_rework; closed=false; requested_changes/highlighted_risks preserved; steps: decision + rework stages; approval_status=null (representation gap: uses latest_higher_record, no resubmitted version yet) |
+| Rework task | NOT auto-created. Gap: `visible_rework_no_executable_task` — rework evidence is visible in history + change-rework snapshot but no executable task is created. |
+| Regression command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py tests/test_run_ai_summaries.py -q` |
+| Regression result | 132 passed, 3 existing `HTTP_422_UNPROCESSABLE_ENTITY` deprecation warnings |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No mock/simulate/provider_mock; no database modification; no manual deliverable/approval creation; no new write API; no planning/apply; no repository write; no Worker; no frontend change; no total closure Pass |
+| Gate | BCG-10A approval rework evidence Pass (61/61). BCG-10 overall Partial (approval rework evidence Pass / executable rework task creation Missing). AI Project Director total closure remains Partial. Do not mark total closure Pass. |
+| Next | BCG-11+ (repository binding/snapshots), Release Gate (BCG-18), executable rework task creation (if needed), governance/cost, total rollup |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
