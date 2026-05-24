@@ -605,6 +605,36 @@
 | Boundary | No new write API; no mock/simulate substitute for summary generation; no repository write; no BCG-09 work; not total closure Pass |
 | Gate | BCG-08A-R2 minimum closure Pass. AI Project Director total closure remains Partial |
 
+
+### BCG-09A Provider Run Deliverable & Approval Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-09A Provider Run → Auto Deliverable → Auto Approval Evidence |
+| Scope | Runtime evidence verification only; no new API; no frontend change |
+| Baseline | `681c39a` (BCG-08A copy guard evidence on latest `origin/main`) |
+| End commit | this commit |
+| Target run | Reused BCG-05B provider_reported run `834b38aa-3669-4121-9424-3aa4999cad2e`; task_id `db204e31-f244-4f9b-a469-abcc5e0b873f`; provider_key `deepseek`; model_name `deepseek-v4-pro`; token_accounting_mode `provider_reported` |
+| Reused BCG-05B | Yes. Deliverable and approval were already auto-generated during original BCG-05B Worker execution. No new run was needed. |
+| Evidence IDs | project_id `423367da-966b-4c2e-b8c8-a4ff5f7f2377`; task_id `db204e31-f244-4f9b-a469-abcc5e0b873f`; run_id `834b38aa-3669-4121-9424-3aa4999cad2e`; deliverable_id `3ae2a721-4396-453e-8d1b-529a50efb29c`; approval_id `90714664-41d5-41fb-8156-59fc9a784a22`; deliverable_version `1`; approval_status `pending_approval` |
+| Auto-created | Yes. Deliverable created by `_auto_create_run_deliverable()` in Worker pipeline (task_worker.py:798-813). Approval created by `_auto_create_run_approval()` immediately after. Both during original BCG-05B Worker execution. |
+| Not forged | Confirmed. No manual POST /deliverables or POST /approvals used. request_note contains `[自动生成]` marker with Task ID and Run ID. |
+| Changed files | `runtime/orchestrator/scripts/bcg09a_provider_run_deliverable_approval_live.py` (new), `docs/product/ai-project-director/verification-project-director-provider-run-deliverable-approval-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-09 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| Read APIs used | `GET /tasks/{task_id}/runs`, `GET /runs/{run_id}/logs`, `GET /deliverables/projects/{project_id}`, `GET /deliverables/tasks/{task_id}`, `GET /approvals/projects/{project_id}`, `GET /approvals/{approval_id}`, `GET /approvals/{approval_id}/history` |
+| New write API | None |
+| Repository paths used | `DeliverableRepository.find_by_source_run_id()`, `ApprovalRepository.get_latest_record_by_deliverable_id()` |
+| Live command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe scripts\bcg09a_provider_run_deliverable_approval_live.py` |
+| Live result | Passed; 46/46 checks; reused BCG-05B run; auto-created deliverable and approval confirmed |
+| Run verification | run found; task_id matches; provider_key=deepseek; model_name=deepseek-v4-pro; token_accounting_mode=provider_reported; provider_receipt_id=3d8bf6e7-fdfd-43db-bd9a-3abee685521d; status=succeeded; quality_gate_passed=true; fallback_applied false; execution not provider_mock |
+| Deliverable verification | found by source_run_id; project_id matches; source_task_id matches; source_run_id matches; title/content/summary non-empty; content has Task ID/Run ID/Execution mode/Run status/Verification evidence/Token/Cost evidence; readable via project and task APIs |
+| Approval verification | found for deliverable; project_id matches; deliverable_id matches; request_note has `[自动生成]` + Task ID + Run ID; status=pending_approval; readable via project API, detail API, and history API |
+| Regression command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py tests/test_run_ai_summaries.py -q` |
+| Regression result | 132 passed, 3 existing `HTTP_422_UNPROCESSABLE_ENTITY` deprecation warnings |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No mock/simulate/provider_mock; no manual deliverable/approval creation; no new write API; no planning/apply; no repository write; no Worker pool; no frontend change; no total closure Pass |
+| Gate | BCG-09A provider run deliverable/approval evidence Pass. BCG-09 is now Runtime Evidence Pass for provider-run deliverable/approval evidence. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
+| Next | BCG-10 (approval rework → task queue), BCG-11+ (repository binding/snapshots), Release Gate (BCG-18), governance/cost, total rollup |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
