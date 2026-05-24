@@ -260,11 +260,16 @@ class RunAISummaryService:
             "failure_category": run.failure_category.value if run.failure_category else None,
             "quality_gate_passed": run.quality_gate_passed,
             "provider_key": run.provider_key,
+            "provider_receipt_id": run.provider_receipt_id,
             "prompt_template_key": run.prompt_template_key,
             "prompt_template_version": run.prompt_template_version,
             "prompt_char_count": run.prompt_char_count,
+            "token_accounting_mode": run.token_accounting_mode,
+            "prompt_tokens": run.prompt_tokens,
+            "completion_tokens": run.completion_tokens,
             "total_tokens": run.total_tokens,
             "estimated_cost": run.estimated_cost,
+            "log_path": run.log_path,
         }
 
     def _build_prompt_text(
@@ -347,6 +352,7 @@ class RunAISummaryService:
         provider_label = run.provider_key or "未记录"
         model_label = run.model_name or "未记录"
         receipt_label = run.provider_receipt_id or "未记录"
+        execution_mode_label = self._resolve_execution_mode_label(run)
 
         lines = [
             "## 运行结论",
@@ -373,10 +379,35 @@ class RunAISummaryService:
             f"- 模型服务 Key：{provider_label}",
             f"- 模型名称：{model_label}",
             f"- 模型回执 ID：{receipt_label}",
+            f"- Execution mode: {execution_mode_label}",
+            f"- Token accounting mode: {run.token_accounting_mode or 'missing'}",
+            f"- Prompt tokens: {run.prompt_tokens}",
+            f"- Completion tokens: {run.completion_tokens}",
+            f"- Total tokens: {run.total_tokens}",
+            f"- Estimated cost USD: {run.estimated_cost}",
+            f"- Log path: {run.log_path or 'missing'}",
             f"- 摘要依据：运行状态、结果摘要、验证摘要、质量检查、模型服务记录",
             f"- 调试指纹：已记录，可在前端状态条或技术日志中查看完整值",
         ]
         return "\n".join(lines).strip()
+
+    def _resolve_execution_mode_label(self, run: Run) -> str:
+        """Return the best available execution-mode evidence for a run."""
+
+        combined_evidence = "\n".join(
+            part
+            for part in (run.result_summary or "", run.verification_summary or "")
+            if part
+        )
+        if "provider_openai" in combined_evidence:
+            return "provider_openai"
+        if (
+            run.token_accounting_mode == "provider_reported"
+            and run.provider_key
+            and run.provider_receipt_id
+        ):
+            return "provider_openai"
+        return "未记录"
 
     # ── AI generation helpers ──────────────────────────────────────
 
@@ -492,6 +523,7 @@ class RunAISummaryService:
         provider_label = run.provider_key or "未记录"
         model_label = run.model_name or "未记录"
         receipt_label = run.provider_receipt_id or "未记录"
+        execution_mode_label = self._resolve_execution_mode_label(run)
         quality_label = (
             "通过" if run.quality_gate_passed is True
             else ("拦截" if run.quality_gate_passed is False else "未记录")
@@ -513,6 +545,7 @@ class RunAISummaryService:
             '- 区分「原始任务运行的 provider 执行结果」和「摘要生成来源」。',
             "- 不在正文里输出完整 source_fingerprint / prompt_hash。",
             "- 技术依据可引用运行状态、结果摘要、验证摘要、质量检查、模型服务 Key、模型名称、模型回执 ID。",
+            "- Technical evidence must cover Token accounting mode, Total tokens, Estimated cost USD, Log path, and quality gate.",
             "- 内容简洁，面向后台用户。",
             "",
             "源数据：",
@@ -526,6 +559,13 @@ class RunAISummaryService:
             f"- 模型服务 Key：{provider_label}",
             f"- 模型名称：{model_label}",
             f"- 模型回执 ID：{receipt_label}",
+            f"- Execution mode: {execution_mode_label}",
+            f"- Token accounting mode: {run.token_accounting_mode or 'missing'}",
+            f"- Prompt tokens: {run.prompt_tokens}",
+            f"- Completion tokens: {run.completion_tokens}",
+            f"- Total tokens: {run.total_tokens}",
+            f"- Estimated cost USD: {run.estimated_cost}",
+            f"- Log path: {run.log_path or 'missing'}",
         ]
         if run.failure_category is not None:
             lines.append(f"- 失败分类：{run.failure_category.value}")
