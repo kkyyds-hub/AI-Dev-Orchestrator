@@ -810,3 +810,21 @@ Gate 预期：Pass / Partial / Blocked / Fail
 6. 禁止把没有运行证据的阶段写成总 Pass。
 7. 禁止把 UI Pass 等同于 Backend Pass。
 8. 禁止把 Phase1 Pass 等同于项目总闭环 Pass。
+
+---
+
+## 10A. BCG-12A-P0-R2 ledger backfill (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase name | BCG-12A-P0-R2 Context Pack API acceptance closeout |
+| Phase type | Minimal test hardening + documentation ledger backfill |
+| Start commit | `57c3eb43f1dce14c6e8dbbaa69315d19e8a64a11` |
+| Changed files | `runtime/orchestrator/tests/test_repository_context_pack_api.py`; `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md`; `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` |
+| Involved API | `POST /repositories/projects/{project_id}/context-pack` |
+| Backend closure | Backend Pass for API readiness |
+| Runtime evidence | Pending; hand off to DeepSeek live evidence |
+| Test closeout | Success covers `README.md` + `src/service.py`; budget truncation covered; `../` escape 422; absolute path escape 422; unbound repository 404 |
+| Frontend changes | None |
+| Gate conclusion | BCG-12A-P0 API Ready / BCG-12 Runtime Evidence Pending |
+

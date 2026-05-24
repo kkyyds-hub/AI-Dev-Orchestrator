@@ -89,6 +89,13 @@ def test_build_project_context_pack_success(
     tmp_path,
 ):
     repo_root = tmp_path / "repo"
+    readme_file = repo_root / "README.md"
+    readme_file.parent.mkdir(parents=True)
+    readme_file.write_text(
+        "# Context Pack Fixture\n\n"
+        "This README validates multi-file context-pack selection.\n",
+        encoding="utf-8",
+    )
     source_file = repo_root / "src" / "service.py"
     source_file.parent.mkdir(parents=True)
     source_file.write_text(
@@ -105,8 +112,9 @@ def test_build_project_context_pack_success(
     response = client.post(
         f"/repositories/projects/{project_id}/context-pack",
         json={
-            "selected_paths": ["src/service.py"],
+            "selected_paths": ["README.md", "src/service.py"],
             "selection_reasons_by_path": {
+                "README.md": ["explicit README selection"],
                 "src/service.py": ["explicit test selection"]
             },
         },
@@ -116,11 +124,53 @@ def test_build_project_context_pack_success(
     data = response.json()
     assert data["project_id"] == project_id
     assert data["repository_root_path"] == str(repo_root.resolve())
-    assert data["selected_paths"] == ["src/service.py"]
+    assert data["selected_paths"] == ["README.md", "src/service.py"]
+    assert data["included_file_count"] == 2
+    assert [entry["relative_path"] for entry in data["entries"]] == [
+        "README.md",
+        "src/service.py",
+    ]
+    assert "Context Pack Fixture" in data["entries"][0]["excerpt"]
+    assert "build_context_pack" in data["entries"][1]["excerpt"]
+    assert data["entries"][0]["match_reasons"] == ["explicit README selection"]
+    assert data["entries"][1]["match_reasons"] == ["explicit test selection"]
+
+
+def test_build_project_context_pack_marks_truncated_when_total_budget_is_exhausted(
+    client,
+    sqlite_session_factory,
+    tmp_path,
+):
+    repo_root = tmp_path / "repo"
+    first_file = repo_root / "README.md"
+    first_file.parent.mkdir(parents=True)
+    first_file.write_text("A" * 600, encoding="utf-8")
+    second_file = repo_root / "src" / "service.py"
+    second_file.parent.mkdir(parents=True)
+    second_file.write_text("def later():\n    return 'omitted'\n", encoding="utf-8")
+    project_id = _create_project_with_optional_workspace(
+        sqlite_session_factory,
+        repository_root_path=repo_root,
+        allowed_workspace_root=tmp_path,
+    )
+
+    response = client.post(
+        f"/repositories/projects/{project_id}/context-pack",
+        json={
+            "selected_paths": ["README.md", "src/service.py"],
+            "max_total_bytes": 512,
+            "max_bytes_per_file": 512,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["truncated"] is True
     assert data["included_file_count"] == 1
-    assert data["entries"][0]["relative_path"] == "src/service.py"
-    assert "build_context_pack" in data["entries"][0]["excerpt"]
-    assert data["entries"][0]["match_reasons"] == ["explicit test selection"]
+    assert data["total_included_bytes"] <= 512
+    assert data["omitted_paths"] == ["src/service.py"]
+    assert [entry["relative_path"] for entry in data["entries"]] == ["README.md"]
+    assert data["entries"][0]["truncated"] is True
 
 
 def test_build_project_context_pack_rejects_path_escape_with_422(

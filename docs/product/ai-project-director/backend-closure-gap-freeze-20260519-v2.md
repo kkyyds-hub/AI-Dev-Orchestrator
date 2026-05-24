@@ -471,3 +471,21 @@ Git 本地写入后端已存在但未完成前端入口和总证据闭环。
 真正最该补的是 AI 项目主管顶层会话、计划确认、待确认事项、Skill 消费证据。
 其余大量事项是运行证据与联调问题，不应重复开发。
 ```
+
+---
+
+## 12B. BCG-12A-P0-R2 acceptance closeout (2026-05-24)
+
+Scope: minimal test hardening and ledger backfill only; no new business
+functionality and no frontend changes.
+
+- Success API test now selects both `README.md` and `src/service.py` and asserts
+  `included_file_count == 2` plus entry path order.
+- Budget behavior test verifies small `max_total_bytes` marks the pack as
+  truncated, includes only `README.md`, and records `src/service.py` in
+  `omitted_paths`.
+- Existing safety tests remain covered: `../outside.txt` returns 422, absolute
+  outside path returns 422, and a project without a bound repository returns 404.
+
+Gate: **BCG-12A-P0 API Ready / BCG-12 Runtime Evidence Pending**.
+
