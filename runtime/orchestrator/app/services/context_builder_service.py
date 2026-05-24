@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import UUID
 
 from app.domain.code_context_pack import CodeContextPack, CodeContextPackEntry
@@ -817,8 +817,15 @@ class ContextBuilderService:
             if not normalized_value or normalized_value in seen_items:
                 continue
 
-            normalized_items.append(normalized_value)
-            seen_items.add(normalized_value)
+            normalized_path = PurePosixPath(normalized_value)
+            if normalized_path.is_absolute() or ".." in normalized_path.parts:
+                raise CodeContextBuildError(
+                    f"Selected path escapes the repository root: {value}"
+                )
+
+            serialized_path = normalized_path.as_posix()
+            normalized_items.append(serialized_path)
+            seen_items.add(serialized_path)
 
         return normalized_items
 
