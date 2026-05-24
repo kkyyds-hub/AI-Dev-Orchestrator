@@ -97,18 +97,51 @@ The `POST /runs/verification` API was used to create a passed verification run (
 
 ## 9. Runtime Evidence Gap Assessment
 
-None.
+None (all gaps closed by R1).
 
 ---
 
 ## 10. Uncovered Scope
 
-- Verification missing 409 (requires a batch with preflight ready but zero passed verification runs — the evidence setup creates a passed run, so this path is not tested live; the service logic is verified by code audit)
-- Preflight not_started 409 (same as above)
+None for BCG-15 scope. Apply-local/git-commit is BCG-16 scope.
 
 ---
 
-## 11. Gate Conclusion
+## 11. R1 Closeout (2026-05-24)
+
+### R1 Script
+
+`runtime/orchestrator/scripts/bcg15a_r1_commit_candidate_protection_live.py`
+
+### R1 Results
+
+| Scenario | Pre-R1 Status | R1 Status |
+|---|---|---|
+| Preflight not_started → 409 | Uncovered | **Pass** |
+| Verification missing → 409 | Uncovered | **Pass** |
+| Verification failed → 409 | Uncovered | **Pass** |
+| No candidate created on 409 | Uncovered | **Pass** (404) |
+| Preflight state preserved | Uncovered | **Pass** |
+
+### R1 Evidence IDs
+
+| ID | Value |
+|---|---|
+| r1_project_id | 7d41bc71-e43e-4409-a0fc-3fb0b5c75e13 |
+| r1_batch_id | 344228ac-5eca-4ba9-ba56-aeae683e173e |
+
+### R1 Live Evidence Command
+
+```bash
+cd runtime/orchestrator
+python scripts/bcg15a_r1_commit_candidate_protection_live.py
+```
+
+Result: **41 passed, 0 failed, 0 gaps**
+
+---
+
+## 12. Gate Conclusion
 
 ```text
 BCG-15 Runtime Evidence: Pass
