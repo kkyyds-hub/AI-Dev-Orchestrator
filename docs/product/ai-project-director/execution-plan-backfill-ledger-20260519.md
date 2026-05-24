@@ -848,6 +848,29 @@
 | Gate | **BCG-15 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
 | Next | BCG-16 (apply-local/git-commit), Release Gate (BCG-18), governance/cost, total rollup |
 
+### BCG-15A-R1 Commit Candidate Protection Path Closeout (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-15A-R1 Commit Candidate Protection Path Closeout |
+| Scope | Close 3 BCG-15A uncovered protection paths: preflight not_started → 409, verification missing → 409, verification failed → 409. Uses isolated project on same batch (active-batch constraint). |
+| Baseline | `64fc2a1` (BCG-15A main evidence on latest `origin/main`) |
+| End commit | `2033fea` |
+| R1 project | Isolated project `7d41bc71-e43e-4409-a0fc-3fb0b5c75e13` (BCG-15A-R1 Protection Path Evidence) |
+| R1 batch | `344228ac-5eca-4ba9-ba56-aeae683e173e` (shared across all 3 tests, preflight re-runnable) |
+| Changed files | `runtime/orchestrator/scripts/bcg15a_r1_commit_candidate_protection_live.py` (new), `docs/product/ai-project-director/verification-project-director-commit-candidate-20260524.md` (R1 closeout + Uncovered Scope cleared) |
+| preflight not_started 409 | POST commit-candidate on not_started batch → 409. Detail: "preflight is not ready; Day13 requires a preflight-ready batch." Preflight still not_started. GET commit-candidate → 404. |
+| verification missing 409 | Ready preflight, 0 verification runs → 409. Detail: "Verification evidence is missing; Day13 requires at least one passed run." Preflight state preserved. GET → 404. |
+| verification failed 409 | Ready preflight, failed verification run, 0 passed → 409. Detail: "Verification contains failed runs; Day13 only accepts passed verification sets." Preflight state preserved. GET → 404. |
+| No candidate on 409 | All 3 protection paths: GET commit-candidate → 404. No draft created. |
+| Live command | `cd runtime/orchestrator && python scripts/bcg15a_r1_commit_candidate_protection_live.py` |
+| Live result | 41/41 passed, 0 failed, 0 gaps |
+| Regression result | 143 passed, 135 warnings in 36.28s |
+| Frontend/build | No frontend changed; `apps/web` build not run |
+| Boundary | No apply-local/git-commit/git-push. No worker run. No planning/apply. No frontend change. No total closure Pass. |
+| Gate | **BCG-15A-R1 Pass. BCG-15 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
+| Next | BCG-16 (apply-local/git-commit), Release Gate (BCG-18), governance/cost, total rollup |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
