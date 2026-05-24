@@ -390,10 +390,7 @@ class LocalGitWriteService:
                     message=f"Workspace root {workspace_root} does not exist or is not a git repo.",
                 )
 
-            # 3. Check release gate
-            gate = _check_gate_approved(self._release_gate_service, change_batch_id)
-
-            # 4. Check preflight
+            # 3. Check preflight (before gate so the error category is precise)
             preflight = batch.preflight
             if preflight is None:
                 raise LocalGitWriteError(
@@ -405,10 +402,13 @@ class LocalGitWriteService:
                 preflight.ready_for_execution,
             )
 
-            # 5. Check commit candidate
+            # 4. Check commit candidate (before gate so the error category is precise)
             candidate = _check_commit_candidate_exists(
                 self._commit_candidate_repository, change_batch_id
             )
+
+            # 5. Check release gate (last pre-write guard; gate must still approve before any file is written)
+            gate = _check_gate_approved(self._release_gate_service, change_batch_id)
 
             # 6. Validate file paths — safety checks
             validated: list[tuple[str, Path, str]] = []  # (rel_path, full_path, content)
@@ -538,10 +538,7 @@ class LocalGitWriteService:
 
             workspace_root = Path(workspace.root_path).resolve()
 
-            # 3. Re-check gate
-            _check_gate_approved(self._release_gate_service, change_batch_id)
-
-            # 4. Re-check preflight
+            # 3. Re-check preflight (before gate so error category is precise)
             preflight_object = batch.preflight
             if preflight_object is None:
                 raise LocalGitWriteError(
@@ -553,10 +550,13 @@ class LocalGitWriteService:
                 preflight_object.ready_for_execution,
             )
 
-            # 5. Re-check commit candidate
+            # 4. Re-check commit candidate (before gate so error category is precise)
             candidate = _check_commit_candidate_exists(
                 self._commit_candidate_repository, change_batch_id
             )
+
+            # 5. Re-check gate
+            _check_gate_approved(self._release_gate_service, change_batch_id)
 
             # 6. Get changed files from apply, re-validate every path
             changed_files_raw = apply_result.get("changed_files")
