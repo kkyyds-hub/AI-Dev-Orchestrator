@@ -701,7 +701,7 @@
 | Field | Backfill |
 |---|---|
 | Phase | BCG-12A File Locator + Context Pack Live Evidence |
-| Scope | Runtime evidence verification; reuses BCG-11A bound sample repo; validates file-locator search (3 query types) and context-pack build (real file excerpts); no new API; no frontend change |
+| Scope | Runtime evidence verification plus BCG-12A-R1 ignored-directory security closeout; reuses BCG-11A bound sample repo; validates file-locator search (3 query types), context-pack build (real file excerpts), and ignored-directory selected_paths blocking; no new API; no frontend change |
 | Baseline | `3b05b3c` (Close context pack API acceptance tests on latest `origin/main`) |
 | End commit | this commit |
 | Evidence project | Reused BCG evidence project `423367da-966b-4c2e-b8c8-a4ff5f7f2377` |
@@ -711,7 +711,7 @@
 | APIs used | `GET /repositories/projects/{project_id}`, `GET /repositories/projects/{project_id}/snapshot`, `POST /repositories/projects/{project_id}/file-locator/search`, `POST /repositories/projects/{project_id}/context-pack` |
 | New write API | None (all APIs are existing) |
 | Workspace verification | root_path is absolute, read_only, .git exists, outside main repo/runtime_data_dir/system temp |
-| Snapshot verification | status=success, scan_error=null, file_count=5, languages=Markdown(2)/JSON(1)/Python(1)/TypeScript(1), tree includes README.md/src/web/config/docs, ignored dirs exclude node_modules + __pycache__ files |
+| Snapshot verification | status=success, scan_error=null, file_count=5, languages=Markdown(2)/JSON(1)/Python(1)/TypeScript(1), tree includes README.md/src/web/config/docs, ignored dirs include `.git`, `.venv`, `__pycache__`, `node_modules`, `dist`, `build` and excluded files stay out of tree |
 | File locator A (keywords) | keywords: evidence/repository/context, limit=5, candidate_count=4, candidates: README.md/config/app.json/src/main.py/web/app.tsx |
 | File locator B (path_prefixes + file_types) | path_prefixes: src/web/config/docs, file_types: py/tsx/json/md, candidate_count=5, all 5 expected files found |
 | File locator C (task_query) | task_query="build context pack for repository binding snapshot evidence", candidate_count=5, scanned_file_count=5 |
@@ -719,16 +719,20 @@
 | Budget truncation | Sample files too small (~215 bytes) to exceed API minimum (512 bytes). Truncation logic verified by `tests/test_repository_context_pack_api.py::test_build_project_context_pack_marks_truncated_when_total_budget_is_exhausted`. |
 | Security ../ | ../outside.txt → 422 (Pass) |
 | Security absolute path | Absolute script path → 422 (Pass) |
-| Security node_modules | node_modules/ignored.js → 200 INCLUDED (**Security Gap**: context-pack reads ignored directory files) |
-| Security __pycache__ | __pycache__/ignored.py → 200 INCLUDED (**Security Gap**: context-pack reads ignored directory files) |
-| Runtime Evidence Gaps | 2 gaps: node_modules + __pycache__ files readable via context-pack API. Context-pack validates path traversal but not ignored_directory_names. |
+| Security node_modules | node_modules/ignored.js -> 422 blocked (Pass) |
+| Security __pycache__ | __pycache__/ignored.py -> 422 blocked (Pass) |
+| Security .git | .git/config -> 422 blocked (Pass) |
+| Security .venv | .venv/ignored.py -> 422 blocked (Pass) |
+| Security dist | dist/ignored.js -> 422 blocked (Pass) |
+| Security build | build/ignored.js -> 422 blocked (Pass) |
+| Runtime Evidence Gaps | 0 gaps. BCG-12A-R1 blocks `.git`, `node_modules`, `__pycache__`, `.venv`, `dist`, and `build` selected_paths before file read. |
 | Live command | `cd runtime/orchestrator && python scripts/bcg12a_file_locator_context_pack_live.py` |
-| Live result | 157/157 passed, 0 failed; 2 Runtime Evidence Gaps documented (Security Gap) |
-| Regression command | `cd runtime/orchestrator && python -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py tests/test_run_ai_summaries.py tests/test_repository_context_pack_api.py -q` |
-| Regression result | 137 passed, 129 warnings in 33.07s |
+| Live result | 178/178 passed, 0 failed; 0 Runtime Evidence Gaps |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | 143 passed, 135 warnings in 36.06s |
 | Frontend/build | No frontend files changed; `apps/web` build not run |
 | Boundary | No apply-local; no git-commit; no repository write to main repo; no new write API; no planning/apply; no frontend change; no mock/simulate; no total closure Pass |
-| Gate | **BCG-12 Runtime Evidence: Partial (File locator + context pack evidence Pass / Security Gap: ignored directory files readable)**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
+| Gate | **BCG-12A-R1 Pass / BCG-12 Runtime Evidence Pass**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
 | Next | BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
 
 ### 5.6 端到端闭环总验收
@@ -858,8 +862,8 @@ Gate 预期：Pass / Partial / Blocked / Fail
 | Changed files | `runtime/orchestrator/tests/test_repository_context_pack_api.py`; `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md`; `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` |
 | Involved API | `POST /repositories/projects/{project_id}/context-pack` |
 | Backend closure | Backend Pass for API readiness |
-| Runtime evidence | Pending; hand off to DeepSeek live evidence |
+| Runtime evidence | Pass after BCG-12A-R1 live evidence; no ignored-directory gap remains |
 | Test closeout | Success covers `README.md` + `src/service.py`; budget truncation covered; `../` escape 422; absolute path escape 422; unbound repository 404 |
 | Frontend changes | None |
-| Gate conclusion | BCG-12A-P0 API Ready / BCG-12 Runtime Evidence Pending |
+| Gate conclusion | BCG-12A-R1 Pass / BCG-12 Runtime Evidence Pass |
 

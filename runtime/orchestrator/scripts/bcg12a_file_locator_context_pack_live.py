@@ -1,4 +1,4 @@
-"""BCG-12A live evidence: file locator + context pack (DeepSeek evidence).
+"""BCG-12A live evidence: file locator + context pack (Codex evidence).
 
 Validates the end-to-end chain:
   Repository Snapshot → File Locator Search → Context Pack Build
@@ -184,13 +184,16 @@ def _verify_snapshot(client: TestClient) -> dict[str, Any]:
 
     # Ignored directories
     ignored = set(snapshot.get("ignored_directory_names", []))
-    for ign in (".git", "node_modules", "__pycache__"):
+    for ign in (".git", ".venv", "__pycache__", "node_modules", "dist", "build"):
         _check(ign in ignored, f"'{ign}' not in ignored: {ignored}")
 
     # Ignored files NOT in tree
     all_tn = _all_names(tree)
     _check("node_modules" not in all_tn, "node_modules in tree names")
     _check("__pycache__" not in all_tn, "__pycache__ in tree names")
+    _check(".venv" not in all_tn, ".venv in tree names")
+    _check("dist" not in all_tn, "dist in tree names")
+    _check("build" not in all_tn, "build in tree names")
 
     all_tp = _all_paths(tree)
     _check("node_modules/ignored.js" not in all_tp, "node_modules/ignored.js in tree")
@@ -225,7 +228,7 @@ def _verify_file_locator_a_keywords(client: TestClient, root_path: str) -> dict[
     _assert(result["repository_root_path"] == root_path, "A: root_path mismatch")
 
     ignored = result.get("ignored_directory_names", [])
-    for ign in (".git", "node_modules", "__pycache__"):
+    for ign in (".git", ".venv", "__pycache__", "node_modules", "dist", "build"):
         _check(ign in ignored, f"A: '{ign}' not in ignored_directory_names")
 
     _check(result["candidate_count"] > 0, f"A: candidate_count={result['candidate_count']}")
@@ -271,7 +274,7 @@ def _verify_file_locator_b_paths(client: TestClient, root_path: str) -> dict[str
     _assert(result["repository_root_path"] == root_path, "B: root_path mismatch")
 
     ignored = result.get("ignored_directory_names", [])
-    for ign in (".git", "node_modules", "__pycache__"):
+    for ign in (".git", ".venv", "__pycache__", "node_modules", "dist", "build"):
         _check(ign in ignored, f"B: '{ign}' not in ignored_directory_names")
 
     _check(result["candidate_count"] > 0, f"B: candidate_count={result['candidate_count']}")
@@ -312,7 +315,7 @@ def _verify_file_locator_c_task_query(client: TestClient, root_path: str) -> dic
     _assert(result["repository_root_path"] == root_path, "C: root_path mismatch")
 
     ignored = result.get("ignored_directory_names", [])
-    for ign in (".git", "node_modules", "__pycache__"):
+    for ign in (".git", ".venv", "__pycache__", "node_modules", "dist", "build"):
         _check(ign in ignored, f"C: '{ign}' not in ignored_directory_names")
 
     _check(result["candidate_count"] > 0, f"C: candidate_count={result['candidate_count']}")
@@ -517,7 +520,7 @@ def _verify_security_boundary(client: TestClient) -> dict[str, Any]:
             or "escape" in resp1.json().get("detail", "").lower(),
             f"../ 422 detail doesn't mention escape: {resp1.json().get('detail', '')[:120]}",
         )
-    print(f"  6a: ../outside.txt → {resp1.status_code}")
+    print(f"  6a: ../outside.txt -> {resp1.status_code}")
 
     # 6b: Absolute path
     abs_path = str(Path(__file__).resolve())
@@ -533,68 +536,57 @@ def _verify_security_boundary(client: TestClient) -> dict[str, Any]:
             or "escape" in resp2.json().get("detail", "").lower(),
             f"absolute path 422 detail: {resp2.json().get('detail', '')[:120]}",
         )
-    print(f"  6b: absolute path → {resp2.status_code}")
+    print(f"  6b: absolute path -> {resp2.status_code}")
 
-    # 6c: node_modules file (ignored directory)
-    resp3 = client.post(
-        f"/repositories/projects/{PROJECT_ID}/context-pack",
-        json={"selected_paths": ["node_modules/ignored.js"]},
-    )
-    results["node_modules_file_status"] = resp3.status_code
-    if resp3.status_code == 422:
-        _check(True, "node_modules file correctly rejected (422)")
-        results["node_modules_file_blocked"] = True
-        print(f"  6c: node_modules/ignored.js → 422 (blocked)")
-    elif resp3.status_code == 200:
-        data3 = resp3.json()
-        # File was read — check if it was omitted
-        omitted3 = data3.get("omitted_paths", [])
-        if "node_modules/ignored.js" in omitted3:
-            _check(True, "node_modules file omitted from context pack")
-            results["node_modules_file_blocked"] = True
-            print(f"  6c: node_modules/ignored.js → 200 but omitted")
-        else:
-            results["node_modules_file_blocked"] = False
+    def _ignored_file_check(label: str, path: str, ordinal: str) -> None:
+        response = client.post(
+            f"/repositories/projects/{PROJECT_ID}/context-pack",
+            json={"selected_paths": [path]},
+        )
+        results[f"{label}_file_status"] = response.status_code
+        if response.status_code == 422:
+            detail = response.json().get("detail", "")
+            _check(
+                "ignored repository directory" in detail.lower()
+                or "ignored" in detail.lower(),
+                f"{path} 422 detail should mention ignored directory: {detail[:120]}",
+            )
+            results[f"{label}_file_blocked"] = True
+            print(f"  {ordinal}: {path} -> 422 (blocked)")
+            return
+
+        if response.status_code == 200:
+            data = response.json()
+            omitted = data.get("omitted_paths", [])
+            if path in omitted:
+                _check(True, f"{path} omitted from context pack")
+                results[f"{label}_file_blocked"] = True
+                print(f"  {ordinal}: {path} -> 200 but omitted")
+                return
+
+            results[f"{label}_file_blocked"] = False
             _gap(
-                "node_modules/ignored.js was readable via context-pack API "
-                f"(status={resp3.status_code}, included_file_count={data3.get('included_file_count')}). "
+                f"{path} was readable via context-pack API "
+                f"(status={response.status_code}, included_file_count={data.get('included_file_count')}). "
                 "Security Gap: ignored directory files should not be readable."
             )
-            print(f"  6c: node_modules/ignored.js → 200 INCLUDED (SECURITY GAP)")
-    else:
-        results["node_modules_file_blocked"] = None
-        _gap(f"node_modules/ignored.js unexpected status: {resp3.status_code}")
-        print(f"  6c: node_modules/ignored.js → {resp3.status_code} (unexpected)")
+            print(f"  {ordinal}: {path} -> 200 INCLUDED (SECURITY GAP)")
+            return
 
-    # 6d: __pycache__ file (ignored directory)
-    resp4 = client.post(
-        f"/repositories/projects/{PROJECT_ID}/context-pack",
-        json={"selected_paths": ["__pycache__/ignored.py"]},
-    )
-    results["__pycache___file_status"] = resp4.status_code
-    if resp4.status_code == 422:
-        _check(True, "__pycache__ file correctly rejected (422)")
-        results["__pycache___file_blocked"] = True
-        print(f"  6d: __pycache__/ignored.py → 422 (blocked)")
-    elif resp4.status_code == 200:
-        data4 = resp4.json()
-        omitted4 = data4.get("omitted_paths", [])
-        if "__pycache__/ignored.py" in omitted4:
-            _check(True, "__pycache__ file omitted from context pack")
-            results["__pycache___file_blocked"] = True
-            print(f"  6d: __pycache__/ignored.py → 200 but omitted")
-        else:
-            results["__pycache___file_blocked"] = False
-            _gap(
-                "__pycache__/ignored.py was readable via context-pack API "
-                f"(status={resp4.status_code}, included_file_count={data4.get('included_file_count')}). "
-                "Security Gap: ignored directory files should not be readable."
-            )
-            print(f"  6d: __pycache__/ignored.py → 200 INCLUDED (SECURITY GAP)")
-    else:
-        results["__pycache___file_blocked"] = None
-        _gap(f"__pycache__/ignored.py unexpected status: {resp4.status_code}")
-        print(f"  6d: __pycache__/ignored.py → {resp4.status_code} (unexpected)")
+        results[f"{label}_file_blocked"] = None
+        _gap(f"{path} unexpected status: {response.status_code}")
+        print(f"  {ordinal}: {path} -> {response.status_code} (unexpected)")
+
+    ignored_file_cases = [
+        ("git", ".git/config", "6c"),
+        ("node_modules", "node_modules/ignored.js", "6d"),
+        ("__pycache__", "__pycache__/ignored.py", "6e"),
+        ("venv", ".venv/ignored.py", "6f"),
+        ("dist", "dist/ignored.js", "6g"),
+        ("build", "build/ignored.js", "6h"),
+    ]
+    for label, path, ordinal in ignored_file_cases:
+        _ignored_file_check(label, path, ordinal)
 
     return results
 
@@ -644,13 +636,17 @@ def main() -> int:
     security_pass = (
         security.get("dotdot_traversal_422") is True
         and security.get("absolute_path_422") is True
-        and security.get("node_modules_file_blocked") is not False
-        and security.get("__pycache___file_blocked") is not False
+        and security.get("git_file_blocked") is True
+        and security.get("node_modules_file_blocked") is True
+        and security.get("__pycache___file_blocked") is True
+        and security.get("venv_file_blocked") is True
+        and security.get("dist_file_blocked") is True
+        and security.get("build_file_blocked") is True
     )
 
     report = {
         "phase": "BCG-12A File Locator + Context Pack Live Evidence",
-        "model": "DeepSeek",
+        "model": "Codex",
         "project_id": PROJECT_ID,
         "repository_workspace_id": workspace_id,
         "root_path": root_path,
@@ -736,8 +732,12 @@ def main() -> int:
     print(f"budget truncation: {budget_pack.get('truncated')}")
     print(f"security ../: {'422' if security.get('dotdot_traversal_422') else 'FAIL'}")
     print(f"security absolute: {'422' if security.get('absolute_path_422') else 'FAIL'}")
+    print(f"security .git: {'blocked' if security.get('git_file_blocked') else 'GAP'}")
     print(f"security node_modules: {'blocked' if security.get('node_modules_file_blocked') else 'GAP'}")
     print(f"security __pycache__: {'blocked' if security.get('__pycache___file_blocked') else 'GAP'}")
+    print(f"security .venv: {'blocked' if security.get('venv_file_blocked') else 'GAP'}")
+    print(f"security dist: {'blocked' if security.get('dist_file_blocked') else 'GAP'}")
+    print(f"security build: {'blocked' if security.get('build_file_blocked') else 'GAP'}")
     print(f"has_runtime_evidence_gap: {has_runtime_gap}")
     print("=" * 60)
     print(json.dumps(report, ensure_ascii=False, indent=2))

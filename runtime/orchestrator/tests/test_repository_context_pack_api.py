@@ -220,6 +220,42 @@ def test_build_project_context_pack_rejects_absolute_path_escape_with_422(
     assert "escapes the repository root" in response.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    "selected_path",
+    [
+        ".git/config",
+        "node_modules/ignored.js",
+        "__pycache__/ignored.py",
+        ".venv/ignored.py",
+        "dist/ignored.js",
+        "build/ignored.js",
+    ],
+)
+def test_build_project_context_pack_rejects_default_ignored_directory_files_with_422(
+    client,
+    sqlite_session_factory,
+    tmp_path,
+    selected_path,
+):
+    repo_root = tmp_path / "repo"
+    ignored_file = repo_root / selected_path
+    ignored_file.parent.mkdir(parents=True, exist_ok=True)
+    ignored_file.write_text("ignored but present", encoding="utf-8")
+    project_id = _create_project_with_optional_workspace(
+        sqlite_session_factory,
+        repository_root_path=repo_root,
+        allowed_workspace_root=tmp_path,
+    )
+
+    response = client.post(
+        f"/repositories/projects/{project_id}/context-pack",
+        json={"selected_paths": [selected_path]},
+    )
+
+    assert response.status_code == 422
+    assert "ignored repository directory" in response.json()["detail"]
+
+
 def test_build_project_context_pack_without_bound_repository_returns_404(
     client,
     sqlite_session_factory,

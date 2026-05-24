@@ -30,6 +30,9 @@ from app.services.memory_compaction_service import (
     MemoryCompactionResult,
     MemoryCompactionService,
 )
+from app.services.repository_workspace_service import (
+    DEFAULT_REPOSITORY_IGNORE_RULE_SUMMARY,
+)
 from app.services.task_readiness_service import (
     TaskBlockingSignal,
     TaskDependencyReadinessItem,
@@ -42,6 +45,7 @@ _CONTEXT_SUMMARY_MAX_LENGTH = 1_200
 _DEFAULT_CODE_CONTEXT_MAX_TOTAL_BYTES = 12_000
 _DEFAULT_CODE_CONTEXT_MAX_BYTES_PER_FILE = 4_000
 _CODE_CONTEXT_MATCH_PADDING = 2
+DEFAULT_CODE_CONTEXT_IGNORED_DIRECTORIES = DEFAULT_REPOSITORY_IGNORE_RULE_SUMMARY
 
 
 @dataclass(slots=True, frozen=True)
@@ -809,6 +813,7 @@ class ContextBuilderService:
 
         normalized_items: list[str] = []
         seen_items: set[str] = set()
+        ignored_directory_names = set(DEFAULT_CODE_CONTEXT_IGNORED_DIRECTORIES)
 
         for value in selected_paths:
             normalized_value = value.replace("\\", "/").strip()
@@ -831,6 +836,12 @@ class ContextBuilderService:
                 )
 
             serialized_path = normalized_path.as_posix()
+            if any(part in ignored_directory_names for part in normalized_path.parts):
+                raise CodeContextBuildError(
+                    "Selected path is inside an ignored repository directory: "
+                    f"{value}"
+                )
+
             normalized_items.append(serialized_path)
             seen_items.add(serialized_path)
 

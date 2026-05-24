@@ -145,31 +145,30 @@
 
 ---
 
-## 7. Security Boundary
+## 7. Security Boundary (BCG-12A-R1)
 
 | Test | Expected | Actual | Result |
 |---|---|---|---|
 | ../outside.txt | 422 | 422 | Pass |
 | Absolute path (script file) | 422 | 422 | Pass |
-| node_modules/ignored.js | 422 or omitted | 200 INCLUDED | **SECURITY GAP** |
-| __pycache__/ignored.py | 422 or omitted | 200 INCLUDED | **SECURITY GAP** |
+| .git/config | 422 | 422 blocked | Pass |
+| node_modules/ignored.js | 422 | 422 blocked | Pass |
+| __pycache__/ignored.py | 422 | 422 blocked | Pass |
+| .venv/ignored.py | 422 | 422 blocked | Pass |
+| dist/ignored.js | 422 | 422 blocked | Pass |
+| build/ignored.js | 422 | 422 blocked | Pass |
 
-### Security Gap Detail
+### BCG-12A-R1 Fix Detail
 
-The context-pack API (`POST /repositories/projects/{project_id}/context-pack`) successfully
-reads files from ignored directories (`node_modules/`, `__pycache__/`) when explicitly
-selected by path. The service's `_normalize_selected_paths()` only checks for path
-traversal (`..`, absolute paths, drive-qualified paths), but does NOT cross-reference
-against the repository's `ignored_directory_names`.
+The context-pack API (`POST /repositories/projects/{project_id}/context-pack`) now blocks selected paths that contain default ignored-directory segments before resolving or reading files.
 
-This means:
-- `../` path traversal → correctly blocked (422)
-- Absolute paths → correctly blocked (422)
-- Files inside ignored directories → **incorrectly readable** (200)
+Reused rule: `DEFAULT_REPOSITORY_IGNORE_RULE_SUMMARY` from `app.services.repository_workspace_service`, covering `.git`, `.venv`, `__pycache__`, `node_modules`, `dist`, and `build`.
 
-Impact: An attacker who knows a file path inside node_modules or __pycache__ can
-retrieve its contents via the context-pack API, bypassing the repository's ignore
-rules. This is a defense-in-depth gap.
+This preserves existing safety behavior:
+- `../` path traversal -> 422.
+- Absolute paths -> 422.
+- Files inside ignored directories -> 422 before file read.
+- Legal selected files still build a context pack.
 
 ---
 
@@ -177,17 +176,16 @@ rules. This is a defense-in-depth gap.
 
 ### Gaps Found
 
-1. **node_modules file readable**: `node_modules/ignored.js` returned 200 with content via context-pack API.
-2. **__pycache__ file readable**: `__pycache__/ignored.py` returned 200 with content via context-pack API.
-3. **Budget truncation not verifiable with sample data**: Sample files are too small (215 bytes) to exceed the 512-byte API minimum. Verified separately by unit tests.
+None for BCG-12A-R1. The prior ignored-directory read gap is closed.
 
 ### Not Gaps
 
-- Path traversal (`../`) → correctly rejected (422).
-- Absolute path → correctly rejected (422).
+- Path traversal (`../`) -> correctly rejected (422).
+- Absolute path -> correctly rejected (422).
 - File locator returns valid, safe relative paths.
-- File locator ignores `.git`, `node_modules`, `__pycache__` during scanning.
+- File locator ignores `.git`, `.venv`, `__pycache__`, `node_modules`, `dist`, and `build` during scanning.
 - Context pack excerpt, match reasons, focus terms all functional.
+- Budget truncation is verified by `tests/test_repository_context_pack_api.py`; live sample files are too small to trigger truncation.
 
 ---
 
@@ -195,7 +193,7 @@ rules. This is a defense-in-depth gap.
 
 - File locator with task_id (requires a valid project task).
 - File locator with module_names.
-- Context pack with files that actually exceed the budget (requires larger files).
+- Context pack with live files that actually exceed the budget (unit test covers this).
 - Web frontend UI integration.
 - Worker-triggered locator/context-pack (manual API calls only).
 
@@ -204,14 +202,14 @@ rules. This is a defense-in-depth gap.
 ## 10. Gate Conclusion
 
 ```text
-BCG-12 Runtime Evidence: Partial
+BCG-12A-R1 Pass
   - File locator (keywords / path_prefixes / task_query): Pass
   - Context pack (build / excerpt / languages / source_summary / focus_terms): Pass
   - Path safety (../, absolute path): Pass
-  - Ignored directory file access: Security Gap (node_modules + __pycache__ readable)
+  - Ignored directory file access: Pass (.git / node_modules / __pycache__ / .venv / dist / build all 422)
   - Budget truncation: Pass (verified by test suite; sample files too small for live trigger)
 
-BCG-12 overall: Partial (File locator + context pack evidence Pass / Security Gap exists)
+BCG-12 Runtime Evidence: Pass
 
 AI Project Director total closure: remains Partial. Do not mark total closure Pass.
 ```
@@ -225,4 +223,4 @@ cd runtime/orchestrator
 python scripts/bcg12a_file_locator_context_pack_live.py
 ```
 
-Result: **157 passed, 0 failed, 2 Runtime Evidence Gaps documented**
+Result: **178 passed, 0 failed, 0 Runtime Evidence Gaps**
