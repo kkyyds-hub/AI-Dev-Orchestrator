@@ -733,7 +733,38 @@
 | Frontend/build | No frontend files changed; `apps/web` build not run |
 | Boundary | No apply-local; no git-commit; no repository write to main repo; no new write API; no planning/apply; no frontend change; no mock/simulate; no total closure Pass |
 | Gate | **BCG-12A-R1 Pass / BCG-12 Runtime Evidence Pass**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
-| Next | BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
+| Next | BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
+
+### BCG-13A Change Plan → Change Batch Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-13A Change Plan → Change Batch Live Evidence |
+| Scope | Runtime evidence verification; reuses BCG-12 context pack + BCG-11A repository; creates change plan v1+v2 and change batch from 2 plans with distinct tasks; no new API; no frontend change |
+| Baseline | `3bc223a` (BCG-12A-R1 ignored-dir blocking on latest `origin/main`) |
+| End commit | this commit |
+| Evidence project | Reused BCG evidence project `423367da-966b-4c2e-b8c8-a4ff5f7f2377` |
+| Reused BCG-12 | Yes. Reused context pack selected_paths, workspace, snapshot, task, deliverable. |
+| Evidence IDs | change_plan_id `f220deae-ce87-4b34-8b85-faf06a802b3c`; second_plan_id `e2118411-5ea9-4e14-ad17-ef1167383d96`; change_batch_id `2d07dde6-0216-40ef-ae2b-b4959db58d33` |
+| Changed files | `runtime/orchestrator/scripts/bcg13a_change_plan_batch_live.py` (new), `docs/product/ai-project-director/verification-project-director-change-plan-batch-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-13 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| APIs used | `GET /repositories/projects/{project_id}`, `GET /snapshot`, `POST /file-locator/search`, `POST /context-pack`, `POST /planning/projects/{project_id}/change-plans`, `POST /planning/change-plans/{id}/versions`, `GET /planning/change-plans/{id}`, `GET /planning/projects/{project_id}/change-plans`, `GET /tasks`, `POST /repositories/projects/{project_id}/change-batches`, `GET /repositories/projects/{project_id}/change-batches`, `GET /repositories/change-batches/{id}` |
+| New write API | None (all APIs are existing) |
+| BCG-12 prerequisites | Workspace/snapshot/locator/context-pack all re-verified. Ignored dirs (node_modules/__pycache__/.git) all 422. |
+| Change plan v1 | POST /planning/projects/{project_id}/change-plans → 201; 4 target files (README.md, src/main.py, web/app.tsx, config/app.json); 3 actions, 2 risks, 1 verification command; source_summary refs BCG-12 evidence; all target_files from BCG-12 selected_paths |
+| Change plan v2 | POST /planning/change-plans/{id}/versions → 200; 5 target files (+docs/spec.md); v1+v2 both in versions array; created_at non-null |
+| Read-back | GET detail: versions=2, status=draft. GET project list: plan found. GET task-filtered list: plan found, task_id correct. |
+| Second plan | API requires ≥2 change plans with distinct tasks. Created second plan `e2118411` for existing other task `eadbd502` (BCG-04A-created). Same deliverable, same project, same BCG-12 basis. |
+| Change batch | POST /repositories/projects/{project_id}/change-batches → 200; status=preparing; change_plan_count=2; task_count=2; target_file_count=5; overlap_file_count=3; verification_command_count=1; timeline entries=3 |
+| Batch read-back | GET list: 1 batch found. GET detail: tasks=2, target_files=5, timeline=3, all consistent with creation. |
+| Active batch conflict | No prior active batch existed. |
+| Live command | `cd runtime/orchestrator && python scripts/bcg13a_change_plan_batch_live.py` |
+| Live result | 97/97 passed, 0 failed; 0 Runtime Evidence Gaps |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | 143 passed, 135 warnings in 72.44s |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No apply-local; no git-commit; no preflight; no planning/apply; no Worker dispatch; no repository write to main repo; no new write API; no frontend change; no total closure Pass |
+| Gate | **BCG-13 Runtime Evidence Pass (change plan v1+v2 + change batch + read-back)**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
+| Next | BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
 
 ### 5.6 端到端闭环总验收
 
