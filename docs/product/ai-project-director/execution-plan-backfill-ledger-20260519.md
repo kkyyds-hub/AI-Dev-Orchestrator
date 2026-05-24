@@ -488,6 +488,27 @@
 | Gate | Partial: BCG-05A created-task -> worker -> run evidence passed with simulate executor; BCG-05 provider_reported runtime evidence and AI Project Director total closure remain not passed |
 | Next | Run provider_reported Worker evidence separately for full BCG-05/runtime gate |
 
+
+### IPV4_REDACTED BCG-05B Provider-Reported Worker Runtime Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-05B Provider-Reported Worker Runtime Evidence |
+| Scope | Runtime evidence for existing manual Worker entrypoint; no frontend change; no automatic scheduling |
+| Baseline | `59e32f3` (BCG-05A simulate Worker evidence) |
+| End commit | this commit |
+| Provider config | Saved provider config was present: provider type `deepseek`, base URL `https://api.deepseek.com`, model preset `deepseek`, model `deepseek-v4-pro`, timeout 30s. API key was present but not printed. |
+| Worker entrypoint | `POST /workers/run-once?project_id=423367da-966b-4c2e-b8c8-a4ff5f7f2377` |
+| Evidence chain | Project Director session confirm -> plan version confirm -> BCG-04A create-tasks -> manual Worker run-once -> task completed -> Run succeeded with `token_accounting_mode=provider_reported` |
+| Evidence IDs | project_id `423367da-966b-4c2e-b8c8-a4ff5f7f2377`; session_id `1177d06d-1c71-4e17-979a-855645ea87d8`; plan_version_id `8b906cf9-b7c0-49b3-b7e7-1d7a918ad956`; task_id `db204e31-f244-4f9b-a469-abcc5e0b873f`; run_id `834b38aa-3669-4121-9424-3aa4999cad2e` |
+| Provider evidence | provider_key `deepseek`; model_name `deepseek-v4-pro`; provider_receipt_id `3d8bf6e7-fdfd-43db-bd9a-3abee685521d`; prompt_tokens 380; completion_tokens 66; total_tokens 446; estimated_cost 0.000768; log_path `logs/task-runs/db204e31-f244-4f9b-a469-abcc5e0b873f/834b38aa-3669-4121-9424-3aa4999cad2e.jsonl` |
+| Executor mode | Real provider execution: Worker response `execution_mode=provider_openai`; persisted Run `token_accounting_mode=provider_reported`. Verification step used existing simulate verifier. |
+| Test command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py -q` |
+| Test result | 96 passed, 3 existing DeprecationWarnings (`HTTP_422_UNPROCESSABLE_ENTITY`) |
+| Boundary | No automatic Worker dispatch; no Worker pool requirement; no planning/apply; no repository write; no frontend change; apps/web build not run |
+| Gate | BCG-05B provider_reported runtime evidence passed. AI Project Director total closure remains Partial; do not mark total closure Pass. |
+| Next | Feed this evidence into the later total Gate rollup with repository/delivery/approval/governance/cost evidence. |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
