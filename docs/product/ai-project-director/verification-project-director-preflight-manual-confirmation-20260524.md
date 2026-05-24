@@ -171,3 +171,55 @@ python scripts/bcg14a_preflight_manual_confirmation_live.py
 ```
 
 Result: **74 passed, 0 failed, 1 Runtime Evidence Gap (manual reject skipped)**
+
+---
+
+## 12. R1 Closeout (2026-05-24)
+
+### R1 Script
+
+`runtime/orchestrator/scripts/bcg14a_r1_preflight_reject_closeout_live.py`
+
+### R1 Strategy
+
+Created a fresh isolated project (`BCG-14A-R1 Preflight Evidence`) to avoid
+active-batch conflict with BCG-13A.  Used `POST /projects`,
+`POST /project-director/sessions` (goal_text → clarify → confirm →
+plan version → create-tasks), `POST /deliverables` (create stage_artifact),
+`POST /planning/projects/{id}/change-plans`, and
+`POST /repositories/projects/{id}/change-batches` to set up a small-scope
+batch (2 target files in 2 directories, well under wide_change thresholds).
+
+### R1 Results
+
+| Scenario | Pre-R1 Status | R1 Status |
+|---|---|---|
+| NOT_STARTED manual action → 422 | Missing | **Pass** |
+| Low-risk ready_for_execution | Partial (wide_change blocked) | **Pass** (0 findings) |
+| Manual reject | Skipped (active batch conflict) | **Pass** (manual_rejected, 1 decision) |
+| Inbox read-back (rejected) | Not tested | **Pass** |
+| day15-flow risk_preflight = blocked | Not tested | **Pass** |
+
+### R1 Evidence IDs
+
+| ID | Value |
+|---|---|
+| r1_project_id | 7fb17d15-c6d2-4919-95f0-4d39607a11ea |
+| r1_batch_id | 59d3c8a5-9e24-46b7-af15-4dd164d91000 |
+
+### R1 Live Evidence Command
+
+```bash
+cd runtime/orchestrator
+python scripts/bcg14a_r1_preflight_reject_closeout_live.py
+```
+
+Result: **59 passed, 0 failed, 0 Runtime Evidence Gaps**
+
+### R1 Gate Conclusion
+
+```text
+BCG-14A-R1 closeout: Pass
+BCG-14 Runtime Evidence: Pass (all four preflight states + illegal-action protection + read-back verified)
+AI Project Director total closure: remains Partial. Do not mark total closure Pass.
+```

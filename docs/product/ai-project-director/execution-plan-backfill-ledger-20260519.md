@@ -796,6 +796,30 @@
 | Gate | **BCG-14 Runtime Evidence Partial (preflight/approve/readback Pass / reject not tested)**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
 | Next | BCG-15 (commit candidate), Release Gate (BCG-18), governance/cost, total rollup |
 
+### BCG-14A-R1 Preflight Missing Evidence Closeout (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-14A-R1 Preflight Missing Evidence Closeout |
+| Scope | Close 3 remaining BCG-14A gaps: ready_for_execution (small scope), manual reject, NOT_STARTED 422. Creates fresh isolated project to avoid active-batch conflict. |
+| Baseline | `d768446` (BCG-14A initial evidence on latest `origin/main`) |
+| End commit | this commit |
+| R1 project | Created isolated project `7fb17d15-c6d2-4919-95f0-4d39607a11ea` (BCG-14A-R1 Preflight Evidence) via POST /projects, bound to BCG-11A sample repo, tasks via Project Director session→plan→create-tasks, deliverable via POST /deliverables |
+| R1 batch | `59d3c8a5-9e24-46b7-af15-4dd164d91000` (2 target files, 2 dirs — well under wide_change thresholds) |
+| Changed files | `runtime/orchestrator/scripts/bcg14a_r1_preflight_reject_closeout_live.py` (new), `docs/product/ai-project-director/verification-project-director-preflight-manual-confirmation-20260524.md` (R1 closeout chapter), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (BCG-14 Partial→Pass), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| NOT_STARTED 422 | Manual action before preflight → 422. Batch stays not_started. |
+| Low-risk ready | Small scope (2 files, 2 dirs) + empty commands → ready_for_execution. 0 findings. Read-back consistent. |
+| Manual reject | dangerous commands → blocked_requires_confirmation → POST actions reject → manual_rejected. blocked=true, decision_history populated, read-back consistent. |
+| Inbox | total=1, rejected=1. Batch correctly shows manual_rejected. |
+| day15-flow | risk_preflight step = blocked (after reject). |
+| Live command | `cd runtime/orchestrator && python scripts/bcg14a_r1_preflight_reject_closeout_live.py` |
+| Live result | 59/59 passed, 0 failed, 0 gaps |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | 143 passed, 135 warnings in 33.91s |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Gate | **BCG-14A-R1 closeout Pass. BCG-14 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
+| Next | BCG-15 (commit candidate), Release Gate (BCG-18), governance/cost, total rollup |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
