@@ -422,6 +422,37 @@ Hardening patch（2026-05-19）追加了 required question 校验、partial answ
 
 ---
 
+
+---
+
+## 12A. BCG-12A-P0-R1 implementation record (2026-05-24)
+
+Scope: actually expose and audit the project repository Context Pack API before
+DeepSeek live evidence.
+
+- API route: `POST /repositories/projects/{project_id}/context-pack`
+- Route function: `build_project_code_context_pack`
+- Backend files:
+  - `runtime/orchestrator/app/api/routes/repositories.py`
+  - `runtime/orchestrator/app/services/codebase_locator_service.py`
+  - `runtime/orchestrator/app/services/context_builder_service.py`
+  - `runtime/orchestrator/app/domain/code_context_pack.py`
+- Repository root source: the route calls
+  `CodebaseLocatorService.get_project_repository_root_path(project_id)`, which
+  validates project existence, resolves the bound `RepositoryWorkspace.root_path`
+  with `Path(...).resolve(strict=True)`, and requires a local directory.
+- Path safety: `ContextBuilderService._normalize_selected_paths()` rejects
+  `..`, POSIX absolute paths, Windows absolute paths, and drive-qualified paths;
+  `_resolve_selected_file_path()` resolves each file and requires
+  `candidate_path.relative_to(root_path)`.
+- API tests:
+  - success returns 200 with `included_file_count == 1` and one entry.
+  - `../outside.txt` returns 422.
+  - absolute outside path returns 422.
+  - project without bound repository returns 404.
+
+Gate: **BCG-12A-P0-R1 API Ready / BCG-12 Runtime Evidence Pending**.
+
 ## 13. v2 最终结论
 
 当前后端计划不能只写“缺什么接口”。更准确的执行策略是：

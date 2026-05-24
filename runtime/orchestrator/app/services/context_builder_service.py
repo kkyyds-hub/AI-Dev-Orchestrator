@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from uuid import UUID
 
 from app.domain.code_context_pack import CodeContextPack, CodeContextPackEntry
@@ -818,7 +818,14 @@ class ContextBuilderService:
                 continue
 
             normalized_path = PurePosixPath(normalized_value)
-            if normalized_path.is_absolute() or ".." in normalized_path.parts:
+            windows_path = PureWindowsPath(normalized_value)
+            if (
+                normalized_path.is_absolute()
+                or windows_path.is_absolute()
+                or windows_path.drive
+                or ".." in normalized_path.parts
+                or ".." in windows_path.parts
+            ):
                 raise CodeContextBuildError(
                     f"Selected path escapes the repository root: {value}"
                 )

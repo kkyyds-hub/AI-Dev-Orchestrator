@@ -2573,6 +2573,13 @@ def generate_change_batch_commit_candidate(
     "/projects/{project_id}/context-pack",
     response_model=CodeContextPack,
     summary="Build one bounded Day05 CodeContextPack from selected repository files",
+    operation_id="build_project_code_context_pack",
+    description=(
+        "BCG-12A-P0-R1: expose the project CodeContextPack API used by the "
+        "web file-locator flow. The route resolves the bound repository "
+        "workspace for the project and returns bounded excerpts for selected "
+        "repository-relative paths."
+    ),
 )
 def build_project_code_context_pack(
     project_id: UUID,

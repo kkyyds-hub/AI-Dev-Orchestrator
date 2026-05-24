@@ -146,6 +146,30 @@ def test_build_project_context_pack_rejects_path_escape_with_422(
     assert "escapes the repository root" in response.json()["detail"]
 
 
+def test_build_project_context_pack_rejects_absolute_path_escape_with_422(
+    client,
+    sqlite_session_factory,
+    tmp_path,
+):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("outside", encoding="utf-8")
+    project_id = _create_project_with_optional_workspace(
+        sqlite_session_factory,
+        repository_root_path=repo_root,
+        allowed_workspace_root=tmp_path,
+    )
+
+    response = client.post(
+        f"/repositories/projects/{project_id}/context-pack",
+        json={"selected_paths": [str(outside_file.resolve())]},
+    )
+
+    assert response.status_code == 422
+    assert "escapes the repository root" in response.json()["detail"]
+
+
 def test_build_project_context_pack_without_bound_repository_returns_404(
     client,
     sqlite_session_factory,
