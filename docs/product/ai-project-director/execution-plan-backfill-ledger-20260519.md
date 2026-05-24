@@ -468,6 +468,26 @@
 | Gate | Partial (Backend Pass / Runtime Evidence Missing, same as BCG-04A Phase1; not total closure Pass) |
 | Next | Worker/runtime evidence remains future work for total Gate |
 
+
+### IPV4_REDACTED BCG-05A Phase1 - Created Task to Worker Run Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-05A Created Task -> Worker Run Evidence Phase1 |
+| Scope | Backend/runtime evidence only; no auto scheduling; no frontend change |
+| Baseline | `cb2a33e` (BCG-04A event-consistency hardening) |
+| End commit | this commit |
+| Goal | Prove a real Task created by BCG-04A can be manually claimed by the existing Worker entrypoint and converted into a persisted Run |
+| Worker entrypoint | `POST /workers/run-once?project_id={project_id}` |
+| Evidence chain | Project Director session confirm -> plan version confirm -> `POST /project-director/plan-versions/{id}/create-tasks` creates real Task rows with `source_draft_id=pdv:{plan_version_id}:{version_no}` -> `POST /workers/run-once?project_id=...` claims one created Task -> Worker creates and finalizes a `RunTable` row linked by `run.task_id == task.id` |
+| Executor mode | Explicit `simulate:` input_summary was used in the test to avoid real Provider/network dependency. No provider_mock and no provider_reported call were used. |
+| Changed files | `tests/test_project_director_worker_run_evidence.py` (new evidence test), `backend-closure-gap-freeze-20260519-v2.md`, `execution-plan-backfill-ledger-20260519.md`, `verification-project-director-created-task-worker-run-phase1-20260524.md` |
+| Test command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_worker_run_evidence.py tests/test_project_director_task_creation.py -q` |
+| Test result | 19 passed, 1 existing DeprecationWarning (`HTTP_422_UNPROCESSABLE_ENTITY`) |
+| Boundary | Manual Worker entrypoint only; no automatic dispatch after task creation; no Worker pool requirement; no planning/apply; no repository write; no frontend change; apps/web build not run |
+| Gate | Partial: BCG-05A created-task -> worker -> run evidence passed with simulate executor; BCG-05 provider_reported runtime evidence and AI Project Director total closure remain not passed |
+| Next | Run provider_reported Worker evidence separately for full BCG-05/runtime gate |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
