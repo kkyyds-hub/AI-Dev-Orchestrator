@@ -41,6 +41,16 @@ _PROJECT_TIMELINE_EVENT_TYPES = {
     "worker_rolled_back": "decision",
 }
 
+_HEADLINE_EVENT_PRIORITY = (
+    "run_finalized",
+    "guard_blocked",
+    "verification_finished",
+    "verification_skipped",
+    "execution_finished",
+    "run_recovered",
+    "worker_rolled_back",
+)
+
 
 @dataclass(slots=True, frozen=True)
 class DecisionTraceItem:
@@ -289,6 +299,11 @@ class DecisionReplayService:
 
         if run.failure_category is not None:
             return f"{run.failure_category.value}: {run.result_summary or 'No run summary.'}"
+
+        for event_name in _HEADLINE_EVENT_PRIORITY:
+            for item in reversed(trace_items):
+                if item.event == event_name:
+                    return item.summary
 
         if trace_items:
             return trace_items[-1].summary

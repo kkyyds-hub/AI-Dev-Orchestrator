@@ -509,6 +509,28 @@
 | Gate | BCG-05B provider_reported runtime evidence passed. AI Project Director total closure remains Partial; do not mark total closure Pass. |
 | Next | Feed this evidence into the later total Gate rollup with repository/delivery/approval/governance/cost evidence. |
 
+### IPV4_REDACTED BCG-07A Run Evidence Replay / Decision History Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-07A Run Evidence Replay / Decision History Evidence |
+| Scope | Backend/runtime read evidence only; no frontend change; no automatic scheduling |
+| Baseline | `e14b857` (BCG-05B provider-reported Worker evidence on latest `origin/main`) |
+| End commit | this commit |
+| Goal | Prove a Project Director-created task and its manual Worker run can be replayed through task/run/log/decision-history read APIs |
+| Read-only API | Reused existing `GET /tasks/{task_id}/runs`, `GET /runs/{run_id}/logs`, `GET /runs/{run_id}/decision-trace`, `GET /tasks/{task_id}/decision-history`; no new read-only API was required |
+| New write API | None |
+| Evidence chain | Project Director session confirm -> plan version confirm -> BCG-04A create-tasks -> manual Worker run-once -> persisted task/run -> run JSONL logs -> run decision trace -> task decision history |
+| Runtime events asserted | `task_routed`, `role_handoff`, `run_claimed`, `context_built`, `execution_finished`, `verification_finished`, `cost_estimated`, `run_finalized` |
+| Backend adjustment | `DecisionReplayService._build_headline` now prefers core run replay events such as `run_finalized`, guard, verification, and execution events before falling back to later auxiliary log events |
+| Changed files | `runtime/orchestrator/app/services/decision_replay_service.py`, `runtime/orchestrator/tests/test_project_director_run_evidence_replay.py`, `docs/product/ai-project-director/verification-project-director-run-evidence-replay-20260524.md`, `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` |
+| Test command | Focused: `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_run_evidence_replay.py -q`; regression: `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py -q` |
+| Test result | Focused: 1 passed; regression: 97 passed, 3 existing `HTTP_422_UNPROCESSABLE_ENTITY` deprecation warnings |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | Manual Worker evidence only; no planning/apply; no repository write; no new write API; no UI work; this is run evidence replay, not total closure Pass |
+| Gate | BCG-07A evidence-replay phase Pass. AI Project Director total closure remains Partial; do not mark total closure Pass. |
+| Next | Feed BCG-07A replay evidence into later total Gate rollup together with repository/delivery/approval/governance/cost evidence. |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
