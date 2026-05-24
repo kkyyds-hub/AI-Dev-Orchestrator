@@ -97,37 +97,76 @@ None.
 
 ## 8. Uncovered Scope
 
-- Gate not approved protection path (could not construct failing scenario — gate was approved directly)
-- Preflight not passed protection path (batch was ready_for_execution)
-- Commit candidate missing protection path (candidate was created)
-- Apply before commit protection path (commit succeeds after apply)
-- Apply verification failed then commit blocked (verification passed)
-- Unrelated staged files leaking into commit (verified by git reset + staged validation in service)
+- Frontend Entry Pending (BCG-16 backend Runtime Evidence Pass; frontend apply-local / git-commit entry not yet confirmed).
+- BCG-17 remote push / PR / merge remains Deferred (not in BCG-16 scope).
+
+All BCG-16 guard paths are now covered by live evidence (R2 code fix + R3/R4 verification).
 
 ---
 
-## 9. Gate Conclusion
+## 9. BCG-16A-R2 Code Fix (2026-05-24)
+
+Guard order in `LocalGitWriteService.apply_local()` and `git_commit()`
+reordered from (gate → preflight → candidate) to (preflight → candidate → gate).
+This ensures precise error categories: `preflight_not_passed` before
+`commit_candidate_missing` before `gate_not_approved`.
+
+Commit: `a7ee217`. Tests: `tests/test_apply_local_git_commit_guard.py` (6 tests).
+
+---
+
+## 10. BCG-16A-R3/R4 Guard Path Runtime Evidence (2026-05-24)
+
+Script: `runtime/orchestrator/scripts/bcg16a_r3_apply_local_git_guard_live.py`
+
+All 7 guard paths live-verified with hardening (main repo pollution check,
+isolated repo HEAD before/after, no file writes, no commits, no remotes):
+
+| # | Guard Path | error_category | Hardened |
+|---|---|---|---|
+| 1 | preflight not_started | preflight_not_passed | HEAD unchanged, no file write, no commit |
+| 2 | preflight blocked | preflight_not_passed | HEAD unchanged, no file write, no commit |
+| 3 | no commit candidate | commit_candidate_missing | HEAD unchanged, no file write, no commit |
+| 4 | gate not approved | gate_not_approved | HEAD unchanged, no file write, no commit |
+| 5 | git-commit before apply | apply_not_done | HEAD unchanged, no commit |
+| 6 | verification failed | apply_verification_failed | HEAD unchanged, no commit |
+| 7 | unrelated staged files | excluded from commit | Only changed_files in commit, staged clean |
+
+Main repo: HEAD=737d407d unchanged, status clean after all 7 scenarios.
+
+---
+
+## 11. Gate Conclusion
 
 ```text
 BCG-16 Runtime Evidence: Pass
-  - Apply-local success (write + verify): Pass
-  - Git-commit success (stage only changed_files, local commit): Pass
+  - Apply-local + git-commit success path: Pass
   - Path safety (../, .git, absolute): Pass
+  - preflight_not_passed (not_started + blocked): Pass (R3/R4)
+  - commit_candidate_missing: Pass (R3/R4)
+  - gate_not_approved: Pass (R3/R4)
+  - apply_not_done: Pass (R3/R4)
+  - apply_verification_failed: Pass (R3/R4)
+  - unrelated staged excluded: Pass (R3/R4)
+  - Main repo untouched: Pass (R4 hardening)
   - No push / no PR / no merge: Pass
-  - Main repo untouched: Pass
 
-BCG-16 Runtime Evidence Pass.
-
-AI Project Director total closure remains Partial. Do not mark total closure Pass.
+BCG-16: Backend Pass / Runtime Evidence Pass / Frontend Entry Pending.
+BCG-17 remote push / PR / merge: Deferred.
+AI Project Director total closure remains Partial.
 ```
 
 ---
 
-## 10. Live Evidence Command
+## 12. Live Evidence Commands
 
 ```bash
+# Success path
 cd runtime/orchestrator
 python scripts/bcg16a_apply_local_git_commit_live.py
-```
+# Result: 55/55 passed, 0 gaps
 
-Result: **55 passed, 0 failed, 0 Runtime Evidence Gaps**
+# Guard paths (hardened R4)
+python scripts/bcg16a_r3_apply_local_git_guard_live.py
+# Result: 224/224 passed, 0 gaps
+```

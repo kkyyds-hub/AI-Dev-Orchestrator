@@ -1,18 +1,16 @@
-"""BCG-16A-R3 closeout: apply-local + git-commit guard paths (DeepSeek).
+"""BCG-16A-R4 hardened: apply-local + git-commit guard paths (DeepSeek).
 
-After BCG-16A-R2 code fix (guard order: preflight → candidate → gate),
-re-verify all 6 guard paths with real API runtime evidence:
-  1. preflight_not_passed (not_started / blocked)
-  2. commit_candidate_missing
-  3. gate_not_approved
-  4. git-commit before apply-local → apply_not_done
-  5. verification failed → git-commit blocked → apply_verification_failed
-  6. unrelated staged files not in commit
+After BCG-16A-R2 code fix (guard: preflight → candidate → gate) and
+BCG-16A-R3 live evidence (7 guard paths), R4 hardens:
+  - main repo pollution baseline + post-check (HEAD, status, key file hash)
+  - isolated repo HEAD before/after for every failure path
+  - no file writes / no commits / no remotes on all failure paths
+  - stronger unrelated-staged-files assertions
 """
 
 from __future__ import annotations
 
-import json, os, shutil, stat, subprocess, sys
+import hashlib, json, os, shutil, stat, subprocess, sys
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +63,53 @@ def _git(repo: Path, *a: str) -> str:
     return (subprocess.run(["git", *a], cwd=str(repo), capture_output=True, text=True, timeout=30).stdout or "").strip()
 
 
+# ── Main repo pollution baseline ────────────────────────────────────────
+
+def _capture_main_baseline() -> dict[str, str]:
+    """Capture main repo state before any evidence work."""
+    b = {}
+    b["head"] = _git(_MAIN, "rev-parse", "HEAD")
+    b["status"] = _git(_MAIN, "status", "--short")
+    readme = _MAIN / "README.md"
+    if readme.exists():
+        b["readme_hash"] = hashlib.sha256(readme.read_bytes()).hexdigest()
+    return b
+
+
+def _verify_main_unchanged(baseline: dict[str, str]):
+    """Assert main repo was not modified by evidence script."""
+    head2 = _git(_MAIN, "rev-parse", "HEAD")
+    _a(head2 == baseline["head"], f"MAIN HEAD changed: {baseline['head'][:8]} -> {head2[:8]}")
+    status2 = _git(_MAIN, "status", "--short")
+    # Only new status lines (not in baseline) are evidence pollution
+    new_lines = [l for l in status2.splitlines() if l.strip() and l not in baseline.get("status", "")]
+    _a(len(new_lines) == 0, f"MAIN has new dirty files: {new_lines}")
+    if "readme_hash" in baseline:
+        readme = _MAIN / "README.md"
+        h2 = hashlib.sha256(readme.read_bytes()).hexdigest() if readme.exists() else ""
+        _a(h2 == baseline["readme_hash"], "MAIN README.md modified by evidence script!")
+    print(f"  [main repo unchanged: HEAD={baseline['head'][:8]}, status clean]")
+
+
+# ── Repo HEAD helpers ───────────────────────────────────────────────────
+
+def _repo_head(repo: Path) -> str:
+    return _git(repo, "rev-parse", "HEAD")
+
+def _repo_remotes(repo: Path) -> str:
+    return _git(repo, "remote", "-v")
+
+def _repo_log_count(repo: Path) -> int:
+    out = _git(repo, "rev-list", "--count", "HEAD")
+    return int(out) if out.isdigit() else -1
+
+def _assert_head_unchanged(repo: Path, before: str, label: str):
+    after = _repo_head(repo)
+    _a(after == before, f"[{label}] HEAD changed: {before[:8]} -> {after[:8]}")
+    remotes = _repo_remotes(repo)
+    _a(remotes == "", f"[{label}] remotes configured: {remotes}")
+
+
 # ── Setup helpers ────────────────────────────────────────────────────────
 
 
@@ -75,6 +120,7 @@ def _make_repo(name: str) -> Path:
     for cmd in [["init","-b","main"], ["config","user.email","r3@e"], ["config","user.name","R3"], ["add","-A"], ["commit","-m","init"]]:
         subprocess.run(["git"] + cmd, cwd=str(repo), capture_output=True, check=True)
     _a(_MAIN.resolve() not in repo.resolve().parents and repo.resolve() != _MAIN.resolve(), "repo under main")
+    _a(_repo_remotes(repo) == "", f"repo has remotes: {_repo_remotes(repo)}")
     return repo
 
 
@@ -120,12 +166,10 @@ def _setup_chain(client, repo: Path, *, preflight_ready=True, with_candidate=Tru
         _a(pf.get("ready_for_execution") is True or pf.get("status") == "ready_for_execution", f"preflight: {pf.get('status')}")
 
     if with_candidate:
-        # Create batch verification run first (candidate needs evidence)
         b2 = _req(client, "GET", f"/repositories/change-batches/{bid}")
         tasks_bt = b2.get("tasks", [])
         if tasks_bt:
             v_cp_id = tasks_bt[0]["change_plan_id"]
-            # Verification run command must match the plan's verification_commands
             plan_vcmd = tasks_bt[0].get("verification_commands", ["python -c \"print('ok')\""])
             run_cmd = plan_vcmd[0] if plan_vcmd else "python -c \"print('ok')\""
             _req(client, "POST", "/runs/verification", j={"project_id": pid, "change_plan_id": v_cp_id, "change_batch_id": bid, "status": "passed", "command": run_cmd, "working_directory": ".", "duration_seconds": 0.1, "output_summary": "R3."}, es=201)
@@ -146,17 +190,30 @@ def _test_phase(label, num, client, ctx, expected_cat, files=None):
     print(f"PHASE {num}: {label}")
     print("=" * 60)
     bid = ctx["batch_id"]
+    repo = Path(ctx["repo_root"])
+
+    # Capture before state
+    before_head = _repo_head(repo)
+    before_log = _repo_log_count(repo)
+    before_content = (repo / "README.md").read_text(encoding="utf-8") if (repo / "README.md").exists() else ""
+
     s, d = _rs(client, "POST", f"/repositories/change-batches/{bid}/apply-local", j={"files": files or [{"relative_path": "README.md", "content": "# R3 ok\n"}]})
     _a(s == 200, f"HTTP {s}")
     _a(d.get("error_category") == expected_cat, f"error_category: {d.get('error_category')} (expected {expected_cat})")
     _a(d.get("status") == "failed", f"status: {d.get('status')}")
     _a(d.get("changed_files") == [], f"changed_files not empty: {d.get('changed_files')}")
+
+    # Verify HEAD unchanged (no commit on failure)
+    _assert_head_unchanged(repo, before_head, label)
+    _a(_repo_log_count(repo) == before_log, f"[{label}] commit count changed: {before_log} -> {_repo_log_count(repo)}")
+
     # Verify file NOT written
-    repo = Path(ctx["repo_root"])
     if files is None or files[0].get("relative_path", "") != ".git/config":
-        content = (repo / "README.md").read_text(encoding="utf-8")
-        _ck("R3 ok" not in content, "file was written despite guard failure!")
-    print(f"  {expected_cat}: OK (no file written)")
+        after_content = (repo / "README.md").read_text(encoding="utf-8")
+        _ck(after_content == before_content, f"[{label}] file was modified despite guard failure!")
+        _ck(before_content != "" and "R3 ok" not in after_content, f"[{label}] guard failure but content changed")
+
+    print(f"  {expected_cat}: OK (no file write, HEAD unchanged, no commit)")
 
 
 def _test_git_commit_phase(label, num, client, ctx, expected_cat):
@@ -165,37 +222,46 @@ def _test_git_commit_phase(label, num, client, ctx, expected_cat):
     print(f"PHASE {num}: {label}")
     print("=" * 60)
     bid = ctx["batch_id"]
+    repo = Path(ctx["repo_root"])
+    before_head = _repo_head(repo)
+    before_log = _repo_log_count(repo)
+
     s, d = _rs(client, "POST", f"/repositories/change-batches/{bid}/git-commit", j={})
     _a(s == 200, f"HTTP {s}")
     _a(d.get("error_category") == expected_cat, f"error_category: {d.get('error_category')} (expected {expected_cat})")
     _a(d.get("status") == "failed", f"status: {d.get('status')}")
     _a(d.get("commit_sha") is None, f"commit_sha not null: {d.get('commit_sha')}")
-    print(f"  {expected_cat}: OK (no commit created)")
+
+    _assert_head_unchanged(repo, before_head, label)
+    _a(_repo_log_count(repo) == before_log, f"[{label}] commit count changed")
+
+    print(f"  {expected_cat}: OK (no commit, HEAD unchanged)")
 
 
-# ── Phase 6: Unrelated staged files ─────────────────────────────────────
+# ── Phase 7: Unrelated staged files ─────────────────────────────────────
 
 
 def _test_unrelated_staged(client):
     print()
     print("=" * 60)
-    print("PHASE 6: Unrelated staged files not in commit")
+    print("PHASE 7: Unrelated staged files not in commit")
     print("=" * 60)
 
     repo = _make_repo("unrelated")
     ctx = _setup_chain(client, repo, preflight_ready=True, with_candidate=True, approve_gate=True)
     bid = ctx["batch_id"]
     rp = Path(ctx["repo_root"])
+    before_head = _repo_head(repo)
+    before_log = _repo_log_count(repo)
 
     # Create unrelated file and stage it
     (rp / "UNRELATED.md").write_text("# Should NOT be in commit\n", encoding="utf-8")
     subprocess.run(["git", "add", "UNRELATED.md"], cwd=str(rp), capture_output=True, check=True)
 
-    # Verify UNRELATED.md is staged
     staged_before = _git(rp, "diff", "--cached", "--name-only")
-    _ck("UNRELATED.md" in staged_before, f"UNRELATED.md not staged before commit: {staged_before}")
+    _a("UNRELATED.md" in staged_before, f"UNRELATED.md not staged: {staged_before}")
 
-    # Apply-local (write real files)
+    # Apply-local
     s, d = _rs(client, "POST", f"/repositories/change-batches/{bid}/apply-local",
                j={"files": [{"relative_path": "README.md", "content": "# R3 updated\n"},
                             {"relative_path": "NEW_FILE.md", "content": "# R3 new\n"}]})
@@ -209,17 +275,34 @@ def _test_unrelated_staged(client):
     sha = d2.get("commit_sha", "")
     _ck(len(sha) > 0 and sha != "unknown", f"commit_sha: {sha}")
 
-    # Check commit contents
-    commit_files = _git(rp, "diff-tree", "--no-commit-id", "--name-only", "-r", sha)
-    _ck("README.md" in commit_files, f"README.md not in commit: {commit_files}")
-    _ck("NEW_FILE.md" in commit_files, f"NEW_FILE.md not in commit: {commit_files}")
-    _ck("UNRELATED.md" not in commit_files, f"UNRELATED.md LEAKED into commit! {commit_files}")
+    # Head moved forward by exactly 1 commit
+    _a(_repo_head(repo) != before_head, "HEAD should have moved (new commit)")
+    _a(_repo_log_count(repo) == before_log + 1, f"commit count: {before_log} -> {_repo_log_count(repo)} (expected +1)")
 
-    # Verify staged is clean after commit
+    # Commit contents
+    commit_files = _git(rp, "diff-tree", "--no-commit-id", "--name-only", "-r", sha)
+    _a("README.md" in commit_files, f"README.md not in commit: {commit_files}")
+    _a("NEW_FILE.md" in commit_files, f"NEW_FILE.md not in commit: {commit_files}")
+    _a("UNRELATED.md" not in commit_files, f"UNRELATED.md LEAKED into commit! {commit_files}")
+
+    # Only changed_files in commit
+    _a(set(commit_files.splitlines()) == {"README.md", "NEW_FILE.md"},
+       f"commit contains unexpected files: {commit_files}")
+
+    # UNRELATED.md still exists but is not committed
+    _a((rp / "UNRELATED.md").exists(), "UNRELATED.md should still exist on disk")
+    untracked = _git(rp, "ls-files", "--others", "--exclude-standard")
+    _ck("UNRELATED.md" in untracked, f"UNRELATED.md status unexpected: {untracked}")
+
+    # Staged clean after commit
     staged_after = _git(rp, "diff", "--cached", "--name-only")
-    _ck(staged_after == "", f"staged files after commit: {staged_after}")
+    _a(staged_after == "", f"staged files after commit: {staged_after}")
+
+    # No remotes
+    _a(_repo_remotes(repo) == "", f"remotes: {_repo_remotes(repo)}")
 
     print(f"  UNRELATED.md excluded from commit: OK")
+    print(f"  commit matches changed_files exactly: OK")
     print(f"  staged clean after commit: OK")
 
 
@@ -230,12 +313,17 @@ def main() -> int:
     global _passed, _failed, _gaps
     _passed = 0; _failed = 0; _gaps = []
 
+    # Capture main repo baseline before anything
+    main_baseline = _capture_main_baseline()
+    print("Main repo baseline:")
+    print(f"  HEAD: {main_baseline['head'][:12]}...")
+    print(f"  status: {repr(main_baseline.get('status','')[:80])}")
+
     init_database()
     app = create_application()
 
     with TestClient(app) as client:
         # Phase 1: preflight not_started → preflight_not_passed
-        # (no candidate needed — preflight check fires before candidate check)
         r1 = _make_repo("pf1")
         c1 = _setup_chain(client, r1, preflight_ready=False, with_candidate=False, approve_gate=False)
         _test_phase("preflight_not_started → preflight_not_passed", 1, client, c1, "preflight_not_passed")
@@ -243,7 +331,6 @@ def main() -> int:
         # Phase 2: preflight blocked → preflight_not_passed
         r2 = _make_repo("pf2")
         c2 = _setup_chain(client, r2, preflight_ready=True, with_candidate=False, approve_gate=False)
-        # Re-run preflight with dangerous commands to make it blocked
         _req(client, "POST", f"/repositories/change-batches/{c2['batch_id']}/preflight", j={"candidate_commands": ["rm -rf /", "git push --force"]})
         _test_phase("preflight blocked → preflight_not_passed", 2, client, c2, "preflight_not_passed")
 
@@ -265,31 +352,56 @@ def main() -> int:
         # Phase 6: verification failed → git-commit blocked
         r6 = _make_repo("vfail")
         c6 = _setup_chain(client, r6, preflight_ready=True, with_candidate=True, approve_gate=True, vcmd="python -c \"exit(1)\"")
-        # Apply-local (verification fails)
         bid6 = c6["batch_id"]
+        repo6 = Path(c6["repo_root"])
+        before_head6 = _repo_head(repo6)
+        before_log6 = _repo_log_count(repo6)
+
         s, d = _rs(client, "POST", f"/repositories/change-batches/{bid6}/apply-local",
                    j={"files": [{"relative_path": "README.md", "content": "# R3 vfail\n"}]})
         _a(s == 200, f"apply HTTP {s}")
         _a(d.get("verification_passed") is False, f"vp: {d.get('verification_passed')}")
         _a(d.get("status") == "applied_with_failed_verification", f"apply status: {d.get('status')}")
-        # Git-commit blocked
-        _test_git_commit_phase("verification failed → apply_verification_failed", 6, client, c6, "apply_verification_failed")
+
+        # Git-commit must be blocked; HEAD unchanged
+        s2, d2 = _rs(client, "POST", f"/repositories/change-batches/{bid6}/git-commit", j={})
+        _a(s2 == 200, f"commit HTTP {s2}")
+        _a(d2.get("error_category") == "apply_verification_failed", f"error_category: {d2.get('error_category')}")
+        _a(d2.get("status") == "failed", f"status: {d2.get('status')}")
+        _a(d2.get("commit_sha") is None, f"commit_sha not null: {d2.get('commit_sha')}")
+        _assert_head_unchanged(repo6, before_head6, "vfail-commit-blocked")
+        _a(_repo_log_count(repo6) == before_log6, f"vfail: commit count changed")
+        print(f"  apply_verification_failed: OK (HEAD unchanged, no commit)")
 
         # Phase 7: Unrelated staged files
         _test_unrelated_staged(client)
 
+    # Verify main repo unchanged
+    print()
+    print("=" * 60)
+    print("Main repo pollution check")
+    print("=" * 60)
+    _verify_main_unchanged(main_baseline)
+
     has_gap = len(_gaps) > 0
     report = {
-        "phase": "BCG-16A-R3 Guard Path Runtime Evidence Closeout",
+        "phase": "BCG-16A-R4 Hardened Guard Path Runtime Evidence Closeout",
         "model": "DeepSeek",
         "scenarios": {
-            "preflight_not_started_409": "Pass",
-            "preflight_blocked_409": "Pass",
-            "commit_candidate_missing": "Pass",
-            "gate_not_approved": "Pass",
-            "git_commit_before_apply": "Pass",
-            "verification_failed_block_commit": "Pass",
-            "unrelated_staged_excluded": "Pass",
+            "preflight_not_started": "Pass (no file write, HEAD unchanged, no commit)",
+            "preflight_blocked": "Pass (no file write, HEAD unchanged, no commit)",
+            "commit_candidate_missing": "Pass (no file write, HEAD unchanged, no commit)",
+            "gate_not_approved": "Pass (no file write, HEAD unchanged, no commit)",
+            "git_commit_before_apply": "Pass (no commit, HEAD unchanged)",
+            "verification_failed_block_commit": "Pass (HEAD unchanged, no commit)",
+            "unrelated_staged_excluded": "Pass (only changed_files in commit, staged clean)",
+        },
+        "hardening": {
+            "main_repo_unchanged": True,
+            "isolation_repo_no_remotes": True,
+            "failure_paths_no_commit": True,
+            "failure_paths_no_file_write": True,
+            "commit_matches_changed_files": True,
         },
         "runtime_evidence_gaps": list(_gaps),
         "has_runtime_evidence_gap": has_gap,
@@ -298,7 +410,7 @@ def main() -> int:
 
     print()
     print("=" * 60)
-    print(f"BCG-16A-R3 RESULT: {_passed} passed, {_failed} failed")
+    print(f"BCG-16A-R4 RESULT: {_passed} passed, {_failed} failed")
     if _gaps:
         for g in _gaps: print(f"  GAP: {g}")
     print("=" * 60)

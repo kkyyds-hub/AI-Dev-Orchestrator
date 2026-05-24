@@ -869,7 +869,7 @@
 | Frontend/build | No frontend changed; `apps/web` build not run |
 | Boundary | No apply-local/git-commit/git-push. No worker run. No planning/apply. No frontend change. No total closure Pass. |
 | Gate | **BCG-15A-R1 Pass. BCG-15 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
-| Next | BCG-18 (Release Gate), governance/cost, total rollup |
+| Next | BCG-16 (apply-local/git-commit), Release Gate (BCG-18), governance/cost, total rollup |
 
 ### BCG-16A Apply-local + Local Git Commit Live Evidence (2026-05-24)
 
@@ -895,6 +895,28 @@
 | Frontend/build | No frontend changed; `apps/web` build not run |
 | Boundary | No push/PR/merge. No main repo write. No worker run. No planning/apply. No frontend change. No total closure Pass. |
 | Gate | **BCG-16 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
+| Next | BCG-18 (Release Gate), governance/cost, total rollup |
+
+### BCG-16A-R2/R3/R4 Guard Chain Fix + Hardened Evidence Closeout (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-16A-R2/R3/R4 Guard Chain Fix + Hardened Evidence Closeout |
+| Scope | R2 (Codex): reorder guard chain to preflight→candidate→gate + 6 tests. R3 (DeepSeek): live-verify all 7 guard paths. R4 (DeepSeek): harden with main repo pollution baseline, HEAD before/after on every failure path, no-file-write/no-commit assertions. |
+| Baseline | `a7ee217` (R2 code fix) |
+| R3 commit | `737d407` |
+| R4 commit | this commit |
+| Changed files | `local_git_write_service.py` (R2 guard reorder), `test_apply_local_git_commit_guard.py` (R2, 6 tests), `bcg16a_r3_apply_local_git_guard_live.py` (R3/R4 hardened), verification doc (R2/R3/R4 chapters, Uncovered Scope cleared), freeze, ledger |
+| 7 isolated projects | Under `E:\bcg16a-r3-workspaces\`, one per guard path |
+| Guard paths (all live) | preflight_not_passed x2, commit_candidate_missing, gate_not_approved, apply_not_done, apply_verification_failed, unrelated staged excluded from commit |
+| Hardening | Main repo HEAD=737d407d unchanged, status clean. All failure paths: HEAD unchanged, no file write, no commit. Unrelated staged excluded, only changed_files in commit, staged clean. |
+| Live command | `cd runtime/orchestrator && python scripts/bcg16a_r3_apply_local_git_guard_live.py` |
+| Live result | 224/224 passed, 0 failed, 0 gaps |
+| Regression | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | 149 passed, 147 warnings in 59.90s |
+| Frontend/build | No frontend changed; `apps/web` build not run |
+| Boundary | No push/PR/merge. No main repo write. No business code changes in R3/R4. BCG-17 Deferred. |
+| Gate | **BCG-16: Backend Pass / Runtime Evidence Pass / Frontend Entry Pending.** AI Project Director total closure remains Partial. |
 | Next | BCG-18 (Release Gate), governance/cost, total rollup |
 
 ### 5.6 端到端闭环总验收
