@@ -869,7 +869,33 @@
 | Frontend/build | No frontend changed; `apps/web` build not run |
 | Boundary | No apply-local/git-commit/git-push. No worker run. No planning/apply. No frontend change. No total closure Pass. |
 | Gate | **BCG-15A-R1 Pass. BCG-15 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
-| Next | BCG-16 (apply-local/git-commit), Release Gate (BCG-18), governance/cost, total rollup |
+| Next | BCG-18 (Release Gate), governance/cost, total rollup |
+
+### BCG-16A Apply-local + Local Git Commit Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-16A Apply-local + Local Git Commit Runtime Evidence |
+| Scope | Runtime evidence for BCL-03 local git write: isolated repo creation, full guard chain (preflight→verification→commit candidate→release gate approve), apply-local (file write + verify), git-commit (stage only changed_files, local commit), path safety protection (../, .git, absolute), no-push boundary. |
+| Baseline | `106436a` (BCG-15A-R2 docs on latest `origin/main`) |
+| End commit | this commit |
+| Evidence project | `358be915-a785-4c83-af21-318b8cf71f8d` (BCG-16A Evidence) |
+| Isolated repo | `E:\bcg16a-workspaces\bcg16a-isolated-repo` (outside main repo tree) |
+| Evidence IDs | batch_id `4a65224b-1969-40ef-81d3-c5e94a23af02`; candidate_id `c9eee8a2-e127-49a9-b4bc-83291955ea75`; commit_sha `70e54bc...` |
+| Changed files | `runtime/orchestrator/scripts/bcg16a_apply_local_git_commit_live.py` (new), `docs/product/ai-project-director/verification-project-director-apply-local-git-commit-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-16), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| APIs used | `POST /projects`, `PUT /repositories/projects/{id}`, `POST /repositories/projects/{id}/snapshot/refresh`, project-director session/plan/tasks, `POST /deliverables`, `POST /planning/projects/{id}/change-plans`, `POST /repositories/projects/{id}/change-batches`, `POST /repositories/change-batches/{id}/preflight`, `POST /runs/verification`, `POST /repositories/change-batches/{id}/commit-candidate`, `GET /repositories/change-batches/{id}/release-checklist`, `POST /approvals/repository-release-gate/{id}/actions`, `POST /repositories/change-batches/{id}/apply-local`, `POST /repositories/change-batches/{id}/git-commit` |
+| apply-local | status=applied, verification_passed=true, README.md (modified) + NEW_FILE.md (added), file content verified on disk, main repo untouched |
+| git-commit | status=committed, commit_sha=70e54bc..., branch=main, staged clean, no remotes, git_write_actions_triggered=true |
+| Path safety | ../outside.txt → path_traversal; .git/config → git_internal_path; absolute path → path_traversal |
+| No-push | No remotes configured, no push/PR/merge APIs called. BCG-17 remains Deferred. |
+| Live command | `cd runtime/orchestrator && python scripts/bcg16a_apply_local_git_commit_live.py` |
+| Live result | 55/55 passed, 0 failed, 0 gaps |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | 143 passed, 135 warnings in 35.39s |
+| Frontend/build | No frontend changed; `apps/web` build not run |
+| Boundary | No push/PR/merge. No main repo write. No worker run. No planning/apply. No frontend change. No total closure Pass. |
+| Gate | **BCG-16 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
+| Next | BCG-18 (Release Gate), governance/cost, total rollup |
 
 ### 5.6 端到端闭环总验收
 
