@@ -49,10 +49,7 @@ class TaskRepository:
         self.session.commit()
         self.session.refresh(task_row)
         task = self._to_domain(task_row)
-        event_stream_service.publish_task_updated(
-            task=task,
-            reason=TaskEventReason.CREATED,
-        )
+        self.publish_created(task)
         return task
 
     def add_no_commit(self, task: Task) -> Task:
@@ -61,6 +58,8 @@ class TaskRepository:
         For batch operations where the caller controls the single commit point.
         Uses flush (not commit) so the task gets its generated ID.
         The existing `create()` method is preserved unchanged.
+        Does not publish events; callers must publish after their outer
+        transaction commits successfully.
         """
 
         task_row = TaskTable(
@@ -87,11 +86,15 @@ class TaskRepository:
         self.session.flush()
         self.session.refresh(task_row)
         task = self._to_domain(task_row)
+        return task
+
+    def publish_created(self, task: Task) -> None:
+        """Publish a task-created event after the task is committed."""
+
         event_stream_service.publish_task_updated(
             task=task,
             reason=TaskEventReason.CREATED,
         )
-        return task
 
     def list_all(self) -> list[Task]:
         """Return all tasks ordered by creation time descending."""

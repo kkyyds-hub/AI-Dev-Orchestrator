@@ -450,6 +450,24 @@
 | 后续动作 | 后续接 Worker 调度执行 |
 
 
+### IPV4_REDACTED BCG-04A Event-Consistency Hardening Patch (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-04A Phase1 Event-Consistency Hardening Patch |
+| Scope | Backend event-consistency hardening only; no new API; no frontend change; no Worker scheduling |
+| Start commit | `cdf3205` |
+| End commit | this commit |
+| Goal | Prevent ghost task_created events when add_no_commit flushes Task rows but TaskCreationRecord creation later fails and rolls back |
+| Changed files | `app/repositories/task_repository.py` (`add_no_commit` no longer publishes; new `publish_created()` for post-commit emission), `app/services/project_director_task_creation_service.py` (publish created events only after TaskCreationRecord commit succeeds), `tests/test_project_director_task_creation.py` (event consistency + rollback row-count validation) |
+| Behavior change | 1) `TaskRepository.create()` still publishes after its own commit; 2) `TaskRepository.add_no_commit()` only flushes/refreshes and emits no event; 3) BCG-04A batch emits created events after the single Task + TaskCreationRecord commit point succeeds; 4) rollback path emits no task_created event |
+| Added/enhanced tests | `test_create_tasks_publishes_events_only_after_commit`: success path emits one created event per committed Task and event IDs match DB rows; `test_atomic_rollback_on_record_creation_failure`: enhanced to verify zero committed `TaskTable` rows and zero ghost events after rollback |
+| Test command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_task_creation.py -q` |
+| Test result | 18/18 task-creation tests passed; 1 existing DeprecationWarning (`HTTP_422_UNPROCESSABLE_ENTITY`) |
+| Boundary | No Worker scheduling; no task execution; no planning/apply; no frontend change; apps/web build not run |
+| Gate | Partial (Backend Pass / Runtime Evidence Missing, same as BCG-04A Phase1; not total closure Pass) |
+| Next | Worker/runtime evidence remains future work for total Gate |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |

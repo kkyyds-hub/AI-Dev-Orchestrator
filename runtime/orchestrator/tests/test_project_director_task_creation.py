@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
@@ -20,6 +20,7 @@ from app.core.db import get_db_session
 from app.core.db_tables import (
     ORMBase,
     ProjectDirectorPlanVersionTable,
+    TaskTable,
 )
 from app.domain.project_director_plan_version import PlanVersionStatus
 from app.domain.project_director_session import ProjectDirectorSessionStatus
@@ -136,6 +137,15 @@ def _setup_confirmed_plan_with_project(client):
     # Re-read to get confirmed status
     resp = client.get(f"/project-director/plan-versions/{pv['id']}")
     return resp.json(), sid, project_id
+
+
+def _task_rows_for_plan(db_session, plan_version: dict) -> list[TaskTable]:
+    source_draft_id = f"pdv:{plan_version['id']}:{plan_version['version_no']}"
+    return list(
+        db_session.execute(
+            select(TaskTable).where(TaskTable.source_draft_id == source_draft_id)
+        ).scalars()
+    )
 
 
 # ── Tests ────────────────────────────────────────────────────────────
@@ -409,6 +419,35 @@ class TestCreateTasks:
         assert existing_count == record["task_count"]
         assert existing_count == data["task_count"]
 
+    def test_create_tasks_publishes_events_only_after_commit(
+        self, client, db_session, monkeypatch
+    ):
+        """Successful batch emits one created event per committed task."""
+        plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+        published_task_ids: list[str] = []
+
+        def _capture_task_event(*, task, reason, previous_status=None):
+            published_task_ids.append(str(task.id))
+
+        monkeypatch.setattr(
+            "app.repositories.task_repository.event_stream_service."
+            "publish_task_updated",
+            _capture_task_event,
+        )
+
+        resp = client.post(
+            f"/project-director/plan-versions/{plan_version['id']}/create-tasks"
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+
+        task_rows = _task_rows_for_plan(db_session, plan_version)
+        persisted_task_ids = {str(row.id) for row in task_rows}
+
+        assert len(task_rows) == data["task_count"]
+        assert published_task_ids == data["created_task_ids"]
+        assert set(published_task_ids) == persisted_task_ids
+
     def test_empty_proposed_task_description_falls_back_to_title(
         self, client, db_session
     ):
@@ -467,11 +506,12 @@ class TestCreateTasks:
         assert record["task_count"] == len(plan_version["proposed_tasks"])
 
     def test_atomic_rollback_on_record_creation_failure(
-        self, client, monkeypatch
+        self, client, db_session, monkeypatch
     ):
         """If TaskCreationRecord creation fails after tasks are added to
-        session, no tasks should be left in the database."""
+        session, no tasks or task-created events should be left behind."""
         plan_version, _, _ = _setup_confirmed_plan_with_project(client)
+        published_task_ids: list[str] = []
 
         # Monkey-patch the repository's create method to raise
         original_create = ProjectDirectorTaskCreationRecordRepository.create
@@ -479,10 +519,18 @@ class TestCreateTasks:
         def _failing_create(self, record):
             raise RuntimeError("Simulated record creation failure")
 
+        def _capture_task_event(*, task, reason, previous_status=None):
+            published_task_ids.append(str(task.id))
+
         monkeypatch.setattr(
             ProjectDirectorTaskCreationRecordRepository,
             "create",
             _failing_create,
+        )
+        monkeypatch.setattr(
+            "app.repositories.task_repository.event_stream_service."
+            "publish_task_updated",
+            _capture_task_event,
         )
 
         try:
@@ -498,6 +546,10 @@ class TestCreateTasks:
                 f"/project-director/plan-versions/{plan_version['id']}/created-tasks"
             )
             assert get_resp.status_code == 404
+
+            # No committed Task rows and no ghost SSE/console task events.
+            assert _task_rows_for_plan(db_session, plan_version) == []
+            assert published_task_ids == []
         finally:
             # Restore original
             monkeypatch.setattr(

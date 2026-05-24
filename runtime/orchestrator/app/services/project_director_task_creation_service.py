@@ -171,6 +171,12 @@ class ProjectDirectorTaskCreationService:
                 "No tasks were created. Please try again."
             )
 
+        # Publish task-created events only after the single commit point
+        # succeeds. This prevents SSE/console ghost events for rolled-back
+        # Task rows if the TaskCreationRecord commit fails.
+        for task in created_tasks:
+            self._task_repo.publish_created(task)
+
         return TaskCreationResult(
             plan_version_id=plan_version.id,
             session_id=plan_version.session_id,
