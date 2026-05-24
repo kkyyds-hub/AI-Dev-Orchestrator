@@ -665,7 +665,35 @@
 | Frontend/build | No frontend files changed; `apps/web` build not run |
 | Boundary | No mock/simulate/provider_mock; no database modification; no manual deliverable/approval creation; no new write API; no planning/apply; no repository write; no Worker; no frontend change; no total closure Pass |
 | Gate | BCG-10A approval rework evidence Pass (61/61). BCG-10 overall Partial (approval rework evidence Pass / executable rework task creation Missing). AI Project Director total closure remains Partial. Do not mark total closure Pass. |
-| Next | BCG-11+ (repository binding/snapshots), Release Gate (BCG-18), executable rework task creation (if needed), governance/cost, total rollup |
+| Next | BCG-12 (file locator / context pack), BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), executable rework task creation (if needed), governance/cost, total rollup |
+
+
+### BCG-11A Repository Binding & Snapshot Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-11A Repository Binding & Snapshot Live Evidence |
+| Scope | Runtime evidence verification; creates sample Git repo, configures allowed roots, binds repo, refreshes snapshot, verifies read-back; no new API; no frontend change |
+| Baseline | `800fc95` (BCG-10A approval rework evidence on latest `origin/main`) |
+| End commit | this commit |
+| Project | Reused BCG evidence project `423367da-966b-4c2e-b8c8-a4ff5f7f2377` |
+| Sample repo | Created `runtime/tmp/bcg11a-sample-repo` (7 files, 5 trackable + 2 ignored) |
+| Evidence IDs | project_id `423367da-966b-4c2e-b8c8-a4ff5f7f2377`; workspace_id `e1e32ddb-e858-4224-b301-5362f97c1864`; snapshot_id `4a769201-f0f4-4f64-806a-b09b7606950e`; allowed_workspace_root `E:\new-AI-Dev-Orchestrator-push\runtime\tmp` |
+| Changed files | `runtime/orchestrator/scripts/bcg11a_repository_binding_snapshot_live.py` (new), `docs/product/ai-project-director/verification-project-director-repository-binding-snapshot-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-11 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| APIs used | `GET /repositories/workspace-settings`, `PUT /repositories/workspace-settings`, `PUT /repositories/projects/{project_id}`, `GET /repositories/projects/{project_id}`, `POST /repositories/projects/{project_id}/snapshot/refresh`, `GET /repositories/projects/{project_id}/snapshot` |
+| New write API | None (all APIs are existing) |
+| Live command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe scripts\bcg11a_repository_binding_snapshot_live.py` |
+| Live result | 57/57 passed; sample Git repo created; allowed roots configured; safety boundary verified; repo bound; snapshot refreshed; read-back consistent |
+| Safety boundary | Out-of-bounds path → 422; non-Git directory → 422; valid Git repo → 200 (bind success) |
+| Bind result | workspace_id `e1e32ddb-e858-4224-b301-5362f97c1864`; root_path matches; display_name="BCG-11A Evidence Repo"; access_mode=read_only; default_base_branch=main |
+| Snapshot result | snapshot_id `4a769201-f0f4-4f64-806a-b09b7606950e`; status=success; scan_error=null; file_count=5; directory_count=4; languages: Markdown(2) JSON(1) Python(1) TypeScript(1); tree includes README.md/src/web/config/docs; ignored: .git/node_modules/__pycache__ applied correctly |
+| Snapshot read-back | GET snapshot matches POST refresh in id, file_count, directory_count, root_path, workspace_id, language_breakdown, tree |
+| Regression command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py tests/test_run_ai_summaries.py -q` |
+| Regression result | 132 passed, 3 existing `HTTP_422_UNPROCESSABLE_ENTITY` deprecation warnings |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No apply-local; no git-commit; no repository write to main repo; no new write API; no planning/apply; no frontend change; no total closure Pass |
+| Gate | BCG-11A repository binding & snapshot evidence Pass (57/57). BCG-11 is now Runtime Evidence Pass for repository binding/snapshot evidence. AI Project Director total closure remains Partial. |
+| Next | BCG-12 (file locator / context pack), BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), governance/cost, total rollup |
 
 ### 5.6 端到端闭环总验收
 
