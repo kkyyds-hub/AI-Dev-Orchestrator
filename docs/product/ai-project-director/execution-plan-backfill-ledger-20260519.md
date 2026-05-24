@@ -818,7 +818,35 @@
 | Regression result | 143 passed, 135 warnings in 33.91s |
 | Frontend/build | No frontend files changed; `apps/web` build not run |
 | Gate | **BCG-14A-R1 closeout Pass. BCG-14 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
-| Next | BCG-15 (commit candidate), Release Gate (BCG-18), governance/cost, total rollup |
+| Next | BCG-16 (apply-local/git-commit), Release Gate (BCG-18), governance/cost, total rollup |
+
+### BCG-15A Commit Candidate Live Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-15A Commit Candidate Review-only Draft Live Evidence |
+| Scope | Runtime evidence for Day13 commit-candidate: first draft, second revision, detail/list read-back, protection paths (404, 409 preflight), review-only boundary. Creates verification run via POST /runs/verification as prerequisite. |
+| Baseline | `6c66399` (BCG-14A-R1 closeout on latest `origin/main`) |
+| End commit | this commit |
+| Evidence project | Reused main project `423367da`, approved batch `2d07dde6` (BCG-13A/BCG-14A) |
+| Evidence IDs | candidate_id `687909f0-b681-42a7-bd49-81832dc49b09`; evidence_package_key `cep-a001d0e5-65dd-55e7-b5ab-4518a31aaa06`; verification_run_id `9e201eb5-1f04-4d9f-a3ee-8b4cdad372ef` |
+| Changed files | `runtime/orchestrator/scripts/bcg15a_commit_candidate_live.py` (new), `docs/product/ai-project-director/verification-project-director-commit-candidate-20260524.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-15 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| APIs used | `GET /repositories/change-batches/{id}`, `POST /runs/verification`, `POST /repositories/change-batches/{id}/commit-candidate`, `GET /repositories/change-batches/{id}/commit-candidate`, `GET /repositories/projects/{id}/commit-candidates` |
+| First draft v1 | POST commit-candidate -> draft, v1, evidence_package_key non-empty, verification 1/1 passed, message_title/body/impact_scope/related_files all non-empty, related_deliverables present |
+| Detail read-back | GET commit-candidate: id, change_batch_id, current_version_number, latest_version, versions all consistent |
+| Project list | GET commit-candidates list: candidate found, status/version/id consistent |
+| Second revision v2 | POST commit-candidate (2nd) with custom fields -> v2, revision_count=2, v1+v2 both in versions, revision_note persisted, v1 preserved |
+| Protection 404 | Non-existent batch -> 404 |
+| Protection 409 preflight | manual_rejected batch -> 409 |
+| Review-only boundary | status=draft, no git write fields (commit_sha, branch_name, push_status, merge_status), message_body has review markers |
+| Live command | `cd runtime/orchestrator && python scripts/bcg15a_commit_candidate_live.py` |
+| Live result | 68/68 passed, 0 failed, 0 gaps |
+| Regression command | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | 143 passed, 135 warnings in 37.07s |
+| Frontend/build | No frontend changed; `apps/web` build not run |
+| Boundary | No apply-local/git-commit/git-push. No worker run. No planning/apply. No frontend change. No total closure Pass. |
+| Gate | **BCG-15 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
+| Next | BCG-16 (apply-local/git-commit), Release Gate (BCG-18), governance/cost, total rollup |
 
 ### 5.6 端到端闭环总验收
 
