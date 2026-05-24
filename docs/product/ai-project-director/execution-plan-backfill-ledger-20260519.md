@@ -558,6 +558,31 @@
 | Gate | BCG-07B provider-reported replay phase Pass. AI Project Director total closure remains Partial; do not mark total closure Pass. |
 | Next | Feed BCG-07B provider replay evidence into later total Gate rollup together with repository/delivery/approval/governance/cost evidence. |
 
+### IPV4_REDACTED BCG-08A Real AI Run Summary Evidence (2026-05-24)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-08A Real AI Run Summary Evidence |
+| Scope | Backend/runtime live AI summary evidence only; reuse existing provider-reported run; no frontend change |
+| Baseline | `6544372` (BCG-07B provider-reported run evidence replay) |
+| End commit | this commit |
+| Target run | run_id `834b38aa-3669-4121-9424-3aa4999cad2e`; task_id `db204e31-f244-4f9b-a469-abcc5e0b873f`; provider_key `deepseek`; model_name `deepseek-v4-pro`; token_accounting_mode `provider_reported` |
+| Summary API | `POST /runs/{run_id}/ai-summary/regenerate`, `GET /runs/{run_id}/ai-summary`, `GET /runs/{run_id}/ai-summaries` |
+| Real model call | Yes. Existing `RunAISummaryService` used provider config and `OpenAIProviderExecutorService.generate_text`; no API key was printed or written. |
+| Summary evidence | summary_id `9a229984-f5bd-4773-a6de-9db61786b837`; source `ai`; status `succeeded`; model_provider `deepseek`; model_name `deepseek-v4-pro`; provider_receipt_id `dbec655b-49b2-4639-9757-70b71ce4347f`; error_summary `null`; stale `false` |
+| Persistence/readback | `GET /runs/{run_id}/ai-summary` returned the generated summary as active; `GET /runs/{run_id}/ai-summaries` returned it in history with `history_active_summary_id=9a229984-f5bd-4773-a6de-9db61786b837` and `history_count=2` |
+| Traceability | source_version `run.summary.v2`; source_fingerprint/source_hash `dfa78dc0fa548a858295ae7b742e4f9b14dbe833c60c977c61ed5b81df6c5df0`; prompt_hash `080d4beb982c1dd76dca985e0cbee2e208adf650f942cbe35c7a3d1b67a05126` |
+| Content summary | AI markdown says the provider run succeeded, `deepseek/deepseek-v4-pro` returned the expected evidence sentence, the original run verifier passed, and the quality gate allowed completion; it cites original run receipt `3d8bf6e7-fdfd-43db-bd9a-3abee685521d` and execution mode `provider_openai` |
+| Changed files | `runtime/orchestrator/scripts/bcg08a_real_ai_run_summary_live.py`, `docs/product/ai-project-director/verification-project-director-real-ai-run-summary-20260524.md`, `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` |
+| Live command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe scripts\bcg08a_real_ai_run_summary_live.py` |
+| Live result | Passed; real_model_called `true`; source `ai`; fallback not used; generated summary persisted and read back through current/history APIs |
+| Regression command | `cd runtime/orchestrator && .\.venv\Scripts\python.exe -m pytest tests/test_run_ai_summaries.py tests/test_project_director_sessions.py tests/test_project_director_plan_versions.py tests/test_project_director_confirmations.py tests/test_project_director_task_creation.py tests/test_project_director_worker_run_evidence.py tests/test_project_director_run_evidence_replay.py -q` |
+| Regression result | 132 passed, 3 existing `HTTP_422_UNPROCESSABLE_ENTITY` deprecation warnings |
+| Frontend/build | No frontend files changed; `apps/web` build not run |
+| Boundary | No new write API; no frontend work; no mock/simulate substitute for summary generation; original target run remains the BCG-05B real provider run; this is run summary evidence, not total closure Pass |
+| Gate | BCG-08A real AI run summary evidence phase Pass. AI Project Director total closure remains Partial; do not mark total closure Pass |
+| Next | Feed BCG-08A summary evidence into later total Gate rollup with repository/delivery/approval/governance/cost evidence. |
+
 ### 5.6 端到端闭环总验收
 
 | 字段 | 计划 |
