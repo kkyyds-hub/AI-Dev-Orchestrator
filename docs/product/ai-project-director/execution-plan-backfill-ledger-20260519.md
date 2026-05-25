@@ -668,6 +668,60 @@
 | Next | BCG-12 (file locator / context pack), BCG-13 (change plan / change batch), BCG-14 (preflight), Release Gate (BCG-18), executable rework task creation (if needed), governance/cost, total rollup |
 
 
+### BCG-10-R3 Approval Request Changes / Reject → Executable Rework Task Runtime Evidence (2026-05-25)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-10-R3 Approval Request Changes / Reject → Executable Rework Task Runtime Evidence |
+| Scope | Runtime evidence verification; proves request_changes and reject auto-create executable pending rework tasks; no business code changes; no frontend changes |
+| Baseline | `42b0855` (fix: harden approval rework task event publishing) |
+| End commit | this commit |
+| Evidence script | `runtime/orchestrator/scripts/bcg10_rework_task_live.py` |
+| Changed files | `runtime/orchestrator/scripts/bcg10_rework_task_live.py` (new), `docs/product/ai-project-director/verification-project-director-approval-request-changes-rework-20260525.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (update BCG-10 status), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+
+**Evidence IDs — request_changes scenario:**
+| Field | Value |
+|---|---|
+| project_id | `971314f1-39e5-4dff-836d-e147e46e4719` |
+| approval_id | `c6bbfee0-047a-47bb-ab15-8d26ce8bf099` |
+| decision_id | `025f5425-b993-4ba4-b0a2-e63e2f12dcea` |
+| rework_task_id | `029d165c-a3b3-40ee-994f-5b0df19f7674` |
+| source_draft_id | `arw:c6bbfee0047a47bb:025f5425b9934ba4` |
+
+**Evidence IDs — reject scenario:**
+| Field | Value |
+|---|---|
+| project_id | `5052e9db-b188-4e5a-8251-aed6289c69d6` |
+| approval_id | `e853fd59-1b94-4078-8233-5123240b9ea4` |
+| decision_id | `a019ca33-4e85-4bce-a6e4-c71e51f05052` |
+| rework_task_id | `fa4efa4c-5c95-4918-978c-cd891c62cb08` |
+| source_draft_id | `arw:e853fd591b944078:a019ca334e854bce` |
+
+**Scenarios verified:**
+| Scenario | Checks | Result |
+|---|---|---|
+| request_changes → rework task | status/changes_req, GET approval/history/change-rework/tasks, source_draft_id, input_summary, acceptance_criteria, owner/priority, event publish x1 | Pass |
+| reject → rework task | status/rejected, risk=high, priority=high, owner=engineer, source_draft_id, input_summary | Pass |
+| approve → no rework task | status/approved, no arw: task | Pass |
+| closed approval idempotency | first reject 200, second reject 422, one rework task, no duplicate | Pass |
+| transaction rollback | simulated failure 422, approval pending_approval, no decision, no rework task | Pass |
+| event boundary rollback | simulated failure 422, zero task_created events published | Pass |
+
+**Live evidence result:** 89/89 passed, 0 failed.
+
+**Unit tests:** `tests/test_approval_rework_task_creation.py` — 6/6 passed.
+
+**Smoke regression:** `v3c_day10_approval_gate_smoke.py` + `v3c_day12_approval_rework_retrospective_smoke.py` — both passed.
+
+**APIs exercised:** POST /projects, POST /tasks, POST /deliverables, POST /approvals, POST /approvals/{id}/actions, GET /approvals/{id}, GET /approvals/{id}/history, GET /approvals/projects/{id}/change-rework, GET /tasks.
+
+**Business code path:** `approval_service.apply_approval_decision` → `_ensure_rework_task_for_negative_decision` (idempotency key `arw:{approval_hex16}:{decision_hex16}`) → `task_service.create_task(commit=False)` → single transaction commit → `task_repository.publish_created` after commit. Rollback preserves approval state and publishes zero events.
+
+**Boundary:** No mock/simulate; no database modification for main path; no new write API; no planning/apply; no Worker execution; no apply-local/git-commit/push/PR; no frontend change; BCG-17 Deferred; total closure not Pass.
+
+**Gate:** BCG-10-R3 executable rework task creation Pass (89/89 live + 6/6 unit). **BCG-10 overall: Runtime Evidence Pass** — both rework visibility (BCG-10A, 61/61) and executable rework task creation (BCG-10-R3, 89/89) are proven. AI Project Director total closure remains Partial. Do not mark total closure Pass.
+
+
 ### BCG-11A Repository Binding & Snapshot Live Evidence (2026-05-24)
 
 | Field | Backfill |
