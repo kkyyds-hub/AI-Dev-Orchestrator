@@ -16,7 +16,7 @@ from app.domain.approval import (
 )
 from app.domain.project import ProjectStage
 from app.domain.project_role import ProjectRoleCode
-from app.domain.task import TaskPriority, TaskRiskLevel
+from app.domain.task import Task, TaskPriority, TaskRiskLevel
 from app.repositories.approval_repository import ApprovalRecord, ApprovalRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.project_repository import ProjectRepository
@@ -374,6 +374,7 @@ class ApprovalService:
                     record=record,
                     decision=latest_decision,
                 )
+                self.approval_repository.session.commit()
             raise ValueError("Approval request is already closed.")
 
         decision = ApprovalDecision(
@@ -386,15 +387,27 @@ class ApprovalService:
             requested_changes=requested_changes or [],
             created_at=utc_now(),
         )
-        updated_record = self.approval_repository.add_decision(
-            approval_id=approval_id,
-            decision=decision,
-            status=map_approval_action_to_status(action),
-        )
-        self._ensure_rework_task_for_negative_decision(
-            record=updated_record,
-            decision=decision,
-        )
+        rework_task: Task | None = None
+        try:
+            updated_record = self.approval_repository.add_decision_no_commit(
+                approval_id=approval_id,
+                decision=decision,
+                status=map_approval_action_to_status(action),
+            )
+            rework_task = self._ensure_rework_task_for_negative_decision(
+                record=updated_record,
+                decision=decision,
+            )
+            self.approval_repository.session.commit()
+            if rework_task is not None:
+                self.task_service.task_repository.publish_created(rework_task)
+        except Exception:
+            self.approval_repository.session.rollback()
+            raise
+
+        if rework_task is not None and self.task_service is not None:
+            self.task_service.task_repository.publish_created(rework_task)
+
         return self._to_detail(updated_record)
 
     def list_project_rework_cycles(
@@ -747,23 +760,23 @@ class ApprovalService:
         *,
         record: ApprovalRecord,
         decision: ApprovalDecision,
-    ) -> None:
+    ) -> Task | None:
         """Create one executable rework task after request_changes / reject."""
 
         if self.task_service is None or decision.action not in {
             ApprovalDecisionAction.REJECT,
             ApprovalDecisionAction.REQUEST_CHANGES,
         }:
-            return
+            return None
 
         source_draft_id = self._build_rework_task_source_id(
             approval_id=record.approval.id,
             decision_id=decision.id,
         )
         if self.task_service.get_task_by_source_draft_id(source_draft_id) is not None:
-            return
+            return None
 
-        self.task_service.create_task(
+        return self.task_service.create_task(
             project_id=record.approval.project_id,
             title=self._build_rework_task_title(record=record, decision=decision),
             input_summary=self._build_rework_task_input_summary(
@@ -785,6 +798,7 @@ class ApprovalService:
             upstream_role_code=record.approval.requester_role_code,
             downstream_role_code=ProjectRoleCode.REVIEWER,
             source_draft_id=source_draft_id,
+            commit=False,
         )
 
     @staticmethod

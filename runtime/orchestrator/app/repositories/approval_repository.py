@@ -89,6 +89,33 @@ class ApprovalRepository:
 
         return persisted_record
 
+    def add_decision_no_commit(
+        self,
+        *,
+        approval_id: UUID,
+        decision: ApprovalDecision,
+        status: ApprovalStatus,
+    ) -> ApprovalRecord:
+        """Append one decision and flush while the caller owns the transaction."""
+
+        approval_row = self.session.get(ApprovalRequestTable, approval_id)
+        if approval_row is None:
+            raise ValueError(f"Approval request not found: {approval_id}")
+
+        approval_row.status = status
+        approval_row.latest_summary = decision.summary
+        approval_row.decided_at = decision.created_at
+        approval_row.decisions.append(self._build_decision_row(decision))
+        self.session.flush()
+
+        persisted_record = self.get_record_by_id(approval_id)
+        if persisted_record is None:
+            raise ValueError(
+                f"Approval request not found after decision append: {approval_id}"
+            )
+
+        return persisted_record
+
     def get_record_by_id(self, approval_id: UUID) -> ApprovalRecord | None:
         """Return one approval request plus its structured decision history."""
 

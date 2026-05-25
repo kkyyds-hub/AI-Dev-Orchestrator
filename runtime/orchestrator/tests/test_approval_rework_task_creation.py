@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -12,8 +12,10 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
 from app.core.db import get_db_session
-from app.core.db_tables import ORMBase, TaskTable
+from app.core.db_tables import ApprovalDecisionTable, ApprovalRequestTable, ORMBase, TaskTable
+from app.domain.approval import ApprovalStatus
 from app.domain.task import TaskStatus
+from app.services.task_service import TaskService
 
 
 @pytest.fixture()
@@ -219,6 +221,56 @@ def test_approve_does_not_create_rework_task(client, db_session):
 
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "approved"
+    assert _rework_tasks(db_session, approval["id"]) == []
+
+
+def test_rework_task_failure_rolls_back_approval_decision(
+    client,
+    db_session,
+    monkeypatch,
+):
+    project_id = _create_project(client)
+    source_task_id = _create_source_task(client, project_id)
+    deliverable = _create_deliverable(client, project_id, source_task_id)
+    approval = _create_approval(client, deliverable["id"])
+
+    original_create_task = TaskService.create_task
+
+    def fail_rework_task_creation(self, *args, **kwargs):
+        if kwargs.get("source_draft_id", "").startswith("arw:"):
+            raise ValueError("simulated rework task persistence failure")
+        return original_create_task(self, *args, **kwargs)
+
+    monkeypatch.setattr(TaskService, "create_task", fail_rework_task_creation)
+
+    response = client.post(
+        f"/approvals/{approval['id']}/actions",
+        json={
+            "action": "request_changes",
+            "actor_name": "Boss",
+            "summary": "This should roll back if task creation fails.",
+            "requested_changes": ["Force rollback path"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "simulated rework task persistence failure" in response.json()["detail"]
+
+    db_session.expire_all()
+    approval_id = UUID(approval["id"])
+    approval_row = db_session.get(ApprovalRequestTable, approval_id)
+    assert approval_row.status == ApprovalStatus.PENDING_APPROVAL
+    assert approval_row.decided_at is None
+    assert approval_row.latest_summary is None
+
+    decisions = list(
+        db_session.execute(
+            select(ApprovalDecisionTable).where(
+                ApprovalDecisionTable.approval_id == approval_id
+            )
+        ).scalars()
+    )
+    assert decisions == []
     assert _rework_tasks(db_session, approval["id"]) == []
 
 

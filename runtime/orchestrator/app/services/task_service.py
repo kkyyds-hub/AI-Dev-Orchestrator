@@ -82,6 +82,7 @@ class TaskService:
         human_status: TaskHumanStatus = TaskHumanStatus.NONE,
         paused_reason: str | None = None,
         source_draft_id: str | None = None,
+        commit: bool = True,
     ) -> Task:
         """创建一条新任务。
 
@@ -161,7 +162,10 @@ class TaskService:
             source_draft_id=source_draft_id,
         )
 
-        return self.task_repository.create(task)
+        if commit:
+            return self.task_repository.create(task)
+
+        return self.task_repository.add_no_commit(task)
 
     def list_tasks(self) -> list[Task]:
         """获取当前全部任务。"""
