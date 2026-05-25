@@ -223,3 +223,84 @@ BCG-14A-R1 closeout: Pass
 BCG-14 Runtime Evidence: Pass (all four preflight states + illegal-action protection + read-back verified)
 AI Project Director total closure: remains Partial. Do not mark total closure Pass.
 ```
+
+---
+
+## 13. R1 Manual Reject Closeout (2026-05-25)
+
+### Strategy
+
+Created a dedicated BCG-14A-R1 reject-only project to avoid active-batch
+conflict with the approved BCG-13A/14A batch. Used `POST /projects` →
+workspace bind (reuse BCG-11A sample repo) → Project Director tasks →
+deliverable → change plans → batch → preflight with dangerous commands
+→ blocked_requires_confirmation.
+
+### Script
+
+`runtime/orchestrator/scripts/bcg14a_manual_reject_closeout_live.py`
+
+### Reject Evidence IDs
+
+| ID | Value |
+|---|---|
+| r1_project_id | b25d7e70-614a-4320-a7ca-84ceb43bfcf2 |
+| r1_batch_id | 7d9d7f6d-86a5-4bd7-952e-c70b1d07137a |
+
+### Reject Before State
+
+- preflight.status: blocked_requires_confirmation
+- blocked: true
+- ready_for_execution: false
+- manual_confirmation_status: pending
+- findings: 2 (shell_force_delete CRITICAL, git_push HIGH)
+
+### Reject Action
+
+```json
+POST /approvals/repository-preflight/{id}/actions
+{"action": "reject", "actor_name": "老板", "summary": "BCG-14A-R1 rejects preflight for evidence",
+ "comment": "拒绝本次高风险预检放行，用于验证人工驳回闭环",
+ "highlighted_risks": ["rm -rf /tmp", "git push --force"]}
+```
+
+### Reject After State
+
+- preflight.status: manual_rejected
+- blocked: true
+- ready_for_execution: false
+- manual_confirmation_status: rejected
+- decided_at: non-null
+- decision_history: 1 entry (action=reject, actor_name=老板, summary/comment/highlighted_risks all present)
+- Read-back consistent via GET batch detail and GET approvals detail
+
+### Read-back
+
+- **Inbox**: total=1, rejected=1, batch correctly shows manual_rejected
+- **Approvals detail**: status=manual_rejected, OK
+- **day15-flow**: risk_preflight step = blocked (correct after reject)
+
+### Illegal Action Protection
+
+| Test | Expected | Actual |
+|---|---|---|
+| Re-reject after reject | 422 | 422 |
+| Approve after reject | 422 | 422 |
+| Non-existent batch reject | 404 | 404 |
+
+### R1 Reject Live Command
+
+```bash
+cd runtime/orchestrator
+python scripts/bcg14a_manual_reject_closeout_live.py
+```
+
+Result: **53 passed, 0 failed, 0 gaps**
+
+### R1 Reject Gate Conclusion
+
+```text
+BCG-14A manual reject closeout: Pass
+BCG-14 Runtime Evidence: Pass (all four preflight states + approve + reject + illegal-action + read-back)
+AI Project Director total closure: remains Partial. Do not mark total closure Pass.
+```
