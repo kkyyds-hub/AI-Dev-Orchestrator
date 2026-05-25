@@ -944,7 +944,31 @@
 | Frontend/build | No frontend changed; `apps/web` build not run |
 | Boundary | No push/PR/merge. No main repo write. No business code changes in R3/R4. BCG-17 Deferred. |
 | Gate | **BCG-16: Backend Pass / Runtime Evidence Pass / Frontend Entry Pending.** AI Project Director total closure remains Partial. |
-| Next | BCG-18 (Release Gate), governance/cost, total rollup |
+| Next | Governance (BCG-19~27), cost (BCG-23), rollup (BCG-30) |
+
+### BCG-18 Release Gate Runtime Evidence (2026-05-25)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-18 Release Gate Runtime Evidence |
+| Scope | Runtime evidence for Day14 release gate: blocked gate approve 409, approve (rqe=true), reject (rqe=false), changes_requested (rqe=false), Day15 release judgement read-back. Isolated projects under E:\bcg18-workspaces\. |
+| Baseline | `014ba0d` (BCG-14A-R1 consistency closeout) |
+| End commit | this commit |
+| Changed files | `runtime/orchestrator/scripts/bcg18_release_gate_live.py` (new), `docs/product/ai-project-director/verification-project-director-release-gate-20260525.md` (new), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (BCG-18 Pass), `docs/product/ai-project-director/execution-plan-backfill-ledger-20260519.md` (this record) |
+| APIs used | POST /projects, PUT /repositories/projects/{id}, POST /snapshot/refresh, project-director session/plan/tasks, POST /deliverables, POST /planning change-plans, POST change-batches, POST preflight, POST /runs/verification, POST commit-candidate, GET/POST repository-release-gate, GET day15-release-judgement |
+| Blocked → 409 | No commit candidate → commit_draft missing → gate blocked → approve returns 409 |
+| Approve | Full chain → pending_approval → approve → approved, rqe=true, decision_count=1, Day15: rqe=true, gwit=false, decisions=1 |
+| Reject | Full chain → reject → rejected, rqe=false, decision persisted, Day15: rqe=false, gwit=false |
+| Changes requested | Full chain → request_changes → changes_requested, rqe=false, Day15: rqe=false, gwit=false |
+| git_write_actions_triggered | false in all Day15 judgements. No apply-local/git-commit/push called. BCG-17 Deferred. |
+| Live command | `cd runtime/orchestrator && python scripts/bcg18_release_gate_live.py` |
+| Live result | 137/137 passed, 0 failed, 0 gaps |
+| Regression | `cd runtime/orchestrator && python -m pytest tests -q` |
+| Regression result | Pending |
+| Frontend/build | No frontend changed; `apps/web` build not run |
+| Boundary | No apply-local/git-commit/push. No PR/remote write. No business code changes. No total closure Pass. |
+| Gate | **BCG-18 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
+| Next | Governance (BCG-19~27), cost (BCG-23), rollup (BCG-30) |
 
 ### 5.6 端到端闭环总验收
 
