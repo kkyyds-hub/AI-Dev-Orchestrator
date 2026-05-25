@@ -793,10 +793,10 @@
 | Regression result | 143 passed, 135 warnings in 71.43s |
 | Frontend/build | No frontend files changed; `apps/web` build not run |
 | Boundary | No apply-local; no git-commit; no command execution; no planning/apply; no Worker dispatch; no repository write to main repo; no new write API; no frontend change; no total closure Pass |
-| Gate | **BCG-14 Runtime Evidence Partial (preflight/approve/readback Pass / reject not tested)**. AI Project Director total closure remains Partial. Do not mark total closure Pass. |
+| Gate | **BCG-14 Runtime Evidence Pass (all four preflight states + illegal-action protection + read-back verified; manual reject closed by final closeout below).** AI Project Director total closure remains Partial. |
 | Next | BCG-15 (commit candidate), Release Gate (BCG-18), governance/cost, total rollup |
 
-### BCG-14A-R1 Preflight Missing Evidence Closeout (2026-05-24)
+### BCG-14A-R1 (earlier) Preflight Missing Evidence Closeout (2026-05-24)
 
 | Field | Backfill |
 |---|---|
@@ -819,6 +819,33 @@
 | Frontend/build | No frontend files changed; `apps/web` build not run |
 | Gate | **BCG-14A-R1 closeout Pass. BCG-14 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
 | Next | BCG-16 (apply-local/git-commit), Release Gate (BCG-18), governance/cost, total rollup |
+
+### BCG-14A-R1 Manual Reject Final Closeout (2026-05-25)
+
+| Field | Backfill |
+|---|---|
+| Phase | BCG-14A-R1 Manual Reject Final Closeout |
+| Scope | Fill the last BCG-14 gap from earlier R1: real API manual reject on a dedicated project (avoids active-batch conflict). Preflight → blocked_requires_confirmation → POST actions reject → manual_rejected → inbox/detail/day15-flow read-back → illegal action protection. |
+| Baseline | `57f915b` (BCG-16A-R4 on latest `origin/main`) |
+| End commit | `92347a6` |
+| Dedicated project | Created `b25d7e70-614a-4320-a7ca-84ceb43bfcf2` (BCG-14A-R1 Reject Evidence) via POST /projects, bound to BCG-11A sample repo, tasks via Project Director session→plan→create-tasks, deliverable via POST /deliverables |
+| Reject batch | `7d9d7f6d-86a5-4bd7-952e-c70b1d07137a` |
+| Changed files | `runtime/orchestrator/scripts/bcg14a_manual_reject_closeout_live.py` (new), `docs/product/ai-project-director/verification-project-director-preflight-manual-confirmation-20260524.md` (R1 manual reject chapter), `docs/product/ai-project-director/backend-closure-gap-freeze-20260519-v2.md` (BCG-14 status update) |
+| APIs used | `GET /repositories/workspace-settings`, `PUT /repositories/workspace-settings`, `PUT /repositories/projects/{id}`, `POST /repositories/projects/{id}/snapshot/refresh`, project-director session/plan/tasks, `POST /deliverables`, `POST /planning/projects/{id}/change-plans`, `POST /repositories/projects/{id}/change-batches`, `POST /repositories/change-batches/{id}/preflight`, `POST /approvals/repository-preflight/{id}/actions`, `GET /approvals/repository-preflight/{id}`, `GET /repositories/change-batches/{id}`, `GET /approvals/projects/{id}/repository-preflight`, `GET /repositories/projects/{id}/day15-flow` |
+| Reject before state | preflight=blocked_requires_confirmation, blocked=true, ready_for_execution=false, manual_confirmation_status=pending, findings=2 (shell_force_delete CRITICAL, git_push HIGH) |
+| Reject action | action=reject, actor_name=老板, summary="BCG-14A-R1 rejects preflight for evidence", comment="拒绝本次高风险预检放行", highlighted_risks=["rm -rf /tmp", "git push --force"] |
+| Reject after state | preflight=manual_rejected, blocked=true, ready_for_execution=false, manual_confirmation_status=rejected, decided_at non-null, decision_history=1 entry (action=reject, actor=老板, summary/comment/highlighted_risks all present) |
+| Read-back | GET batch detail: manual_rejected. GET approvals detail: manual_rejected. All consistent. |
+| Inbox | total=1, rejected=1. Batch shows manual_rejected. |
+| day15-flow | risk_preflight step = blocked (correct after reject). |
+| Illegal actions | Re-reject → 422. Approve-after-reject → 422. Non-existent batch → 404. |
+| Live command | `cd runtime/orchestrator && python scripts/bcg14a_manual_reject_closeout_live.py` |
+| Live result | 53/53 passed, 0 failed, 0 gaps |
+| Regression result | 143 passed, 135 warnings in 33.58s |
+| Frontend/build | No frontend changed; `apps/web` build not run |
+| Boundary | No apply-local/git-commit. No command execution. No Worker. No DB modification. No total closure Pass. |
+| Gate | **BCG-14A-R1 manual reject Pass. BCG-14 Runtime Evidence Pass.** AI Project Director total closure remains Partial. |
+| Next | BCG-15 commit candidate (already Pass), BCG-16 apply-local/git-commit (already Pass), BCG-18 Release Gate, governance/cost, total rollup |
 
 ### BCG-15A Commit Candidate Live Evidence (2026-05-24)
 
