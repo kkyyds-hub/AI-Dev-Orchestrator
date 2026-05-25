@@ -148,6 +148,20 @@ class TaskRepository:
 
         return self._to_domain(task_row)
 
+    def get_by_source_draft_id(self, source_draft_id: str) -> Task | None:
+        """Return the first task created from one stable source identifier."""
+
+        statement = (
+            select(TaskTable)
+            .where(TaskTable.source_draft_id == source_draft_id)
+            .order_by(TaskTable.created_at.asc())
+        )
+        task_row = self.session.execute(statement).scalars().first()
+        if task_row is None:
+            return None
+
+        return self._to_domain(task_row)
+
     def get_existing_ids(self, task_ids: list[UUID]) -> set[UUID]:
         """Return the subset of task IDs that already exists."""
 

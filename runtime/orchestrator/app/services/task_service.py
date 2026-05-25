@@ -173,6 +173,11 @@ class TaskService:
 
         return self.task_repository.get_by_id(task_id)
 
+    def get_task_by_source_draft_id(self, source_draft_id: str) -> Task | None:
+        """Return an existing task created from one stable upstream source."""
+
+        return self.task_repository.get_by_source_draft_id(source_draft_id)
+
     def retry_task(self, task_id: UUID) -> TaskRetryResult | None:
         """把失败或阻塞任务重新置回 `pending`。"""
 

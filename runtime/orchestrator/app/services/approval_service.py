@@ -16,9 +16,11 @@ from app.domain.approval import (
 )
 from app.domain.project import ProjectStage
 from app.domain.project_role import ProjectRoleCode
+from app.domain.task import TaskPriority, TaskRiskLevel
 from app.repositories.approval_repository import ApprovalRecord, ApprovalRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.project_repository import ProjectRepository
+from app.services.task_service import TaskService
 
 
 @dataclass(slots=True, frozen=True)
@@ -159,10 +161,12 @@ class ApprovalService:
         approval_repository: ApprovalRepository,
         deliverable_repository: DeliverableRepository,
         project_repository: ProjectRepository,
+        task_service: TaskService | None = None,
     ) -> None:
         self.approval_repository = approval_repository
         self.deliverable_repository = deliverable_repository
         self.project_repository = project_repository
+        self.task_service = task_service
 
     def request_deliverable_approval(
         self,
@@ -364,6 +368,12 @@ class ApprovalService:
         if record is None:
             raise ValueError(f"Approval request not found: {approval_id}")
         if record.approval.status != ApprovalStatus.PENDING_APPROVAL:
+            latest_decision = self._get_latest_decision(record)
+            if latest_decision is not None:
+                self._ensure_rework_task_for_negative_decision(
+                    record=record,
+                    decision=latest_decision,
+                )
             raise ValueError("Approval request is already closed.")
 
         decision = ApprovalDecision(
@@ -380,6 +390,10 @@ class ApprovalService:
             approval_id=approval_id,
             decision=decision,
             status=map_approval_action_to_status(action),
+        )
+        self._ensure_rework_task_for_negative_decision(
+            record=updated_record,
+            decision=decision,
         )
         return self._to_detail(updated_record)
 
@@ -727,6 +741,136 @@ class ApprovalService:
             decisions=list(record.decisions),
             overdue=self._is_overdue(record.approval),
         )
+
+    def _ensure_rework_task_for_negative_decision(
+        self,
+        *,
+        record: ApprovalRecord,
+        decision: ApprovalDecision,
+    ) -> None:
+        """Create one executable rework task after request_changes / reject."""
+
+        if self.task_service is None or decision.action not in {
+            ApprovalDecisionAction.REJECT,
+            ApprovalDecisionAction.REQUEST_CHANGES,
+        }:
+            return
+
+        source_draft_id = self._build_rework_task_source_id(
+            approval_id=record.approval.id,
+            decision_id=decision.id,
+        )
+        if self.task_service.get_task_by_source_draft_id(source_draft_id) is not None:
+            return
+
+        self.task_service.create_task(
+            project_id=record.approval.project_id,
+            title=self._build_rework_task_title(record=record, decision=decision),
+            input_summary=self._build_rework_task_input_summary(
+                record=record,
+                decision=decision,
+            ),
+            priority=TaskPriority.HIGH,
+            acceptance_criteria=self._build_rework_acceptance_criteria(
+                record=record,
+                decision=decision,
+            ),
+            risk_level=(
+                TaskRiskLevel.HIGH
+                if decision.highlighted_risks
+                or decision.action == ApprovalDecisionAction.REJECT
+                else TaskRiskLevel.NORMAL
+            ),
+            owner_role_code=ProjectRoleCode.ENGINEER,
+            upstream_role_code=record.approval.requester_role_code,
+            downstream_role_code=ProjectRoleCode.REVIEWER,
+            source_draft_id=source_draft_id,
+        )
+
+    @staticmethod
+    def _build_rework_task_source_id(
+        *,
+        approval_id: UUID,
+        decision_id: UUID,
+    ) -> str:
+        """Build the stable idempotency key for approval-driven rework tasks."""
+
+        return f"arw:{approval_id.hex[:16]}:{decision_id.hex[:16]}"
+
+    @staticmethod
+    def _build_rework_task_title(
+        *,
+        record: ApprovalRecord,
+        decision: ApprovalDecision,
+    ) -> str:
+        """Build a compact task title that stays within the task model limit."""
+
+        action_label = (
+            "Reject rework"
+            if decision.action == ApprovalDecisionAction.REJECT
+            else "Requested-changes rework"
+        )
+        return (
+            f"{action_label}: {record.approval.deliverable_title} "
+            f"v{record.approval.deliverable_version_number}"
+        )[:200]
+
+    @staticmethod
+    def _build_rework_task_input_summary(
+        *,
+        record: ApprovalRecord,
+        decision: ApprovalDecision,
+    ) -> str:
+        """Build executable worker instructions from the boss approval decision."""
+
+        requested_changes = (
+            "\n".join(f"- {item}" for item in decision.requested_changes)
+            or "- Review the boss summary/comment and revise the deliverable."
+        )
+        risks = (
+            "\n".join(f"- {item}" for item in decision.highlighted_risks)
+            or "- No explicit risk list was provided."
+        )
+        comment = decision.comment or "No additional comment."
+        return (
+            "Approval-driven rework task.\n"
+            f"Approval ID: {record.approval.id}\n"
+            f"Decision ID: {decision.id}\n"
+            f"Decision action: {decision.action.value}\n"
+            f"Deliverable: {record.approval.deliverable_title} "
+            f"v{record.approval.deliverable_version_number}\n"
+            f"Decision summary: {decision.summary}\n"
+            f"Comment: {comment}\n"
+            "Requested changes:\n"
+            f"{requested_changes}\n"
+            "Highlighted risks:\n"
+            f"{risks}\n"
+            "Produce a revised deliverable version and prepare it for resubmission."
+        )[:2000]
+
+    @staticmethod
+    def _build_rework_acceptance_criteria(
+        *,
+        record: ApprovalRecord,
+        decision: ApprovalDecision,
+    ) -> list[str]:
+        """Build concise executable acceptance criteria for the rework task."""
+
+        criteria = [
+            (
+                f"Address boss decision {decision.id} for approval "
+                f"{record.approval.id}."
+            ),
+            "Create or prepare a revised deliverable version for renewed approval.",
+        ]
+        criteria.extend(
+            f"Requested change handled: {item}" for item in decision.requested_changes
+        )
+        criteria.extend(
+            f"Highlighted risk mitigated or documented: {item}"
+            for item in decision.highlighted_risks
+        )
+        return criteria[:10]
 
     @staticmethod
     def _build_latest_records_by_deliverable(

@@ -28,6 +28,7 @@ from app.repositories.commit_candidate_repository import CommitCandidateReposito
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.repository_snapshot_repository import (
     RepositorySnapshotRepository,
 )
@@ -46,6 +47,7 @@ from app.services.approval_service import (
     ApprovalService,
     ProjectApprovalInbox,
 )
+from app.services.budget_guard_service import BudgetGuardService
 from app.services.change_batch_service import (
     ChangeBatchDetail,
     ChangeBatchNotFoundError,
@@ -87,6 +89,9 @@ from app.services.repository_release_gate_service import (
     RepositoryReleaseGateStatus,
 )
 from app.services.run_logging_service import RunLoggingService
+from app.services.role_catalog_service import RoleCatalogService
+from app.services.task_service import TaskService
+from app.services.task_state_machine_service import TaskStateMachineService
 
 
 class ApprovalDecisionSummaryResponse(BaseModel):
@@ -988,10 +993,23 @@ def get_approval_service(
     """Create the shared Day10 approval service dependency."""
 
     project_repository = ProjectRepository(session)
+    project_role_repository = ProjectRoleRepository(session)
+    task_repository = TaskRepository(session)
+    run_repository = RunRepository(session)
     return ApprovalService(
         approval_repository=ApprovalRepository(session),
         deliverable_repository=DeliverableRepository(session),
         project_repository=project_repository,
+        task_service=TaskService(
+            task_repository=task_repository,
+            project_repository=project_repository,
+            budget_guard_service=BudgetGuardService(run_repository=run_repository),
+            task_state_machine_service=TaskStateMachineService(),
+            role_catalog_service=RoleCatalogService(
+                project_repository=project_repository,
+                project_role_repository=project_role_repository,
+            ),
+        ),
     )
 
 
