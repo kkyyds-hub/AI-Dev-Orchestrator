@@ -15,6 +15,7 @@ from app.core.db import get_db_session
 from app.core.db_tables import ApprovalDecisionTable, ApprovalRequestTable, ORMBase, TaskTable
 from app.domain.approval import ApprovalStatus
 from app.domain.task import TaskStatus
+from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
 
 
@@ -127,7 +128,20 @@ def _rework_tasks(db_session, approval_id: str) -> list[TaskTable]:
     )
 
 
-def test_request_changes_creates_executable_rework_task(client, db_session):
+def test_request_changes_creates_executable_rework_task(
+    client,
+    db_session,
+    monkeypatch,
+):
+    published_task_ids: list[str] = []
+    original_publish_created = TaskRepository.publish_created
+
+    def capture_publish_created(self, task):
+        published_task_ids.append(str(task.id))
+        return original_publish_created(self, task)
+
+    monkeypatch.setattr(TaskRepository, "publish_created", capture_publish_created)
+
     project_id = _create_project(client)
     source_task_id = _create_source_task(client, project_id)
     deliverable = _create_deliverable(client, project_id, source_task_id)
@@ -161,6 +175,7 @@ def test_request_changes_creates_executable_rework_task(client, db_session):
     assert "request_changes" in task.input_summary
     assert "Add rollout fallback" in task.input_summary
     assert "Requested change handled: Add rollout fallback" in task.acceptance_criteria
+    assert published_task_ids.count(str(task.id)) == 1
 
     list_response = client.get("/tasks")
     assert list_response.status_code == 200
@@ -202,6 +217,44 @@ def test_reject_creates_one_rework_task_and_closed_approval_is_idempotent(
     tasks = _rework_tasks(db_session, approval["id"])
     assert len(tasks) == 1
     assert tasks[0].status == TaskStatus.PENDING
+
+
+def test_closed_approval_action_has_no_compensating_task_side_effect(
+    client,
+    db_session,
+):
+    project_id = _create_project(client)
+    source_task_id = _create_source_task(client, project_id)
+    deliverable = _create_deliverable(client, project_id, source_task_id)
+    approval = _create_approval(client, deliverable["id"])
+
+    first_response = client.post(
+        f"/approvals/{approval['id']}/actions",
+        json={
+            "action": "reject",
+            "actor_name": "Boss",
+            "summary": "Rejected until the PRD has concrete execution detail.",
+            "requested_changes": ["Rewrite execution section"],
+        },
+    )
+    assert first_response.status_code == 200, first_response.text
+
+    tasks = _rework_tasks(db_session, approval["id"])
+    assert len(tasks) == 1
+    db_session.delete(tasks[0])
+    db_session.commit()
+
+    second_response = client.post(
+        f"/approvals/{approval['id']}/actions",
+        json={
+            "action": "reject",
+            "actor_name": "Boss",
+            "summary": "Closed approval must fail without repair writes.",
+        },
+    )
+
+    assert second_response.status_code == 422
+    assert _rework_tasks(db_session, approval["id"]) == []
 
 
 def test_approve_does_not_create_rework_task(client, db_session):

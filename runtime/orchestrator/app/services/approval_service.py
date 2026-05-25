@@ -368,13 +368,6 @@ class ApprovalService:
         if record is None:
             raise ValueError(f"Approval request not found: {approval_id}")
         if record.approval.status != ApprovalStatus.PENDING_APPROVAL:
-            latest_decision = self._get_latest_decision(record)
-            if latest_decision is not None:
-                self._ensure_rework_task_for_negative_decision(
-                    record=record,
-                    decision=latest_decision,
-                )
-                self.approval_repository.session.commit()
             raise ValueError("Approval request is already closed.")
 
         decision = ApprovalDecision(
@@ -399,8 +392,6 @@ class ApprovalService:
                 decision=decision,
             )
             self.approval_repository.session.commit()
-            if rework_task is not None:
-                self.task_service.task_repository.publish_created(rework_task)
         except Exception:
             self.approval_repository.session.rollback()
             raise
