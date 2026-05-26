@@ -600,6 +600,190 @@ Important standing rules:
 
 ---
 
+## 16.1 Golden path is an execution inspection order, not a new product baseline
+
+The golden path (main link / 主链路) is a derived execution review tool. It must not become a new product spec.
+
+### 16.1.1 What the golden path is
+
+The golden path is an inspection order derived from:
+
+- `docs/product/ai-project-director/page-information-architecture-20260518.md`
+- `docs/product/ai-project-director/closure-flow-20260518.md`
+- `docs/product/ai-project-director/closure-checklist-20260518.md`
+
+It exists to help the orchestrator GPT locate the current bottleneck. It is a review lens, not a replacement for any product document.
+
+### 16.1.2 What the golden path is NOT
+
+The golden path must never:
+
+- become a new product baseline;
+- overwrite or rewrite `page-information-architecture-20260518.md`;
+- redefine product page responsibilities or navigation groups;
+- introduce new scope beyond what the product baseline defines;
+- be quoted as the authority for a gate decision.
+
+The only highest product baseline is `page-information-architecture-20260518.md`.
+
+### 16.1.3 Mandatory task-to-baseline mapping
+
+Before GPT generates any new task instruction, GPT must answer:
+
+1. Which step of the closure flow does this task serve?
+2. Which acceptance item in the closure checklist does it address?
+3. Which page or cross-page mechanism from `page-information-architecture-20260518.md` does it implement or prove?
+
+If GPT cannot clearly answer these three questions, the task must not be sent to Codex or DeepSeek.
+
+### 16.1.4 Main link inspection order (execution review index, not a product standard)
+
+When the user asks to continue AI Project Director closure, GPT uses this order to locate the current bottleneck:
+
+1. User states a goal
+2. AI Director clarifies the goal
+3. User confirms the goal
+4. AI Director generates a plan
+5. User confirms the plan
+6. Real task queue is created
+7. AI Director dispatches Worker / Agent
+8. Run / logs / summary are produced
+9. On failure: retry / rework / human intervention / replanning
+10. On success: deliverable / repository change chain is produced
+11. Approval / Release Gate
+12. apply-local / git-commit (only when explicitly authorized)
+13. Cost, role, skill, memory, experience are recorded
+14. Total rollup judgment
+
+GPT must, before generating each task, state which link in this chain the task is filling. Tasks that cannot be mapped to a specific link must not be prioritized over clear main-link gaps.
+
+Cosmetic polish, scattered point-features, and evidence-free tasks must never take priority over main-link gaps.
+
+### 16.1.5 Evidence documents are status records, not direction setters
+
+Verification documents, ledgers, freeze snapshots, and evidence reports are state evidence. They:
+
+- record what passed and what did not;
+- provide readback proof;
+- support gate decisions.
+
+They must never:
+
+- redefine product scope;
+- change page responsibilities;
+- introduce new requirements;
+- override the product baseline;
+- reverse the closure flow direction.
+
+If an evidence document appears to conflict with the product baseline, the product baseline wins. If the product baseline needs updating, the user must explicitly request it.
+
+---
+
+## 16.2 AI Project Director context and state governance
+
+Long-running AI orchestration suffers from context drift. This section defines how the orchestrator GPT must manage its own state.
+
+### 16.2.1 Forbidden fact sources for task generation and review
+
+AI Project Director must not treat these as fact sources:
+
+- long-term chat context from previous conversations;
+- historical conversation summaries;
+- the previous execution report from another model;
+- its own memory of "what happened last time";
+- an executor's self-reported completion claim without repository verification.
+
+These are supplementary clues only. They cannot replace current state verification.
+
+### 16.2.2 Mandatory state reconstruction before every instruction
+
+Before generating or reviewing any task, GPT must reconstruct the current site from:
+
+1. current `origin/main` HEAD commit and its diff;
+2. the product baseline documents (`page-information-architecture-20260518.md`, `closure-flow-20260518.md`, `closure-checklist-20260518.md`);
+3. the current confirmed plan version (from plan documents or user confirmation);
+4. the current persisted runtime state: project / task / run / deliverable / approval / repository / gate / evidence records;
+5. the latest explicit user confirmation on scope, gate, and next step.
+
+### 16.2.3 Fact priority order
+
+When sources conflict, use this priority:
+
+```text
+current repository state / persisted runtime state
+  > latest user confirmation
+  > confirmed plan version
+  > current task-run-approval-gate state
+  > evidence readback
+  > historical summaries
+  > long-term memory
+  > AI inference
+```
+
+If current facts conflict with historical memory, current facts always win. There is no exception.
+
+### 16.2.4 Actions forbidden by state governance
+
+GPT must never:
+
+- advance a stage gate based on memory of previous work;
+- mark a stage Pass based solely on an executor's self-reported completion;
+- skip the mandatory state reconstruction step;
+- generate a task that assumes state without verifying it;
+- treat a conversation summary as equivalent to repository verification;
+- continue a workflow from where a previous chat "left off" without re-validating the current repository.
+
+Every new chat session starts from current repository state, not from where a previous session ended.
+
+---
+
+## 16.3 High-risk actions require current-state readback and explicit user confirmation
+
+Certain actions carry high risk. They must never be executed by the AI Director based on context alone.
+
+### 16.3.1 High-risk action list
+
+The following actions are classified as high-risk:
+
+| # | High-risk action | Scope |
+|---|---|---|
+| 1 | plan replacement / major replanning | replacing the confirmed plan with a new version |
+| 2 | task deletion / skipping tasks | removing or bypassing tasks in the task queue |
+| 3 | approval decision | approving or rejecting a deliverable or stage |
+| 4 | release gate approve | passing a release gate |
+| 5 | apply-local | writing changes to the local working tree |
+| 6 | git-commit | creating a commit in the repository |
+| 7 | push / PR / merge | publishing changes to remote or merging branches |
+| 8 | release / publish | releasing software or publishing artifacts |
+| 9 | modifying acceptance criteria | changing what counts as Pass for a stage |
+| 10 | bypassing API to modify database or worktree | direct data or file manipulation |
+
+### 16.3.2 Mandatory protocol for high-risk actions
+
+Before any high-risk action, the orchestrator GPT must:
+
+1. **Read current state**: fetch the latest `origin/main`, check the relevant runtime records, verify the current gate status.
+2. **Display the decision frame**:
+   - **Allowed actions**: what the user can choose;
+   - **Forbidden actions**: what must not happen at this point;
+   - **Reason**: why this action is being proposed;
+   - **Next action**: what follows after the user decides.
+3. **Wait for explicit user confirmation**: no high-risk action proceeds without a clear "yes" from the user.
+4. **Block if evidence or gate is insufficient**: if the evidence chain is incomplete or the current gate is not satisfied, the action must be blocked with a clear explanation of what is missing.
+
+### 16.3.3 Actions that are NOT high-risk (can proceed within instruction scope)
+
+The following are not high-risk and can proceed within the scope of a valid instruction:
+
+- reading files and repository state;
+- running tests and evidence scripts that do not modify business data;
+- generating reports, summaries, analysis;
+- updating evidence documents within scope;
+- building the frontend (when authorized by the instruction phase);
+- running non-destructive verification commands.
+
+---
+
 ## 17. Opening prompt for future conversations
 
 The user may start a new conversation with:
@@ -609,6 +793,11 @@ The user may start a new conversation with:
 并严格按这个 skill 继续推进 AI Project Director 闭环。
 主产品基线是 docs/product/ai-project-director/page-information-architecture-20260518.md。
 先检查 GitHub 最新 origin/main，不要凭记忆继续。
+不新增产品标准文档。
+不让 verification / ledger / evidence 文档覆盖 page IA。
+先按主链路定位当前卡点，说明本轮任务补的是主链路哪一环。
+不能凭记忆继续推进阶段。
+不能把 Partial 写成 Pass。
 ```
 
 When this prompt is used, ChatGPT must apply this skill before giving any instruction.
