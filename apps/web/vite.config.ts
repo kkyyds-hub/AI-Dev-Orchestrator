@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
     "/repositories",
     "/events",
     "/agent-threads",
+    "/project-director",
   ];
   const proxyConfig = Object.fromEntries(
     proxyPrefixes.map((prefix) => [

@@ -79,7 +79,10 @@ export function WorkbenchPage() {
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* 主对话区 */}
         <div className="flex-1 lg:min-w-0">
-          <DirectorChatEntry />
+          <DirectorChatEntry
+            selectedProjectId={selectedProjectId}
+            selectedProjectName={selectedProjectName}
+          />
         </div>
 
         {/* 右侧短控制栏 */}
