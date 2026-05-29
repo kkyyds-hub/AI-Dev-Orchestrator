@@ -54,7 +54,6 @@
 | CL-03 | 计划闭环 | 是否生成 AI 作战计划 | R1-C: POST /project-director/sessions/{id}/plan-versions → 201 status=pending_confirmation；plan_summary/phases/proposed_tasks/acceptance_criteria/risks 全部有内容；GET readback 一致；version_no 递增正确（verification-project-director-workbench-plan-generation-r1c-20260528） | 有目标、阶段、任务、交付、风险 | Runtime Pass | confirmed session → plan version 生成全链路验证通过；前端渲染 phases/proposed_tasks/acceptance_criteria/risks 全部字段 |
 | CL-04 | 计划闭环 | 计划是否经用户确认 | R1-D: POST /project-director/plan-versions/{id}/confirm → 200 status=confirmed, confirmed_at=2026-05-29T06:51:10Z；GET detail readback plan_summary/phases/proposed_tasks 全部一致；GET list readback 确认 confirmed（verification-project-director-workbench-plan-confirmation-r1d-20260528） | 未确认不得直接创建正式任务 | Runtime Pass | plan version pending_confirmation → confirmed 全链路验证通过；idempotent re-confirm 正常 |
 | CL-05 | 团队闭环 | 是否生成角色与 Skill 方案 | role list / skill binding proposal | 有角色、职责、Skill、边界 |  |  |
-| CL-05 | 团队闭环 | 是否生成角色与 Skill 方案 | role list / skill binding proposal | 有角色、职责、Skill、边界 |  |  |
 | CL-06 | 团队闭环 | 角色 / Skill 是否区分模板与项目实例 | 角色来源字段 / Skill 生命周期 | 不混淆可复用资产和临时资产 |  |  |
 | CL-07 | 任务闭环 | 是否根据计划创建任务队列 | R1-D: plan version 已 confirmed，为后续 task creation 提供前置条件（only confirmed plan versions can create tasks）；前端尚未接入 create-tasks（verification-project-director-workbench-plan-confirmation-r1d-20260528） | 任务有状态、负责人、依赖、验收标准 | Evidence Partial | plan confirmed 已完成，**为后续任务队列创建提供前置条件**；但前端尚未接入 create-tasks。不得写 Pass |
 | CL-08 | 调度闭环 | 是否产生调度决策 | dispatch record / run owner | 有 Agent 分配和原因 |  |  |
