@@ -40,3 +40,12 @@ export interface CreateProjectDirectorSessionInput {
   project_id?: string | null;
   constraints?: string;
 }
+
+export interface SubmitProjectDirectorAnswersInput {
+  sessionId: string;
+  answers: ClarifyingAnswer[];
+}
+
+export interface ConfirmProjectDirectorGoalInput {
+  sessionId: string;
+}

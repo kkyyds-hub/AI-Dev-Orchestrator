@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
 
-import { useCreateProjectDirectorSession } from "../../../features/project-director/hooks";
+import {
+  useConfirmProjectDirectorGoal,
+  useCreateProjectDirectorSession,
+  useSubmitProjectDirectorAnswers,
+} from "../../../features/project-director/hooks";
 import type { ProjectDirectorSession } from "../../../features/project-director/types";
 
 const EXAMPLE_QUESTIONS = [
@@ -22,11 +26,46 @@ export function DirectorChatEntry({
 }: DirectorChatEntryProps) {
   const [draft, setDraft] = useState("");
   const [session, setSession] = useState<ProjectDirectorSession | null>(null);
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const createSessionMutation = useCreateProjectDirectorSession();
+  const submitAnswersMutation = useSubmitProjectDirectorAnswers();
+  const confirmGoalMutation = useConfirmProjectDirectorGoal();
 
   const scopedProjectId = selectedProjectId === "all" ? null : selectedProjectId;
   const trimmedDraft = draft.trim();
-  const canSend = trimmedDraft.length > 0 && !createSessionMutation.isPending;
+  const isMutating =
+    createSessionMutation.isPending ||
+    submitAnswersMutation.isPending ||
+    confirmGoalMutation.isPending;
+  const canSend = trimmedDraft.length > 0 && !isMutating;
+  const requiredQuestions =
+    session?.clarifying_questions.filter((question) => question.required) ?? [];
+  const requiredAnswersReady = requiredQuestions.every(
+    (question) => (answerDrafts[question.id] ?? "").trim().length > 0,
+  );
+  const canSubmitAnswers =
+    session?.status === "clarifying" &&
+    session.clarifying_questions.length > 0 &&
+    requiredAnswersReady &&
+    !submitAnswersMutation.isPending;
+  const canConfirmGoal =
+    session?.status === "ready_to_confirm" && !confirmGoalMutation.isPending;
+
+  useEffect(() => {
+    if (!session) {
+      setAnswerDrafts({});
+      return;
+    }
+
+    setAnswerDrafts(
+      Object.fromEntries(
+        session.clarifying_answers.map((answer) => [
+          answer.question_id,
+          answer.answer,
+        ]),
+      ),
+    );
+  }, [session]);
 
   const handleExampleClick = (question: string) => {
     setDraft(question);
@@ -51,6 +90,51 @@ export function DirectorChatEntry({
     }
   };
 
+  const handleAnswerChange = (questionId: string, answer: string) => {
+    setAnswerDrafts((current) => ({
+      ...current,
+      [questionId]: answer,
+    }));
+  };
+
+  const handleSubmitAnswers = async () => {
+    if (!session || !canSubmitAnswers) {
+      return;
+    }
+
+    const answers = session.clarifying_questions
+      .map((question) => ({
+        question_id: question.id,
+        answer: (answerDrafts[question.id] ?? "").trim(),
+      }))
+      .filter((answer) => answer.answer.length > 0);
+
+    try {
+      const updatedSession = await submitAnswersMutation.mutateAsync({
+        sessionId: session.id,
+        answers,
+      });
+      setSession(updatedSession);
+    } catch {
+      // Error details are rendered from the mutation state below.
+    }
+  };
+
+  const handleConfirmGoal = async () => {
+    if (!session || !canConfirmGoal) {
+      return;
+    }
+
+    try {
+      const updatedSession = await confirmGoalMutation.mutateAsync({
+        sessionId: session.id,
+      });
+      setSession(updatedSession);
+    } catch {
+      // Error details are rendered from the mutation state below.
+    }
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -69,7 +153,7 @@ export function DirectorChatEntry({
           <div>
             <h2 className="text-xl font-semibold text-zinc-100">AI 项目主管</h2>
             <p className="mt-1.5 text-sm text-zinc-500">
-              提出目标、查看阻塞、调整计划。当前 R1 仅接入目标提交与澄清问题读取。
+              提出目标、查看阻塞、调整计划。当前 R1-B 仅接入目标提交、回答澄清问题与确认目标。
             </p>
           </div>
           <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
@@ -126,6 +210,24 @@ export function DirectorChatEntry({
                               {question.hint}
                             </p>
                           ) : null}
+                          {session.status === "clarifying" ? (
+                            <textarea
+                              value={answerDrafts[question.id] ?? ""}
+                              onChange={(event) =>
+                                handleAnswerChange(question.id, event.target.value)
+                              }
+                              rows={2}
+                              placeholder="填写你的澄清回答..."
+                              className="mt-3 w-full resize-y rounded border border-[#333333] bg-[#101010] px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-blue-500/50 focus:outline-none"
+                            />
+                          ) : (
+                            <p className="mt-3 rounded border border-[#333333] bg-[#101010] px-3 py-2 text-xs text-zinc-400">
+                              回答：
+                              {session.clarifying_answers.find(
+                                (answer) => answer.question_id === question.id,
+                              )?.answer ?? "未提交"}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </li>
@@ -134,7 +236,73 @@ export function DirectorChatEntry({
               ) : (
                 <p className="mt-2 text-sm text-zinc-500">后端未返回澄清问题。</p>
               )}
+              {session.status === "clarifying" ? (
+                <div className="mt-4 flex flex-col gap-2 border-t border-blue-500/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-zinc-500">
+                    回答全部必答问题后，将提交到后端进入“待确认目标”状态。
+                  </p>
+                  <button
+                    type="button"
+                    disabled={!canSubmitAnswers}
+                    onClick={() => {
+                      void handleSubmitAnswers();
+                    }}
+                    className="rounded border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-200 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                  >
+                    {submitAnswersMutation.isPending ? "提交回答中..." : "提交澄清回答"}
+                  </button>
+                </div>
+              ) : null}
             </div>
+
+            {session.status === "ready_to_confirm" ||
+            session.status === "confirmed" ? (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-medium text-emerald-200">
+                      目标摘要
+                    </h3>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
+                      {session.goal_summary || "后端尚未返回目标摘要。"}
+                    </p>
+                    <p className="mt-2 text-xs text-zinc-500">
+                      R1-B 确认只写入目标确认状态，不生成作战计划、不创建任务、不调度 Worker。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!canConfirmGoal}
+                    onClick={() => {
+                      void handleConfirmGoal();
+                    }}
+                    className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                  >
+                    {session.status === "confirmed"
+                      ? "目标已确认"
+                      : confirmGoalMutation.isPending
+                        ? "确认中..."
+                        : "确认目标"}
+                  </button>
+                </div>
+                {session.confirmed_at ? (
+                  <p className="mt-3 text-xs text-emerald-300/80">
+                    确认时间：{session.confirmed_at}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {submitAnswersMutation.isError ? (
+              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {submitAnswersMutation.error.message}
+              </p>
+            ) : null}
+            {confirmGoalMutation.isError ? (
+              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {confirmGoalMutation.error.message}
+              </p>
+            ) : null}
 
             <div className="rounded border border-[#333333] bg-[#111111] p-3 text-xs text-zinc-500">
               <p>下一步：{session.next_action}</p>

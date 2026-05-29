@@ -1,8 +1,10 @@
 import { requestJson } from "../../lib/http";
 
 import type {
+  ConfirmProjectDirectorGoalInput,
   CreateProjectDirectorSessionInput,
   ProjectDirectorSession,
+  SubmitProjectDirectorAnswersInput,
 } from "./types";
 
 export function createProjectDirectorSession(
@@ -12,4 +14,27 @@ export function createProjectDirectorSession(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function submitProjectDirectorAnswers(
+  input: SubmitProjectDirectorAnswersInput,
+): Promise<ProjectDirectorSession> {
+  return requestJson<ProjectDirectorSession>(
+    `/project-director/sessions/${input.sessionId}/answers`,
+    {
+      method: "POST",
+      body: JSON.stringify({ answers: input.answers }),
+    },
+  );
+}
+
+export function confirmProjectDirectorGoal(
+  input: ConfirmProjectDirectorGoalInput,
+): Promise<ProjectDirectorSession> {
+  return requestJson<ProjectDirectorSession>(
+    `/project-director/sessions/${input.sessionId}/confirm`,
+    {
+      method: "POST",
+    },
+  );
 }
