@@ -267,7 +267,7 @@ export function DirectorChatEntry({
           <div>
             <h2 className="text-xl font-semibold text-zinc-100">AI 项目主管</h2>
             <p className="mt-1.5 text-sm text-zinc-500">
-              提出目标、查看阻塞、调整计划。当前 R1-E 接入“确认后的作战计划 → 真实任务队列创建”，不调度 Worker。
+              提出目标、查看阻塞、调整计划。确认计划后可创建真实任务队列，需要时由你手动启动一次执行。
             </p>
           </div>
           <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
@@ -277,108 +277,6 @@ export function DirectorChatEntry({
       </div>
 
       {/* 中部：会话/空状态 */}
-      <div
-        data-testid="director-worker-dispatch-entry"
-        className="mb-5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4"
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h3 className="text-sm font-medium text-cyan-200">
-              Worker 手动单次调度
-            </h3>
-            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-              主链路 R1-Fa 只触发一次 <code>POST /workers/run-once</code>
-              {scopedProjectId ? "（当前项目）" : "（全局）"}；不调用 Worker Pool、不自动循环、不调用 planning/apply。
-            </p>
-          </div>
-          <button
-            type="button"
-            data-testid="director-chat-run-worker-once"
-            disabled={runWorkerOnceMutation.isPending}
-            onClick={() => {
-              void handleRunWorkerOnce();
-            }}
-            className="w-fit rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-          >
-            {runWorkerOnceMutation.isPending
-              ? "调度中..."
-              : "触发一次 Worker"}
-          </button>
-        </div>
-
-        {workerRunOnceResult ? (
-          <div className="mt-3 rounded border border-[#333333] bg-[#111111] p-3">
-            <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
-              <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-cyan-200">
-                {workerRunOnceResult.claimed ? "claimed" : "idle"}
-              </span>
-              {workerRunOnceResult.task_status ? (
-                <span className="rounded border border-[#333333] px-2 py-0.5">
-                  task: {workerRunOnceResult.task_status}
-                </span>
-              ) : null}
-              {workerRunOnceResult.run_status ? (
-                <span className="rounded border border-[#333333] px-2 py-0.5">
-                  run: {workerRunOnceResult.run_status}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-2 text-xs text-zinc-400">
-              {workerRunOnceResult.message}
-            </p>
-            {workerRunOnceResult.task_title ? (
-              <p className="mt-2 text-sm text-zinc-200">
-                {workerRunOnceResult.task_title}
-              </p>
-            ) : null}
-            <div className="mt-3 grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
-              <span>
-                Run：{workerRunOnceResult.run_id?.slice(0, 8) ?? "暂无"}
-              </span>
-              <span>
-                Token：{formatNullableTokenCount(workerRunOnceResult.total_tokens)}
-              </span>
-              <span>
-                Cost：{formatNullableCurrencyUsd(workerRunOnceResult.estimated_cost)}
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {workerRunOnceResult.run_id ? (
-                <Link
-                  to={buildRunRoute({
-                    runId: workerRunOnceResult.run_id,
-                    taskId: workerRunOnceResult.task_id,
-                    projectId: scopedProjectId,
-                    from: "workbench",
-                  })}
-                  className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-200 transition hover:bg-cyan-500/20"
-                >
-                  查看 Run / 日志 / 摘要
-                </Link>
-              ) : null}
-              {workerRunOnceResult.task_id ? (
-                <Link
-                  to={buildTaskRoute({
-                    taskId: workerRunOnceResult.task_id,
-                    projectId: scopedProjectId,
-                    from: "workbench",
-                  })}
-                  className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-400 transition hover:border-cyan-500/40 hover:text-cyan-200"
-                >
-                  查看任务
-                </Link>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {runWorkerOnceMutation.isError ? (
-          <p className="mt-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-            调度失败：{runWorkerOnceMutation.error.message}
-          </p>
-        ) : null}
-      </div>
-
       <div className="flex-1 mb-5 min-h-[160px] overflow-y-auto">
         {session ? (
           <div className="space-y-4">
@@ -483,7 +381,7 @@ export function DirectorChatEntry({
                       {session.goal_summary || "后端尚未返回目标摘要。"}
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
-                      R1-E 先确认作战计划，再允许创建真实任务队列；仍不会调度 Worker。
+                      确认作战计划后，可继续创建真实任务队列；执行仍由你手动启动。
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:items-end">
@@ -660,7 +558,7 @@ export function DirectorChatEntry({
                 <div className="mt-4 rounded border border-[#333333] bg-[#111111] p-3 text-xs text-zinc-500">
                   <p>下一步：{planVersion.next_action}</p>
                   <p className="mt-1">
-                    R1-E 边界：确认 plan version 后可创建真实任务队列；不调度 Worker / 不调用 planning/apply
+                    边界：确认计划后可创建真实任务队列；后续执行需要你手动启动。
                   </p>
                   {planVersion.forbidden_actions.length > 0 ? (
                     <p className="mt-1">
@@ -680,16 +578,95 @@ export function DirectorChatEntry({
                           任务数 {taskCreation.task_count} · 队列状态 {taskCreation.status} · Gate: {taskCreation.gate_conclusion}
                         </p>
                       </div>
-                      <Link
-                        to={`/execution?tab=tasks&projectId=${encodeURIComponent(taskCreation.project_id)}`}
-                        className="w-fit rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
-                      >
-                        查看执行中心
-                      </Link>
+                      <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                        <button
+                          type="button"
+                          data-testid="director-chat-run-worker-once"
+                          disabled={runWorkerOnceMutation.isPending}
+                          onClick={() => {
+                            void handleRunWorkerOnce();
+                          }}
+                          className="w-fit rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                        >
+                          {runWorkerOnceMutation.isPending
+                            ? "启动中..."
+                            : "启动一次执行"}
+                        </button>
+                        <Link
+                          to={`/execution?tab=tasks&projectId=${encodeURIComponent(taskCreation.project_id)}`}
+                          className="w-fit rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+                        >
+                          查看执行中心
+                        </Link>
+                      </div>
                     </div>
                     <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-300">
                       {taskCreation.next_action}
                     </p>
+                    {workerRunOnceResult ? (
+                      <div
+                        data-testid="director-worker-run-result"
+                        className="mt-3 rounded border border-cyan-500/20 bg-cyan-500/5 p-3"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-cyan-200">
+                              {workerRunOnceResult.claimed
+                                ? "已启动一次执行"
+                                : "当前没有可执行任务"}
+                            </p>
+                            {workerRunOnceResult.task_title ? (
+                              <p className="mt-1 text-sm text-zinc-200">
+                                {workerRunOnceResult.task_title}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="grid shrink-0 gap-1 text-xs text-zinc-500 sm:text-right">
+                            <span>
+                              运行记录：{workerRunOnceResult.run_id?.slice(0, 8) ?? "暂无"}
+                            </span>
+                            <span>
+                              用量：{formatNullableTokenCount(workerRunOnceResult.total_tokens)}
+                            </span>
+                            <span>
+                              预估费用：{formatNullableCurrencyUsd(workerRunOnceResult.estimated_cost)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {workerRunOnceResult.run_id ? (
+                            <Link
+                              to={buildRunRoute({
+                                runId: workerRunOnceResult.run_id,
+                                taskId: workerRunOnceResult.task_id,
+                                projectId: scopedProjectId,
+                                from: "workbench",
+                              })}
+                              className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-200 transition hover:bg-cyan-500/20"
+                            >
+                              查看运行记录、日志与摘要
+                            </Link>
+                          ) : null}
+                          {workerRunOnceResult.task_id ? (
+                            <Link
+                              to={buildTaskRoute({
+                                taskId: workerRunOnceResult.task_id,
+                                projectId: scopedProjectId,
+                                from: "workbench",
+                              })}
+                              className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-400 transition hover:border-cyan-500/40 hover:text-cyan-200"
+                            >
+                              查看任务
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                    {runWorkerOnceMutation.isError ? (
+                      <p className="mt-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                        启动失败：{runWorkerOnceMutation.error.message}
+                      </p>
+                    ) : null}
                     {taskCreation.created_task_ids.length > 0 ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {visibleTaskIds.map((taskId, index) => (
@@ -807,8 +784,8 @@ export function DirectorChatEntry({
           </div>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-700">
-          <p>Ctrl/⌘ + Enter 发送；R1-D 仅确认计划，不会创建任务或调度 Worker。</p>
-          {scopedProjectId ? <p>project_id: {scopedProjectId}</p> : <p>全局项目上下文</p>}
+          <p>Ctrl/⌘ + Enter 发送；发送后会进入目标澄清和确认流程。</p>
+          {scopedProjectId ? <p>当前项目范围：{selectedProjectName}</p> : <p>全局项目范围</p>}
         </div>
         {createSessionMutation.isError ? (
           <p className="mt-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">

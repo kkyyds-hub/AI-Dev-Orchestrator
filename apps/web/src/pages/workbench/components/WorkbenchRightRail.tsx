@@ -160,14 +160,14 @@ export function WorkbenchRightRail({
               disabled={isRunWorkerOncePending}
               className="w-full rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-[#222222] disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent"
             >
-              {isRunWorkerOncePending ? "调度中..." : "触发 Worker 单次调度"}
+              {isRunWorkerOncePending ? "启动中..." : "启动一次执行"}
             </button>
 
             {workerOnceData != null && !workerOnceIsError && (
-              <p className="text-xs text-zinc-500">调度已触发，请查看任务页或运行页了解进展。</p>
+              <p className="text-xs text-zinc-500">已启动一次执行，请查看任务页或运行页了解进展。</p>
             )}
             {workerOnceIsError && workerOnceErrorMessage != null && (
-              <p className="text-xs text-zinc-500">调度失败：{workerOnceErrorMessage}</p>
+              <p className="text-xs text-zinc-500">启动失败：{workerOnceErrorMessage}</p>
             )}
           </div>
         </section>
