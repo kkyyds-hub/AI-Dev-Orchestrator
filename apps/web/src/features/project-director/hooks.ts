@@ -1,6 +1,7 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
+  createProjectDirectorTaskQueue,
   confirmProjectDirectorGoal,
   confirmProjectDirectorPlanVersion,
   createProjectDirectorPlanVersion,
@@ -35,5 +36,22 @@ export function useCreateProjectDirectorPlanVersion() {
 export function useConfirmProjectDirectorPlanVersion() {
   return useMutation({
     mutationFn: confirmProjectDirectorPlanVersion,
+  });
+}
+
+export function useCreateProjectDirectorTaskQueue() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: createProjectDirectorTaskQueue,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["console-overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["boss-project-overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+        queryClient.invalidateQueries({ queryKey: ["project-timeline", result.project_id] }),
+      ]);
+    },
   });
 }

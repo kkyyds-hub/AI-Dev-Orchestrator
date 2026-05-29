@@ -76,6 +76,18 @@ export interface ProjectDirectorPlanVersion {
   gate_conclusion: string;
 }
 
+export interface ProjectDirectorTaskCreationResponse {
+  plan_version_id: string;
+  session_id: string;
+  project_id: string;
+  created_task_ids: string[];
+  task_count: number;
+  status: string;
+  next_action: string;
+  forbidden_actions: string[];
+  gate_conclusion: string;
+}
+
 export interface CreateProjectDirectorSessionInput {
   goal_text: string;
   project_id?: string | null;
@@ -96,5 +108,9 @@ export interface CreateProjectDirectorPlanVersionInput {
 }
 
 export interface ConfirmProjectDirectorPlanVersionInput {
+  planVersionId: string;
+}
+
+export interface CreateProjectDirectorTaskQueueInput {
   planVersionId: string;
 }

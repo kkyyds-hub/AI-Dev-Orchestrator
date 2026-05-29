@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { Link } from "react-router-dom";
 
 import {
   useConfirmProjectDirectorGoal,
   useConfirmProjectDirectorPlanVersion,
   useCreateProjectDirectorPlanVersion,
   useCreateProjectDirectorSession,
+  useCreateProjectDirectorTaskQueue,
   useSubmitProjectDirectorAnswers,
 } from "../../../features/project-director/hooks";
 import type {
   ProjectDirectorPlanVersion,
   ProjectDirectorSession,
+  ProjectDirectorTaskCreationResponse,
 } from "../../../features/project-director/types";
+import { buildTaskRoute } from "../../../lib/task-route";
 
 const EXAMPLE_QUESTIONS = [
   "帮我分析当前项目的阻塞原因",
@@ -33,12 +37,15 @@ export function DirectorChatEntry({
   const [session, setSession] = useState<ProjectDirectorSession | null>(null);
   const [planVersion, setPlanVersion] =
     useState<ProjectDirectorPlanVersion | null>(null);
+  const [taskCreation, setTaskCreation] =
+    useState<ProjectDirectorTaskCreationResponse | null>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const createSessionMutation = useCreateProjectDirectorSession();
   const submitAnswersMutation = useSubmitProjectDirectorAnswers();
   const confirmGoalMutation = useConfirmProjectDirectorGoal();
   const createPlanVersionMutation = useCreateProjectDirectorPlanVersion();
   const confirmPlanVersionMutation = useConfirmProjectDirectorPlanVersion();
+  const createTaskQueueMutation = useCreateProjectDirectorTaskQueue();
 
   const scopedProjectId = selectedProjectId === "all" ? null : selectedProjectId;
   const trimmedDraft = draft.trim();
@@ -47,7 +54,8 @@ export function DirectorChatEntry({
     submitAnswersMutation.isPending ||
     confirmGoalMutation.isPending ||
     createPlanVersionMutation.isPending ||
-    confirmPlanVersionMutation.isPending;
+    confirmPlanVersionMutation.isPending ||
+    createTaskQueueMutation.isPending;
   const canSend = trimmedDraft.length > 0 && !isMutating;
   const requiredQuestions =
     session?.clarifying_questions.filter((question) => question.required) ?? [];
@@ -68,6 +76,18 @@ export function DirectorChatEntry({
   const canConfirmPlanVersion =
     planVersion?.status === "pending_confirmation" &&
     !confirmPlanVersionMutation.isPending;
+  const canCreateTaskQueue =
+    planVersion?.status === "confirmed" &&
+    planVersion.project_id !== null &&
+    !taskCreation &&
+    !createTaskQueueMutation.isPending;
+  const taskQueueActionLabel = taskCreation
+    ? `任务队列已创建（${taskCreation.task_count}）`
+    : createTaskQueueMutation.isPending
+      ? "创建任务队列中..."
+      : planVersion?.project_id
+        ? "创建真实任务队列"
+        : "需要绑定具体项目";
 
   useEffect(() => {
     if (!session) {
@@ -103,6 +123,8 @@ export function DirectorChatEntry({
 
       setSession(createdSession);
       setDraft("");
+      setPlanVersion(null);
+      setTaskCreation(null);
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -149,6 +171,7 @@ export function DirectorChatEntry({
       });
       setSession(updatedSession);
       setPlanVersion(null);
+      setTaskCreation(null);
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -164,6 +187,7 @@ export function DirectorChatEntry({
         sessionId: session.id,
       });
       setPlanVersion(createdPlanVersion);
+      setTaskCreation(null);
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -180,6 +204,21 @@ export function DirectorChatEntry({
           planVersionId: planVersion.id,
         });
       setPlanVersion(confirmedPlanVersion);
+    } catch {
+      // Error details are rendered from the mutation state below.
+    }
+  };
+
+  const handleCreateTaskQueue = async () => {
+    if (!planVersion || !canCreateTaskQueue) {
+      return;
+    }
+
+    try {
+      const createdTaskQueue = await createTaskQueueMutation.mutateAsync({
+        planVersionId: planVersion.id,
+      });
+      setTaskCreation(createdTaskQueue);
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -203,7 +242,7 @@ export function DirectorChatEntry({
           <div>
             <h2 className="text-xl font-semibold text-zinc-100">AI 项目主管</h2>
             <p className="mt-1.5 text-sm text-zinc-500">
-              提出目标、查看阻塞、调整计划。当前 R1-D 仅接入作战计划确认，不创建任务或调度 Worker。
+              提出目标、查看阻塞、调整计划。当前 R1-E 接入“确认后的作战计划 → 真实任务队列创建”，不调度 Worker。
             </p>
           </div>
           <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
@@ -317,7 +356,7 @@ export function DirectorChatEntry({
                       {session.goal_summary || "后端尚未返回目标摘要。"}
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
-                      R1-D 仅在作战计划生成后允许用户确认计划；不会创建任务或调度 Worker。
+                      R1-E 先确认作战计划，再允许创建真实任务队列；仍不会调度 Worker。
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:items-end">
@@ -393,10 +432,22 @@ export function DirectorChatEntry({
                   >
                     {planVersion.status === "confirmed"
                       ? "计划已确认"
-                      : confirmPlanVersionMutation.isPending
-                        ? "确认计划中..."
-                        : "确认作战计划"}
+                        : confirmPlanVersionMutation.isPending
+                          ? "确认计划中..."
+                          : "确认作战计划"}
                   </button>
+                  {planVersion.status === "confirmed" ? (
+                    <button
+                      type="button"
+                      disabled={!canCreateTaskQueue}
+                      onClick={() => {
+                        void handleCreateTaskQueue();
+                      }}
+                      className="w-fit rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                    >
+                      {taskQueueActionLabel}
+                    </button>
+                  ) : null}
                 </div>
                 <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
                   {planVersion.plan_summary}
@@ -430,7 +481,7 @@ export function DirectorChatEntry({
                 {planVersion.proposed_tasks.length > 0 ? (
                   <div className="mt-4">
                     <p className="text-xs font-medium text-zinc-400">
-                      拟议任务（只读展示，未创建任务）
+                      拟议任务（确认后可创建为真实任务）
                     </p>
                     <div className="mt-2 grid gap-2 lg:grid-cols-2">
                       {planVersion.proposed_tasks.map((task, index) => (
@@ -482,7 +533,7 @@ export function DirectorChatEntry({
                 <div className="mt-4 rounded border border-[#333333] bg-[#111111] p-3 text-xs text-zinc-500">
                   <p>下一步：{planVersion.next_action}</p>
                   <p className="mt-1">
-                    R1-D 边界：仅确认 plan version；不创建任务 / 不调用 planning/apply / 不调度 Worker
+                    R1-E 边界：确认 plan version 后可创建真实任务队列；不调度 Worker / 不调用 planning/apply
                   </p>
                   {planVersion.forbidden_actions.length > 0 ? (
                     <p className="mt-1">
@@ -490,6 +541,53 @@ export function DirectorChatEntry({
                     </p>
                   ) : null}
                 </div>
+
+                {taskCreation ? (
+                  <div className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-medium text-emerald-200">
+                          真实任务队列已创建
+                        </h3>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          任务数 {taskCreation.task_count} · 队列状态 {taskCreation.status} · Gate: {taskCreation.gate_conclusion}
+                        </p>
+                      </div>
+                      <Link
+                        to={`/execution?tab=tasks&projectId=${encodeURIComponent(taskCreation.project_id)}`}
+                        className="w-fit rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+                      >
+                        查看执行中心
+                      </Link>
+                    </div>
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-300">
+                      {taskCreation.next_action}
+                    </p>
+                    {taskCreation.created_task_ids.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {taskCreation.created_task_ids.map((taskId, index) => (
+                          <Link
+                            key={taskId}
+                            to={buildTaskRoute({
+                              taskId,
+                              projectId: taskCreation.project_id,
+                              from: "workbench",
+                            })}
+                            title={taskId}
+                            className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-400 transition hover:border-emerald-500/40 hover:text-emerald-200"
+                          >
+                            任务 {index + 1} · {taskId.slice(0, 8)}
+                          </Link>
+                        ))}
+                      </div>
+                    ) : null}
+                    {taskCreation.forbidden_actions.length > 0 ? (
+                      <p className="mt-3 text-xs text-zinc-500">
+                        创建边界：{taskCreation.forbidden_actions.join(" / ")}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -511,6 +609,11 @@ export function DirectorChatEntry({
             {confirmPlanVersionMutation.isError ? (
               <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
                 {confirmPlanVersionMutation.error.message}
+              </p>
+            ) : null}
+            {createTaskQueueMutation.isError ? (
+              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {createTaskQueueMutation.error.message}
               </p>
             ) : null}
 
