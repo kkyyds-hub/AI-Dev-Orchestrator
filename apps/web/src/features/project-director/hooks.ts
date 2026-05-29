@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 
 import {
   confirmProjectDirectorGoal,
+  confirmProjectDirectorPlanVersion,
   createProjectDirectorPlanVersion,
   createProjectDirectorSession,
   submitProjectDirectorAnswers,
@@ -28,5 +29,11 @@ export function useConfirmProjectDirectorGoal() {
 export function useCreateProjectDirectorPlanVersion() {
   return useMutation({
     mutationFn: createProjectDirectorPlanVersion,
+  });
+}
+
+export function useConfirmProjectDirectorPlanVersion() {
+  return useMutation({
+    mutationFn: confirmProjectDirectorPlanVersion,
   });
 }

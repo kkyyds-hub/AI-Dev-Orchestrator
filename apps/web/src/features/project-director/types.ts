@@ -94,3 +94,7 @@ export interface ConfirmProjectDirectorGoalInput {
 export interface CreateProjectDirectorPlanVersionInput {
   sessionId: string;
 }
+
+export interface ConfirmProjectDirectorPlanVersionInput {
+  planVersionId: string;
+}

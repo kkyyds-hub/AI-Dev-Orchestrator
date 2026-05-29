@@ -3,6 +3,7 @@ import type { KeyboardEvent } from "react";
 
 import {
   useConfirmProjectDirectorGoal,
+  useConfirmProjectDirectorPlanVersion,
   useCreateProjectDirectorPlanVersion,
   useCreateProjectDirectorSession,
   useSubmitProjectDirectorAnswers,
@@ -37,6 +38,7 @@ export function DirectorChatEntry({
   const submitAnswersMutation = useSubmitProjectDirectorAnswers();
   const confirmGoalMutation = useConfirmProjectDirectorGoal();
   const createPlanVersionMutation = useCreateProjectDirectorPlanVersion();
+  const confirmPlanVersionMutation = useConfirmProjectDirectorPlanVersion();
 
   const scopedProjectId = selectedProjectId === "all" ? null : selectedProjectId;
   const trimmedDraft = draft.trim();
@@ -44,7 +46,8 @@ export function DirectorChatEntry({
     createSessionMutation.isPending ||
     submitAnswersMutation.isPending ||
     confirmGoalMutation.isPending ||
-    createPlanVersionMutation.isPending;
+    createPlanVersionMutation.isPending ||
+    confirmPlanVersionMutation.isPending;
   const canSend = trimmedDraft.length > 0 && !isMutating;
   const requiredQuestions =
     session?.clarifying_questions.filter((question) => question.required) ?? [];
@@ -62,6 +65,9 @@ export function DirectorChatEntry({
     session?.status === "confirmed" &&
     !planVersion &&
     !createPlanVersionMutation.isPending;
+  const canConfirmPlanVersion =
+    planVersion?.status === "pending_confirmation" &&
+    !confirmPlanVersionMutation.isPending;
 
   useEffect(() => {
     if (!session) {
@@ -163,6 +169,22 @@ export function DirectorChatEntry({
     }
   };
 
+  const handleConfirmPlanVersion = async () => {
+    if (!planVersion || !canConfirmPlanVersion) {
+      return;
+    }
+
+    try {
+      const confirmedPlanVersion =
+        await confirmPlanVersionMutation.mutateAsync({
+          planVersionId: planVersion.id,
+        });
+      setPlanVersion(confirmedPlanVersion);
+    } catch {
+      // Error details are rendered from the mutation state below.
+    }
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -181,7 +203,7 @@ export function DirectorChatEntry({
           <div>
             <h2 className="text-xl font-semibold text-zinc-100">AI 项目主管</h2>
             <p className="mt-1.5 text-sm text-zinc-500">
-              提出目标、查看阻塞、调整计划。当前 R1-C 仅接入目标确认后的作战计划生成与展示。
+              提出目标、查看阻塞、调整计划。当前 R1-D 仅接入作战计划确认，不创建任务或调度 Worker。
             </p>
           </div>
           <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
@@ -295,7 +317,7 @@ export function DirectorChatEntry({
                       {session.goal_summary || "后端尚未返回目标摘要。"}
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
-                      R1-C 仅在目标确认后允许生成作战计划；不会确认计划、创建任务或调度 Worker。
+                      R1-D 仅在作战计划生成后允许用户确认计划；不会创建任务或调度 Worker。
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:items-end">
@@ -350,9 +372,32 @@ export function DirectorChatEntry({
                     Gate: {planVersion.gate_conclusion}
                   </span>
                 </div>
-                <h3 className="mt-3 text-sm font-medium text-violet-200">
-                  AI 主管生成的作战计划
-                </h3>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-violet-200">
+                      AI 主管生成的作战计划
+                    </h3>
+                    {planVersion.confirmed_at ? (
+                      <p className="mt-1 text-xs text-emerald-300/80">
+                        计划确认时间：{planVersion.confirmed_at}
+                      </p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!canConfirmPlanVersion}
+                    onClick={() => {
+                      void handleConfirmPlanVersion();
+                    }}
+                    className="w-fit rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                  >
+                    {planVersion.status === "confirmed"
+                      ? "计划已确认"
+                      : confirmPlanVersionMutation.isPending
+                        ? "确认计划中..."
+                        : "确认作战计划"}
+                  </button>
+                </div>
                 <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
                   {planVersion.plan_summary}
                 </p>
@@ -437,7 +482,7 @@ export function DirectorChatEntry({
                 <div className="mt-4 rounded border border-[#333333] bg-[#111111] p-3 text-xs text-zinc-500">
                   <p>下一步：{planVersion.next_action}</p>
                   <p className="mt-1">
-                    R1-C 边界：不确认 plan version / 不创建任务 / 不调用 planning/apply / 不调度 Worker
+                    R1-D 边界：仅确认 plan version；不创建任务 / 不调用 planning/apply / 不调度 Worker
                   </p>
                   {planVersion.forbidden_actions.length > 0 ? (
                     <p className="mt-1">
@@ -461,6 +506,11 @@ export function DirectorChatEntry({
             {createPlanVersionMutation.isError ? (
               <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
                 {createPlanVersionMutation.error.message}
+              </p>
+            ) : null}
+            {confirmPlanVersionMutation.isError ? (
+              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {confirmPlanVersionMutation.error.message}
               </p>
             ) : null}
 
@@ -522,7 +572,7 @@ export function DirectorChatEntry({
           </div>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-700">
-          <p>Ctrl/⌘ + Enter 发送；R1-C 不会确认计划、创建任务或调度 Worker。</p>
+          <p>Ctrl/⌘ + Enter 发送；R1-D 仅确认计划，不会创建任务或调度 Worker。</p>
           {scopedProjectId ? <p>project_id: {scopedProjectId}</p> : <p>全局项目上下文</p>}
         </div>
         {createSessionMutation.isError ? (
