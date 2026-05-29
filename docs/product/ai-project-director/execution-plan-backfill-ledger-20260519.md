@@ -107,7 +107,7 @@
 
 | 模块 | 当前阶段 | 页面职责 | 前端真实接入 | 后端闭环 | 运行证据 | 文档回填 | 当前结论 | 下一步 |
 |---|---|---|---|---|---|---|---|---|
-| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial | Partial | Partial | 待补本台账 | **Partial** | 后续需要真实 AI 主管会话 / 待确认处理闭环 |
+| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial (R1-A 前端接入 Runtime Pass) | Partial (BCG-01 Backend Pass; R1-A 前端已接入 POST session) | Partial (R1-A live evidence Pass; 后续阶段待补) | R1-A evidence 已写入本台账 | **Partial** | R1-A 完成目标提交与澄清问题读取；后续需待确认/计划/任务/Worker 接续 |
 | `/execution?tab=tasks` 任务队列 | 任务队列真实接入 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 TASK-01~14 | **Pass（实现级）** | 最后做运行截图总验收 |
 | `/tasks` 路由兼容 | 重定向到执行中心任务页签 | UI Pass | API Pass | N/A | Partial | 已记录 | **Pass** | 保持兼容 |
 | `/execution?tab=runs` 运行观测 | Phase1 真实接入 | UI Pass | API Pass | Partial | Partial | checklist 已回填 RUN-01~11 | **Pass（Phase1）** | 后续补自动摘要/失败闭环运行证据 |
@@ -138,7 +138,30 @@
 | 运行证据 | Partial：build 曾通过，但仍需最终截图和接口链路验证 |
 | 文档状态 | 需要在本台账记录；`closure-checklist` 中 WB-* 仍需后续系统性回填 |
 | 当前结论 | **不能写总 Pass。应写：工作台页面职责收口 Pass，AI 主管真实闭环 Partial。** |
-| 后续动作 | 在成果中心与治理中心完成后，单独开“工作台后端闭环补齐”阶段 |
+| 后续动作 | 在成果中心与治理中心完成后，单独开”工作台后端闭环补齐”阶段 |
+
+#### 4.1.1 R1-A：工作台 Project Director Session 前端接入 + Live Evidence
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | 工作台 DirectorChatEntry 真实接入 POST /project-director/sessions |
+| 阶段性质 | 前端 API 接入 + Runtime Evidence |
+| 起始 commit | `743ceca` |
+| 结束 commit | `5d959f0` |
+| 修改文件 | `apps/web/src/features/project-director/api.ts` (new), `hooks.ts` (new), `types.ts` (new); `apps/web/src/pages/workbench/WorkbenchPage.tsx`, `components/DirectorChatEntry.tsx`, `apps/web/vite.config.ts` |
+| 涉及页面 | `/workbench` |
+| 涉及接口 | `POST /project-director/sessions`, `GET /project-director/sessions/{session_id}` |
+| 页面职责 | UI Pass（无变化） |
+| 前端真实接入 | API Pass：DirectorChatEntry 通过 React Query mutation 调用 POST /project-director/sessions；展示 session 状态、goal_text、clarifying_questions、next_action、forbidden_actions、gate_conclusion；selectedProjectId === “all” 时 project_id 为 null |
+| 后端闭环 | Backend Pass：BCG-01 Phase1 已实现 session CRUD + clarifying → ready_to_confirm → confirmed 状态流转，无新后端修改 |
+| 运行证据 | Runtime Pass：前端 build 通过 (3.49s)；后端 38 tests 全通过 (9.80s)；live HTTP POST 201 + GET 200 readback 验证 goal_text 和 clarifying_questions 一致性；422/404 error cases 验证通过 |
+| checklist 回填 | CL-01 (Evidence Partial), CL-02 (Runtime Pass), WB-09 (Runtime Pass)；本台账 4.1.1 记录 |
+| verification 文档 | `docs/product/ai-project-director/verification-project-director-workbench-session-entry-r1a-20260528.md` |
+| 禁用按钮清单 | 无禁用按钮；发送按钮条件启用（goal_text 非空且非 pending） |
+| 假按钮检查 | 无假按钮；发送按钮真实调用 POST /project-director/sessions |
+| 越界检查 | **通过**：前端未实现 answer clarifying questions / confirm goal / generate plan version / confirm plan version / create tasks / call worker |
+| Gate 结论 | **R1-A Runtime Pass**（前端接入 + 后端 session API 全链路验证通过） |
+| 后续动作 | R1-B 或后续阶段补回答澄清问题 + 确认目标的前端接入；total closure 仍为 Partial |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
@@ -1098,7 +1121,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 
 | 事项 | 当前判断 | 原因 |
 |---|---|---|
-| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；目标澄清/确认后端已完成（BCG-01 Phase1 Backend Pass）；计划草案/任务创建/Worker 调度尚未接续 |
+| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；目标澄清/确认后端已完成（BCG-01 Phase1 Backend Pass）；**R1-A 前端已接入 POST session + 澄清问题展示 (Runtime Pass)**；回答澄清问题/确认目标/计划草案/任务创建/Worker 调度尚未接续 |
 | 自动作战计划生成与确认 | Partial | 尚未作为完整目标→计划→确认链路验收 |
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |

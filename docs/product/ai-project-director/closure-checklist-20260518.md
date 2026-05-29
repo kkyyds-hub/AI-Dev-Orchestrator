@@ -49,8 +49,8 @@
 
 | ID | 闭环环节 | 验收项 | 回填证据 | 通过标准 | 状态 | 备注 |
 |---|---|---|---|---|---|---|
-| CL-01 | 目标闭环 | 用户目标是否被记录 | 目标记录 / 会话 / 项目 brief | 有明确目标和范围 |  |  |
-| CL-02 | 目标闭环 | AI 项目主管是否做目标澄清 | 澄清问题 / 用户回答 | 不直接盲拆任务 |  |  |
+| CL-01 | 目标闭环 | 用户目标是否被记录 | R1-A: POST /project-director/sessions 返回 goal_text 并持久化；GET readback 一致（verification-project-director-workbench-session-entry-r1a-20260528） | 有明确目标和范围 | Evidence Partial | session 已创建并持久化；前端仅展示 goal_text，尚未进入回答澄清问题/确认目标阶段 |
+| CL-02 | 目标闭环 | AI 项目主管是否做目标澄清 | R1-A: POST session 返回 clarifying_questions（5 items）；前端渲染 Q1~Q5 + 必答标记 + hint + next_action（verification-project-director-workbench-session-entry-r1a-20260528） | 不直接盲拆任务 | Runtime Pass | 澄清问题已生成并展示；前端尚未实现回答澄清问题 UI（R1 边界内） |
 | CL-03 | 计划闭环 | 是否生成 AI 作战计划 | plan id / plan version | 有目标、阶段、任务、交付、风险 |  |  |
 | CL-04 | 计划闭环 | 计划是否经用户确认 | approval / confirmation record | 未确认不得直接创建正式任务 |  |  |
 | CL-05 | 团队闭环 | 是否生成角色与 Skill 方案 | role list / skill binding proposal | 有角色、职责、Skill、边界 |  |  |
@@ -82,7 +82,7 @@
 | WB-06 | 待确认事项是否可处理 | API / 状态变化 | 同意/驳回/修改后有记录 |  |  |
 | WB-07 | 阻塞处理是否跳转到正确页面 | 路由参数 | 带 projectId/taskId 上下文 |  |  |
 | WB-08 | 页面打开是否不触发 AI 生成 | 网络请求/日志 | 只读缓存，不自动生成 |  |  |
-| WB-09 | 聊天框是否能访问项目上下文 | 接口/上下文 payload | 能读取项目、任务、运行、交付、治理摘要 |  |  |
+| WB-09 | 聊天框是否能访问项目上下文 | R1-A: selectedProjectId 传入 DirectorChatEntry；展示项目上下文 badge（项目名称+project_id）；selectedProjectId === "all" 映射为 null（verification-project-director-workbench-session-entry-r1a-20260528） | 能读取项目、任务、运行、交付、治理摘要 | Runtime Pass | R1-A 已验证项目 ID 传递和上下文展示；更深层上下文（任务/运行/摘要）需后续阶段补充 |
 | WB-10 | 宽屏布局是否有效利用空间 | 截图 | 不出现大片无意义空白 |  |  |
 
 ---
