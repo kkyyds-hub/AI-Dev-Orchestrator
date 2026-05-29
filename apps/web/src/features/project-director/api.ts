@@ -2,7 +2,9 @@ import { requestJson } from "../../lib/http";
 
 import type {
   ConfirmProjectDirectorGoalInput,
+  CreateProjectDirectorPlanVersionInput,
   CreateProjectDirectorSessionInput,
+  ProjectDirectorPlanVersion,
   ProjectDirectorSession,
   SubmitProjectDirectorAnswersInput,
 } from "./types";
@@ -33,6 +35,17 @@ export function confirmProjectDirectorGoal(
 ): Promise<ProjectDirectorSession> {
   return requestJson<ProjectDirectorSession>(
     `/project-director/sessions/${input.sessionId}/confirm`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export function createProjectDirectorPlanVersion(
+  input: CreateProjectDirectorPlanVersionInput,
+): Promise<ProjectDirectorPlanVersion> {
+  return requestJson<ProjectDirectorPlanVersion>(
+    `/project-director/sessions/${input.sessionId}/plan-versions`,
     {
       method: "POST",
     },

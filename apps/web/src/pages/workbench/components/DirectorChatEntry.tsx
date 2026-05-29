@@ -3,10 +3,14 @@ import type { KeyboardEvent } from "react";
 
 import {
   useConfirmProjectDirectorGoal,
+  useCreateProjectDirectorPlanVersion,
   useCreateProjectDirectorSession,
   useSubmitProjectDirectorAnswers,
 } from "../../../features/project-director/hooks";
-import type { ProjectDirectorSession } from "../../../features/project-director/types";
+import type {
+  ProjectDirectorPlanVersion,
+  ProjectDirectorSession,
+} from "../../../features/project-director/types";
 
 const EXAMPLE_QUESTIONS = [
   "帮我分析当前项目的阻塞原因",
@@ -26,17 +30,21 @@ export function DirectorChatEntry({
 }: DirectorChatEntryProps) {
   const [draft, setDraft] = useState("");
   const [session, setSession] = useState<ProjectDirectorSession | null>(null);
+  const [planVersion, setPlanVersion] =
+    useState<ProjectDirectorPlanVersion | null>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const createSessionMutation = useCreateProjectDirectorSession();
   const submitAnswersMutation = useSubmitProjectDirectorAnswers();
   const confirmGoalMutation = useConfirmProjectDirectorGoal();
+  const createPlanVersionMutation = useCreateProjectDirectorPlanVersion();
 
   const scopedProjectId = selectedProjectId === "all" ? null : selectedProjectId;
   const trimmedDraft = draft.trim();
   const isMutating =
     createSessionMutation.isPending ||
     submitAnswersMutation.isPending ||
-    confirmGoalMutation.isPending;
+    confirmGoalMutation.isPending ||
+    createPlanVersionMutation.isPending;
   const canSend = trimmedDraft.length > 0 && !isMutating;
   const requiredQuestions =
     session?.clarifying_questions.filter((question) => question.required) ?? [];
@@ -50,6 +58,10 @@ export function DirectorChatEntry({
     !submitAnswersMutation.isPending;
   const canConfirmGoal =
     session?.status === "ready_to_confirm" && !confirmGoalMutation.isPending;
+  const canCreatePlanVersion =
+    session?.status === "confirmed" &&
+    !planVersion &&
+    !createPlanVersionMutation.isPending;
 
   useEffect(() => {
     if (!session) {
@@ -130,6 +142,22 @@ export function DirectorChatEntry({
         sessionId: session.id,
       });
       setSession(updatedSession);
+      setPlanVersion(null);
+    } catch {
+      // Error details are rendered from the mutation state below.
+    }
+  };
+
+  const handleCreatePlanVersion = async () => {
+    if (!session || !canCreatePlanVersion) {
+      return;
+    }
+
+    try {
+      const createdPlanVersion = await createPlanVersionMutation.mutateAsync({
+        sessionId: session.id,
+      });
+      setPlanVersion(createdPlanVersion);
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -153,7 +181,7 @@ export function DirectorChatEntry({
           <div>
             <h2 className="text-xl font-semibold text-zinc-100">AI 项目主管</h2>
             <p className="mt-1.5 text-sm text-zinc-500">
-              提出目标、查看阻塞、调整计划。当前 R1-B 仅接入目标提交、回答澄清问题与确认目标。
+              提出目标、查看阻塞、调整计划。当前 R1-C 仅接入目标确认后的作战计划生成与展示。
             </p>
           </div>
           <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
@@ -267,29 +295,156 @@ export function DirectorChatEntry({
                       {session.goal_summary || "后端尚未返回目标摘要。"}
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
-                      R1-B 确认只写入目标确认状态，不生成作战计划、不创建任务、不调度 Worker。
+                      R1-C 仅在目标确认后允许生成作战计划；不会确认计划、创建任务或调度 Worker。
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={!canConfirmGoal}
-                    onClick={() => {
-                      void handleConfirmGoal();
-                    }}
-                    className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-                  >
-                    {session.status === "confirmed"
-                      ? "目标已确认"
-                      : confirmGoalMutation.isPending
-                        ? "确认中..."
-                        : "确认目标"}
-                  </button>
+                  <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                    <button
+                      type="button"
+                      disabled={!canConfirmGoal}
+                      onClick={() => {
+                        void handleConfirmGoal();
+                      }}
+                      className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                    >
+                      {session.status === "confirmed"
+                        ? "目标已确认"
+                        : confirmGoalMutation.isPending
+                          ? "确认中..."
+                          : "确认目标"}
+                    </button>
+                    {session.status === "confirmed" ? (
+                      <button
+                        type="button"
+                        disabled={!canCreatePlanVersion}
+                        onClick={() => {
+                          void handleCreatePlanVersion();
+                        }}
+                        className="rounded border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-200 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                      >
+                        {planVersion
+                          ? "作战计划已生成"
+                          : createPlanVersionMutation.isPending
+                            ? "生成计划中..."
+                            : "生成作战计划"}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 {session.confirmed_at ? (
                   <p className="mt-3 text-xs text-emerald-300/80">
                     确认时间：{session.confirmed_at}
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+
+            {planVersion ? (
+              <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-4">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                  <span>计划版本 v{planVersion.version_no}</span>
+                  <span className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-violet-200">
+                    {planVersion.status}
+                  </span>
+                  <span className="rounded border border-[#333333] px-2 py-0.5 text-zinc-400">
+                    Gate: {planVersion.gate_conclusion}
+                  </span>
+                </div>
+                <h3 className="mt-3 text-sm font-medium text-violet-200">
+                  AI 主管生成的作战计划
+                </h3>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
+                  {planVersion.plan_summary}
+                </p>
+
+                {planVersion.phases.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-zinc-400">阶段拆解</p>
+                    <ol className="mt-2 space-y-2">
+                      {planVersion.phases.map((phase, index) => (
+                        <li
+                          key={`${phase.title}-${index}`}
+                          className="rounded border border-[#333333] bg-[#111111] p-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-200">
+                              P{index + 1}
+                            </span>
+                            <p className="text-sm text-zinc-200">{phase.title}</p>
+                            <span className="text-[10px] text-zinc-600">
+                              任务提示：{phase.task_count_hint}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">{phase.goal}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : null}
+
+                {planVersion.proposed_tasks.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-zinc-400">
+                      拟议任务（只读展示，未创建任务）
+                    </p>
+                    <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                      {planVersion.proposed_tasks.map((task, index) => (
+                        <div
+                          key={`${task.title}-${index}`}
+                          className="rounded border border-[#333333] bg-[#111111] p-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm text-zinc-200">{task.title}</p>
+                            <span className="rounded border border-[#333333] px-1.5 py-0.5 text-[10px] text-zinc-500">
+                              {task.priority_hint}
+                            </span>
+                            <span className="rounded border border-[#333333] px-1.5 py-0.5 text-[10px] text-zinc-500">
+                              {task.suggested_role_code}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {task.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {planVersion.acceptance_criteria.length > 0 ? (
+                    <div className="rounded border border-[#333333] bg-[#111111] p-3">
+                      <p className="text-xs font-medium text-zinc-400">验收标准</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-zinc-500">
+                        {planVersion.acceptance_criteria.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {planVersion.risks.length > 0 ? (
+                    <div className="rounded border border-[#333333] bg-[#111111] p-3">
+                      <p className="text-xs font-medium text-zinc-400">风险提示</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-zinc-500">
+                        {planVersion.risks.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 rounded border border-[#333333] bg-[#111111] p-3 text-xs text-zinc-500">
+                  <p>下一步：{planVersion.next_action}</p>
+                  <p className="mt-1">
+                    R1-C 边界：不确认 plan version / 不创建任务 / 不调用 planning/apply / 不调度 Worker
+                  </p>
+                  {planVersion.forbidden_actions.length > 0 ? (
+                    <p className="mt-1">
+                      后端边界：{planVersion.forbidden_actions.join(" / ")}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
@@ -301,6 +456,11 @@ export function DirectorChatEntry({
             {confirmGoalMutation.isError ? (
               <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
                 {confirmGoalMutation.error.message}
+              </p>
+            ) : null}
+            {createPlanVersionMutation.isError ? (
+              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {createPlanVersionMutation.error.message}
               </p>
             ) : null}
 
@@ -362,7 +522,7 @@ export function DirectorChatEntry({
           </div>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-700">
-          <p>Ctrl/⌘ + Enter 发送；当前只会创建会话并读取澄清问题。</p>
+          <p>Ctrl/⌘ + Enter 发送；R1-C 不会确认计划、创建任务或调度 Worker。</p>
           {scopedProjectId ? <p>project_id: {scopedProjectId}</p> : <p>全局项目上下文</p>}
         </div>
         {createSessionMutation.isError ? (
