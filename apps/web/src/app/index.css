@@ -12,13 +12,13 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  background-color: #212121;
+  background-color: #000000;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  background: #212121;
+  background: #000000;
 }
 
 #root {
@@ -112,3 +112,150 @@ body {
   border-right-color: transparent !important;
   border-radius: 0 !important;
 }
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* 💎 PREMIUM UI GRAPHICS & ENVIRONMENT STYLES (Pure Monochrome Aesthetic)   */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+/* Pure Monochrome Glow - A faint, neutral silver glow to highlight main areas */
+.monochrome-glow-bg {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 1200px;
+  height: 400px;
+  background: radial-gradient(
+    circle at 50% -20%,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Typography Enhancements */
+.text-tracking-macro {
+  letter-spacing: 0.15em;
+}
+
+/* Elegant Hover Effect for Wireframe Buttons */
+.wireframe-btn {
+  position: relative;
+  transition: all 0.3s ease;
+  background: transparent;
+  overflow: hidden;
+}
+
+.wireframe-btn::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: transparent;
+  transition: background-color 0.3s ease;
+}
+
+.wireframe-btn:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.wireframe-btn:hover::before {
+  background-color: #f4f4f5; /* Zinc 100 */
+}
+
+/* High Fidelity Composer Dark Capsule - Minimalist Monochrome Glow */
+.composer-monochrome-wrapper {
+  position: relative;
+  background: #000000;
+  border: 1px solid #ffffff; /* User requested pure white line */
+  border-radius: 28px;
+  z-index: 1;
+  transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.composer-monochrome-wrapper::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 28px;
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.02));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+
+.composer-monochrome-wrapper:focus-within {
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 40px rgba(255, 255, 255, 0.04), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transform: translateY(-2px);
+}
+
+.composer-monochrome-wrapper:focus-within::after {
+  opacity: 1;
+}
+
+/* Custom Sleek Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* 🎭 PREMIUM MODAL TRANSITIONS (Smooth Fade-In & Spring scale-up)           */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+@keyframes modal-backdrop-fade {
+  from {
+    background-color: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+  }
+  to {
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+@keyframes modal-content-pop {
+  from {
+    transform: scale(0.97) translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-modal-backdrop {
+  animation: modal-backdrop-fade 0.3s ease-out forwards;
+}
+
+.animate-modal-content {
+  animation: modal-content-pop 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+

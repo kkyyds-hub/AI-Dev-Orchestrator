@@ -33,11 +33,13 @@ const EXAMPLE_QUESTIONS = [
 interface DirectorChatEntryProps {
   selectedProjectId: string;
   selectedProjectName: string;
+  onSessionChange?: (hasSession: boolean) => void;
 }
 
 export function DirectorChatEntry({
   selectedProjectId,
   selectedProjectName,
+  onSessionChange,
 }: DirectorChatEntryProps) {
   const [draft, setDraft] = useState("");
   const [session, setSession] = useState<ProjectDirectorSession | null>(null);
@@ -101,6 +103,11 @@ export function DirectorChatEntry({
     0,
     (taskCreation?.created_task_ids.length ?? 0) - visibleTaskIds.length,
   );
+
+  // Notify parent if active session changes
+  useEffect(() => {
+    onSessionChange?.(session !== null);
+  }, [session, onSessionChange]);
 
   useEffect(() => {
     if (!session) {
@@ -259,498 +266,490 @@ export function DirectorChatEntry({
   return (
     <section
       data-testid="director-chat-entry"
-      className="flex flex-col rounded-lg border border-[#333333] bg-[#1a1a1a] p-6 lg:min-h-[calc(100vh-220px)]"
+      className="flex flex-col bg-transparent lg:min-h-[calc(100vh-220px)] relative overflow-hidden w-full pb-2"
     >
-      {/* 顶部：标题 + 当前项目上下文 */}
-      <div className="shrink-0 mb-5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="monochrome-glow-bg" />
+      {/* 顶部栏：标题 + 项目上下文 */}
+      <div className="shrink-0 mb-6 pb-4 border-b border-zinc-900 relative z-10 w-full">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between w-full">
           <div>
-            <h2 className="text-xl font-semibold text-zinc-100">AI 项目主管</h2>
-            <p className="mt-1.5 text-sm text-zinc-500">
-              提出目标、查看阻塞、调整计划。确认计划后可创建真实任务队列，需要时由你手动启动一次执行。
+            <div className="flex items-center gap-2">
+              <span className="flex h-1.5 w-1.5 rounded-full bg-zinc-500" />
+              <h2 className="text-base font-bold text-white tracking-tight">AI Project Director</h2>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500 max-w-xl">
+              提出项目目标、回答澄清问题并由 AI 主管一键调度 Agent 团队执行任务。
             </p>
           </div>
-          <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
+          <span className="inline-flex items-center rounded-lg border border-zinc-850 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-400 shrink-0">
             项目上下文：{selectedProjectName}
           </span>
         </div>
       </div>
 
-      {/* 中部：会话/空状态 */}
-      <div className="flex-1 mb-5 min-h-[160px] overflow-y-auto">
+      {/* 中部：会话内容 / 空白首屏 */}
+      <div className="flex-1 mb-6 min-h-[220px] overflow-y-auto custom-scrollbar pr-1 relative z-10 w-full">
         {session ? (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-[#333333] bg-[#111111] p-4">
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                <span>会话 {session.id.slice(0, 8)}</span>
-                <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-300">
-                  {session.status}
-                </span>
-                <span className="rounded border border-[#333333] px-2 py-0.5 text-zinc-400">
-                  Gate: {session.gate_conclusion}
-                </span>
-              </div>
-              <p className="text-sm text-zinc-300 whitespace-pre-wrap">
+          /* 💬 FLOWING CONVERSATIONAL MESSAGES STREAM (No max-width constraints, fully wide) 💬 */
+          <div className="space-y-6 w-full">
+            
+            {/* Exchange 1: User's Initial Prompt (Right Bubble) */}
+            <div className="flex justify-end w-full">
+              <div className="max-w-[85%] rounded-2xl bg-zinc-800 border border-zinc-700/40 text-zinc-100 px-4 py-3 text-sm leading-relaxed shadow-md select-text">
+                <span className="text-[10px] text-zinc-400 block font-mono font-bold uppercase mb-1">您的问题</span>
                 {session.goal_text}
-              </p>
+              </div>
             </div>
 
-            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
-              <h3 className="text-sm font-medium text-blue-200">
-                需要你澄清的问题
-              </h3>
-              {session.clarifying_questions.length > 0 ? (
-                <ol className="mt-3 space-y-3">
-                  {session.clarifying_questions.map((question, index) => (
-                    <li
-                      key={question.id}
-                      className="rounded border border-[#333333] bg-[#171717] p-3"
-                    >
-                      <div className="flex items-start gap-2">
-                        <span className="mt-0.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300">
-                          Q{index + 1}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-sm text-zinc-200">
-                            {question.question}
-                            {question.required ? (
-                              <span className="ml-1 text-[10px] text-amber-300">
-                                必答
-                              </span>
+            {/* Exchange 1: AI Clarifying Questions Box (Left Bubble) */}
+            <div className="flex justify-start w-full">
+              <div className="w-full rounded-2xl border border-zinc-900 bg-zinc-950 p-5 shadow-sm space-y-4">
+                <div className="flex items-center gap-1.5 border-b border-zinc-900 pb-2.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">AI 主管的澄清建议</h3>
+                </div>
+                
+                {session.clarifying_questions.length > 0 ? (
+                  <ol className="space-y-4 w-full">
+                    {session.clarifying_questions.map((question, index) => (
+                      <li
+                        key={question.id}
+                        className="rounded-xl border border-zinc-900 bg-black p-4 w-full"
+                      >
+                        <div className="flex items-start gap-3 w-full">
+                          <span className="mt-0.5 text-xs font-bold text-zinc-500 font-mono">
+                            Q{index + 1}
+                          </span>
+                          <div className="min-w-0 flex-1 w-full">
+                            <p className="text-xs font-bold text-zinc-200 leading-relaxed">
+                              {question.question}
+                              {question.required ? (
+                                <span className="ml-2 text-[9px] text-amber-500 font-bold">[必答]</span>
+                              ) : null}
+                            </p>
+                            {question.hint ? (
+                              <p className="mt-1 text-[11px] text-zinc-500">提示：{question.hint}</p>
                             ) : null}
-                          </p>
-                          {question.hint ? (
-                            <p className="mt-1 text-xs text-zinc-500">
-                              {question.hint}
-                            </p>
-                          ) : null}
-                          {session.status === "clarifying" ? (
-                            <textarea
-                              value={answerDrafts[question.id] ?? ""}
-                              onChange={(event) =>
-                                handleAnswerChange(question.id, event.target.value)
-                              }
-                              rows={2}
-                              placeholder="填写你的澄清回答..."
-                              className="mt-3 w-full resize-y rounded border border-[#333333] bg-[#101010] px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-blue-500/50 focus:outline-none"
-                            />
-                          ) : (
-                            <p className="mt-3 rounded border border-[#333333] bg-[#101010] px-3 py-2 text-xs text-zinc-400">
-                              回答：
-                              {session.clarifying_answers.find(
-                                (answer) => answer.question_id === question.id,
-                              )?.answer ?? "未提交"}
-                            </p>
+                            {session.status === "clarifying" ? (
+                              <textarea
+                                value={answerDrafts[question.id] ?? ""}
+                                onChange={(event) =>
+                                  handleAnswerChange(question.id, event.target.value)
+                                }
+                                rows={2}
+                                placeholder="输入您的回复..."
+                                className="mt-3.5 w-full resize-none rounded-lg border border-zinc-800 bg-[#09090a] px-3.5 py-2.5 text-xs text-zinc-200 focus:border-zinc-600 focus:outline-none transition"
+                              />
+                            ) : (
+                              <p className="mt-3.5 rounded border border-zinc-900 bg-[#060607] px-3.5 py-2.5 text-xs text-zinc-400 leading-relaxed">
+                                <span className="text-zinc-600 block text-[9px] font-bold mb-1">您的解答</span>
+                                {session.clarifying_answers.find(
+                                  (answer) => answer.question_id === question.id,
+                                )?.answer ?? "未提交"}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-xs text-zinc-600">当前没有需要澄清的事项。</p>
+                )}
+
+                {session.status === "clarifying" && (
+                  <div className="mt-4 flex flex-col gap-3 border-t border-zinc-900 pt-3.5 sm:flex-row sm:items-center sm:justify-between w-full">
+                    <p className="text-[10px] text-zinc-500">
+                      * 提交澄清回答后，将生成完整的开发目标确认函。
+                    </p>
+                    <button
+                      type="button"
+                      disabled={!canSubmitAnswers}
+                      onClick={() => {
+                        void handleSubmitAnswers();
+                      }}
+                      className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-800/80 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {submitAnswersMutation.isPending ? "正在提交..." : "提交解答并生成目标"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Exchange 2: User's Answers (Right Bubble, if already answered) */}
+            {session.status !== "clarifying" && session.clarifying_answers.length > 0 && (
+              <div className="flex justify-end w-full">
+                <div className="max-w-[85%] rounded-2xl bg-zinc-800 border border-zinc-700/40 text-zinc-100 px-4 py-3.5 text-sm leading-relaxed shadow-md select-text">
+                  <span className="text-[10px] text-zinc-400 block font-mono font-bold uppercase mb-2">已提交的澄清回答</span>
+                  <ul className="space-y-1.5 text-xs">
+                    {session.clarifying_answers.map((ans) => {
+                      const q = session.clarifying_questions.find(x => x.id === ans.question_id);
+                      return (
+                        <li key={ans.question_id} className="border-l border-zinc-600 pl-2">
+                          <span className="text-zinc-400 text-[10px] block">Q: {q?.question || "问题"}</span>
+                          <span className="text-zinc-200">{ans.answer}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Exchange 3: AI Core Goal Confirmation / Battle Plan (Left Bubble) */}
+            {(session.status === "ready_to_confirm" || session.status === "confirmed") && (
+              <div className="flex justify-start w-full">
+                <div className="w-full rounded-2xl border border-zinc-900 bg-zinc-950 p-5 shadow-sm space-y-4">
+                  
+                  {/* Goal Summary Header */}
+                  <div className="flex items-center gap-1.5 border-b border-zinc-900 pb-2.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+                      确立的开发范围与目标
+                    </h3>
+                  </div>
+
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between w-full">
+                    <div className="min-w-0 flex-1 w-full">
+                      <p className="whitespace-pre-wrap text-xs text-zinc-300 leading-relaxed bg-black p-3.5 rounded-lg border border-zinc-900">
+                        {session.goal_summary || "评估中..."}
+                      </p>
+                      {session.confirmed_at && (
+                        <p className="mt-2.5 text-[10px] font-mono text-zinc-500">
+                          ✓ 同意并确认目标：{session.confirmed_at}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                      <button
+                        type="button"
+                        disabled={!canConfirmGoal}
+                        onClick={() => {
+                          void handleConfirmGoal();
+                        }}
+                        className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-850 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        {session.status === "confirmed" ? "目标已确认" : confirmGoalMutation.isPending ? "确认中..." : "同意并确认目标"}
+                      </button>
+                      {session.status === "confirmed" && (
+                        <button
+                          type="button"
+                          disabled={!canCreatePlanVersion}
+                          onClick={() => {
+                            void handleCreatePlanVersion();
+                          }}
+                          className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-85 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          {planVersion ? "计划定制成功" : createPlanVersionMutation.isPending ? "正在生成..." : "制定完整作战计划"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Battle Plan Details Box */}
+                  {planVersion && (
+                    <div className="border-t border-zinc-900 pt-4 space-y-4">
+                      <div className="flex items-center justify-between gap-2 border-b border-zinc-900 pb-2">
+                        <span className="text-xs font-bold text-zinc-300">作战计划详细部署 v{planVersion.version_no}</span>
+                        <span className="text-[10px] text-zinc-500 border border-zinc-900 bg-black px-1.5 py-0.5 rounded">
+                          计划状态: {planVersion.status}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between w-full">
+                        <span className="text-xs text-zinc-400 font-bold">任务拆解与队列规划建议</span>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={!canConfirmPlanVersion}
+                            onClick={() => {
+                              void handleConfirmPlanVersion();
+                            }}
+                            className="rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-85 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            {planVersion.status === "confirmed" ? "计划已确认" : confirmPlanVersionMutation.isPending ? "正在签署..." : "确认作战计划"}
+                          </button>
+                          {planVersion.status === "confirmed" && (
+                            <button
+                              type="button"
+                              disabled={!canCreateTaskQueue}
+                              onClick={() => {
+                                void handleCreateTaskQueue();
+                              }}
+                              className="rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-85 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              {taskQueueActionLabel}
+                            </button>
                           )}
                         </div>
                       </div>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="mt-2 text-sm text-zinc-500">后端未返回澄清问题。</p>
-              )}
-              {session.status === "clarifying" ? (
-                <div className="mt-4 flex flex-col gap-2 border-t border-blue-500/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-zinc-500">
-                    回答全部必答问题后，将提交到后端进入“待确认目标”状态。
-                  </p>
-                  <button
-                    type="button"
-                    disabled={!canSubmitAnswers}
-                    onClick={() => {
-                      void handleSubmitAnswers();
-                    }}
-                    className="rounded border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-200 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-                  >
-                    {submitAnswersMutation.isPending ? "提交回答中..." : "提交澄清回答"}
-                  </button>
-                </div>
-              ) : null}
-            </div>
 
-            {session.status === "ready_to_confirm" ||
-            session.status === "confirmed" ? (
-              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-medium text-emerald-200">
-                      目标摘要
-                    </h3>
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
-                      {session.goal_summary || "后端尚未返回目标摘要。"}
-                    </p>
-                    <p className="mt-2 text-xs text-zinc-500">
-                      确认作战计划后，可继续创建真实任务队列；执行仍由你手动启动。
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                    <button
-                      type="button"
-                      disabled={!canConfirmGoal}
-                      onClick={() => {
-                        void handleConfirmGoal();
-                      }}
-                      className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-                    >
-                      {session.status === "confirmed"
-                        ? "目标已确认"
-                        : confirmGoalMutation.isPending
-                          ? "确认中..."
-                          : "确认目标"}
-                    </button>
-                    {session.status === "confirmed" ? (
-                      <button
-                        type="button"
-                        disabled={!canCreatePlanVersion}
-                        onClick={() => {
-                          void handleCreatePlanVersion();
-                        }}
-                        className="rounded border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-200 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-                      >
-                        {planVersion
-                          ? "作战计划已生成"
-                          : createPlanVersionMutation.isPending
-                            ? "生成计划中..."
-                            : "生成作战计划"}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                {session.confirmed_at ? (
-                  <p className="mt-3 text-xs text-emerald-300/80">
-                    确认时间：{session.confirmed_at}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {planVersion ? (
-              <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-4">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                  <span>计划版本 v{planVersion.version_no}</span>
-                  <span className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-violet-200">
-                    {planVersion.status}
-                  </span>
-                  <span className="rounded border border-[#333333] px-2 py-0.5 text-zinc-400">
-                    Gate: {planVersion.gate_conclusion}
-                  </span>
-                </div>
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-violet-200">
-                      AI 主管生成的作战计划
-                    </h3>
-                    {planVersion.confirmed_at ? (
-                      <p className="mt-1 text-xs text-emerald-300/80">
-                        计划确认时间：{planVersion.confirmed_at}
+                      <p className="rounded-lg border border-zinc-900 bg-black p-3.5 text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                        {planVersion.plan_summary}
                       </p>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={!canConfirmPlanVersion}
-                    onClick={() => {
-                      void handleConfirmPlanVersion();
-                    }}
-                    className="w-fit rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-                  >
-                    {planVersion.status === "confirmed"
-                      ? "计划已确认"
-                        : confirmPlanVersionMutation.isPending
-                          ? "确认计划中..."
-                          : "确认作战计划"}
-                  </button>
-                  {planVersion.status === "confirmed" ? (
-                    <button
-                      type="button"
-                      disabled={!canCreateTaskQueue}
-                      onClick={() => {
-                        void handleCreateTaskQueue();
-                      }}
-                      className="w-fit rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-                    >
-                      {taskQueueActionLabel}
-                    </button>
-                  ) : null}
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
-                  {planVersion.plan_summary}
-                </p>
 
-                {planVersion.phases.length > 0 ? (
-                  <div className="mt-4">
-                    <p className="text-xs font-medium text-zinc-400">阶段拆解</p>
-                    <ol className="mt-2 space-y-2">
-                      {planVersion.phases.map((phase, index) => (
-                        <li
-                          key={`${phase.title}-${index}`}
-                          className="rounded border border-[#333333] bg-[#111111] p-3"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-200">
-                              P{index + 1}
-                            </span>
-                            <p className="text-sm text-zinc-200">{phase.title}</p>
-                            <span className="text-[10px] text-zinc-600">
-                              任务提示：{phase.task_count_hint}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-xs text-zinc-500">{phase.goal}</p>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                ) : null}
+                      {/* Stages */}
+                      {planVersion.phases.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">执行阶段拆解</p>
+                          <ol className="grid gap-2.5 sm:grid-cols-2">
+                            {planVersion.phases.map((phase, index) => (
+                              <li key={`${phase.title}-${index}`} className="rounded-lg border border-zinc-900 bg-black p-3">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-[10px] font-bold text-zinc-500">STAGE {index + 1}:</span>
+                                  <p className="text-xs font-bold text-zinc-200 truncate">{phase.title}</p>
+                                </div>
+                                <p className="text-[11px] text-zinc-400 leading-normal">{phase.goal}</p>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
 
-                {planVersion.proposed_tasks.length > 0 ? (
-                  <div className="mt-4">
-                    <p className="text-xs font-medium text-zinc-400">
-                      拟议任务（确认后可创建为真实任务）
-                    </p>
-                    <div className="mt-2 grid gap-2 lg:grid-cols-2">
-                      {planVersion.proposed_tasks.map((task, index) => (
-                        <div
-                          key={`${task.title}-${index}`}
-                          className="rounded border border-[#333333] bg-[#111111] p-3"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm text-zinc-200">{task.title}</p>
-                            <span className="rounded border border-[#333333] px-1.5 py-0.5 text-[10px] text-zinc-500">
-                              {task.priority_hint}
-                            </span>
-                            <span className="rounded border border-[#333333] px-1.5 py-0.5 text-[10px] text-zinc-500">
-                              {task.suggested_role_code}
-                            </span>
+                      {/* Proposed Tasks */}
+                      {planVersion.proposed_tasks.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">计划建议生成的任务</p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {planVersion.proposed_tasks.map((task, index) => (
+                              <div key={`${task.title}-${index}`} className="rounded-lg border border-zinc-900 bg-black p-3 flex flex-col justify-between">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-[9px] font-bold text-zinc-500 uppercase">[{task.suggested_role_code}]</span>
+                                    <span className="text-[9px] text-zinc-500 border border-zinc-900 px-1 rounded bg-[#09090a]">{task.priority_hint}</span>
+                                  </div>
+                                  <p className="text-xs font-bold text-zinc-300 leading-tight mb-1">{task.title}</p>
+                                  <p className="text-[10px] text-zinc-500 leading-normal">{task.description}</p>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {task.description}
+                        </div>
+                      )}
+
+                      {/* Criteria and risks */}
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {planVersion.acceptance_criteria.length > 0 && (
+                          <div className="rounded-lg border border-zinc-900 bg-black p-3">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase mb-2">验收通过标准</p>
+                            <ul className="list-disc pl-4 text-[11px] text-zinc-400 space-y-1">
+                              {planVersion.acceptance_criteria.map((item) => (
+                                <li key={item} className="leading-relaxed">{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {planVersion.risks.length > 0 && (
+                          <div className="rounded-lg border border-zinc-900 bg-black p-3">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase mb-2">潜在架构风险</p>
+                            <ul className="list-disc pl-4 text-[11px] text-zinc-400 space-y-1">
+                              {planVersion.risks.map((item) => (
+                                <li key={item} className="leading-relaxed">{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Plan boundaries */}
+                      <div className="rounded-lg border border-zinc-900 bg-black p-3 text-[11px] text-zinc-500 leading-relaxed font-mono">
+                        <p>执行边界指引：{planVersion.next_action}</p>
+                        {planVersion.forbidden_actions.length > 0 && (
+                          <p className="mt-0.5 text-zinc-600">调度红线：{planVersion.forbidden_actions.join(" / ")}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Deployed Task Queue Section (Active Run log) */}
+                  {taskCreation && (
+                    <div className="border-t border-zinc-900 pt-4 space-y-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-2">
+                        <div>
+                          <h3 className="text-xs font-bold text-zinc-300">开发任务队列已部署部署</h3>
+                          <p className="mt-0.5 text-[10px] text-zinc-500 font-mono">
+                            项目范围: {taskCreation.project_id} · 队列状态 {taskCreation.status} · 共计 {taskCreation.task_count} 个任务
                           </p>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                  {planVersion.acceptance_criteria.length > 0 ? (
-                    <div className="rounded border border-[#333333] bg-[#111111] p-3">
-                      <p className="text-xs font-medium text-zinc-400">验收标准</p>
-                      <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-zinc-500">
-                        {planVersion.acceptance_criteria.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {planVersion.risks.length > 0 ? (
-                    <div className="rounded border border-[#333333] bg-[#111111] p-3">
-                      <p className="text-xs font-medium text-zinc-400">风险提示</p>
-                      <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-zinc-500">
-                        {planVersion.risks.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="mt-4 rounded border border-[#333333] bg-[#111111] p-3 text-xs text-zinc-500">
-                  <p>下一步：{planVersion.next_action}</p>
-                  <p className="mt-1">
-                    边界：确认计划后可创建真实任务队列；后续执行需要你手动启动。
-                  </p>
-                  {planVersion.forbidden_actions.length > 0 ? (
-                    <p className="mt-1">
-                      后端边界：{planVersion.forbidden_actions.join(" / ")}
-                    </p>
-                  ) : null}
-                </div>
-
-                {taskCreation ? (
-                  <div className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <h3 className="text-sm font-medium text-emerald-200">
-                          真实任务队列已创建
-                        </h3>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          任务数 {taskCreation.task_count} · 队列状态 {taskCreation.status} · Gate: {taskCreation.gate_conclusion}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-                        <button
-                          type="button"
-                          data-testid="director-chat-run-worker-once"
-                          disabled={runWorkerOnceMutation.isPending}
-                          onClick={() => {
-                            void handleRunWorkerOnce();
-                          }}
-                          className="w-fit rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
-                        >
-                          {runWorkerOnceMutation.isPending
-                            ? "启动中..."
-                            : "启动一次执行"}
-                        </button>
-                        <Link
-                          to={`/execution?tab=tasks&projectId=${encodeURIComponent(taskCreation.project_id)}`}
-                          className="w-fit rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
-                        >
-                          查看执行中心
-                        </Link>
-                      </div>
-                    </div>
-                    <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-300">
-                      {taskCreation.next_action}
-                    </p>
-                    {workerRunOnceResult ? (
-                      <div
-                        data-testid="director-worker-run-result"
-                        className="mt-3 rounded border border-cyan-500/20 bg-cyan-500/5 p-3"
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-cyan-200">
-                              {workerRunOnceResult.claimed
-                                ? "已启动一次执行"
-                                : "当前没有可执行任务"}
-                            </p>
-                            {workerRunOnceResult.task_title ? (
-                              <p className="mt-1 text-sm text-zinc-200">
-                                {workerRunOnceResult.task_title}
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="grid shrink-0 gap-1 text-xs text-zinc-500 sm:text-right">
-                            <span>
-                              运行记录：{workerRunOnceResult.run_id?.slice(0, 8) ?? "暂无"}
-                            </span>
-                            <span>
-                              用量：{formatNullableTokenCount(workerRunOnceResult.total_tokens)}
-                            </span>
-                            <span>
-                              预估费用：{formatNullableCurrencyUsd(workerRunOnceResult.estimated_cost)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {workerRunOnceResult.run_id ? (
-                            <Link
-                              to={buildRunRoute({
-                                runId: workerRunOnceResult.run_id,
-                                taskId: workerRunOnceResult.task_id,
-                                projectId: scopedProjectId,
-                                from: "workbench",
-                              })}
-                              className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-200 transition hover:bg-cyan-500/20"
-                            >
-                              查看运行记录、日志与摘要
-                            </Link>
-                          ) : null}
-                          {workerRunOnceResult.task_id ? (
-                            <Link
-                              to={buildTaskRoute({
-                                taskId: workerRunOnceResult.task_id,
-                                projectId: scopedProjectId,
-                                from: "workbench",
-                              })}
-                              className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-400 transition hover:border-cyan-500/40 hover:text-cyan-200"
-                            >
-                              查看任务
-                            </Link>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                    {runWorkerOnceMutation.isError ? (
-                      <p className="mt-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                        启动失败：{runWorkerOnceMutation.error.message}
-                      </p>
-                    ) : null}
-                    {taskCreation.created_task_ids.length > 0 ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {visibleTaskIds.map((taskId, index) => (
-                          <Link
-                            key={taskId}
-                            to={buildTaskRoute({
-                              taskId,
-                              projectId: taskCreation.project_id,
-                              from: "workbench",
-                            })}
-                            title={taskId}
-                            className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-400 transition hover:border-emerald-500/40 hover:text-emerald-200"
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={runWorkerOnceMutation.isPending}
+                            onClick={() => {
+                              void handleRunWorkerOnce();
+                            }}
+                            className="rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-zinc-80 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                           >
-                            任务 {index + 1} · {taskId.slice(0, 8)}
+                            {runWorkerOnceMutation.isPending ? "正在调度..." : "手动启动单次调度"}
+                          </button>
+                          <Link
+                            to={`/execution?tab=tasks&projectId=${encodeURIComponent(taskCreation.project_id)}`}
+                            className="rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-zinc-80 transition text-center"
+                          >
+                            进入执行中心
                           </Link>
-                        ))}
-                        {hiddenTaskCount > 0 ? (
-                          <span className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-500">
-                            等 {hiddenTaskCount} 个任务
-                          </span>
-                        ) : null}
+                        </div>
                       </div>
-                    ) : null}
-                    {taskCreation.forbidden_actions.length > 0 ? (
-                      <p className="mt-3 text-xs text-zinc-500">
-                        创建边界：{taskCreation.forbidden_actions.join(" / ")}
+
+                      <p className="text-[11px] text-zinc-400 bg-black p-2.5 rounded border border-zinc-900 font-mono">
+                        {taskCreation.next_action}
                       </p>
-                    ) : null}
-                  </div>
-                ) : null}
+
+                      {/* Execution Console */}
+                      {workerRunOnceResult && (
+                        <div className="rounded-lg border border-zinc-900 bg-black p-3 shadow-inner space-y-2.5">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-zinc-300">
+                                {workerRunOnceResult.claimed ? "单次调度启动，任务已被认领并分配给 Agent" : "当前没有等待调度的就绪任务"}
+                              </p>
+                              {workerRunOnceResult.task_title && (
+                                <p className="mt-1.5 text-xs text-zinc-400">{workerRunOnceResult.task_title}</p>
+                              )}
+                            </div>
+                            
+                            <div className="grid shrink-0 gap-0.5 text-[10px] font-mono text-zinc-500 sm:text-right border-t sm:border-t-0 sm:border-l border-zinc-900 pt-2 sm:pt-0 sm:pl-3">
+                              <span>RUN: {workerRunOnceResult.run_id?.slice(0, 8) || "无"}</span>
+                              <span>Tokens: {formatNullableTokenCount(workerRunOnceResult.total_tokens)}</span>
+                              <span>调度预估成本: {formatNullableCurrencyUsd(workerRunOnceResult.estimated_cost)}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {workerRunOnceResult.run_id && (
+                              <Link
+                                to={buildRunRoute({
+                                  runId: workerRunOnceResult.run_id,
+                                  taskId: workerRunOnceResult.task_id,
+                                  projectId: scopedProjectId,
+                                  from: "workbench",
+                                })}
+                                className="rounded border border-zinc-800 bg-zinc-900/50 px-2 py-1 text-[10px] text-zinc-400 hover:text-zinc-200 transition"
+                              >
+                                查看实时调度日志与证据
+                              </Link>
+                            )}
+                            {workerRunOnceResult.task_id && (
+                              <Link
+                                to={buildTaskRoute({
+                                  taskId: workerRunOnceResult.task_id,
+                                  projectId: scopedProjectId,
+                                  from: "workbench",
+                                })}
+                                className="rounded border border-zinc-800 bg-zinc-900/50 px-2 py-1 text-[10px] text-zinc-400 hover:text-zinc-200 transition"
+                              >
+                                定位当前任务
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {runWorkerOnceMutation.isError && (
+                        <p className="mt-2 rounded-lg border border-zinc-900 bg-black px-3.5 py-2 text-xs text-rose-500 font-mono">
+                          ✗ 启动调度失败：{runWorkerOnceMutation.error.message}
+                        </p>
+                      )}
+
+                      {taskCreation.created_task_ids.length > 0 && (
+                        <div className="space-y-1.5 pt-1.5">
+                          <p className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">生成的任务队列条目 ({taskCreation.created_task_ids.length})</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {visibleTaskIds.map((taskId, index) => (
+                              <Link
+                                key={taskId}
+                                to={buildTaskRoute({
+                                  taskId,
+                                  projectId: taskCreation.project_id,
+                                  from: "workbench",
+                                })}
+                                title={taskId}
+                                className="rounded-md border border-zinc-900 bg-black px-2 py-0.5 text-[10px] font-mono text-zinc-400 hover:text-zinc-200 transition"
+                              >
+                                T{index + 1} · {taskId.slice(0, 8)}
+                              </Link>
+                            ))}
+                            {hiddenTaskCount > 0 && (
+                              <span className="rounded-md border border-zinc-900 bg-black px-2 py-0.5 text-[10px] text-zinc-500">
+                                + {hiddenTaskCount} 更多任务
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
               </div>
-            ) : null}
+            )}
 
-            {submitAnswersMutation.isError ? (
-              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                {submitAnswersMutation.error.message}
+            {/* Error popups */}
+            {submitAnswersMutation.isError && (
+              <p className="rounded-lg border border-zinc-900 bg-black px-3 py-2 text-xs text-rose-500 font-mono">
+                ✗ {submitAnswersMutation.error.message}
               </p>
-            ) : null}
-            {confirmGoalMutation.isError ? (
-              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                {confirmGoalMutation.error.message}
+            )}
+            {confirmGoalMutation.isError && (
+              <p className="rounded-lg border border-zinc-900 bg-black px-3 py-2 text-xs text-rose-500 font-mono">
+                ✗ {confirmGoalMutation.error.message}
               </p>
-            ) : null}
-            {createPlanVersionMutation.isError ? (
-              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                {createPlanVersionMutation.error.message}
+            )}
+            {createPlanVersionMutation.isError && (
+              <p className="rounded-lg border border-zinc-900 bg-black px-3 py-2 text-xs text-rose-500 font-mono">
+                ✗ {createPlanVersionMutation.error.message}
               </p>
-            ) : null}
-            {confirmPlanVersionMutation.isError ? (
-              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                {confirmPlanVersionMutation.error.message}
+            )}
+            {confirmPlanVersionMutation.isError && (
+              <p className="rounded-lg border border-zinc-900 bg-black px-3 py-2 text-xs text-rose-500 font-mono">
+                ✗ {confirmPlanVersionMutation.error.message}
               </p>
-            ) : null}
-            {createTaskQueueMutation.isError ? (
-              <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                {createTaskQueueMutation.error.message}
+            )}
+            {createTaskQueueMutation.isError && (
+              <p className="rounded-lg border border-zinc-900 bg-black px-3 py-2 text-xs text-rose-500 font-mono">
+                ✗ {createTaskQueueMutation.error.message}
               </p>
-            ) : null}
+            )}
 
-            <div className="rounded border border-[#333333] bg-[#111111] p-3 text-xs text-zinc-500">
-              <p>下一步：{session.next_action}</p>
-              {session.forbidden_actions.length > 0 ? (
-                <p className="mt-1">
-                  R1 边界：{session.forbidden_actions.join(" / ")}
-                </p>
-              ) : null}
+            {/* Next actions box */}
+            <div className="rounded-lg border border-zinc-900 bg-black p-3 text-[11px] text-zinc-500 font-mono">
+              <p>调度流下一环：{session.next_action}</p>
+              {session.forbidden_actions.length > 0 && (
+                <p className="mt-0.5 text-zinc-600">红线限制：{session.forbidden_actions.join(" / ")}</p>
+              )}
             </div>
           </div>
         ) : (
-          <div className="flex h-full min-h-[260px] flex-col items-center justify-center">
-            <div className="w-full max-w-lg text-center">
-              <p className="text-sm text-zinc-600 mb-4">
-                暂无对话记录，输入目标开始。发送后会创建 Project Director
-                会话并读取澄清问题。
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          /* 💎 GEMINI-STYLE EXTREMELY CLEAN PURE BLACK GREETING (STRETCHES DYNAMICALLY) 💎 */
+          <div className="flex h-full min-h-[380px] flex-col justify-center items-start px-2 py-4 w-full">
+            <div className="w-full text-left space-y-8">
+              {/* Crisp Solid White Greeting */}
+              <div className="space-y-3 relative z-10">
+                <h3 className="text-3xl sm:text-4xl font-light text-zinc-300 tracking-tight select-none">
+                  您好，我是 <span className="font-medium text-white tracking-wide">AI 项目主管</span>
+                </h3>
+                <p className="text-zinc-500 text-sm font-medium tracking-wide leading-relaxed max-w-2xl">
+                  今天有什么开发目标？我将为你规划作战计划，并调度 Agent 协同完成。
+                </p>
+              </div>
+
+              {/* 2x2 Clean, Solid Black Grid Cards (occupies the entire screen/container width) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                 {EXAMPLE_QUESTIONS.map((q) => (
                   <button
                     key={q}
                     type="button"
                     onClick={() => handleExampleClick(q)}
-                    className="text-left rounded border border-[#333333] px-3 py-2 text-xs text-zinc-400 transition hover:border-zinc-500 hover:bg-[#222222] hover:text-zinc-200"
+                    className="wireframe-btn text-left border border-zinc-900/50 bg-transparent px-5 py-4.5 text-xs text-zinc-400 flex items-center justify-between group cursor-pointer w-full h-14"
                   >
-                    {q}
+                    <span className="font-semibold leading-relaxed pr-4 text-zinc-400 group-hover:text-zinc-200">{q}</span>
+                    <span className="text-zinc-700 group-hover:text-zinc-400 transition-transform group-hover:translate-x-0.5">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                      </svg>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -759,39 +758,68 @@ export function DirectorChatEntry({
         )}
       </div>
 
-      {/* 底部：输入框 composer */}
-      <div className="shrink-0">
-        <div className="relative rounded-md border border-[#333333] bg-[#111111] focus-within:border-zinc-500">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="描述你的项目目标或当前遇到的问题..."
-            rows={3}
-            className="w-full resize-none bg-transparent px-4 py-3 pr-24 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
-          />
-          <div className="absolute right-2 bottom-2 flex items-center gap-2">
-            <button
-              type="button"
-              disabled={!canSend}
-              onClick={() => {
-                void handleSubmit();
-              }}
-              className="rounded border border-[#3f3f46] bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#1a1a1a] disabled:text-zinc-600"
-            >
-              {createSessionMutation.isPending ? "发送中..." : "发送"}
-            </button>
+      {/* 底部：输入框 composer (No max-width constraints, fully wide) */}
+      <div className="shrink-0 relative z-10 w-full mt-auto pt-6">
+        {/* Composer Outer Border - Monochrome Capsule Glow */}
+        <div className="composer-monochrome-wrapper w-full">
+          <div className="flex flex-col bg-black rounded-[27px] overflow-hidden w-full relative z-10">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="描述您的开发需求与目标，或遇到的故障阻塞..."
+              rows={3}
+              className="w-full resize-none bg-transparent px-5 py-4 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none custom-scrollbar"
+            />
+            
+            {/* bottom actions bar inside Composer */}
+            <div className="flex items-center justify-between border-t border-zinc-900 px-5 py-3.5 bg-black w-full">
+              <div className="flex items-center gap-3 text-zinc-700 select-none">
+                <span className="text-[10px] text-zinc-500 font-mono">
+                  {scopedProjectId ? `SCOPE: ${selectedProjectName}` : "SCOPE: GLOBAL"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!canSend}
+                  onClick={() => {
+                    void handleSubmit();
+                  }}
+                  className="rounded-full bg-white px-5 py-1.5 text-xs font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white flex items-center gap-1.5 cursor-pointer"
+                >
+                  {createSessionMutation.isPending ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5 text-black" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span>制定中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>发送</span>
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                      </svg>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-700">
-          <p>Ctrl/⌘ + Enter 发送；发送后会进入目标澄清和确认流程。</p>
-          {scopedProjectId ? <p>当前项目范围：{selectedProjectName}</p> : <p>全局项目范围</p>}
+
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-600 w-full">
+          <span>快捷指令：Ctrl/⌘ + Enter 发送目标并启动澄清。</span>
+          <span>敏捷主管 · 支持基于历史数据实时微调</span>
         </div>
-        {createSessionMutation.isError ? (
-          <p className="mt-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-            {createSessionMutation.error.message}
+        {createSessionMutation.isError && (
+          <p className="mt-2 rounded-lg border border-zinc-900 bg-black px-3.5 py-2 text-xs text-rose-500 font-mono w-full">
+            ✗ 异常：{createSessionMutation.error.message}
           </p>
-        ) : null}
+        )}
       </div>
     </section>
   );

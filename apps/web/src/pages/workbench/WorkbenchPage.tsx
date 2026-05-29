@@ -76,16 +76,16 @@ export function WorkbenchPage() {
         selectedProjectId={selectedProjectId}
       />
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        {/* 主对话区 */}
-        <div className="flex-1 lg:min-w-0">
+      <div className="flex flex-col gap-6 lg:gap-0 lg:flex-row lg:items-stretch h-full min-h-[calc(100vh-140px)]">
+        {/* Main Dialogue Panel */}
+        <div className="flex-1 lg:min-w-0 w-full lg:pr-8">
           <DirectorChatEntry
             selectedProjectId={selectedProjectId}
             selectedProjectName={selectedProjectName}
           />
         </div>
 
-        {/* 右侧短控制栏 */}
+        {/* Right Stats and Control Panel (Permanently restored side-by-side) */}
         <div className="w-full lg:w-72 xl:w-80 shrink-0">
           <WorkbenchRightRail
             overviewData={overviewQuery.data}

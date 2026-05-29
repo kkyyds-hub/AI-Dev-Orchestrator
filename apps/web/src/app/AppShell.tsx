@@ -33,7 +33,7 @@ export function AppShell() {
 
   return (
     <div
-      className={`min-h-screen bg-[#212121] text-zinc-100 lg:grid lg:transition-[grid-template-columns] lg:duration-300 ${
+      className={`min-h-screen bg-black text-zinc-100 lg:grid lg:transition-[grid-template-columns] lg:duration-300 ${
         isSidebarCollapsed
           ? "lg:grid-cols-[88px_minmax(0,1fr)]"
           : "lg:grid-cols-[260px_minmax(0,1fr)]"
@@ -41,7 +41,7 @@ export function AppShell() {
     >
       <Sidebar isCollapsed={isSidebarCollapsed} onToggle={() => setIsSidebarCollapsed((current) => !current)} />
 
-      <div className="flex min-h-screen min-w-0 flex-col bg-[#212121]">
+      <div className="flex min-h-screen min-w-0 flex-col bg-black">
         <Topbar isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)} usesWideWorkspace={usesWideWorkspace} suppressRouteIdentity={isExecutionRoute || isDeliveryRoute || isGovernanceRoute || isSettingsRoute} />
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
