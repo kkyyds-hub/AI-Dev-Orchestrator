@@ -30,9 +30,14 @@ export function useRunWorkerOnce() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: runWorkerOnce,
-    onSuccess: async () => {
+    mutationFn: (projectId?: string | null) => runWorkerOnce(projectId),
+    onSuccess: async (_result, projectId) => {
       await invalidateOperationalQueries(queryClient);
+      if (projectId && projectId !== "all") {
+        await queryClient.invalidateQueries({
+          queryKey: ["project-cost-dashboard", projectId],
+        });
+      }
     },
   });
 }

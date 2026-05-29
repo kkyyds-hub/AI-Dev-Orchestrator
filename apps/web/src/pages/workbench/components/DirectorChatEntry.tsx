@@ -15,6 +15,12 @@ import type {
   ProjectDirectorSession,
   ProjectDirectorTaskCreationResponse,
 } from "../../../features/project-director/types";
+import { useRunWorkerOnce } from "../../../features/task-actions/hooks";
+import {
+  formatNullableCurrencyUsd,
+  formatNullableTokenCount,
+} from "../../../lib/format";
+import { buildRunRoute } from "../../../lib/run-route";
 import { buildTaskRoute } from "../../../lib/task-route";
 
 const EXAMPLE_QUESTIONS = [
@@ -46,8 +52,10 @@ export function DirectorChatEntry({
   const createPlanVersionMutation = useCreateProjectDirectorPlanVersion();
   const confirmPlanVersionMutation = useConfirmProjectDirectorPlanVersion();
   const createTaskQueueMutation = useCreateProjectDirectorTaskQueue();
+  const runWorkerOnceMutation = useRunWorkerOnce();
 
   const scopedProjectId = selectedProjectId === "all" ? null : selectedProjectId;
+  const workerRunOnceResult = runWorkerOnceMutation.data ?? null;
   const trimmedDraft = draft.trim();
   const isMutating =
     createSessionMutation.isPending ||
@@ -229,6 +237,18 @@ export function DirectorChatEntry({
     }
   };
 
+  const handleRunWorkerOnce = async () => {
+    if (runWorkerOnceMutation.isPending) {
+      return;
+    }
+
+    try {
+      await runWorkerOnceMutation.mutateAsync(scopedProjectId);
+    } catch {
+      // Error details are rendered from the mutation state below.
+    }
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -257,6 +277,108 @@ export function DirectorChatEntry({
       </div>
 
       {/* 中部：会话/空状态 */}
+      <div
+        data-testid="director-worker-dispatch-entry"
+        className="mb-5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium text-cyan-200">
+              Worker 手动单次调度
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+              主链路 R1-Fa 只触发一次 <code>POST /workers/run-once</code>
+              {scopedProjectId ? "（当前项目）" : "（全局）"}；不调用 Worker Pool、不自动循环、不调用 planning/apply。
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="director-chat-run-worker-once"
+            disabled={runWorkerOnceMutation.isPending}
+            onClick={() => {
+              void handleRunWorkerOnce();
+            }}
+            className="w-fit rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+          >
+            {runWorkerOnceMutation.isPending
+              ? "调度中..."
+              : "触发一次 Worker"}
+          </button>
+        </div>
+
+        {workerRunOnceResult ? (
+          <div className="mt-3 rounded border border-[#333333] bg-[#111111] p-3">
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
+              <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-cyan-200">
+                {workerRunOnceResult.claimed ? "claimed" : "idle"}
+              </span>
+              {workerRunOnceResult.task_status ? (
+                <span className="rounded border border-[#333333] px-2 py-0.5">
+                  task: {workerRunOnceResult.task_status}
+                </span>
+              ) : null}
+              {workerRunOnceResult.run_status ? (
+                <span className="rounded border border-[#333333] px-2 py-0.5">
+                  run: {workerRunOnceResult.run_status}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-2 text-xs text-zinc-400">
+              {workerRunOnceResult.message}
+            </p>
+            {workerRunOnceResult.task_title ? (
+              <p className="mt-2 text-sm text-zinc-200">
+                {workerRunOnceResult.task_title}
+              </p>
+            ) : null}
+            <div className="mt-3 grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
+              <span>
+                Run：{workerRunOnceResult.run_id?.slice(0, 8) ?? "暂无"}
+              </span>
+              <span>
+                Token：{formatNullableTokenCount(workerRunOnceResult.total_tokens)}
+              </span>
+              <span>
+                Cost：{formatNullableCurrencyUsd(workerRunOnceResult.estimated_cost)}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {workerRunOnceResult.run_id ? (
+                <Link
+                  to={buildRunRoute({
+                    runId: workerRunOnceResult.run_id,
+                    taskId: workerRunOnceResult.task_id,
+                    projectId: scopedProjectId,
+                    from: "workbench",
+                  })}
+                  className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-200 transition hover:bg-cyan-500/20"
+                >
+                  查看 Run / 日志 / 摘要
+                </Link>
+              ) : null}
+              {workerRunOnceResult.task_id ? (
+                <Link
+                  to={buildTaskRoute({
+                    taskId: workerRunOnceResult.task_id,
+                    projectId: scopedProjectId,
+                    from: "workbench",
+                  })}
+                  className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-400 transition hover:border-cyan-500/40 hover:text-cyan-200"
+                >
+                  查看任务
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {runWorkerOnceMutation.isError ? (
+          <p className="mt-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            调度失败：{runWorkerOnceMutation.error.message}
+          </p>
+        ) : null}
+      </div>
+
       <div className="flex-1 mb-5 min-h-[160px] overflow-y-auto">
         {session ? (
           <div className="space-y-4">

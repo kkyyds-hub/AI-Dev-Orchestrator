@@ -99,7 +99,11 @@ export function WorkbenchPage() {
             onNavigateToProjects={handleNavigateToProjects}
             onNavigateToRuns={handleNavigateToRuns}
             isRunWorkerOncePending={runWorkerOnceMutation.isPending}
-            onRunWorkerOnce={() => runWorkerOnceMutation.mutate()}
+            onRunWorkerOnce={() =>
+              runWorkerOnceMutation.mutate(
+                selectedProjectId === "all" ? null : selectedProjectId,
+              )
+            }
             workerOnceData={runWorkerOnceMutation.data}
             workerOnceIsError={runWorkerOnceMutation.isError}
             workerOnceErrorMessage={

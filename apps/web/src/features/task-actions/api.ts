@@ -7,8 +7,14 @@ import type {
   WorkerRunOnceResponse,
 } from "./types";
 
-export function runWorkerOnce(): Promise<WorkerRunOnceResponse> {
-  return requestJson<WorkerRunOnceResponse>("/workers/run-once", {
+export function runWorkerOnce(projectId?: string | null): Promise<WorkerRunOnceResponse> {
+  const params = new URLSearchParams();
+  if (projectId && projectId !== "all") {
+    params.set("project_id", projectId);
+  }
+
+  const query = params.toString();
+  return requestJson<WorkerRunOnceResponse>(`/workers/run-once${query ? `?${query}` : ""}`, {
     method: "POST",
   });
 }
