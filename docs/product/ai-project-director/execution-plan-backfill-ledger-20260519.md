@@ -107,7 +107,7 @@
 
 | 模块 | 当前阶段 | 页面职责 | 前端真实接入 | 后端闭环 | 运行证据 | 文档回填 | 当前结论 | 下一步 |
 |---|---|---|---|---|---|---|---|---|
-| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial (R1-A+B+C 前端接入 Runtime Pass) | Partial (BCG-01/02 Backend Pass; R1-C 前端已接入 plan version 生成) | Partial (R1-A+B+C live evidence Pass; 后续阶段待补) | R1-A+B+C evidence 已写入本台账 | **Partial** | R1-C 完成目标→澄清→确认→计划生成全链路；后续需 plan 确认 / 任务创建 / Worker 接续 |
+| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial (R1-A+B+C+D 前端接入 Runtime Pass) | Partial (BCG-01/02 Backend Pass; R1-D 前端已接入 plan confirm) | Partial (R1-A+B+C+D live evidence Pass; task creation/Worker 未接续) | R1-A+B+C+D evidence 已写入本台账 | **Partial** | R1-D 完成目标→澄清→确认→计划生成→计划确认全链路；后续需任务创建 / Worker 接续 |
 | `/execution?tab=tasks` 任务队列 | 任务队列真实接入 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 TASK-01~14 | **Pass（实现级）** | 最后做运行截图总验收 |
 | `/tasks` 路由兼容 | 重定向到执行中心任务页签 | UI Pass | API Pass | N/A | Partial | 已记录 | **Pass** | 保持兼容 |
 | `/execution?tab=runs` 运行观测 | Phase1 真实接入 | UI Pass | API Pass | Partial | Partial | checklist 已回填 RUN-01~11 | **Pass（Phase1）** | 后续补自动摘要/失败闭环运行证据 |
@@ -207,7 +207,30 @@
 | 假按钮检查 | 无假按钮；"生成作战计划"真实 POST plan-versions |
 | 越界检查 | **通过**：前端未调用 confirm plan version / create-tasks / planning/apply / worker / apply-local / git-commit。前端显式声明："R1-C 仅在目标确认后允许生成作战计划；不会确认计划、创建任务或调度 Worker" |
 | Gate 结论 | **R1-C Runtime Pass**（confirmed session → plan version 生成全链路验证通过） |
-| 后续动作 | 后续阶段接入 plan version 确认前端；total closure 仍为 Partial |
+| 后续动作 | R1-D 已完成 plan version 确认前端接入；total closure 仍为 Partial |
+
+#### 4.1.4 R1-D：工作台 Plan Confirmation 前端接入 + Live Evidence
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | 工作台 DirectorChatEntry 真实接入 POST confirm plan version |
+| 阶段性质 | 前端 API 接入 + Runtime Evidence |
+| 起始 commit | `6cdad0c` |
+| 结束 commit | `f684e86` |
+| 修改文件 | `apps/web/src/features/project-director/api.ts` (+12), `hooks.ts` (+7), `types.ts` (+4); `apps/web/src/pages/workbench/components/DirectorChatEntry.tsx` (+66/-8) |
+| 涉及页面 | `/workbench` |
+| 涉及接口 | `POST /project-director/plan-versions/{id}/confirm`（复用 R1-A/B/C 的 session + plan-version 全链路） |
+| 页面职责 | UI Pass（无变化） |
+| 前端真实接入 | API Pass：pending_confirmation 状态展示"确认计划"按钮 → POST /plan-versions/{id}/confirm → confirmed 状态展示 confirmed_at。按钮逻辑正确：pending_confirmation 显示"确认计划"；confirmed 显示"计划已确认" |
+| 后端闭环 | Backend Pass：BCG-02 Phase1 已实现 plan version confirm 流转，无新后端修改 |
+| 运行证据 | Runtime Pass：前端 build 通过 (3.59s)；后端 62 tests 全通过 (20.87s)；live HTTP 全链路 create→answer→confirm_goal→create_plan→confirm_plan→detail_readback→list_readback 验证通过；plan_summary/phases/proposed_tasks 全部 match；error path (404) + idempotent (200) |
+| checklist 回填 | CL-04 (Runtime Pass), CL-07 (Evidence Partial — plan confirmed，为后续 task creation 提供前置条件), WB-09 (Runtime Pass, 保持)；本台账 4.1.4 记录 |
+| verification 文档 | `docs/product/ai-project-director/verification-project-director-workbench-plan-confirmation-r1d-20260528.md` |
+| 禁用按钮清单 | "确认计划"在非 pending_confirmation 状态不显示（confirmed 显示"计划已确认"） |
+| 假按钮检查 | 无假按钮；"确认计划"真实 POST /plan-versions/{id}/confirm |
+| 越界检查 | **通过**：前端未调用 create-tasks / planning/apply / worker / apply-local / git-commit |
+| Gate 结论 | **R1-D Runtime Pass**（plan version pending_confirmation → confirmed 全链路验证通过） |
+| 后续动作 | 后续阶段接入 task creation 前端；total closure 仍为 Partial |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
@@ -1167,7 +1190,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 
 | 事项 | 当前判断 | 原因 |
 |---|---|---|
-| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02 Backend Pass；**R1-A session entry (Runtime Pass) + R1-B goal confirmation (Runtime Pass) + R1-C plan generation (Runtime Pass)**；plan version 确认/任务创建/Worker 调度尚未接续 |
+| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02 Backend Pass；**R1-A session entry (RP) + R1-B goal confirm (RP) + R1-C plan generation (RP) + R1-D plan confirm (RP)**；任务创建/Worker 调度尚未接续 |
 | 自动作战计划生成与确认 | Partial | 尚未作为完整目标→计划→确认链路验收 |
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |
