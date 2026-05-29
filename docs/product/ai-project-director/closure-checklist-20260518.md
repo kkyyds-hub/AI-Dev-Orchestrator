@@ -55,8 +55,8 @@
 | CL-04 | 计划闭环 | 计划是否经用户确认 | R1-D: POST /project-director/plan-versions/{id}/confirm → 200 status=confirmed, confirmed_at=2026-05-29T06:51:10Z；GET detail readback plan_summary/phases/proposed_tasks 全部一致；GET list readback 确认 confirmed（verification-project-director-workbench-plan-confirmation-r1d-20260528） | 未确认不得直接创建正式任务 | Runtime Pass | plan version pending_confirmation → confirmed 全链路验证通过；idempotent re-confirm 正常 |
 | CL-05 | 团队闭环 | 是否生成角色与 Skill 方案 | role list / skill binding proposal | 有角色、职责、Skill、边界 |  |  |
 | CL-06 | 团队闭环 | 角色 / Skill 是否区分模板与项目实例 | 角色来源字段 / Skill 生命周期 | 不混淆可复用资产和临时资产 |  |  |
-| CL-07 | 任务闭环 | 是否根据计划创建任务队列 | R1-D: plan version 已 confirmed，为后续 task creation 提供前置条件（only confirmed plan versions can create tasks）；前端尚未接入 create-tasks（verification-project-director-workbench-plan-confirmation-r1d-20260528） | 任务有状态、负责人、依赖、验收标准 | Evidence Partial | plan confirmed 已完成，**为后续任务队列创建提供前置条件**；但前端尚未接入 create-tasks。不得写 Pass |
-| CL-08 | 调度闭环 | 是否产生调度决策 | dispatch record / run owner | 有 Agent 分配和原因 |  |  |
+| CL-07 | 任务闭环 | 是否根据计划创建任务队列 | R1-E: POST /project-director/plan-versions/{id}/create-tasks → 201 status=created, task_count=4；GET created-tasks readback 一致；GET /tasks/{id} 确认 task rows (status=pending) in TaskTable；UI guard: max 6 task IDs + overflow "等 N 个任务"（verification-project-director-workbench-task-creation-r1e-20260528） | 任务有状态、负责人、依赖、验收标准 | Runtime Pass | confirmed plan → create-tasks → 4 pending tasks 落库全链路验证通过；TaskTable readback 确认；UI guard 正确 |
+| CL-08 | 调度闭环 | 是否产生调度决策 | R1-E: 4 tasks 已创建 (status=pending)，为后续 Worker/Agent 调度提供前置条件；前端尚未接入 Worker 调度（verification-project-director-workbench-task-creation-r1e-20260528） | 有 Agent 分配和原因 | Evidence Partial | 任务队列已创建，**为后续 Worker 调度提供前置条件**；前端尚未接入 Worker 调度。不得写 Pass |
 | CL-09 | 运行闭环 | 是否产生 Run 记录 | run id | 有状态、时间、关联任务 |  |  |
 | CL-10 | 运行闭环 | Run 是否有摘要或 fallback | run summary record | source=ai 或 rule_fallback |  |  |
 | CL-11 | 失败闭环 | 失败/阻塞是否有下一步 | retry/rework/human/replan | 失败不死路 |  |  |
@@ -65,7 +65,7 @@
 | CL-14 | 审批闭环 | 交付物是否经过审批决策 | approval decision | 通过/修改/驳回有记录 |  |  |
 | CL-15 | 治理闭环 | 角色/Skill 是否记录消费证据 | run evidence / skill usage | 不是只保存配置 |  |  |
 | CL-16 | 成本闭环 | AI 生成是否记录成本台账 | generation ledger | 有模型、来源、缓存、成本 |  |  |
-| CL-17 | 页面闭环 | 页面按钮是否真实闭环 | API / route / navigation | 无假按钮 |  |  |
+| CL-17 | 页面闭环 | 页面按钮是否真实闭环 | R1-A~E: 工作台"发送"/"提交澄清回答"/"确认目标"/"生成作战计划"/"确认计划"/"创建任务队列"全部真实 POST API + 状态展示（verification-project-director-workbench-task-creation-r1e-20260528） | 无假按钮 | Runtime Pass (工作台) | 工作台 6 个按钮全部真实闭环；全站 CL-17 仍需其他页面验收 |
 | CL-18 | 文档闭环 | 产品文档是否同步更新 | docs/product path | 变更有文档依据 |  |  |
 
 ---
