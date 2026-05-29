@@ -49,9 +49,9 @@
 
 | ID | 闭环环节 | 验收项 | 回填证据 | 通过标准 | 状态 | 备注 |
 |---|---|---|---|---|---|---|
-| CL-01 | 目标闭环 | 用户目标是否被记录 | R1-A: POST /project-director/sessions 返回 goal_text 并持久化；GET readback 一致（verification-project-director-workbench-session-entry-r1a-20260528） | 有明确目标和范围 | Evidence Partial | session 已创建并持久化；前端仅展示 goal_text，尚未进入回答澄清问题/确认目标阶段 |
-| CL-02 | 目标闭环 | AI 项目主管是否做目标澄清 | R1-A: POST session 返回 clarifying_questions（5 items）；前端渲染 Q1~Q5 + 必答标记 + hint + next_action（verification-project-director-workbench-session-entry-r1a-20260528） | 不直接盲拆任务 | Runtime Pass | 澄清问题已生成并展示；前端尚未实现回答澄清问题 UI（R1 边界内） |
-| CL-03 | 计划闭环 | 是否生成 AI 作战计划 | plan id / plan version | 有目标、阶段、任务、交付、风险 |  |  |
+| CL-01 | 目标闭环 | 用户目标是否被记录 | R1-A: POST /project-director/sessions 返回 goal_text 并持久化 + GET readback 一致；R1-B: create→answer→confirm 全链路 goal_text 一致（verification-project-director-workbench-goal-confirmation-r1b-20260528） | 有明确目标和范围 | Runtime Pass | R1-A 已验证 session 创建 + goal_text 持久化；R1-B 全链路（create→answer→confirm→readback）goal_text 一致且前端可展示 |
+| CL-02 | 目标闭环 | AI 项目主管是否做目标澄清 | R1-A: POST session 返回 clarifying_questions（5 items）+ 前端渲染；R1-B: 用户可提交 answers → 后端生成 goal_summary → GET readback 确认持久化（verification-project-director-workbench-goal-confirmation-r1b-20260528） | 不直接盲拆任务 | Runtime Pass | 澄清问题已生成+展示+可回答+持久化；answer → goal_summary 生成链路完整 |
+| CL-03 | 计划闭环 | 是否生成 AI 作战计划 | R1-B: POST confirm → status=confirmed 为 plan version 创建提供前置条件；但 plan version 生成前端尚未接入（verification-project-director-workbench-goal-confirmation-r1b-20260528） | 有目标、阶段、任务、交付、风险 | Evidence Partial | 目标已确认（confirmed），**为后续 plan version 生成提供前置条件**；但 plan version 生成前端尚未接入。不得写 Pass |
 | CL-04 | 计划闭环 | 计划是否经用户确认 | approval / confirmation record | 未确认不得直接创建正式任务 |  |  |
 | CL-05 | 团队闭环 | 是否生成角色与 Skill 方案 | role list / skill binding proposal | 有角色、职责、Skill、边界 |  |  |
 | CL-06 | 团队闭环 | 角色 / Skill 是否区分模板与项目实例 | 角色来源字段 / Skill 生命周期 | 不混淆可复用资产和临时资产 |  |  |
