@@ -89,6 +89,8 @@ export function DirectorChatEntry({
     planVersion.project_id !== null &&
     !taskCreation &&
     !createTaskQueueMutation.isPending;
+  const canRunWorkerOnce =
+    Boolean(taskCreation?.project_id) && !runWorkerOnceMutation.isPending;
   const taskQueueActionLabel = taskCreation
     ? `任务队列已创建（${taskCreation.task_count}）`
     : createTaskQueueMutation.isPending
@@ -238,12 +240,12 @@ export function DirectorChatEntry({
   };
 
   const handleRunWorkerOnce = async () => {
-    if (runWorkerOnceMutation.isPending) {
+    if (!taskCreation?.project_id || !canRunWorkerOnce) {
       return;
     }
 
     try {
-      await runWorkerOnceMutation.mutateAsync(scopedProjectId);
+      await runWorkerOnceMutation.mutateAsync(taskCreation.project_id);
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -582,7 +584,7 @@ export function DirectorChatEntry({
                         <button
                           type="button"
                           data-testid="director-chat-run-worker-once"
-                          disabled={runWorkerOnceMutation.isPending}
+                          disabled={!canRunWorkerOnce}
                           onClick={() => {
                             void handleRunWorkerOnce();
                           }}
@@ -639,7 +641,7 @@ export function DirectorChatEntry({
                               to={buildRunRoute({
                                 runId: workerRunOnceResult.run_id,
                                 taskId: workerRunOnceResult.task_id,
-                                projectId: scopedProjectId,
+                                projectId: taskCreation.project_id,
                                 from: "workbench",
                               })}
                               className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-200 transition hover:bg-cyan-500/20"
@@ -651,7 +653,7 @@ export function DirectorChatEntry({
                             <Link
                               to={buildTaskRoute({
                                 taskId: workerRunOnceResult.task_id,
-                                projectId: scopedProjectId,
+                                projectId: taskCreation.project_id,
                                 from: "workbench",
                               })}
                               className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-400 transition hover:border-cyan-500/40 hover:text-cyan-200"
