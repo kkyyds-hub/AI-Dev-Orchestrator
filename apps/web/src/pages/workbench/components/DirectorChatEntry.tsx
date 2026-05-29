@@ -88,6 +88,11 @@ export function DirectorChatEntry({
       : planVersion?.project_id
         ? "创建真实任务队列"
         : "需要绑定具体项目";
+  const visibleTaskIds = taskCreation?.created_task_ids.slice(0, 6) ?? [];
+  const hiddenTaskCount = Math.max(
+    0,
+    (taskCreation?.created_task_ids.length ?? 0) - visibleTaskIds.length,
+  );
 
   useEffect(() => {
     if (!session) {
@@ -565,7 +570,7 @@ export function DirectorChatEntry({
                     </p>
                     {taskCreation.created_task_ids.length > 0 ? (
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {taskCreation.created_task_ids.map((taskId, index) => (
+                        {visibleTaskIds.map((taskId, index) => (
                           <Link
                             key={taskId}
                             to={buildTaskRoute({
@@ -579,6 +584,11 @@ export function DirectorChatEntry({
                             任务 {index + 1} · {taskId.slice(0, 8)}
                           </Link>
                         ))}
+                        {hiddenTaskCount > 0 ? (
+                          <span className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] text-zinc-500">
+                            等 {hiddenTaskCount} 个任务
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
                     {taskCreation.forbidden_actions.length > 0 ? (
