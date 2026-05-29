@@ -51,8 +51,8 @@
 |---|---|---|---|---|---|---|
 | CL-01 | 目标闭环 | 用户目标是否被记录 | R1-A: POST /project-director/sessions 返回 goal_text 并持久化 + GET readback 一致；R1-B: create→answer→confirm 全链路 goal_text 一致（verification-project-director-workbench-goal-confirmation-r1b-20260528） | 有明确目标和范围 | Runtime Pass | R1-A 已验证 session 创建 + goal_text 持久化；R1-B 全链路（create→answer→confirm→readback）goal_text 一致且前端可展示 |
 | CL-02 | 目标闭环 | AI 项目主管是否做目标澄清 | R1-A: POST session 返回 clarifying_questions（5 items）+ 前端渲染；R1-B: 用户可提交 answers → 后端生成 goal_summary → GET readback 确认持久化（verification-project-director-workbench-goal-confirmation-r1b-20260528） | 不直接盲拆任务 | Runtime Pass | 澄清问题已生成+展示+可回答+持久化；answer → goal_summary 生成链路完整 |
-| CL-03 | 计划闭环 | 是否生成 AI 作战计划 | R1-B: POST confirm → status=confirmed 为 plan version 创建提供前置条件；但 plan version 生成前端尚未接入（verification-project-director-workbench-goal-confirmation-r1b-20260528） | 有目标、阶段、任务、交付、风险 | Evidence Partial | 目标已确认（confirmed），**为后续 plan version 生成提供前置条件**；但 plan version 生成前端尚未接入。不得写 Pass |
-| CL-04 | 计划闭环 | 计划是否经用户确认 | approval / confirmation record | 未确认不得直接创建正式任务 |  |  |
+| CL-03 | 计划闭环 | 是否生成 AI 作战计划 | R1-C: POST /project-director/sessions/{id}/plan-versions → 201 status=pending_confirmation；plan_summary/phases/proposed_tasks/acceptance_criteria/risks 全部有内容；GET readback 一致；version_no 递增正确（verification-project-director-workbench-plan-generation-r1c-20260528） | 有目标、阶段、任务、交付、风险 | Runtime Pass | confirmed session → plan version 生成全链路验证通过；前端渲染 phases/proposed_tasks/acceptance_criteria/risks 全部字段 |
+| CL-04 | 计划闭环 | 计划是否经用户确认 | R1-C: plan version 已生成（pending_confirmation），为后续 plan version 确认提供前置条件；前端尚未接入 confirm plan version（verification-project-director-workbench-plan-generation-r1c-20260528） | 未确认不得直接创建正式任务 | Evidence Partial | plan version 已生成，**为后续计划确认提供前置条件**；但前端尚未接入 confirm plan version。不得写 Pass |
 | CL-05 | 团队闭环 | 是否生成角色与 Skill 方案 | role list / skill binding proposal | 有角色、职责、Skill、边界 |  |  |
 | CL-06 | 团队闭环 | 角色 / Skill 是否区分模板与项目实例 | 角色来源字段 / Skill 生命周期 | 不混淆可复用资产和临时资产 |  |  |
 | CL-07 | 任务闭环 | 是否根据计划创建任务队列 | task ids | 任务有状态、负责人、依赖、验收标准 |  |  |
