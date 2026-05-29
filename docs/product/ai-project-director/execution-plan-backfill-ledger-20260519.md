@@ -107,7 +107,7 @@
 
 | 模块 | 当前阶段 | 页面职责 | 前端真实接入 | 后端闭环 | 运行证据 | 文档回填 | 当前结论 | 下一步 |
 |---|---|---|---|---|---|---|---|---|
-| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial (R1-A+B+C+D+E 前端接入 Runtime Pass) | Partial (BCG-01/02/04A Backend Pass; R1-E 前端已接入 task creation) | Partial (R1-A+B+C+D+E live evidence Pass; Worker 未接续) | R1-A+B+C+D+E evidence 已写入本台账 | **Partial** | R1-E 完成目标→澄清→确认→计划→确认→任务创建全链路；后续需 Worker 调度 / Run 接续 |
+| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial (R1-A~F 前端接入 Runtime Pass) | Partial (BCG-01/02/04A Backend Pass; R1-F Worker 调度前端已接入) | Partial (R1-A~F live evidence Pass; warehouse/deliverable/approval 未接续) | R1-A~F evidence 已写入本台账 | **Partial** | R1-F 完成目标→澄清→确认→计划→确认→任务→Worker→Run 全链路；后续需交付物/审批/仓库闭环 |
 | `/execution?tab=tasks` 任务队列 | 任务队列真实接入 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 TASK-01~14 | **Pass（实现级）** | 最后做运行截图总验收 |
 | `/tasks` 路由兼容 | 重定向到执行中心任务页签 | UI Pass | API Pass | N/A | Partial | 已记录 | **Pass** | 保持兼容 |
 | `/execution?tab=runs` 运行观测 | Phase1 真实接入 | UI Pass | API Pass | Partial | Partial | checklist 已回填 RUN-01~11 | **Pass（Phase1）** | 后续补自动摘要/失败闭环运行证据 |
@@ -253,7 +253,28 @@
 | 假按钮检查 | 无假按钮；"创建任务队列"真实 POST create-tasks → 201 with real task IDs |
 | 越界检查 | **通过**：前端未调用 Worker / planning/apply / apply-local / git-commit / write-repository。显式声明："R1-E 边界：确认 plan version 后可创建真实任务队列；不调度 Worker / 不调用 planning/apply" |
 | Gate 结论 | **R1-E Runtime Pass**（confirmed plan → create-tasks → pending task queue 全链路验证通过） |
-| 后续动作 | 后续阶段接入 Worker 调度前端；total closure 仍为 Partial |
+| 后续动作 | R1-Fa+b 已完成 Worker dispatch + Run evidence；total closure 仍为 Partial |
+
+#### 4.1.6 R1-Fa+b：Worker Dispatch 前端接入 + Live Evidence
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | DirectorChatEntry "启动一次执行"按钮 + Worker→Run live evidence |
+| 阶段性质 | 前端 API 接入（Codex R1-Fa）+ Runtime Evidence（DeepSeek R1-Fb） |
+| 起始 commit | `e9d99e3` (R1-E) |
+| 结束 commit | `d9bd81f` (R1-Fa scope fix) |
+| 修改文件 | `apps/web/src/features/task-actions/api.ts`, `hooks.ts`; `apps/web/src/pages/workbench/WorkbenchPage.tsx`, `components/DirectorChatEntry.tsx`, `components/WorkbenchRightRail.tsx` |
+| 涉及页面 | `/workbench` |
+| 涉及接口 | `POST /workers/run-once?project_id={project_id}`; run readback via `GET /tasks/{id}/runs` |
+| 页面职责 | UI Pass（无变化） |
+| 前端真实接入 | API Pass：confirmed plan + created tasks 后展示"启动一次执行"按钮 → POST /workers/run-once；scope 使用 taskCreation.project_id（非 selectedProjectId）；展示 run_id/task_title/total_tokens/estimated_cost + 跳转 Run/Task 详情链接 |
+| 后端闭环 | Backend Pass：Worker 完整管线（TaskRouter → StateMachine → RunRepo → Executor → Verifier → RunLogging → BudgetGuard → EventStream）已存在；无新后端修改 |
+| 运行证据 | Runtime Pass：前端 build 通过 (3.67s)；37 tests 全通过 (14.03s)；live HTTP 全链路 create project→R1-A~E chain→Worker run-once→claimed/run/success→Run readback→idle path |
+| checklist 回填 | CL-08 (Runtime Pass), CL-09 (Runtime Pass), CL-10 (Runtime Pass), CL-15 (Evidence Partial — owner_role_code+skill evidence 已有, 治理中心端到端消费证据待接入), CL-16 (Evidence Partial — token/cost evidence 已有, 治理中心成本台账待接入), CL-17 (Runtime Pass 工作台), WB-09 (Runtime Pass) |
+| verification 文档 | `docs/product/ai-project-director/verification-project-director-worker-run-r1fb-20260529.md` |
+| 越界检查 | **通过**：未调用 Worker Pool / 自动循环 / planning/apply / apply-local / git-commit / write-repository |
+| Gate 结论 | **R1-Fb Runtime Pass**（task queue → manual Worker → Run/readback 全链路验证通过） |
+| 后续动作 | 后续阶段可考虑 Run summary/log 前端展示、交付物/审批链、仓库闭环；total closure 仍为 Partial |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
@@ -1213,7 +1234,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 
 | 事项 | 当前判断 | 原因 |
 |---|---|---|
-| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02/04A Backend Pass；**R1-A~E 全链路 Runtime Pass (session→clarify→confirm→plan→confirm→create-tasks)**；Worker 调度/Run 尚未接续 |
+| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02/04A Backend Pass；**R1-A~F 全链路 Runtime Pass (session→clarify→confirm→plan→confirm→tasks→Worker→Run)**；交付物/审批/仓库闭环尚未接续 |
 | 自动作战计划生成与确认 | Partial | 尚未作为完整目标→计划→确认链路验收 |
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |

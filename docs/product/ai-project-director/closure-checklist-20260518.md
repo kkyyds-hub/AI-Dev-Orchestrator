@@ -56,16 +56,16 @@
 | CL-05 | 团队闭环 | 是否生成角色与 Skill 方案 | role list / skill binding proposal | 有角色、职责、Skill、边界 |  |  |
 | CL-06 | 团队闭环 | 角色 / Skill 是否区分模板与项目实例 | 角色来源字段 / Skill 生命周期 | 不混淆可复用资产和临时资产 |  |  |
 | CL-07 | 任务闭环 | 是否根据计划创建任务队列 | R1-E: POST /project-director/plan-versions/{id}/create-tasks → 201 status=created, task_count=4；GET created-tasks readback 一致；GET /tasks/{id} 确认 task rows (status=pending) in TaskTable；UI guard: max 6 task IDs + overflow "等 N 个任务"（verification-project-director-workbench-task-creation-r1e-20260528） | 任务有状态、负责人、依赖、验收标准 | Runtime Pass | confirmed plan → create-tasks → 4 pending tasks 落库全链路验证通过；TaskTable readback 确认；UI guard 正确 |
-| CL-08 | 调度闭环 | 是否产生调度决策 | R1-E: 4 tasks 已创建 (status=pending)，为后续 Worker/Agent 调度提供前置条件；前端尚未接入 Worker 调度（verification-project-director-workbench-task-creation-r1e-20260528） | 有 Agent 分配和原因 | Evidence Partial | 任务队列已创建，**为后续 Worker 调度提供前置条件**；前端尚未接入 Worker 调度。不得写 Pass |
-| CL-09 | 运行闭环 | 是否产生 Run 记录 | run id | 有状态、时间、关联任务 |  |  |
-| CL-10 | 运行闭环 | Run 是否有摘要或 fallback | run summary record | source=ai 或 rule_fallback |  |  |
-| CL-11 | 失败闭环 | 失败/阻塞是否有下一步 | retry/rework/human/replan | 失败不死路 |  |  |
+| CL-08 | 调度闭环 | 是否产生调度决策 | R1-Fb: POST /workers/run-once → claimed=True, dispatch_status=explicit_owner, route_reason 含 readiness/budget/stage/role, owner_role_code=architect, routing_score 存在（verification-project-director-worker-run-r1fb-20260529） | 有 Agent 分配和原因 | Runtime Pass | Worker dispatch 全字段 evidence 完整；前端按钮 scope=taskCreation.projectId |
+| CL-09 | 运行闭环 | 是否产生 Run 记录 | R1-Fb: Worker creates Run (run_id + status=succeeded); GET /tasks/{id}/runs 读回 1 run, run_id match; task status pending→completed（verification-project-director-worker-run-r1fb-20260529） | 有状态、时间、关联任务 | Runtime Pass | Run 持久化 + readback 完整；注：GET /runs/{run_id} 路由不存在，Run 读回通过 /tasks/{id}/runs |
+| CL-10 | 运行闭环 | Run 是否有摘要或 fallback | R1-Fb: Worker response 含 verification_summary; GET /tasks/{id}/runs 返回 run record; 37 run_ai_summaries tests 覆盖 L1/L2/L3 + rule_fallback + ai source（verification-project-director-worker-run-r1fb-20260529） | source=ai 或 rule_fallback | Runtime Pass | Worker 自动生成 summary；AI summary service 测试完整 |
+| CL-11 | 失败闭环 | 失败/阻塞是否有下一步 | retry/rework/human/replan | 失败不死路 |  | 本阶段未深入测试失败路径（已有 BCG-10 approval rework evidence）；留待后续 |
 | CL-12 | 仓库闭环 | 代码相关任务是否有仓库证据链 | change request/context/preflight | 不把草案伪装成真实 commit |  |  |
 | CL-13 | 交付闭环 | 成功任务是否形成交付物 | deliverable id/version | 有版本和来源证据 |  |  |
 | CL-14 | 审批闭环 | 交付物是否经过审批决策 | approval decision | 通过/修改/驳回有记录 |  |  |
-| CL-15 | 治理闭环 | 角色/Skill 是否记录消费证据 | run evidence / skill usage | 不是只保存配置 |  |  |
-| CL-16 | 成本闭环 | AI 生成是否记录成本台账 | generation ledger | 有模型、来源、缓存、成本 |  |  |
-| CL-17 | 页面闭环 | 页面按钮是否真实闭环 | R1-A~E: 工作台"发送"/"提交澄清回答"/"确认目标"/"生成作战计划"/"确认计划"/"创建任务队列"全部真实 POST API + 状态展示（verification-project-director-workbench-task-creation-r1e-20260528） | 无假按钮 | Runtime Pass (工作台) | 工作台 6 个按钮全部真实闭环；全站 CL-17 仍需其他页面验收 |
+| CL-15 | 治理闭环 | 角色/Skill 是否记录消费证据 | R1-Fb: Worker response 含 owner_role_code=architect + selected_skill_codes=[dependency_analysis,solution_design,risk_assessment]（verification-project-director-worker-run-r1fb-20260529） | 不是只保存配置 | Evidence Partial | Worker 已记录 role/skill 消费证据；治理中心端到端消费证据展示尚未接入 |
+| CL-16 | 成本闭环 | AI 生成是否记录成本台账 | R1-Fb: Worker response 含 total_tokens=1445 + estimated_cost=0.00383 + provider_receipt + token_accounting_mode（verification-project-director-worker-run-r1fb-20260529） | 有模型、来源、缓存、成本 | Evidence Partial | Worker 已记录 token/cost/receipt；真模型执行（provider_openai/deepseek-v4-pro）非 simulate；治理中心成本台账前端展示仍为静态数据 |
+| CL-17 | 页面闭环 | 页面按钮是否真实闭环 | R1-A~F: 工作台"发送"/"提交澄清回答"/"确认目标"/"生成作战计划"/"确认计划"/"创建任务队列"/"启动一次执行"全部真实 POST API + 状态展示（verification-project-director-worker-run-r1fb-20260529） | 无假按钮 | Runtime Pass (工作台) | 工作台 7 个按钮全部真实闭环；scope fix: taskCreation.projectId；全站 CL-17 仍需其他页面验收 |
 | CL-18 | 文档闭环 | 产品文档是否同步更新 | docs/product path | 变更有文档依据 |  |  |
 
 ---
