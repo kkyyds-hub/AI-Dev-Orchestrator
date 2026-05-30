@@ -211,31 +211,29 @@ R1-Fb v1 (boundary violation): 6dde5ac
 
 ---
 
-## 6. 映射验收项结论（纠偏后）
+## 6. 映射验收项结论（v3 最终版）
 
-| 验收项 | 状态 | 纠偏说明 |
+| 验收项 | 状态 | 说明 |
 |---|---|---|
-| CL-08 | **Evidence Partial** | pytest 证明 dispatch 链路完整；v1 live HTTP 有边界违规。**不得写 Runtime Pass** |
-| CL-09 | **Evidence Partial** | pytest 证明 simulate Run 创建+持久化(tests 37/37)；v1 live HTTP provider_openai Run 存在但越界。**不得写 Runtime Pass** |
-| CL-10 | **Evidence Partial** | run_ai_summaries 37 tests 覆盖 summary 全路径(ai/rule_fallback/reused/stale)；v1 Run readback 有 summary 但越界。**不得写 Runtime Pass** |
-| CL-15 | **Evidence Partial** | Worker response 含 owner_role_code+selected_skill 结构；pytest 已验证。治理中心端到端消费证据展示尚未接入 |
-| CL-16 | **Evidence Partial** | Worker response 含 total_tokens+estimated_cost+provider_receipt 结构；pytest 已验证。治理中心成本台账前端展示仍为静态数据。v1 真实 cost 记录存在但越界 |
-| CL-17 | **Runtime Pass (工作台)** | "启动一次执行"按钮真实 POST /workers/run-once，scope 使用 taskCreation.projectId，无 provider 模型依赖 |
-| WB-09 | **Runtime Pass** | 上下文保持 |
+| CL-08 | **Runtime Pass** | v3 live HTTP: execution_mode=simulate, claimed=True, dispatch/explicit_owner, route_reason/readiness+budget+stage+role, owner_role_code=architect. 40/40 tests. |
+| CL-09 | **Runtime Pass** | v3 live HTTP: simulate Worker → run_id+run_status=succeeded, task pending→completed, GET /tasks/{id}/runs 200, GET /runs/{id}/logs 200. |
+| CL-10 | **Runtime Pass** | v3 live HTTP: GET /runs/{id}/decision-trace 200, GET /runs/{id}/ai-summaries 200. 40 tests (3 override + 37 summary) cover L1/L2/L3 + rule_fallback + AI source. |
+| CL-15 | **Evidence Partial** | Worker records owner_role_code+selected_skill_codes. 治理中心端到端消费证据展示尚未接入。 |
+| CL-16 | **Evidence Partial** | Worker records token/cost/receipt structure (simulate values). 治理中心成本台账前端展示仍为静态。simulate 证据不扩大为真实成本闭环 Pass。 |
+| CL-17 | **Runtime Pass (工作台)** | 7 按钮全闭环；scope=taskCreation.projectId。 |
+| WB-09 | **Runtime Pass** | 上下文保持。 |
 
 ---
 
-## 7. Gate 结论（纠偏后）
+## 7. Gate 结论（v3 最终版）
 
 ### 7.1 R1-Fb 阶段 Gate
 
-**R1-Fb Gate：Partial**
+**R1-Fb Gate：Runtime Pass**
 
-原因：
-- pytest 证明 simulate Worker→Run 链路完整（37/37）
-- 前端按钮闭环 Pass
-- **simulate-only live HTTP evidence not feasible through API-only path** — Runtime Evidence Gap
-- v1 live HTTP 证据越界（provider_openai），已标记为 Non-compliant
+基础：v3 simulate-only live HTTP 全链路通过。
+前提：`WORKER_SIMULATE_EXECUTION_OVERRIDE=1`（仅 local evidence / regression，默认关闭）。
+v1 provider_openai 证据已标记 Non-compliant，不作为 gate 基础。
 
 ### 7.2 AI Project Director Total Closure
 
@@ -245,10 +243,20 @@ CL-11~CL-14, CL-15/16（治理中心端到端接入）, CL-18 尚未完成。
 
 ---
 
-## 8. 文档修改清单
+## 8. 历史版本摘要
+
+| 版本 | 提交 | 结论 | 状态 |
+|---|---|---|---|
+| v1 | `6dde5ac` | provider_openai/deepseek-v4-pro 真模型执行 | **Non-compliant** — boundary violation |
+| v2 | `4ed88f0` | 纠偏；simulate-only live HTTP gap → **Partial** | **Superseded by v3** |
+| v3 | `9a6f03b` | WORKER_SIMULATE_EXECUTION_OVERRIDE=1 → simulate-only live HTTP → **Runtime Pass** | **Current** |
+
+---
+
+## 9. 文档修改清单
 
 | 文件 | 操作 |
 |---|---|
-| `verification-project-director-worker-run-r1fb-20260529.md` | **重写** — 纠偏声明 + simulate-only gap 记录 |
-| `execution-plan-backfill-ledger-20260519.md` | 修正 R1-Fb 为 Partial |
-| `closure-checklist-20260518.md` | CL-08/09/10 降级为 Evidence Partial |
+| `verification-project-director-worker-run-r1fb-20260529.md` | v3 最终版 |
+| `execution-plan-backfill-ledger-20260519.md` | R1-Fb v3 Runtime Pass |
+| `closure-checklist-20260518.md` | CL-08/09/10 → Runtime Pass (v3) |
