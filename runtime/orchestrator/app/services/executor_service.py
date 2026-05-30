@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from app.domain.model_policy import ExecutorModelRoutingContract, ExecutorRouteMode
 from app.domain.prompt_contract import BuiltPromptEnvelope, ProviderUsageReceipt
 from app.domain.task import Task
+from app.core.config import settings
 from app.services.mock_provider_executor_service import MockProviderExecutorService
 from app.services.openai_provider_executor_service import (
     OpenAIProviderExecutionError,
@@ -80,6 +81,7 @@ class ExecutorService:
         mock_provider_executor_service: MockProviderExecutorService | None = None,
         openai_provider_executor_service: OpenAIProviderExecutorService | None = None,
         provider_config_service: ProviderConfigService | None = None,
+        force_simulate_execution_override: bool | None = None,
     ) -> None:
         """Initialize the minimal executor graph for Day05 Step6."""
 
@@ -88,6 +90,11 @@ class ExecutorService:
         )
         self.openai_provider_executor_service = openai_provider_executor_service
         self.provider_config_service = provider_config_service or ProviderConfigService()
+        self.force_simulate_execution_override = (
+            settings.worker_simulate_execution_override
+            if force_simulate_execution_override is None
+            else force_simulate_execution_override
+        )
 
     def execute_task(
         self,
@@ -347,6 +354,13 @@ class ExecutorService:
 
         if requested_mode.is_explicit and requested_mode.mode == ExecutorRouteMode.SIMULATE.value:
             return ExecutionPlan(mode=requested_mode.mode, payload=requested_mode.payload)
+
+        if self.force_simulate_execution_override:
+            return ExecutionPlan(
+                mode=ExecutorRouteMode.SIMULATE.value,
+                payload=requested_mode.payload,
+                routing_contract=routing_contract,
+            )
 
         if routing_contract is not None and routing_contract.primary_mode == ExecutorRouteMode.PROVIDER:
             return ExecutionPlan(

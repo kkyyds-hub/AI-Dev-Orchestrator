@@ -114,6 +114,7 @@ class Settings:
     openai_api_key: str | None
     openai_base_url: str
     openai_timeout_seconds: int
+    worker_simulate_execution_override: bool
 
 
 def load_settings() -> Settings:
@@ -151,6 +152,10 @@ def load_settings() -> Settings:
         openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         or "https://api.openai.com/v1",
         openai_timeout_seconds=_read_int("OPENAI_TIMEOUT_SECONDS", 120, minimum=1),
+        worker_simulate_execution_override=_read_bool(
+            "WORKER_SIMULATE_EXECUTION_OVERRIDE",
+            False,
+        ),
     )
 
 
