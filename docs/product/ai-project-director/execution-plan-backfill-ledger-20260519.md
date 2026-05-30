@@ -107,7 +107,7 @@
 
 | 模块 | 当前阶段 | 页面职责 | 前端真实接入 | 后端闭环 | 运行证据 | 文档回填 | 当前结论 | 下一步 |
 |---|---|---|---|---|---|---|---|---|
-| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial (R1-A~D 前端 Runtime Pass; R1-E/F live evidence Partial) | Partial (BCG-01/02/04A Backend Pass) | Partial (R1-A~E live evidence Pass; R1-Fb simulate-only live HTTP gap; v1 provider_openai non-compliant) | R1-A~F evidence 已写入 | **Partial** | R1-Fb 纠偏后 Partial：pytest simulate OK; simulate-only live HTTP not feasible; 后续需 API-level simulate mode |
+| `/workbench` 工作台 | AI 项目主管轻量指挥室 | UI Pass | Partial (R1-A~E live evidence Pass; R1-Fb v3 simulate Runtime Pass) | Partial (BCG-01/02/04A Backend Pass) | Partial (R1-A~E live evidence Pass; R1-Fb v3 simulate Runtime Pass; warehouse/deliverable/approval 未接续) | R1-A~F evidence 已写入 | **Partial** | R1-Fb v3 Runtime Pass (WORKER_SIMULATE_EXECUTION_OVERRIDE=1; local evidence only)；后续需交付物/审批/仓库闭环 |
 | `/execution?tab=tasks` 任务队列 | 任务队列真实接入 | UI Pass | API Pass | Backend Pass | Partial | checklist 已回填 TASK-01~14 | **Pass（实现级）** | 最后做运行截图总验收 |
 | `/tasks` 路由兼容 | 重定向到执行中心任务页签 | UI Pass | API Pass | N/A | Partial | 已记录 | **Pass** | 保持兼容 |
 | `/execution?tab=runs` 运行观测 | Phase1 真实接入 | UI Pass | API Pass | Partial | Partial | checklist 已回填 RUN-01~11 | **Pass（Phase1）** | 后续补自动摘要/失败闭环运行证据 |
@@ -255,28 +255,28 @@
 | Gate 结论 | **R1-E Runtime Pass**（confirmed plan → create-tasks → pending task queue 全链路验证通过） |
 | 后续动作 | R1-Fa+b 已完成 Worker dispatch + Run evidence；total closure 仍为 Partial |
 
-#### 4.1.6 R1-Fa+b：Worker Dispatch 前端接入 + Simulate Evidence（已纠偏）
+#### 4.1.6 R1-Fa+b：Worker Dispatch 前端接入 + Simulate Evidence（v3 Runtime Pass）
 
 | 字段 | 回填 |
 |---|---|
-| 阶段名称 | DirectorChatEntry "启动一次执行"按钮 + Worker→Run evidence |
-| 阶段性质 | 前端 API 接入（Codex R1-Fa）+ Runtime Evidence（DeepSeek R1-Fb） |
+| 阶段名称 | DirectorChatEntry "启动一次执行"按钮 + Worker→Run simulate evidence |
+| 阶段性质 | 前端 API 接入（Codex R1-Fa）+ Runtime Evidence（DeepSeek R1-Fb, v1/v2/v3） |
 | 起始 commit | `e9d99e3` (R1-E) |
-| 结束 commit | `d9bd81f` (R1-Fa scope fix)；evidence 纠偏 commit（本次） |
-| 修改文件 | `apps/web/src/features/task-actions/api.ts`, `hooks.ts`; `apps/web/src/pages/workbench/WorkbenchPage.tsx`, `components/DirectorChatEntry.tsx`, `components/WorkbenchRightRail.tsx` |
+| 结束 commit | `d5ebe70` (Codex: WORKER_SIMULATE_EXECUTION_OVERRIDE) + evidence v3（本次） |
+| 修改文件 | Frontend: `task-actions/api.ts`, `hooks.ts`, `WorkbenchPage.tsx`, `DirectorChatEntry.tsx`, `WorkbenchRightRail.tsx` (R1-Fa)。Backend: `config.py`, `executor_service.py`, `test_executor_simulate_override.py` (Codex simulate override) |
 | 涉及页面 | `/workbench` |
-| 涉及接口 | `POST /workers/run-once?project_id={project_id}`; run readback via `GET /tasks/{id}/runs` |
-| 页面职责 | UI Pass（无变化） |
-| 前端真实接入 | API Pass：confirmed plan + created tasks 后展示"启动一次执行"按钮 → POST /workers/run-once；scope 使用 taskCreation.project_id（非 selectedProjectId）。CL-17 Pass（工作台 7 按钮全闭环） |
-| 后端闭环 | Backend Pass：Worker 完整管线已存在；pytest `test_project_director_worker_run_evidence.py` 证明 simulate 模式 created task → Worker → Run 链路完整 |
-| 运行证据 | **Partial（已纠偏）**：pytest 37/37（simulate evidence）通过；**simulate-only live HTTP evidence not feasible via API-only path**（ExecutorService 需要 task 描述 `simulate:` 前缀，API 生成 task 不含此前缀；唯一注入方式 `_force_simulate_descriptions` 需 DB 修改 → 被禁止） |
-| Boundary deviation | v1 live HTTP（提交 `6dde5ac`）实际触发 provider_openai/deepseek-v4-pro 真模型执行（1,445 tokens / $0.00383），违反 simulate-only 边界。已标记为 Non-compliant，不作为 gate 基础 |
-| Simulate evidence | pytest `test_project_director_worker_run_evidence.py`（DB 级 simulate: 前缀）和 `test_run_ai_summaries.py`（37 tests，覆盖 L1/L2/L3/rule_fallback/AI source）提供合规 simulate evidence |
-| checklist 回填 | CL-08 (Evidence Partial — pytest simulate OK, live HTTP gap), CL-09 (Evidence Partial), CL-10 (Evidence Partial), CL-15 (Evidence Partial), CL-16 (Evidence Partial, provider_openai 证据越界), CL-17 (Runtime Pass 工作台) |
-| verification 文档 | `docs/product/ai-project-director/verification-project-director-worker-run-r1fb-20260529.md`（已纠偏 v2） |
-| 越界检查 | **v1 越界**：live HTTP 触发 provider_openai/deepseek-v4-pro 真模型执行。v2 已纠正标记 |
-| Gate 结论 | **R1-Fb Partial**（pytest simulate evidence Pass; live HTTP simulate-only not feasible; v1 provider_openai non-compliant） |
-| 后续动作 | simulate-only live HTTP 需要 Codex 修补 ExecutorService 增加 API-level simulate mode switch 或 task description override；total closure 仍为 Partial |
+| 涉及接口 | `POST /workers/run-once`; `GET /tasks/{id}/runs`; `GET /runs/{id}/logs`; `GET /runs/{id}/decision-trace`; `GET /runs/{id}/ai-summaries` |
+| 页面职责 | UI Pass |
+| 前端真实接入 | API Pass：7 按钮全闭环；scope=taskCreation.projectId |
+| 后端闭环 | Backend Pass：Worker 管线 + `WORKER_SIMULATE_EXECUTION_OVERRIDE=1` → ExecutorService 强制 SIMULATE mode |
+| 运行证据 | **v3 Runtime Pass**：export WORKER_SIMULATE_EXECUTION_OVERRIDE=1 → live HTTP full chain → execution_mode=simulate ✓ / claimed=True ✓ / run_status=succeeded ✓ / GET logs 200 ✓ / GET decision-trace 200 ✓ / GET ai-summaries 200 ✓ / NO provider_openai ✓ / simulate token/cost values ✓。pytest: test_executor_simulate_override (3/3) + worker_run evidence (37/37) = 40/40 |
+| v1 boundary deviation | 提交 `6dde5ac` 触发 provider_openai/deepseek-v4-pro 真模型执行。**保留为 Non-compliant history，不作为 gate 基础。** |
+| v2 gap analysis | 提交 `4ed88f0` 纠偏：识别 simulate-only live HTTP gap；R1-Fb 降级 Partial |
+| checklist 回填 | CL-08 (Runtime Pass), CL-09 (Runtime Pass), CL-10 (Runtime Pass), CL-15 (Evidence Partial — skill evidence OK, 治理中心端到端未接入), CL-16 (Evidence Partial — simulate cost structure OK, 治理中心台账未接入; simulate 证据不扩大为真实成本闭环 Pass), CL-17 (Runtime Pass 工作台), WB-09 (Runtime Pass) |
+| verification 文档 | `verification-project-director-worker-run-r1fb-20260529.md`（v3 最终版） |
+| 越界检查 | v3 **通过**：execution_mode=simulate, 无 provider_openai, 无真模型 token 消耗, 无 Worker Pool, 无 planning/apply, 无 apply-local |
+| Gate 结论 | **R1-Fb Runtime Pass**（v3 simulate-only live HTTP 全链路验证通过；WORKER_SIMULATE_EXECUTION_OVERRIDE 仅 local evidence, 默认关闭） |
+| 后续动作 | 交付物/审批/仓库闭环；total closure 仍为 Partial |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
@@ -1236,7 +1236,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 
 | 事项 | 当前判断 | 原因 |
 |---|---|---|
-| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02/04A Backend Pass；**R1-A~E 全链路 Runtime Pass; R1-Fb Partial（simulate-only live HTTP gap; v1 provider_openai non-compliant）**；交付物/审批/仓库闭环尚未接续 |
+| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02/04A Backend Pass；**R1-A~E 全链路 + R1-Fb v3 simulate Runtime Pass**；交付物/审批/仓库闭环尚未接续 |
 | 自动作战计划生成与确认 | Partial | 尚未作为完整目标→计划→确认链路验收 |
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |

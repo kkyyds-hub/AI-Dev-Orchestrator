@@ -1,14 +1,96 @@
-# AI Project Director 工作台 Worker Run R1-Fb Evidence（已纠偏）
+# AI Project Director 工作台 Worker Run R1-Fb Evidence（最终版）
 
-> 文档类型：Runtime Evidence（窄范围验证）— **已纠偏**
-> 纠偏日期：2026-05-29
+> 文档类型：Runtime Evidence（窄范围验证）— **v3 simulate-only PASS**
+> 验证日期：2026-05-29 (v1/v2), 2026-05-30 (v3 simulate-only)
 > 验证人/工具：DeepSeek (via Claude Code harness)
 > 仓库：`https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git`
-> 纠偏基准 commit：`6dde5ac0a29c4cc251d2f9fcadb444bf5b76cd08`
+> v3 基准 commit：`d5ebe70cc26adcbf006c35a7c27507ec7caa1b69`
+> v1 基准 commit：`d9bd81f`; v2 纠偏 commit：`6dde5ac`
 > 前置阶段：R1-A → R1-B → R1-C → R1-D → R1-E → R1-Fa
 > R1-Fa scope fix：Worker 调度使用 `taskCreation.project_id`
+> Codex patch：`WORKER_SIMULATE_EXECUTION_OVERRIDE` 环境变量（默认关闭，仅 local evidence）
 > 主产品基线：`docs/product/ai-project-director/page-information-architecture-20260518.md`
 > 对应主链路：步骤 7（调度 Worker/Agent）→ 步骤 8（产生 Run/日志/摘要）
+>
+> **Gate 结论：R1-Fb Runtime Pass（v3 simulate-only live HTTP 验证通过）**
+
+---
+
+## v3 Simulate-Only Live HTTP Evidence（合规）🟢
+
+### Env
+
+```bash
+export WORKER_SIMULATE_EXECUTION_OVERRIDE=1
+```
+
+后端启动时读取此环境变量 → `Settings.worker_simulate_execution_override = True` → `ExecutorService.force_simulate_execution_override = True` → `build_execution_plan()` 无视 routing_contract 的 PROVIDER mode，强制返回 SIMULATE mode。
+
+**作用范围仅 local evidence / regression。默认值为 `False`，生产环境不受影响。**
+
+### v3 Live HTTP Results
+
+| Step | API | Status | Key Result |
+|---|---|---|---|
+| 0 | POST /projects | 201 | project created |
+| 1-6 | R1-A~E chain | 201 | 4 tasks, pvid created |
+| **7** | **POST /workers/run-once** | **200** | **execution_mode=simulate** |
+| 8 | GET /tasks/{id}/runs | 200 | 1 run, id_match=True, status=succeeded |
+| 9 | GET /tasks/{id} | 200 | status=completed (was pending) |
+| 10 | GET /runs/{id}/logs | **200** | log accessible |
+| 11 | GET /runs/{id}/decision-trace | **200** | decision trace accessible |
+| 12 | GET /runs/{id}/ai-summaries | **200** | ai-summaries accessible |
+| 13 | Second Worker | 200 | claimed=True |
+
+### v3 Worker Response Detail
+
+```text
+execution_mode: simulate          ← 确认 simulate
+claimed: True
+run_status: succeeded
+task_status: completed
+dispatch_status: explicit_owner
+owner_role_code: architect
+selected_skill_codes: [dependency_analysis, solution_design, risk_assessment]
+total_tokens: 416 (simulate value)
+estimated_cost: 0.000783 (simulate value)
+quality_gate_passed: True
+verification_summary: Simulated verification succeeded. Execution mode was simulate.
+log_path: logs/task-runs/.../xxx.jsonl
+NO provider_openai: True           ← 确认无真模型
+```
+
+### v3 Compliance Check
+
+| 约束 | 状态 |
+|---|---|
+| execution_mode=simulate | ✓ |
+| 无 provider_openai | ✓ |
+| 无真实 token 消耗 | ✓ (416 simulate value) |
+| 无真实 Provider 调用 | ✓ |
+| Run persisted | ✓ |
+| Task status updated | ✓ |
+| Log accessible | ✓ |
+| Decision trace accessible | ✓ |
+| AI summaries accessible | ✓ |
+| Idle/multi-task path OK | ✓ |
+| 无 Worker Pool | ✓ |
+| 无 planning/apply | ✓ |
+| 无 apply-local/git-commit | ✓ |
+
+---
+
+## 历史记录
+
+### v1 (提交 `6dde5ac`) — Boundary Deviation ❌
+
+首次 live HTTP 触发 provider_openai/deepseek-v4-pro 真模型执行。违反 simulate-only 边界。
+**已标记为 Non-compliant evidence，不作为 gate 基础。**
+
+### v2 (提交 `4ed88f0`) — 纠偏 + Gap 分析
+
+承认 v1 越界。分析根因：`ExecutorService._resolve_mode()` 需要 task 描述 `simulate:` 前缀 → API 路径不可行。
+标记 simulate-only live HTTP gap。**R1-Fb 降级为 Partial。**
 
 ---
 
