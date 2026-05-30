@@ -1152,18 +1152,23 @@ class TaskWorker:
         verification_template = verification.template_name if verification else None
         verification_command = verification.command if verification else None
 
-        resolution = self.task_state_machine_service.build_execution_resolution(
-            task=task,
-            execution_succeeded=execution.success,
-            verification_present=verification is not None,
-            verification_succeeded=verification.success if verification else False,
-            verification_quality_gate_passed=(
-                verification.quality_gate_passed if verification else False
-            ),
-            verification_failure_category=(
-                verification.failure_category if verification else None
-            ),
-        )
+        if execution.simulate_failure_mode == "blocked":
+            resolution = self.task_state_machine_service.build_simulate_blocked_resolution(
+                task=task,
+            )
+        else:
+            resolution = self.task_state_machine_service.build_execution_resolution(
+                task=task,
+                execution_succeeded=execution.success,
+                verification_present=verification is not None,
+                verification_succeeded=verification.success if verification else False,
+                verification_quality_gate_passed=(
+                    verification.quality_gate_passed if verification else False
+                ),
+                verification_failure_category=(
+                    verification.failure_category if verification else None
+                ),
+            )
         if not execution.success:
             verification_summary = "Verification skipped because execution did not succeed."
         failure_category = resolution.failure_category
@@ -1247,6 +1252,7 @@ class TaskWorker:
                 "fallback_reason_category": execution.fallback_reason_category,
                 "fallback_from": execution.fallback_from,
                 "fallback_to": execution.fallback_to,
+                "simulate_failure_mode": execution.simulate_failure_mode,
             },
         )
 
@@ -1647,6 +1653,9 @@ class TaskWorker:
                     execution.fallback_from if execution is not None else None
                 ),
                 "fallback_to": execution.fallback_to if execution is not None else None,
+                "simulate_failure_mode": (
+                    execution.simulate_failure_mode if execution is not None else None
+                ),
             },
         )
 

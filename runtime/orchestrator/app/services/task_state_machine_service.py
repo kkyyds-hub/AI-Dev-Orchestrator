@@ -241,6 +241,26 @@ class TaskStateMachineService:
             quality_gate_passed=False,
         )
 
+    def build_simulate_blocked_resolution(self, *, task: Task) -> TaskRunStateResolution:
+        """Return a local-evidence-only blocked outcome for simulate injection."""
+
+        self._ensure_allowed(
+            task=task,
+            action="simulate_block",
+            allowed_statuses=(TaskStatus.RUNNING,),
+            detail="Only tasks in status 'running' can be blocked by simulate injection.",
+        )
+        return TaskRunStateResolution(
+            task_transition=TaskStateTransition(
+                status=TaskStatus.BLOCKED,
+                event_reason=TaskEventReason.GUARD_BLOCKED,
+                message="Simulate failure injection blocked execution for evidence.",
+            ),
+            run_status=RunStatus.CANCELLED,
+            failure_category=RunFailureCategory.RETRY_LIMIT_EXCEEDED,
+            quality_gate_passed=False,
+        )
+
     def build_execution_resolution(
         self,
         *,

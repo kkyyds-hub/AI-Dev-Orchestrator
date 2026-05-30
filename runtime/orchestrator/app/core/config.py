@@ -115,6 +115,7 @@ class Settings:
     openai_base_url: str
     openai_timeout_seconds: int
     worker_simulate_execution_override: bool
+    worker_simulate_failure_mode: str | None
 
 
 def load_settings() -> Settings:
@@ -155,6 +156,9 @@ def load_settings() -> Settings:
         worker_simulate_execution_override=_read_bool(
             "WORKER_SIMULATE_EXECUTION_OVERRIDE",
             False,
+        ),
+        worker_simulate_failure_mode=_read_optional_str(
+            "WORKER_SIMULATE_FAILURE_MODE"
         ),
     )
 

@@ -72,3 +72,59 @@ def test_simulate_override_execute_task_bypasses_provider_path(monkeypatch) -> N
     assert result.mode == ExecutorRouteMode.SIMULATE.value
     assert result.actual_execution_mode == ExecutorRouteMode.SIMULATE.value
     assert result.requested_provider_key is None
+
+
+def test_simulate_failure_mode_failed_returns_failed_simulate_result() -> None:
+    task = Task(title="evidence task", input_summary="created through API only")
+    executor = ExecutorService(
+        force_simulate_execution_override=True,
+        simulate_failure_mode="failed",
+    )
+
+    result = executor.execute_task(
+        task,
+        routing_contract=_provider_routing_contract(),
+    )
+
+    assert result.success is False
+    assert result.mode == ExecutorRouteMode.SIMULATE.value
+    assert result.actual_execution_mode == ExecutorRouteMode.SIMULATE.value
+    assert result.fallback_reason_category == "simulate_failure_injection"
+    assert result.simulate_failure_mode == "failed"
+    assert "intentionally failed" in result.summary
+
+
+def test_invalid_simulate_failure_mode_keeps_default_success_path() -> None:
+    task = Task(title="evidence task", input_summary="created through API only")
+    executor = ExecutorService(
+        force_simulate_execution_override=True,
+        simulate_failure_mode="not-a-mode",
+    )
+
+    result = executor.execute_task(
+        task,
+        routing_contract=_provider_routing_contract(),
+    )
+
+    assert result.success is True
+    assert result.mode == ExecutorRouteMode.SIMULATE.value
+    assert result.simulate_failure_mode is None
+
+
+def test_simulate_failure_mode_blocked_returns_blocked_injection_signal() -> None:
+    task = Task(title="evidence task", input_summary="created through API only")
+    executor = ExecutorService(
+        force_simulate_execution_override=True,
+        simulate_failure_mode="blocked",
+    )
+
+    result = executor.execute_task(
+        task,
+        routing_contract=_provider_routing_contract(),
+    )
+
+    assert result.success is False
+    assert result.mode == ExecutorRouteMode.SIMULATE.value
+    assert result.actual_execution_mode == ExecutorRouteMode.SIMULATE.value
+    assert result.fallback_reason_category == "simulate_failure_injection"
+    assert result.simulate_failure_mode == "blocked"

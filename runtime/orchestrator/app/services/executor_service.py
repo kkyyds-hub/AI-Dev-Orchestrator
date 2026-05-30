@@ -44,6 +44,7 @@ class ExecutionResult:
     fallback_reason_category: str | None = None
     fallback_from: str | None = None
     fallback_to: str | None = None
+    simulate_failure_mode: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -82,6 +83,7 @@ class ExecutorService:
         openai_provider_executor_service: OpenAIProviderExecutorService | None = None,
         provider_config_service: ProviderConfigService | None = None,
         force_simulate_execution_override: bool | None = None,
+        simulate_failure_mode: str | None = None,
     ) -> None:
         """Initialize the minimal executor graph for Day05 Step6."""
 
@@ -94,6 +96,11 @@ class ExecutorService:
             settings.worker_simulate_execution_override
             if force_simulate_execution_override is None
             else force_simulate_execution_override
+        )
+        self.simulate_failure_mode = self._normalize_simulate_failure_mode(
+            settings.worker_simulate_failure_mode
+            if simulate_failure_mode is None
+            else simulate_failure_mode
         )
 
     def execute_task(
@@ -541,6 +548,30 @@ class ExecutorService:
             if context_package is not None
             else ""
         )
+        if self.simulate_failure_mode is not None:
+            summary = (
+                "Simulated execution intentionally failed for local evidence. "
+                f"failure_mode={self.simulate_failure_mode}. "
+                f"Task '{task.title}' was processed with summary: {summary_body}."
+                f"{context_suffix}"
+            )
+            return ExecutionResult(
+                success=False,
+                mode=ExecutorRouteMode.SIMULATE.value,
+                summary=self._truncate_summary(summary),
+                prompt_key=(
+                    prompt_envelope.template_ref.prompt_key
+                    if prompt_envelope is not None
+                    else None
+                ),
+                prompt_char_count=(
+                    prompt_envelope.prompt_char_count if prompt_envelope is not None else 0
+                ),
+                actual_execution_mode=ExecutorRouteMode.SIMULATE.value,
+                fallback_reason_category="simulate_failure_injection",
+                simulate_failure_mode=self.simulate_failure_mode,
+            )
+
         summary = (
             "Simulated execution succeeded. "
             f"Task '{task.title}' was processed with summary: {summary_body}."
@@ -629,6 +660,18 @@ class ExecutorService:
             fallback_from=fallback_from,
             fallback_to=ExecutorRouteMode.SIMULATE.value,
         )
+
+    @staticmethod
+    def _normalize_simulate_failure_mode(value: str | None) -> str | None:
+        """Normalize the safe local-only simulate failure injection mode."""
+
+        if value is None:
+            return None
+
+        normalized_value = value.strip().lower()
+        if normalized_value in {"failed", "blocked"}:
+            return normalized_value
+        return None
 
     @staticmethod
     def _build_shell_command(command: str) -> list[str]:
