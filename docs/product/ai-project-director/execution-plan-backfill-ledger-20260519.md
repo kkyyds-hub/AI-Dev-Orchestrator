@@ -331,6 +331,25 @@
 | Gate 结论 | **R1-I Runtime Pass**（simulate run → deliverable auto-create → readback → task/run/project 全链路关联 live HTTP 验证） |
 | 后续动作 | total closure 仍为 Partial；CL-14（审批闭环）, CL-15/16, CL-18 尚未完成 |
 
+#### 4.1.10 R1-J：Approval Closure Audit（Runtime Pass）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | CL-14 审批闭环审计 + live HTTP + 测试 |
+| 阶段性质 | 审计 + 测试 + live HTTP + 文档回填 |
+| 基准 commit | `0738004` |
+| 涉及接口 | `POST /approvals`, `GET /approvals/projects/{pid}`, `GET /approvals/{id}`, `GET /approvals/{id}/history`, `POST /approvals/{id}/actions`, `GET /approvals/projects/{pid}/retrospective`, `GET /approvals/projects/{pid}/change-rework` |
+| Auto-creation | `_auto_create_run_approval`: simulate run → deliverable → approval auto-created（幂等，同一 version 不重复） |
+| Approve Path | live HTTP: POST approve → status=approved → GET readback 确认 decision (action=approve, actor=Admin) → project_id/deliverable_id/deliverable_version_id 全部关联 |
+| Request_changes Path | live HTTP: POST request_changes → status=changes_requested → decision 含 requested_changes + highlighted_risks → rework task 自动生成 (pending, HIGH priority, acceptance_criteria, source_draft_id) |
+| Reject Path | 6 tests 覆盖 reject 路径（与 request_changes 同机制）；reject → rework task + idempotent |
+| Idempotency | live HTTP: 对已关闭审批 (approved) 重试 → 422 "Approval request is already closed." |
+| 测试证据 | 6 passed (test_approval_rework_task_creation.py) in 2.98s |
+| checklist 回填 | CL-14 (Runtime Pass) |
+| verification 文档 | `verification-project-director-approval-closure-r1j-20260530.md` |
+| Gate 结论 | **R1-J Runtime Pass**（approve + request_changes 全链路 live HTTP + rework task 自动生成 + idempotency guard 验证） |
+| 后续动作 | total closure 仍为 Partial；CL-15/16, CL-18 尚未完成 |
+
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
 | 字段 | 回填 |
