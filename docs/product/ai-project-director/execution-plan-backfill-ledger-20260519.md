@@ -296,6 +296,24 @@
 | Gate 结论 | **R1-G Runtime Pass**（failed + blocked 两组 live HTTP 全链路 evidence + 16 tests passed；不调 provider/worker pool/planning/apply/apply-local/git-commit） |
 | 后续动作 | total closure 仍为 Partial；CL-12~CL-14, CL-15/16 治理中心端到端接入, CL-18 尚未完成 |
 
+#### 4.1.8 R1-H：Repository Evidence Chain Audit（Evidence Partial）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | CL-12 仓库证据链审计 + live HTTP + 测试 |
+| 阶段性质 | 审计 + 测试 + live HTTP + 文档回填 |
+| 基准 commit | `cb56730` |
+| 涉及接口 | `PUT/GET /repositories/projects/{id}`, `POST/GET snapshot`, `POST/GET change-session`, `POST file-locator/search`, `POST context-pack`, `GET change-batches`, `GET commit-candidates`, `GET release-gates`, `GET day15-flow` |
+| Read-Only Live HTTP | 全部 200：workspace binding readback ✓, snapshot refresh+readback (3 files, success) ✓, change session capture+readback (clean, guard=ready) ✓, file locator (2 candidates) ✓, context pack (2 files, 35 bytes) ✓, day15 flow (2/9 steps, git_write_actions_triggered=False) ✓, change batches list (empty) ✓, commit candidates list (empty) ✓, release gates list (empty) ✓ |
+| Draft Chain | ChangePlan → ChangeBatch → Preflight → CommitCandidate → ReleaseGate 全链路后端完备；CommitCandidate 明确为 "review-only draft"；BCL-03 apply-local/git-commit 为独立受控端点 |
+| Draft ≠ Real Commit | Confirmed：day15 flow git_write_actions_triggered=False；CommitCandidate 设计为 "review-only draft"；BCL-03 需要完整 guard chain（workspace binding + release gate approval + preflight pass + commit candidate existence + path safety） |
+| 测试证据 | 11 passed (test_repository_context_pack_api.py) in 3.95s |
+| Runtime Evidence Gap | 完整 Day06-Day14 端到端 (change plan → batch → preflight → commit candidate → release gate) live HTTP 需要 deliverables 前置（需要 worker run 先产出交付物） |
+| checklist 回填 | CL-12 (Evidence Partial) |
+| verification 文档 | `verification-project-director-repository-evidence-r1h-20260530.md` |
+| Gate 结论 | **R1-H Evidence Partial**（只读仓库证据链 live HTTP 完整通过；draft evidence 链后端完备；全端到端 live HTTP 需要 deliverables 前置） |
+| 后续动作 | total closure 仍为 Partial；CL-13/14, CL-15/16, CL-18 尚未完成 |
+
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
 | 字段 | 回填 |
@@ -1259,6 +1277,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |
 | 交付物闭环 | Not Started | DEL-* 尚未处理 |
+| 仓库证据链 | Partial | CL-12 Evidence Partial；只读仓库链 live HTTP 通过；draft 链后端完备但全端到端仍需 deliverables 前置 |
 | 审批闭环 | Not Started | APV-* 尚未处理 |
 | 治理沉淀 | Not Started | GOV-* 尚未处理 |
 | 成本闭环 | Partial | 部分页面展示 token/cost，但 AI 生成资产台账和成本可信度需总验收 |
