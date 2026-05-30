@@ -348,7 +348,26 @@
 | checklist 回填 | CL-14 (Runtime Pass) |
 | verification 文档 | `verification-project-director-approval-closure-r1j-20260530.md` |
 | Gate 结论 | **R1-J Runtime Pass**（approve + request_changes 全链路 live HTTP + rework task 自动生成 + idempotency guard 验证） |
-| 后续动作 | total closure 仍为 Partial；CL-15/16, CL-18 尚未完成 |
+| 后续动作 | total closure 仍为 Partial；CL-16（成本闭环端到端接入）, CL-18 尚未完成 |
+
+#### 4.1.11 R1-K：Role / Skill Consumption Evidence Audit（Evidence Partial）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | CL-15 角色/Skill 消费证据审计 + live HTTP + gap analysis |
+| 阶段性质 | 审计 + live HTTP + 三层 gap analysis + 文档回填 |
+| 基准 commit | `983be15` |
+| 涉及接口 | `POST /workers/run-once`, `GET /runs/{id}/decision-trace`, `GET /tasks/{id}/runs`, `GET /roles/*`, `GET /skills/*` |
+| L1: Worker Dispatch | live HTTP: owner_role_code=architect, selected_skill_codes=["dependency_analysis","solution_design","risk_assessment"], handoff chain product_manager→architect→engineer, strategy_code/strategy_summary/model_tier all populated |
+| L2: Run Readback | 3 paths: Worker response ✓, Decision-trace (task_routed + role_handoff) ✓, Task/Runs console (strategy_decision) ✓ — data consistent across all 3 |
+| L3: Governance Center | Frontend GovernancePage.tsx: "暂无消费证据" on role/skill cards, "待接入真实运行时消费证据" on team tab. No consumption aggregation API exists in `/roles` or `/skills` routes |
+| Gap | 后端消费数据存在且可读回，但无 governance 聚合 API 从 run history 汇总 role/skill 消费统计；前端治理中心仅展示静态配置 |
+| 最小补丁 | Codex: (1) governance 聚合 API per-project role/skill consumption from run history; (2) 前端治理中心接入该 API 替换 "暂无消费证据" |
+| 测试证据 | 163 passed (full suite in 38.79s) — role/skill dispatch 间接覆盖 |
+| checklist 回填 | CL-15 (Evidence Partial) |
+| verification 文档 | `verification-project-director-role-skill-consumption-r1k-20260530.md` |
+| Gate 结论 | **R1-K Evidence Partial**（Worker→Run→Readback 三层角色/Skill 消费完整；治理中心端到端展示缺口；provider_openai 证据 Non-compliant 已不适用 — 本次为 simulate-only） |
+| 后续动作 | total closure 仍为 Partial；CL-16（成本闭环端到端接入）, CL-18 尚未完成 |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
