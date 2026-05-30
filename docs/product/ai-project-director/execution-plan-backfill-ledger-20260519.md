@@ -278,22 +278,23 @@
 | Gate 结论 | **R1-Fb Runtime Pass**（v3 simulate-only live HTTP 全链路验证通过；WORKER_SIMULATE_EXECUTION_OVERRIDE 仅 local evidence, 默认关闭） |
 | 后续动作 | R1-G failure closure audit 完成；total closure 仍为 Partial |
 
-#### 4.1.7 R1-G：Failure / Blocker Closure Audit
+#### 4.1.7 R1-G：Failure / Blocker Closure Audit（Runtime Pass）
 
 | 字段 | 回填 |
 |---|---|
-| 阶段名称 | CL-11 失败/阻塞下一步路径审计 |
-| 阶段性质 | 只读审计 + 测试 + live HTTP |
-| 基准 commit | `3d03534` |
+| 阶段名称 | CL-11 失败/阻塞下一步路径审计 + live HTTP evidence |
+| 阶段性质 | 审计 + 测试 + live HTTP（failed 模式）+ live HTTP（blocked 模式）+ 文档回填 |
+| 基准 commit | `cd8939c`（Codex 已补齐 WORKER_SIMULATE_FAILURE_MODE injection） |
 | 涉及接口 | `POST /tasks/{id}/retry`, `POST /tasks/{id}/pause`, `POST /tasks/{id}/resume`, `POST /tasks/{id}/request-human`, `POST /tasks/{id}/resolve-human`, `GET /runs/{id}/failure-review`, `GET /runs/{id}/decision-trace` |
 | 后端闭环 | Backend Pass：retry(FAILED/BLOCKED→PENDING), pause(PENDING/FAILED/BLOCKED→PAUSED), resume(PAUSED→PENDING), request-human(PENDING/FAILED/BLOCKED→WAITING_HUMAN), resolve-human(WAITING_HUMAN→PENDING) 完整；state machine guards → 409 on invalid transitions |
-| 测试证据 | 7 passed (6 approval rework + 1 run evidence replay) in 3.53s |
-| Live HTTP | 4 tasks → 4 Worker cycles → all succeeded → 5th idle (claimed=False); failure-review 200 on all runs; decision-trace 200 on all runs; retry/request-human/resolve-human → 409 (correct guard from completed state) |
-| Runtime Evidence Gap | simulate executor always succeeds → no API-only path to produce FAILED/BLOCKED task for live HTTP end-to-end failure chain evidence |
-| checklist 回填 | CL-11 (Evidence Partial) |
-| verification 文档 | `verification-project-director-failure-closure-r1g-20260530.md` |
-| Gate 结论 | **R1-G Evidence Partial**（backend pathways complete + verified; simulate-only live HTTP failure construction gap） |
-| 后续动作 | Codex could add simulate-failure injection mode for live HTTP failure chain; or accept pytest-level evidence as sufficient for CL-11 Partial; total closure 仍为 Partial |
+| 测试证据 | 16 passed (8 simulate override/failure mode + 2 worker run evidence + 6 approval rework) |
+| Failed mode live HTTP | `WORKER_SIMULATE_FAILURE_MODE=failed` → worker → task=failed, run=failed, failure_category=execution_failed; GET failure-review → 200 (execution_failed); GET decision-trace → 200 (12 trace items, failure_review present); POST retry → failed→pending; GET readback → pending (confirmed) |
+| Blocked mode live HTTP | `WORKER_SIMULATE_FAILURE_MODE=blocked` → worker → task=blocked, run=cancelled, failure_category=retry_limit_exceeded; GET failure-review → 200 (retry_limit_exceeded); GET decision-trace → 200 (12 trace items, failure_review present); POST request-human → blocked→waiting_human; GET readback → waiting_human (confirmed); POST resolve-human → waiting_human→pending; GET readback → pending (confirmed) |
+| Runtime Evidence Gap | **已消除**：Codex `cd8939c` 使 simulate executor 可注入 failed/blocked mode（需同时设 WORKER_SIMULATE_EXECUTION_OVERRIDE=1 + WORKER_SIMULATE_FAILURE_MODE=failed|blocked） |
+| checklist 回填 | CL-11 (Runtime Pass) |
+| verification 文档 | `verification-project-director-failure-closure-r1g-20260530.md`（已更新为 Runtime Pass） |
+| Gate 结论 | **R1-G Runtime Pass**（failed + blocked 两组 live HTTP 全链路 evidence + 16 tests passed；不调 provider/worker pool/planning/apply/apply-local/git-commit） |
+| 后续动作 | total closure 仍为 Partial；CL-12~CL-14, CL-15/16 治理中心端到端接入, CL-18 尚未完成 |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
@@ -1253,7 +1254,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 
 | 事项 | 当前判断 | 原因 |
 |---|---|---|
-| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02/04A Backend Pass；**R1-A~E 全链路 + R1-Fb v3 simulate Runtime Pass + R1-G failure closure Evidence Partial**；交付物/审批/仓库闭环尚未接续 |
+| AI 项目主管真实对话 | Partial | 工作台主视觉已收口；后端 BCG-01/02/04A Backend Pass；**R1-A~E 全链路 + R1-Fb v3 simulate Runtime Pass + R1-G failure closure Runtime Pass**；交付物/审批/仓库闭环尚未接续 |
 | 自动作战计划生成与确认 | Partial | 尚未作为完整目标→计划→确认链路验收 |
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |

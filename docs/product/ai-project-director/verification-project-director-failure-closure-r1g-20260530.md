@@ -4,10 +4,11 @@
 > 审计日期：2026-05-30
 > 审计人/工具：DeepSeek (via Claude Code harness)
 > 仓库：`https://github.com/kkyyds-hub/AI-Dev-Orchestrator.git`
-> 基准 commit：`3d0353493e6d3f31129185857730eae4414ce6dc`
+> 基准 commit：`cd8939c16d5c2f25e96e4c541aa3fc9a0651d52e`
 > 前置阶段：R1-Fb v3 Runtime Pass (simulate Worker→Run)
 > 主产品基线：`docs/product/ai-project-director/page-information-architecture-20260518.md`
 > 对应验收项：CL-11（失败/阻塞是否有下一步）
+> 修正：Codex 已补齐 `WORKER_SIMULATE_FAILURE_MODE=failed|blocked` 注入。本审计完成 failed + blocked 两组 live HTTP 全链路验证。
 
 ---
 
@@ -88,91 +89,112 @@ python -m pytest tests/test_approval_rework_task_creation.py tests/test_project_
 
 ---
 
-## 4. Live HTTP Audit Results
+## 4. Live HTTP Audit Results — Failed Mode
 
-### 4.1 Idle Path (all tasks consumed)
+> Backend started with:
+> `WORKER_SIMULATE_EXECUTION_OVERRIDE=1`
+> `WORKER_SIMULATE_FAILURE_MODE=failed`
 
-```text
-WORKER_SIMULATE_EXECUTION_OVERRIDE=1
-4 tasks → 4 Worker cycles → all succeeded
-5th Worker cycle → claimed=False (idle)
-```
-
-### 4.2 Failure-Review Readback
-
-For ALL 4 succeeded runs: `GET /runs/{run_id}/failure-review` → **200 OK**.
-Endpoints exists and is functional even for non-failed runs (returns review record or empty).
-
-### 4.3 Decision-Trace Readback
-
-For ALL 4 runs: `GET /runs/{run_id}/decision-trace` → **200 OK**.
-Contains routing evidence, failure_category (None for succeeded), and full decision trail.
-
-### 4.4 State Machine Guard Verification
-
-| Action | Task Status | Response | Correct |
+| Step | API | Result | Key Data |
 |---|---|---|---|
-| POST /tasks/{id}/retry | completed | **409** Conflict | ✓ (only FAILED/BLOCKED allowed) |
-| POST /tasks/{id}/request-human | completed | **409** Conflict | ✓ (only PENDING/FAILED/BLOCKED) |
-| POST /tasks/{id}/resolve-human | completed | **409** Conflict | ✓ (only WAITING_HUMAN) |
+| 1 | POST /projects | 201 | project_id=`de6cc3ad-5f15-470d-b7e2-66bcf5527505` |
+| 2 | POST /project-director/sessions | 201 | session created, 5 clarifying_questions |
+| 3 | POST /sessions/{id}/answers | 200 | → ready_to_confirm |
+| 4 | POST /sessions/{id}/confirm | 200 | → confirmed |
+| 5 | POST /sessions/{id}/plan-versions | 201 | plan_version_id=`8268cdfe-...` |
+| 6 | POST /project-director/plan-versions/{id}/confirm | 200 | → confirmed |
+| 7 | POST /project-director/plan-versions/{id}/create-tasks | 201 | 6 tasks created |
+| 8 | POST /workers/run-once?project_id=... | 200 | claimed=True, **task_status=failed**, **run_status=failed** |
+| 9 | GET /tasks/{id} | 200 | status=failed, title="需求分析与范围确认" |
+| 10 | GET /tasks/{id}/runs | 200 | 1 run: status=failed, failure_category=execution_failed |
+| 11 | GET /runs/{id}/failure-review | **200** | failure_category=execution_failed, conclusion="Execution itself failed and the task was finalized as failed." |
+| 12 | GET /runs/{id}/decision-trace | **200** | failure_category=execution_failed, 12 trace items, failure_review present |
+| 13 | POST /tasks/{id}/retry | 200 | **previous_status=failed → current_status=pending** |
+| 14 | GET /tasks/{id} readback | 200 | **status=pending** (confirmed retry succeeded) |
 
-### 4.5 Frontend Entry Verification
-
-Task action buttons (pause/resume/retry/request-human/resolve-human) verified in TaskQueueList ≥ TASK-06~TASK-14 states. All true button with API calls. **Pre-existing evidence, re-verified.**
+**Failed mode evidence IDs:**
+- project_id: `de6cc3ad-5f15-470d-b7e2-66bcf5527505`
+- task_id: `5b6ab14e-2dad-4b07-85cc-f7ae9e5b05ed`
+- run_id: `d1655ad7-01ee-46fc-ba55-4dfea9a3fbbd`
 
 ---
 
-## 5. Simulate-Only Failure Construction Gap
+## 5. Live HTTP Audit Results — Blocked Mode
 
-**Runtime Evidence Gap:** simulate executor (with `WORKER_SIMULATE_EXECUTION_OVERRIDE=1`) always produces `run_status=succeeded`. No API-only path exists to produce a FAILED/BLOCKED task for live HTTP evidence.
+> Backend restarted with:
+> `WORKER_SIMULATE_EXECUTION_OVERRIDE=1`
+> `WORKER_SIMULATE_FAILURE_MODE=blocked`
 
-Options to resolve:
-1. Codex adds a `WORKER_SIMULATE_FAILURE_MODE` or specific simulate-failure task descriptor
-2. Use real provider execution (forbidden without user confirmation)
-3. Accept pytest-level evidence as sufficient for CL-11 Partial
+| Step | API | Result | Key Data |
+|---|---|---|---|
+| 1-7 | Same as failed mode setup | 201/200 | project/ session/ plan/ tasks created |
+| 8 | POST /workers/run-once?project_id=... | 200 | claimed=True, **task_status=blocked**, **run_status=cancelled** |
+| 9 | GET /tasks/{id} | 200 | status=blocked, title="需求分析与范围确认" |
+| 10 | GET /tasks/{id}/runs | 200 | 1 run: status=cancelled, failure_category=retry_limit_exceeded |
+| 11 | GET /runs/{id}/failure-review | **200** | failure_category=retry_limit_exceeded, conclusion="Retry guard blocked this task because it exceeded the configured limit." |
+| 12 | GET /runs/{id}/decision-trace | **200** | failure_category=retry_limit_exceeded, 12 trace items, failure_review present |
+| 13 | POST /tasks/{id}/request-human | 200 | **previous_status=blocked → current_status=waiting_human**, human_status=requested |
+| 14 | GET /tasks/{id} readback | 200 | **status=waiting_human** (confirmed) |
+| 15 | POST /tasks/{id}/resolve-human | 200 | **previous_status=waiting_human → current_status=pending**, human_status=resolved |
+| 16 | GET /tasks/{id} readback | 200 | **status=pending** (confirmed resolve-human succeeded) |
 
-**Current assessment: Accept option 3. Backend state machine + API + pytest evidence is sufficient for Evidence Partial. Full live HTTP failure chain needs Codex minor patch (simulate failure injection).**
+**Blocked mode evidence IDs:**
+- project_id: `d7fea08a-b0d1-4fb6-a332-e607aa44ce50`
+- task_id: `4c856a6a-1a01-48c2-a085-44ff233b2920`
+- run_id: `88e0e97a-9fcb-4090-ba35-dd03c186bff1`
 
 ---
 
-## 6. Mapping Conclusion
+## 6. Simulate Failure Injection Verification
+
+Codex commit `cd8939c` added `WORKER_SIMULATE_FAILURE_MODE` with `_normalize_simulate_failure_mode` in `executor_service.py` (only `failed` / `blocked` accepted, both require `WORKER_SIMULATE_EXECUTION_OVERRIDE=1`).
+
+- `failed` mode → `_simulate_execution()` returns `success=False` → `build_execution_resolution(execution_succeeded=False)` → task=FAILED, run=FAILED
+- `blocked` mode → `_simulate_execution()` returns `success=False` with `simulate_failure_mode="blocked"` → `_finalize_execution()` calls `build_simulate_blocked_resolution()` → task=BLOCKED, run=CANCELLED
+
+**Both paths verified via live HTTP API-only construction — no provider, no worker pool, no planning/apply, no git-commit.**
+
+---
+
+## 7. Mapping Conclusion
 
 | Item | Status | Evidence |
 |---|---|---|
-| Retry mechanism (API + state machine) | **Backend Pass** | POST /tasks/{id}/retry; allowed FAILED/BLOCKED → PENDING |
-| Human review mechanism | **Backend Pass** | POST /tasks/{id}/request-human; PENDING/FAILED/BLOCKED → WAITING_HUMAN |
-| Resolve human mechanism | **Backend Pass** | POST /tasks/{id}/resolve-human; WAITING_HUMAN → PENDING |
-| Failure-review endpoint | **Backend Pass** | GET /runs/{id}/failure-review → 200 (verified on 4 runs) |
-| Decision-trace endpoint | **Backend Pass** | GET /runs/{id}/decision-trace → 200 (verified on 4 runs) |
+| Retry mechanism (API + state machine) | **Runtime Pass** | POST /tasks/{id}/retry; FAILED→PENDING verified live HTTP |
+| Human review mechanism | **Runtime Pass** | POST /tasks/{id}/request-human; BLOCKED→WAITING_HUMAN verified live HTTP |
+| Resolve human mechanism | **Runtime Pass** | POST /tasks/{id}/resolve-human; WAITING_HUMAN→PENDING verified live HTTP |
+| Failure-review endpoint | **Runtime Pass** | GET /runs/{id}/failure-review → 200 on both failed & blocked runs |
+| Decision-trace endpoint | **Runtime Pass** | GET /runs/{id}/decision-trace → 200 on both failed & blocked runs |
 | Approval rework chain | **Backend Pass** | 6 tests pass (test_approval_rework_task_creation.py) |
 | Run evidence replay | **Backend Pass** | 1 test pass (test_project_director_run_evidence_replay.py) |
-| State machine guards | **Backend Pass** | Invalid transitions → 409 (verified live HTTP) |
+| State machine guards | **Backend Pass** | Validated by 16 tests (8 simulate + 2 evidence + 6 approval) |
 | Frontend task action buttons | **API Pass** | TASK-06~12 previously verified |
-| **Simulate failure live HTTP** | **Gap** | No API-only path to produce failed task |
+| **Failed mode live HTTP** | **Runtime Pass** | task=failed, failure-review 200, decision-trace 200, retry→pending |
+| **Blocked mode live HTTP** | **Runtime Pass** | task=blocked, failure-review 200, decision-trace 200, request-human→resolve-human→pending |
 
 ---
 
-## 7. CL-11 Status
+## 8. CL-11 Status
 
-**Evidence Partial**
+**Runtime Pass**
 
-- Backend failure paths are complete and verified (retry/human/rework/review/decision-trace/replay)
-- State machine guards are correct (7 tests + live HTTP 409 verification)
-- Frontend task action buttons exist and are real (pre-existing evidence TASK-06~12)
-- **Gap**: simulate-only live HTTP cannot produce a failed task for end-to-end failure chain evidence
-- **Not a blocker**: the pathways exist and are tested; live HTTP failure chain needs Codex simulate-failure mode or provider execution
+- Failed mode: full live HTTP evidence (project→session→plan→tasks→worker→failed task/run→failure-review→decision-trace→retry→pending readback)
+- Blocked mode: full live HTTP evidence (project→session→plan→tasks→worker→blocked task/run→failure-review→decision-trace→request-human→waiting_human→resolve-human→pending readback)
+- All tests pass: 16 passed (8 simulate + 2 evidence + 6 approval)
+- State machine guards correct
+- No provider, no worker pool, no planning/apply, no apply-local/git-commit
 
 ---
 
-## 8. Gate Conclusion
+## 9. Gate Conclusion
 
-### 8.1 R1-G Gate
+### 9.1 R1-G Gate
 
-**Evidence Partial**
+**Runtime Pass**
 
-Backend failure/rework/review/decision-trace pathways are complete and tested. Live HTTP simulate-only cannot construct a failure task through API-only path.
+Both failed + blocked live HTTP construction and verification completed. Full failure closure chain (failed/blocked Run → failure-review → decision-trace → retry/request-human/readback) confirmed by API-only evidence.
 
-### 8.2 AI Project Director Total Closure
+### 9.2 AI Project Director Total Closure
 
 **仍为 Partial**
 
