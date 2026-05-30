@@ -97,10 +97,15 @@ class ExecutorService:
             if force_simulate_execution_override is None
             else force_simulate_execution_override
         )
-        self.simulate_failure_mode = self._normalize_simulate_failure_mode(
+        raw_simulate_failure_mode = (
             settings.worker_simulate_failure_mode
             if simulate_failure_mode is None
             else simulate_failure_mode
+        )
+        self.simulate_failure_mode = (
+            self._normalize_simulate_failure_mode(raw_simulate_failure_mode)
+            if self.force_simulate_execution_override
+            else None
         )
 
     def execute_task(

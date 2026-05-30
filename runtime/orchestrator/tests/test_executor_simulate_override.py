@@ -94,6 +94,26 @@ def test_simulate_failure_mode_failed_returns_failed_simulate_result() -> None:
     assert "intentionally failed" in result.summary
 
 
+def test_simulate_failure_mode_is_ignored_without_execution_override() -> None:
+    task = Task(title="explicit simulate task", input_summary="simulate: local only")
+    executor = ExecutorService(
+        force_simulate_execution_override=False,
+        simulate_failure_mode="failed",
+    )
+
+    result = executor.execute_task(
+        task,
+        routing_contract=_provider_routing_contract(),
+    )
+
+    assert result.success is True
+    assert result.mode == ExecutorRouteMode.SIMULATE.value
+    assert result.actual_execution_mode == ExecutorRouteMode.SIMULATE.value
+    assert result.fallback_reason_category is None
+    assert result.simulate_failure_mode is None
+    assert "Simulated execution succeeded" in result.summary
+
+
 def test_invalid_simulate_failure_mode_keeps_default_success_path() -> None:
     task = Task(title="evidence task", input_summary="created through API only")
     executor = ExecutorService(
