@@ -314,6 +314,23 @@
 | Gate 结论 | **R1-H Evidence Partial**（只读仓库证据链 live HTTP 完整通过；draft evidence 链后端完备；全端到端 live HTTP 需要 deliverables 前置） |
 | 后续动作 | total closure 仍为 Partial；CL-13/14, CL-15/16, CL-18 尚未完成 |
 
+#### 4.1.9 R1-I：Deliverable Closure Audit（Runtime Pass）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | CL-13 交付物闭环审计 + live HTTP + 测试 |
+| 阶段性质 | 审计 + 测试 + live HTTP + 文档回填 |
+| 基准 commit | `095071f` |
+| 涉及接口 | `POST /deliverables`, `GET /deliverables/{id}`, `GET /deliverables/projects/{pid}`, `GET /deliverables/tasks/{tid}`, `POST /deliverables/{id}/versions`, `GET /deliverables/{id}/compare`, `GET /deliverables/{id}/change-evidence`, `GET /deliverables/projects/{pid}/change-evidence` |
+| Auto-creation | `_auto_create_run_deliverable`: simulate run → deliverable + version v1 自动创建（source_task_id + source_run_id 关联） |
+| Live HTTP | simulate worker run → task=completed, run=succeeded → auto-create 1 deliverable (type=stage_artifact) → GET /deliverables/projects/{pid} readback 确认 1 deliverable → GET /deliverables/{id} detail 确认 version v1 → source_task_id 匹配 task_id, source_run_id 匹配 run_id → GET /deliverables/tasks/{tid} 反向查找确认 1 match |
+| ChangePlan Feed | deliverable.id 可直接作为 ChangePlan.related_deliverable_ids 输入 |
+| 测试证据 | 163 passed (full test suite) in 38.79s |
+| checklist 回填 | CL-13 (Runtime Pass) |
+| verification 文档 | `verification-project-director-deliverable-closure-r1i-20260530.md` |
+| Gate 结论 | **R1-I Runtime Pass**（simulate run → deliverable auto-create → readback → task/run/project 全链路关联 live HTTP 验证） |
+| 后续动作 | total closure 仍为 Partial；CL-14（审批闭环）, CL-15/16, CL-18 尚未完成 |
+
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
 | 字段 | 回填 |
@@ -1276,7 +1293,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 | 自动作战计划生成与确认 | Partial | 尚未作为完整目标→计划→确认链路验收 |
 | 运行摘要自动生成 | Partial | 运行页可读取/手动生成摘要，但全局事件触发自动摘要仍需总验收 |
 | 仓库变更需求入口 | Partial | 执行中心页签展示状态，完整操作仍在项目仓库页 |
-| 交付物闭环 | Not Started | DEL-* 尚未处理 |
+| 交付物闭环 | Runtime Pass | CL-13 Runtime Pass；simulate run → deliverable auto-create → readback 全链路 live HTTP 验证；DEL-01~11 前端已验收 |
 | 仓库证据链 | Partial | CL-12 Evidence Partial；只读仓库链 live HTTP 通过；draft 链后端完备但全端到端仍需 deliverables 前置 |
 | 审批闭环 | Not Started | APV-* 尚未处理 |
 | 治理沉淀 | Not Started | GOV-* 尚未处理 |
