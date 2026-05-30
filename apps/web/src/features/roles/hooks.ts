@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  fetchProjectRoleSkillConsumption,
   fetchProjectRoleCatalog,
   fetchRoleWorkbenchSnapshot,
   fetchSystemRoleCatalog,
@@ -21,6 +22,15 @@ export function useProjectRoleCatalog(projectId: string | null) {
     queryKey: ["project-role-catalog", projectId],
     queryFn: () => fetchProjectRoleCatalog(projectId ?? ""),
     enabled: projectId !== null,
+  });
+}
+
+export function useProjectRoleSkillConsumption(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-role-skill-consumption", projectId],
+    queryFn: () => fetchProjectRoleSkillConsumption(projectId ?? ""),
+    enabled: projectId !== null,
+    staleTime: 10_000,
   });
 }
 

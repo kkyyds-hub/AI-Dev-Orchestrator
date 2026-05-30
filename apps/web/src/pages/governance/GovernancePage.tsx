@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { useProjectRoleCatalog, useSystemRoleCatalog } from "../../features/roles/hooks";
+import { useProjectRoleCatalog, useProjectRoleSkillConsumption, useSystemRoleCatalog } from "../../features/roles/hooks";
 import { useProjectSkillBindings, useSkillRegistry } from "../../features/skills/hooks";
 import { useProjectCostDashboardSnapshot } from "../../features/costs/hooks";
 import { useProjectScope } from "../shared/useProjectScope";
@@ -81,7 +81,7 @@ export function GovernancePage() {
       ) : null}
 
       <div className="min-h-[400px]">
-        {activeTab === "team" && <TeamTab hasProject={hasProject} projectName={selectedProjectName} />}
+        {activeTab === "team" && <TeamTab hasProject={hasProject} projectId={hasProject ? selectedProjectId : null} projectName={selectedProjectName} />}
         {activeTab === "roles" && <RolesTab hasProject={hasProject} projectId={hasProject ? selectedProjectId : null} />}
         {activeTab === "skills" && <SkillsTab hasProject={hasProject} projectId={hasProject ? selectedProjectId : null} />}
         {activeTab === "policy" && <PolicyTab />}
@@ -113,7 +113,59 @@ const AI_TEAM_ROLES = [
   { code: "review_agent", role: "审查 Agent", desc: "负责代码审查、风险发现、预检评估", skills: 2 },
 ];
 
-function TeamTab({ hasProject, projectName }: { hasProject: boolean; projectName: string }) {
+function formatShortId(value: string | null | undefined): string {
+  return value ? value.slice(0, 8) : "-";
+}
+
+function formatRuntimeDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  return new Date(value).toLocaleString();
+}
+
+function formatRoleConsumptionEvidence(
+  item:
+    | {
+        run_count: number;
+        succeeded_run_count: number;
+        failed_run_count: number;
+        total_tokens: number;
+        latest_run_id: string | null;
+        latest_run_status: string | null;
+        latest_run_created_at: string | null;
+      }
+    | null
+    | undefined,
+  isLoading: boolean,
+): string {
+  if (isLoading) return "正在读取运行时消费证据...";
+  if (!item) return "暂无运行时消费证据（已接入消费聚合 API）";
+  return `${item.run_count} 次运行；成功 ${item.succeeded_run_count} / 失败 ${item.failed_run_count}；最近 ${item.latest_run_status ?? "-"} · ${formatRuntimeDate(item.latest_run_created_at)} · run ${formatShortId(item.latest_run_id)}；tokens ${item.total_tokens}`;
+}
+
+function formatSkillConsumptionEvidence(
+  item:
+    | {
+        run_count: number;
+        succeeded_run_count: number;
+        failed_run_count: number;
+        total_tokens: number;
+        latest_run_id: string | null;
+        latest_owner_role_code: string | null;
+        latest_run_status: string | null;
+        latest_run_created_at: string | null;
+      }
+    | null
+    | undefined,
+  isLoading: boolean,
+): string {
+  if (isLoading) return "正在读取运行时消费证据...";
+  if (!item) return "暂无运行时消费证据（已接入消费聚合 API）";
+  return `${item.run_count} 次被选用；成功 ${item.succeeded_run_count} / 失败 ${item.failed_run_count}；最近 ${item.latest_run_status ?? "-"} · ${formatRuntimeDate(item.latest_run_created_at)} · role ${item.latest_owner_role_code ?? "-"} · run ${formatShortId(item.latest_run_id)}；tokens ${item.total_tokens}`;
+}
+
+function TeamTab({ hasProject, projectId, projectName }: { hasProject: boolean; projectId: string | null; projectName: string }) {
+  const consumptionQuery = useProjectRoleSkillConsumption(projectId);
+  const consumption = consumptionQuery.data;
   const [selected, setSelected] = useState<string | null>(null);
   const role = AI_TEAM_ROLES.find((r) => r.code === selected);
 
@@ -123,7 +175,14 @@ function TeamTab({ hasProject, projectName }: { hasProject: boolean; projectName
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-zinc-400">{projectName} · AI 团队编队（基于角色目录静态基线，待接入真实运行时消费证据）</p>
+      <p className="text-sm text-zinc-400">
+        {projectName} · AI 团队编队。运行时消费证据来自 GET /roles/projects/:id/consumption：
+        {consumptionQuery.isLoading
+          ? " 正在读取..."
+          : consumption
+          ? ` ${consumption.total_run_count} 次 Run，${consumption.role_consumption_count} 个角色，${consumption.skill_consumption_count} 个 Skill。`
+          : " 暂无运行时消费证据。"}
+      </p>
       <TwoPanel
         left={
           AI_TEAM_ROLES.map((r) => (
@@ -143,10 +202,10 @@ function TeamTab({ hasProject, projectName }: { hasProject: boolean; projectName
               <h3 className="text-base font-medium text-zinc-200">{role.role}</h3>
               <div className="space-y-2 text-xs">
                 <DetailRow label="职责" value={role.desc} />
-                <DetailRow label="来源" value="静态基线（角色目录定义，非运行时数据）" />
+                <DetailRow label="来源" value="角色目录静态基线 + 运行时消费聚合 API（真实读取）" />
                 <DetailRow label="绑定 Skill" value={`${role.skills} 个`} />
-                <DetailRow label="当前任务状态" value="待接入" />
-                <DetailRow label="最近消费证据" value="暂无消费证据" />
+                <DetailRow label="当前任务状态" value={consumptionQuery.isLoading ? "正在读取运行时消费证据..." : consumption ? `${consumption.total_run_count} 次 Run 已进入治理聚合` : "暂无运行时消费证据"} />
+                <DetailRow label="最近消费证据" value={consumption ? `角色消费 ${consumption.role_consumption_count} 项，Skill 消费 ${consumption.skill_consumption_count} 项；生成于 ${formatRuntimeDate(consumption.generated_at)}` : "暂无运行时消费证据（已接入消费聚合 API）"} />
                 <DetailRow label="是否建议沉淀" value="建议沉淀（需用户确认，暂不提供假保存）" />
               </div>
               <button type="button" disabled
@@ -175,12 +234,16 @@ const ROLE_LIFECYCLE = [
 function RolesTab({ hasProject, projectId }: { hasProject: boolean; projectId: string | null }) {
   const systemQuery = useSystemRoleCatalog();
   const projectQuery = useProjectRoleCatalog(projectId);
+  const consumptionQuery = useProjectRoleSkillConsumption(projectId);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<{ source: "system" | "project"; code: string } | null>(null);
 
   const systemRoles = systemQuery.data ?? [];
   const projectRoles = projectQuery.data?.roles ?? [];
   const projectSummary = projectQuery.data;
+  const roleConsumptionByCode = new Map(
+    (consumptionQuery.data?.roles ?? []).map((item) => [item.role_code, item]),
+  );
 
   const lowerSearch = search.toLowerCase().trim();
 
@@ -286,6 +349,7 @@ function RolesTab({ hasProject, projectId }: { hasProject: boolean; projectId: s
                   <DetailRow label="角色代码" value={getRoleCode(selectedRole)} />
                   <DetailRow label="来源" value={selected?.source === "system" ? "系统角色目录 API（真实读取）" : "项目角色实例 API（真实读取）"} />
                   <DetailRow label="角色类型" value={selected?.source === "system" ? "系统角色模板" : "项目角色实例"} />
+                  <DetailRow label="最近消费证据" value={formatRoleConsumptionEvidence(roleConsumptionByCode.get(getRoleCode(selectedRole)), consumptionQuery.isLoading)} />
                   <div>
                     <p className="text-zinc-500 mb-1">生命周期</p>
                     <div className="flex flex-wrap gap-1">
@@ -337,6 +401,7 @@ const SKILL_LIFECYCLE = [
 function SkillsTab({ hasProject, projectId }: { hasProject: boolean; projectId: string | null }) {
   const registryQuery = useSkillRegistry();
   const bindingsQuery = useProjectSkillBindings(projectId);
+  const consumptionQuery = useProjectRoleSkillConsumption(projectId);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<{ source: "registry" | "binding"; code: string } | null>(null);
 
@@ -344,6 +409,12 @@ function SkillsTab({ hasProject, projectId }: { hasProject: boolean; projectId: 
   const registrySkills = registry?.skills ?? [];
   const bindings = bindingsQuery.data;
   const bindingRoles = bindings?.roles ?? [];
+  const roleConsumptionByCode = new Map(
+    (consumptionQuery.data?.roles ?? []).map((item) => [item.role_code, item]),
+  );
+  const skillConsumptionByCode = new Map(
+    (consumptionQuery.data?.skills ?? []).map((item) => [item.skill_code, item]),
+  );
 
   const lowerSearch = search.toLowerCase().trim();
 
@@ -453,7 +524,7 @@ function SkillsTab({ hasProject, projectId }: { hasProject: boolean; projectId: 
                   <DetailRow label="来源" value="Skill 注册表 API（真实读取）" />
                   <DetailRow label="启用状态" value={selectedSkill.enabled ? "已启用" : "未启用"} />
                   <DetailRow label="生命周期" value="API 未返回 status 字段，基于静态基线判断" />
-                  <DetailRow label="最近消费证据" value="暂无消费证据" />
+                  <DetailRow label="最近消费证据" value={formatSkillConsumptionEvidence(skillConsumptionByCode.get(selectedSkill.code), consumptionQuery.isLoading)} />
                   <div>
                     <p className="text-zinc-500 mb-1">生命周期（静态基线）</p>
                     <div className="flex flex-wrap gap-1">
@@ -478,7 +549,7 @@ function SkillsTab({ hasProject, projectId }: { hasProject: boolean; projectId: 
                   <DetailRow label="来源" value="项目 Skill 绑定 API（真实读取）" />
                   <DetailRow label="绑定 Skill 数" value={`${selectedBindingRole.bound_skill_count} 个`} />
                   <DetailRow label="角色启用" value={selectedBindingRole.role_enabled ? "是" : "否"} />
-                  <DetailRow label="最近消费证据" value="暂无消费证据" />
+                  <DetailRow label="最近消费证据" value={formatRoleConsumptionEvidence(roleConsumptionByCode.get(selectedBindingRole.role_code), consumptionQuery.isLoading)} />
                 </div>
               </div>
             ) : (

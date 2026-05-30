@@ -2,6 +2,7 @@ import { requestJson } from "../../lib/http";
 import type {
   ProjectRoleCatalog,
   ProjectRoleConfig,
+  ProjectRoleSkillConsumption,
   ProjectRoleUpdateInput,
   RoleWorkbenchSnapshot,
   SystemRoleCatalogItem,
@@ -15,6 +16,14 @@ export function fetchProjectRoleCatalog(
   projectId: string,
 ): Promise<ProjectRoleCatalog> {
   return requestJson<ProjectRoleCatalog>(`/roles/projects/${projectId}`);
+}
+
+export function fetchProjectRoleSkillConsumption(
+  projectId: string,
+): Promise<ProjectRoleSkillConsumption> {
+  return requestJson<ProjectRoleSkillConsumption>(
+    `/roles/projects/${projectId}/consumption`,
+  );
 }
 
 export function updateProjectRoleConfig(input: {

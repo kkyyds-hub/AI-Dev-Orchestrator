@@ -46,6 +46,48 @@ export type ProjectRoleUpdateInput = {
   sort_order: number;
 };
 
+export type ProjectRoleConsumptionItem = {
+  role_code: string;
+  run_count: number;
+  succeeded_run_count: number;
+  failed_run_count: number;
+  total_tokens: number;
+  estimated_cost: number;
+  latest_run_id: string | null;
+  latest_task_id: string | null;
+  latest_run_status: string | null;
+  latest_run_created_at: string | null;
+  latest_run_finished_at: string | null;
+  latest_run_summary: string | null;
+};
+
+export type ProjectSkillConsumptionItem = {
+  skill_code: string;
+  skill_name: string | null;
+  run_count: number;
+  succeeded_run_count: number;
+  failed_run_count: number;
+  total_tokens: number;
+  estimated_cost: number;
+  latest_run_id: string | null;
+  latest_task_id: string | null;
+  latest_owner_role_code: string | null;
+  latest_run_status: string | null;
+  latest_run_created_at: string | null;
+  latest_run_finished_at: string | null;
+  latest_run_summary: string | null;
+};
+
+export type ProjectRoleSkillConsumption = {
+  project_id: string;
+  total_run_count: number;
+  role_consumption_count: number;
+  skill_consumption_count: number;
+  roles: ProjectRoleConsumptionItem[];
+  skills: ProjectSkillConsumptionItem[];
+  generated_at: string;
+};
+
 export type RoleWorkbenchTaskItem = {
   task_id: string;
   project_id: string | null;
