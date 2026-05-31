@@ -212,6 +212,24 @@ def test_project_role_skill_consumption_aggregates_persisted_runs(
     assert "implementation" not in skills
 
 
+def test_project_role_skill_consumption_returns_empty_aggregate_for_project_without_runs(
+    client: TestClient,
+):
+    project_id = _create_project(client, name="governance empty consumption project")
+
+    resp = client.get(f"/roles/projects/{project_id}/consumption")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["project_id"] == project_id
+    assert payload["total_run_count"] == 0
+    assert payload["role_consumption_count"] == 0
+    assert payload["skill_consumption_count"] == 0
+    assert payload["roles"] == []
+    assert payload["skills"] == []
+    assert payload["generated_at"]
+
+
 def test_project_role_skill_consumption_returns_404_for_missing_project(
     client: TestClient,
 ):
