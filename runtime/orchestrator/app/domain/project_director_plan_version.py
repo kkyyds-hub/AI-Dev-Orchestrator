@@ -66,7 +66,7 @@ class SkillBindingSuggestion(DomainModel):
     owner_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
     usage: str = Field(min_length=1, max_length=1000)
     activation_stage: str = Field(default="planning", max_length=120)
-    binding_mode: str = Field(default="suggestion_only", max_length=120)
+    binding_mode: str = Field(default="not_bound", max_length=120)
     reason: str = Field(default="", max_length=1000)
 
 
@@ -86,7 +86,7 @@ class RepositoryBindingSuggestion(DomainModel):
     """Suggested repository binding without creating any real repository link."""
 
     binding_type: str = Field(default="review_only", max_length=120)
-    binding_mode: str = Field(default="suggestion_only", max_length=120)
+    binding_mode: str = Field(default="not_bound", max_length=120)
     target: str = Field(min_length=1, max_length=500)
     branch: str = Field(default="未指定", max_length=200)
     focus_paths: list[str] = Field(default_factory=list)

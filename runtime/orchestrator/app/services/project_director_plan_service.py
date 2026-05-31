@@ -288,7 +288,7 @@ def _generate_plan_from_session(
             owner_role_code=ProjectRoleCode.PRODUCT_MANAGER,
             usage="用于冻结目标、范围、不做范围、交付件边界和阶段记录；本草案只建议绑定，不创建绑定记录",
             activation_stage="规划/澄清",
-            binding_mode="suggestion_only",
+            binding_mode="suggested",
             reason="需要产品负责人先确认范围、验收口径和 request_changes 反馈是否被吸收",
         ),
         SkillBindingSuggestion(
@@ -296,7 +296,7 @@ def _generate_plan_from_session(
             owner_role_code=ProjectRoleCode.ENGINEER,
             usage="后端领域、服务、路由、仓储或 schema 变更时由实现任务显式调用",
             activation_stage="实现",
-            binding_mode="suggestion_only",
+            binding_mode="suggested",
             reason="只有在用户确认草案并单独创建实现任务后，才建议由工程师使用后端实现 skill",
         ),
         SkillBindingSuggestion(
@@ -304,7 +304,7 @@ def _generate_plan_from_session(
             owner_role_code=ProjectRoleCode.ENGINEER,
             usage="前端控制面、弹窗、类型合同和页面展示变更时由实现任务显式调用",
             activation_stage="实现/展示",
-            binding_mode="suggestion_only",
+            binding_mode="suggested",
             reason="当前只是展示建议；真实前端执行需后续显式任务承接",
         ),
         SkillBindingSuggestion(
@@ -312,7 +312,7 @@ def _generate_plan_from_session(
             owner_role_code=ProjectRoleCode.REVIEWER,
             usage="用于运行后端测试、前端 build、API/页面最小回归并记录事实结果",
             activation_stage="验证",
-            binding_mode="suggestion_only",
+            binding_mode="suggested",
             reason="验证 skill 应在实现任务完成后显式触发，不能由草案审核自动执行",
         ),
     ]
@@ -354,7 +354,7 @@ def _generate_plan_from_session(
     repository_binding_suggestions = [
         RepositoryBindingSuggestion(
             binding_type="review_only",
-            binding_mode="suggestion_only",
+            binding_mode="suggested",
             target="当前项目关联仓库（如后续由用户显式绑定）",
             branch="未指定",
             focus_paths=[
@@ -419,12 +419,19 @@ def _generate_plan_from_session(
         complexity_drivers.append(f"request_changes 整改反馈：{revision_note_text[:200]}")
     complexity_score = min(complexity_score, 5)
     complexity_level = (
-        "low" if complexity_score <= 2 else "medium" if complexity_score <= 4 else "high"
+        "simple"
+        if complexity_score <= 2
+        else "medium"
+        if complexity_score == 3
+        else "complex"
+        if complexity_score == 4
+        else "large"
     )
     complexity_label = {
-        "low": "低复杂度",
+        "simple": "简单",
         "medium": "中等复杂度",
-        "high": "高复杂度",
+        "complex": "复杂",
+        "large": "大型复杂",
     }[complexity_level]
     recommended_agent_count = min(4, max(2, complexity_score))
     complexity_assessment = ComplexityAssessment(

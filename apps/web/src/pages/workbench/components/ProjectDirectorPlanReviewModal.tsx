@@ -164,7 +164,7 @@ export function ProjectDirectorPlanReviewModal({
                         <span className="font-medium text-zinc-200">{item.skill_code}</span>
                         <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
                         <StatusBadge label={`阶段：${item.activation_stage}`} tone="neutral" />
-                        <StatusBadge label={`绑定：${item.binding_mode}`} tone="neutral" />
+                        <StatusBadge label={`绑定：${formatBindingMode(item.binding_mode)}`} tone="neutral" />
                       </div>
                       <p className="mt-2 text-sm text-zinc-400">{item.usage}</p>
                       <p className="mt-1 text-xs leading-5 text-zinc-500">原因：{item.reason}</p>
@@ -183,7 +183,7 @@ export function ProjectDirectorPlanReviewModal({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                         <span className="font-medium text-zinc-200">{item.target}</span>
                         <StatusBadge label={item.binding_type} tone="neutral" />
-                        <StatusBadge label={`模式：${item.binding_mode}`} tone="neutral" />
+                        <StatusBadge label={`模式：${formatBindingMode(item.binding_mode)}`} tone="neutral" />
                         <StatusBadge label={`分支：${item.branch}`} tone="info" />
                       </div>
                       <p className="mt-2 text-sm text-zinc-400">{item.usage}</p>
@@ -372,14 +372,27 @@ function formatRoleCode(roleCode: string) {
 
 function formatComplexityLevel(level: string | undefined) {
   switch (level) {
-    case "low":
-      return "低复杂度";
+    case "simple":
+      return "简单";
     case "medium":
       return "中复杂度";
-    case "high":
-      return "高复杂度";
+    case "complex":
+      return "复杂";
+    case "large":
+      return "大型复杂";
     default:
       return level || "未评估";
+  }
+}
+
+function formatBindingMode(bindingMode: string) {
+  switch (bindingMode) {
+    case "suggested":
+      return "建议绑定";
+    case "not_bound":
+      return "未绑定";
+    default:
+      return bindingMode || "未设置";
   }
 }
 

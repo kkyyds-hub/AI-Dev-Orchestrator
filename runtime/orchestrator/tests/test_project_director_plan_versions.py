@@ -168,7 +168,7 @@ class TestCreatePlanVersion:
         assert all(item["description"] for item in data["deliverable_boundaries"])
         assert all(item["acceptance_signal"] for item in data["deliverable_boundaries"])
         assert data["complexity_assessment"]["score"] >= 1
-        assert data["complexity_assessment"]["level"] in {"low", "medium", "high"}
+        assert data["complexity_assessment"]["level"] in {"simple", "medium", "complex", "large"}
         assert data["complexity_assessment"]["label"]
         assert data["complexity_assessment"]["recommended_agent_count"] >= 1
         assert data["needs_user_confirmation"] is True
@@ -601,21 +601,21 @@ class TestReviewPlanVersion:
         assert replacement["agent_team_suggestions"]
         assert all(item["role_name"] for item in replacement["agent_team_suggestions"])
         assert replacement["skill_binding_suggestions"]
-        assert all(item["binding_mode"] == "suggestion_only" for item in replacement["skill_binding_suggestions"])
+        assert all(item["binding_mode"] == "suggested" for item in replacement["skill_binding_suggestions"])
         assert all(item["reason"] for item in replacement["skill_binding_suggestions"])
         assert replacement["verification_mechanisms"]
         assert all(item["purpose"] for item in replacement["verification_mechanisms"])
         assert all(item["risk_level"] in {"low", "normal", "high"} for item in replacement["verification_mechanisms"])
         assert all(isinstance(item["requires_user_confirmation"], bool) for item in replacement["verification_mechanisms"])
         assert replacement["repository_binding_suggestions"]
-        assert all(item["binding_mode"] == "suggestion_only" for item in replacement["repository_binding_suggestions"])
+        assert all(item["binding_mode"] == "suggested" for item in replacement["repository_binding_suggestions"])
         assert all("branch" in item for item in replacement["repository_binding_suggestions"])
         assert all(isinstance(item["focus_paths"], list) for item in replacement["repository_binding_suggestions"])
         assert replacement["deliverable_boundaries"]
         assert all(item["description"] for item in replacement["deliverable_boundaries"])
         assert all(item["acceptance_signal"] for item in replacement["deliverable_boundaries"])
         assert replacement["complexity_assessment"]["score"] >= 1
-        assert replacement["complexity_assessment"]["level"] in {"low", "medium", "high"}
+        assert replacement["complexity_assessment"]["level"] in {"simple", "medium", "complex", "large"}
         assert replacement["complexity_assessment"]["label"]
         assert replacement["complexity_assessment"]["recommended_agent_count"] >= 1
         assert any(
