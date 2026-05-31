@@ -1356,3 +1356,157 @@ class TestCreateTasks:
                 "create",
                 original_create,
             )
+
+class TestProjectDirectorSetupReadiness:
+    def _create_director_project(self, client):
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+        confirmed_resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert confirmed_resp.status_code == 200
+        confirmed = confirmed_resp.json()
+
+        create_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert create_resp.status_code == 200
+        created = create_resp.json()
+        return sid, confirmed, created
+
+    def test_setup_readiness_reports_initial_director_project_state(self, client):
+        """A formal Project created from AI Director returns a read-only overview."""
+        _, plan_version, created = self._create_director_project(client)
+        project_id = created["project_id"]
+
+        resp = client.get(f"/project-director/projects/{project_id}/setup-readiness")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["project_id"] == project_id
+        assert data["created_by_director"] is True
+        assert data["formal_project_created"] is True
+        assert data["task_queue_created"] is True
+        assert data["source_plan_version_id"] == plan_version["id"]
+        assert data["source_draft_id"] == f"pdv:{plan_version['id']}:{plan_version['version_no']}"
+        assert data["task_count"] == created["task_count"]
+        assert data["pending_task_count"] == created["task_count"]
+        assert data["agent_team_config_status"] == "pending_confirmation"
+        assert data["skill_binding_config_status"] == "pending_confirmation"
+        assert data["repository_binding_config_status"] == "pending_confirmation"
+        assert data["verification_config_status"] == "pending_confirmation"
+        assert data["pending_confirmation_count"] == 4
+        assert data["confirmed_count"] == 0
+        assert data["rejected_count"] == 0
+        assert data["ready_for_manual_execution"] is False
+        assert any("只读" in item for item in data["warnings"])
+        assert any("不会启动 Worker" in item for item in data["warnings"])
+        assert any("不会创建 Run" in item for item in data["warnings"])
+        assert any("不会执行验证命令" in item for item in data["warnings"])
+        assert any("不会写仓库" in item for item in data["warnings"])
+        assert any("provider / planning/apply / apply-local / git-commit" in item for item in data["warnings"])
+        assert ("?" * 3) not in json.dumps(data, ensure_ascii=False)
+
+    def test_setup_readiness_becomes_ready_after_all_configs_confirmed(self, client):
+        """All four confirmed configs allow only manual execution consideration."""
+        _, _, created = self._create_director_project(client)
+        project_id = created["project_id"]
+
+        for config_name in [
+            "agent-team-config",
+            "skill-binding-config",
+            "repository-binding-config",
+            "verification-config",
+        ]:
+            review_resp = client.post(
+                f"/project-director/projects/{project_id}/{config_name}/review",
+                json={"action": "confirm"},
+            )
+            assert review_resp.status_code == 200
+
+        resp = client.get(f"/project-director/projects/{project_id}/setup-readiness")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["confirmed_count"] == 4
+        assert data["pending_confirmation_count"] == 0
+        assert data["rejected_count"] == 0
+        assert data["agent_team_config_status"] == "confirmed"
+        assert data["skill_binding_config_status"] == "confirmed"
+        assert data["repository_binding_config_status"] == "confirmed"
+        assert data["verification_config_status"] == "confirmed"
+        assert data["ready_for_manual_execution"] is True
+        assert any("手动" in step and "Worker" in step for step in data["next_steps"])
+
+    def test_setup_readiness_rejected_config_blocks_manual_execution(self, client):
+        """Any rejected config keeps readiness false and explains the next step."""
+        _, _, created = self._create_director_project(client)
+        project_id = created["project_id"]
+
+        reject_resp = client.post(
+            f"/project-director/projects/{project_id}/repository-binding-config/review",
+            json={"action": "reject", "note": "暂不采用"},
+        )
+        assert reject_resp.status_code == 200
+
+        resp = client.get(f"/project-director/projects/{project_id}/setup-readiness")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["repository_binding_config_status"] == "rejected"
+        assert data["rejected_count"] == 1
+        assert data["ready_for_manual_execution"] is False
+        assert any("拒绝" in step for step in data["next_steps"])
+
+    def test_setup_readiness_regular_project_is_not_mislabeled(self, client):
+        """Ordinary projects can call the API without being labeled as Director-created."""
+        project_id = _create_project(client, name="普通项目")
+
+        resp = client.get(f"/project-director/projects/{project_id}/setup-readiness")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["created_by_director"] is False
+        assert data["source_plan_version_id"] is None
+        assert data["source_draft_id"] is None
+        assert data["task_count"] == 0
+        assert data["pending_task_count"] == 0
+        assert data["agent_team_config_status"] == "missing"
+        assert data["skill_binding_config_status"] == "missing"
+        assert data["repository_binding_config_status"] == "missing"
+        assert data["verification_config_status"] == "missing"
+        assert data["confirmed_count"] == 0
+        assert data["ready_for_manual_execution"] is False
+
+    def test_setup_readiness_is_read_only_and_has_no_runtime_side_effects(
+        self, client, db_session
+    ):
+        """Calling setup-readiness must not create execution/runtime resources."""
+        _, _, created = self._create_director_project(client)
+        project_id = created["project_id"]
+
+        before = {
+            "runs": len(db_session.execute(select(RunTable)).scalars().all()),
+            "sessions": len(db_session.execute(select(AgentSessionTable)).scalars().all()),
+            "skills": len(
+                db_session.execute(select(ProjectRoleSkillBindingTable)).scalars().all()
+            ),
+            "workspaces": len(
+                db_session.execute(select(RepositoryWorkspaceTable)).scalars().all()
+            ),
+        }
+
+        resp = client.get(f"/project-director/projects/{project_id}/setup-readiness")
+        assert resp.status_code == 200
+
+        after = {
+            "runs": len(db_session.execute(select(RunTable)).scalars().all()),
+            "sessions": len(db_session.execute(select(AgentSessionTable)).scalars().all()),
+            "skills": len(
+                db_session.execute(select(ProjectRoleSkillBindingTable)).scalars().all()
+            ),
+            "workspaces": len(
+                db_session.execute(select(RepositoryWorkspaceTable)).scalars().all()
+            ),
+        }
+        assert after == before

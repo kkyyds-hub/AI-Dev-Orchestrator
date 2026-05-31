@@ -8,6 +8,7 @@ import {
   createProjectDirectorSession,
   fetchProjectDirectorAgentTeamConfig,
   fetchProjectDirectorRepositoryBindingConfig,
+  fetchProjectDirectorSetupReadiness,
   fetchProjectDirectorSkillBindingConfig,
   fetchProjectDirectorVerificationConfig,
   reviewProjectDirectorAgentTeamConfig,
@@ -66,8 +67,20 @@ export function useCreateProjectDirectorTaskQueue() {
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
         queryClient.invalidateQueries({ queryKey: ["project-timeline", result.project_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "setup-readiness", result.project_id],
+        }),
       ]);
     },
+  });
+}
+
+export function useProjectDirectorSetupReadiness(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-director", "setup-readiness", projectId],
+    queryFn: () => fetchProjectDirectorSetupReadiness(projectId as string),
+    enabled: Boolean(projectId),
+    retry: false,
   });
 }
 
@@ -92,6 +105,9 @@ export function useReviewProjectDirectorAgentTeamConfigMutation() {
         }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "setup-readiness", result.project_id],
+        }),
       ]);
     },
   });
@@ -118,6 +134,9 @@ export function useReviewProjectDirectorSkillBindingConfigMutation() {
         }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "setup-readiness", result.project_id],
+        }),
       ]);
     },
   });
@@ -144,6 +163,9 @@ export function useReviewProjectDirectorRepositoryBindingConfigMutation() {
         }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "setup-readiness", result.project_id],
+        }),
       ]);
     },
   });
@@ -170,6 +192,9 @@ export function useReviewProjectDirectorVerificationConfigMutation() {
         }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "setup-readiness", result.project_id],
+        }),
       ]);
     },
   });

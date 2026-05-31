@@ -336,6 +336,33 @@ export interface ProjectDirectorTaskCreationResponse {
   gate_conclusion: string;
 }
 
+export type ProjectDirectorSetupReadinessConfigStatus =
+  | "pending_confirmation"
+  | "confirmed"
+  | "rejected"
+  | "missing";
+
+export interface ProjectDirectorSetupReadiness {
+  project_id: string;
+  source_plan_version_id: string | null;
+  source_draft_id: string | null;
+  created_by_director: boolean;
+  formal_project_created: boolean;
+  task_queue_created: boolean;
+  task_count: number;
+  pending_task_count: number;
+  agent_team_config_status: ProjectDirectorSetupReadinessConfigStatus;
+  skill_binding_config_status: ProjectDirectorSetupReadinessConfigStatus;
+  repository_binding_config_status: ProjectDirectorSetupReadinessConfigStatus;
+  verification_config_status: ProjectDirectorSetupReadinessConfigStatus;
+  pending_confirmation_count: number;
+  rejected_count: number;
+  confirmed_count: number;
+  ready_for_manual_execution: boolean;
+  next_steps: string[];
+  warnings: string[];
+}
+
 export interface CreateProjectDirectorSessionInput {
   goal_text: string;
   project_id?: string | null;

@@ -11,6 +11,7 @@ import type {
   ProjectDirectorPlanVersion,
   ProjectDirectorRepositoryBindingConfigResponse,
   ProjectDirectorSession,
+  ProjectDirectorSetupReadiness,
   ProjectDirectorSkillBindingConfigResponse,
   ProjectDirectorTaskCreationResponse,
   ProjectDirectorVerificationConfigResponse,
@@ -99,6 +100,14 @@ export function createProjectDirectorTaskQueue(
     {
       method: "POST",
     },
+  );
+}
+
+export function fetchProjectDirectorSetupReadiness(
+  projectId: string,
+): Promise<ProjectDirectorSetupReadiness> {
+  return requestJson<ProjectDirectorSetupReadiness>(
+    `/project-director/projects/${projectId}/setup-readiness`,
   );
 }
 

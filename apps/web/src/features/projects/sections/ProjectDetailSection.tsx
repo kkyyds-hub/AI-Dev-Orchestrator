@@ -5,6 +5,7 @@ import { ProjectSopPanel } from "../ProjectSopPanel";
 import { AgentTeamConfigCard } from "../components/AgentTeamConfigCard";
 import { ProjectDetailHeader } from "../components/ProjectDetailHeader";
 import { ProjectDetailStatsGrid } from "../components/ProjectDetailStatsGrid";
+import { ProjectDirectorSetupReadinessCard } from "../components/ProjectDirectorSetupReadinessCard";
 import { ProjectDirectorSourceCard } from "../components/ProjectDirectorSourceCard";
 import { ProjectLatestTaskPreview } from "../components/ProjectLatestTaskPreview";
 import { ProjectMilestonePanel } from "../components/ProjectMilestonePanel";
@@ -97,6 +98,8 @@ export function ProjectDetailSection(props: {
       />
 
       <ProjectDirectorSourceCard project={props.project} detail={props.detail} />
+
+      <ProjectDirectorSetupReadinessCard projectId={projectId} />
 
       <AgentTeamConfigCard projectId={projectId} />
 

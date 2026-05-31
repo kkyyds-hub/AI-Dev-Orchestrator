@@ -102,6 +102,10 @@ from app.services.project_director_verification_config_service import (
     ProjectDirectorVerificationConfigService,
     VerificationConfigReadResult,
 )
+from app.services.project_director_setup_readiness_service import (
+    ProjectDirectorSetupReadiness,
+    ProjectDirectorSetupReadinessService,
+)
 
 
 # ── Dependencies ────────────────────────────────────────────────────
@@ -202,6 +206,28 @@ def _get_verification_config_service(
     return ProjectDirectorVerificationConfigService(
         config_repo=config_repo,
         project_repo=project_repo,
+    )
+
+
+def _get_setup_readiness_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSetupReadinessService:
+    project_repo = ProjectRepository(session)
+    task_repo = TaskRepository(session)
+    agent_team_config_repo = ProjectDirectorAgentTeamConfigRepository(session)
+    skill_binding_config_repo = ProjectDirectorSkillBindingConfigRepository(session)
+    repository_binding_config_repo = ProjectDirectorRepositoryBindingConfigRepository(
+        session
+    )
+    verification_config_repo = ProjectDirectorVerificationConfigRepository(session)
+    return ProjectDirectorSetupReadinessService(
+        session=session,
+        project_repo=project_repo,
+        task_repo=task_repo,
+        agent_team_config_repo=agent_team_config_repo,
+        skill_binding_config_repo=skill_binding_config_repo,
+        repository_binding_config_repo=repository_binding_config_repo,
+        verification_config_repo=verification_config_repo,
     )
 
 
@@ -1844,6 +1870,95 @@ def review_project_verification_config(
 
 
 # ── Task Creation DTOs ───────────────────────────────────────────────
+
+
+
+class ProjectDirectorSetupReadinessResponse(BaseModel):
+    project_id: UUID
+    source_plan_version_id: UUID | None = None
+    source_draft_id: str | None = None
+    created_by_director: bool
+    formal_project_created: bool
+    task_queue_created: bool
+    task_count: int
+    pending_task_count: int
+    agent_team_config_status: Literal[
+        "pending_confirmation", "confirmed", "rejected", "missing"
+    ]
+    skill_binding_config_status: Literal[
+        "pending_confirmation", "confirmed", "rejected", "missing"
+    ]
+    repository_binding_config_status: Literal[
+        "pending_confirmation", "confirmed", "rejected", "missing"
+    ]
+    verification_config_status: Literal[
+        "pending_confirmation", "confirmed", "rejected", "missing"
+    ]
+    pending_confirmation_count: int
+    rejected_count: int
+    confirmed_count: int
+    ready_for_manual_execution: bool
+    next_steps: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_domain(
+        cls,
+        readiness: ProjectDirectorSetupReadiness,
+    ) -> "ProjectDirectorSetupReadinessResponse":
+        return cls(
+            project_id=readiness.project_id,
+            source_plan_version_id=readiness.source_plan_version_id,
+            source_draft_id=readiness.source_draft_id,
+            created_by_director=readiness.created_by_director,
+            formal_project_created=readiness.formal_project_created,
+            task_queue_created=readiness.task_queue_created,
+            task_count=readiness.task_count,
+            pending_task_count=readiness.pending_task_count,
+            agent_team_config_status=readiness.agent_team_config_status,
+            skill_binding_config_status=readiness.skill_binding_config_status,
+            repository_binding_config_status=(
+                readiness.repository_binding_config_status
+            ),
+            verification_config_status=readiness.verification_config_status,
+            pending_confirmation_count=readiness.pending_confirmation_count,
+            rejected_count=readiness.rejected_count,
+            confirmed_count=readiness.confirmed_count,
+            ready_for_manual_execution=readiness.ready_for_manual_execution,
+            next_steps=readiness.next_steps,
+            warnings=readiness.warnings,
+        )
+
+
+@router.get(
+    "/projects/{project_id}/setup-readiness",
+    response_model=ProjectDirectorSetupReadinessResponse,
+    summary="Read Project Director setup readiness summary",
+)
+def get_project_setup_readiness(
+    project_id: UUID,
+    svc: Annotated[
+        ProjectDirectorSetupReadinessService,
+        Depends(_get_setup_readiness_service),
+    ],
+) -> ProjectDirectorSetupReadinessResponse:
+    """Read a project-level setup summary without execution side effects."""
+
+    try:
+        readiness = svc.get_project_setup_readiness(project_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return ProjectDirectorSetupReadinessResponse.from_domain(readiness)
 
 
 class TaskCreationResponse(BaseModel):
