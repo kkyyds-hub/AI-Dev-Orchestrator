@@ -111,10 +111,13 @@ def _assert_project_summary_payload(payload: dict, project_id: str) -> None:
     assert "## 当前状态" in markdown
     assert "## 当前重点" in markdown
     assert "## 阶段进展" in markdown
+    assert "## 风险与阻塞" in markdown
     assert "## 下一步建议" in markdown
     assert "解除交付清单阻塞" in markdown
     assert "补齐人工审批" in markdown
     assert "项目状态：" in markdown
+    assert "当前阻塞任务数量：1" in markdown
+    assert "当前待人工处理任务数量：1" in markdown
     assert "## Project Conclusion" not in markdown
     assert "## Current Status" not in markdown
     assert "## Current Focus" not in markdown

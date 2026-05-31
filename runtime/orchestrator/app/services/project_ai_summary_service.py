@@ -262,6 +262,19 @@ class ProjectAISummaryService:
         else:
             stage_lines.append("- 暂未获取到阶段守卫快照。")
 
+        risk_lines = [
+            f"- 当前阻塞任务数量：{stats.blocked_tasks}。",
+            f"- 当前待人工处理任务数量：{stats.waiting_human_tasks}。",
+        ]
+        if stage_guard is not None and stage_guard.blocking_reasons:
+            risk_lines.extend(
+                f"- 阶段阻塞原因：{reason}" for reason in stage_guard.blocking_reasons[:3]
+            )
+        elif stage_guard is not None:
+            risk_lines.append("- 当前未发现阶段阻塞原因。")
+        else:
+            risk_lines.append("- 暂未获取到阶段阻塞快照，请结合任务状态继续确认。")
+
         next_step_lines: list[str] = []
         if stage_guard is not None and stage_guard.blocking_reasons:
             next_step_lines.extend(
@@ -316,6 +329,9 @@ class ProjectAISummaryService:
             "## 阶段进展",
             *stage_lines,
             recent_stage_text,
+            "",
+            "## 风险与阻塞",
+            *risk_lines,
             "",
             "## 下一步建议",
             *next_step_lines[:4],
