@@ -45,6 +45,11 @@ from app.domain.project_director_skill_binding_config import (
     ProjectDirectorSkillBindingConfigItem,
     SkillBindingConfigStatus,
 )
+from app.domain.project_director_verification_config import (
+    ProjectDirectorVerificationConfig,
+    ProjectDirectorVerificationConfigItem,
+    VerificationConfigStatus,
+)
 from app.domain.project_director_session import (
     ClarifyingAnswer,
     ClarifyingQuestion,
@@ -68,6 +73,9 @@ from app.repositories.project_director_repository_binding_config_repository impo
 from app.repositories.project_director_skill_binding_config_repository import (
     ProjectDirectorSkillBindingConfigRepository,
 )
+from app.repositories.project_director_verification_config_repository import (
+    ProjectDirectorVerificationConfigRepository,
+)
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.project_director_confirmation_service import (
@@ -89,6 +97,10 @@ from app.services.project_director_repository_binding_config_service import (
 from app.services.project_director_skill_binding_config_service import (
     ProjectDirectorSkillBindingConfigService,
     SkillBindingConfigReadResult,
+)
+from app.services.project_director_verification_config_service import (
+    ProjectDirectorVerificationConfigService,
+    VerificationConfigReadResult,
 )
 
 
@@ -136,6 +148,7 @@ def _get_task_creation_service(
     repository_binding_config_repo = ProjectDirectorRepositoryBindingConfigRepository(
         session
     )
+    verification_config_repo = ProjectDirectorVerificationConfigRepository(session)
     return ProjectDirectorTaskCreationService(
         plan_repo=plan_repo,
         task_repo=task_repo,
@@ -144,6 +157,7 @@ def _get_task_creation_service(
         agent_team_config_repo=agent_team_config_repo,
         skill_binding_config_repo=skill_binding_config_repo,
         repository_binding_config_repo=repository_binding_config_repo,
+        verification_config_repo=verification_config_repo,
     )
 
 
@@ -175,6 +189,17 @@ def _get_repository_binding_config_service(
     config_repo = ProjectDirectorRepositoryBindingConfigRepository(session)
     project_repo = ProjectRepository(session)
     return ProjectDirectorRepositoryBindingConfigService(
+        config_repo=config_repo,
+        project_repo=project_repo,
+    )
+
+
+def _get_verification_config_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorVerificationConfigService:
+    config_repo = ProjectDirectorVerificationConfigRepository(session)
+    project_repo = ProjectRepository(session)
+    return ProjectDirectorVerificationConfigService(
         config_repo=config_repo,
         project_repo=project_repo,
     )
@@ -1642,6 +1667,180 @@ def review_project_repository_binding_config(
             detail=detail,
         ) from exc
     return RepositoryBindingConfigEnvelopeResponse.from_result(result)
+
+
+# Verification Config DTOs / Routes
+
+
+class VerificationConfigItemResponse(BaseModel):
+    name: str
+    command_or_method: str
+    purpose: str = ""
+    evidence_required: str
+    owner_role_code: str
+    risk_level: str
+    requires_user_confirmation: bool
+    review_status: str = "pending_confirmation"
+
+    @classmethod
+    def from_domain(
+        cls, item: ProjectDirectorVerificationConfigItem
+    ) -> "VerificationConfigItemResponse":
+        return cls(
+            name=item.name,
+            command_or_method=item.command_or_method,
+            purpose=item.purpose,
+            evidence_required=item.evidence_required,
+            owner_role_code=item.owner_role_code,
+            risk_level=item.risk_level,
+            requires_user_confirmation=item.requires_user_confirmation,
+            review_status=item.review_status,
+        )
+
+
+class VerificationConfigResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    plan_version_id: UUID
+    source_draft_id: str
+    status: VerificationConfigStatus
+    verification_mechanisms: list[VerificationConfigItemResponse] = Field(
+        default_factory=list
+    )
+    warnings: list[str] = Field(default_factory=list)
+    review_note: str = ""
+    created_at: str
+    updated_at: str
+    confirmed_at: str | None = None
+    rejected_at: str | None = None
+
+    @classmethod
+    def from_domain(
+        cls, config: ProjectDirectorVerificationConfig
+    ) -> "VerificationConfigResponse":
+        return cls(
+            id=config.id,
+            project_id=config.project_id,
+            plan_version_id=config.plan_version_id,
+            source_draft_id=config.source_draft_id,
+            status=config.status,
+            verification_mechanisms=[
+                VerificationConfigItemResponse.from_domain(item)
+                for item in config.verification_mechanisms
+            ],
+            warnings=config.warnings,
+            review_note=config.review_note,
+            created_at=config.created_at.isoformat(),
+            updated_at=config.updated_at.isoformat(),
+            confirmed_at=(
+                config.confirmed_at.isoformat() if config.confirmed_at else None
+            ),
+            rejected_at=(
+                config.rejected_at.isoformat() if config.rejected_at else None
+            ),
+        )
+
+
+class VerificationConfigEnvelopeResponse(BaseModel):
+    project_id: UUID
+    config: VerificationConfigResponse | None = None
+    next_action: str
+
+    @classmethod
+    def from_result(
+        cls, result: VerificationConfigReadResult
+    ) -> "VerificationConfigEnvelopeResponse":
+        return cls(
+            project_id=result.project_id,
+            config=(
+                VerificationConfigResponse.from_domain(result.config)
+                if result.config is not None
+                else None
+            ),
+            next_action=result.next_action,
+        )
+
+
+class ReviewVerificationConfigRequest(BaseModel):
+    action: Literal["confirm", "reject"]
+    note: str = Field(default="", max_length=2000)
+
+
+@router.get(
+    "/projects/{project_id}/verification-config",
+    response_model=VerificationConfigEnvelopeResponse,
+    summary="Read project-level Project Director verification config",
+)
+def get_project_verification_config(
+    project_id: UUID,
+    svc: Annotated[
+        ProjectDirectorVerificationConfigService,
+        Depends(_get_verification_config_service),
+    ],
+) -> VerificationConfigEnvelopeResponse:
+    """Read the project-level verification config, if the project has one."""
+
+    try:
+        result = svc.get_for_project(project_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return VerificationConfigEnvelopeResponse.from_result(result)
+
+
+@router.post(
+    "/projects/{project_id}/verification-config/review",
+    response_model=VerificationConfigEnvelopeResponse,
+    summary="Confirm or reject a project-level Project Director verification config",
+)
+def review_project_verification_config(
+    project_id: UUID,
+    request: ReviewVerificationConfigRequest,
+    svc: Annotated[
+        ProjectDirectorVerificationConfigService,
+        Depends(_get_verification_config_service),
+    ],
+) -> VerificationConfigEnvelopeResponse:
+    """Review only; never execute commands, create Runs, or dispatch Workers."""
+
+    try:
+        result = svc.review_project_config(
+            project_id,
+            action=request.action,
+            note=request.note,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lower_detail = detail.lower()
+        if "project" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "already been reviewed" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if "verification config" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return VerificationConfigEnvelopeResponse.from_result(result)
+
 
 
 # ── Task Creation DTOs ───────────────────────────────────────────────

@@ -14,6 +14,7 @@ import { ProjectSettingsEntryPanel } from "../components/ProjectSettingsEntryPan
 import { SkillBindingConfigCard } from "../components/SkillBindingConfigCard";
 import { ProjectStageTimeline } from "../components/ProjectStageTimeline";
 import { ProjectTaskTree } from "../components/ProjectTaskTree";
+import { VerificationConfigCard } from "../components/VerificationConfigCard";
 import type {
   BossDrilldownContext,
   BossProjectItem,
@@ -102,6 +103,8 @@ export function ProjectDetailSection(props: {
       <SkillBindingConfigCard projectId={projectId} />
 
       <RepositoryBindingConfigCard projectId={projectId} />
+
+      <VerificationConfigCard projectId={projectId} />
 
       <ProjectDetailStatsGrid project={props.project} taskStats={taskStats} />
 

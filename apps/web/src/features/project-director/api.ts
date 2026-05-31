@@ -13,9 +13,11 @@ import type {
   ProjectDirectorSession,
   ProjectDirectorSkillBindingConfigResponse,
   ProjectDirectorTaskCreationResponse,
+  ProjectDirectorVerificationConfigResponse,
   ReviewProjectDirectorAgentTeamConfigInput,
   ReviewProjectDirectorRepositoryBindingConfigInput,
   ReviewProjectDirectorSkillBindingConfigInput,
+  ReviewProjectDirectorVerificationConfigInput,
   ReviewProjectDirectorPlanVersionInput,
   SubmitProjectDirectorAnswersInput,
 } from "./types";
@@ -159,6 +161,29 @@ export function reviewProjectDirectorRepositoryBindingConfig(
 ): Promise<ProjectDirectorRepositoryBindingConfigResponse> {
   return requestJson<ProjectDirectorRepositoryBindingConfigResponse>(
     `/project-director/projects/${input.projectId}/repository-binding-config/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action: input.action,
+        note: input.note ?? "",
+      }),
+    },
+  );
+}
+
+export function fetchProjectDirectorVerificationConfig(
+  projectId: string,
+): Promise<ProjectDirectorVerificationConfigResponse> {
+  return requestJson<ProjectDirectorVerificationConfigResponse>(
+    `/project-director/projects/${projectId}/verification-config`,
+  );
+}
+
+export function reviewProjectDirectorVerificationConfig(
+  input: ReviewProjectDirectorVerificationConfigInput,
+): Promise<ProjectDirectorVerificationConfigResponse> {
+  return requestJson<ProjectDirectorVerificationConfigResponse>(
+    `/project-director/projects/${input.projectId}/verification-config/review`,
     {
       method: "POST",
       body: JSON.stringify({

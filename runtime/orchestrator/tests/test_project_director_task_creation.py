@@ -24,6 +24,7 @@ from app.core.db_tables import (
     ProjectDirectorAgentTeamConfigTable,
     ProjectDirectorRepositoryBindingConfigTable,
     ProjectDirectorSkillBindingConfigTable,
+    ProjectDirectorVerificationConfigTable,
     ProjectTable,
     ProjectDirectorPlanVersionTable,
     RepositoryWorkspaceTable,
@@ -939,6 +940,175 @@ class TestCreateTasks:
 
         config_resp = client.get(
             f"/project-director/projects/{project_id}/repository-binding-config"
+        )
+        assert config_resp.status_code == 200
+        assert config_resp.json()["config"]["status"] == "pending_confirmation"
+
+    def test_create_formal_project_creates_pending_verification_config(
+        self, client, db_session
+    ):
+        """Formal project creation persists pending project-level verification suggestions."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        confirmed_resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert confirmed_resp.status_code == 200
+        confirmed = confirmed_resp.json()
+        assert len(confirmed["verification_mechanisms"]) > 0
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert resp.status_code == 200
+        created = resp.json()
+
+        config_resp = client.get(
+            f"/project-director/projects/{created['project_id']}/verification-config"
+        )
+        assert config_resp.status_code == 200
+        body = config_resp.json()
+        config = body["config"]
+
+        assert body["project_id"] == created["project_id"]
+        assert config["project_id"] == created["project_id"]
+        assert config["plan_version_id"] == pv["id"]
+        assert config["source_draft_id"] == f"pdv:{pv['id']}:{confirmed['version_no']}"
+        assert config["status"] == "pending_confirmation"
+        assert len(config["verification_mechanisms"]) == len(
+            confirmed["verification_mechanisms"]
+        )
+        assert body["next_action"] == (
+            "请在项目详情页确认或拒绝 AI 主管验证机制建议；"
+            "确认后仍不会执行验证命令或创建 Run。"
+        )
+        assert "?" not in body["next_action"]
+        assert all("?" not in item for item in config["warnings"])
+        assert any("不会自动执行命令" in item for item in config["warnings"])
+        assert any("不会创建 Run" in item for item in config["warnings"])
+        assert any("subprocess / os.system" in item for item in config["warnings"])
+
+        high_risk_items = [
+            item
+            for item in config["verification_mechanisms"]
+            if item["risk_level"] == "high"
+        ]
+        assert high_risk_items
+        assert all(item["requires_user_confirmation"] is True for item in high_risk_items)
+
+        rows = db_session.execute(
+            select(ProjectDirectorVerificationConfigTable)
+        ).scalars().all()
+        assert len(rows) == 1
+
+    def test_regular_project_verification_config_returns_null(self, client):
+        """Regular projects do not show AI Director verification config."""
+        project_id = _create_project(client, name="普通项目")
+
+        resp = client.get(
+            f"/project-director/projects/{project_id}/verification-config"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["project_id"] == project_id
+        assert body["config"] is None
+        assert "普通项目" in body["next_action"]
+
+    def test_review_verification_config_confirm_then_reject_conflicts(
+        self, client, db_session
+    ):
+        """A pending verification config can be confirmed once, without side effects."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+        create_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert create_resp.status_code == 200
+        project_id = create_resp.json()["project_id"]
+
+        confirm_resp = client.post(
+            f"/project-director/projects/{project_id}/verification-config/review",
+            json={"action": "confirm", "note": "确认验证机制建议"},
+        )
+        assert confirm_resp.status_code == 200
+        body = confirm_resp.json()
+        confirmed = body["config"]
+        assert confirmed["status"] == "confirmed"
+        assert confirmed["confirmed_at"] is not None
+        assert confirmed["rejected_at"] is None
+        assert "不代表验证已执行或已通过" in body["next_action"]
+        assert "?" not in body["next_action"]
+
+        reject_resp = client.post(
+            f"/project-director/projects/{project_id}/verification-config/review",
+            json={"action": "reject"},
+        )
+        assert reject_resp.status_code == 409
+
+        assert db_session.execute(select(RunTable)).scalars().all() == []
+        assert db_session.execute(select(AgentSessionTable)).scalars().all() == []
+        assert db_session.execute(select(ProjectRoleSkillBindingTable)).scalars().all() == []
+        assert db_session.execute(select(RepositoryWorkspaceTable)).scalars().all() == []
+
+    def test_review_verification_config_reject_then_confirm_conflicts(self, client):
+        """A rejected verification config cannot be confirmed later."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+        create_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert create_resp.status_code == 200
+        project_id = create_resp.json()["project_id"]
+
+        reject_resp = client.post(
+            f"/project-director/projects/{project_id}/verification-config/review",
+            json={"action": "reject", "note": "暂不采用"},
+        )
+        assert reject_resp.status_code == 200
+        rejected = reject_resp.json()["config"]
+        assert rejected["status"] == "rejected"
+        assert rejected["rejected_at"] is not None
+        assert rejected["confirmed_at"] is None
+
+        confirm_resp = client.post(
+            f"/project-director/projects/{project_id}/verification-config/review",
+            json={"action": "confirm"},
+        )
+        assert confirm_resp.status_code == 409
+
+    def test_create_formal_project_does_not_duplicate_verification_config(
+        self, client, db_session
+    ):
+        """Repeated formalization readbacks existing verification config without duplication."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        first_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        second_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert first_resp.status_code == 200
+        assert second_resp.status_code == 200
+        project_id = first_resp.json()["project_id"]
+
+        rows = db_session.execute(
+            select(ProjectDirectorVerificationConfigTable)
+        ).scalars().all()
+        assert len(rows) == 1
+        assert str(rows[0].project_id) == project_id
+        assert str(rows[0].plan_version_id) == pv["id"]
+
+        config_resp = client.get(
+            f"/project-director/projects/{project_id}/verification-config"
         )
         assert config_resp.status_code == 200
         assert config_resp.json()["config"]["status"] == "pending_confirmation"

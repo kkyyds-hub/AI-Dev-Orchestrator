@@ -199,6 +199,45 @@ export interface ProjectDirectorRepositoryBindingConfigResponse {
   next_action: string;
 }
 
+export type ProjectDirectorVerificationConfigStatus =
+  | "pending_confirmation"
+  | "confirmed"
+  | "rejected";
+
+export type ProjectDirectorVerificationConfigReviewAction = "confirm" | "reject";
+
+export interface ProjectDirectorVerificationConfigItem {
+  name: string;
+  command_or_method: string;
+  purpose: string;
+  evidence_required: string;
+  owner_role_code: string;
+  risk_level: string;
+  requires_user_confirmation: boolean;
+  review_status: string;
+}
+
+export interface ProjectDirectorVerificationConfig {
+  id: string;
+  project_id: string;
+  plan_version_id: string;
+  source_draft_id: string;
+  status: ProjectDirectorVerificationConfigStatus;
+  verification_mechanisms: ProjectDirectorVerificationConfigItem[];
+  warnings: string[];
+  review_note: string;
+  created_at: string;
+  updated_at: string;
+  confirmed_at: string | null;
+  rejected_at: string | null;
+}
+
+export interface ProjectDirectorVerificationConfigResponse {
+  project_id: string;
+  config: ProjectDirectorVerificationConfig | null;
+  next_action: string;
+}
+
 export interface ProjectDirectorSkillBindingSuggestion {
   skill_code: string;
   owner_role_code: string;
@@ -345,5 +384,11 @@ export interface ReviewProjectDirectorSkillBindingConfigInput {
 export interface ReviewProjectDirectorRepositoryBindingConfigInput {
   projectId: string;
   action: ProjectDirectorRepositoryBindingConfigReviewAction;
+  note?: string;
+}
+
+export interface ReviewProjectDirectorVerificationConfigInput {
+  projectId: string;
+  action: ProjectDirectorVerificationConfigReviewAction;
   note?: string;
 }

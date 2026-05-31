@@ -32,6 +32,11 @@ from app.domain.project_director_skill_binding_config import (
     ProjectDirectorSkillBindingConfigItem,
     SkillBindingConfigStatus,
 )
+from app.domain.project_director_verification_config import (
+    ProjectDirectorVerificationConfig,
+    ProjectDirectorVerificationConfigItem,
+    VerificationConfigStatus,
+)
 from app.domain.project_director_plan_version import (
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
@@ -53,6 +58,9 @@ from app.repositories.project_director_repository_binding_config_repository impo
 )
 from app.repositories.project_director_skill_binding_config_repository import (
     ProjectDirectorSkillBindingConfigRepository,
+)
+from app.repositories.project_director_verification_config_repository import (
+    ProjectDirectorVerificationConfigRepository,
 )
 from app.repositories.project_director_task_creation_repository import (
     ProjectDirectorTaskCreationRecordRepository,
@@ -105,6 +113,13 @@ _REPOSITORY_BINDING_CONFIG_WARNINGS = [
     "后续是否真实绑定仓库需要用户在仓库配置中另行确认。",
 ]
 
+_VERIFICATION_CONFIG_WARNINGS = [
+    "当前仅为验证机制建议，不会自动执行命令。",
+    "确认验证机制建议不会创建 Run。",
+    "高风险验证项仍需用户人工确认后另行执行。",
+    "不会调用 subprocess / os.system / planning/apply / apply-local / git-commit。",
+]
+
 
 def _map_priority(priority_hint: str) -> TaskPriority:
     """Map plan version priority_hint to TaskPriority."""
@@ -144,6 +159,7 @@ class ProjectDirectorTaskCreationService:
         repository_binding_config_repo: (
             ProjectDirectorRepositoryBindingConfigRepository | None
         ) = None,
+        verification_config_repo: ProjectDirectorVerificationConfigRepository | None = None,
     ) -> None:
         self._plan_repo = plan_repo
         self._task_repo = task_repo
@@ -152,6 +168,7 @@ class ProjectDirectorTaskCreationService:
         self._agent_team_config_repo = agent_team_config_repo
         self._skill_binding_config_repo = skill_binding_config_repo
         self._repository_binding_config_repo = repository_binding_config_repo
+        self._verification_config_repo = verification_config_repo
 
     def create_tasks_from_plan_version(
         self, plan_version_id: UUID
@@ -213,6 +230,7 @@ class ProjectDirectorTaskCreationService:
                 self._ensure_agent_team_config_for_plan(existing_plan_version)
                 self._ensure_skill_binding_config_for_plan(existing_plan_version)
                 self._ensure_repository_binding_config_for_plan(existing_plan_version)
+                self._ensure_verification_config_for_plan(existing_plan_version)
             return self._result_from_record(existing, already_created=True)
 
         self._ensure_proposed_tasks_are_valid(plan_version)
@@ -234,6 +252,7 @@ class ProjectDirectorTaskCreationService:
         self._prepare_agent_team_config_for_plan(plan_version)
         self._prepare_skill_binding_config_for_plan(plan_version)
         self._prepare_repository_binding_config_for_plan(plan_version)
+        self._prepare_verification_config_for_plan(plan_version)
         return self._create_task_queue_for_plan_version(plan_version)
 
     def get_created_tasks(
@@ -514,6 +533,75 @@ class ProjectDirectorTaskCreationService:
         )
         if before is None and after is not None:
             self._repository_binding_config_repo.session.commit()
+
+    def _prepare_verification_config_for_plan(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> None:
+        """Add a pending project-level verification config to the transaction."""
+
+        if self._verification_config_repo is None:
+            return
+        if plan_version.project_id is None:
+            return
+        if not plan_version.verification_mechanisms:
+            return
+        if (
+            self._verification_config_repo.get_by_plan_version_id(plan_version.id)
+            is not None
+        ):
+            return
+        if (
+            self._verification_config_repo.get_by_project_id(plan_version.project_id)
+            is not None
+        ):
+            return
+
+        source_draft_id = f"pdv:{plan_version.id}:{plan_version.version_no}"
+        config = ProjectDirectorVerificationConfig(
+            project_id=plan_version.project_id,
+            plan_version_id=plan_version.id,
+            source_draft_id=source_draft_id,
+            status=VerificationConfigStatus.PENDING_CONFIRMATION,
+            verification_mechanisms=[
+                ProjectDirectorVerificationConfigItem(
+                    name=item.name,
+                    command_or_method=item.command_or_method,
+                    purpose=item.purpose,
+                    evidence_required=item.evidence_required,
+                    owner_role_code=item.owner_role_code.value,
+                    risk_level=item.risk_level,
+                    requires_user_confirmation=(
+                        item.requires_user_confirmation
+                        or item.risk_level.lower() == "high"
+                    ),
+                    review_status=VerificationConfigStatus.PENDING_CONFIRMATION.value,
+                )
+                for item in plan_version.verification_mechanisms
+            ],
+            warnings=list(_VERIFICATION_CONFIG_WARNINGS),
+        )
+        self._verification_config_repo.add_no_commit(config)
+
+    def _ensure_verification_config_for_plan(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> None:
+        """Best-effort idempotent backfill for already-created formal projects."""
+
+        before = (
+            self._verification_config_repo.get_by_plan_version_id(plan_version.id)
+            if self._verification_config_repo is not None
+            else None
+        )
+        self._prepare_verification_config_for_plan(plan_version)
+        after = (
+            self._verification_config_repo.get_by_plan_version_id(plan_version.id)
+            if self._verification_config_repo is not None
+            else None
+        )
+        if before is None and after is not None:
+            self._verification_config_repo.session.commit()
 
     def _result_from_record(
         self,
