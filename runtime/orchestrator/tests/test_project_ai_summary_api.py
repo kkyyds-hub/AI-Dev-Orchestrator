@@ -50,16 +50,16 @@ def seeded_project(sqlite_session_factory):
     session = sqlite_session_factory()
     try:
         project = Project(
-            name="Stage3 Summary Project",
-            summary="Validate the persisted project AI summary endpoint.",
+            name="阶段三项目总结项目",
+            summary="验证项目总结生成、保存与读回链路是否稳定可用。",
         )
         project = ProjectRepository(session).create(project)
 
         TaskRepository(session).create(
             Task(
                 project_id=project.id,
-                title="Unblock delivery checklist",
-                input_summary="Prepare final delivery checklist and resolve open blockers.",
+                title="解除交付清单阻塞",
+                input_summary="整理最终交付清单并清除当前遗留阻塞项。",
                 status=TaskStatus.BLOCKED,
                 priority=TaskPriority.HIGH,
                 risk_level=TaskRiskLevel.HIGH,
@@ -68,8 +68,8 @@ def seeded_project(sqlite_session_factory):
         TaskRepository(session).create(
             Task(
                 project_id=project.id,
-                title="Collect human approval",
-                input_summary="Wait for boss approval before advancing the stage.",
+                title="补齐人工审批",
+                input_summary="在推进下一阶段前等待负责人完成审批确认。",
                 status=TaskStatus.WAITING_HUMAN,
                 priority=TaskPriority.URGENT,
                 risk_level=TaskRiskLevel.NORMAL,
@@ -78,8 +78,8 @@ def seeded_project(sqlite_session_factory):
         TaskRepository(session).create(
             Task(
                 project_id=project.id,
-                title="Archive final artifacts",
-                input_summary="Archive delivery artifacts after all checks pass.",
+                title="归档最终交付物",
+                input_summary="在全部检查通过后归档交付产物。",
                 status=TaskStatus.COMPLETED,
                 priority=TaskPriority.NORMAL,
                 risk_level=TaskRiskLevel.LOW,
@@ -107,14 +107,19 @@ def _assert_project_summary_payload(payload: dict, project_id: str) -> None:
     assert payload["stale"] is False
 
     markdown = payload["summary_markdown"]
-    assert "## Project Conclusion" in markdown
-    assert "## Current Status" in markdown
-    assert "## Current Focus" in markdown
-    assert "## Stage Progress" in markdown
-    assert "## Next Steps" in markdown
-    assert "Unblock delivery checklist" in markdown
-    assert "Collect human approval" in markdown
-    assert "Project status:" in markdown
+    assert "## 项目结论" in markdown
+    assert "## 当前状态" in markdown
+    assert "## 当前重点" in markdown
+    assert "## 阶段进展" in markdown
+    assert "## 下一步建议" in markdown
+    assert "解除交付清单阻塞" in markdown
+    assert "补齐人工审批" in markdown
+    assert "项目状态：" in markdown
+    assert "## Project Conclusion" not in markdown
+    assert "## Current Status" not in markdown
+    assert "## Current Focus" not in markdown
+    assert "## Stage Progress" not in markdown
+    assert "## Next Steps" not in markdown
 
 
 def test_get_project_ai_summary_does_not_generate_when_empty(client, seeded_project):

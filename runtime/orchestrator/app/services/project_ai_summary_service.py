@@ -32,6 +32,43 @@ class ProjectAISummaryService:
     SOURCE_VERSION = "project.summary.v1"
     MODEL_PROVIDER = "local_rule_engine"
     MODEL_NAME = "project_summary.rule_fallback.v1"
+    PROJECT_STATUS_LABELS = {
+        "active": "进行中",
+        "on_hold": "已暂停",
+        "completed": "已完成",
+        "archived": "已归档",
+    }
+    PROJECT_STAGE_LABELS = {
+        "intake": "立项受理",
+        "planning": "方案规划",
+        "execution": "执行推进",
+        "verification": "验证确认",
+        "delivery": "交付收口",
+    }
+    TASK_STATUS_LABELS = {
+        "pending": "待处理",
+        "running": "执行中",
+        "paused": "已暂停",
+        "waiting_human": "待人工处理",
+        "completed": "已完成",
+        "failed": "已失败",
+        "blocked": "已阻塞",
+    }
+    TASK_PRIORITY_LABELS = {
+        "low": "低",
+        "normal": "中",
+        "high": "高",
+        "urgent": "紧急",
+    }
+    TASK_RISK_LABELS = {
+        "low": "低",
+        "normal": "中",
+        "high": "高",
+    }
+    STAGE_OUTCOME_LABELS = {
+        "applied": "已生效",
+        "blocked": "被阻塞",
+    }
 
     def __init__(
         self,
@@ -178,85 +215,109 @@ class ProjectAISummaryService:
             ),
         )[:3]
 
+        project_status_label = ProjectAISummaryService.PROJECT_STATUS_LABELS.get(
+            project.status.value,
+            project.status.value,
+        )
+        project_stage_label = ProjectAISummaryService.PROJECT_STAGE_LABELS.get(
+            project.stage.value,
+            project.stage.value,
+        )
+
         current_focus_lines = (
             [
                 (
-                    f"- {task.title} "
-                    f"(status={task.status.value}, priority={task.priority.value}, risk={task.risk_level.value}): "
+                    f"- 《{task.title}》：状态为"
+                    f"{ProjectAISummaryService.TASK_STATUS_LABELS.get(task.status.value, task.status.value)}，"
+                    f"优先级为{ProjectAISummaryService.TASK_PRIORITY_LABELS.get(task.priority.value, task.priority.value)}，"
+                    f"风险等级为{ProjectAISummaryService.TASK_RISK_LABELS.get(task.risk_level.value, task.risk_level.value)}。"
                     f"{task.input_summary}"
                 )
                 for task in top_tasks
             ]
             if top_tasks
-            else ["- No active tasks remain; the project is closer to wrap-up or archive."]
+            else ["- 当前没有未完成任务，项目已接近收尾或归档阶段。"]
         )
 
-        stage_lines = [f"- Current stage: {project.stage.value}"]
+        stage_lines = [f"- 当前阶段：{project_stage_label}。"]
         if stage_guard is not None:
-            next_stage = stage_guard.target_stage.value if stage_guard.target_stage is not None else "none"
-            stage_lines.append(f"- Next stage: {next_stage}")
-            stage_lines.append(f"- Can advance now: {'yes' if stage_guard.can_advance else 'no'}")
+            next_stage = (
+                ProjectAISummaryService.PROJECT_STAGE_LABELS.get(
+                    stage_guard.target_stage.value,
+                    stage_guard.target_stage.value,
+                )
+                if stage_guard.target_stage is not None
+                else "暂无"
+            )
+            stage_lines.append(f"- 下一目标阶段：{next_stage}。")
+            stage_lines.append(
+                f"- 当前是否满足推进条件：{'可推进' if stage_guard.can_advance else '暂不可推进'}。"
+            )
             if stage_guard.blocking_reasons:
                 stage_lines.extend(
-                    f"- Blocking reason: {reason}" for reason in stage_guard.blocking_reasons[:3]
+                    f"- 阶段阻塞原因：{reason}" for reason in stage_guard.blocking_reasons[:3]
                 )
             elif stage_guard.can_advance:
-                stage_lines.append("- Stage guard is clear and ready for the next transition.")
+                stage_lines.append("- 阶段守卫已通过，可进入下一阶段推进。")
         else:
-            stage_lines.append("- Stage guard snapshot is unavailable.")
+            stage_lines.append("- 暂未获取到阶段守卫快照。")
 
         next_step_lines: list[str] = []
         if stage_guard is not None and stage_guard.blocking_reasons:
             next_step_lines.extend(
-                f"- Resolve stage blocker: {reason}" for reason in stage_guard.blocking_reasons[:2]
+                f"- 优先解除阶段阻塞：{reason}。"
+                for reason in stage_guard.blocking_reasons[:2]
             )
         if stats.blocked_tasks > 0:
-            next_step_lines.append(f"- Clear blocked tasks first (currently {stats.blocked_tasks}).")
+            next_step_lines.append(f"- 优先处理阻塞任务，当前共有 {stats.blocked_tasks} 项。")
         if stats.waiting_human_tasks > 0:
             next_step_lines.append(
-                f"- Follow up waiting_human tasks (currently {stats.waiting_human_tasks})."
+                f"- 跟进待人工处理事项，当前共有 {stats.waiting_human_tasks} 项。"
             )
         for task in top_tasks[:2]:
-            next_step_lines.append(f"- Advance task: {task.title}.")
+            next_step_lines.append(f"- 推进任务《{task.title}》。")
         if not next_step_lines:
-            next_step_lines.append("- Keep the current pace and prepare the next review or closeout step.")
+            next_step_lines.append("- 保持当前节奏，并准备下一次评审或收尾动作。")
 
         recent_stage_text = (
             (
-                "- Latest stage transition: "
-                f"{recent_timeline.from_stage.value if recent_timeline.from_stage is not None else 'none'} "
-                f"-> {recent_timeline.to_stage.value} "
-                f"(outcome={recent_timeline.outcome.value})"
+                "- 最新阶段变更："
+                f"{ProjectAISummaryService.PROJECT_STAGE_LABELS.get(recent_timeline.from_stage.value, recent_timeline.from_stage.value) if recent_timeline.from_stage is not None else '无'}"
+                f" → {ProjectAISummaryService.PROJECT_STAGE_LABELS.get(recent_timeline.to_stage.value, recent_timeline.to_stage.value)}，"
+                f"结果为{ProjectAISummaryService.STAGE_OUTCOME_LABELS.get(recent_timeline.outcome.value, recent_timeline.outcome.value)}。"
             )
             if recent_timeline is not None
-            else "- Latest stage transition: none recorded."
+            else "- 最新阶段变更：暂无记录。"
         )
 
         lines = [
-            "## Project Conclusion",
-            project.summary,
-            "",
-            "## Current Status",
-            f"- Project status: {project.status.value}",
-            f"- Total tasks: {stats.total_tasks}",
-            f"- Completed tasks: {stats.completed_tasks}",
-            f"- Running tasks: {stats.running_tasks}",
-            f"- Blocked tasks: {stats.blocked_tasks}",
-            f"- Waiting human tasks: {stats.waiting_human_tasks}",
+            "## 项目结论",
             (
-                f"- Latest task update: {stats.last_task_updated_at.isoformat()}"
-                if stats.last_task_updated_at is not None
-                else "- Latest task update: none"
+                f"项目《{project.name}》当前处于{project_stage_label}阶段，"
+                f"整体状态为{project_status_label}。{project.summary}"
             ),
             "",
-            "## Current Focus",
+            "## 当前状态",
+            f"- 项目状态：{project_status_label}。",
+            f"- 任务总数：{stats.total_tasks}。",
+            f"- 已完成任务：{stats.completed_tasks}。",
+            f"- 执行中任务：{stats.running_tasks}。",
+            f"- 已阻塞任务：{stats.blocked_tasks}。",
+            f"- 待人工处理任务：{stats.waiting_human_tasks}。",
+            (
+                f"- 最近一次任务更新时间：{stats.last_task_updated_at.isoformat()}。"
+                if stats.last_task_updated_at is not None
+                else "- 最近一次任务更新时间：暂无记录。"
+            ),
+            "",
+            "## 当前重点",
             *current_focus_lines,
             "",
-            "## Stage Progress",
+            "## 阶段进展",
             *stage_lines,
             recent_stage_text,
             "",
-            "## Next Steps",
+            "## 下一步建议",
             *next_step_lines[:4],
         ]
         return "\n".join(lines)
