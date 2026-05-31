@@ -49,7 +49,7 @@
 | CL-09 | 运行闭环：是否产生 Run 记录 | Runtime Pass | R1-Fb v3 | ✓ |
 | CL-10 | 运行闭环：Run 是否有摘要或 fallback | Runtime Pass | R1-Fb v3 | ✓ |
 | CL-11 | 失败闭环：失败/阻塞是否有下一步 | Runtime Pass | R1-G | ✓ |
-| CL-12 | 仓库闭环：代码相关任务是否有仓库证据链 | **Evidence Partial** | R1-H | ✓ |
+| CL-12 | 仓库闭环：代码相关任务是否有仓库证据链 | **Runtime Pass** | R1-H v2 | ✓ |
 | CL-13 | 交付闭环：成功任务是否形成交付物 | Runtime Pass | R1-I | ✓ |
 | CL-14 | 审批闭环：交付物是否经过审批决策 | Runtime Pass | R1-J | ✓ |
 | CL-15 | 治理闭环：角色/Skill 是否记录消费证据 | Runtime Pass | R1-K v2 | ✓ |
@@ -64,7 +64,7 @@
 | 1 | R1-Fb entry (ledger line 275) 记录 CL-15 Evidence Partial / CL-16 Evidence Partial — 但这是 R1-Fb 历史状态，后续 R1-K / R1-L 已更新 | 无 — 历史记录 | 无需修改 |
 | 2 | CL-05 / CL-06 已由 R1-N 升为 Runtime Pass | 已消除 | 无需处理 |
 | 3 | CL-17 已由 R1-O 升为全站 Runtime Pass | 已消除 | 无需处理 |
-| 4 | CL-12 / CL-16 均为 Evidence Partial，非 Runtime Pass | 关键 — 必须保留 | 已确认未越界写成 Pass |
+| 4 | CL-16 仍为 Evidence Partial；CL-12 已由 R1-H v2 升为 Runtime Pass | 关键 — 必须保留 | 已确认 CL-16 未越界写成 Pass |
 
 **结论：无文档冲突。所有状态与 evidence 一致。无 simulate → provider 越界表述。无 total closure → Pass 越界表述。**
 
@@ -83,7 +83,7 @@
 **Documentation Pass**
 
 判定依据：
-1. CL-01~CL-18 中 15 项有明确状态和 evidence（15 Runtime Pass + CL-18 Documentation Pass），CL-12/CL-16 为 Evidence Partial，状态与 evidence 一致
+1. CL-01~CL-18 中 17 项有明确状态（16 Runtime Pass + CL-18 Documentation Pass），CL-16 为 Evidence Partial，状态与 evidence 一致
 2. `closure-checklist-20260518.md` 持续回填，每次 audit 后更新
 3. `execution-plan-backfill-ledger-20260519.md` 持续回填，每次 audit 后新增 entry
 4. 15 份 evidence 文档（R1-A~R1-O）覆盖所有已审计闭环项
@@ -155,7 +155,8 @@
 | # | 行动 | 风险 |
 |---|---|---|
 | 1 | CL-16 真实 provider cost 验证 | 产生真实 API 费用 |
-| 2 | CL-12 apply-local / git-commit 验证 | 涉及真实仓库写入 |
+
+注：CL-12 上线口径为 review-only draft chain Runtime Pass。真实 apply-local / git-commit 不属于本阶段上线必要项，必须另行审批。
 
 ---
 

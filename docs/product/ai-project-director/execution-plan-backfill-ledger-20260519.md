@@ -119,7 +119,7 @@
 | 治理中心 | Phase1 职责收口+返工+补强 | UI Pass | Partial（5 个读 API 全部接入；角色/Skill 搜索已补；写操作按钮禁用） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist GOV-01~15（6P/9P）；verification 含数据量稳定性检查 | **Partial** | 搜索+文档修正完成 |
 | 设置页 | Phase1 职责收口 + 账户合并 | UI Pass | API Pass（7 个真实 API 全部接入） | Partial（数据库/Worker/ES 诊断后端缺口） | Partial（build 通过，运行证据不足） | checklist SET-01~10（9P/1P）；账户入口合并完成 | **Pass（Phase1）** | 账户一级入口移除；/me 重定向；无新增后端 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
-| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial（16 Runtime Pass + 1 Evidence Partial + 0 Not Started + 1 Documentation Pass） | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-12/16 后端完备；CL-05/06/17 已 Runtime Pass) | Partial (R1-A~R1-O 15 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial gap 未消除；AI Project Director total closure 不得写成 Pass |
+| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial（16 Runtime Pass + 1 Evidence Partial + 0 Not Started + 1 Documentation Pass） | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-16 provider cost gap；其余 17 项已闭环) | Partial (R1-A~R1-P 16 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial gap 未消除；AI Project Director total closure 不得写成 Pass |
 
 ---
 
