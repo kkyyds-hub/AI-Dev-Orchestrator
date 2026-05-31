@@ -97,7 +97,7 @@
 
 **仍为 Partial**
 
-### 4.1 Runtime Pass 项目（12 项）
+### 4.1 Runtime Pass 项目（14 项）
 
 | CL | 闭环环节 | 证据 |
 |---|---|---|
@@ -105,6 +105,8 @@
 | CL-02 | 目标闭环：AI 澄清 | R1-A/B live HTTP |
 | CL-03 | 计划闭环：生成作战计划 | R1-C live HTTP |
 | CL-04 | 计划闭环：用户确认计划 | R1-D live HTTP |
+| CL-05 | 团队闭环：角色/Skill 方案 | R1-N live HTTP |
+| CL-06 | 团队闭环：模板 vs 实例 | R1-N live HTTP |
 | CL-07 | 任务闭环：创建任务队列 | R1-E live HTTP |
 | CL-08 | 调度闭环：产生调度决策 | R1-Fb v3 live HTTP |
 | CL-09 | 运行闭环：产生 Run 记录 | R1-Fb v3 live HTTP |
@@ -127,12 +129,11 @@
 |---|---|---|---|
 | CL-17 | 页面闭环：全站按钮 | Runtime Pass (工作台) | 工作台 7 按钮全闭环；执行中心/成果中心/治理中心/设置页尚未做全站 CL-17 验收；不得扩大为全站 Pass |
 
-### 4.4 Not Started 项目（2 项）
+### 4.4 Not Started 项目（0 项）
 
 | CL | 闭环环节 | 原因 |
 |---|---|---|
-| CL-05 | 团队闭环：角色/Skill 方案生成 | 未审计 |
-| CL-06 | 团队闭环：模板 vs 实例区分 | 未审计 |
+| — | — | 所有 18 项已审计完毕。CL-05/CL-06 已于 R1-N 升级为 Runtime Pass。 |
 
 ### 4.5 Documentation Pass 项目（1 项）
 
@@ -193,8 +194,8 @@
 
 **仍为 Partial**
 
-12 Runtime Pass + 2 Evidence Partial + 1 Runtime Pass（工作台）+ 2 Not Started + 1 Documentation Pass。
-Total closure 不能在 CL-12/CL-16/CL-05/CL-06 仍有缺口时标记为 Pass。
+14 Runtime Pass + 2 Evidence Partial + 1 Runtime Pass（工作台）+ 0 Not Started + 1 Documentation Pass。
+Total closure 不能在 CL-12/CL-16 仍有缺口时标记为 Pass。
 
 ---
 
@@ -205,8 +206,8 @@ CL-01 目标闭环：Runtime Pass
 CL-02 目标闭环：Runtime Pass
 CL-03 计划闭环：Runtime Pass
 CL-04 计划闭环：Runtime Pass
-CL-05 团队闭环：Not Started
-CL-06 团队闭环：Not Started
+CL-05 团队闭环：Runtime Pass
+CL-06 团队闭环：Runtime Pass
 CL-07 任务闭环：Runtime Pass
 CL-08 调度闭环：Runtime Pass
 CL-09 运行闭环：Runtime Pass

@@ -119,7 +119,7 @@
 | 治理中心 | Phase1 职责收口+返工+补强 | UI Pass | Partial（5 个读 API 全部接入；角色/Skill 搜索已补；写操作按钮禁用） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist GOV-01~15（6P/9P）；verification 含数据量稳定性检查 | **Partial** | 搜索+文档修正完成 |
 | 设置页 | Phase1 职责收口 + 账户合并 | UI Pass | API Pass（7 个真实 API 全部接入） | Partial（数据库/Worker/ES 诊断后端缺口） | Partial（build 通过，运行证据不足） | checklist SET-01~10（9P/1P）；账户入口合并完成 | **Pass（Phase1）** | 账户一级入口移除；/me 重定向；无新增后端 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
-| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial（12 Runtime Pass + 2 Evidence Partial + 1 工作台 Runtime Pass + 2 Not Started + 1 Documentation Pass） | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-12/16 后端完备 / CL-05/06 Not Started) | Partial (R1-A~R1-M 13 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial 且 CL-05/CL-06 Not Started；AI Project Director total closure 不得写成 Pass |
+| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial（14 Runtime Pass + 2 Evidence Partial + 1 工作台 Runtime Pass + 0 Not Started + 1 Documentation Pass） | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-12/16 后端完备 / CL-05/06 Not Started) | Partial (R1-A~R1-M 13 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial 且 CL-05/CL-06 Not Started；AI Project Director total closure 不得写成 Pass |
 
 ---
 
@@ -396,7 +396,7 @@
 | 基准 commit | `806424e` |
 | 审计范围 | 全量 checklist CL-01~CL-18 × ledger R1-A~R1-M × 13 evidence docs |
 | 发现 | 无文档冲突；无 simulate→provider 越界；无 total closure→Pass 越界 |
-| 最终状态 | 12 Runtime Pass (CL-01~04/07~11/13~15) + 2 Evidence Partial (CL-12/16) + 1 工作台 Runtime Pass (CL-17) + 2 Not Started (CL-05/06) + 1 Documentation Pass (CL-18) |
+| 最终状态 | 14 Runtime Pass (CL-01~04/05~06/07~11/13~15) + 2 Evidence Partial (CL-12/16) + 1 工作台 Runtime Pass (CL-17) + 0 Not Started + 1 Documentation Pass (CL-18) |
 | CL-05/06 | Not Started — 角色/Skill 方案生成 + 模板/实例区分未审计 |
 | CL-12 | Evidence Partial — 只读仓库链 live HTTP 通过；full draft chain 端到端需 deliverables 前置 |
 | CL-16 | Evidence Partial — 成本结构闭合；所有成本 heuristic（simulate）；真实 provider 成本需用户确认 |
@@ -404,7 +404,24 @@
 | checklist 回填 | CL-18 (Documentation Pass) |
 | verification 文档 | `verification-project-director-total-gate-r1m-20260531.md` |
 | Gate 结论 | **R1-M Documentation Pass**（全量一致性审计通过；total closure 仍为 Partial） |
-| 后续动作 | total closure 仍为 Partial；剩余缺口 → Codex: CL-12 full draft chain / CL-16 real provider cost (需用户确认)；DeepSeek: CL-05/06 evidence / CL-17 全站验收 |
+| 后续动作 | total closure 仍为 Partial；剩余缺口 → Codex: CL-12 full draft chain / CL-16 real provider cost (需用户确认)；DeepSeek: CL-17 全站验收 |
+
+#### 4.1.14 R1-N：Role / Skill Team Governance Audit（Runtime Pass）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | CL-05/CL-06 角色/Skill 方案生成 + 模板资产 vs 项目实例区分 |
+| 阶段性质 | 审计 + live HTTP + frontend + 文档回填 |
+| 基准 commit | `cf6e7de` |
+| 涉及接口 | `GET /roles/catalog`, `GET /roles/projects/{pid}`, `PUT /roles/projects/{pid}/{role_code}`, `GET /skills/registry`, `GET /skills/projects/{pid}/bindings` |
+| CL-05 证据 | System catalog: 4 roles (product_manager/architect/engineer/reviewer), each with responsibilities/skill_slots/boundaries; 12 skill templates with code/name/purpose; project instances auto-initialized; worker dispatch uses owner_role_code+selected_skill_codes from config |
+| CL-06 证据 | Template: id-less, no project_id (name=架构师, 3 skills); Instance: UUID + project_id (name=Custom Architect, 4 skills, custom_notes); PUT customization confined to instance; lifecycle labels: project_local/template_candidate/template_stable; frontend lifecycle tabs filter by source |
+| Frontend | GovernancePage RolesTab: useSystemRoleCatalog + useProjectRoleCatalog 双视图; SkillsTab: useSkillRegistry + useProjectSkillBindings 双视图 |
+| 测试证据 | 3 passed (test_governance_role_skill_consumption.py) in 2.07s |
+| checklist 回填 | CL-05 (Runtime Pass), CL-06 (Runtime Pass) |
+| verification 文档 | `verification-project-director-role-skill-team-governance-r1n-20260531.md` |
+| Gate 结论 | **R1-N Runtime Pass**（系统目录→项目实例→自定义→Worker 消费全链路 live HTTP 验证；模板 vs 实例边界清晰） |
+| 后续动作 | total closure 仍为 Partial；剩余缺口：CL-12 Evidence Partial, CL-16 Evidence Partial, CL-17 全站验收 |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
@@ -1373,7 +1390,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 | 审批闭环 | Not Started | APV-* 尚未处理 |
 | 治理沉淀 | Not Started | GOV-* 尚未处理 |
 | 成本闭环 | Partial | 部分页面展示 token/cost，但 AI 生成资产台账和成本可信度需总验收 |
-| 总闭环 CL-01~18 | Partial | 12 Runtime Pass + 2 Evidence Partial + 1 工作台 Runtime Pass + 2 Not Started + 1 Documentation Pass；CL-12/16/05/06 gap 未消除；total closure 不得写成 Pass |
+| 总闭环 CL-01~18 | Partial | 14 Runtime Pass + 2 Evidence Partial + 1 工作台 Runtime Pass + 0 Not Started + 1 Documentation Pass；CL-12/CL-16 gap 未消除；total closure 不得写成 Pass |
 
 ---
 
