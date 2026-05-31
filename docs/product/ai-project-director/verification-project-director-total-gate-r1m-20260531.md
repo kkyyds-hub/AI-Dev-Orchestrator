@@ -97,7 +97,7 @@
 
 **仍为 Partial**
 
-### 4.1 Runtime Pass 项目（9 项）
+### 4.1 Runtime Pass 项目（12 项）
 
 | CL | 闭环环节 | 证据 |
 |---|---|---|
@@ -114,21 +114,31 @@
 | CL-14 | 审批闭环：approval 决策 | R1-J live HTTP |
 | CL-15 | 治理闭环：role/skill 消费 | R1-K v2 live HTTP |
 
-### 4.2 Evidence Partial 项目（3 项）
+### 4.2 Evidence Partial 项目（2 项）
 
 | CL | 闭环环节 | 当前状态 | 缺口 |
 |---|---|---|---|
 | CL-12 | 仓库闭环：draft chain | Evidence Partial | 只读仓库链 live HTTP 通过；change plan→batch→preflight→commit candidate 全端到端 live HTTP 需 deliverables 前置 |
 | CL-16 | 成本闭环：cost ledger | Evidence Partial | 成本结构全链路闭合（live HTTP + frontend）；所有成本为 heuristic（simulate $0.002/run）；真实 provider 成本需用户确认 |
-| CL-17 | 页面闭环：全站按钮 | Runtime Pass (工作台) | 工作台 7 按钮全闭环；执行中心/成果中心/治理中心/设置页尚未做全站 CL-17 验收 |
 
-### 4.3 Not Started（3 项）
+### 4.3 Runtime Pass（工作台范围）项目（1 项）
+
+| CL | 闭环环节 | 当前状态 | 备注 |
+|---|---|---|---|
+| CL-17 | 页面闭环：全站按钮 | Runtime Pass (工作台) | 工作台 7 按钮全闭环；执行中心/成果中心/治理中心/设置页尚未做全站 CL-17 验收；不得扩大为全站 Pass |
+
+### 4.4 Not Started 项目（2 项）
 
 | CL | 闭环环节 | 原因 |
 |---|---|---|
 | CL-05 | 团队闭环：角色/Skill 方案生成 | 未审计 |
 | CL-06 | 团队闭环：模板 vs 实例区分 | 未审计 |
-| CL-18 | 文档闭环 | 本次填写完成 → Documentation Pass |
+
+### 4.5 Documentation Pass 项目（1 项）
+
+| CL | 闭环环节 | 状态 |
+|---|---|---|
+| CL-18 | 文档闭环 | Documentation Pass |
 
 ---
 
@@ -183,7 +193,7 @@
 
 **仍为 Partial**
 
-9 Runtime Pass + 3 Evidence Partial + 2 Not Started + 1 Documentation Pass。
+12 Runtime Pass + 2 Evidence Partial + 1 Runtime Pass（工作台）+ 2 Not Started + 1 Documentation Pass。
 Total closure 不能在 CL-12/CL-16/CL-05/CL-06 仍有缺口时标记为 Pass。
 
 ---

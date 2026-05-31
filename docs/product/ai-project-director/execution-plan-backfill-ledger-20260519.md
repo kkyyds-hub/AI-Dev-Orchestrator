@@ -119,7 +119,7 @@
 | 治理中心 | Phase1 职责收口+返工+补强 | UI Pass | Partial（5 个读 API 全部接入；角色/Skill 搜索已补；写操作按钮禁用） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist GOV-01~15（6P/9P）；verification 含数据量稳定性检查 | **Partial** | 搜索+文档修正完成 |
 | 设置页 | Phase1 职责收口 + 账户合并 | UI Pass | API Pass（7 个真实 API 全部接入） | Partial（数据库/Worker/ES 诊断后端缺口） | Partial（build 通过，运行证据不足） | checklist SET-01~10（9P/1P）；账户入口合并完成 | **Pass（Phase1）** | 账户一级入口移除；/me 重定向；无新增后端 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
-| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial (9 Runtime Pass + 3 Evidence Partial + 2 Not Started + 1 Documentation Pass) | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-12/16 后端完备 / CL-05/06 Not Started) | Partial (R1-A~R1-M 13 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial 且 CL-05/CL-06 Not Started；AI Project Director total closure 不得写成 Pass |
+| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial（12 Runtime Pass + 2 Evidence Partial + 1 工作台 Runtime Pass + 2 Not Started + 1 Documentation Pass） | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-12/16 后端完备 / CL-05/06 Not Started) | Partial (R1-A~R1-M 13 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial 且 CL-05/CL-06 Not Started；AI Project Director total closure 不得写成 Pass |
 
 ---
 
@@ -396,7 +396,7 @@
 | 基准 commit | `806424e` |
 | 审计范围 | 全量 checklist CL-01~CL-18 × ledger R1-A~R1-M × 13 evidence docs |
 | 发现 | 无文档冲突；无 simulate→provider 越界；无 total closure→Pass 越界 |
-| 最终状态 | 9 Runtime Pass (CL-01~04/07~11/13~15) + 3 Evidence Partial (CL-12/16/17-全站) + 2 Not Started (CL-05/06) + 1 Documentation Pass (CL-18) |
+| 最终状态 | 12 Runtime Pass (CL-01~04/07~11/13~15) + 2 Evidence Partial (CL-12/16) + 1 工作台 Runtime Pass (CL-17) + 2 Not Started (CL-05/06) + 1 Documentation Pass (CL-18) |
 | CL-05/06 | Not Started — 角色/Skill 方案生成 + 模板/实例区分未审计 |
 | CL-12 | Evidence Partial — 只读仓库链 live HTTP 通过；full draft chain 端到端需 deliverables 前置 |
 | CL-16 | Evidence Partial — 成本结构闭合；所有成本 heuristic（simulate）；真实 provider 成本需用户确认 |
@@ -1373,7 +1373,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 | 审批闭环 | Not Started | APV-* 尚未处理 |
 | 治理沉淀 | Not Started | GOV-* 尚未处理 |
 | 成本闭环 | Partial | 部分页面展示 token/cost，但 AI 生成资产台账和成本可信度需总验收 |
-| 总闭环 CL-01~18 | Partial | 9 Runtime Pass + 3 Evidence Partial + 2 Not Started + 1 Documentation Pass；CL-12/16/05/06 gap 未消除；total closure 不得写成 Pass |
+| 总闭环 CL-01~18 | Partial | 12 Runtime Pass + 2 Evidence Partial + 1 工作台 Runtime Pass + 2 Not Started + 1 Documentation Pass；CL-12/16/05/06 gap 未消除；total closure 不得写成 Pass |
 
 ---
 
