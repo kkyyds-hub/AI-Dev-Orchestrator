@@ -123,7 +123,7 @@
 | CL-12 | 仓库闭环：draft chain | Evidence Partial | 只读仓库链 live HTTP 通过；change plan→batch→preflight→commit candidate 全端到端 live HTTP 需 deliverables 前置 |
 | CL-16 | 成本闭环：cost ledger | Evidence Partial | 成本结构全链路闭合（live HTTP + frontend）；所有成本为 heuristic（simulate $0.002/run）；真实 provider 成本需用户确认 |
 
-### 4.3 Runtime Pass（工作台范围）项目（1 项）
+### 4.3 Runtime Pass 项目（全站，1 项）
 
 | CL | 闭环环节 | 当前状态 | 备注 |
 |---|---|---|---|
@@ -154,9 +154,7 @@
 
 ### 5.2 需要 DeepSeek 的 evidence
 
-| # | 缺口 | 类型 | 优先级 |
-|---|---|---|---|
-| — | — | 所有低风险 evidence 已完成 (R1-A~R1-O) | — |
+所有低风险 evidence 已完成（R1-A~R1-O）。DeepSeek 侧无剩余缺口。
 
 ### 5.3 需要用户确认的高风险行动
 
