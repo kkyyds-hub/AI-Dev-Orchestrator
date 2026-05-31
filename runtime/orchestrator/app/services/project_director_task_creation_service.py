@@ -55,6 +55,13 @@ _BOUNDARY_ACTIONS = [
     "不创建真实仓库绑定",
 ]
 
+_FORMAL_PROJECT_CREATION_WARNINGS = [
+    "Agent 编队建议仅作为草案快照展示，未创建 Agent Session，未自动启动 Worker。",
+    "Skill 绑定建议仅作为草案快照展示，未创建真实 Skill 绑定。",
+    "仓库绑定建议仅作为草案快照展示，未创建真实仓库绑定，未写入仓库。",
+    "验证机制建议仅作为草案快照展示，未执行验证命令。",
+]
+
 
 def _map_priority(priority_hint: str) -> TaskPriority:
     """Map plan version priority_hint to TaskPriority."""
@@ -74,6 +81,7 @@ class TaskCreationResult:
     status: str
     already_created: bool
     next_action: str
+    warnings: list[str]
     forbidden_actions: list[str]
     gate_conclusion: str
 
@@ -239,6 +247,7 @@ class ProjectDirectorTaskCreationService:
                 "正式项目与待执行任务队列已创建。"
                 "后续如需执行任务，请在人工确认后单独触发 Worker 调度。"
             ),
+            warnings=_FORMAL_PROJECT_CREATION_WARNINGS,
             forbidden_actions=_BOUNDARY_ACTIONS,
             gate_conclusion=(
                 "部分通过（正式项目 + 任务队列创建已完成；Worker 执行未开始）"
@@ -266,6 +275,7 @@ class ProjectDirectorTaskCreationService:
                 if already_created
                 else "正式项目与待执行任务队列已创建。"
             ),
+            warnings=_FORMAL_PROJECT_CREATION_WARNINGS,
             forbidden_actions=[*_BOUNDARY_ACTIONS, "不重复创建 Project/Tasks"],
             gate_conclusion=(
                 "部分通过（正式项目 + 任务队列创建记录已存在）"

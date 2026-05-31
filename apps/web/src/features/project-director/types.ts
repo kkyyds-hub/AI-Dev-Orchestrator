@@ -178,6 +178,7 @@ export interface ProjectDirectorTaskCreationResponse {
   status: string;
   already_created: boolean;
   next_action: string;
+  warnings: string[];
   forbidden_actions: string[];
   gate_conclusion: string;
 }

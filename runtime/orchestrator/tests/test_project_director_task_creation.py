@@ -372,6 +372,12 @@ class TestCreateTasks:
         assert len(data["created_task_ids"]) == len(confirmed["proposed_tasks"])
         assert data["status"] == "created"
         assert data["already_created"] is False
+        warnings_text = "\n".join(data["warnings"])
+        assert "Agent Session" in warnings_text
+        assert "未自动启动 Worker" in warnings_text
+        assert "真实 Skill 绑定" in warnings_text
+        assert "真实仓库绑定" in warnings_text
+        assert "未执行验证命令" in warnings_text
 
         project_resp = client.get(f"/projects/{data['project_id']}")
         assert project_resp.status_code == 200
@@ -422,6 +428,12 @@ class TestCreateTasks:
         assert second["project_id"] == first["project_id"]
         assert second["created_task_ids"] == first["created_task_ids"]
         assert second["task_count"] == first["task_count"]
+        second_warnings_text = "\n".join(second["warnings"])
+        assert "Agent Session" in second_warnings_text
+        assert "未自动启动 Worker" in second_warnings_text
+        assert "真实 Skill 绑定" in second_warnings_text
+        assert "真实仓库绑定" in second_warnings_text
+        assert "未执行验证命令" in second_warnings_text
         assert "不会重复创建" in second["next_action"]
         assert "部分通过" in second["gate_conclusion"]
         assert ("This confirmed " + "draft") not in second["next_action"]
@@ -492,7 +504,7 @@ class TestCreateTasks:
         required_fields = [
             "plan_version_id", "session_id", "project_id",
             "created_task_ids", "task_count", "status",
-            "next_action", "forbidden_actions", "gate_conclusion",
+            "next_action", "warnings", "forbidden_actions", "gate_conclusion",
         ]
         for field in required_fields:
             assert field in data, f"Missing required field: {field}"
@@ -504,6 +516,7 @@ class TestCreateTasks:
         assert len(data["created_task_ids"]) > 0
         assert data["status"] == "created"
         assert data["next_action"] != ""
+        assert len(data["warnings"]) > 0
         assert len(data["forbidden_actions"]) > 0
         assert data["gate_conclusion"] != ""
 

@@ -596,6 +596,18 @@ export function DirectorChatEntry({
                       <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-300">
                         {taskCreation.next_action}
                       </p>
+                      {taskCreation.warnings.length > 0 ? (
+                        <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                          <p className="text-xs font-medium text-amber-100">
+                            创建结果边界提示
+                          </p>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-amber-100/90">
+                            {taskCreation.warnings.map((warning) => (
+                              <li key={warning}>{warning}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       {workerRunOnceResult ? (
                         <div
                           data-testid="director-worker-run-result"

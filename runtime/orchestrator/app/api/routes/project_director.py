@@ -1068,6 +1068,7 @@ class TaskCreationResponse(BaseModel):
     status: str
     already_created: bool = False
     next_action: str
+    warnings: list[str] = Field(default_factory=list)
     forbidden_actions: list[str] = Field(default_factory=list)
     gate_conclusion: str
 
@@ -1130,6 +1131,7 @@ def create_tasks_from_plan_version(
         status=result.status,
         already_created=result.already_created,
         next_action=result.next_action,
+        warnings=result.warnings,
         forbidden_actions=result.forbidden_actions,
         gate_conclusion=result.gate_conclusion,
     )
@@ -1184,6 +1186,7 @@ def create_formal_project_from_plan_version(
         status=result.status,
         already_created=result.already_created,
         next_action=result.next_action,
+        warnings=result.warnings,
         forbidden_actions=result.forbidden_actions,
         gate_conclusion=result.gate_conclusion,
     )
@@ -1224,6 +1227,7 @@ def get_created_tasks(
         status=result.status,
         already_created=result.already_created,
         next_action=result.next_action,
+        warnings=result.warnings,
         forbidden_actions=result.forbidden_actions,
         gate_conclusion=result.gate_conclusion,
     )
