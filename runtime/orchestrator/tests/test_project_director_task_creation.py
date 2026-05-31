@@ -21,6 +21,7 @@ from app.core.db_tables import (
     AgentSessionTable,
     ProjectRoleSkillBindingTable,
     ORMBase,
+    ProjectDirectorAgentTeamConfigTable,
     ProjectTable,
     ProjectDirectorPlanVersionTable,
     RepositoryWorkspaceTable,
@@ -474,6 +475,155 @@ class TestCreateTasks:
         project_rows = db_session.execute(select(ProjectTable)).scalars().all()
         assert len(task_rows) == first["task_count"]
         assert len(project_rows) == 1
+
+    def test_create_formal_project_creates_pending_agent_team_config(
+        self, client, db_session
+    ):
+        """Formal project creation persists a pending project-level agent team config."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        confirmed_resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert confirmed_resp.status_code == 200
+        confirmed = confirmed_resp.json()
+        assert len(confirmed["agent_team_suggestions"]) > 0
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert resp.status_code == 200
+        created = resp.json()
+
+        config_resp = client.get(
+            f"/project-director/projects/{created['project_id']}/agent-team-config"
+        )
+        assert config_resp.status_code == 200
+        body = config_resp.json()
+        config = body["config"]
+
+        assert body["project_id"] == created["project_id"]
+        assert config["project_id"] == created["project_id"]
+        assert config["plan_version_id"] == pv["id"]
+        assert config["source_draft_id"] == f"pdv:{pv['id']}:{confirmed['version_no']}"
+        assert config["status"] == "pending_confirmation"
+        assert len(config["agent_team"]) == len(confirmed["agent_team_suggestions"])
+        assert "Agent 编队" in body["next_action"]
+        assert any("Agent Session" in item for item in config["warnings"])
+        assert any("Worker" in item for item in config["warnings"])
+
+        rows = db_session.execute(
+            select(ProjectDirectorAgentTeamConfigTable)
+        ).scalars().all()
+        assert len(rows) == 1
+
+    def test_regular_project_agent_team_config_returns_null(self, client):
+        """Regular projects do not show AI Director agent team config."""
+        project_id = _create_project(client, name="普通项目")
+
+        resp = client.get(
+            f"/project-director/projects/{project_id}/agent-team-config"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["project_id"] == project_id
+        assert body["config"] is None
+
+    def test_review_agent_team_config_confirm_then_reject_conflicts(
+        self, client, db_session
+    ):
+        """A pending agent team config can be confirmed once, without side effects."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+        create_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert create_resp.status_code == 200
+        project_id = create_resp.json()["project_id"]
+
+        confirm_resp = client.post(
+            f"/project-director/projects/{project_id}/agent-team-config/review",
+            json={"action": "confirm", "note": "确认编队"},
+        )
+        assert confirm_resp.status_code == 200
+        confirmed = confirm_resp.json()["config"]
+        assert confirmed["status"] == "confirmed"
+        assert confirmed["confirmed_at"] is not None
+        assert confirmed["rejected_at"] is None
+
+        reject_resp = client.post(
+            f"/project-director/projects/{project_id}/agent-team-config/review",
+            json={"action": "reject"},
+        )
+        assert reject_resp.status_code == 409
+
+        assert db_session.execute(select(AgentSessionTable)).scalars().all() == []
+        assert db_session.execute(select(RunTable)).scalars().all() == []
+        assert db_session.execute(select(ProjectRoleSkillBindingTable)).scalars().all() == []
+        assert db_session.execute(select(RepositoryWorkspaceTable)).scalars().all() == []
+
+    def test_review_agent_team_config_reject_then_confirm_conflicts(self, client):
+        """A rejected agent team config cannot be confirmed later."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+        create_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert create_resp.status_code == 200
+        project_id = create_resp.json()["project_id"]
+
+        reject_resp = client.post(
+            f"/project-director/projects/{project_id}/agent-team-config/review",
+            json={"action": "reject", "note": "暂不采用"},
+        )
+        assert reject_resp.status_code == 200
+        rejected = reject_resp.json()["config"]
+        assert rejected["status"] == "rejected"
+        assert rejected["rejected_at"] is not None
+        assert rejected["confirmed_at"] is None
+
+        confirm_resp = client.post(
+            f"/project-director/projects/{project_id}/agent-team-config/review",
+            json={"action": "confirm"},
+        )
+        assert confirm_resp.status_code == 409
+
+    def test_create_formal_project_does_not_duplicate_agent_team_config(
+        self, client, db_session
+    ):
+        """Repeated formalization readbacks the existing config without duplication."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        first_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        second_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert first_resp.status_code == 200
+        assert second_resp.status_code == 200
+        project_id = first_resp.json()["project_id"]
+
+        rows = db_session.execute(
+            select(ProjectDirectorAgentTeamConfigTable)
+        ).scalars().all()
+        assert len(rows) == 1
+        assert str(rows[0].project_id) == project_id
+        assert str(rows[0].plan_version_id) == pv["id"]
+
+        config_resp = client.get(
+            f"/project-director/projects/{project_id}/agent-team-config"
+        )
+        assert config_resp.status_code == 200
+        assert config_resp.json()["config"]["status"] == "pending_confirmation"
 
     def test_create_formal_project_does_not_create_execution_side_effects(
         self, client, db_session

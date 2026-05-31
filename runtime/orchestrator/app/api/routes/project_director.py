@@ -30,6 +30,11 @@ from app.domain.project_director_plan_version import (
     SkillBindingSuggestion as SkillBindingSuggestionDomain,
     VerificationMechanismSuggestion as VerificationMechanismSuggestionDomain,
 )
+from app.domain.project_director_agent_team_config import (
+    AgentTeamConfigStatus,
+    ProjectDirectorAgentTeamConfig,
+    ProjectDirectorAgentTeamMemberConfig,
+)
 from app.domain.project_director_session import (
     ClarifyingAnswer,
     ClarifyingQuestion,
@@ -44,6 +49,9 @@ from app.repositories.project_director_session_repository import (
 from app.repositories.project_director_task_creation_repository import (
     ProjectDirectorTaskCreationRecordRepository,
 )
+from app.repositories.project_director_agent_team_config_repository import (
+    ProjectDirectorAgentTeamConfigRepository,
+)
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.project_director_confirmation_service import (
@@ -53,6 +61,10 @@ from app.services.project_director_plan_service import ProjectDirectorPlanServic
 from app.services.project_director_service import ProjectDirectorService
 from app.services.project_director_task_creation_service import (
     ProjectDirectorTaskCreationService,
+)
+from app.services.project_director_agent_team_config_service import (
+    AgentTeamConfigReadResult,
+    ProjectDirectorAgentTeamConfigService,
 )
 
 
@@ -95,10 +107,23 @@ def _get_task_creation_service(
     task_repo = TaskRepository(session)
     creation_repo = ProjectDirectorTaskCreationRecordRepository(session)
     project_repo = ProjectRepository(session)
+    agent_team_config_repo = ProjectDirectorAgentTeamConfigRepository(session)
     return ProjectDirectorTaskCreationService(
         plan_repo=plan_repo,
         task_repo=task_repo,
         creation_repo=creation_repo,
+        project_repo=project_repo,
+        agent_team_config_repo=agent_team_config_repo,
+    )
+
+
+def _get_agent_team_config_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorAgentTeamConfigService:
+    config_repo = ProjectDirectorAgentTeamConfigRepository(session)
+    project_repo = ProjectRepository(session)
+    return ProjectDirectorAgentTeamConfigService(
+        config_repo=config_repo,
         project_repo=project_repo,
     )
 
@@ -1053,6 +1078,172 @@ def list_session_confirmations(
         items=[_inbox_item_to_response(i) for i in items],
         total=len(items),
     )
+
+
+
+# ── Agent Team Config DTOs / Routes ─────────────────────────────────────────
+
+
+class AgentTeamConfigMemberResponse(BaseModel):
+    role_code: str
+    role_name: str
+    responsibility: str
+    collaboration_notes: list[str] = Field(default_factory=list)
+    review_status: str = "pending_confirmation"
+
+    @classmethod
+    def from_domain(
+        cls, item: ProjectDirectorAgentTeamMemberConfig
+    ) -> "AgentTeamConfigMemberResponse":
+        return cls(
+            role_code=item.role_code,
+            role_name=item.role_name,
+            responsibility=item.responsibility,
+            collaboration_notes=item.collaboration_notes,
+            review_status=item.review_status,
+        )
+
+
+class AgentTeamConfigResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    plan_version_id: UUID
+    source_draft_id: str
+    status: AgentTeamConfigStatus
+    agent_team: list[AgentTeamConfigMemberResponse] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    review_note: str = ""
+    created_at: str
+    updated_at: str
+    confirmed_at: str | None = None
+    rejected_at: str | None = None
+
+    @classmethod
+    def from_domain(
+        cls, config: ProjectDirectorAgentTeamConfig
+    ) -> "AgentTeamConfigResponse":
+        return cls(
+            id=config.id,
+            project_id=config.project_id,
+            plan_version_id=config.plan_version_id,
+            source_draft_id=config.source_draft_id,
+            status=config.status,
+            agent_team=[
+                AgentTeamConfigMemberResponse.from_domain(item)
+                for item in config.agent_team
+            ],
+            warnings=config.warnings,
+            review_note=config.review_note,
+            created_at=config.created_at.isoformat(),
+            updated_at=config.updated_at.isoformat(),
+            confirmed_at=(
+                config.confirmed_at.isoformat() if config.confirmed_at else None
+            ),
+            rejected_at=(
+                config.rejected_at.isoformat() if config.rejected_at else None
+            ),
+        )
+
+
+class AgentTeamConfigEnvelopeResponse(BaseModel):
+    project_id: UUID
+    config: AgentTeamConfigResponse | None = None
+    next_action: str
+
+    @classmethod
+    def from_result(
+        cls, result: AgentTeamConfigReadResult
+    ) -> "AgentTeamConfigEnvelopeResponse":
+        return cls(
+            project_id=result.project_id,
+            config=(
+                AgentTeamConfigResponse.from_domain(result.config)
+                if result.config is not None
+                else None
+            ),
+            next_action=result.next_action,
+        )
+
+
+class ReviewAgentTeamConfigRequest(BaseModel):
+    action: Literal["confirm", "reject"]
+    note: str = Field(default="", max_length=2000)
+
+
+@router.get(
+    "/projects/{project_id}/agent-team-config",
+    response_model=AgentTeamConfigEnvelopeResponse,
+    summary="Read project-level Project Director agent team config",
+)
+def get_project_agent_team_config(
+    project_id: UUID,
+    svc: Annotated[
+        ProjectDirectorAgentTeamConfigService,
+        Depends(_get_agent_team_config_service),
+    ],
+) -> AgentTeamConfigEnvelopeResponse:
+    """Read the project-level agent team config, if the project has one."""
+
+    try:
+        result = svc.get_for_project(project_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return AgentTeamConfigEnvelopeResponse.from_result(result)
+
+
+@router.post(
+    "/projects/{project_id}/agent-team-config/review",
+    response_model=AgentTeamConfigEnvelopeResponse,
+    summary="Confirm or reject a project-level Project Director agent team config",
+)
+def review_project_agent_team_config(
+    project_id: UUID,
+    request: ReviewAgentTeamConfigRequest,
+    svc: Annotated[
+        ProjectDirectorAgentTeamConfigService,
+        Depends(_get_agent_team_config_service),
+    ],
+) -> AgentTeamConfigEnvelopeResponse:
+    """Review the config only; never create Agent Session, Worker, Run, or bindings."""
+
+    try:
+        result = svc.review_project_config(
+            project_id,
+            action=request.action,
+            note=request.note,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lower_detail = detail.lower()
+        if "project" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "already been reviewed" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if "agent team config" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return AgentTeamConfigEnvelopeResponse.from_result(result)
 
 
 # ── Task Creation DTOs ───────────────────────────────────────────────

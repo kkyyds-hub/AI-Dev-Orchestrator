@@ -1,4 +1,4 @@
-﻿import { useMutation, useQueryClient } from "@tanstack/react-query";
+﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   createProjectDirectorTaskQueue,
@@ -6,6 +6,8 @@ import {
   confirmProjectDirectorPlanVersion,
   createProjectDirectorPlanVersion,
   createProjectDirectorSession,
+  fetchProjectDirectorAgentTeamConfig,
+  reviewProjectDirectorAgentTeamConfig,
   reviewProjectDirectorPlanVersion,
   submitProjectDirectorAnswers,
 } from "./api";
@@ -58,6 +60,32 @@ export function useCreateProjectDirectorTaskQueue() {
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
         queryClient.invalidateQueries({ queryKey: ["project-timeline", result.project_id] }),
+      ]);
+    },
+  });
+}
+
+export function useProjectDirectorAgentTeamConfig(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-director", "agent-team-config", projectId],
+    queryFn: () => fetchProjectDirectorAgentTeamConfig(projectId as string),
+    enabled: Boolean(projectId),
+    retry: false,
+  });
+}
+
+export function useReviewProjectDirectorAgentTeamConfigMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: reviewProjectDirectorAgentTeamConfig,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "agent-team-config", result.project_id],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
       ]);
     },
   });

@@ -17,6 +17,11 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from app.domain.project import Project, ProjectStage, ProjectStatus
+from app.domain.project_director_agent_team_config import (
+    AgentTeamConfigStatus,
+    ProjectDirectorAgentTeamConfig,
+    ProjectDirectorAgentTeamMemberConfig,
+)
 from app.domain.project_director_plan_version import (
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
@@ -29,6 +34,9 @@ from app.domain.project_role import ProjectRoleCode
 from app.domain.task import Task, TaskPriority
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
+)
+from app.repositories.project_director_agent_team_config_repository import (
+    ProjectDirectorAgentTeamConfigRepository,
 )
 from app.repositories.project_director_task_creation_repository import (
     ProjectDirectorTaskCreationRecordRepository,
@@ -60,6 +68,12 @@ _FORMAL_PROJECT_CREATION_WARNINGS = [
     "Skill 绑定建议仅作为草案快照展示，未创建真实 Skill 绑定。",
     "仓库绑定建议仅作为草案快照展示，未创建真实仓库绑定，未写入仓库。",
     "验证机制建议仅作为草案快照展示，未执行验证命令。",
+]
+
+_AGENT_TEAM_CONFIG_WARNINGS = [
+    "当前仅为 Agent 编队配置，不创建真实 Agent Session。",
+    "确认 Agent 编队不会自动启动 Worker。",
+    "后续执行仍需要用户手动触发。",
 ]
 
 
@@ -96,11 +110,13 @@ class ProjectDirectorTaskCreationService:
         task_repo: TaskRepository,
         creation_repo: ProjectDirectorTaskCreationRecordRepository,
         project_repo: ProjectRepository,
+        agent_team_config_repo: ProjectDirectorAgentTeamConfigRepository | None = None,
     ) -> None:
         self._plan_repo = plan_repo
         self._task_repo = task_repo
         self._creation_repo = creation_repo
         self._project_repo = project_repo
+        self._agent_team_config_repo = agent_team_config_repo
 
     def create_tasks_from_plan_version(
         self, plan_version_id: UUID
@@ -157,6 +173,9 @@ class ProjectDirectorTaskCreationService:
 
         existing = self._creation_repo.get_by_plan_version_id(plan_version_id)
         if existing is not None:
+            existing_plan_version = self._plan_repo.get_by_id(plan_version_id)
+            if existing_plan_version is not None:
+                self._ensure_agent_team_config_for_plan(existing_plan_version)
             return self._result_from_record(existing, already_created=True)
 
         self._ensure_proposed_tasks_are_valid(plan_version)
@@ -175,6 +194,7 @@ class ProjectDirectorTaskCreationService:
                 f"The project may have been deleted."
             )
 
+        self._prepare_agent_team_config_for_plan(plan_version)
         return self._create_task_queue_for_plan_version(plan_version)
 
     def get_created_tasks(
@@ -253,6 +273,69 @@ class ProjectDirectorTaskCreationService:
                 "部分通过（正式项目 + 任务队列创建已完成；Worker 执行未开始）"
             ),
         )
+
+    def _prepare_agent_team_config_for_plan(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> None:
+        """Add a pending project-level agent team config to the current transaction."""
+
+        if self._agent_team_config_repo is None:
+            return
+        if plan_version.project_id is None:
+            return
+        if not plan_version.agent_team_suggestions:
+            return
+        if (
+            self._agent_team_config_repo.get_by_plan_version_id(plan_version.id)
+            is not None
+        ):
+            return
+        if (
+            self._agent_team_config_repo.get_by_project_id(plan_version.project_id)
+            is not None
+        ):
+            return
+
+        source_draft_id = f"pdv:{plan_version.id}:{plan_version.version_no}"
+        config = ProjectDirectorAgentTeamConfig(
+            project_id=plan_version.project_id,
+            plan_version_id=plan_version.id,
+            source_draft_id=source_draft_id,
+            status=AgentTeamConfigStatus.PENDING_CONFIRMATION,
+            agent_team=[
+                ProjectDirectorAgentTeamMemberConfig(
+                    role_code=item.role_code.value,
+                    role_name=item.role_name or item.role_code.value,
+                    responsibility=item.responsibility,
+                    collaboration_notes=item.collaboration_notes,
+                    review_status=AgentTeamConfigStatus.PENDING_CONFIRMATION.value,
+                )
+                for item in plan_version.agent_team_suggestions
+            ],
+            warnings=list(_AGENT_TEAM_CONFIG_WARNINGS),
+        )
+        self._agent_team_config_repo.add_no_commit(config)
+
+    def _ensure_agent_team_config_for_plan(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> None:
+        """Best-effort idempotent backfill for already-created formal projects."""
+
+        before = (
+            self._agent_team_config_repo.get_by_plan_version_id(plan_version.id)
+            if self._agent_team_config_repo is not None
+            else None
+        )
+        self._prepare_agent_team_config_for_plan(plan_version)
+        after = (
+            self._agent_team_config_repo.get_by_plan_version_id(plan_version.id)
+            if self._agent_team_config_repo is not None
+            else None
+        )
+        if before is None and after is not None:
+            self._agent_team_config_repo.session.commit()
 
     def _result_from_record(
         self,

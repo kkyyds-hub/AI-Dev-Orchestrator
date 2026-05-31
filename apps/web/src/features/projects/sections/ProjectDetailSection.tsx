@@ -2,6 +2,7 @@ import { RoleFlowPanel } from "../../roles/RoleFlowPanel";
 import { StrategyDecisionPanel } from "../../strategy/StrategyDecisionPanel";
 import { StrategyRuleEditor } from "../../strategy/StrategyRuleEditor";
 import { ProjectSopPanel } from "../ProjectSopPanel";
+import { AgentTeamConfigCard } from "../components/AgentTeamConfigCard";
 import { ProjectDetailHeader } from "../components/ProjectDetailHeader";
 import { ProjectDetailStatsGrid } from "../components/ProjectDetailStatsGrid";
 import { ProjectDirectorSourceCard } from "../components/ProjectDirectorSourceCard";
@@ -93,6 +94,8 @@ export function ProjectDetailSection(props: {
       />
 
       <ProjectDirectorSourceCard project={props.project} detail={props.detail} />
+
+      <AgentTeamConfigCard projectId={projectId} />
 
       <ProjectDetailStatsGrid project={props.project} taskStats={taskStats} />
 

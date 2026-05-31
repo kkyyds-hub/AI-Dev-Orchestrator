@@ -85,6 +85,42 @@ export interface ProjectDirectorAgentTeamSuggestion {
   collaboration_notes: string[];
 }
 
+export type ProjectDirectorAgentTeamConfigStatus =
+  | "pending_confirmation"
+  | "confirmed"
+  | "rejected";
+
+export type ProjectDirectorAgentTeamConfigReviewAction = "confirm" | "reject";
+
+export interface ProjectDirectorAgentTeamConfigMember {
+  role_code: string;
+  role_name: string;
+  responsibility: string;
+  collaboration_notes: string[];
+  review_status: string;
+}
+
+export interface ProjectDirectorAgentTeamConfig {
+  id: string;
+  project_id: string;
+  plan_version_id: string;
+  source_draft_id: string;
+  status: ProjectDirectorAgentTeamConfigStatus;
+  agent_team: ProjectDirectorAgentTeamConfigMember[];
+  warnings: string[];
+  review_note: string;
+  created_at: string;
+  updated_at: string;
+  confirmed_at: string | null;
+  rejected_at: string | null;
+}
+
+export interface ProjectDirectorAgentTeamConfigResponse {
+  project_id: string;
+  config: ProjectDirectorAgentTeamConfig | null;
+  next_action: string;
+}
+
 export interface ProjectDirectorSkillBindingSuggestion {
   skill_code: string;
   owner_role_code: string;
@@ -214,4 +250,10 @@ export interface ReviewProjectDirectorPlanVersionInput {
 
 export interface CreateProjectDirectorTaskQueueInput {
   planVersionId: string;
+}
+
+export interface ReviewProjectDirectorAgentTeamConfigInput {
+  projectId: string;
+  action: ProjectDirectorAgentTeamConfigReviewAction;
+  note?: string;
 }

@@ -6,10 +6,12 @@ import type {
   CreateProjectDirectorPlanVersionInput,
   CreateProjectDirectorSessionInput,
   CreateProjectDirectorTaskQueueInput,
+  ProjectDirectorAgentTeamConfigResponse,
   ProjectDirectorPlanReviewResponse,
   ProjectDirectorPlanVersion,
   ProjectDirectorSession,
   ProjectDirectorTaskCreationResponse,
+  ReviewProjectDirectorAgentTeamConfigInput,
   ReviewProjectDirectorPlanVersionInput,
   SubmitProjectDirectorAnswersInput,
 } from "./types";
@@ -90,6 +92,29 @@ export function createProjectDirectorTaskQueue(
     `/project-director/plan-versions/${input.planVersionId}/create-formal-project`,
     {
       method: "POST",
+    },
+  );
+}
+
+export function fetchProjectDirectorAgentTeamConfig(
+  projectId: string,
+): Promise<ProjectDirectorAgentTeamConfigResponse> {
+  return requestJson<ProjectDirectorAgentTeamConfigResponse>(
+    `/project-director/projects/${projectId}/agent-team-config`,
+  );
+}
+
+export function reviewProjectDirectorAgentTeamConfig(
+  input: ReviewProjectDirectorAgentTeamConfigInput,
+): Promise<ProjectDirectorAgentTeamConfigResponse> {
+  return requestJson<ProjectDirectorAgentTeamConfigResponse>(
+    `/project-director/projects/${input.projectId}/agent-team-config/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action: input.action,
+        note: input.note ?? "",
+      }),
     },
   );
 }
