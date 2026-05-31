@@ -404,7 +404,7 @@
 | checklist 回填 | CL-18 (Documentation Pass) |
 | verification 文档 | `verification-project-director-total-gate-r1m-20260531.md` |
 | Gate 结论 | **R1-M Documentation Pass**（全量一致性审计通过；total closure 仍为 Partial） |
-| 后续动作 | total closure 仍为 Partial；剩余缺口 → Codex: CL-12 full draft chain / CL-16 real provider cost (需用户确认)；DeepSeek: CL-17 全站页面验收 |
+| 后续动作 | total closure 仍为 Partial；剩余缺口 → Codex: CL-12 full draft chain / CL-16 real provider cost (需用户确认) |
 
 #### 4.1.14 R1-N：Role / Skill Team Governance Audit（Runtime Pass）
 
@@ -421,7 +421,23 @@
 | checklist 回填 | CL-05 (Runtime Pass), CL-06 (Runtime Pass) |
 | verification 文档 | `verification-project-director-role-skill-team-governance-r1n-20260531.md` |
 | Gate 结论 | **R1-N Runtime Pass**（系统目录→项目实例→自定义→Worker 消费全链路 live HTTP 验证；模板 vs 实例边界清晰） |
-| 后续动作 | total closure 仍为 Partial；剩余缺口：CL-12 Evidence Partial, CL-16 Evidence Partial, CL-17 全站验收 |
+| 后续动作 | total closure 仍为 Partial；剩余缺口：CL-12 Evidence Partial, CL-16 Evidence Partial |
+
+#### 4.1.15 R1-O：Full-Site Button Closure Audit（Runtime Pass 全站）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | CL-17 全站页面按钮真实性审计 |
+| 阶段性质 | 前端静态审计 + build + 文档回填 |
+| 基准 commit | `3805509` |
+| 覆盖页面 | 10 页面：工作台、执行中心(任务/运行/仓库)、成果中心(交付物/审批)、治理中心、设置页、项目页、侧边栏 |
+| 审计结果 | 70 入口: 37 API + 21 Navigation + 2 Display + 5 Disabled + 5 Manual = **0 Gap** |
+| 高风险 | Worker Pool: 不自动调用；planning/apply/apply-local/git-commit: 不存在于前端；Memory 按钮: 已禁用+cursor-not-allowed；provider_openai: 需用户主动保存 |
+| Frontend Build | built in 3.64s |
+| checklist 回填 | CL-17 (Runtime Pass 全站) |
+| verification 文档 | `verification-project-director-fullsite-button-closure-r1o-20260531.md` |
+| Gate 结论 | **R1-O Runtime Pass（全站）**（0 Gap；0 假按钮；CL-17 从 工作台 升级为 全站） |
+| 后续动作 | total closure 仍为 Partial；剩余缺口：CL-12 Evidence Partial / CL-16 Evidence Partial |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 

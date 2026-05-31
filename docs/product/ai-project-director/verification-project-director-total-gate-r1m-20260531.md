@@ -54,7 +54,7 @@
 | CL-14 | 审批闭环：交付物是否经过审批决策 | Runtime Pass | R1-J | ✓ |
 | CL-15 | 治理闭环：角色/Skill 是否记录消费证据 | Runtime Pass | R1-K v2 | ✓ |
 | CL-16 | 成本闭环：AI 生成是否记录成本台账 | **Evidence Partial** | R1-L | ✓ |
-| CL-17 | 页面闭环：页面按钮是否真实闭环 | Runtime Pass (工作台) | R1-A~F | ✓ (工作台已 Pass，全站 Partial) |
+| CL-17 | 页面闭环：页面按钮是否真实闭环 | **Runtime Pass（全站）** | R1-O | ✓ (全站 70 入口 0 Gap) |
 | CL-18 | 文档闭环：产品文档是否同步更新 | **本轮填写** | R1-M (本文档) | ✓ |
 
 ### 2.2 已发现的潜在问题
@@ -63,7 +63,7 @@
 |---|---|---|---|
 | 1 | R1-Fb entry (ledger line 275) 记录 CL-15 Evidence Partial / CL-16 Evidence Partial — 但这是 R1-Fb 历史状态，后续 R1-K / R1-L 已更新 | 无 — 历史记录 | 无需修改 |
 | 2 | CL-05 / CL-06 已由 R1-N 升为 Runtime Pass | 已消除 | 无需处理 |
-| 3 | CL-17 只覆盖工作台，全站其他页面尚未验收 | 次要 — 非阻断 | 状态已准确标注 |
+| 3 | CL-17 已由 R1-O 升为全站 Runtime Pass | 已消除 | 无需处理 |
 | 4 | CL-12 / CL-16 均为 Evidence Partial，非 Runtime Pass | 关键 — 必须保留 | 已确认未越界写成 Pass |
 
 **结论：无文档冲突。所有状态与 evidence 一致。无 simulate → provider 越界表述。无 total closure → Pass 越界表述。**
@@ -127,7 +127,7 @@
 
 | CL | 闭环环节 | 当前状态 | 备注 |
 |---|---|---|---|
-| CL-17 | 页面闭环：全站按钮 | Runtime Pass (工作台) | 工作台 7 按钮全闭环；执行中心/成果中心/治理中心/设置页尚未做全站 CL-17 验收；不得扩大为全站 Pass |
+| CL-17 | 页面闭环：全站按钮 | **Runtime Pass（全站）** | R1-O: 10 页面 70 入口 0 Gap；CL-17 从工作台升级为全站 Runtime Pass |
 
 ### 4.4 Not Started 项目（0 项）
 
@@ -156,7 +156,7 @@
 
 | # | 缺口 | 类型 | 优先级 |
 |---|---|---|---|
-| 1 | CL-17: 全站页面闭环验收（执行中心/成果中心/治理中心/设置页） | 前端按钮真实性审计 | 低 |
+| — | — | 所有低风险 evidence 已完成 (R1-A~R1-O) | — |
 
 ### 5.3 需要用户确认的高风险行动
 
@@ -193,7 +193,7 @@
 
 **仍为 Partial**
 
-14 Runtime Pass + 2 Evidence Partial + 1 Runtime Pass（工作台）+ 0 Not Started + 1 Documentation Pass。
+15 Runtime Pass（含 CL-17 全站）+ 2 Evidence Partial + 0 Not Started + 1 Documentation Pass。
 Total closure 不能在 CL-12/CL-16 仍有缺口时标记为 Pass。
 
 ---
@@ -217,7 +217,7 @@ CL-13 交付闭环：Runtime Pass
 CL-14 审批闭环：Runtime Pass
 CL-15 治理闭环：Runtime Pass
 CL-16 成本闭环：Evidence Partial
-CL-17 页面闭环：Runtime Pass (工作台)
+CL-17 页面闭环：Runtime Pass（全站）
 CL-18 文档闭环：Documentation Pass
 
 AI Project Director total closure: Partial
