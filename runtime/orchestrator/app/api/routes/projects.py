@@ -45,6 +45,7 @@ from app.repositories.commit_candidate_repository import CommitCandidateReposito
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
+from app.repositories.project_ai_summary_repository import ProjectAISummaryRepository
 from app.repositories.project_role_repository import ProjectRoleRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.repository_snapshot_repository import (
@@ -87,6 +88,10 @@ from app.services.project_memory_service import (
     ProjectMemorySearchHit,
     ProjectMemorySearchResult,
     ProjectMemoryService,
+)
+from app.services.project_ai_summary_service import (
+    ProjectAISummaryProjectNotFoundError,
+    ProjectAISummaryService,
 )
 from app.services.project_service import (
     ProjectDetail,
@@ -233,6 +238,77 @@ class ProjectResponse(BaseModel):
             ),
             created_at=project.created_at,
             updated_at=project.updated_at,
+        )
+
+
+class ProjectAISummaryResponse(BaseModel):
+    """Persisted project summary snapshot returned by project AI summary APIs."""
+
+    id: UUID
+    project_id: UUID
+    status: str
+    source: str
+    summary_markdown: str
+    source_version: str
+    source_fingerprint: str
+    source_hash: str
+    model_provider: str | None = None
+    model_name: str | None = None
+    prompt_hash: str
+    provider_receipt_id: str | None = None
+    generated_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    error_summary: str | None = None
+    stale: bool = False
+    triggered_ai: bool = False
+
+    @classmethod
+    def from_summary(cls, summary) -> "ProjectAISummaryResponse":
+        """Convert one persisted project summary into the API DTO."""
+
+        return cls(
+            id=summary.id,
+            project_id=summary.project_id,
+            status=summary.status.value,
+            source=summary.source.value,
+            summary_markdown=summary.summary_markdown,
+            source_version=summary.source_version,
+            source_fingerprint=summary.source_fingerprint,
+            source_hash=summary.source_hash,
+            model_provider=summary.model_provider,
+            model_name=summary.model_name,
+            prompt_hash=summary.prompt_hash,
+            provider_receipt_id=summary.provider_receipt_id,
+            generated_at=summary.generated_at,
+            created_at=summary.created_at,
+            updated_at=summary.updated_at,
+            error_summary=summary.error_summary,
+            stale=summary.stale,
+            triggered_ai=summary.source.value == "ai",
+        )
+
+
+class ProjectAISummaryCurrentResponse(BaseModel):
+    """Singular current-summary response for GET /projects/{id}/ai-summary."""
+
+    project_id: UUID
+    active_summary: ProjectAISummaryResponse | None = None
+
+    @classmethod
+    def from_active(
+        cls,
+        *,
+        project_id: UUID,
+        active_summary,
+    ) -> "ProjectAISummaryCurrentResponse":
+        return cls(
+            project_id=project_id,
+            active_summary=(
+                ProjectAISummaryResponse.from_summary(active_summary)
+                if active_summary is not None
+                else None
+            ),
         )
 
 
@@ -1623,6 +1699,18 @@ def get_project_service(
     return _build_project_stack(session)[0]
 
 
+def get_project_ai_summary_service(
+    project_service: Annotated[ProjectService, Depends(get_project_service)],
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectAISummaryService:
+    """Create the Stage 3 project AI summary dependency."""
+
+    return ProjectAISummaryService(
+        project_service=project_service,
+        project_ai_summary_repository=ProjectAISummaryRepository(session),
+    )
+
+
 def get_project_stage_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectStageService:
@@ -1880,6 +1968,91 @@ def get_project(
             )
         }
     )
+
+
+
+
+@router.get(
+    "/{project_id}/ai-summary",
+    response_model=ProjectAISummaryCurrentResponse,
+    summary="Get the current persisted project AI summary snapshot",
+)
+def get_project_ai_summary(
+    project_id: UUID,
+    project_ai_summary_service: Annotated[
+        ProjectAISummaryService,
+        Depends(get_project_ai_summary_service),
+    ],
+) -> ProjectAISummaryCurrentResponse:
+    """Return the active stored project summary without triggering generation."""
+
+    try:
+        active = project_ai_summary_service.get_active_summary(project_id=project_id)
+    except ProjectAISummaryProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return ProjectAISummaryCurrentResponse.from_active(
+        project_id=project_id,
+        active_summary=active,
+    )
+
+
+@router.post(
+    "/{project_id}/ai-summary/generate",
+    response_model=ProjectAISummaryResponse,
+    summary="Generate or reuse the current project AI summary",
+)
+def generate_project_ai_summary(
+    project_id: UUID,
+    project_ai_summary_service: Annotated[
+        ProjectAISummaryService,
+        Depends(get_project_ai_summary_service),
+    ],
+) -> ProjectAISummaryResponse:
+    """Create or reuse a persisted rule-fallback project summary."""
+
+    try:
+        summary = project_ai_summary_service.generate_project_summary(
+            project_id=project_id
+        )
+    except ProjectAISummaryProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return ProjectAISummaryResponse.from_summary(summary)
+
+
+@router.post(
+    "/{project_id}/ai-summary/regenerate",
+    response_model=ProjectAISummaryResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Regenerate the persisted project AI summary",
+)
+def regenerate_project_ai_summary(
+    project_id: UUID,
+    project_ai_summary_service: Annotated[
+        ProjectAISummaryService,
+        Depends(get_project_ai_summary_service),
+    ],
+) -> ProjectAISummaryResponse:
+    """Force a new persisted rule-fallback project summary snapshot."""
+
+    try:
+        summary = project_ai_summary_service.regenerate_project_summary(
+            project_id=project_id
+        )
+    except ProjectAISummaryProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return ProjectAISummaryResponse.from_summary(summary)
 
 
 @router.get(
@@ -2586,6 +2759,8 @@ def get_project_closure_diagnostics(
             for a in result.next_actions
         ],
     )
+
+
 
 
 ProjectDetailResponse.model_rebuild()

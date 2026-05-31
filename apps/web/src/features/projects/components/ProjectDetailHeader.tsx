@@ -1,4 +1,5 @@
 import { StatusBadge } from "../../../components/StatusBadge";
+import { ProjectAiSummaryCard } from "../../project-summary/ProjectAiSummaryCard";
 import { formatDateTime } from "../../../lib/format";
 import {
   mapProjectRiskTone,
@@ -19,6 +20,7 @@ export function ProjectDetailHeader(props: {
   projectStatus: BossProjectItem["status"] | ProjectDetail["status"];
   projectCreatedAt: string | null;
   projectUpdatedAt: string | null;
+  projectId: string | null;
 }) {
   return (
     <div>
@@ -63,6 +65,8 @@ export function ProjectDetailHeader(props: {
       <p className="mt-4 text-sm leading-6 text-zinc-400">
         {props.projectSummary}
       </p>
+
+      <ProjectAiSummaryCard projectId={props.projectId} />
     </div>
   );
 }

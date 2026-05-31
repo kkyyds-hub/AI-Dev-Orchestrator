@@ -150,6 +150,70 @@ class ProjectTable(ORMBase):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    ai_summaries: Mapped[list["ProjectAISummaryTable"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+
+class ProjectAISummaryTable(ORMBase):
+    """Persisted project-level AI summary snapshots."""
+
+    __tablename__ = "project_ai_summaries"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[RunAISummaryStatus] = mapped_column(
+        Enum(
+            RunAISummaryStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=RunAISummaryStatus.PENDING,
+    )
+    source: Mapped[RunAISummarySource] = mapped_column(
+        Enum(
+            RunAISummarySource,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=RunAISummarySource.RULE_FALLBACK,
+    )
+    summary_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    source_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    prompt_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider_receipt_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    project: Mapped[ProjectTable] = relationship(back_populates="ai_summaries")
 
 
 class RepositoryWorkspaceTable(ORMBase):

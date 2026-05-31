@@ -88,6 +88,7 @@ export function ProjectDetailSection(props: {
         projectStatus={projectStatus}
         projectCreatedAt={projectCreatedAt}
         projectUpdatedAt={projectUpdatedAt}
+        projectId={projectId}
       />
 
       <ProjectDetailStatsGrid project={props.project} taskStats={taskStats} />
