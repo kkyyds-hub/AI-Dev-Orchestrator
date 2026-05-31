@@ -435,7 +435,22 @@
 | checklist 回填 | CL-17 (Runtime Pass 全站) |
 | verification 文档 | `verification-project-director-fullsite-button-closure-r1o-20260531.md` |
 | Gate 结论 | **R1-O Runtime Pass（全站）**（0 Gap；0 假按钮；CL-17 从 工作台 升级为 全站） |
-| 后续动作 | total closure 仍为 Partial；剩余缺口：CL-12 Evidence Partial / CL-16 Evidence Partial |
+| 后续动作 | total closure 仍为 Partial；CL-16 真实 provider cost 需用户另行授权 |
+
+#### 4.1.16 R1-P：Release Candidate Gate（RC Pass）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | AI Project Director Release Candidate 上线候选裁定 |
+| 阶段性质 | RC Gate 裁定 + 文档回填 |
+| 基准 commit | `4cb7be0` |
+| RC 结论 | **RC Pass**：16 Runtime Pass + 1 Evidence Partial (CL-16) + 1 Documentation Pass (CL-18) |
+| 上线允许范围 | 工作台、作战计划、角色/Skill、任务队列、Worker 调度、Run/日志/决策回放、失败闭环、review-only draft chain、deliverable/approval、治理中心、设置页、全站按钮 |
+| 上线禁止范围 | 真实 provider 调用、Worker Pool 自动、planning/apply、apply-local/git-commit/push、draft→commit 伪装、heuristic→provider cost 伪装、Memory 按钮 |
+| 需授权动作 | CL-16 真实 provider cost、apply-local、git-commit、真实 provider 执行 |
+| verification 文档 | `verification-project-director-release-candidate-gate-r1p-20260531.md` |
+| Gate 结论 | **R1-P RC Pass**（上线候选通过；上线边界清晰；禁止范围有控制；高风险需授权） |
+| 后续动作 | total closure 仍为 Partial；CL-16 真实 provider cost 需用户明确授权 |
 
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 

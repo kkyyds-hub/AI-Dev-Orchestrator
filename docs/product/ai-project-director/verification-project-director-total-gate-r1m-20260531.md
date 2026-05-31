@@ -189,6 +189,8 @@
 16 Runtime Pass + 1 Evidence Partial + 0 Not Started + 1 Documentation Pass。
 Total closure 不能在 CL-16 仍有缺口时标记为 Pass。
 
+**Release Candidate: RC Pass（R1-P, 2026-05-31）** — 上线候选通过。16 项 Runtime Pass / 1 项 Evidence Partial（CL-16）/ 1 项 Documentation Pass（CL-18）。上线边界明确。禁止范围有控制。CL-16 真实 provider cost 需用户另行授权。
+
 ---
 
 ## 8. 最终状态总表
