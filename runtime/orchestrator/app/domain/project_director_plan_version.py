@@ -42,6 +42,67 @@ class ProposedTask(DomainModel):
     priority_hint: str = Field(default="normal", max_length=40)
 
 
+class ProjectScopeSummary(DomainModel):
+    """Review-only project scope boundaries for a generated plan draft."""
+
+    in_scope: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class AgentTeamSuggestion(DomainModel):
+    """Suggested agent/role lineup for a reviewable plan draft."""
+
+    role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
+    responsibility: str = Field(min_length=1, max_length=1000)
+    collaboration_notes: list[str] = Field(default_factory=list)
+
+
+class SkillBindingSuggestion(DomainModel):
+    """Suggested skill binding for a role without creating real bindings."""
+
+    skill_code: str = Field(min_length=1, max_length=120)
+    owner_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
+    usage: str = Field(min_length=1, max_length=1000)
+    activation_stage: str = Field(default="planning", max_length=120)
+
+
+class VerificationMechanismSuggestion(DomainModel):
+    """Suggested verification mechanism for a plan draft."""
+
+    name: str = Field(min_length=1, max_length=200)
+    command_or_method: str = Field(min_length=1, max_length=1000)
+    evidence_required: str = Field(min_length=1, max_length=1000)
+    owner_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.REVIEWER)
+
+
+class RepositoryBindingSuggestion(DomainModel):
+    """Suggested repository binding without creating any real repository link."""
+
+    binding_type: str = Field(default="review_only", max_length=120)
+    target: str = Field(min_length=1, max_length=500)
+    usage: str = Field(min_length=1, max_length=1000)
+    safety_note: str = Field(min_length=1, max_length=1000)
+
+
+class DeliverableBoundary(DomainModel):
+    """Expected deliverable boundary for a plan draft."""
+
+    name: str = Field(min_length=1, max_length=200)
+    owner_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
+    required_contents: list[str] = Field(default_factory=list)
+    done_definition: str = Field(min_length=1, max_length=1000)
+
+
+class ComplexityAssessment(DomainModel):
+    """Deterministic complexity assessment for a review-only draft."""
+
+    level: str = Field(default="medium", max_length=40)
+    score: int = Field(default=2, ge=1, le=5)
+    drivers: list[str] = Field(default_factory=list)
+    mitigation_suggestions: list[str] = Field(default_factory=list)
+
+
 class ProjectDirectorPlanVersion(DomainModel):
     """A plan version generated from a confirmed Project Director session.
 
@@ -59,6 +120,13 @@ class ProjectDirectorPlanVersion(DomainModel):
     proposed_tasks: list[ProposedTask] = Field(default_factory=list)
     acceptance_criteria: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    project_scope: ProjectScopeSummary = Field(default_factory=ProjectScopeSummary)
+    agent_team_suggestions: list[AgentTeamSuggestion] = Field(default_factory=list)
+    skill_binding_suggestions: list[SkillBindingSuggestion] = Field(default_factory=list)
+    verification_mechanisms: list[VerificationMechanismSuggestion] = Field(default_factory=list)
+    repository_binding_suggestions: list[RepositoryBindingSuggestion] = Field(default_factory=list)
+    deliverable_boundaries: list[DeliverableBoundary] = Field(default_factory=list)
+    complexity_assessment: ComplexityAssessment = Field(default_factory=ComplexityAssessment)
     forbidden_actions: list[str] = Field(default_factory=list)
     confirmed_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now())

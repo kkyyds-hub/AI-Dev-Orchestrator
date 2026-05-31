@@ -146,6 +146,15 @@ class TestCreatePlanVersion:
             )
         assert len(data["forbidden_actions"]) >= 3
         assert "不自动创建任务" in data["forbidden_actions"]
+        assert data["project_scope"]["in_scope"]
+        assert data["project_scope"]["out_of_scope"]
+        assert data["agent_team_suggestions"]
+        assert data["skill_binding_suggestions"]
+        assert data["verification_mechanisms"]
+        assert data["repository_binding_suggestions"]
+        assert data["deliverable_boundaries"]
+        assert data["complexity_assessment"]["score"] >= 1
+        assert data["complexity_assessment"]["level"] in {"low", "medium", "high"}
         assert data["needs_user_confirmation"] is True
         assert data["gate_conclusion"] == "Partial"
 
@@ -260,6 +269,13 @@ class TestCreatePlanVersion:
         assert "proposed_tasks" in data
         assert "acceptance_criteria" in data
         assert "risks" in data
+        assert "project_scope" in data
+        assert "agent_team_suggestions" in data
+        assert "skill_binding_suggestions" in data
+        assert "verification_mechanisms" in data
+        assert "repository_binding_suggestions" in data
+        assert "deliverable_boundaries" in data
+        assert "complexity_assessment" in data
         assert "forbidden_actions" in data
         assert "confirmed_at" in data
         assert "next_action" in data
@@ -548,6 +564,14 @@ class TestReviewPlanVersion:
         )
         assert all("?" not in risk for risk in payload["replacement_plan_version"]["risks"])
         assert "Please split backend and frontend scope" in payload["replacement_plan_version"]["plan_summary"]
+        replacement = payload["replacement_plan_version"]
+        assert replacement["project_scope"]["out_of_scope"]
+        assert replacement["agent_team_suggestions"]
+        assert replacement["skill_binding_suggestions"]
+        assert replacement["verification_mechanisms"]
+        assert replacement["repository_binding_suggestions"]
+        assert replacement["deliverable_boundaries"]
+        assert replacement["complexity_assessment"]["score"] >= 1
 
         history = client.get(f"/project-director/sessions/{session_id}/plan-versions")
         assert history.status_code == 200

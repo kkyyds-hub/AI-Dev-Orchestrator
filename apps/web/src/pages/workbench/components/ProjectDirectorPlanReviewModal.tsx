@@ -105,6 +105,124 @@ export function ProjectDirectorPlanReviewModal({
           ) : null}
 
           <div className="grid gap-4 lg:grid-cols-2">
+            <section className="space-y-3 rounded border border-[#333333] bg-[#111111] p-4">
+              <h4 className="text-sm font-semibold text-zinc-100">项目范围 / 不做范围</h4>
+              <ListBlock title="范围内" items={planVersion.project_scope?.in_scope ?? []} />
+              <ListBlock title="不做范围" items={planVersion.project_scope?.out_of_scope ?? []} />
+              <ListBlock title="关键假设" items={planVersion.project_scope?.assumptions ?? []} />
+            </section>
+
+            <section className="space-y-3 rounded border border-[#333333] bg-[#111111] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-semibold text-zinc-100">复杂度评估</h4>
+                <StatusBadge
+                  label={`${formatComplexityLevel(planVersion.complexity_assessment?.level)} · ${planVersion.complexity_assessment?.score ?? "-"} / 5`}
+                  tone="info"
+                />
+              </div>
+              <ListBlock title="驱动因素" items={planVersion.complexity_assessment?.drivers ?? []} />
+              <ListBlock
+                title="缓解建议"
+                items={planVersion.complexity_assessment?.mitigation_suggestions ?? []}
+              />
+            </section>
+          </div>
+
+          {planVersion.agent_team_suggestions.length > 0 ? (
+            <section className="space-y-2 rounded border border-[#333333] bg-[#111111] p-4">
+              <h4 className="text-sm font-semibold text-zinc-100">Agent 编队建议</h4>
+              <div className="grid gap-2 lg:grid-cols-2">
+                {planVersion.agent_team_suggestions.map((item) => (
+                  <div
+                    key={`${item.role_code}-${item.responsibility}`}
+                    className="rounded border border-[#2f2f2f] bg-[#171717] p-3"
+                  >
+                    <StatusBadge label={formatRoleCode(item.role_code)} tone="warning" />
+                    <p className="mt-2 text-sm text-zinc-300">{item.responsibility}</p>
+                    <ListBlock title="协作说明" items={item.collaboration_notes} compact />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {planVersion.skill_binding_suggestions.length > 0 ? (
+              <section className="space-y-2 rounded border border-[#333333] bg-[#111111] p-4">
+                <h4 className="text-sm font-semibold text-zinc-100">Skill 绑定建议</h4>
+                <div className="space-y-2">
+                  {planVersion.skill_binding_suggestions.map((item) => (
+                    <div key={`${item.skill_code}-${item.owner_role_code}`} className="rounded border border-[#2f2f2f] bg-[#171717] p-3">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                        <span className="font-medium text-zinc-200">{item.skill_code}</span>
+                        <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
+                        <StatusBadge label={`阶段：${item.activation_stage}`} tone="neutral" />
+                      </div>
+                      <p className="mt-2 text-sm text-zinc-400">{item.usage}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {planVersion.repository_binding_suggestions.length > 0 ? (
+              <section className="space-y-2 rounded border border-[#333333] bg-[#111111] p-4">
+                <h4 className="text-sm font-semibold text-zinc-100">仓库绑定建议</h4>
+                <div className="space-y-2">
+                  {planVersion.repository_binding_suggestions.map((item) => (
+                    <div key={`${item.binding_type}-${item.target}`} className="rounded border border-[#2f2f2f] bg-[#171717] p-3">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                        <span className="font-medium text-zinc-200">{item.target}</span>
+                        <StatusBadge label={item.binding_type} tone="neutral" />
+                      </div>
+                      <p className="mt-2 text-sm text-zinc-400">{item.usage}</p>
+                      <p className="mt-2 text-xs leading-5 text-amber-200">{item.safety_note}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {planVersion.verification_mechanisms.length > 0 ? (
+              <section className="space-y-2 rounded border border-[#333333] bg-[#111111] p-4">
+                <h4 className="text-sm font-semibold text-zinc-100">验证机制建议</h4>
+                <div className="space-y-2">
+                  {planVersion.verification_mechanisms.map((item) => (
+                    <div key={`${item.name}-${item.command_or_method}`} className="rounded border border-[#2f2f2f] bg-[#171717] p-3">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                        <span className="font-medium text-zinc-200">{item.name}</span>
+                        <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
+                      </div>
+                      <p className="mt-2 break-words text-sm text-zinc-300">{item.command_or_method}</p>
+                      <p className="mt-1 text-xs leading-5 text-zinc-500">{item.evidence_required}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {planVersion.deliverable_boundaries.length > 0 ? (
+              <section className="space-y-2 rounded border border-[#333333] bg-[#111111] p-4">
+                <h4 className="text-sm font-semibold text-zinc-100">交付件边界</h4>
+                <div className="space-y-2">
+                  {planVersion.deliverable_boundaries.map((item) => (
+                    <div key={`${item.name}-${item.owner_role_code}`} className="rounded border border-[#2f2f2f] bg-[#171717] p-3">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                        <span className="font-medium text-zinc-200">{item.name}</span>
+                        <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
+                      </div>
+                      <ListBlock title="必须包含" items={item.required_contents} compact />
+                      <p className="mt-2 text-xs leading-5 text-zinc-500">{item.done_definition}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
             <section className="space-y-2 rounded border border-[#333333] bg-[#111111] p-4">
               <h4 className="text-sm font-semibold text-zinc-100">验收标准</h4>
               {planVersion.acceptance_criteria.length > 0 ? (
@@ -188,6 +306,37 @@ export function ProjectDirectorPlanReviewModal({
   );
 }
 
+function ListBlock({
+  title,
+  items,
+  compact = false,
+}: {
+  title: string;
+  items: string[];
+  compact?: boolean;
+}) {
+  if (items.length === 0) {
+    return (
+      <p className={`${compact ? "mt-2 text-xs" : "text-sm"} text-zinc-600`}>
+        {title}：暂无
+      </p>
+    );
+  }
+
+  return (
+    <div className={compact ? "mt-2" : undefined}>
+      <p className={`${compact ? "text-xs" : "text-sm"} font-medium text-zinc-300`}>
+        {title}
+      </p>
+      <ul className={`${compact ? "mt-1 text-xs" : "mt-2 text-sm"} list-disc space-y-1 pl-5 text-zinc-500`}>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function formatPriorityHint(priorityHint: string) {
   const normalizedPriority = priorityHint.toLowerCase();
   const label = TASK_PRIORITY_LABELS[normalizedPriority] ?? priorityHint;
@@ -197,6 +346,19 @@ function formatPriorityHint(priorityHint: string) {
 function formatRoleCode(roleCode: string) {
   const label = ROLE_CODE_LABELS[roleCode] ?? roleCode;
   return `角色：${label}`;
+}
+
+function formatComplexityLevel(level: string | undefined) {
+  switch (level) {
+    case "low":
+      return "低复杂度";
+    case "medium":
+      return "中复杂度";
+    case "high":
+      return "高复杂度";
+    default:
+      return level || "未评估";
+  }
 }
 
 function mapPlanStatusTone(status: ProjectDirectorPlanVersion["status"]) {

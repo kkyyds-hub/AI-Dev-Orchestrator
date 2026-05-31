@@ -72,6 +72,53 @@ export interface ProjectDirectorProposedTask {
   priority_hint: string;
 }
 
+export interface ProjectDirectorProjectScope {
+  in_scope: string[];
+  out_of_scope: string[];
+  assumptions: string[];
+}
+
+export interface ProjectDirectorAgentTeamSuggestion {
+  role_code: string;
+  responsibility: string;
+  collaboration_notes: string[];
+}
+
+export interface ProjectDirectorSkillBindingSuggestion {
+  skill_code: string;
+  owner_role_code: string;
+  usage: string;
+  activation_stage: string;
+}
+
+export interface ProjectDirectorVerificationMechanism {
+  name: string;
+  command_or_method: string;
+  evidence_required: string;
+  owner_role_code: string;
+}
+
+export interface ProjectDirectorRepositoryBindingSuggestion {
+  binding_type: string;
+  target: string;
+  usage: string;
+  safety_note: string;
+}
+
+export interface ProjectDirectorDeliverableBoundary {
+  name: string;
+  owner_role_code: string;
+  required_contents: string[];
+  done_definition: string;
+}
+
+export interface ProjectDirectorComplexityAssessment {
+  level: string;
+  score: number;
+  drivers: string[];
+  mitigation_suggestions: string[];
+}
+
 export interface ProjectDirectorPlanVersion {
   id: string;
   session_id: string;
@@ -83,6 +130,13 @@ export interface ProjectDirectorPlanVersion {
   proposed_tasks: ProjectDirectorProposedTask[];
   acceptance_criteria: string[];
   risks: string[];
+  project_scope: ProjectDirectorProjectScope;
+  agent_team_suggestions: ProjectDirectorAgentTeamSuggestion[];
+  skill_binding_suggestions: ProjectDirectorSkillBindingSuggestion[];
+  verification_mechanisms: ProjectDirectorVerificationMechanism[];
+  repository_binding_suggestions: ProjectDirectorRepositoryBindingSuggestion[];
+  deliverable_boundaries: ProjectDirectorDeliverableBoundary[];
+  complexity_assessment: ProjectDirectorComplexityAssessment;
   forbidden_actions: string[];
   confirmed_at: string | null;
   created_at: string;

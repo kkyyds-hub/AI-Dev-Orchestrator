@@ -18,10 +18,17 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.domain.project_director_plan_version import (
+    AgentTeamSuggestion as AgentTeamSuggestionDomain,
+    ComplexityAssessment as ComplexityAssessmentDomain,
+    DeliverableBoundary as DeliverableBoundaryDomain,
     PlanPhase as PlanPhaseDomain,
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
+    ProjectScopeSummary as ProjectScopeSummaryDomain,
     ProposedTask as ProposedTaskDomain,
+    RepositoryBindingSuggestion as RepositoryBindingSuggestionDomain,
+    SkillBindingSuggestion as SkillBindingSuggestionDomain,
+    VerificationMechanismSuggestion as VerificationMechanismSuggestionDomain,
 )
 from app.domain.project_director_session import (
     ClarifyingAnswer,
@@ -449,6 +456,126 @@ class ProposedTaskResponse(BaseModel):
         )
 
 
+class ProjectScopeResponse(BaseModel):
+    in_scope: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_domain(cls, scope: ProjectScopeSummaryDomain) -> "ProjectScopeResponse":
+        return cls(
+            in_scope=scope.in_scope,
+            out_of_scope=scope.out_of_scope,
+            assumptions=scope.assumptions,
+        )
+
+
+class AgentTeamSuggestionResponse(BaseModel):
+    role_code: str
+    responsibility: str
+    collaboration_notes: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_domain(
+        cls, item: AgentTeamSuggestionDomain
+    ) -> "AgentTeamSuggestionResponse":
+        return cls(
+            role_code=item.role_code,
+            responsibility=item.responsibility,
+            collaboration_notes=item.collaboration_notes,
+        )
+
+
+class SkillBindingSuggestionResponse(BaseModel):
+    skill_code: str
+    owner_role_code: str
+    usage: str
+    activation_stage: str
+
+    @classmethod
+    def from_domain(
+        cls, item: SkillBindingSuggestionDomain
+    ) -> "SkillBindingSuggestionResponse":
+        return cls(
+            skill_code=item.skill_code,
+            owner_role_code=item.owner_role_code,
+            usage=item.usage,
+            activation_stage=item.activation_stage,
+        )
+
+
+class VerificationMechanismResponse(BaseModel):
+    name: str
+    command_or_method: str
+    evidence_required: str
+    owner_role_code: str
+
+    @classmethod
+    def from_domain(
+        cls, item: VerificationMechanismSuggestionDomain
+    ) -> "VerificationMechanismResponse":
+        return cls(
+            name=item.name,
+            command_or_method=item.command_or_method,
+            evidence_required=item.evidence_required,
+            owner_role_code=item.owner_role_code,
+        )
+
+
+class RepositoryBindingSuggestionResponse(BaseModel):
+    binding_type: str
+    target: str
+    usage: str
+    safety_note: str
+
+    @classmethod
+    def from_domain(
+        cls, item: RepositoryBindingSuggestionDomain
+    ) -> "RepositoryBindingSuggestionResponse":
+        return cls(
+            binding_type=item.binding_type,
+            target=item.target,
+            usage=item.usage,
+            safety_note=item.safety_note,
+        )
+
+
+class DeliverableBoundaryResponse(BaseModel):
+    name: str
+    owner_role_code: str
+    required_contents: list[str] = Field(default_factory=list)
+    done_definition: str
+
+    @classmethod
+    def from_domain(
+        cls, item: DeliverableBoundaryDomain
+    ) -> "DeliverableBoundaryResponse":
+        return cls(
+            name=item.name,
+            owner_role_code=item.owner_role_code,
+            required_contents=item.required_contents,
+            done_definition=item.done_definition,
+        )
+
+
+class ComplexityAssessmentResponse(BaseModel):
+    level: str = "medium"
+    score: int = 2
+    drivers: list[str] = Field(default_factory=list)
+    mitigation_suggestions: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_domain(
+        cls, item: ComplexityAssessmentDomain
+    ) -> "ComplexityAssessmentResponse":
+        return cls(
+            level=item.level,
+            score=item.score,
+            drivers=item.drivers,
+            mitigation_suggestions=item.mitigation_suggestions,
+        )
+
+
 class PlanVersionResponse(BaseModel):
     id: UUID
     session_id: UUID
@@ -460,6 +587,15 @@ class PlanVersionResponse(BaseModel):
     proposed_tasks: list[ProposedTaskResponse] = Field(default_factory=list)
     acceptance_criteria: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    project_scope: ProjectScopeResponse = Field(default_factory=ProjectScopeResponse)
+    agent_team_suggestions: list[AgentTeamSuggestionResponse] = Field(default_factory=list)
+    skill_binding_suggestions: list[SkillBindingSuggestionResponse] = Field(default_factory=list)
+    verification_mechanisms: list[VerificationMechanismResponse] = Field(default_factory=list)
+    repository_binding_suggestions: list[RepositoryBindingSuggestionResponse] = Field(default_factory=list)
+    deliverable_boundaries: list[DeliverableBoundaryResponse] = Field(default_factory=list)
+    complexity_assessment: ComplexityAssessmentResponse = Field(
+        default_factory=ComplexityAssessmentResponse
+    )
     forbidden_actions: list[str] = Field(default_factory=list)
     confirmed_at: str | None
     created_at: str
@@ -488,6 +624,30 @@ class PlanVersionResponse(BaseModel):
             ],
             acceptance_criteria=pv.acceptance_criteria,
             risks=pv.risks,
+            project_scope=ProjectScopeResponse.from_domain(pv.project_scope),
+            agent_team_suggestions=[
+                AgentTeamSuggestionResponse.from_domain(item)
+                for item in pv.agent_team_suggestions
+            ],
+            skill_binding_suggestions=[
+                SkillBindingSuggestionResponse.from_domain(item)
+                for item in pv.skill_binding_suggestions
+            ],
+            verification_mechanisms=[
+                VerificationMechanismResponse.from_domain(item)
+                for item in pv.verification_mechanisms
+            ],
+            repository_binding_suggestions=[
+                RepositoryBindingSuggestionResponse.from_domain(item)
+                for item in pv.repository_binding_suggestions
+            ],
+            deliverable_boundaries=[
+                DeliverableBoundaryResponse.from_domain(item)
+                for item in pv.deliverable_boundaries
+            ],
+            complexity_assessment=ComplexityAssessmentResponse.from_domain(
+                pv.complexity_assessment
+            ),
             forbidden_actions=pv.forbidden_actions,
             confirmed_at=pv.confirmed_at.isoformat() if pv.confirmed_at else None,
             created_at=pv.created_at.isoformat(),

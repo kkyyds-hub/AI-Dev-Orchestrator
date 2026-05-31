@@ -1721,6 +1721,25 @@ class ProjectDirectorPlanVersionTable(ORMBase):
         Text, nullable=False, default="[]"
     )
     risks_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    project_scope_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    agent_team_suggestions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    skill_binding_suggestions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    verification_mechanisms_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    repository_binding_suggestions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    deliverable_boundaries_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    complexity_assessment_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}"
+    )
     forbidden_actions_json: Mapped[str] = mapped_column(
         Text, nullable=False, default="[]"
     )

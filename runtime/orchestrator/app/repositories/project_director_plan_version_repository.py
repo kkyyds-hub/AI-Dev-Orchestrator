@@ -13,10 +13,17 @@ from sqlalchemy.orm import Session
 from app.core.db_tables import ProjectDirectorPlanVersionTable
 from app.domain._base import ensure_utc_datetime
 from app.domain.project_director_plan_version import (
+    AgentTeamSuggestion,
+    ComplexityAssessment,
+    DeliverableBoundary,
     PlanPhase,
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
+    ProjectScopeSummary,
     ProposedTask,
+    RepositoryBindingSuggestion,
+    SkillBindingSuggestion,
+    VerificationMechanismSuggestion,
 )
 
 
@@ -44,6 +51,25 @@ class ProjectDirectorPlanVersionRepository:
             ),
             acceptance_criteria_json=json.dumps(plan_version.acceptance_criteria),
             risks_json=json.dumps(plan_version.risks),
+            project_scope_json=json.dumps(plan_version.project_scope.model_dump()),
+            agent_team_suggestions_json=json.dumps(
+                [item.model_dump() for item in plan_version.agent_team_suggestions]
+            ),
+            skill_binding_suggestions_json=json.dumps(
+                [item.model_dump() for item in plan_version.skill_binding_suggestions]
+            ),
+            verification_mechanisms_json=json.dumps(
+                [item.model_dump() for item in plan_version.verification_mechanisms]
+            ),
+            repository_binding_suggestions_json=json.dumps(
+                [item.model_dump() for item in plan_version.repository_binding_suggestions]
+            ),
+            deliverable_boundaries_json=json.dumps(
+                [item.model_dump() for item in plan_version.deliverable_boundaries]
+            ),
+            complexity_assessment_json=json.dumps(
+                plan_version.complexity_assessment.model_dump()
+            ),
             forbidden_actions_json=json.dumps(plan_version.forbidden_actions),
             confirmed_at=plan_version.confirmed_at,
             created_at=plan_version.created_at,
@@ -129,6 +155,25 @@ class ProjectDirectorPlanVersionRepository:
         )
         row.acceptance_criteria_json = json.dumps(plan_version.acceptance_criteria)
         row.risks_json = json.dumps(plan_version.risks)
+        row.project_scope_json = json.dumps(plan_version.project_scope.model_dump())
+        row.agent_team_suggestions_json = json.dumps(
+            [item.model_dump() for item in plan_version.agent_team_suggestions]
+        )
+        row.skill_binding_suggestions_json = json.dumps(
+            [item.model_dump() for item in plan_version.skill_binding_suggestions]
+        )
+        row.verification_mechanisms_json = json.dumps(
+            [item.model_dump() for item in plan_version.verification_mechanisms]
+        )
+        row.repository_binding_suggestions_json = json.dumps(
+            [item.model_dump() for item in plan_version.repository_binding_suggestions]
+        )
+        row.deliverable_boundaries_json = json.dumps(
+            [item.model_dump() for item in plan_version.deliverable_boundaries]
+        )
+        row.complexity_assessment_json = json.dumps(
+            plan_version.complexity_assessment.model_dump()
+        )
         row.forbidden_actions_json = json.dumps(plan_version.forbidden_actions)
         row.confirmed_at = plan_version.confirmed_at
         row.updated_at = datetime.now(timezone.utc)
@@ -136,6 +181,38 @@ class ProjectDirectorPlanVersionRepository:
         self._session.commit()
         self._session.refresh(row)
         return self._to_domain(row)
+
+    @staticmethod
+    def _parse_model_list(
+        raw_json: str | None,
+        model_type: type[AgentTeamSuggestion]
+        | type[SkillBindingSuggestion]
+        | type[VerificationMechanismSuggestion]
+        | type[RepositoryBindingSuggestion]
+        | type[DeliverableBoundary],
+    ):
+        items = []
+        try:
+            raw = json.loads(raw_json) if raw_json else []
+            if isinstance(raw, list):
+                for item in raw:
+                    try:
+                        items.append(model_type(**item))
+                    except (TypeError, ValidationError):
+                        pass
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return items
+
+    @staticmethod
+    def _parse_model(raw_json: str | None, model_type, fallback):
+        try:
+            raw = json.loads(raw_json) if raw_json else {}
+            if isinstance(raw, dict):
+                return model_type(**raw)
+        except (json.JSONDecodeError, TypeError, ValidationError):
+            pass
+        return fallback
 
     @staticmethod
     def _to_domain(
@@ -181,6 +258,32 @@ class ProjectDirectorPlanVersionRepository:
         except (json.JSONDecodeError, TypeError):
             pass
 
+        project_scope = ProjectDirectorPlanVersionRepository._parse_model(
+            getattr(row, "project_scope_json", None),
+            ProjectScopeSummary,
+            ProjectScopeSummary(),
+        )
+        agent_team_suggestions = ProjectDirectorPlanVersionRepository._parse_model_list(
+            getattr(row, "agent_team_suggestions_json", None), AgentTeamSuggestion
+        )
+        skill_binding_suggestions = ProjectDirectorPlanVersionRepository._parse_model_list(
+            getattr(row, "skill_binding_suggestions_json", None), SkillBindingSuggestion
+        )
+        verification_mechanisms = ProjectDirectorPlanVersionRepository._parse_model_list(
+            getattr(row, "verification_mechanisms_json", None), VerificationMechanismSuggestion
+        )
+        repository_binding_suggestions = ProjectDirectorPlanVersionRepository._parse_model_list(
+            getattr(row, "repository_binding_suggestions_json", None), RepositoryBindingSuggestion
+        )
+        deliverable_boundaries = ProjectDirectorPlanVersionRepository._parse_model_list(
+            getattr(row, "deliverable_boundaries_json", None), DeliverableBoundary
+        )
+        complexity_assessment = ProjectDirectorPlanVersionRepository._parse_model(
+            getattr(row, "complexity_assessment_json", None),
+            ComplexityAssessment,
+            ComplexityAssessment(),
+        )
+
         forbidden = []
         try:
             raw = json.loads(row.forbidden_actions_json) if row.forbidden_actions_json else []
@@ -200,6 +303,13 @@ class ProjectDirectorPlanVersionRepository:
             proposed_tasks=tasks,
             acceptance_criteria=criteria,
             risks=risks,
+            project_scope=project_scope,
+            agent_team_suggestions=agent_team_suggestions,
+            skill_binding_suggestions=skill_binding_suggestions,
+            verification_mechanisms=verification_mechanisms,
+            repository_binding_suggestions=repository_binding_suggestions,
+            deliverable_boundaries=deliverable_boundaries,
+            complexity_assessment=complexity_assessment,
             forbidden_actions=forbidden,
             confirmed_at=ensure_utc_datetime(row.confirmed_at),
             created_at=ensure_utc_datetime(row.created_at) or datetime.now(timezone.utc),

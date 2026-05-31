@@ -10,10 +10,17 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from app.domain.project_director_plan_version import (
+    AgentTeamSuggestion,
+    ComplexityAssessment,
+    DeliverableBoundary,
     PlanPhase,
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
+    ProjectScopeSummary,
     ProposedTask,
+    RepositoryBindingSuggestion,
+    SkillBindingSuggestion,
+    VerificationMechanismSuggestion,
 )
 from app.domain.project_director_session import ProjectDirectorSessionStatus
 from app.domain.project_role import ProjectRoleCode
@@ -40,10 +47,25 @@ def _generate_plan_from_session(
     session: "ProjectDirectorSession",  # noqa: F821
     *,
     revision_notes: str = "",
-) -> tuple[str, list[PlanPhase], list[ProposedTask], list[str], list[str]]:
+) -> tuple[
+    str,
+    list[PlanPhase],
+    list[ProposedTask],
+    list[str],
+    list[str],
+    ProjectScopeSummary,
+    list[AgentTeamSuggestion],
+    list[SkillBindingSuggestion],
+    list[VerificationMechanismSuggestion],
+    list[RepositoryBindingSuggestion],
+    list[DeliverableBoundary],
+    ComplexityAssessment,
+]:
     """Generate a deterministic plan from a confirmed session.
 
-    Returns: (plan_summary, phases, proposed_tasks, acceptance_criteria, risks)
+    Returns review-only draft content. It does not create projects, tasks,
+    agent sessions, skill bindings, repository bindings, provider calls,
+    Worker runs, planning/apply calls, apply-local writes, or git commits.
     """
 
     from app.domain.project_director_session import ProjectDirectorSession
@@ -196,7 +218,184 @@ def _generate_plan_from_session(
             f"整改反馈需重点处理：{revision_notes.strip()[:200]}",
         )
 
-    return plan_summary, phases, proposed_tasks, acceptance_criteria, risks
+    # ── Review-only enriched draft content ──
+    scope_sources = [goal]
+    if constraints:
+        scope_sources.append(constraints)
+    scope_sources.extend(answer for answer in answers.values() if answer)
+    scope_text = " ".join(scope_sources).lower()
+
+    project_scope = ProjectScopeSummary(
+        in_scope=[
+            "澄清并固化项目目标、关键约束、验收口径与阶段边界",
+            "生成可审核的阶段拆分、拟议任务、角色分工、交付件与验证建议",
+            "保留用户确认闸门：草案通过前只读展示，不进入真实执行链路",
+        ],
+        out_of_scope=[
+            "不自动创建 Project、Task、Agent Session 或 Skill 绑定",
+            "不调用真实 provider、Worker Pool、planning/apply、apply-local 或 git-commit",
+            "不写入仓库、不绑定真实远端仓库、不提交代码变更",
+        ],
+        assumptions=[
+            "用户确认草案后，后续任务创建、Worker 调度、仓库写入仍需单独显式触发",
+            "当前草案基于 Project Director 会话目标、约束和澄清答案的本地确定性规则生成",
+        ],
+    )
+
+    agent_team_suggestions = [
+        AgentTeamSuggestion(
+            role_code=ProjectRoleCode.PRODUCT_MANAGER,
+            responsibility="持续确认目标、范围、不做范围、交付件验收口径与用户反馈优先级",
+            collaboration_notes=["作为需求入口", "在每轮 request_changes 后重新核对范围漂移"],
+        ),
+        AgentTeamSuggestion(
+            role_code=ProjectRoleCode.ARCHITECT,
+            responsibility="负责阶段拆分、技术边界、依赖识别、仓库影响面和复杂度判断",
+            collaboration_notes=["先输出设计与风险", "再交给 engineer 拆执行任务"],
+        ),
+        AgentTeamSuggestion(
+            role_code=ProjectRoleCode.ENGINEER,
+            responsibility="在草案确认并单独创建任务后，承接实现、联调和交付件更新",
+            collaboration_notes=["仅在任务队列创建后执行", "不得由草案审核自动启动 Worker"],
+        ),
+        AgentTeamSuggestion(
+            role_code=ProjectRoleCode.REVIEWER,
+            responsibility="负责验证策略、证据完整性、回归检查和审批前质量闸门",
+            collaboration_notes=["定义最小测试命令", "检查 evidence 与交付件是否一致"],
+        ),
+    ]
+
+    skill_binding_suggestions = [
+        SkillBindingSuggestion(
+            skill_code="manage-v5-plan-and-freeze-docs",
+            owner_role_code=ProjectRoleCode.PRODUCT_MANAGER,
+            usage="用于冻结目标、范围、不做范围、交付件边界和阶段记录；本草案只建议绑定，不创建绑定记录",
+            activation_stage="规划/澄清",
+        ),
+        SkillBindingSuggestion(
+            skill_code="write-v5-runtime-backend",
+            owner_role_code=ProjectRoleCode.ENGINEER,
+            usage="后端领域、服务、路由、仓储或 schema 变更时由实现任务显式调用",
+            activation_stage="实现",
+        ),
+        SkillBindingSuggestion(
+            skill_code="write-v5-web-control-surface",
+            owner_role_code=ProjectRoleCode.ENGINEER,
+            usage="前端控制面、弹窗、类型合同和页面展示变更时由实现任务显式调用",
+            activation_stage="实现/展示",
+        ),
+        SkillBindingSuggestion(
+            skill_code="verify-v5-runtime-and-regression",
+            owner_role_code=ProjectRoleCode.REVIEWER,
+            usage="用于运行后端测试、前端 build、API/页面最小回归并记录事实结果",
+            activation_stage="验证",
+        ),
+    ]
+
+    verification_mechanisms = [
+        VerificationMechanismSuggestion(
+            name="后端合同测试",
+            command_or_method="pytest runtime/orchestrator/tests/test_project_director_plan_versions.py",
+            evidence_required="响应中包含项目范围、Agent 编队、Skill 建议、验证机制、仓库建议、交付件边界和复杂度评估字段",
+            owner_role_code=ProjectRoleCode.REVIEWER,
+        ),
+        VerificationMechanismSuggestion(
+            name="前端构建检查",
+            command_or_method="npm --prefix apps/web run build",
+            evidence_required="TypeScript 类型与计划审核弹窗展示通过构建检查",
+            owner_role_code=ProjectRoleCode.REVIEWER,
+        ),
+    ]
+
+    if has_tech:
+        verification_mechanisms.append(
+            VerificationMechanismSuggestion(
+                name="实现后最小回归",
+                command_or_method="按任务类型补充单元测试、接口 smoke 或页面 build；命令需在后续执行任务中明确",
+                evidence_required="测试命令、退出码、关键输出和未覆盖范围说明",
+                owner_role_code=ProjectRoleCode.REVIEWER,
+            )
+        )
+
+    repository_binding_suggestions = [
+        RepositoryBindingSuggestion(
+            binding_type="review_only",
+            target="当前项目关联仓库（如后续由用户显式绑定）",
+            usage="用于后续文件定位、变更计划和交付件证据读取；本草案不创建 repository binding",
+            safety_note="草案审核阶段只提示绑定建议，不执行目录扫描、仓库写入、apply-local 或 git-commit",
+        )
+    ]
+
+    deliverable_boundaries = [
+        DeliverableBoundary(
+            name="范围与不做范围说明",
+            owner_role_code=ProjectRoleCode.PRODUCT_MANAGER,
+            required_contents=["目标", "范围内", "范围外", "关键假设", "验收口径"],
+            done_definition="用户能据此判断草案是否覆盖本轮 Project Director 目标",
+        ),
+        DeliverableBoundary(
+            name="阶段计划与拟议任务清单",
+            owner_role_code=ProjectRoleCode.ARCHITECT,
+            required_contents=["阶段", "任务标题", "建议角色", "优先级", "依赖/风险"],
+            done_definition="通过审核后可作为后续显式创建任务队列的输入依据，但不会自动创建任务",
+        ),
+        DeliverableBoundary(
+            name="验证与交付证据包",
+            owner_role_code=ProjectRoleCode.REVIEWER,
+            required_contents=["测试命令", "构建结果", "风险复核", "未覆盖范围"],
+            done_definition="实现任务完成后能独立复核质量，不把草案确认误判为总闭环 Pass",
+        ),
+    ]
+
+    complexity_score = 1
+    complexity_drivers: list[str] = ["基础目标拆分"]
+    if char_count >= 60:
+        complexity_score += 1
+        complexity_drivers.append("目标描述较长，需要多阶段拆解")
+    if char_count >= 200:
+        complexity_score += 1
+        complexity_drivers.append("目标较复杂，可能涉及较多依赖与交付件")
+    if has_frontend:
+        complexity_score += 1
+        complexity_drivers.append("包含前端/UI 展示面")
+    if has_tech:
+        complexity_score += 1
+        complexity_drivers.append("包含代码/API/实现工作")
+    if any(
+        token in scope_text
+        for token in ["仓库", "repository", "git", "部署", "provider", "worker"]
+    ):
+        complexity_score += 1
+        complexity_drivers.append("涉及仓库、部署、provider 或 Worker 等高风险边界词")
+    complexity_score = min(complexity_score, 5)
+    complexity_level = (
+        "low" if complexity_score <= 2 else "medium" if complexity_score <= 4 else "high"
+    )
+    complexity_assessment = ComplexityAssessment(
+        level=complexity_level,
+        score=complexity_score,
+        drivers=complexity_drivers,
+        mitigation_suggestions=[
+            "先确认范围/不做范围，再进入任务创建",
+            "把真实执行、仓库写入和 Skill 绑定留到后续显式动作",
+            "每个实现任务必须附带验证命令与可回放证据",
+        ],
+    )
+
+    return (
+        plan_summary,
+        phases,
+        proposed_tasks,
+        acceptance_criteria,
+        risks,
+        project_scope,
+        agent_team_suggestions,
+        skill_binding_suggestions,
+        verification_mechanisms,
+        repository_binding_suggestions,
+        deliverable_boundaries,
+        complexity_assessment,
+    )
 
 
 # ── Service ──────────────────────────────────────────────────────────
@@ -235,11 +434,22 @@ class ProjectDirectorPlanService:
 
         version_no = self._plan_repo.get_next_version_no(session_id)
 
-        plan_summary, phases, proposed_tasks, acceptance_criteria, risks = (
-            _generate_plan_from_session(
-                session_obj,
-                revision_notes=revision_notes,
-            )
+        (
+            plan_summary,
+            phases,
+            proposed_tasks,
+            acceptance_criteria,
+            risks,
+            project_scope,
+            agent_team_suggestions,
+            skill_binding_suggestions,
+            verification_mechanisms,
+            repository_binding_suggestions,
+            deliverable_boundaries,
+            complexity_assessment,
+        ) = _generate_plan_from_session(
+            session_obj,
+            revision_notes=revision_notes,
         )
 
         now = datetime.now(timezone.utc)
@@ -254,6 +464,13 @@ class ProjectDirectorPlanService:
             proposed_tasks=proposed_tasks,
             acceptance_criteria=acceptance_criteria,
             risks=risks,
+            project_scope=project_scope,
+            agent_team_suggestions=agent_team_suggestions,
+            skill_binding_suggestions=skill_binding_suggestions,
+            verification_mechanisms=verification_mechanisms,
+            repository_binding_suggestions=repository_binding_suggestions,
+            deliverable_boundaries=deliverable_boundaries,
+            complexity_assessment=complexity_assessment,
             forbidden_actions=list(_DEFAULT_FORBIDDEN_ACTIONS),
             confirmed_at=None,
             created_at=now,
@@ -291,6 +508,13 @@ class ProjectDirectorPlanService:
             proposed_tasks=plan_version.proposed_tasks,
             acceptance_criteria=plan_version.acceptance_criteria,
             risks=plan_version.risks,
+            project_scope=plan_version.project_scope,
+            agent_team_suggestions=plan_version.agent_team_suggestions,
+            skill_binding_suggestions=plan_version.skill_binding_suggestions,
+            verification_mechanisms=plan_version.verification_mechanisms,
+            repository_binding_suggestions=plan_version.repository_binding_suggestions,
+            deliverable_boundaries=plan_version.deliverable_boundaries,
+            complexity_assessment=plan_version.complexity_assessment,
             forbidden_actions=plan_version.forbidden_actions,
             confirmed_at=None,
             created_at=plan_version.created_at,
@@ -370,6 +594,13 @@ class ProjectDirectorPlanService:
                 proposed_tasks=existing_confirmed.proposed_tasks,
                 acceptance_criteria=existing_confirmed.acceptance_criteria,
                 risks=existing_confirmed.risks,
+                project_scope=existing_confirmed.project_scope,
+                agent_team_suggestions=existing_confirmed.agent_team_suggestions,
+                skill_binding_suggestions=existing_confirmed.skill_binding_suggestions,
+                verification_mechanisms=existing_confirmed.verification_mechanisms,
+                repository_binding_suggestions=existing_confirmed.repository_binding_suggestions,
+                deliverable_boundaries=existing_confirmed.deliverable_boundaries,
+                complexity_assessment=existing_confirmed.complexity_assessment,
                 forbidden_actions=existing_confirmed.forbidden_actions,
                 confirmed_at=existing_confirmed.confirmed_at,
                 created_at=existing_confirmed.created_at,
@@ -388,6 +619,13 @@ class ProjectDirectorPlanService:
             proposed_tasks=plan_version.proposed_tasks,
             acceptance_criteria=plan_version.acceptance_criteria,
             risks=plan_version.risks,
+            project_scope=plan_version.project_scope,
+            agent_team_suggestions=plan_version.agent_team_suggestions,
+            skill_binding_suggestions=plan_version.skill_binding_suggestions,
+            verification_mechanisms=plan_version.verification_mechanisms,
+            repository_binding_suggestions=plan_version.repository_binding_suggestions,
+            deliverable_boundaries=plan_version.deliverable_boundaries,
+            complexity_assessment=plan_version.complexity_assessment,
             forbidden_actions=plan_version.forbidden_actions,
             confirmed_at=datetime.now(timezone.utc),
             created_at=plan_version.created_at,

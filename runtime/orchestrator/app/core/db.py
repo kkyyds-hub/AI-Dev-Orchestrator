@@ -86,12 +86,23 @@ _CHANGE_PLAN_VERSION_TABLE_COLUMN_UPGRADES = {
     "verification_templates_json": "ALTER TABLE change_plan_versions ADD COLUMN verification_templates_json TEXT NOT NULL DEFAULT '[]'",
 }
 
+_PROJECT_DIRECTOR_PLAN_VERSION_TABLE_COLUMN_UPGRADES = {
+    "project_scope_json": "ALTER TABLE project_director_plan_versions ADD COLUMN project_scope_json TEXT NOT NULL DEFAULT '{}'",
+    "agent_team_suggestions_json": "ALTER TABLE project_director_plan_versions ADD COLUMN agent_team_suggestions_json TEXT NOT NULL DEFAULT '[]'",
+    "skill_binding_suggestions_json": "ALTER TABLE project_director_plan_versions ADD COLUMN skill_binding_suggestions_json TEXT NOT NULL DEFAULT '[]'",
+    "verification_mechanisms_json": "ALTER TABLE project_director_plan_versions ADD COLUMN verification_mechanisms_json TEXT NOT NULL DEFAULT '[]'",
+    "repository_binding_suggestions_json": "ALTER TABLE project_director_plan_versions ADD COLUMN repository_binding_suggestions_json TEXT NOT NULL DEFAULT '[]'",
+    "deliverable_boundaries_json": "ALTER TABLE project_director_plan_versions ADD COLUMN deliverable_boundaries_json TEXT NOT NULL DEFAULT '[]'",
+    "complexity_assessment_json": "ALTER TABLE project_director_plan_versions ADD COLUMN complexity_assessment_json TEXT NOT NULL DEFAULT '{}'",
+}
+
 _TABLE_COLUMN_UPGRADES = {
     "projects": _PROJECT_TABLE_COLUMN_UPGRADES,
     "tasks": _TASK_TABLE_COLUMN_UPGRADES,
     "runs": _RUN_TABLE_COLUMN_UPGRADES,
     "run_ai_summaries": _RUN_AI_SUMMARY_TABLE_COLUMN_UPGRADES,
     "change_plan_versions": _CHANGE_PLAN_VERSION_TABLE_COLUMN_UPGRADES,
+    "project_director_plan_versions": _PROJECT_DIRECTOR_PLAN_VERSION_TABLE_COLUMN_UPGRADES,
     "change_batches": _CHANGE_BATCH_TABLE_COLUMN_UPGRADES,
 }
 
