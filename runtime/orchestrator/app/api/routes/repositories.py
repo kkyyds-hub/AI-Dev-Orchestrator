@@ -158,6 +158,7 @@ from app.services.local_git_write_service import (
     LocalGitWriteError,
     LocalGitWriteService,
 )
+from app.services.git_write_state_tracker import get_git_write_action_summary
 
 
 class RepositoryWorkspaceBindRequest(BaseModel):
@@ -1350,6 +1351,44 @@ class RepositoryDay15FlowResponse(BaseModel):
     steps: list[RepositoryDay15FlowStepResponse]
 
 
+class RepositoryDraftChainReadbackResponse(BaseModel):
+    """Safe CL-12 readback for the review-only repository draft chain."""
+
+    project_id: UUID
+    project_name: str
+    generated_at: datetime
+    review_only: bool = True
+    safe_runtime_path: bool = True
+    selected_change_batch_id: UUID | None = None
+    selected_change_batch_title: str | None = None
+    change_plan_count: int
+    change_batch_count: int
+    preflight_status: ChangeBatchPreflightStatus | None = None
+    preflight_ready_for_execution: bool = False
+    commit_candidate_present: bool = False
+    commit_candidate_id: UUID | None = None
+    commit_candidate_status: CommitCandidateStatus | None = None
+    commit_candidate_current_version: int | None = None
+    commit_candidate_revision_count: int = 0
+    commit_candidate_related_file_count: int = 0
+    commit_candidate_evidence_package_key: str | None = None
+    commit_candidate_review_only: bool = True
+    release_status: RepositoryReleaseGateStatus | None = None
+    release_blocked: bool = False
+    release_missing_item_keys: list[str] = Field(default_factory=list)
+    release_qualification_established: bool = False
+    git_write_actions_triggered: bool = False
+    apply_local_triggered: bool = False
+    git_commit_triggered: bool = False
+    forbidden_actions: list[str] = Field(
+        default_factory=lambda: [
+            "POST /repositories/change-batches/{change_batch_id}/apply-local",
+            "POST /repositories/change-batches/{change_batch_id}/git-commit",
+        ],
+    )
+    day15_flow: RepositoryDay15FlowResponse
+
+
 def build_repository_day15_flow_snapshot(
     *,
     project_id: UUID,
@@ -1666,6 +1705,117 @@ def build_repository_day15_flow_snapshot(
             else False
         ),
         steps=steps,
+    )
+
+
+def build_repository_draft_chain_readback(
+    *,
+    project_id: UUID,
+    project_repository: ProjectRepository,
+    change_plan_repository: ChangePlanRepository,
+    change_batch_repository: ChangeBatchRepository,
+    commit_candidate_repository: CommitCandidateRepository,
+    repository_release_gate_service: RepositoryReleaseGateService,
+) -> RepositoryDraftChainReadbackResponse:
+    """Aggregate CL-12 draft-chain evidence without invoking git-write actions."""
+
+    project = project_repository.get_by_id(project_id)
+    if project is None:
+        raise RepositoryReleaseGateProjectNotFoundError(f"Project not found: {project_id}")
+
+    change_plan_count = len(change_plan_repository.list_records_by_project_id(project_id))
+    change_batches = change_batch_repository.list_by_project_id(project_id)
+    selected_change_batch = change_batch_repository.get_active_by_project_id(
+        project_id
+    ) or next(iter(change_batches), None)
+
+    selected_gate: RepositoryReleaseGate | None = None
+    selected_candidate: CommitCandidate | None = None
+    git_write_summary = {
+        "apply_local_triggered": False,
+        "git_commit_triggered": False,
+        "git_write_actions_triggered": False,
+    }
+
+    if selected_change_batch is not None:
+        selected_candidate = commit_candidate_repository.get_by_change_batch_id(
+            selected_change_batch.id
+        )
+        selected_gate = repository_release_gate_service.get_release_gate(
+            selected_change_batch.id
+        )
+        git_write_summary = get_git_write_action_summary(selected_change_batch.id)
+
+    day15_flow = build_repository_day15_flow_snapshot(
+        project_id=project_id,
+        project_repository=project_repository,
+        change_plan_repository=change_plan_repository,
+        change_batch_repository=change_batch_repository,
+        repository_release_gate_service=repository_release_gate_service,
+    )
+
+    latest_candidate_version = (
+        selected_candidate.versions[-1]
+        if selected_candidate is not None and selected_candidate.versions
+        else None
+    )
+
+    preflight = selected_change_batch.preflight if selected_change_batch else None
+    return RepositoryDraftChainReadbackResponse(
+        project_id=project.id,
+        project_name=project.name,
+        generated_at=utc_now(),
+        selected_change_batch_id=(
+            selected_change_batch.id if selected_change_batch is not None else None
+        ),
+        selected_change_batch_title=(
+            selected_change_batch.title if selected_change_batch is not None else None
+        ),
+        change_plan_count=change_plan_count,
+        change_batch_count=len(change_batches),
+        preflight_status=preflight.status if preflight is not None else None,
+        preflight_ready_for_execution=(
+            bool(preflight.ready_for_execution) if preflight is not None else False
+        ),
+        commit_candidate_present=selected_candidate is not None,
+        commit_candidate_id=(
+            selected_candidate.id if selected_candidate is not None else None
+        ),
+        commit_candidate_status=(
+            selected_candidate.status if selected_candidate is not None else None
+        ),
+        commit_candidate_current_version=(
+            selected_candidate.current_version_number
+            if selected_candidate is not None
+            else None
+        ),
+        commit_candidate_revision_count=(
+            len(selected_candidate.versions) if selected_candidate is not None else 0
+        ),
+        commit_candidate_related_file_count=(
+            len(latest_candidate_version.related_files)
+            if latest_candidate_version is not None
+            else 0
+        ),
+        commit_candidate_evidence_package_key=(
+            latest_candidate_version.evidence_package_key
+            if latest_candidate_version is not None
+            else None
+        ),
+        release_status=selected_gate.status if selected_gate is not None else None,
+        release_blocked=bool(selected_gate.blocked) if selected_gate is not None else False,
+        release_missing_item_keys=(
+            list(selected_gate.missing_item_keys) if selected_gate is not None else []
+        ),
+        release_qualification_established=(
+            selected_gate.release_qualification_established
+            if selected_gate is not None
+            else False
+        ),
+        git_write_actions_triggered=git_write_summary["git_write_actions_triggered"],
+        apply_local_triggered=git_write_summary["apply_local_triggered"],
+        git_commit_triggered=git_write_summary["git_commit_triggered"],
+        day15_flow=day15_flow,
     )
 
 
@@ -2452,6 +2602,40 @@ def get_project_day15_flow(
             project_repository=ProjectRepository(session),
             change_plan_repository=ChangePlanRepository(session),
             change_batch_repository=ChangeBatchRepository(session),
+            repository_release_gate_service=repository_release_gate_service,
+        )
+    except (
+        RepositoryReleaseGateProjectNotFoundError,
+        RepositoryReleaseGateChangeBatchNotFoundError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/projects/{project_id}/draft-chain-readback",
+    response_model=RepositoryDraftChainReadbackResponse,
+    summary="Get the CL-12 safe review-only repository draft-chain readback",
+)
+def get_project_draft_chain_readback(
+    project_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+    repository_release_gate_service: Annotated[
+        RepositoryReleaseGateService,
+        Depends(get_repository_release_gate_service),
+    ],
+) -> RepositoryDraftChainReadbackResponse:
+    """Aggregate change plan → batch → preflight → draft → gate without git writes."""
+
+    try:
+        return build_repository_draft_chain_readback(
+            project_id=project_id,
+            project_repository=ProjectRepository(session),
+            change_plan_repository=ChangePlanRepository(session),
+            change_batch_repository=ChangeBatchRepository(session),
+            commit_candidate_repository=CommitCandidateRepository(session),
             repository_release_gate_service=repository_release_gate_service,
         )
     except (

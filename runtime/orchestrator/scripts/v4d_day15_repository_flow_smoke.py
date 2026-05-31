@@ -301,7 +301,11 @@ def _apply_workspace_changes() -> None:
     _write_file(
         "runtime/orchestrator/app/api/routes/repositories.py",
         "\"\"\"Day15 smoke placeholder repositories route.\"\"\"\n\n"
-        "ROUTES = [\"/repositories\", \"/repositories/projects/{project_id}/day15-flow\"]\n",
+        "ROUTES = [\n"
+        "    \"/repositories\",\n"
+        "    \"/repositories/projects/{project_id}/day15-flow\",\n"
+        "    \"/repositories/projects/{project_id}/draft-chain-readback\",\n"
+        "]\n",
     )
     _write_file(
         "runtime/orchestrator/app/api/routes/projects.py",
@@ -599,6 +603,25 @@ def main() -> None:
             "Repository Day15 flow should expose approved release status only.",
         )
 
+        draft_chain_readback = _request_json(
+            client,
+            "GET",
+            f"/repositories/projects/{project['id']}/draft-chain-readback",
+            expected_status=200,
+        )
+        _assert(
+            draft_chain_readback["review_only"] is True
+            and draft_chain_readback["safe_runtime_path"] is True
+            and draft_chain_readback["selected_change_batch_id"] == change_batch["id"]
+            and draft_chain_readback["commit_candidate_present"] is True
+            and draft_chain_readback["commit_candidate_review_only"] is True
+            and draft_chain_readback["release_status"] == "approved"
+            and draft_chain_readback["apply_local_triggered"] is False
+            and draft_chain_readback["git_commit_triggered"] is False
+            and draft_chain_readback["git_write_actions_triggered"] is False,
+            "CL-12 draft-chain readback must stay review-only with no git writes.",
+        )
+
         project_day15_flow = _request_json(
             client,
             "GET",
@@ -646,6 +669,23 @@ def main() -> None:
         "project_id": project["id"],
         "change_batch_id": change_batch["id"],
         "repository_day15_status": repository_day15_flow["overall_status"],
+        "draft_chain_readback": {
+            "review_only": draft_chain_readback["review_only"],
+            "safe_runtime_path": draft_chain_readback["safe_runtime_path"],
+            "preflight_status": draft_chain_readback["preflight_status"],
+            "commit_candidate_present": draft_chain_readback[
+                "commit_candidate_present"
+            ],
+            "commit_candidate_review_only": draft_chain_readback[
+                "commit_candidate_review_only"
+            ],
+            "release_status": draft_chain_readback["release_status"],
+            "apply_local_triggered": draft_chain_readback["apply_local_triggered"],
+            "git_commit_triggered": draft_chain_readback["git_commit_triggered"],
+            "git_write_actions_triggered": draft_chain_readback[
+                "git_write_actions_triggered"
+            ],
+        },
         "project_day15_status": project_day15_flow["overall_status"],
         "approvals_day15_selected_status": approvals_day15_judgement["selected_status"],
         "evidence_package_key": evidence_package["package_key"],
