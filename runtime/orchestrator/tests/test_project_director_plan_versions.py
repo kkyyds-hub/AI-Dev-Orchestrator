@@ -483,6 +483,65 @@ class TestConfirmPlanVersion:
 # ── Service Tests ───────────────────────────────────────────────────
 
 
+class TestReviewPlanVersion:
+    def _create_plan_version(self, client) -> tuple[str, str]:
+        session_id = _prepare_confirmed_session(client)
+        resp = client.post(
+            f"/project-director/sessions/{session_id}/plan-versions"
+        )
+        assert resp.status_code == 201
+        return session_id, resp.json()["id"]
+
+    def test_reject_review_transitions_to_rejected(self, client):
+        _, pv_id = self._create_plan_version(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv_id}/review",
+            json={"action": "reject", "feedback": "scope is still unclear"},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["action"] == "reject"
+        assert payload["reviewed_plan_version"]["status"] == PlanVersionStatus.REJECTED.value
+        assert payload["replacement_plan_version"] is None
+
+    def test_request_changes_rejects_current_and_generates_new_version(self, client):
+        session_id, pv_id = self._create_plan_version(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv_id}/review",
+            json={
+                "action": "request_changes",
+                "feedback": "Please split backend and frontend scope, and add clearer acceptance criteria.",
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["action"] == "request_changes"
+        assert payload["reviewed_plan_version"]["status"] == PlanVersionStatus.REJECTED.value
+        assert payload["replacement_plan_version"] is not None
+        assert payload["replacement_plan_version"]["status"] == PlanVersionStatus.PENDING_CONFIRMATION.value
+        assert payload["replacement_plan_version"]["version_no"] == 2
+        assert "Please split backend and frontend scope" in payload["replacement_plan_version"]["plan_summary"]
+
+        history = client.get(f"/project-director/sessions/{session_id}/plan-versions")
+        assert history.status_code == 200
+        versions = history.json()["plan_versions"]
+        assert len(versions) == 2
+        assert versions[0]["version_no"] == 2
+        assert versions[1]["status"] == PlanVersionStatus.REJECTED.value
+
+    def test_request_changes_requires_feedback(self, client):
+        _, pv_id = self._create_plan_version(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv_id}/review",
+            json={"action": "request_changes", "feedback": "   "},
+        )
+        assert resp.status_code == 422
+        assert "feedback" in resp.json()["detail"].lower()
+
+
 class TestPlanService:
     def test_full_plan_flow(self, session_service, plan_service):
         # 1. Create and confirm a session

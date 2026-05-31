@@ -1,17 +1,17 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import type { ConsoleOverview } from "../../../features/console/types";
 import { EntryModals, type EntryModalKind } from "./QuickEntryCards";
 
 type WorkbenchRightRailProps = {
   overviewData: ConsoleOverview | undefined;
-  overviewIsLoading: boolean;
+  overviewIsInitialLoading: boolean;
+  refreshNotice: string | null;
   selectedProjectId: string;
   onRefresh: () => void;
   onNavigateToTasks: () => void;
   onNavigateToTask: (taskId: string, projectId?: string | null) => void;
   onNavigateToProjects: () => void;
   onNavigateToRuns: () => void;
-  /* Worker scheduling */
   isRunWorkerOncePending: boolean;
   onRunWorkerOnce: () => void;
   workerOnceData: unknown;
@@ -21,7 +21,8 @@ type WorkbenchRightRailProps = {
 
 export function WorkbenchRightRail({
   overviewData,
-  overviewIsLoading,
+  overviewIsInitialLoading,
+  refreshNotice,
   selectedProjectId,
   onRefresh,
   onNavigateToTasks,
@@ -45,10 +46,11 @@ export function WorkbenchRightRail({
   const waitingHuman = overviewData?.waiting_human_tasks ?? 0;
   const tasks = overviewData?.tasks ?? [];
 
-  const blockedTasks = tasks.filter((t) => t.status === "blocked").slice(0, 3);
-  const waitingHumanTasks = tasks.filter((t) => t.status === "waiting_human").slice(0, 3);
+  const blockedTasks = tasks.filter((task) => task.status === "blocked").slice(0, 3);
+  const waitingHumanTasks = tasks
+    .filter((task) => task.status === "waiting_human")
+    .slice(0, 3);
 
-  /* Suggestion */
   let suggestion = "";
   if (blocked > 0) {
     suggestion = `${blocked} 个阻塞，建议查看阻塞处理。`;
@@ -57,7 +59,7 @@ export function WorkbenchRightRail({
   } else if (waitingHuman > 0) {
     suggestion = `${waitingHuman} 个待确认，请在待确认中处理。`;
   } else if (total === 0) {
-    suggestion = "尚无任务，通过 AI 项目主管对话提出目标。";
+    suggestion = "尚无任务，可通过 AI 项目主管对话提出目标。";
   } else if (running > 0) {
     suggestion = `${running} 个任务执行中，系统运行正常。`;
   } else {
@@ -68,24 +70,19 @@ export function WorkbenchRightRail({
     if (blockedTasks.length > 0) {
       const task = blockedTasks[0];
       onNavigateToTask(task.id, task.project_id);
-    } else {
-      onNavigateToTasks();
+      return;
     }
-  };
-
-  const handleConfirmationsClick = () => {
-    setModalKind("confirmations");
+    onNavigateToTasks();
   };
 
   return (
     <>
       <aside
         data-testid="workbench-right-rail"
-        className="rounded-lg border border-[#333333] bg-[#1a1a1a] p-4 space-y-4"
+        className="space-y-4 rounded-lg border border-[#333333] bg-[#1a1a1a] p-4"
       >
-        {/* A. 项目态势 */}
         <section>
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
               项目态势
             </h3>
@@ -98,10 +95,24 @@ export function WorkbenchRightRail({
             </button>
           </div>
 
-          {overviewIsLoading ? (
-            <p className="text-xs text-zinc-600">加载中...</p>
+          <div
+            className="mb-2 min-h-[1.25rem] text-[11px] leading-5 text-zinc-500"
+            aria-live="polite"
+          >
+            {refreshNotice ?? <span className="invisible">已刷新最新状态</span>}
+          </div>
+
+          {overviewIsInitialLoading ? (
+            <div className="grid grid-cols-3 gap-1.5" data-testid="right-rail-initial-loading">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-[56px] animate-pulse rounded border border-[#333333] bg-[#171717]"
+                />
+              ))}
+            </div>
           ) : (
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5" data-testid="right-rail-stable-stats">
               <CompactStat label="总计" value={total} />
               <CompactStat label="运行中" value={running} />
               <CompactStat label="阻塞" value={blocked} />
@@ -112,34 +123,33 @@ export function WorkbenchRightRail({
           )}
         </section>
 
-        {/* B. 待处理 */}
         {(blockedTasks.length > 0 || waitingHumanTasks.length > 0) && (
           <section className="border-t border-[#333333] pt-4">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-2">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
               待处理
             </h3>
             <ul className="space-y-1.5">
-              {blockedTasks.map((t) => (
-                <li key={t.id}>
+              {blockedTasks.map((task) => (
+                <li key={task.id}>
                   <button
                     type="button"
-                    onClick={() => onNavigateToTask(t.id, t.project_id)}
-                    className="w-full text-left rounded border border-[#333333] px-2.5 py-1.5 text-xs transition hover:border-zinc-500 hover:bg-[#222222]"
+                    onClick={() => onNavigateToTask(task.id, task.project_id)}
+                    className="w-full rounded border border-[#333333] px-2.5 py-1.5 text-left text-xs transition hover:border-zinc-500 hover:bg-[#222222]"
                   >
-                    <span className="text-zinc-300 truncate block">{t.title}</span>
-                    <span className="text-zinc-600">阻塞 - 点击查看详情</span>
+                    <span className="block truncate text-zinc-300">{task.title}</span>
+                    <span className="text-zinc-600">阻塞 · 点击查看详情</span>
                   </button>
                 </li>
               ))}
-              {waitingHumanTasks.map((t) => (
-                <li key={t.id}>
+              {waitingHumanTasks.map((task) => (
+                <li key={task.id}>
                   <button
                     type="button"
-                    onClick={() => onNavigateToTask(t.id, t.project_id)}
-                    className="w-full text-left rounded border border-[#333333] px-2.5 py-1.5 text-xs transition hover:border-zinc-500 hover:bg-[#222222]"
+                    onClick={() => onNavigateToTask(task.id, task.project_id)}
+                    className="w-full rounded border border-[#333333] px-2.5 py-1.5 text-left text-xs transition hover:border-zinc-500 hover:bg-[#222222]"
                   >
-                    <span className="text-zinc-300 truncate block">{t.title}</span>
-                    <span className="text-zinc-600">待确认 - 点击查看详情</span>
+                    <span className="block truncate text-zinc-300">{task.title}</span>
+                    <span className="text-zinc-600">待确认 · 点击查看详情</span>
                   </button>
                 </li>
               ))}
@@ -147,9 +157,8 @@ export function WorkbenchRightRail({
           </section>
         )}
 
-        {/* C. 执行控制 */}
         <section className="border-t border-[#333333] pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-2">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
             执行控制
           </h3>
           <div className="space-y-2">
@@ -164,7 +173,9 @@ export function WorkbenchRightRail({
             </button>
 
             {workerOnceData != null && !workerOnceIsError && (
-              <p className="text-xs text-zinc-500">已启动一次执行，请查看任务页或运行页了解进展。</p>
+              <p className="text-xs text-zinc-500">
+                已启动一次执行，请查看任务页或运行页了解进展。
+              </p>
             )}
             {workerOnceIsError && workerOnceErrorMessage != null && (
               <p className="text-xs text-zinc-500">启动失败：{workerOnceErrorMessage}</p>
@@ -172,28 +183,18 @@ export function WorkbenchRightRail({
           </div>
         </section>
 
-        {/* D. 工具入口 */}
         <section className="border-t border-[#333333] pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-2">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
             工具入口
           </h3>
           <div className="space-y-1.5">
-            <CompactEntryButton
-              title="作战计划"
-              onClick={() => setModalKind("battleplan")}
-            />
-            <CompactEntryButton
-              title="Agent 动向"
-              onClick={() => setModalKind("agents")}
-            />
-            <CompactEntryButton
-              title="项目流程"
-              onClick={() => setModalKind("flow")}
-            />
+            <CompactEntryButton title="作战计划" onClick={() => setModalKind("battleplan")} />
+            <CompactEntryButton title="Agent 动向" onClick={() => setModalKind("agents")} />
+            <CompactEntryButton title="项目流程" onClick={() => setModalKind("flow")} />
             <CompactEntryButton
               title="待确认"
               badge={waitingHuman > 0 ? waitingHuman : undefined}
-              onClick={handleConfirmationsClick}
+              onClick={() => setModalKind("confirmations")}
             />
             <CompactEntryButton
               title="阻塞处理"
@@ -203,19 +204,15 @@ export function WorkbenchRightRail({
           </div>
         </section>
 
-        {/* E. 当前建议 */}
         <section className="border-t border-[#333333] pt-3">
           <p className="text-xs text-zinc-600">
             <span className="text-zinc-500">规则建议</span>
             {" · "}待接入真实 AI 主管建议
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-            {suggestion}
-          </p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-400">{suggestion}</p>
         </section>
       </aside>
 
-      {/* Modals */}
       <EntryModals
         modalKind={modalKind}
         onClose={closeModal}
@@ -229,8 +226,6 @@ export function WorkbenchRightRail({
     </>
   );
 }
-
-/* ─── Compact sub-components ─── */
 
 function CompactStat({ label, value }: { label: string; value: number }) {
   return (
@@ -254,12 +249,10 @@ function CompactEntryButton({
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-[#222222]"
+      className="w-full rounded border border-[#333333] px-3 py-1.5 text-left text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-[#222222]"
     >
       <span>{title}</span>
-      {badge != null && badge > 0 && (
-        <span className="ml-2 text-zinc-500">({badge})</span>
-      )}
+      {badge != null && badge > 0 ? <span className="ml-2 text-zinc-500">({badge})</span> : null}
     </button>
   );
 }

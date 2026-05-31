@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+﻿import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   createProjectDirectorTaskQueue,
@@ -6,6 +6,7 @@ import {
   confirmProjectDirectorPlanVersion,
   createProjectDirectorPlanVersion,
   createProjectDirectorSession,
+  reviewProjectDirectorPlanVersion,
   submitProjectDirectorAnswers,
 } from "./api";
 
@@ -36,6 +37,12 @@ export function useCreateProjectDirectorPlanVersion() {
 export function useConfirmProjectDirectorPlanVersion() {
   return useMutation({
     mutationFn: confirmProjectDirectorPlanVersion,
+  });
+}
+
+export function useReviewProjectDirectorPlanVersion() {
+  return useMutation({
+    mutationFn: reviewProjectDirectorPlanVersion,
   });
 }
 

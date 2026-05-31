@@ -38,6 +38,8 @@ _DEFAULT_FORBIDDEN_ACTIONS = [
 
 def _generate_plan_from_session(
     session: "ProjectDirectorSession",  # noqa: F821
+    *,
+    revision_notes: str = "",
 ) -> tuple[str, list[PlanPhase], list[ProposedTask], list[str], list[str]]:
     """Generate a deterministic plan from a confirmed session.
 
@@ -63,6 +65,14 @@ def _generate_plan_from_session(
     for q in session.clarifying_questions:
         answer = answers.get(q.id, "（未回答）")
         answer_lines.append(f"- **{q.question}** → {answer}")
+
+    if revision_notes.strip():
+        answer_lines.extend(
+            [
+                "\n## ????\n",
+                revision_notes.strip(),
+            ]
+        )
 
     plan_summary = "\n".join(summary_lines + answer_lines)
 
@@ -180,6 +190,12 @@ def _generate_plan_from_session(
             "依赖项延迟或不可用",
         ]
 
+    if revision_notes.strip():
+        risks.insert(
+            0,
+            f"??????????????: {revision_notes.strip()[:200]}",
+        )
+
     return plan_summary, phases, proposed_tasks, acceptance_criteria, risks
 
 
@@ -199,7 +215,7 @@ class ProjectDirectorPlanService:
         self._session_repo = session_repository
 
     def create_plan_version(
-        self, *, session_id: UUID
+        self, *, session_id: UUID, revision_notes: str = ""
     ) -> ProjectDirectorPlanVersion:
         """Generate a deterministic plan version from a confirmed session.
 
@@ -220,7 +236,10 @@ class ProjectDirectorPlanService:
         version_no = self._plan_repo.get_next_version_no(session_id)
 
         plan_summary, phases, proposed_tasks, acceptance_criteria, risks = (
-            _generate_plan_from_session(session_obj)
+            _generate_plan_from_session(
+                session_obj,
+                revision_notes=revision_notes,
+            )
         )
 
         now = datetime.now(timezone.utc)
@@ -242,6 +261,60 @@ class ProjectDirectorPlanService:
         )
 
         return self._plan_repo.create(plan_version)
+
+    def reject_plan_version(
+        self, plan_version_id: UUID
+    ) -> ProjectDirectorPlanVersion:
+        """Reject one pending_confirmation plan version."""
+
+        plan_version = self._plan_repo.get_by_id(plan_version_id)
+        if plan_version is None:
+            raise ValueError(f"Plan version {plan_version_id} not found")
+
+        if plan_version.status == PlanVersionStatus.REJECTED:
+            return plan_version
+
+        if plan_version.status != PlanVersionStatus.PENDING_CONFIRMATION:
+            raise ValueError(
+                f"Plan version is in '{plan_version.status}' status. "
+                f"Only 'pending_confirmation' plan versions can be rejected."
+            )
+
+        updated = ProjectDirectorPlanVersion(
+            id=plan_version.id,
+            session_id=plan_version.session_id,
+            project_id=plan_version.project_id,
+            version_no=plan_version.version_no,
+            status=PlanVersionStatus.REJECTED,
+            plan_summary=plan_version.plan_summary,
+            phases=plan_version.phases,
+            proposed_tasks=plan_version.proposed_tasks,
+            acceptance_criteria=plan_version.acceptance_criteria,
+            risks=plan_version.risks,
+            forbidden_actions=plan_version.forbidden_actions,
+            confirmed_at=None,
+            created_at=plan_version.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        return self._plan_repo.update(updated)
+
+    def request_changes(
+        self, *, plan_version_id: UUID, feedback: str
+    ) -> tuple[ProjectDirectorPlanVersion, ProjectDirectorPlanVersion]:
+        """Reject one draft and generate a new pending_confirmation version."""
+
+        normalized_feedback = feedback.strip()
+        if not normalized_feedback:
+            raise ValueError(
+                "feedback must not be empty when action=request_changes"
+            )
+
+        rejected = self.reject_plan_version(plan_version_id)
+        replacement = self.create_plan_version(
+            session_id=rejected.session_id,
+            revision_notes=normalized_feedback,
+        )
+        return rejected, replacement
 
     def get_plan_version(
         self, plan_version_id: UUID

@@ -1,4 +1,4 @@
-import { requestJson } from "../../lib/http";
+﻿import { requestJson } from "../../lib/http";
 
 import type {
   ConfirmProjectDirectorGoalInput,
@@ -6,9 +6,11 @@ import type {
   CreateProjectDirectorPlanVersionInput,
   CreateProjectDirectorSessionInput,
   CreateProjectDirectorTaskQueueInput,
+  ProjectDirectorPlanReviewResponse,
   ProjectDirectorPlanVersion,
   ProjectDirectorSession,
   ProjectDirectorTaskCreationResponse,
+  ReviewProjectDirectorPlanVersionInput,
   SubmitProjectDirectorAnswersInput,
 } from "./types";
 
@@ -62,6 +64,21 @@ export function confirmProjectDirectorPlanVersion(
     `/project-director/plan-versions/${input.planVersionId}/confirm`,
     {
       method: "POST",
+    },
+  );
+}
+
+export function reviewProjectDirectorPlanVersion(
+  input: ReviewProjectDirectorPlanVersionInput,
+): Promise<ProjectDirectorPlanReviewResponse> {
+  return requestJson<ProjectDirectorPlanReviewResponse>(
+    `/project-director/plan-versions/${input.planVersionId}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action: input.action,
+        feedback: input.feedback ?? "",
+      }),
     },
   );
 }

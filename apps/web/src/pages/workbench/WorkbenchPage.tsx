@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useBackendHealth, useConsoleOverview } from "../../features/console/hooks";
@@ -20,16 +20,48 @@ export function WorkbenchPage() {
   const healthQuery = useBackendHealth();
   const { selectedProjectId, selectedProjectName } = useProjectScope();
   const runWorkerOnceMutation = useRunWorkerOnce();
+  const [stableOverviewData, setStableOverviewData] = useState(overviewQuery.data);
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (overviewQuery.data) {
+      setStableOverviewData(overviewQuery.data);
+    }
+  }, [overviewQuery.data]);
+
+  useEffect(() => {
+    if (!refreshNotice) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setRefreshNotice(null);
+    }, 1800);
+
+    return () => window.clearTimeout(timer);
+  }, [refreshNotice]);
 
   const lastUpdatedText = useMemo(() => {
-    if (!overviewQuery.dataUpdatedAt) {
+    if (!overviewQuery.dataUpdatedAt && !stableOverviewData) {
       return "暂未刷新";
     }
-    return formatDateTime(new Date(overviewQuery.dataUpdatedAt).toISOString());
-  }, [overviewQuery.dataUpdatedAt]);
+    return formatDateTime(
+      new Date(overviewQuery.dataUpdatedAt || Date.now()).toISOString(),
+    );
+  }, [overviewQuery.dataUpdatedAt, stableOverviewData]);
+
+  const overviewIsInitialLoading =
+    !stableOverviewData && (overviewQuery.isLoading || overviewQuery.isFetching);
 
   const handleRefresh = async () => {
-    await Promise.all([overviewQuery.refetch(), healthQuery.refetch()]);
+    setRefreshNotice("正在手动刷新...");
+
+    try {
+      await Promise.all([overviewQuery.refetch(), healthQuery.refetch()]);
+      setRefreshNotice("已刷新最新状态");
+    } catch {
+      setRefreshNotice("刷新失败，请稍后重试");
+    }
   };
 
   const handleNavigateToTask = (taskId: string, projectId?: string | null) => {
@@ -77,7 +109,6 @@ export function WorkbenchPage() {
       />
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        {/* 主对话区 */}
         <div className="flex-1 lg:min-w-0">
           <DirectorChatEntry
             selectedProjectId={selectedProjectId}
@@ -85,11 +116,11 @@ export function WorkbenchPage() {
           />
         </div>
 
-        {/* 右侧短控制栏 */}
-        <div className="w-full lg:w-72 xl:w-80 shrink-0">
+        <div className="w-full shrink-0 lg:w-72 xl:w-80">
           <WorkbenchRightRail
-            overviewData={overviewQuery.data}
-            overviewIsLoading={overviewQuery.isLoading}
+            overviewData={stableOverviewData}
+            overviewIsInitialLoading={overviewIsInitialLoading}
+            refreshNotice={refreshNotice}
             selectedProjectId={selectedProjectId}
             onRefresh={() => {
               void handleRefresh();

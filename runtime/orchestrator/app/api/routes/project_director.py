@@ -9,7 +9,7 @@ No AI, no Provider, no planning/apply, no worker dispatch.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -504,6 +504,19 @@ class PlanVersionListResponse(BaseModel):
     plan_versions: list[PlanVersionResponse]
 
 
+class ReviewPlanVersionRequest(BaseModel):
+    action: Literal["approve", "reject", "request_changes"]
+    feedback: str = Field(default="", max_length=3000)
+
+
+class PlanVersionReviewResponse(BaseModel):
+    action: Literal["approve", "reject", "request_changes"]
+    reviewed_plan_version: PlanVersionResponse
+    replacement_plan_version: PlanVersionResponse | None = None
+    next_action: str
+    gate_conclusion: str
+
+
 def _compute_plan_contract_fields(
     pv: ProjectDirectorPlanVersion,
 ) -> tuple[str, list[str], bool, str]:
@@ -684,6 +697,65 @@ def confirm_plan_version(
         ) from exc
 
     return PlanVersionResponse.from_domain(plan_version)
+
+
+@router.post(
+    "/plan-versions/{plan_version_id}/review",
+    response_model=PlanVersionReviewResponse,
+    summary="Review a plan version draft",
+)
+def review_plan_version(
+    plan_version_id: UUID,
+    request: ReviewPlanVersionRequest,
+    plan_service: Annotated[ProjectDirectorPlanService, Depends(_get_plan_service)],
+) -> PlanVersionReviewResponse:
+    """Approve, reject, or request changes for a reviewable plan draft."""
+
+    try:
+        if request.action == "approve":
+            reviewed = plan_service.confirm_plan_version(plan_version_id)
+            replacement = None
+            next_action = "????????????????????"
+        elif request.action == "reject":
+            reviewed = plan_service.reject_plan_version(plan_version_id)
+            replacement = None
+            next_action = "???????????????????????"
+        else:
+            reviewed, replacement = plan_service.request_changes(
+                plan_version_id=plan_version_id,
+                feedback=request.feedback,
+            )
+            next_action = (
+                f"????????? v{replacement.version_no} ??????????"
+            )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "only 'pending_confirmation'" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return PlanVersionReviewResponse(
+        action=request.action,
+        reviewed_plan_version=PlanVersionResponse.from_domain(reviewed),
+        replacement_plan_version=(
+            PlanVersionResponse.from_domain(replacement)
+            if replacement is not None
+            else None
+        ),
+        next_action=next_action,
+        gate_conclusion="Partial",
+    )
 
 
 # ── Confirmation Inbox DTOs ──────────────────────────────────────────

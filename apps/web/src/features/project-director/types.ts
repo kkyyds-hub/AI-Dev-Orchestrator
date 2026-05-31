@@ -1,4 +1,4 @@
-export type ProjectDirectorSessionStatus =
+﻿export type ProjectDirectorSessionStatus =
   | "draft"
   | "clarifying"
   | "ready_to_confirm"
@@ -10,6 +10,11 @@ export type ProjectDirectorPlanVersionStatus =
   | "confirmed"
   | "superseded"
   | "rejected";
+
+export type ProjectDirectorPlanReviewAction =
+  | "approve"
+  | "reject"
+  | "request_changes";
 
 export interface ClarifyingQuestion {
   id: string;
@@ -43,7 +48,8 @@ export interface ProjectDirectorSession {
 }
 
 export interface ProjectDirectorPlanPhase {
-  title: string;
+  sequence: number;
+  name: string;
   goal: string;
   task_count_hint: number;
 }
@@ -73,6 +79,14 @@ export interface ProjectDirectorPlanVersion {
   next_action: string;
   missing_info: string[];
   needs_user_confirmation: boolean;
+  gate_conclusion: string;
+}
+
+export interface ProjectDirectorPlanReviewResponse {
+  action: ProjectDirectorPlanReviewAction;
+  reviewed_plan_version: ProjectDirectorPlanVersion;
+  replacement_plan_version: ProjectDirectorPlanVersion | null;
+  next_action: string;
   gate_conclusion: string;
 }
 
@@ -109,6 +123,12 @@ export interface CreateProjectDirectorPlanVersionInput {
 
 export interface ConfirmProjectDirectorPlanVersionInput {
   planVersionId: string;
+}
+
+export interface ReviewProjectDirectorPlanVersionInput {
+  planVersionId: string;
+  action: ProjectDirectorPlanReviewAction;
+  feedback?: string;
 }
 
 export interface CreateProjectDirectorTaskQueueInput {
