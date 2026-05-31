@@ -1467,6 +1467,7 @@ class TestProjectDirectorSetupReadiness:
         data = resp.json()
 
         assert data["created_by_director"] is False
+        assert data["formal_project_created"] is False
         assert data["source_plan_version_id"] is None
         assert data["source_draft_id"] is None
         assert data["task_count"] == 0
@@ -1500,6 +1501,7 @@ class TestProjectDirectorSetupReadiness:
         data = resp.json()
 
         assert data["created_by_director"] is False
+        assert data["formal_project_created"] is False
         assert data["source_plan_version_id"] is None
         assert data["source_draft_id"] is None
         assert data["task_count"] == 1

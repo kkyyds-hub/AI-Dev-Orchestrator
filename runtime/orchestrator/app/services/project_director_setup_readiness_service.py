@@ -163,7 +163,7 @@ class ProjectDirectorSetupReadinessService:
             source_plan_version_id=source_plan_version_id,
             source_draft_id=source_draft_id,
             created_by_director=created_by_director,
-            formal_project_created=True,
+            formal_project_created=created_by_director,
             task_queue_created=task_queue_created,
             task_count=task_count,
             pending_task_count=pending_task_count,
