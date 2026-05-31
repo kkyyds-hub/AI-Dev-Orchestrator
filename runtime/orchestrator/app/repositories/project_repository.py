@@ -50,6 +50,30 @@ class ProjectRepository:
         self.session.refresh(project_row)
         return self._to_domain(project_row, task_stats=ProjectTaskStats())
 
+    def add_no_commit(self, project: Project) -> Project:
+        """Add a project row without committing.
+
+        Used by Project Director formalization so Project + Tasks +
+        creation record share one atomic commit point.
+        """
+
+        project_row = ProjectTable(
+            id=project.id,
+            name=project.name,
+            summary=project.summary,
+            status=project.status,
+            stage=project.stage,
+            sop_template_code=project.sop_template_code,
+            stage_history_json=self._serialize_stage_history(project.stage_history),
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+        )
+
+        self.session.add(project_row)
+        self.session.flush()
+        self.session.refresh(project_row)
+        return self._to_domain(project_row, task_stats=ProjectTaskStats())
+
     def list_all(self) -> list[Project]:
         """Return all projects ordered by creation time descending."""
 

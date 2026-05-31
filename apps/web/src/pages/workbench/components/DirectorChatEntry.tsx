@@ -103,19 +103,16 @@ export function DirectorChatEntry({
     !createPlanVersionMutation.isPending;
   const canCreateTaskQueue =
     planVersion?.status === "confirmed" &&
-    planVersion.project_id !== null &&
     !taskCreation &&
     !createTaskQueueMutation.isPending;
   const canRunWorkerOnce =
     Boolean(taskCreation?.project_id) && !runWorkerOnceMutation.isPending;
 
   const taskQueueActionLabel = taskCreation
-    ? `任务队列已创建（${taskCreation.task_count}）`
+    ? `正式项目已创建（${taskCreation.task_count} 个任务）`
     : createTaskQueueMutation.isPending
-      ? "创建任务队列中..."
-      : planVersion?.project_id
-        ? "创建真实任务队列"
-        : "需要绑定具体项目";
+      ? "创建正式项目中..."
+      : "创建正式项目";
 
   const directorStatusMessage = useMemo(() => {
     if (createPlanVersionMutation.isPending) {
@@ -300,6 +297,9 @@ export function DirectorChatEntry({
         planVersionId: planVersion.id,
       });
       setTaskCreation(createdTaskQueue);
+      setPlanVersion((current) =>
+        current ? { ...current, project_id: createdTaskQueue.project_id } : current,
+      );
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -559,10 +559,11 @@ export function DirectorChatEntry({
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <h3 className="text-sm font-medium text-emerald-200">
-                            真实任务队列已创建
+                            正式项目与任务队列已创建
                           </h3>
                           <p className="mt-1 text-xs text-zinc-500">
-                            任务数 {taskCreation.task_count} · 队列状态 {taskCreation.status}
+                            项目 {taskCreation.project_name ?? taskCreation.project_id.slice(0, 8)}
+                            {" · "}任务数 {taskCreation.task_count} · 队列状态 {taskCreation.status}
                             {" · "}Gate: {taskCreation.gate_conclusion}
                           </p>
                         </div>
@@ -583,6 +584,12 @@ export function DirectorChatEntry({
                             className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
                           >
                             查看执行中心
+                          </Link>
+                          <Link
+                            to={`/projects/${encodeURIComponent(taskCreation.project_id)}`}
+                            className="rounded border border-[#333333] bg-[#111111] px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-emerald-500/40 hover:text-emerald-200"
+                          >
+                            查看正式项目
                           </Link>
                         </div>
                       </div>

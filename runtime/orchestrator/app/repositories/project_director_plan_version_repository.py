@@ -86,6 +86,25 @@ class ProjectDirectorPlanVersionRepository:
             return None
         return self._to_domain(row)
 
+    def bind_project_no_commit(
+        self,
+        plan_version_id: UUID,
+        project_id: UUID,
+    ) -> ProjectDirectorPlanVersion:
+        """Bind a plan version to a project without committing."""
+
+        row = self._session.get(ProjectDirectorPlanVersionTable, plan_version_id)
+        if row is None:
+            raise ValueError(
+                f"ProjectDirectorPlanVersion {plan_version_id} not found"
+            )
+
+        row.project_id = project_id
+        row.updated_at = datetime.now(timezone.utc)
+        self._session.flush()
+        self._session.refresh(row)
+        return self._to_domain(row)
+
     def list_by_status(
         self, status: PlanVersionStatus
     ) -> list[ProjectDirectorPlanVersion]:

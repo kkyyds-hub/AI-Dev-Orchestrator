@@ -18,8 +18,13 @@ from sqlalchemy.orm import sessionmaker
 from app.api.router import api_router
 from app.core.db import get_db_session
 from app.core.db_tables import (
+    AgentSessionTable,
+    ProjectRoleSkillBindingTable,
     ORMBase,
+    ProjectTable,
     ProjectDirectorPlanVersionTable,
+    RepositoryWorkspaceTable,
+    RunTable,
     TaskTable,
 )
 from app.domain.project_director_plan_version import PlanVersionStatus
@@ -333,6 +338,112 @@ class TestCreateTasks:
             f"/project-director/plan-versions/{plan_version['id']}/created-tasks"
         )
         assert resp.status_code == 404
+
+    def test_create_formal_project_from_confirmed_unbound_draft(
+        self, client, db_session
+    ):
+        """Confirmed unbound draft creates a formal Project + Task queue."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        confirmed_resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert confirmed_resp.status_code == 200
+        confirmed = confirmed_resp.json()
+        assert confirmed["status"] == PlanVersionStatus.CONFIRMED.value
+        assert confirmed["project_id"] is None
+
+        # Approving/confirming the draft must not auto-create a Project/Task.
+        assert db_session.execute(select(ProjectTable)).scalars().all() == []
+        assert db_session.execute(select(TaskTable)).scalars().all() == []
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["plan_version_id"] == pv["id"]
+        assert data["session_id"] == sid
+        assert data["project_id"]
+        assert data["project_name"]
+        assert data["task_count"] == len(confirmed["proposed_tasks"])
+        assert len(data["created_task_ids"]) == len(confirmed["proposed_tasks"])
+        assert data["status"] == "created"
+        assert data["already_created"] is False
+
+        project_resp = client.get(f"/projects/{data['project_id']}")
+        assert project_resp.status_code == 200
+        project_data = project_resp.json()
+        assert project_data["id"] == data["project_id"]
+        assert project_data["task_stats"]["total_tasks"] == data["task_count"]
+
+        reread_plan_resp = client.get(f"/project-director/plan-versions/{pv['id']}")
+        assert reread_plan_resp.status_code == 200
+        assert reread_plan_resp.json()["project_id"] == data["project_id"]
+
+        source_draft_id = f"pdv:{pv['id']}:{confirmed['version_no']}"
+        for task_id in data["created_task_ids"]:
+            task_resp = client.get(f"/tasks/{task_id}")
+            assert task_resp.status_code == 200
+            task_data = task_resp.json()
+            assert task_data["project_id"] == data["project_id"]
+            assert task_data["source_draft_id"] == source_draft_id
+
+    def test_create_formal_project_is_idempotent(self, client, db_session):
+        """Second formalization call readbacks the same rows without duplication."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        first_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert first_resp.status_code == 200
+        first = first_resp.json()
+
+        second_resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert second_resp.status_code == 200
+        second = second_resp.json()
+
+        assert second["status"] == "already_created"
+        assert second["already_created"] is True
+        assert second["project_id"] == first["project_id"]
+        assert second["created_task_ids"] == first["created_task_ids"]
+        assert second["task_count"] == first["task_count"]
+
+        source_draft_id = f"pdv:{pv['id']}:1"
+        task_rows = list(
+            db_session.execute(
+                select(TaskTable).where(TaskTable.source_draft_id == source_draft_id)
+            ).scalars()
+        )
+        project_rows = db_session.execute(select(ProjectTable)).scalars().all()
+        assert len(task_rows) == first["task_count"]
+        assert len(project_rows) == 1
+
+    def test_create_formal_project_does_not_create_execution_side_effects(
+        self, client, db_session
+    ):
+        """Formalization stays at Project + pending Tasks only."""
+        sid = _create_session(client)
+        _confirm_session(client, sid)
+        pv = _create_plan_version(client, sid)
+        _confirm_plan_version(client, pv["id"])
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv['id']}/create-formal-project"
+        )
+        assert resp.status_code == 200
+
+        assert db_session.execute(select(RunTable)).scalars().all() == []
+        assert db_session.execute(select(AgentSessionTable)).scalars().all() == []
+        assert db_session.execute(select(ProjectRoleSkillBindingTable)).scalars().all() == []
+        assert db_session.execute(select(RepositoryWorkspaceTable)).scalars().all() == []
 
     def test_create_tasks_does_not_create_runs(self, client):
         """Creating tasks must not create any runs."""

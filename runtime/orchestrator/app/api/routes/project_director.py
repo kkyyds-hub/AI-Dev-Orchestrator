@@ -1062,9 +1062,11 @@ class TaskCreationResponse(BaseModel):
     plan_version_id: UUID
     session_id: UUID
     project_id: UUID
+    project_name: str | None = None
     created_task_ids: list[UUID] = Field(default_factory=list)
     task_count: int = Field(default=0)
     status: str
+    already_created: bool = False
     next_action: str
     forbidden_actions: list[str] = Field(default_factory=list)
     gate_conclusion: str
@@ -1122,9 +1124,65 @@ def create_tasks_from_plan_version(
         plan_version_id=result.plan_version_id,
         session_id=result.session_id,
         project_id=result.project_id,
+        project_name=result.project_name,
         created_task_ids=result.created_task_ids,
         task_count=result.task_count,
         status=result.status,
+        already_created=result.already_created,
+        next_action=result.next_action,
+        forbidden_actions=result.forbidden_actions,
+        gate_conclusion=result.gate_conclusion,
+    )
+
+
+@router.post(
+    "/plan-versions/{plan_version_id}/create-formal-project",
+    response_model=TaskCreationResponse,
+    summary="Explicitly create a formal Project and Task queue from a confirmed draft",
+)
+def create_formal_project_from_plan_version(
+    plan_version_id: UUID,
+    svc: Annotated[
+        ProjectDirectorTaskCreationService,
+        Depends(_get_task_creation_service),
+    ],
+) -> TaskCreationResponse:
+    """Create/read formal Project + pending Tasks from a confirmed draft.
+
+    This is an explicit user-triggered action. Approving/reviewing a draft
+    never calls this automatically. The operation is idempotent and will
+    return the existing creation record on repeated calls without duplicating
+    Project or Task rows.
+    """
+
+    try:
+        result = svc.create_formal_project_from_plan_version(plan_version_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "only 'confirmed'" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return TaskCreationResponse(
+        plan_version_id=result.plan_version_id,
+        session_id=result.session_id,
+        project_id=result.project_id,
+        project_name=result.project_name,
+        created_task_ids=result.created_task_ids,
+        task_count=result.task_count,
+        status=result.status,
+        already_created=result.already_created,
         next_action=result.next_action,
         forbidden_actions=result.forbidden_actions,
         gate_conclusion=result.gate_conclusion,
@@ -1160,9 +1218,11 @@ def get_created_tasks(
         plan_version_id=result.plan_version_id,
         session_id=result.session_id,
         project_id=result.project_id,
+        project_name=result.project_name,
         created_task_ids=result.created_task_ids,
         task_count=result.task_count,
         status=result.status,
+        already_created=result.already_created,
         next_action=result.next_action,
         forbidden_actions=result.forbidden_actions,
         gate_conclusion=result.gate_conclusion,

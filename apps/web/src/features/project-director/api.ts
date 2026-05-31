@@ -87,7 +87,7 @@ export function createProjectDirectorTaskQueue(
   input: CreateProjectDirectorTaskQueueInput,
 ): Promise<ProjectDirectorTaskCreationResponse> {
   return requestJson<ProjectDirectorTaskCreationResponse>(
-    `/project-director/plan-versions/${input.planVersionId}/create-tasks`,
+    `/project-director/plan-versions/${input.planVersionId}/create-formal-project`,
     {
       method: "POST",
     },

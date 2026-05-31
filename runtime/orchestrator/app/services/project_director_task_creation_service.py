@@ -1,6 +1,7 @@
-"""AI Project Director Task Creation service.
+﻿"""AI Project Director formal project/task creation service.
 
-BCG-04A Phase1: creates real Task objects from a confirmed plan version.
+Stage 4-B3-A adds an explicit user action that turns a confirmed
+Project Director draft into a formal Project plus a pending Task queue.
 
 Strict boundary:
 - Does NOT call planning/apply.
@@ -15,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
+from app.domain.project import Project, ProjectStage, ProjectStatus
 from app.domain.project_director_plan_version import (
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
@@ -35,13 +37,24 @@ from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
 
 
-# ── Priority mapping ────────────────────────────────────────────────
-
 _PRIORITY_MAP: dict[str, TaskPriority] = {
     "high": TaskPriority.HIGH,
     "urgent": TaskPriority.URGENT,
     "low": TaskPriority.LOW,
 }
+
+_BOUNDARY_ACTIONS = [
+    "不自动调用 Worker",
+    "Do not auto-dispatch Worker",
+    "Do not auto-execute tasks",
+    "Do not call planning/apply",
+    "Do not call apply-local",
+    "Do not write repository files",
+    "Do not call real AI providers",
+    "Do not create Agent Sessions",
+    "Do not create real Skill bindings",
+    "Do not create real repository bindings",
+]
 
 
 def _map_priority(priority_hint: str) -> TaskPriority:
@@ -49,29 +62,25 @@ def _map_priority(priority_hint: str) -> TaskPriority:
     return _PRIORITY_MAP.get(priority_hint.lower(), TaskPriority.NORMAL)
 
 
-# ── Result ──────────────────────────────────────────────────────────
-
-
 @dataclass(slots=True)
 class TaskCreationResult:
-    """Immutable result of a plan-to-task creation batch."""
+    """Immutable result of a plan-version formalization batch."""
 
     plan_version_id: UUID
     session_id: UUID
     project_id: UUID
+    project_name: str | None
     created_task_ids: list[UUID]
     task_count: int
     status: str
+    already_created: bool
     next_action: str
     forbidden_actions: list[str]
     gate_conclusion: str
 
 
-# ── Service ──────────────────────────────────────────────────────────
-
-
 class ProjectDirectorTaskCreationService:
-    """Creates real tasks from a confirmed Project Director plan version."""
+    """Creates formal Projects and real tasks from confirmed draft plans."""
 
     def __init__(
         self,
@@ -86,35 +95,19 @@ class ProjectDirectorTaskCreationService:
         self._creation_repo = creation_repo
         self._project_repo = project_repo
 
-    # ── Public API ──────────────────────────────────────────────────
-
     def create_tasks_from_plan_version(
         self, plan_version_id: UUID
     ) -> TaskCreationResult:
-        """Create real tasks from a confirmed plan version.
+        """Create tasks for a confirmed plan already bound to a Project.
 
-        Atomic guarantee: either all tasks AND the creation record are
-        persisted, or nothing is. Pre-validates all proposed_tasks
-        before any database write.
-
-        Raises ValueError with distinct messages for:
-        - Plan version not found
-        - Plan version not in 'confirmed' status
-        - Plan version has no project_id
-        - Tasks already created for this plan version
-        - Project not found
-        - Proposed task validation failures (empty title, invalid role, etc.)
+        This preserves the existing BCG-04A API contract: duplicate calls
+        still raise a conflict and unbound plan versions are rejected.
         """
 
-        plan_version = self._plan_repo.get_by_id(plan_version_id)
-        if plan_version is None:
-            raise ValueError(f"Plan version {plan_version_id} not found")
-
-        if plan_version.status != PlanVersionStatus.CONFIRMED:
-            raise ValueError(
-                f"Plan version is in '{plan_version.status}' status. "
-                f"Only 'confirmed' plan versions can create tasks."
-            )
+        plan_version = self._require_confirmed_plan_version(
+            plan_version_id,
+            action_name="create tasks",
+        )
 
         if plan_version.project_id is None:
             raise ValueError(
@@ -122,7 +115,6 @@ class ProjectDirectorTaskCreationService:
                 "Please create the plan version from a session that is bound to a project."
             )
 
-        # Idempotency guard: one plan version → one creation batch
         existing = self._creation_repo.get_by_plan_version_id(plan_version_id)
         if existing is not None:
             raise ValueError(
@@ -132,25 +124,85 @@ class ProjectDirectorTaskCreationService:
                 f"to retrieve the previously created task IDs."
             )
 
-        # Verify project exists
         if not self._project_repo.exists(plan_version.project_id):
             raise ValueError(
                 f"Project {plan_version.project_id} not found. "
                 f"The project may have been deleted."
             )
 
-        # Pre-validate all proposed_tasks before any DB write
-        validation_errors = self._validate_proposed_tasks(plan_version)
-        if validation_errors:
+        self._ensure_proposed_tasks_are_valid(plan_version)
+        return self._create_task_queue_for_plan_version(plan_version)
+
+    def create_formal_project_from_plan_version(
+        self, plan_version_id: UUID
+    ) -> TaskCreationResult:
+        """Create/read formal Project + Task queue for a confirmed draft.
+
+        This is the Stage 4-B3-A explicit user action. It is idempotent:
+        repeated calls return the previous creation record and never duplicate
+        the Project or Tasks.
+        """
+
+        plan_version = self._require_confirmed_plan_version(
+            plan_version_id,
+            action_name="create a formal project",
+        )
+
+        existing = self._creation_repo.get_by_plan_version_id(plan_version_id)
+        if existing is not None:
+            return self._result_from_record(existing, already_created=True)
+
+        self._ensure_proposed_tasks_are_valid(plan_version)
+
+        if plan_version.project_id is None:
+            project = self._project_repo.add_no_commit(
+                self._build_project_from_plan_version(plan_version)
+            )
+            plan_version = self._plan_repo.bind_project_no_commit(
+                plan_version.id,
+                project.id,
+            )
+        elif not self._project_repo.exists(plan_version.project_id):
             raise ValueError(
-                "Proposed task validation failed: "
-                + "; ".join(validation_errors)
+                f"Project {plan_version.project_id} not found. "
+                f"The project may have been deleted."
             )
 
-        # Create tasks (add without commit)
-        created_tasks = self._create_tasks_atomic(plan_version)
+        return self._create_task_queue_for_plan_version(plan_version)
 
-        # Persist creation record → single commit point for tasks + record
+    def get_created_tasks(
+        self, plan_version_id: UUID
+    ) -> TaskCreationResult | None:
+        """Return the task/project creation result for a plan version, or None."""
+        record = self._creation_repo.get_by_plan_version_id(plan_version_id)
+        if record is None:
+            return None
+        return self._result_from_record(record, already_created=False)
+
+    def _require_confirmed_plan_version(
+        self,
+        plan_version_id: UUID,
+        *,
+        action_name: str,
+    ) -> ProjectDirectorPlanVersion:
+        plan_version = self._plan_repo.get_by_id(plan_version_id)
+        if plan_version is None:
+            raise ValueError(f"Plan version {plan_version_id} not found")
+
+        if plan_version.status != PlanVersionStatus.CONFIRMED:
+            raise ValueError(
+                f"Plan version is in '{plan_version.status}' status. "
+                f"Only 'confirmed' plan versions can {action_name}."
+            )
+        return plan_version
+
+    def _create_task_queue_for_plan_version(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> TaskCreationResult:
+        """Create tasks + creation record for an already validated plan."""
+
+        created_tasks = self._create_tasks_atomic(plan_version)
         record = ProjectDirectorTaskCreationRecord(
             id=uuid4(),
             plan_version_id=plan_version.id,
@@ -161,19 +213,17 @@ class ProjectDirectorTaskCreationService:
             task_ids=[t.id for t in created_tasks],
             task_count=len(created_tasks),
         )
+
         try:
             self._creation_repo.create(record)
         except Exception:
-            # Rollback the tasks that were added but not yet committed
+            # Roll back any uncommitted Project, plan-version binding, and Tasks.
             self._task_repo.session.rollback()
             raise ValueError(
                 "Failed to persist task creation record. "
-                "No tasks were created. Please try again."
+                "No project or tasks were created. Please try again."
             )
 
-        # Publish task-created events only after the single commit point
-        # succeeds. This prevents SSE/console ghost events for rolled-back
-        # Task rows if the TaskCreationRecord commit fails.
         for task in created_tasks:
             self._task_repo.publish_created(task)
 
@@ -181,78 +231,98 @@ class ProjectDirectorTaskCreationService:
             plan_version_id=plan_version.id,
             session_id=plan_version.session_id,
             project_id=plan_version.project_id,
+            project_name=self._get_project_name(plan_version.project_id),
             created_task_ids=[t.id for t in created_tasks],
             task_count=len(created_tasks),
             status="created",
+            already_created=False,
             next_action=(
-                "任务已创建并进入队列。"
-                "后续需手动触发 Worker 调度执行任务。"
-                "当前阶段不自动执行。"
+                "Formal Project and pending Task queue were created. "
+                "Worker dispatch remains a separate manual action."
             ),
-            forbidden_actions=[
-                "不自动调用 Worker",
-                "不自动执行任务",
-                "不调用 planning/apply",
-                "不写仓库",
-                "不把任务创建等同于任务执行",
-            ],
-            gate_conclusion="Partial（任务创建闭环 Pass，Worker 执行未完成）",
+            forbidden_actions=_BOUNDARY_ACTIONS,
+            gate_conclusion=(
+                "Partial (formal Project + Task queue creation Pass; "
+                "Worker execution not completed)"
+            ),
         )
 
-    def get_created_tasks(
-        self, plan_version_id: UUID
-    ) -> TaskCreationResult | None:
-        """Return the task creation result for a plan version, or None."""
-        record = self._creation_repo.get_by_plan_version_id(plan_version_id)
-        if record is None:
-            return None
-
+    def _result_from_record(
+        self,
+        record: ProjectDirectorTaskCreationRecord,
+        *,
+        already_created: bool,
+    ) -> TaskCreationResult:
         return TaskCreationResult(
             plan_version_id=record.plan_version_id,
             session_id=record.session_id,
             project_id=record.project_id,
+            project_name=self._get_project_name(record.project_id),
             created_task_ids=record.task_ids,
             task_count=record.task_count,
-            status="created",
+            status="already_created" if already_created else "created",
+            already_created=already_created,
             next_action=(
-                "任务已创建并进入队列。"
-                "后续需手动触发 Worker 调度执行任务。"
+                "This confirmed draft already has a formal Project and Task queue. "
+                "The request returned the existing record and did not duplicate anything."
+                if already_created
+                else "Formal Project and pending Task queue have been created."
             ),
-            forbidden_actions=[
-                "不自动调用 Worker",
-                "不自动执行任务",
-                "不调用 planning/apply",
-                "不写仓库",
-            ],
-            gate_conclusion="Partial（任务创建闭环 Pass，Worker 执行未完成）",
+            forbidden_actions=[*_BOUNDARY_ACTIONS, "Do not duplicate Project/Tasks"],
+            gate_conclusion=(
+                "Partial (formal Project + Task queue creation record already exists)"
+                if already_created
+                else "Partial (formal Project + Task queue creation Pass)"
+            ),
         )
 
-    # ── Private helpers ──────────────────────────────────────────────
+    def _build_project_from_plan_version(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> Project:
+        summary = plan_version.plan_summary.strip()
+        if not summary:
+            summary = (
+                f"Formal project created from Project Director plan version "
+                f"{plan_version.id}."
+            )
+
+        first_line = next(
+            (line.strip() for line in summary.splitlines() if line.strip()),
+            f"Project Director Plan v{plan_version.version_no}",
+        )
+
+        return Project(
+            name=first_line[:120],
+            summary=summary[:2000],
+            status=ProjectStatus.ACTIVE,
+            stage=ProjectStage.PLANNING,
+        )
+
+    def _get_project_name(self, project_id: UUID | None) -> str | None:
+        if project_id is None:
+            return None
+        project = self._project_repo.get_by_id(project_id)
+        return project.name if project is not None else None
 
     @staticmethod
     def _build_input_summary(pt: ProposedTask) -> str:
         """Build input_summary from proposed_task, falling back for empty description."""
         if pt.description and pt.description.strip():
             return pt.description.strip()
-        return f"由计划版本生成的任务：{pt.title}"
+        return f"由计划版本生成的任务: {pt.title}"
 
     @staticmethod
     def _validate_proposed_tasks(
         plan_version: ProjectDirectorPlanVersion,
     ) -> list[str]:
-        """Pre-validate all proposed_tasks before any DB write.
-
-        Returns a list of error messages. Empty list means all valid.
-        Validates: title non-empty, role_code valid, priority_hint mappable.
-        """
+        """Pre-validate all proposed_tasks before any DB write."""
         errors: list[str] = []
         valid_role_codes = {r.value for r in ProjectRoleCode}
 
         for i, pt in enumerate(plan_version.proposed_tasks):
             if not pt.title or not pt.title.strip():
-                errors.append(
-                    f"Proposed task {i} has empty title"
-                )
+                errors.append(f"Proposed task {i} has empty title")
             if pt.suggested_role_code.value not in valid_role_codes:
                 errors.append(
                     f"Proposed task {i} ('{pt.title}') has invalid "
@@ -267,15 +337,23 @@ class ProjectDirectorTaskCreationService:
 
         return errors
 
+    @staticmethod
+    def _ensure_proposed_tasks_are_valid(
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> None:
+        validation_errors = ProjectDirectorTaskCreationService._validate_proposed_tasks(
+            plan_version
+        )
+        if validation_errors:
+            raise ValueError(
+                "Proposed task validation failed: "
+                + "; ".join(validation_errors)
+            )
+
     def _create_tasks_atomic(
         self, plan_version: ProjectDirectorPlanVersion
     ) -> list[Task]:
-        """Convert proposed_tasks into real Tasks with atomic commit.
-
-        All tasks are added without commit, then the creation record
-        commits everything in one transaction. If any step fails,
-        the session rolls back, leaving no orphaned tasks.
-        """
+        """Convert proposed_tasks into real Tasks without committing."""
         created: list[Task] = []
         source_draft_id = f"pdv:{plan_version.id}:{plan_version.version_no}"
 
@@ -290,9 +368,7 @@ class ProjectDirectorTaskCreationService:
                     source_draft_id=source_draft_id,
                 )
                 created.append(self._task_repo.add_no_commit(task))
-
             return created
         except Exception:
-            # Rollback any flushed tasks so the session stays clean
             self._task_repo.session.rollback()
             raise

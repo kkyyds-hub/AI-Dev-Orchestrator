@@ -172,9 +172,11 @@ export interface ProjectDirectorTaskCreationResponse {
   plan_version_id: string;
   session_id: string;
   project_id: string;
+  project_name: string | null;
   created_task_ids: string[];
   task_count: number;
   status: string;
+  already_created: boolean;
   next_action: string;
   forbidden_actions: string[];
   gate_conclusion: string;
