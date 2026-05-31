@@ -661,7 +661,11 @@ class TestCreateTasks:
         assert len(config["skill_bindings"]) == len(
             confirmed["skill_binding_suggestions"]
         )
-        assert "Skill" in body["next_action"]
+        assert body["next_action"] == (
+            "请在项目详情页确认或拒绝 AI 主管 Skill 绑定建议；"
+            "确认后仍不会启用 Skill 或启动 Worker。"
+        )
+        assert "?" not in body["next_action"]
         assert any("Skill" in item for item in config["warnings"])
         assert any("Worker" in item for item in config["warnings"])
 

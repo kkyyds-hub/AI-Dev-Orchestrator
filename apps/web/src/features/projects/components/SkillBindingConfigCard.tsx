@@ -15,9 +15,9 @@ type SkillBindingConfigCardProps = {
 };
 
 const STATUS_LABELS: Record<ProjectDirectorSkillBindingConfigStatus, string> = {
-  pending_confirmation: "???",
-  confirmed: "Skill ???????",
-  rejected: "Skill ???????",
+  pending_confirmation: "待确认",
+  confirmed: "Skill 绑定已确认",
+  rejected: "Skill 绑定已拒绝",
 };
 
 const STATUS_TONES: Record<
@@ -30,8 +30,8 @@ const STATUS_TONES: Record<
 };
 
 const BINDING_MODE_LABELS: Record<string, string> = {
-  suggested: "????",
-  not_bound: "???",
+  suggested: "建议绑定",
+  not_bound: "未绑定",
 };
 
 export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProps) {
@@ -46,7 +46,7 @@ export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProp
   if (query.isError) {
     return (
       <section className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-4 text-sm text-amber-100">
-        AI ?? Skill ??????????????????????
+        AI 主管 Skill 绑定建议暂时读取失败，不影响项目详情主页面。
       </section>
     );
   }
@@ -68,7 +68,7 @@ export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProp
       });
       setFeedback(result.next_action);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "???????????");
+      setFeedback(error instanceof Error ? error.message : "操作失败，请稍后重试。");
     }
   };
 
@@ -81,7 +81,7 @@ export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProp
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="text-sm font-semibold text-sky-100">
-              AI ?? Skill ????
+              AI 主管 Skill 绑定建议
             </h4>
             <StatusBadge
               label={STATUS_LABELS[config.status]}
@@ -89,7 +89,7 @@ export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProp
             />
           </div>
           <p className="mt-1 text-xs leading-5 text-sky-100/75">
-            ????? Skill ???????????? Skill ????????? Worker ???
+            这是项目级 Skill 绑定配置建议；未创建真实 Skill 绑定，未启用 Skill，未启动 Worker。
           </p>
         </div>
         {isPending ? (
@@ -100,7 +100,7 @@ export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProp
               disabled={isReviewing}
               className="rounded border border-sky-300 bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              ?? Skill ????
+              确认 Skill 绑定
             </button>
             <button
               type="button"
@@ -108,7 +108,7 @@ export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProp
               disabled={isReviewing}
               className="rounded border border-[#333333] bg-[#151515] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              ?? Skill ????
+              拒绝 Skill 绑定
             </button>
           </div>
         ) : null}
@@ -130,8 +130,8 @@ export function SkillBindingConfigCard({ projectId }: SkillBindingConfigCardProp
 function ConfigMeta({ config }: { config: ProjectDirectorSkillBindingConfig }) {
   return (
     <div className="mt-3 grid gap-2 sm:grid-cols-2">
-      <MetaBlock label="????" value={STATUS_LABELS[config.status]} />
-      <MetaBlock label="?????? ID" value={config.plan_version_id} mono />
+      <MetaBlock label="当前状态" value={STATUS_LABELS[config.status]} />
+      <MetaBlock label="来源草案版本 ID" value={config.plan_version_id} mono />
     </div>
   );
 }
@@ -161,7 +161,7 @@ function SkillBindingList({ config }: { config: ProjectDirectorSkillBindingConfi
   return (
     <div className="mt-3 space-y-2">
       {config.skill_bindings.map((binding) => {
-        const skillLabel = binding.skill_code || binding.skill_name || "??? Skill";
+        const skillLabel = binding.skill_code || binding.skill_name || "未命名 Skill";
         const bindingModeLabel =
           BINDING_MODE_LABELS[binding.binding_mode] ?? binding.binding_mode;
 
@@ -182,9 +182,9 @@ function SkillBindingList({ config }: { config: ProjectDirectorSkillBindingConfi
               </span>
             </div>
             <dl className="mt-2 grid gap-2 text-xs leading-5 sm:grid-cols-2">
-              <Field label="????" value={binding.usage} />
-              <Field label="????" value={binding.activation_stage} />
-              <Field label="????" value={binding.reason || "??????"} />
+              <Field label="使用方式" value={binding.usage} />
+              <Field label="激活阶段" value={binding.activation_stage} />
+              <Field label="建议原因" value={binding.reason || "暂无说明"} />
             </dl>
           </div>
         );
@@ -207,14 +207,14 @@ function BoundaryWarnings({ warnings }: { warnings: string[] }) {
     warnings.length > 0
       ? warnings
       : [
-          "?????? Skill ???????",
-          "????? Skill ???",
-          "?????? Worker ???",
+          "这只是项目级 Skill 绑定配置。",
+          "未创建真实 Skill 绑定。",
+          "未启用 Skill，也未启动 Worker。",
         ];
 
   return (
     <div className="mt-3 rounded border border-sky-500/20 bg-[#111111]/70 px-3 py-2">
-      <div className="text-xs font-medium text-sky-100">????</div>
+      <div className="text-xs font-medium text-sky-100">边界提示</div>
       <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-5 text-sky-100/80">
         {items.map((item) => (
           <li key={item}>{item}</li>
