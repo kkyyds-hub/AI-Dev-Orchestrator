@@ -149,12 +149,28 @@ class TestCreatePlanVersion:
         assert data["project_scope"]["in_scope"]
         assert data["project_scope"]["out_of_scope"]
         assert data["agent_team_suggestions"]
+        assert all(item["role_name"] for item in data["agent_team_suggestions"])
         assert data["skill_binding_suggestions"]
+        assert all(item["binding_mode"] for item in data["skill_binding_suggestions"])
+        assert all(item["reason"] for item in data["skill_binding_suggestions"])
         assert data["verification_mechanisms"]
+        assert all(item["purpose"] for item in data["verification_mechanisms"])
+        assert all(item["risk_level"] in {"low", "normal", "high"} for item in data["verification_mechanisms"])
+        assert all(
+            isinstance(item["requires_user_confirmation"], bool)
+            for item in data["verification_mechanisms"]
+        )
         assert data["repository_binding_suggestions"]
+        assert all(item["binding_mode"] for item in data["repository_binding_suggestions"])
+        assert all("branch" in item for item in data["repository_binding_suggestions"])
+        assert all(isinstance(item["focus_paths"], list) for item in data["repository_binding_suggestions"])
         assert data["deliverable_boundaries"]
+        assert all(item["description"] for item in data["deliverable_boundaries"])
+        assert all(item["acceptance_signal"] for item in data["deliverable_boundaries"])
         assert data["complexity_assessment"]["score"] >= 1
         assert data["complexity_assessment"]["level"] in {"low", "medium", "high"}
+        assert data["complexity_assessment"]["label"]
+        assert data["complexity_assessment"]["recommended_agent_count"] >= 1
         assert data["needs_user_confirmation"] is True
         assert data["gate_conclusion"] == "Partial"
 
@@ -276,6 +292,18 @@ class TestCreatePlanVersion:
         assert "repository_binding_suggestions" in data
         assert "deliverable_boundaries" in data
         assert "complexity_assessment" in data
+        assert "role_name" in data["agent_team_suggestions"][0]
+        assert "binding_mode" in data["skill_binding_suggestions"][0]
+        assert "reason" in data["skill_binding_suggestions"][0]
+        assert "purpose" in data["verification_mechanisms"][0]
+        assert "risk_level" in data["verification_mechanisms"][0]
+        assert "requires_user_confirmation" in data["verification_mechanisms"][0]
+        assert "branch" in data["repository_binding_suggestions"][0]
+        assert "focus_paths" in data["repository_binding_suggestions"][0]
+        assert "description" in data["deliverable_boundaries"][0]
+        assert "acceptance_signal" in data["deliverable_boundaries"][0]
+        assert "label" in data["complexity_assessment"]
+        assert "recommended_agent_count" in data["complexity_assessment"]
         assert "forbidden_actions" in data
         assert "confirmed_at" in data
         assert "next_action" in data
@@ -566,12 +594,34 @@ class TestReviewPlanVersion:
         assert "Please split backend and frontend scope" in payload["replacement_plan_version"]["plan_summary"]
         replacement = payload["replacement_plan_version"]
         assert replacement["project_scope"]["out_of_scope"]
+        assert any(
+            "Please split backend and frontend scope" in item
+            for item in replacement["project_scope"]["assumptions"]
+        )
         assert replacement["agent_team_suggestions"]
+        assert all(item["role_name"] for item in replacement["agent_team_suggestions"])
         assert replacement["skill_binding_suggestions"]
+        assert all(item["binding_mode"] == "suggestion_only" for item in replacement["skill_binding_suggestions"])
+        assert all(item["reason"] for item in replacement["skill_binding_suggestions"])
         assert replacement["verification_mechanisms"]
+        assert all(item["purpose"] for item in replacement["verification_mechanisms"])
+        assert all(item["risk_level"] in {"low", "normal", "high"} for item in replacement["verification_mechanisms"])
+        assert all(isinstance(item["requires_user_confirmation"], bool) for item in replacement["verification_mechanisms"])
         assert replacement["repository_binding_suggestions"]
+        assert all(item["binding_mode"] == "suggestion_only" for item in replacement["repository_binding_suggestions"])
+        assert all("branch" in item for item in replacement["repository_binding_suggestions"])
+        assert all(isinstance(item["focus_paths"], list) for item in replacement["repository_binding_suggestions"])
         assert replacement["deliverable_boundaries"]
+        assert all(item["description"] for item in replacement["deliverable_boundaries"])
+        assert all(item["acceptance_signal"] for item in replacement["deliverable_boundaries"])
         assert replacement["complexity_assessment"]["score"] >= 1
+        assert replacement["complexity_assessment"]["level"] in {"low", "medium", "high"}
+        assert replacement["complexity_assessment"]["label"]
+        assert replacement["complexity_assessment"]["recommended_agent_count"] >= 1
+        assert any(
+            "Please split backend and frontend scope" in item
+            for item in replacement["complexity_assessment"]["drivers"]
+        )
 
         history = client.get(f"/project-director/sessions/{session_id}/plan-versions")
         assert history.status_code == 200

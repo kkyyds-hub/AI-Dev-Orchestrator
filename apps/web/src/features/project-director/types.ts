@@ -80,6 +80,7 @@ export interface ProjectDirectorProjectScope {
 
 export interface ProjectDirectorAgentTeamSuggestion {
   role_code: string;
+  role_name: string;
   responsibility: string;
   collaboration_notes: string[];
 }
@@ -89,6 +90,8 @@ export interface ProjectDirectorSkillBindingSuggestion {
   owner_role_code: string;
   usage: string;
   activation_stage: string;
+  binding_mode: string;
+  reason: string;
 }
 
 export interface ProjectDirectorVerificationMechanism {
@@ -96,25 +99,35 @@ export interface ProjectDirectorVerificationMechanism {
   command_or_method: string;
   evidence_required: string;
   owner_role_code: string;
+  purpose: string;
+  risk_level: string;
+  requires_user_confirmation: boolean;
 }
 
 export interface ProjectDirectorRepositoryBindingSuggestion {
   binding_type: string;
+  binding_mode: string;
   target: string;
+  branch: string;
+  focus_paths: string[];
   usage: string;
   safety_note: string;
 }
 
 export interface ProjectDirectorDeliverableBoundary {
   name: string;
+  description: string;
   owner_role_code: string;
   required_contents: string[];
   done_definition: string;
+  acceptance_signal: string;
 }
 
 export interface ProjectDirectorComplexityAssessment {
   level: string;
+  label: string;
   score: number;
+  recommended_agent_count: number;
   drivers: string[];
   mitigation_suggestions: string[];
 }

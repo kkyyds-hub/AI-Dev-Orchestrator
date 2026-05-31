@@ -54,6 +54,7 @@ class AgentTeamSuggestion(DomainModel):
     """Suggested agent/role lineup for a reviewable plan draft."""
 
     role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
+    role_name: str = Field(default="", max_length=100)
     responsibility: str = Field(min_length=1, max_length=1000)
     collaboration_notes: list[str] = Field(default_factory=list)
 
@@ -65,6 +66,8 @@ class SkillBindingSuggestion(DomainModel):
     owner_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
     usage: str = Field(min_length=1, max_length=1000)
     activation_stage: str = Field(default="planning", max_length=120)
+    binding_mode: str = Field(default="suggestion_only", max_length=120)
+    reason: str = Field(default="", max_length=1000)
 
 
 class VerificationMechanismSuggestion(DomainModel):
@@ -74,13 +77,19 @@ class VerificationMechanismSuggestion(DomainModel):
     command_or_method: str = Field(min_length=1, max_length=1000)
     evidence_required: str = Field(min_length=1, max_length=1000)
     owner_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.REVIEWER)
+    purpose: str = Field(default="", max_length=1000)
+    risk_level: str = Field(default="normal", max_length=40)
+    requires_user_confirmation: bool = Field(default=False)
 
 
 class RepositoryBindingSuggestion(DomainModel):
     """Suggested repository binding without creating any real repository link."""
 
     binding_type: str = Field(default="review_only", max_length=120)
+    binding_mode: str = Field(default="suggestion_only", max_length=120)
     target: str = Field(min_length=1, max_length=500)
+    branch: str = Field(default="未指定", max_length=200)
+    focus_paths: list[str] = Field(default_factory=list)
     usage: str = Field(min_length=1, max_length=1000)
     safety_note: str = Field(min_length=1, max_length=1000)
 
@@ -89,16 +98,20 @@ class DeliverableBoundary(DomainModel):
     """Expected deliverable boundary for a plan draft."""
 
     name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
     owner_role_code: ProjectRoleCode = Field(default=ProjectRoleCode.ENGINEER)
     required_contents: list[str] = Field(default_factory=list)
     done_definition: str = Field(min_length=1, max_length=1000)
+    acceptance_signal: str = Field(default="", max_length=1000)
 
 
 class ComplexityAssessment(DomainModel):
     """Deterministic complexity assessment for a review-only draft."""
 
     level: str = Field(default="medium", max_length=40)
+    label: str = Field(default="中等复杂度", max_length=100)
     score: int = Field(default=2, ge=1, le=5)
+    recommended_agent_count: int = Field(default=3, ge=1, le=8)
     drivers: list[str] = Field(default_factory=list)
     mitigation_suggestions: list[str] = Field(default_factory=list)
 

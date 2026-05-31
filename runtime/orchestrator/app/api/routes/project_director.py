@@ -472,6 +472,7 @@ class ProjectScopeResponse(BaseModel):
 
 class AgentTeamSuggestionResponse(BaseModel):
     role_code: str
+    role_name: str
     responsibility: str
     collaboration_notes: list[str] = Field(default_factory=list)
 
@@ -481,6 +482,7 @@ class AgentTeamSuggestionResponse(BaseModel):
     ) -> "AgentTeamSuggestionResponse":
         return cls(
             role_code=item.role_code,
+            role_name=item.role_name,
             responsibility=item.responsibility,
             collaboration_notes=item.collaboration_notes,
         )
@@ -491,6 +493,8 @@ class SkillBindingSuggestionResponse(BaseModel):
     owner_role_code: str
     usage: str
     activation_stage: str
+    binding_mode: str
+    reason: str
 
     @classmethod
     def from_domain(
@@ -501,6 +505,8 @@ class SkillBindingSuggestionResponse(BaseModel):
             owner_role_code=item.owner_role_code,
             usage=item.usage,
             activation_stage=item.activation_stage,
+            binding_mode=item.binding_mode,
+            reason=item.reason,
         )
 
 
@@ -509,6 +515,9 @@ class VerificationMechanismResponse(BaseModel):
     command_or_method: str
     evidence_required: str
     owner_role_code: str
+    purpose: str
+    risk_level: str
+    requires_user_confirmation: bool
 
     @classmethod
     def from_domain(
@@ -519,12 +528,18 @@ class VerificationMechanismResponse(BaseModel):
             command_or_method=item.command_or_method,
             evidence_required=item.evidence_required,
             owner_role_code=item.owner_role_code,
+            purpose=item.purpose,
+            risk_level=item.risk_level,
+            requires_user_confirmation=item.requires_user_confirmation,
         )
 
 
 class RepositoryBindingSuggestionResponse(BaseModel):
     binding_type: str
+    binding_mode: str
     target: str
+    branch: str
+    focus_paths: list[str] = Field(default_factory=list)
     usage: str
     safety_note: str
 
@@ -534,7 +549,10 @@ class RepositoryBindingSuggestionResponse(BaseModel):
     ) -> "RepositoryBindingSuggestionResponse":
         return cls(
             binding_type=item.binding_type,
+            binding_mode=item.binding_mode,
             target=item.target,
+            branch=item.branch,
+            focus_paths=item.focus_paths,
             usage=item.usage,
             safety_note=item.safety_note,
         )
@@ -542,9 +560,11 @@ class RepositoryBindingSuggestionResponse(BaseModel):
 
 class DeliverableBoundaryResponse(BaseModel):
     name: str
+    description: str
     owner_role_code: str
     required_contents: list[str] = Field(default_factory=list)
     done_definition: str
+    acceptance_signal: str
 
     @classmethod
     def from_domain(
@@ -552,15 +572,19 @@ class DeliverableBoundaryResponse(BaseModel):
     ) -> "DeliverableBoundaryResponse":
         return cls(
             name=item.name,
+            description=item.description,
             owner_role_code=item.owner_role_code,
             required_contents=item.required_contents,
             done_definition=item.done_definition,
+            acceptance_signal=item.acceptance_signal,
         )
 
 
 class ComplexityAssessmentResponse(BaseModel):
     level: str = "medium"
+    label: str = "中等复杂度"
     score: int = 2
+    recommended_agent_count: int = 3
     drivers: list[str] = Field(default_factory=list)
     mitigation_suggestions: list[str] = Field(default_factory=list)
 
@@ -570,7 +594,9 @@ class ComplexityAssessmentResponse(BaseModel):
     ) -> "ComplexityAssessmentResponse":
         return cls(
             level=item.level,
+            label=item.label,
             score=item.score,
+            recommended_agent_count=item.recommended_agent_count,
             drivers=item.drivers,
             mitigation_suggestions=item.mitigation_suggestions,
         )

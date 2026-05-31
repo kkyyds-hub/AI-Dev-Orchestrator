@@ -116,8 +116,12 @@ export function ProjectDirectorPlanReviewModal({
               <div className="flex flex-wrap items-center gap-2">
                 <h4 className="text-sm font-semibold text-zinc-100">复杂度评估</h4>
                 <StatusBadge
-                  label={`${formatComplexityLevel(planVersion.complexity_assessment?.level)} · ${planVersion.complexity_assessment?.score ?? "-"} / 5`}
+                  label={`${planVersion.complexity_assessment?.label ?? formatComplexityLevel(planVersion.complexity_assessment?.level)} · ${planVersion.complexity_assessment?.score ?? "-"} / 5`}
                   tone="info"
+                />
+                <StatusBadge
+                  label={`建议 ${planVersion.complexity_assessment?.recommended_agent_count ?? "-"} 人编队`}
+                  tone="neutral"
                 />
               </div>
               <ListBlock title="驱动因素" items={planVersion.complexity_assessment?.drivers ?? []} />
@@ -137,7 +141,10 @@ export function ProjectDirectorPlanReviewModal({
                     key={`${item.role_code}-${item.responsibility}`}
                     className="rounded border border-[#2f2f2f] bg-[#171717] p-3"
                   >
-                    <StatusBadge label={formatRoleCode(item.role_code)} tone="warning" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge label={item.role_name || formatRoleCode(item.role_code)} tone="warning" />
+                      <span className="text-xs text-zinc-500">{item.role_code}</span>
+                    </div>
                     <p className="mt-2 text-sm text-zinc-300">{item.responsibility}</p>
                     <ListBlock title="协作说明" items={item.collaboration_notes} compact />
                   </div>
@@ -157,8 +164,10 @@ export function ProjectDirectorPlanReviewModal({
                         <span className="font-medium text-zinc-200">{item.skill_code}</span>
                         <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
                         <StatusBadge label={`阶段：${item.activation_stage}`} tone="neutral" />
+                        <StatusBadge label={`绑定：${item.binding_mode}`} tone="neutral" />
                       </div>
                       <p className="mt-2 text-sm text-zinc-400">{item.usage}</p>
+                      <p className="mt-1 text-xs leading-5 text-zinc-500">原因：{item.reason}</p>
                     </div>
                   ))}
                 </div>
@@ -174,8 +183,11 @@ export function ProjectDirectorPlanReviewModal({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                         <span className="font-medium text-zinc-200">{item.target}</span>
                         <StatusBadge label={item.binding_type} tone="neutral" />
+                        <StatusBadge label={`模式：${item.binding_mode}`} tone="neutral" />
+                        <StatusBadge label={`分支：${item.branch}`} tone="info" />
                       </div>
                       <p className="mt-2 text-sm text-zinc-400">{item.usage}</p>
+                      <ListBlock title="关注路径" items={item.focus_paths} compact />
                       <p className="mt-2 text-xs leading-5 text-amber-200">{item.safety_note}</p>
                     </div>
                   ))}
@@ -194,7 +206,13 @@ export function ProjectDirectorPlanReviewModal({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                         <span className="font-medium text-zinc-200">{item.name}</span>
                         <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
+                        <StatusBadge label={`风险：${item.risk_level}`} tone="neutral" />
+                        <StatusBadge
+                          label={item.requires_user_confirmation ? "需用户确认" : "无需用户确认"}
+                          tone={item.requires_user_confirmation ? "warning" : "neutral"}
+                        />
                       </div>
+                      <p className="mt-2 text-sm text-zinc-300">{item.purpose}</p>
                       <p className="mt-2 break-words text-sm text-zinc-300">{item.command_or_method}</p>
                       <p className="mt-1 text-xs leading-5 text-zinc-500">{item.evidence_required}</p>
                     </div>
@@ -213,8 +231,12 @@ export function ProjectDirectorPlanReviewModal({
                         <span className="font-medium text-zinc-200">{item.name}</span>
                         <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
                       </div>
+                      <p className="mt-2 text-sm text-zinc-300">{item.description}</p>
                       <ListBlock title="必须包含" items={item.required_contents} compact />
                       <p className="mt-2 text-xs leading-5 text-zinc-500">{item.done_definition}</p>
+                      <p className="mt-1 text-xs leading-5 text-emerald-200">
+                        验收信号：{item.acceptance_signal}
+                      </p>
                     </div>
                   ))}
                 </div>

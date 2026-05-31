@@ -42,6 +42,13 @@ _DEFAULT_FORBIDDEN_ACTIONS = [
     "不调用 planning/apply",
 ]
 
+_ROLE_NAMES = {
+    ProjectRoleCode.PRODUCT_MANAGER: "产品负责人",
+    ProjectRoleCode.ARCHITECT: "架构师",
+    ProjectRoleCode.ENGINEER: "工程师",
+    ProjectRoleCode.REVIEWER: "评审者",
+}
+
 
 def _generate_plan_from_session(
     session: "ProjectDirectorSession",  # noqa: F821
@@ -73,6 +80,7 @@ def _generate_plan_from_session(
     goal = session.goal_text
     constraints = session.constraints
     answers = {a.question_id: a.answer for a in session.clarifying_answers}
+    revision_note_text = revision_notes.strip()
 
     # Build plan summary from goal + constraints + answers
     summary_lines = [
@@ -88,11 +96,11 @@ def _generate_plan_from_session(
         answer = answers.get(q.id, "（未回答）")
         answer_lines.append(f"- **{q.question}** → {answer}")
 
-    if revision_notes.strip():
+    if revision_note_text:
         answer_lines.extend(
             [
                 "\n## 整改说明\n",
-                revision_notes.strip(),
+                revision_note_text,
             ]
         )
 
@@ -212,10 +220,10 @@ def _generate_plan_from_session(
             "依赖项延迟或不可用",
         ]
 
-    if revision_notes.strip():
+    if revision_note_text:
         risks.insert(
             0,
-            f"整改反馈需重点处理：{revision_notes.strip()[:200]}",
+            f"整改反馈需重点处理：{revision_note_text[:200]}",
         )
 
     # ── Review-only enriched draft content ──
@@ -239,27 +247,36 @@ def _generate_plan_from_session(
         assumptions=[
             "用户确认草案后，后续任务创建、Worker 调度、仓库写入仍需单独显式触发",
             "当前草案基于 Project Director 会话目标、约束和澄清答案的本地确定性规则生成",
+            *(
+                [f"整改反馈已纳入草案增强字段：{revision_note_text[:200]}"]
+                if revision_note_text
+                else []
+            ),
         ],
     )
 
     agent_team_suggestions = [
         AgentTeamSuggestion(
             role_code=ProjectRoleCode.PRODUCT_MANAGER,
+            role_name=_ROLE_NAMES[ProjectRoleCode.PRODUCT_MANAGER],
             responsibility="持续确认目标、范围、不做范围、交付件验收口径与用户反馈优先级",
             collaboration_notes=["作为需求入口", "在每轮 request_changes 后重新核对范围漂移"],
         ),
         AgentTeamSuggestion(
             role_code=ProjectRoleCode.ARCHITECT,
+            role_name=_ROLE_NAMES[ProjectRoleCode.ARCHITECT],
             responsibility="负责阶段拆分、技术边界、依赖识别、仓库影响面和复杂度判断",
             collaboration_notes=["先输出设计与风险", "再交给 engineer 拆执行任务"],
         ),
         AgentTeamSuggestion(
             role_code=ProjectRoleCode.ENGINEER,
+            role_name=_ROLE_NAMES[ProjectRoleCode.ENGINEER],
             responsibility="在草案确认并单独创建任务后，承接实现、联调和交付件更新",
             collaboration_notes=["仅在任务队列创建后执行", "不得由草案审核自动启动 Worker"],
         ),
         AgentTeamSuggestion(
             role_code=ProjectRoleCode.REVIEWER,
+            role_name=_ROLE_NAMES[ProjectRoleCode.REVIEWER],
             responsibility="负责验证策略、证据完整性、回归检查和审批前质量闸门",
             collaboration_notes=["定义最小测试命令", "检查 evidence 与交付件是否一致"],
         ),
@@ -271,24 +288,32 @@ def _generate_plan_from_session(
             owner_role_code=ProjectRoleCode.PRODUCT_MANAGER,
             usage="用于冻结目标、范围、不做范围、交付件边界和阶段记录；本草案只建议绑定，不创建绑定记录",
             activation_stage="规划/澄清",
+            binding_mode="suggestion_only",
+            reason="需要产品负责人先确认范围、验收口径和 request_changes 反馈是否被吸收",
         ),
         SkillBindingSuggestion(
             skill_code="write-v5-runtime-backend",
             owner_role_code=ProjectRoleCode.ENGINEER,
             usage="后端领域、服务、路由、仓储或 schema 变更时由实现任务显式调用",
             activation_stage="实现",
+            binding_mode="suggestion_only",
+            reason="只有在用户确认草案并单独创建实现任务后，才建议由工程师使用后端实现 skill",
         ),
         SkillBindingSuggestion(
             skill_code="write-v5-web-control-surface",
             owner_role_code=ProjectRoleCode.ENGINEER,
             usage="前端控制面、弹窗、类型合同和页面展示变更时由实现任务显式调用",
             activation_stage="实现/展示",
+            binding_mode="suggestion_only",
+            reason="当前只是展示建议；真实前端执行需后续显式任务承接",
         ),
         SkillBindingSuggestion(
             skill_code="verify-v5-runtime-and-regression",
             owner_role_code=ProjectRoleCode.REVIEWER,
             usage="用于运行后端测试、前端 build、API/页面最小回归并记录事实结果",
             activation_stage="验证",
+            binding_mode="suggestion_only",
+            reason="验证 skill 应在实现任务完成后显式触发，不能由草案审核自动执行",
         ),
     ]
 
@@ -298,12 +323,18 @@ def _generate_plan_from_session(
             command_or_method="pytest runtime/orchestrator/tests/test_project_director_plan_versions.py",
             evidence_required="响应中包含项目范围、Agent 编队、Skill 建议、验证机制、仓库建议、交付件边界和复杂度评估字段",
             owner_role_code=ProjectRoleCode.REVIEWER,
+            purpose="验证后端 API 合同、持久化读回和 request_changes 新版本字段完整性",
+            risk_level="high",
+            requires_user_confirmation=False,
         ),
         VerificationMechanismSuggestion(
             name="前端构建检查",
             command_or_method="npm --prefix apps/web run build",
             evidence_required="TypeScript 类型与计划审核弹窗展示通过构建检查",
             owner_role_code=ProjectRoleCode.REVIEWER,
+            purpose="验证 Project Director 计划审核弹窗能展示增强字段且类型合同未破坏",
+            risk_level="normal",
+            requires_user_confirmation=False,
         ),
     ]
 
@@ -314,13 +345,24 @@ def _generate_plan_from_session(
                 command_or_method="按任务类型补充单元测试、接口 smoke 或页面 build；命令需在后续执行任务中明确",
                 evidence_required="测试命令、退出码、关键输出和未覆盖范围说明",
                 owner_role_code=ProjectRoleCode.REVIEWER,
+                purpose="在真实实现任务完成后再确认执行结果，不把草案确认误判为运行通过",
+                risk_level="normal",
+                requires_user_confirmation=False,
             )
         )
 
     repository_binding_suggestions = [
         RepositoryBindingSuggestion(
             binding_type="review_only",
+            binding_mode="suggestion_only",
             target="当前项目关联仓库（如后续由用户显式绑定）",
+            branch="未指定",
+            focus_paths=[
+                "runtime/orchestrator/app/",
+                "runtime/orchestrator/tests/",
+                "apps/web/src/features/project-director/",
+                "apps/web/src/pages/workbench/components/",
+            ],
             usage="用于后续文件定位、变更计划和交付件证据读取；本草案不创建 repository binding",
             safety_note="草案审核阶段只提示绑定建议，不执行目录扫描、仓库写入、apply-local 或 git-commit",
         )
@@ -329,21 +371,27 @@ def _generate_plan_from_session(
     deliverable_boundaries = [
         DeliverableBoundary(
             name="范围与不做范围说明",
+            description="用于让用户确认本轮项目草案覆盖什么、明确排除什么，以及哪些假设仍需保留",
             owner_role_code=ProjectRoleCode.PRODUCT_MANAGER,
             required_contents=["目标", "范围内", "范围外", "关键假设", "验收口径"],
             done_definition="用户能据此判断草案是否覆盖本轮 Project Director 目标",
+            acceptance_signal="用户确认范围和不做范围无缺口；request_changes 反馈已在 assumptions 或风险中可见",
         ),
         DeliverableBoundary(
             name="阶段计划与拟议任务清单",
+            description="用于把目标拆成可审核阶段、拟议任务和建议角色，但不直接创建真实任务队列",
             owner_role_code=ProjectRoleCode.ARCHITECT,
             required_contents=["阶段", "任务标题", "建议角色", "优先级", "依赖/风险"],
             done_definition="通过审核后可作为后续显式创建任务队列的输入依据，但不会自动创建任务",
+            acceptance_signal="用户能看清每个阶段产出、任务责任和后续显式创建任务边界",
         ),
         DeliverableBoundary(
             name="验证与交付证据包",
+            description="用于定义后续实现完成后的测试、构建、风险复核和未覆盖范围说明",
             owner_role_code=ProjectRoleCode.REVIEWER,
             required_contents=["测试命令", "构建结果", "风险复核", "未覆盖范围"],
             done_definition="实现任务完成后能独立复核质量，不把草案确认误判为总闭环 Pass",
+            acceptance_signal="测试命令、构建结果和风险复核均有可回放证据，且未覆盖范围被明确列出",
         ),
     ]
 
@@ -367,13 +415,23 @@ def _generate_plan_from_session(
     ):
         complexity_score += 1
         complexity_drivers.append("涉及仓库、部署、provider 或 Worker 等高风险边界词")
+    if revision_note_text:
+        complexity_drivers.append(f"request_changes 整改反馈：{revision_note_text[:200]}")
     complexity_score = min(complexity_score, 5)
     complexity_level = (
         "low" if complexity_score <= 2 else "medium" if complexity_score <= 4 else "high"
     )
+    complexity_label = {
+        "low": "低复杂度",
+        "medium": "中等复杂度",
+        "high": "高复杂度",
+    }[complexity_level]
+    recommended_agent_count = min(4, max(2, complexity_score))
     complexity_assessment = ComplexityAssessment(
         level=complexity_level,
+        label=complexity_label,
         score=complexity_score,
+        recommended_agent_count=recommended_agent_count,
         drivers=complexity_drivers,
         mitigation_suggestions=[
             "先确认范围/不做范围，再进入任务创建",
