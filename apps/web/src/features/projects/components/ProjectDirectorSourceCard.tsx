@@ -79,12 +79,12 @@ function SourceIdGrid({
   return (
     <div className={`mt-3 grid gap-2 ${compact ? "" : "sm:grid-cols-2"}`}>
       <SourceIdBlock
-        label="source_plan_version_id"
+        label="草案版本 ID"
         value={readback.sourcePlanVersionId}
       />
       <div className="rounded border border-[#333333] bg-[#111111]/60 px-3 py-2">
         <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-600">
-          source_draft_id
+          任务草案追溯 ID
         </div>
         {visibleDraftIds.length > 0 ? (
           <div className="mt-1 flex flex-wrap gap-1">
