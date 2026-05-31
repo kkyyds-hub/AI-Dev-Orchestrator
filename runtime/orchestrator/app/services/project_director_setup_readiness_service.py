@@ -1,4 +1,4 @@
-﻿"""Read-only setup readiness aggregation for AI Project Director projects.
+"""Read-only setup readiness aggregation for AI Project Director projects.
 
 This service only reads existing Project, Task, Project Director draft, and
 review-config rows. It never creates Runs, Agent Sessions, Skill bindings,
@@ -36,7 +36,7 @@ SetupConfigStatus = str
 
 
 _READ_ONLY_WARNINGS = [
-    "该接口只读，只汇总既有项目、任务和 AI 主控配置状态。",
+    "该接口只读，只汇总既有项目、任务和 AI 主管配置状态。",
     "不会启动 Worker。",
     "不会创建 Run。",
     "不会执行验证命令。",
@@ -103,7 +103,14 @@ class ProjectDirectorSetupReadinessService:
         tasks = self._task_repo.list_by_project_id(project_id)
         creation_record = self._get_creation_record(project_id)
         task_source_draft_id = next(
-            (task.source_draft_id for task in tasks if task.source_draft_id),
+            (
+                task.source_draft_id
+                for task in tasks
+                if self._extract_project_director_plan_version_id(
+                    task.source_draft_id
+                )
+                is not None
+            ),
             None,
         )
         source_draft_id = (
@@ -134,7 +141,7 @@ class ProjectDirectorSetupReadinessService:
 
         task_count = len(tasks)
         pending_task_count = sum(1 for task in tasks if task.status == TaskStatus.PENDING)
-        created_by_director = source_plan_version_id is not None or bool(source_draft_id)
+        created_by_director = source_plan_version_id is not None
         task_queue_created = task_count > 0
         pending_confirmation_count = self._count_status(
             config_statuses.values(), "pending_confirmation"
@@ -235,15 +242,15 @@ class ProjectDirectorSetupReadinessService:
     ) -> list[str]:
         steps: list[str] = []
         if not created_by_director:
-            return ["普通项目：未识别到 AI 主控草案来源，不按 AI 主控创建项目展示。"]
+            return ["普通项目：未识别到 AI 主管草案来源，不按 AI 主管创建项目展示。"]
         if not task_queue_created:
             steps.append("尚未识别到 pending Task 队列，请先确认是否已创建正式任务队列。")
         if pending_confirmation_count:
-            steps.append(f"还有 {pending_confirmation_count} 类 AI 主控建议配置待确认。")
+            steps.append(f"还有 {pending_confirmation_count} 类 AI 主管建议配置待确认。")
         if rejected_count:
             steps.append("存在已拒绝配置，请先处理被拒绝配置或重新生成/调整对应建议。")
         if missing_count:
-            steps.append(f"还有 {missing_count} 类 AI 主控建议配置未生成。")
+            steps.append(f"还有 {missing_count} 类 AI 主管建议配置未生成。")
         if ready_for_manual_execution:
             steps.append("所有建议配置已确认；用户可以手动考虑启动 Worker，但本接口不会自动启动。")
         if not steps:

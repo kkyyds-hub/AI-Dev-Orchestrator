@@ -1,4 +1,4 @@
-﻿import { StatusBadge } from "../../../components/StatusBadge";
+import { StatusBadge } from "../../../components/StatusBadge";
 import { useProjectDirectorSetupReadiness } from "../../project-director/hooks";
 import type {
   ProjectDirectorSetupReadiness,
@@ -44,7 +44,7 @@ export function ProjectDirectorSetupReadinessCard({
   if (query.isError) {
     return (
       <section className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-4 text-sm text-amber-100">
-        AI 主控项目配置总览暂时读取失败，不影响项目详情页继续使用。
+        AI 主管项目配置总览暂时读取失败，不影响项目详情页继续使用。
       </section>
     );
   }
@@ -62,7 +62,7 @@ export function ProjectDirectorSetupReadinessCard({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="text-sm font-semibold text-emerald-100">
-              AI 主控项目配置总览
+              AI 主管项目配置总览
             </h4>
             <StatusBadge
               label={
@@ -74,7 +74,7 @@ export function ProjectDirectorSetupReadinessCard({
             />
           </div>
           <p className="mt-1 text-xs leading-5 text-emerald-100/75">
-            这里汇总 AI 主控草案创建正式项目后的当前状态；仅展示只读状态，不会触发执行动作。
+            这里汇总 AI 主管草案创建正式项目后的当前状态；仅展示只读状态，不会触发执行动作。
           </p>
         </div>
       </div>
@@ -91,7 +91,7 @@ export function ProjectDirectorSetupReadinessCard({
 function ReadinessFacts({ readiness }: { readiness: ProjectDirectorSetupReadiness }) {
   return (
     <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <FactBlock label="来源" value="AI 主控草案" />
+      <FactBlock label="来源" value="AI 主管草案" />
       <FactBlock
         label="草案版本 ID"
         value={readiness.source_plan_version_id ?? "未识别"}

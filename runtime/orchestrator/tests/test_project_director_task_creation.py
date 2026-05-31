@@ -33,7 +33,7 @@ from app.core.db_tables import (
 )
 from app.domain.project_director_plan_version import PlanVersionStatus
 from app.domain.project_director_session import ProjectDirectorSessionStatus
-from app.domain.task import TaskPriority
+from app.domain.task import TaskPriority, TaskStatus
 from app.repositories.project_director_task_creation_repository import (
     ProjectDirectorTaskCreationRecordRepository,
 )
@@ -1476,6 +1476,38 @@ class TestProjectDirectorSetupReadiness:
         assert data["repository_binding_config_status"] == "missing"
         assert data["verification_config_status"] == "missing"
         assert data["confirmed_count"] == 0
+        assert data["ready_for_manual_execution"] is False
+
+    def test_setup_readiness_ignores_non_pdv_source_draft_id(
+        self, client, db_session
+    ):
+        """Non-pdv task source IDs must not mark ordinary projects as Director-created."""
+        project_id = _create_project(client, name="普通来源项目")
+        db_session.add(
+            TaskTable(
+                project_id=UUID(project_id),
+                title="普通任务",
+                status=TaskStatus.PENDING,
+                priority=TaskPriority.NORMAL,
+                input_summary="普通项目任务",
+                source_draft_id="manual:external-1",
+            )
+        )
+        db_session.commit()
+
+        resp = client.get(f"/project-director/projects/{project_id}/setup-readiness")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["created_by_director"] is False
+        assert data["source_plan_version_id"] is None
+        assert data["source_draft_id"] is None
+        assert data["task_count"] == 1
+        assert data["pending_task_count"] == 1
+        assert data["agent_team_config_status"] == "missing"
+        assert data["skill_binding_config_status"] == "missing"
+        assert data["repository_binding_config_status"] == "missing"
+        assert data["verification_config_status"] == "missing"
         assert data["ready_for_manual_execution"] is False
 
     def test_setup_readiness_is_read_only_and_has_no_runtime_side_effects(
