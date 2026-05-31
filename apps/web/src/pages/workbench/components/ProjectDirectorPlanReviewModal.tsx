@@ -182,7 +182,7 @@ export function ProjectDirectorPlanReviewModal({
                     <div key={`${item.binding_type}-${item.target}`} className="rounded border border-[#2f2f2f] bg-[#171717] p-3">
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                         <span className="font-medium text-zinc-200">{item.target}</span>
-                        <StatusBadge label={item.binding_type} tone="neutral" />
+                        <StatusBadge label={formatBindingType(item.binding_type)} tone="neutral" />
                         <StatusBadge label={`模式：${formatBindingMode(item.binding_mode)}`} tone="neutral" />
                         <StatusBadge label={`分支：${item.branch}`} tone="info" />
                       </div>
@@ -206,7 +206,7 @@ export function ProjectDirectorPlanReviewModal({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                         <span className="font-medium text-zinc-200">{item.name}</span>
                         <StatusBadge label={formatRoleCode(item.owner_role_code)} tone="warning" />
-                        <StatusBadge label={`风险：${item.risk_level}`} tone="neutral" />
+                        <StatusBadge label={`风险：${formatRiskLevel(item.risk_level)}`} tone="neutral" />
                         <StatusBadge
                           label={item.requires_user_confirmation ? "需用户确认" : "无需用户确认"}
                           tone={item.requires_user_confirmation ? "warning" : "neutral"}
@@ -393,6 +393,28 @@ function formatBindingMode(bindingMode: string) {
       return "未绑定";
     default:
       return bindingMode || "未设置";
+  }
+}
+
+function formatBindingType(bindingType: string) {
+  switch (bindingType) {
+    case "review_only":
+      return "仅审阅";
+    default:
+      return bindingType || "未设置";
+  }
+}
+
+function formatRiskLevel(riskLevel: string) {
+  switch (riskLevel) {
+    case "low":
+      return "低";
+    case "normal":
+      return "普通";
+    case "high":
+      return "高";
+    default:
+      return riskLevel || "未设置";
   }
 }
 

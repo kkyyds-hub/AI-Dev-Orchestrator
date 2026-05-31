@@ -325,7 +325,7 @@ def _generate_plan_from_session(
             owner_role_code=ProjectRoleCode.REVIEWER,
             purpose="验证后端 API 合同、持久化读回和 request_changes 新版本字段完整性",
             risk_level="high",
-            requires_user_confirmation=False,
+            requires_user_confirmation=True,
         ),
         VerificationMechanismSuggestion(
             name="前端构建检查",

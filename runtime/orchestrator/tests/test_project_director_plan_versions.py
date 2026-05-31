@@ -160,6 +160,11 @@ class TestCreatePlanVersion:
             isinstance(item["requires_user_confirmation"], bool)
             for item in data["verification_mechanisms"]
         )
+        assert all(
+            item["requires_user_confirmation"] is True
+            for item in data["verification_mechanisms"]
+            if item["risk_level"] == "high"
+        )
         assert data["repository_binding_suggestions"]
         assert all(item["binding_mode"] for item in data["repository_binding_suggestions"])
         assert all("branch" in item for item in data["repository_binding_suggestions"])
@@ -607,6 +612,11 @@ class TestReviewPlanVersion:
         assert all(item["purpose"] for item in replacement["verification_mechanisms"])
         assert all(item["risk_level"] in {"low", "normal", "high"} for item in replacement["verification_mechanisms"])
         assert all(isinstance(item["requires_user_confirmation"], bool) for item in replacement["verification_mechanisms"])
+        assert all(
+            item["requires_user_confirmation"] is True
+            for item in replacement["verification_mechanisms"]
+            if item["risk_level"] == "high"
+        )
         assert replacement["repository_binding_suggestions"]
         assert all(item["binding_mode"] == "suggested" for item in replacement["repository_binding_suggestions"])
         assert all("branch" in item for item in replacement["repository_binding_suggestions"])
