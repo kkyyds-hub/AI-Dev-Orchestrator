@@ -176,7 +176,7 @@ class TestCreateTasks:
         assert data["next_action"]
         assert data["forbidden_actions"]
         assert "不自动调用 Worker" in data["forbidden_actions"]
-        assert "Partial" in data["gate_conclusion"]
+        assert "部分通过" in data["gate_conclusion"]
 
     def test_create_tasks_plan_version_not_found_returns_404(self, client):
         """Non-existent plan version returns 404."""
@@ -342,7 +342,7 @@ class TestCreateTasks:
     def test_create_formal_project_from_confirmed_unbound_draft(
         self, client, db_session
     ):
-        """Confirmed unbound draft creates a formal Project + Task queue."""
+        """Confirmed unbound draft creates a formal project + task queue."""
         sid = _create_session(client)
         _confirm_session(client, sid)
         pv = _create_plan_version(client, sid)
@@ -378,6 +378,13 @@ class TestCreateTasks:
         project_data = project_resp.json()
         assert project_data["id"] == data["project_id"]
         assert project_data["task_stats"]["total_tasks"] == data["task_count"]
+        assert not project_data["name"].startswith("#")
+        assert project_data["name"] != "作战计划摘要"
+        assert "用户认证系统" in project_data["name"]
+        assert "正式项目与待执行任务队列已创建" in data["next_action"]
+        assert "部分通过" in data["gate_conclusion"]
+        assert ("Formal " + "Project") not in data["next_action"]
+        assert ("Task " + "queue") not in data["gate_conclusion"]
 
         reread_plan_resp = client.get(f"/project-director/plan-versions/{pv['id']}")
         assert reread_plan_resp.status_code == 200
@@ -415,6 +422,10 @@ class TestCreateTasks:
         assert second["project_id"] == first["project_id"]
         assert second["created_task_ids"] == first["created_task_ids"]
         assert second["task_count"] == first["task_count"]
+        assert "不会重复创建" in second["next_action"]
+        assert "部分通过" in second["gate_conclusion"]
+        assert ("This confirmed " + "draft") not in second["next_action"]
+        assert "Partial" not in second["gate_conclusion"]
 
         source_draft_id = f"pdv:{pv['id']}:1"
         task_rows = list(

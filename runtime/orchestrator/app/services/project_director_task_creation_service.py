@@ -1,7 +1,7 @@
-﻿"""AI Project Director formal project/task creation service.
+"""AI Project Director formal project/task creation service.
 
 Stage 4-B3-A adds an explicit user action that turns a confirmed
-Project Director draft into a formal Project plus a pending Task queue.
+Project Director draft into a formal project plus a pending task queue.
 
 Strict boundary:
 - Does NOT call planning/apply.
@@ -45,15 +45,14 @@ _PRIORITY_MAP: dict[str, TaskPriority] = {
 
 _BOUNDARY_ACTIONS = [
     "不自动调用 Worker",
-    "Do not auto-dispatch Worker",
-    "Do not auto-execute tasks",
-    "Do not call planning/apply",
-    "Do not call apply-local",
-    "Do not write repository files",
-    "Do not call real AI providers",
-    "Do not create Agent Sessions",
-    "Do not create real Skill bindings",
-    "Do not create real repository bindings",
+    "不自动执行任务",
+    "不调用 planning/apply",
+    "不调用 apply-local",
+    "不写入仓库文件",
+    "不调用真实 AI provider",
+    "不创建 Agent Session",
+    "不创建真实 Skill 绑定",
+    "不创建真实仓库绑定",
 ]
 
 
@@ -136,7 +135,7 @@ class ProjectDirectorTaskCreationService:
     def create_formal_project_from_plan_version(
         self, plan_version_id: UUID
     ) -> TaskCreationResult:
-        """Create/read formal Project + Task queue for a confirmed draft.
+        """Create/read formal project + task queue for a confirmed draft.
 
         This is the Stage 4-B3-A explicit user action. It is idempotent:
         repeated calls return the previous creation record and never duplicate
@@ -237,13 +236,12 @@ class ProjectDirectorTaskCreationService:
             status="created",
             already_created=False,
             next_action=(
-                "Formal Project and pending Task queue were created. "
-                "Worker dispatch remains a separate manual action."
+                "正式项目与待执行任务队列已创建。"
+                "后续如需执行任务，请在人工确认后单独触发 Worker 调度。"
             ),
             forbidden_actions=_BOUNDARY_ACTIONS,
             gate_conclusion=(
-                "Partial (formal Project + Task queue creation Pass; "
-                "Worker execution not completed)"
+                "部分通过（正式项目 + 任务队列创建已完成；Worker 执行未开始）"
             ),
         )
 
@@ -263,16 +261,16 @@ class ProjectDirectorTaskCreationService:
             status="already_created" if already_created else "created",
             already_created=already_created,
             next_action=(
-                "This confirmed draft already has a formal Project and Task queue. "
-                "The request returned the existing record and did not duplicate anything."
+                "该已确认草案已经创建过正式项目与任务队列；"
+                "本次仅返回既有记录，不会重复创建。"
                 if already_created
-                else "Formal Project and pending Task queue have been created."
+                else "正式项目与待执行任务队列已创建。"
             ),
-            forbidden_actions=[*_BOUNDARY_ACTIONS, "Do not duplicate Project/Tasks"],
+            forbidden_actions=[*_BOUNDARY_ACTIONS, "不重复创建 Project/Tasks"],
             gate_conclusion=(
-                "Partial (formal Project + Task queue creation record already exists)"
+                "部分通过（正式项目 + 任务队列创建记录已存在）"
                 if already_created
-                else "Partial (formal Project + Task queue creation Pass)"
+                else "部分通过（正式项目 + 任务队列创建已完成）"
             ),
         )
 
@@ -283,21 +281,74 @@ class ProjectDirectorTaskCreationService:
         summary = plan_version.plan_summary.strip()
         if not summary:
             summary = (
-                f"Formal project created from Project Director plan version "
-                f"{plan_version.id}."
+                f"由 AI 项目主管计划版本 {plan_version.id} 创建的正式项目。"
             )
 
-        first_line = next(
-            (line.strip() for line in summary.splitlines() if line.strip()),
-            f"Project Director Plan v{plan_version.version_no}",
-        )
-
         return Project(
-            name=first_line[:120],
+            name=self._derive_project_name_from_plan_version(plan_version),
             summary=summary[:2000],
             status=ProjectStatus.ACTIVE,
             stage=ProjectStage.PLANNING,
         )
+
+    @staticmethod
+    def _derive_project_name_from_plan_version(
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> str:
+        summary = plan_version.plan_summary.strip()
+        fallback_name = f"AI 项目主管计划 v{plan_version.version_no}"
+        if not summary:
+            return fallback_name
+
+        for raw_line in summary.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            goal = ProjectDirectorTaskCreationService._extract_markdown_field(
+                line,
+                "目标",
+            )
+            if goal:
+                return goal[:120]
+
+        for raw_line in summary.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            candidate = ProjectDirectorTaskCreationService._clean_project_name_line(
+                line
+            )
+            if candidate and candidate not in {"作战计划摘要", "关键决策依据", "整改说明"}:
+                return candidate[:120]
+
+        return fallback_name
+
+    @staticmethod
+    def _extract_markdown_field(line: str, field_name: str) -> str | None:
+        prefixes = [
+            f"**{field_name}**:",
+            f"**{field_name}**：",
+            f"{field_name}:",
+            f"{field_name}：",
+        ]
+        for prefix in prefixes:
+            if line.startswith(prefix):
+                return ProjectDirectorTaskCreationService._clean_project_name_line(
+                    line[len(prefix) :]
+                )
+        return None
+
+    @staticmethod
+    def _clean_project_name_line(line: str) -> str:
+        cleaned = line.strip().strip("`*_ ")
+        while cleaned.startswith(("-", "*", ">")):
+            cleaned = cleaned[1:].strip()
+        while cleaned.startswith("#"):
+            cleaned = cleaned[1:].strip()
+        cleaned = cleaned.replace("**", "").replace("__", "").strip()
+        return cleaned or ""
 
     def _get_project_name(self, project_id: UUID | None) -> str | None:
         if project_id is None:
