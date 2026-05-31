@@ -367,6 +367,26 @@
 | Gate 结论 | **R1-K Runtime Pass**（Worker→Run→Consumption API→GovernancePage 全链路闭合；3 tests + live HTTP + frontend build 通过） |
 | 后续动作 | total closure 仍为 Partial；CL-16（成本闭环端到端接入）, CL-18 尚未完成 |
 
+#### 4.1.12 R1-L：Cost Ledger Closure Audit（Evidence Partial）
+
+| 字段 | 回填 |
+|---|---|
+| 阶段名称 | CL-16 成本台账闭环审计 + live HTTP + tests + frontend build |
+| 阶段性质 | 审计 + live HTTP + tests + frontend build + 文档回填 |
+| 基准 commit | `1c9009b` |
+| 涉及接口 | `POST /workers/run-once`, `GET /tasks/{id}/runs`, `GET /projects/{pid}/cost-dashboard` |
+| Worker Cost | live HTTP: total_tokens=1036, estimated_cost=$0.002084, model_name=deepseek-v4-pro, execution_mode=simulate |
+| Run Cost | Readback: token_pricing_source=heuristic.simulate.char_count.v1, token_accounting_mode=heuristic, cache_hit=false, prompt_tokens=683, completion_tokens=353 |
+| Cost Dashboard API | Record confirmed: run_count=6, total_cost=$0.010597, avg=$0.001766, mode_breakdown=heuristic×6, role_breakdown=engineer×3+architect×2+reviewer×1, protocol_contract fallback_active=True/provider_reported=0/heuristic=6, cache_summary total_memories=12, budget_policy_source=not_configured |
+| GovernancePage CostMemoryTab | Real API call (useProjectCostDashboardSnapshot), 展示 累计费用/运行次数/Token 总数，来源可信度标注 (provider_reported/heuristic/missing)，空状态显示 "未接入" |
+| Cost Source | 全部 heuristic（simulate mode, $0.001-0.002/run）；不扩大为真实 provider cost Pass；之前 provider_openai 证据 Non-compliant |
+| 测试证据 | 37 passed (worker_run_evidence + run_evidence_replay + run_ai_summaries) in 8.26s |
+| Frontend Build | `npm.cmd run build` → built in 3.62s |
+| checklist 回填 | CL-16 (Evidence Partial) |
+| verification 文档 | `verification-project-director-cost-ledger-r1l-20260531.md` |
+| Gate 结论 | **R1-L Evidence Partial**（成本结构全链路闭合：Worker→Run→Cost Dashboard→GovernancePage；所有成本为 heuristic simulate 值；真实 provider 成本需用户确认） |
+| 后续动作 | total closure 仍为 Partial；CL-18（文档闭环）尚未完成 |
+
 ### 4.2 执行中心：任务队列 `/execution?tab=tasks`
 
 | 字段 | 回填 |
