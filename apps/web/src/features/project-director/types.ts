@@ -160,6 +160,45 @@ export interface ProjectDirectorSkillBindingConfigResponse {
   next_action: string;
 }
 
+export type ProjectDirectorRepositoryBindingConfigStatus =
+  | "pending_confirmation"
+  | "confirmed"
+  | "rejected";
+
+export type ProjectDirectorRepositoryBindingConfigReviewAction = "confirm" | "reject";
+
+export interface ProjectDirectorRepositoryBindingConfigItem {
+  binding_type: string;
+  binding_mode: string;
+  target: string;
+  branch: string;
+  focus_paths: string[];
+  usage: string;
+  safety_note: string;
+  review_status: string;
+}
+
+export interface ProjectDirectorRepositoryBindingConfig {
+  id: string;
+  project_id: string;
+  plan_version_id: string;
+  source_draft_id: string;
+  status: ProjectDirectorRepositoryBindingConfigStatus;
+  repository_bindings: ProjectDirectorRepositoryBindingConfigItem[];
+  warnings: string[];
+  review_note: string;
+  created_at: string;
+  updated_at: string;
+  confirmed_at: string | null;
+  rejected_at: string | null;
+}
+
+export interface ProjectDirectorRepositoryBindingConfigResponse {
+  project_id: string;
+  config: ProjectDirectorRepositoryBindingConfig | null;
+  next_action: string;
+}
+
 export interface ProjectDirectorSkillBindingSuggestion {
   skill_code: string;
   owner_role_code: string;
@@ -300,5 +339,11 @@ export interface ReviewProjectDirectorAgentTeamConfigInput {
 export interface ReviewProjectDirectorSkillBindingConfigInput {
   projectId: string;
   action: ProjectDirectorSkillBindingConfigReviewAction;
+  note?: string;
+}
+
+export interface ReviewProjectDirectorRepositoryBindingConfigInput {
+  projectId: string;
+  action: ProjectDirectorRepositoryBindingConfigReviewAction;
   note?: string;
 }

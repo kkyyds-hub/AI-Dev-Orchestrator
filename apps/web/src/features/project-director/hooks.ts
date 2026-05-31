@@ -7,8 +7,10 @@ import {
   createProjectDirectorPlanVersion,
   createProjectDirectorSession,
   fetchProjectDirectorAgentTeamConfig,
+  fetchProjectDirectorRepositoryBindingConfig,
   fetchProjectDirectorSkillBindingConfig,
   reviewProjectDirectorAgentTeamConfig,
+  reviewProjectDirectorRepositoryBindingConfig,
   reviewProjectDirectorSkillBindingConfig,
   reviewProjectDirectorPlanVersion,
   submitProjectDirectorAnswers,
@@ -111,6 +113,32 @@ export function useReviewProjectDirectorSkillBindingConfigMutation() {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["project-director", "skill-binding-config", result.project_id],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+      ]);
+    },
+  });
+}
+
+export function useProjectDirectorRepositoryBindingConfig(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-director", "repository-binding-config", projectId],
+    queryFn: () => fetchProjectDirectorRepositoryBindingConfig(projectId as string),
+    enabled: Boolean(projectId),
+    retry: false,
+  });
+}
+
+export function useReviewProjectDirectorRepositoryBindingConfigMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: reviewProjectDirectorRepositoryBindingConfig,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "repository-binding-config", result.project_id],
         }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),

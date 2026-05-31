@@ -35,6 +35,11 @@ from app.domain.project_director_agent_team_config import (
     ProjectDirectorAgentTeamConfig,
     ProjectDirectorAgentTeamMemberConfig,
 )
+from app.domain.project_director_repository_binding_config import (
+    ProjectDirectorRepositoryBindingConfig,
+    ProjectDirectorRepositoryBindingConfigItem,
+    RepositoryBindingConfigStatus,
+)
 from app.domain.project_director_skill_binding_config import (
     ProjectDirectorSkillBindingConfig,
     ProjectDirectorSkillBindingConfigItem,
@@ -57,6 +62,9 @@ from app.repositories.project_director_task_creation_repository import (
 from app.repositories.project_director_agent_team_config_repository import (
     ProjectDirectorAgentTeamConfigRepository,
 )
+from app.repositories.project_director_repository_binding_config_repository import (
+    ProjectDirectorRepositoryBindingConfigRepository,
+)
 from app.repositories.project_director_skill_binding_config_repository import (
     ProjectDirectorSkillBindingConfigRepository,
 )
@@ -73,6 +81,10 @@ from app.services.project_director_task_creation_service import (
 from app.services.project_director_agent_team_config_service import (
     AgentTeamConfigReadResult,
     ProjectDirectorAgentTeamConfigService,
+)
+from app.services.project_director_repository_binding_config_service import (
+    ProjectDirectorRepositoryBindingConfigService,
+    RepositoryBindingConfigReadResult,
 )
 from app.services.project_director_skill_binding_config_service import (
     ProjectDirectorSkillBindingConfigService,
@@ -121,6 +133,9 @@ def _get_task_creation_service(
     project_repo = ProjectRepository(session)
     agent_team_config_repo = ProjectDirectorAgentTeamConfigRepository(session)
     skill_binding_config_repo = ProjectDirectorSkillBindingConfigRepository(session)
+    repository_binding_config_repo = ProjectDirectorRepositoryBindingConfigRepository(
+        session
+    )
     return ProjectDirectorTaskCreationService(
         plan_repo=plan_repo,
         task_repo=task_repo,
@@ -128,6 +143,7 @@ def _get_task_creation_service(
         project_repo=project_repo,
         agent_team_config_repo=agent_team_config_repo,
         skill_binding_config_repo=skill_binding_config_repo,
+        repository_binding_config_repo=repository_binding_config_repo,
     )
 
 
@@ -148,6 +164,17 @@ def _get_skill_binding_config_service(
     config_repo = ProjectDirectorSkillBindingConfigRepository(session)
     project_repo = ProjectRepository(session)
     return ProjectDirectorSkillBindingConfigService(
+        config_repo=config_repo,
+        project_repo=project_repo,
+    )
+
+
+def _get_repository_binding_config_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorRepositoryBindingConfigService:
+    config_repo = ProjectDirectorRepositoryBindingConfigRepository(session)
+    project_repo = ProjectRepository(session)
+    return ProjectDirectorRepositoryBindingConfigService(
         config_repo=config_repo,
         project_repo=project_repo,
     )
@@ -1442,6 +1469,179 @@ def review_project_skill_binding_config(
             detail=detail,
         ) from exc
     return SkillBindingConfigEnvelopeResponse.from_result(result)
+
+
+# Repository Binding Config DTOs / Routes
+
+
+class RepositoryBindingConfigItemResponse(BaseModel):
+    binding_type: str
+    binding_mode: str
+    target: str
+    branch: str
+    focus_paths: list[str] = Field(default_factory=list)
+    usage: str
+    safety_note: str
+    review_status: str = "pending_confirmation"
+
+    @classmethod
+    def from_domain(
+        cls, item: ProjectDirectorRepositoryBindingConfigItem
+    ) -> "RepositoryBindingConfigItemResponse":
+        return cls(
+            binding_type=item.binding_type,
+            binding_mode=item.binding_mode,
+            target=item.target,
+            branch=item.branch,
+            focus_paths=item.focus_paths,
+            usage=item.usage,
+            safety_note=item.safety_note,
+            review_status=item.review_status,
+        )
+
+
+class RepositoryBindingConfigResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    plan_version_id: UUID
+    source_draft_id: str
+    status: RepositoryBindingConfigStatus
+    repository_bindings: list[RepositoryBindingConfigItemResponse] = Field(
+        default_factory=list
+    )
+    warnings: list[str] = Field(default_factory=list)
+    review_note: str = ""
+    created_at: str
+    updated_at: str
+    confirmed_at: str | None = None
+    rejected_at: str | None = None
+
+    @classmethod
+    def from_domain(
+        cls, config: ProjectDirectorRepositoryBindingConfig
+    ) -> "RepositoryBindingConfigResponse":
+        return cls(
+            id=config.id,
+            project_id=config.project_id,
+            plan_version_id=config.plan_version_id,
+            source_draft_id=config.source_draft_id,
+            status=config.status,
+            repository_bindings=[
+                RepositoryBindingConfigItemResponse.from_domain(item)
+                for item in config.repository_bindings
+            ],
+            warnings=config.warnings,
+            review_note=config.review_note,
+            created_at=config.created_at.isoformat(),
+            updated_at=config.updated_at.isoformat(),
+            confirmed_at=(
+                config.confirmed_at.isoformat() if config.confirmed_at else None
+            ),
+            rejected_at=(
+                config.rejected_at.isoformat() if config.rejected_at else None
+            ),
+        )
+
+
+class RepositoryBindingConfigEnvelopeResponse(BaseModel):
+    project_id: UUID
+    config: RepositoryBindingConfigResponse | None = None
+    next_action: str
+
+    @classmethod
+    def from_result(
+        cls, result: RepositoryBindingConfigReadResult
+    ) -> "RepositoryBindingConfigEnvelopeResponse":
+        return cls(
+            project_id=result.project_id,
+            config=(
+                RepositoryBindingConfigResponse.from_domain(result.config)
+                if result.config is not None
+                else None
+            ),
+            next_action=result.next_action,
+        )
+
+
+class ReviewRepositoryBindingConfigRequest(BaseModel):
+    action: Literal["confirm", "reject"]
+    note: str = Field(default="", max_length=2000)
+
+
+@router.get(
+    "/projects/{project_id}/repository-binding-config",
+    response_model=RepositoryBindingConfigEnvelopeResponse,
+    summary="Read project-level Project Director repository binding config",
+)
+def get_project_repository_binding_config(
+    project_id: UUID,
+    svc: Annotated[
+        ProjectDirectorRepositoryBindingConfigService,
+        Depends(_get_repository_binding_config_service),
+    ],
+) -> RepositoryBindingConfigEnvelopeResponse:
+    """Read the project-level repository binding config, if the project has one."""
+
+    try:
+        result = svc.get_for_project(project_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return RepositoryBindingConfigEnvelopeResponse.from_result(result)
+
+
+@router.post(
+    "/projects/{project_id}/repository-binding-config/review",
+    response_model=RepositoryBindingConfigEnvelopeResponse,
+    summary="Confirm or reject a project-level Project Director repository binding config",
+)
+def review_project_repository_binding_config(
+    project_id: UUID,
+    request: ReviewRepositoryBindingConfigRequest,
+    svc: Annotated[
+        ProjectDirectorRepositoryBindingConfigService,
+        Depends(_get_repository_binding_config_service),
+    ],
+) -> RepositoryBindingConfigEnvelopeResponse:
+    """Review only; never create RepositoryWorkspace, Workers, Runs, or git actions."""
+
+    try:
+        result = svc.review_project_config(
+            project_id,
+            action=request.action,
+            note=request.note,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lower_detail = detail.lower()
+        if "project" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "already been reviewed" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if "repository binding config" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return RepositoryBindingConfigEnvelopeResponse.from_result(result)
 
 
 # ── Task Creation DTOs ───────────────────────────────────────────────
