@@ -42,8 +42,8 @@
 | CL-02 | 目标闭环：AI 项目主管是否做目标澄清 | Runtime Pass | R1-A + R1-B | ✓ |
 | CL-03 | 计划闭环：是否生成 AI 作战计划 | Runtime Pass | R1-C | ✓ |
 | CL-04 | 计划闭环：计划是否经用户确认 | Runtime Pass | R1-D | ✓ |
-| CL-05 | 团队闭环：是否生成角色与 Skill 方案 | **空白** | 无 | ✓ (未审计) |
-| CL-06 | 团队闭环：角色/Skill 是否区分模板与项目实例 | **空白** | 无 | ✓ (未审计) |
+| CL-05 | 团队闭环：是否生成角色与 Skill 方案 | **Runtime Pass** | R1-N | ✓ |
+| CL-06 | 团队闭环：角色/Skill 是否区分模板与项目实例 | **Runtime Pass** | R1-N | ✓ |
 | CL-07 | 任务闭环：是否根据计划创建任务队列 | Runtime Pass | R1-E | ✓ |
 | CL-08 | 调度闭环：是否产生调度决策 | Runtime Pass | R1-Fb v3 | ✓ |
 | CL-09 | 运行闭环：是否产生 Run 记录 | Runtime Pass | R1-Fb v3 | ✓ |
@@ -62,7 +62,7 @@
 | # | 发现 | 严重程度 | 处理 |
 |---|---|---|---|
 | 1 | R1-Fb entry (ledger line 275) 记录 CL-15 Evidence Partial / CL-16 Evidence Partial — 但这是 R1-Fb 历史状态，后续 R1-K / R1-L 已更新 | 无 — 历史记录 | 无需修改 |
-| 2 | CL-05 / CL-06 仍是空白（未审计） | 次要 — 非阻断 | 记录为 Not Started |
+| 2 | CL-05 / CL-06 已由 R1-N 升为 Runtime Pass | 已消除 | 无需处理 |
 | 3 | CL-17 只覆盖工作台，全站其他页面尚未验收 | 次要 — 非阻断 | 状态已准确标注 |
 | 4 | CL-12 / CL-16 均为 Evidence Partial，非 Runtime Pass | 关键 — 必须保留 | 已确认未越界写成 Pass |
 
@@ -83,13 +83,13 @@
 **Documentation Pass**
 
 判定依据：
-1. CL-01~CL-18 中 13 项有明确状态和 evidence 文档（R1-A 到 R1-L + R1-M），状态与 evidence 一致
+1. CL-01~CL-18 中 15 项有明确状态和 evidence（14 Runtime Pass + 1 工作台 Runtime Pass + CL-18 Documentation Pass），CL-12/CL-16 为 Evidence Partial，状态与 evidence 一致
 2. `closure-checklist-20260518.md` 持续回填，每次 audit 后更新
 3. `execution-plan-backfill-ledger-20260519.md` 持续回填，每次 audit 后新增 entry
-4. 13 份 evidence 文档覆盖所有已审计闭环项
+4. 14 份 evidence 文档（R1-A~R1-N）覆盖所有已审计闭环项
 5. 无文档冲突、无旧结论残留、无越界表述
 6. `page-information-architecture-20260518.md` 始终是主产品基线，未被覆盖
-7. CL-05 / CL-06 明确记录为 Not Started（非遗漏，而是未进入该阶段）
+7. CL-05 / CL-06 已由 R1-N 升为 Runtime Pass
 
 ---
 
@@ -156,8 +156,7 @@
 
 | # | 缺口 | 类型 | 优先级 |
 |---|---|---|---|
-| 1 | CL-05/CL-06: 角色/Skill 方案生成 + 模板/实例区分 | 后端 API 已存在（roles/skills CRUD），需 live HTTP evidence | 低 |
-| 2 | CL-17: 全站页面闭环验收（执行中心/成果中心/治理中心/设置页） | 前端按钮真实性审计 | 低 |
+| 1 | CL-17: 全站页面闭环验收（执行中心/成果中心/治理中心/设置页） | 前端按钮真实性审计 | 低 |
 
 ### 5.3 需要用户确认的高风险行动
 
@@ -172,13 +171,13 @@
 
 **Documentation Pass**
 
-- closure-checklist 持续回填，13/18 项有明确状态和 evidence
-- ledger 持续回填，R1-A~R1-L + R1-M 共 13 轮
-- 13 份 evidence 文档覆盖所有已审计闭环项
+- closure-checklist 持续回填，15/18 项有明确状态和 evidence（14 Runtime Pass + 1 工作台；CL-12/16 Evidence Partial 已标注）
+- ledger 持续回填，R1-A~R1-N 共 14 轮
+- 14 份 evidence 文档覆盖所有已审计闭环项
 - 无文档冲突
 - 主产品基线未被覆盖
 - 所有文档在 `docs/product/ai-project-director/` 下
-- CL-05/CL-06 正确标注为 Not Started
+- CL-05/CL-06 已由 R1-N 升为 Runtime Pass
 
 ---
 
