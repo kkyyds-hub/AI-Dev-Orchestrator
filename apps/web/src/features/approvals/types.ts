@@ -414,47 +414,47 @@ export const CHANGE_REWORK_SOURCE_LABELS: Record<ChangeReworkSource, string> = {
 };
 
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
-  pending_approval: "???",
-  approved: "???",
-  rejected: "???",
-  changes_requested: "???",
+  pending_approval: "待审批",
+  approved: "已通过",
+  rejected: "已驳回",
+  changes_requested: "需补充",
 };
 
 export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
-  approve: "??",
-  reject: "??",
-  request_changes: "????",
+  approve: "通过",
+  reject: "驳回",
+  request_changes: "要求修改",
 };
 
 export const APPROVAL_HISTORY_EVENT_LABELS: Record<
   ApprovalHistoryEventKind,
   string
 > = {
-  approval_requested: "????",
-  approval_decided: "????",
-  rework_version_submitted: "????",
+  approval_requested: "发起审批",
+  approval_decided: "审批决策",
+  rework_version_submitted: "重提版本",
 };
 
 export const APPROVAL_REWORK_STATUS_LABELS: Record<
   ApprovalHistoryReworkStatus,
   string
 > = {
-  clean: "????",
-  pending_approval: "????",
-  rework_required: "???",
-  reworking: "???",
-  resubmitted: "???",
-  approved_after_rework: "?????",
+  clean: "无需返工",
+  pending_approval: "等待审批",
+  rework_required: "需返工",
+  reworking: "返工中",
+  resubmitted: "已重提",
+  approved_after_rework: "返工后通过",
 };
 
 export const PROJECT_APPROVAL_CYCLE_STATUS_LABELS: Record<
   ProjectApprovalCycleStatus,
   string
 > = {
-  rework_required: "???",
-  reworking: "???",
-  resubmitted_pending_approval: "??????",
-  approved_after_rework: "?????",
+  rework_required: "需返工",
+  reworking: "返工中",
+  resubmitted_pending_approval: "重提待审批",
+  approved_after_rework: "返工后通过",
 };
 
 export const REPOSITORY_RELEASE_GATE_STATUS_LABELS: Record<

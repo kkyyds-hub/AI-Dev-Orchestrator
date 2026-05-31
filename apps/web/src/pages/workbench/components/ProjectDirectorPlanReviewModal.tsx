@@ -1,4 +1,7 @@
-﻿import { StatusBadge } from "../../../components/StatusBadge";
+import { StatusBadge } from "../../../components/StatusBadge";
+import { PROJECT_DIRECTOR_PLAN_STATUS_LABELS } from "../../../features/project-director/types";
+import { TASK_PRIORITY_LABELS } from "../../../features/projects/types";
+import { ROLE_CODE_LABELS } from "../../../features/roles/types";
 import type {
   ProjectDirectorPlanReviewAction,
   ProjectDirectorPlanVersion,
@@ -39,7 +42,10 @@ export function ProjectDirectorPlanReviewModal({
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
             <StatusBadge label={`v${planVersion.version_no}`} tone="info" />
-            <StatusBadge label={planVersion.status} tone={mapPlanStatusTone(planVersion.status)} />
+            <StatusBadge
+              label={PROJECT_DIRECTOR_PLAN_STATUS_LABELS[planVersion.status]}
+              tone={mapPlanStatusTone(planVersion.status)}
+            />
             <span>Gate: {planVersion.gate_conclusion}</span>
           </div>
 
@@ -88,8 +94,8 @@ export function ProjectDirectorPlanReviewModal({
                   >
                     <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                       <span className="font-medium text-zinc-200">{task.title}</span>
-                      <StatusBadge label={task.priority_hint} tone="neutral" />
-                      <StatusBadge label={task.suggested_role_code} tone="warning" />
+                      <StatusBadge label={formatPriorityHint(task.priority_hint)} tone="neutral" />
+                      <StatusBadge label={formatRoleCode(task.suggested_role_code)} tone="warning" />
                     </div>
                     <p className="mt-2 text-sm text-zinc-400">{task.description}</p>
                   </div>
@@ -180,6 +186,17 @@ export function ProjectDirectorPlanReviewModal({
       )}
     </DetailModal>
   );
+}
+
+function formatPriorityHint(priorityHint: string) {
+  const normalizedPriority = priorityHint.toLowerCase();
+  const label = TASK_PRIORITY_LABELS[normalizedPriority] ?? priorityHint;
+  return `优先级：${label}`;
+}
+
+function formatRoleCode(roleCode: string) {
+  const label = ROLE_CODE_LABELS[roleCode] ?? roleCode;
+  return `角色：${label}`;
 }
 
 function mapPlanStatusTone(status: ProjectDirectorPlanVersion["status"]) {

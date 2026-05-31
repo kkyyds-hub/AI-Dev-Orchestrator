@@ -504,6 +504,22 @@ class TestReviewPlanVersion:
         assert payload["action"] == "reject"
         assert payload["reviewed_plan_version"]["status"] == PlanVersionStatus.REJECTED.value
         assert payload["replacement_plan_version"] is None
+        assert payload["next_action"] == "草案已拒绝，可重新生成或调整目标后再提交。"
+        assert "?" not in payload["next_action"]
+
+    def test_approve_review_returns_chinese_next_action(self, client):
+        _, pv_id = self._create_plan_version(client)
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv_id}/review",
+            json={"action": "approve"},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["action"] == "approve"
+        assert payload["reviewed_plan_version"]["status"] == PlanVersionStatus.CONFIRMED.value
+        assert payload["next_action"] == "草案已通过，可单独触发任务创建；不会自动执行。"
+        assert "?" not in payload["next_action"]
 
     def test_request_changes_rejects_current_and_generates_new_version(self, client):
         session_id, pv_id = self._create_plan_version(client)
@@ -522,6 +538,15 @@ class TestReviewPlanVersion:
         assert payload["replacement_plan_version"] is not None
         assert payload["replacement_plan_version"]["status"] == PlanVersionStatus.PENDING_CONFIRMATION.value
         assert payload["replacement_plan_version"]["version_no"] == 2
+        assert payload["next_action"] == "已生成整改版 v2，请重新审阅后再决定。"
+        assert "?" not in payload["next_action"]
+        assert "整改说明" in payload["replacement_plan_version"]["plan_summary"]
+        assert "?" not in payload["replacement_plan_version"]["plan_summary"]
+        assert any(
+            risk.startswith("整改反馈需重点处理：")
+            for risk in payload["replacement_plan_version"]["risks"]
+        )
+        assert all("?" not in risk for risk in payload["replacement_plan_version"]["risks"])
         assert "Please split backend and frontend scope" in payload["replacement_plan_version"]["plan_summary"]
 
         history = client.get(f"/project-director/sessions/{session_id}/plan-versions")

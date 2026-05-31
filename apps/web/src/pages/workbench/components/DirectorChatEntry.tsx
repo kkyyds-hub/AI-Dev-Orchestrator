@@ -11,6 +11,7 @@ import {
   useReviewProjectDirectorPlanVersion,
   useSubmitProjectDirectorAnswers,
 } from "../../../features/project-director/hooks";
+import { PROJECT_DIRECTOR_PLAN_STATUS_LABELS } from "../../../features/project-director/types";
 import type {
   ProjectDirectorPlanReviewAction,
   ProjectDirectorPlanVersion,
@@ -503,7 +504,7 @@ export function DirectorChatEntry({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                         <StatusBadge label={`草案 v${planVersion.version_no}`} tone="info" />
                         <StatusBadge
-                          label={planVersion.status}
+                          label={PROJECT_DIRECTOR_PLAN_STATUS_LABELS[planVersion.status]}
                           tone={mapPlanTone(planVersion.status)}
                         />
                         <span>Gate: {planVersion.gate_conclusion}</span>

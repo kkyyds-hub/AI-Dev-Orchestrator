@@ -69,7 +69,7 @@ def _generate_plan_from_session(
     if revision_notes.strip():
         answer_lines.extend(
             [
-                "\n## ????\n",
+                "\n## 整改说明\n",
                 revision_notes.strip(),
             ]
         )
@@ -193,7 +193,7 @@ def _generate_plan_from_session(
     if revision_notes.strip():
         risks.insert(
             0,
-            f"??????????????: {revision_notes.strip()[:200]}",
+            f"整改反馈需重点处理：{revision_notes.strip()[:200]}",
         )
 
     return plan_summary, phases, proposed_tasks, acceptance_criteria, risks

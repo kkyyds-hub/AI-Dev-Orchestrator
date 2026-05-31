@@ -715,18 +715,18 @@ def review_plan_version(
         if request.action == "approve":
             reviewed = plan_service.confirm_plan_version(plan_version_id)
             replacement = None
-            next_action = "????????????????????"
+            next_action = "草案已通过，可单独触发任务创建；不会自动执行。"
         elif request.action == "reject":
             reviewed = plan_service.reject_plan_version(plan_version_id)
             replacement = None
-            next_action = "???????????????????????"
+            next_action = "草案已拒绝，可重新生成或调整目标后再提交。"
         else:
             reviewed, replacement = plan_service.request_changes(
                 plan_version_id=plan_version_id,
                 feedback=request.feedback,
             )
             next_action = (
-                f"????????? v{replacement.version_no} ??????????"
+                f"已生成整改版 v{replacement.version_no}，请重新审阅后再决定。"
             )
     except ValueError as exc:
         detail = str(exc)

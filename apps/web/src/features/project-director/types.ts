@@ -1,4 +1,4 @@
-﻿export type ProjectDirectorSessionStatus =
+export type ProjectDirectorSessionStatus =
   | "draft"
   | "clarifying"
   | "ready_to_confirm"
@@ -15,6 +15,17 @@ export type ProjectDirectorPlanReviewAction =
   | "approve"
   | "reject"
   | "request_changes";
+
+export const PROJECT_DIRECTOR_PLAN_STATUS_LABELS: Record<
+  ProjectDirectorPlanVersionStatus,
+  string
+> = {
+  draft: "草稿",
+  pending_confirmation: "待审核",
+  confirmed: "已通过",
+  superseded: "已被新版本替换",
+  rejected: "已拒绝",
+};
 
 export interface ClarifyingQuestion {
   id: string;
