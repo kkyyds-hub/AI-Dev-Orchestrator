@@ -83,10 +83,10 @@
 **Documentation Pass**
 
 判定依据：
-1. CL-01~CL-18 中 15 项有明确状态和 evidence（14 Runtime Pass + 1 工作台 Runtime Pass + CL-18 Documentation Pass），CL-12/CL-16 为 Evidence Partial，状态与 evidence 一致
+1. CL-01~CL-18 中 15 项有明确状态和 evidence（15 Runtime Pass + CL-18 Documentation Pass），CL-12/CL-16 为 Evidence Partial，状态与 evidence 一致
 2. `closure-checklist-20260518.md` 持续回填，每次 audit 后更新
 3. `execution-plan-backfill-ledger-20260519.md` 持续回填，每次 audit 后新增 entry
-4. 14 份 evidence 文档（R1-A~R1-N）覆盖所有已审计闭环项
+4. 15 份 evidence 文档（R1-A~R1-O）覆盖所有已审计闭环项
 5. 无文档冲突、无旧结论残留、无越界表述
 6. `page-information-architecture-20260518.md` 始终是主产品基线，未被覆盖
 7. CL-05 / CL-06 已由 R1-N 升为 Runtime Pass
@@ -97,7 +97,7 @@
 
 **仍为 Partial**
 
-### 4.1 Runtime Pass 项目（14 项）
+### 4.1 Runtime Pass 项目（15 项）
 
 | CL | 闭环环节 | 证据 |
 |---|---|---|
@@ -115,6 +115,7 @@
 | CL-13 | 交付闭环：deliverable 形成 | R1-I live HTTP |
 | CL-14 | 审批闭环：approval 决策 | R1-J live HTTP |
 | CL-15 | 治理闭环：role/skill 消费 | R1-K v2 live HTTP |
+| CL-17 | 页面闭环：全站按钮 | R1-O live HTTP |
 
 ### 4.2 Evidence Partial 项目（2 项）
 
@@ -123,19 +124,13 @@
 | CL-12 | 仓库闭环：draft chain | Evidence Partial | 只读仓库链 live HTTP 通过；change plan→batch→preflight→commit candidate 全端到端 live HTTP 需 deliverables 前置 |
 | CL-16 | 成本闭环：cost ledger | Evidence Partial | 成本结构全链路闭合（live HTTP + frontend）；所有成本为 heuristic（simulate $0.002/run）；真实 provider 成本需用户确认 |
 
-### 4.3 Runtime Pass 项目（全站，1 项）
-
-| CL | 闭环环节 | 当前状态 | 备注 |
-|---|---|---|---|
-| CL-17 | 页面闭环：全站按钮 | **Runtime Pass（全站）** | R1-O: 10 页面 70 入口 0 Gap；CL-17 从工作台升级为全站 Runtime Pass |
-
-### 4.4 Not Started 项目（0 项）
+### 4.3 Not Started 项目（0 项）
 
 | CL | 闭环环节 | 原因 |
 |---|---|---|
 | — | — | 所有 18 项已审计完毕。CL-05/CL-06 已于 R1-N 升级为 Runtime Pass。 |
 
-### 4.5 Documentation Pass 项目（1 项）
+### 4.4 Documentation Pass 项目（1 项）
 
 | CL | 闭环环节 | 状态 |
 |---|---|---|
@@ -169,13 +164,13 @@
 
 **Documentation Pass**
 
-- closure-checklist 持续回填，15/18 项有明确状态和 evidence（14 Runtime Pass + 1 工作台；CL-12/16 Evidence Partial 已标注）
-- ledger 持续回填，R1-A~R1-N 共 14 轮
-- 14 份 evidence 文档覆盖所有已审计闭环项
+- closure-checklist 持续回填，15/18 项 Runtime Pass + 2 Evidence Partial + 1 Documentation Pass
+- ledger 持续回填，R1-A~R1-O 共 15 轮
+- 15 份 evidence 文档覆盖所有已审计闭环项
 - 无文档冲突
 - 主产品基线未被覆盖
 - 所有文档在 `docs/product/ai-project-director/` 下
-- CL-05/CL-06 已由 R1-N 升为 Runtime Pass
+- CL-05/CL-06 已由 R1-N 升为 Runtime Pass；CL-17 已由 R1-O 升为 Runtime Pass（全站）
 
 ---
 
