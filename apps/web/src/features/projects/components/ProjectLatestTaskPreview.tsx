@@ -55,7 +55,20 @@ export function ProjectLatestTaskPreview(props: {
               }
               tone={mapTaskStatusTone(latestTask.status)}
             />
+            {latestTask.source_plan_version_id ? (
+              <StatusBadge label="AI 主管草案来源" tone="info" />
+            ) : null}
           </div>
+          {latestTask.source_plan_version_id ? (
+            <div className="rounded border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs leading-5 text-cyan-100/80">
+              <div className="break-all font-mono">
+                source_plan_version_id: {latestTask.source_plan_version_id}
+              </div>
+              <div className="break-all font-mono">
+                source_draft_id: {latestTask.source_draft_id ?? "后端未返回"}
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <ProjectMiniStat
               label="优先级"

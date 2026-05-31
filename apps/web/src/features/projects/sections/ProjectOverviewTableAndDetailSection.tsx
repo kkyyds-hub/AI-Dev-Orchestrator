@@ -6,6 +6,7 @@ import {
   mapTaskStatusTone,
 } from "../../../lib/status";
 import { ProjectTable } from "../components/ProjectTable";
+import { ProjectDirectorSourceCard } from "../components/ProjectDirectorSourceCard";
 import type {
   BossDrilldownContext,
   BossDrilldownFeedback,
@@ -182,6 +183,12 @@ function CompactProjectDetail(props: {
           ) : null}
         </div>
       </div>
+
+      <ProjectDirectorSourceCard
+        project={props.project}
+        detail={props.detail}
+        compact
+      />
 
       {taskStats ? <TaskStatsLine taskStats={taskStats} /> : null}
 

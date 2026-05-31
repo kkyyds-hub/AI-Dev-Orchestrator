@@ -94,6 +94,8 @@ export type ConsoleTask = {
   human_status: string;
   paused_reason: string | null;
   project_id: string | null;
+  source_plan_version_id?: string | null;
+  source_draft_id?: string | null;
   created_at: string;
   updated_at: string;
   latest_run: ConsoleRun | null;

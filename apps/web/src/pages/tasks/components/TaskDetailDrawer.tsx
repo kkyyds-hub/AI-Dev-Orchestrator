@@ -103,6 +103,25 @@ export function TaskDetailDrawer({
           {/* Agent */}
           <Field label="Agent" value={task.owner_role_code || "未分配"} />
 
+          {task.source_plan_version_id ? (
+            <div className="rounded border border-cyan-500/25 bg-cyan-500/5 px-3 py-2">
+              <p className="text-xs font-medium text-cyan-100">
+                AI 主管草案来源
+              </p>
+              <div className="mt-2 grid gap-1 text-xs text-zinc-400">
+                <span className="break-all font-mono">
+                  source_plan_version_id: {task.source_plan_version_id}
+                </span>
+                <span className="break-all font-mono">
+                  source_draft_id: {task.source_draft_id ?? "后端未返回"}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-cyan-100/70">
+                该来源只表示草案到正式任务的映射；未自动创建 Agent Session、Skill 绑定、仓库绑定或 Run。
+              </p>
+            </div>
+          ) : null}
+
           {/* Dependencies */}
           <div>
             <p className="text-xs text-zinc-500 mb-1">依赖</p>

@@ -4,6 +4,7 @@ import { StrategyRuleEditor } from "../../strategy/StrategyRuleEditor";
 import { ProjectSopPanel } from "../ProjectSopPanel";
 import { ProjectDetailHeader } from "../components/ProjectDetailHeader";
 import { ProjectDetailStatsGrid } from "../components/ProjectDetailStatsGrid";
+import { ProjectDirectorSourceCard } from "../components/ProjectDirectorSourceCard";
 import { ProjectLatestTaskPreview } from "../components/ProjectLatestTaskPreview";
 import { ProjectMilestonePanel } from "../components/ProjectMilestonePanel";
 import { ProjectProgressRiskSummary } from "../components/ProjectProgressRiskSummary";
@@ -90,6 +91,8 @@ export function ProjectDetailSection(props: {
         projectUpdatedAt={projectUpdatedAt}
         projectId={projectId}
       />
+
+      <ProjectDirectorSourceCard project={props.project} detail={props.detail} />
 
       <ProjectDetailStatsGrid project={props.project} taskStats={taskStats} />
 

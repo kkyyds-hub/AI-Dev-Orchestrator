@@ -70,6 +70,12 @@ export function ProjectTaskTreeRow(props: { task: ProjectDetailTaskItem }) {
             }
             tone={props.task.source_draft_id ? "info" : "neutral"}
           />
+          {props.task.source_plan_version_id ? (
+            <StatusBadge
+              label={`AI 主管计划 ${props.task.source_plan_version_id}`}
+              tone="info"
+            />
+          ) : null}
         </div>
       </div>
 

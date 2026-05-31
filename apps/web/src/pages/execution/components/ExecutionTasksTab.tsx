@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { useConsoleOverview } from "../../../features/console/hooks";
 import type { ConsoleTask } from "../../../features/console/types";
 import { useConsoleEventStream } from "../../../features/events/hooks";
+import { useProjectDetail } from "../../../features/projects/hooks";
+import { collectProjectDirectorSource } from "../../../features/projects/lib/projectDirectorSource";
 import { buildRunRoute } from "../../../lib/run-route";
 import { buildTaskRoute } from "../../../lib/task-route";
 import {
@@ -79,6 +81,28 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
   );
 
   const projectIdForRoute = selectedProjectId === "all" ? null : selectedProjectId;
+  const projectDetailQuery = useProjectDetail(projectIdForRoute);
+  const selectedProject = useMemo(
+    () =>
+      selectedProjectId === "all"
+        ? null
+        : projects.find((project) => project.id === selectedProjectId) ?? null,
+    [projects, selectedProjectId],
+  );
+  const directorSource = useMemo(
+    () =>
+      selectedProjectId === "all"
+        ? null
+        : collectProjectDirectorSource({
+            items: [
+              selectedProject,
+              projectDetailQuery.data,
+              ...(projectDetailQuery.data?.tasks ?? []),
+              ...filteredTasks,
+            ],
+          }),
+    [filteredTasks, projectDetailQuery.data, selectedProject, selectedProjectId],
+  );
 
   const handleSelectTask = (nextTaskId: string) => {
     if (sourceRoute === "execution") {
@@ -203,6 +227,38 @@ export function ExecutionTasksTab({ taskId, sourceRoute }: ExecutionTasksTabProp
           >
             切回全部项目
           </button>
+        </div>
+      ) : null}
+
+      {directorSource ? (
+        <div
+          data-testid="execution-project-director-source-readback"
+          className="rounded border border-cyan-500/25 bg-cyan-500/5 px-4 py-3"
+        >
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-medium text-cyan-100">
+                执行中心读回：AI 主管草案来源
+              </p>
+              <p className="mt-1 text-xs leading-5 text-cyan-100/75">
+                当前项目任务队列来自已审核草案；此处仅展示来源，不代表 Agent/Skill/仓库/验证机制已经真实执行。
+              </p>
+            </div>
+            <div className="grid gap-1 text-xs text-zinc-400 lg:min-w-[320px]">
+              <span className="break-all font-mono">
+                source_plan_version_id: {directorSource.sourcePlanVersionId}
+              </span>
+              <span className="break-all font-mono">
+                source_draft_id:{" "}
+                {directorSource.sourceDraftIds.length > 0
+                  ? directorSource.sourceDraftIds.join(", ")
+                  : "后端未返回"}
+              </span>
+            </div>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-cyan-100/70">
+            未自动创建 Agent Session / Skill 绑定 / 仓库绑定 / Run，也未触发 provider、Worker、planning/apply、apply-local 或产品内 git-commit。
+          </p>
         </div>
       ) : null}
 

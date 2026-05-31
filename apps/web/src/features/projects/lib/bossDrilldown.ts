@@ -90,5 +90,7 @@ export function buildTaskSampleFromDetail(
       matchedRun.role_model_policy_final_tier,
     latest_run_role_model_policy_stage_override_applied:
       matchedRun.role_model_policy_stage_override_applied,
+    source_plan_version_id: detail.source_plan_version_id ?? null,
+    source_draft_id: detail.source_draft_id ?? null,
   };
 }

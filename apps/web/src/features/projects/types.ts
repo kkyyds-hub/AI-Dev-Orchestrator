@@ -96,6 +96,8 @@ export type BossProjectLatestTask = {
   latest_run_role_model_policy_adjusted_tier: string | null;
   latest_run_role_model_policy_final_tier: string | null;
   latest_run_role_model_policy_stage_override_applied: boolean;
+  source_plan_version_id?: string | null;
+  source_draft_id?: string | null;
 };
 
 export type BossDrilldownSource =
@@ -148,6 +150,8 @@ export type BossProjectItem = {
   repository_workspace: RepositoryWorkspace | null;
   latest_repository_snapshot: RepositorySnapshot | null;
   current_change_session: ChangeSession | null;
+  source_plan_version_id?: string | null;
+  source_draft_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -318,6 +322,7 @@ export type ProjectDetailTaskItem = {
   downstream_role_code: string | null;
   human_status: string;
   paused_reason: string | null;
+  source_plan_version_id?: string | null;
   source_draft_id: string | null;
   created_at: string;
   updated_at: string;
@@ -373,6 +378,8 @@ export type ProjectDetail = {
   repository_workspace: RepositoryWorkspace | null;
   latest_repository_snapshot: RepositorySnapshot | null;
   current_change_session: ChangeSession | null;
+  source_plan_version_id?: string | null;
+  source_draft_id?: string | null;
   created_at: string;
   updated_at: string;
   tasks: ProjectDetailTaskItem[];

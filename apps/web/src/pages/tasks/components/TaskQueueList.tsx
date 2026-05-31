@@ -236,6 +236,14 @@ function TaskQueueItem({
         {task.status === "waiting_human" && (
           <span className="text-zinc-600">待确认</span>
         )}
+        {task.source_plan_version_id ? (
+          <span
+            className="rounded border border-cyan-500/20 px-1.5 py-0.5 text-cyan-200/80"
+            title={`source_plan_version_id: ${task.source_plan_version_id}`}
+          >
+            AI主管草案
+          </span>
+        ) : null}
       </div>
 
       {/* Row: run summary + buttons */}
