@@ -35,6 +35,11 @@ from app.domain.project_director_agent_team_config import (
     ProjectDirectorAgentTeamConfig,
     ProjectDirectorAgentTeamMemberConfig,
 )
+from app.domain.project_director_skill_binding_config import (
+    ProjectDirectorSkillBindingConfig,
+    ProjectDirectorSkillBindingConfigItem,
+    SkillBindingConfigStatus,
+)
 from app.domain.project_director_session import (
     ClarifyingAnswer,
     ClarifyingQuestion,
@@ -52,6 +57,9 @@ from app.repositories.project_director_task_creation_repository import (
 from app.repositories.project_director_agent_team_config_repository import (
     ProjectDirectorAgentTeamConfigRepository,
 )
+from app.repositories.project_director_skill_binding_config_repository import (
+    ProjectDirectorSkillBindingConfigRepository,
+)
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.project_director_confirmation_service import (
@@ -65,6 +73,10 @@ from app.services.project_director_task_creation_service import (
 from app.services.project_director_agent_team_config_service import (
     AgentTeamConfigReadResult,
     ProjectDirectorAgentTeamConfigService,
+)
+from app.services.project_director_skill_binding_config_service import (
+    ProjectDirectorSkillBindingConfigService,
+    SkillBindingConfigReadResult,
 )
 
 
@@ -108,12 +120,14 @@ def _get_task_creation_service(
     creation_repo = ProjectDirectorTaskCreationRecordRepository(session)
     project_repo = ProjectRepository(session)
     agent_team_config_repo = ProjectDirectorAgentTeamConfigRepository(session)
+    skill_binding_config_repo = ProjectDirectorSkillBindingConfigRepository(session)
     return ProjectDirectorTaskCreationService(
         plan_repo=plan_repo,
         task_repo=task_repo,
         creation_repo=creation_repo,
         project_repo=project_repo,
         agent_team_config_repo=agent_team_config_repo,
+        skill_binding_config_repo=skill_binding_config_repo,
     )
 
 
@@ -123,6 +137,17 @@ def _get_agent_team_config_service(
     config_repo = ProjectDirectorAgentTeamConfigRepository(session)
     project_repo = ProjectRepository(session)
     return ProjectDirectorAgentTeamConfigService(
+        config_repo=config_repo,
+        project_repo=project_repo,
+    )
+
+
+def _get_skill_binding_config_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSkillBindingConfigService:
+    config_repo = ProjectDirectorSkillBindingConfigRepository(session)
+    project_repo = ProjectRepository(session)
+    return ProjectDirectorSkillBindingConfigService(
         config_repo=config_repo,
         project_repo=project_repo,
     )
@@ -1244,6 +1269,179 @@ def review_project_agent_team_config(
             detail=detail,
         ) from exc
     return AgentTeamConfigEnvelopeResponse.from_result(result)
+
+
+
+
+# Skill Binding Config DTOs / Routes
+
+
+class SkillBindingConfigItemResponse(BaseModel):
+    skill_code: str
+    skill_name: str = ""
+    owner_role_code: str
+    usage: str
+    activation_stage: str
+    binding_mode: str
+    reason: str = ""
+    review_status: str = "pending_confirmation"
+
+    @classmethod
+    def from_domain(
+        cls, item: ProjectDirectorSkillBindingConfigItem
+    ) -> "SkillBindingConfigItemResponse":
+        return cls(
+            skill_code=item.skill_code,
+            skill_name=item.skill_name,
+            owner_role_code=item.owner_role_code,
+            usage=item.usage,
+            activation_stage=item.activation_stage,
+            binding_mode=item.binding_mode,
+            reason=item.reason,
+            review_status=item.review_status,
+        )
+
+
+class SkillBindingConfigResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    plan_version_id: UUID
+    source_draft_id: str
+    status: SkillBindingConfigStatus
+    skill_bindings: list[SkillBindingConfigItemResponse] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    review_note: str = ""
+    created_at: str
+    updated_at: str
+    confirmed_at: str | None = None
+    rejected_at: str | None = None
+
+    @classmethod
+    def from_domain(
+        cls, config: ProjectDirectorSkillBindingConfig
+    ) -> "SkillBindingConfigResponse":
+        return cls(
+            id=config.id,
+            project_id=config.project_id,
+            plan_version_id=config.plan_version_id,
+            source_draft_id=config.source_draft_id,
+            status=config.status,
+            skill_bindings=[
+                SkillBindingConfigItemResponse.from_domain(item)
+                for item in config.skill_bindings
+            ],
+            warnings=config.warnings,
+            review_note=config.review_note,
+            created_at=config.created_at.isoformat(),
+            updated_at=config.updated_at.isoformat(),
+            confirmed_at=(
+                config.confirmed_at.isoformat() if config.confirmed_at else None
+            ),
+            rejected_at=(
+                config.rejected_at.isoformat() if config.rejected_at else None
+            ),
+        )
+
+
+class SkillBindingConfigEnvelopeResponse(BaseModel):
+    project_id: UUID
+    config: SkillBindingConfigResponse | None = None
+    next_action: str
+
+    @classmethod
+    def from_result(
+        cls, result: SkillBindingConfigReadResult
+    ) -> "SkillBindingConfigEnvelopeResponse":
+        return cls(
+            project_id=result.project_id,
+            config=(
+                SkillBindingConfigResponse.from_domain(result.config)
+                if result.config is not None
+                else None
+            ),
+            next_action=result.next_action,
+        )
+
+
+class ReviewSkillBindingConfigRequest(BaseModel):
+    action: Literal["confirm", "reject"]
+    note: str = Field(default="", max_length=2000)
+
+
+@router.get(
+    "/projects/{project_id}/skill-binding-config",
+    response_model=SkillBindingConfigEnvelopeResponse,
+    summary="Read project-level Project Director skill binding config",
+)
+def get_project_skill_binding_config(
+    project_id: UUID,
+    svc: Annotated[
+        ProjectDirectorSkillBindingConfigService,
+        Depends(_get_skill_binding_config_service),
+    ],
+) -> SkillBindingConfigEnvelopeResponse:
+    """Read the project-level Skill binding config, if the project has one."""
+
+    try:
+        result = svc.get_for_project(project_id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return SkillBindingConfigEnvelopeResponse.from_result(result)
+
+
+@router.post(
+    "/projects/{project_id}/skill-binding-config/review",
+    response_model=SkillBindingConfigEnvelopeResponse,
+    summary="Confirm or reject a project-level Project Director skill binding config",
+)
+def review_project_skill_binding_config(
+    project_id: UUID,
+    request: ReviewSkillBindingConfigRequest,
+    svc: Annotated[
+        ProjectDirectorSkillBindingConfigService,
+        Depends(_get_skill_binding_config_service),
+    ],
+) -> SkillBindingConfigEnvelopeResponse:
+    """Review only; never create Skill bindings, Workers, Runs, or Agent Sessions."""
+
+    try:
+        result = svc.review_project_config(
+            project_id,
+            action=request.action,
+            note=request.note,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lower_detail = detail.lower()
+        if "project" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "already been reviewed" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if "skill binding config" in lower_detail and "not found" in lower_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+    return SkillBindingConfigEnvelopeResponse.from_result(result)
 
 
 # ── Task Creation DTOs ───────────────────────────────────────────────

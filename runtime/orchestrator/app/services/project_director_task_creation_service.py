@@ -22,6 +22,11 @@ from app.domain.project_director_agent_team_config import (
     ProjectDirectorAgentTeamConfig,
     ProjectDirectorAgentTeamMemberConfig,
 )
+from app.domain.project_director_skill_binding_config import (
+    ProjectDirectorSkillBindingConfig,
+    ProjectDirectorSkillBindingConfigItem,
+    SkillBindingConfigStatus,
+)
 from app.domain.project_director_plan_version import (
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
@@ -37,6 +42,9 @@ from app.repositories.project_director_plan_version_repository import (
 )
 from app.repositories.project_director_agent_team_config_repository import (
     ProjectDirectorAgentTeamConfigRepository,
+)
+from app.repositories.project_director_skill_binding_config_repository import (
+    ProjectDirectorSkillBindingConfigRepository,
 )
 from app.repositories.project_director_task_creation_repository import (
     ProjectDirectorTaskCreationRecordRepository,
@@ -76,6 +84,12 @@ _AGENT_TEAM_CONFIG_WARNINGS = [
     "后续执行仍需要用户手动触发。",
 ]
 
+_SKILL_BINDING_CONFIG_WARNINGS = [
+    "当前仅为 Skill 绑定建议，不创建真实 Skill 绑定。",
+    "确认 Skill 绑定建议不会启用 Skill，也不会影响 Worker 调度。",
+    "后续是否真实绑定需要用户在治理配置中另行确认。",
+]
+
 
 def _map_priority(priority_hint: str) -> TaskPriority:
     """Map plan version priority_hint to TaskPriority."""
@@ -111,12 +125,14 @@ class ProjectDirectorTaskCreationService:
         creation_repo: ProjectDirectorTaskCreationRecordRepository,
         project_repo: ProjectRepository,
         agent_team_config_repo: ProjectDirectorAgentTeamConfigRepository | None = None,
+        skill_binding_config_repo: ProjectDirectorSkillBindingConfigRepository | None = None,
     ) -> None:
         self._plan_repo = plan_repo
         self._task_repo = task_repo
         self._creation_repo = creation_repo
         self._project_repo = project_repo
         self._agent_team_config_repo = agent_team_config_repo
+        self._skill_binding_config_repo = skill_binding_config_repo
 
     def create_tasks_from_plan_version(
         self, plan_version_id: UUID
@@ -176,6 +192,7 @@ class ProjectDirectorTaskCreationService:
             existing_plan_version = self._plan_repo.get_by_id(plan_version_id)
             if existing_plan_version is not None:
                 self._ensure_agent_team_config_for_plan(existing_plan_version)
+                self._ensure_skill_binding_config_for_plan(existing_plan_version)
             return self._result_from_record(existing, already_created=True)
 
         self._ensure_proposed_tasks_are_valid(plan_version)
@@ -195,6 +212,7 @@ class ProjectDirectorTaskCreationService:
             )
 
         self._prepare_agent_team_config_for_plan(plan_version)
+        self._prepare_skill_binding_config_for_plan(plan_version)
         return self._create_task_queue_for_plan_version(plan_version)
 
     def get_created_tasks(
@@ -336,6 +354,71 @@ class ProjectDirectorTaskCreationService:
         )
         if before is None and after is not None:
             self._agent_team_config_repo.session.commit()
+
+    def _prepare_skill_binding_config_for_plan(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> None:
+        """Add a pending project-level Skill binding config to the transaction."""
+
+        if self._skill_binding_config_repo is None:
+            return
+        if plan_version.project_id is None:
+            return
+        if not plan_version.skill_binding_suggestions:
+            return
+        if (
+            self._skill_binding_config_repo.get_by_plan_version_id(plan_version.id)
+            is not None
+        ):
+            return
+        if (
+            self._skill_binding_config_repo.get_by_project_id(plan_version.project_id)
+            is not None
+        ):
+            return
+
+        source_draft_id = f"pdv:{plan_version.id}:{plan_version.version_no}"
+        config = ProjectDirectorSkillBindingConfig(
+            project_id=plan_version.project_id,
+            plan_version_id=plan_version.id,
+            source_draft_id=source_draft_id,
+            status=SkillBindingConfigStatus.PENDING_CONFIRMATION,
+            skill_bindings=[
+                ProjectDirectorSkillBindingConfigItem(
+                    skill_code=item.skill_code,
+                    owner_role_code=item.owner_role_code.value,
+                    usage=item.usage,
+                    activation_stage=item.activation_stage,
+                    binding_mode=item.binding_mode,
+                    reason=item.reason,
+                    review_status=SkillBindingConfigStatus.PENDING_CONFIRMATION.value,
+                )
+                for item in plan_version.skill_binding_suggestions
+            ],
+            warnings=list(_SKILL_BINDING_CONFIG_WARNINGS),
+        )
+        self._skill_binding_config_repo.add_no_commit(config)
+
+    def _ensure_skill_binding_config_for_plan(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> None:
+        """Best-effort idempotent backfill for already-created formal projects."""
+
+        before = (
+            self._skill_binding_config_repo.get_by_plan_version_id(plan_version.id)
+            if self._skill_binding_config_repo is not None
+            else None
+        )
+        self._prepare_skill_binding_config_for_plan(plan_version)
+        after = (
+            self._skill_binding_config_repo.get_by_plan_version_id(plan_version.id)
+            if self._skill_binding_config_repo is not None
+            else None
+        )
+        if before is None and after is not None:
+            self._skill_binding_config_repo.session.commit()
 
     def _result_from_record(
         self,

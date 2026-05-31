@@ -121,6 +121,45 @@ export interface ProjectDirectorAgentTeamConfigResponse {
   next_action: string;
 }
 
+export type ProjectDirectorSkillBindingConfigStatus =
+  | "pending_confirmation"
+  | "confirmed"
+  | "rejected";
+
+export type ProjectDirectorSkillBindingConfigReviewAction = "confirm" | "reject";
+
+export interface ProjectDirectorSkillBindingConfigItem {
+  skill_code: string;
+  skill_name: string;
+  owner_role_code: string;
+  usage: string;
+  activation_stage: string;
+  binding_mode: string;
+  reason: string;
+  review_status: string;
+}
+
+export interface ProjectDirectorSkillBindingConfig {
+  id: string;
+  project_id: string;
+  plan_version_id: string;
+  source_draft_id: string;
+  status: ProjectDirectorSkillBindingConfigStatus;
+  skill_bindings: ProjectDirectorSkillBindingConfigItem[];
+  warnings: string[];
+  review_note: string;
+  created_at: string;
+  updated_at: string;
+  confirmed_at: string | null;
+  rejected_at: string | null;
+}
+
+export interface ProjectDirectorSkillBindingConfigResponse {
+  project_id: string;
+  config: ProjectDirectorSkillBindingConfig | null;
+  next_action: string;
+}
+
 export interface ProjectDirectorSkillBindingSuggestion {
   skill_code: string;
   owner_role_code: string;
@@ -255,5 +294,11 @@ export interface CreateProjectDirectorTaskQueueInput {
 export interface ReviewProjectDirectorAgentTeamConfigInput {
   projectId: string;
   action: ProjectDirectorAgentTeamConfigReviewAction;
+  note?: string;
+}
+
+export interface ReviewProjectDirectorSkillBindingConfigInput {
+  projectId: string;
+  action: ProjectDirectorSkillBindingConfigReviewAction;
   note?: string;
 }

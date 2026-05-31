@@ -1,4 +1,4 @@
-﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   createProjectDirectorTaskQueue,
@@ -7,7 +7,9 @@ import {
   createProjectDirectorPlanVersion,
   createProjectDirectorSession,
   fetchProjectDirectorAgentTeamConfig,
+  fetchProjectDirectorSkillBindingConfig,
   reviewProjectDirectorAgentTeamConfig,
+  reviewProjectDirectorSkillBindingConfig,
   reviewProjectDirectorPlanVersion,
   submitProjectDirectorAnswers,
 } from "./api";
@@ -83,6 +85,32 @@ export function useReviewProjectDirectorAgentTeamConfigMutation() {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["project-director", "agent-team-config", result.project_id],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),
+      ]);
+    },
+  });
+}
+
+export function useProjectDirectorSkillBindingConfig(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-director", "skill-binding-config", projectId],
+    queryFn: () => fetchProjectDirectorSkillBindingConfig(projectId as string),
+    enabled: Boolean(projectId),
+    retry: false,
+  });
+}
+
+export function useReviewProjectDirectorSkillBindingConfigMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: reviewProjectDirectorSkillBindingConfig,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "skill-binding-config", result.project_id],
         }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", result.project_id] }),

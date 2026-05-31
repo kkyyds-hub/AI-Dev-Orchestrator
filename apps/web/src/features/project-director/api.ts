@@ -10,8 +10,10 @@ import type {
   ProjectDirectorPlanReviewResponse,
   ProjectDirectorPlanVersion,
   ProjectDirectorSession,
+  ProjectDirectorSkillBindingConfigResponse,
   ProjectDirectorTaskCreationResponse,
   ReviewProjectDirectorAgentTeamConfigInput,
+  ReviewProjectDirectorSkillBindingConfigInput,
   ReviewProjectDirectorPlanVersionInput,
   SubmitProjectDirectorAnswersInput,
 } from "./types";
@@ -109,6 +111,29 @@ export function reviewProjectDirectorAgentTeamConfig(
 ): Promise<ProjectDirectorAgentTeamConfigResponse> {
   return requestJson<ProjectDirectorAgentTeamConfigResponse>(
     `/project-director/projects/${input.projectId}/agent-team-config/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action: input.action,
+        note: input.note ?? "",
+      }),
+    },
+  );
+}
+
+export function fetchProjectDirectorSkillBindingConfig(
+  projectId: string,
+): Promise<ProjectDirectorSkillBindingConfigResponse> {
+  return requestJson<ProjectDirectorSkillBindingConfigResponse>(
+    `/project-director/projects/${projectId}/skill-binding-config`,
+  );
+}
+
+export function reviewProjectDirectorSkillBindingConfig(
+  input: ReviewProjectDirectorSkillBindingConfigInput,
+): Promise<ProjectDirectorSkillBindingConfigResponse> {
+  return requestJson<ProjectDirectorSkillBindingConfigResponse>(
+    `/project-director/projects/${input.projectId}/skill-binding-config/review`,
     {
       method: "POST",
       body: JSON.stringify({

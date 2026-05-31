@@ -36,6 +36,7 @@ from app.domain.deliverable import DeliverableContentFormat, DeliverableType
 from app.domain.project import ProjectStage, ProjectStatus
 from app.domain.project_director_plan_version import PlanVersionStatus
 from app.domain.project_director_agent_team_config import AgentTeamConfigStatus
+from app.domain.project_director_skill_binding_config import SkillBindingConfigStatus
 from app.domain.project_director_session import ProjectDirectorSessionStatus
 from app.domain.project_role import ProjectRoleCode
 from app.domain.repository_snapshot import RepositorySnapshotStatus
@@ -1849,6 +1850,72 @@ class ProjectDirectorAgentTeamConfigTable(ORMBase):
         default=AgentTeamConfigStatus.PENDING_CONFIRMATION,
     )
     agent_team_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    review_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    rejected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
+class ProjectDirectorSkillBindingConfigTable(ORMBase):
+    """Project-level AI Director skill binding suggestion config.
+
+    Review-only persistence. Confirming this row does not create
+    ProjectRoleSkillBinding rows, enable Skills, dispatch Workers, start Runs,
+    create Agent Sessions, or call providers.
+    """
+
+    __tablename__ = "project_director_skill_binding_configs"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            name="uq_skill_binding_configs_project",
+        ),
+        UniqueConstraint(
+            "plan_version_id",
+            name="uq_skill_binding_configs_plan_version",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    plan_version_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_plan_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_draft_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[SkillBindingConfigStatus] = mapped_column(
+        Enum(
+            SkillBindingConfigStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=SkillBindingConfigStatus.PENDING_CONFIRMATION,
+    )
+    skill_bindings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     review_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(

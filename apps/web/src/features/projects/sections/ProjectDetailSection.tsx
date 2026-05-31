@@ -10,6 +10,7 @@ import { ProjectLatestTaskPreview } from "../components/ProjectLatestTaskPreview
 import { ProjectMilestonePanel } from "../components/ProjectMilestonePanel";
 import { ProjectProgressRiskSummary } from "../components/ProjectProgressRiskSummary";
 import { ProjectSettingsEntryPanel } from "../components/ProjectSettingsEntryPanel";
+import { SkillBindingConfigCard } from "../components/SkillBindingConfigCard";
 import { ProjectStageTimeline } from "../components/ProjectStageTimeline";
 import { ProjectTaskTree } from "../components/ProjectTaskTree";
 import type {
@@ -96,6 +97,8 @@ export function ProjectDetailSection(props: {
       <ProjectDirectorSourceCard project={props.project} detail={props.detail} />
 
       <AgentTeamConfigCard projectId={projectId} />
+
+      <SkillBindingConfigCard projectId={projectId} />
 
       <ProjectDetailStatsGrid project={props.project} taskStats={taskStats} />
 
