@@ -97,7 +97,7 @@
 
 **仍为 Partial**
 
-### 4.1 Runtime Pass 项目（15 项）
+### 4.1 Runtime Pass 项目（16 项）
 
 | CL | 闭环环节 | 证据 |
 |---|---|---|
@@ -112,16 +112,16 @@
 | CL-09 | 运行闭环：产生 Run 记录 | R1-Fb v3 live HTTP |
 | CL-10 | 运行闭环：Run 摘要/fallback | R1-Fb v3 live HTTP |
 | CL-11 | 失败闭环：retry/human | R1-G live HTTP |
+| CL-12 | 仓库闭环：draft chain | R1-H v2 smoke |
 | CL-13 | 交付闭环：deliverable 形成 | R1-I live HTTP |
 | CL-14 | 审批闭环：approval 决策 | R1-J live HTTP |
 | CL-15 | 治理闭环：role/skill 消费 | R1-K v2 live HTTP |
 | CL-17 | 页面闭环：全站按钮 | R1-O live HTTP |
 
-### 4.2 Evidence Partial 项目（2 项）
+### 4.2 Evidence Partial 项目（1 项）
 
 | CL | 闭环环节 | 当前状态 | 缺口 |
 |---|---|---|---|
-| CL-12 | 仓库闭环：draft chain | Evidence Partial | 只读仓库链 live HTTP 通过；change plan→batch→preflight→commit candidate 全端到端 live HTTP 需 deliverables 前置 |
 | CL-16 | 成本闭环：cost ledger | Evidence Partial | 成本结构全链路闭合（live HTTP + frontend）；所有成本为 heuristic（simulate $0.002/run）；真实 provider 成本需用户确认 |
 
 ### 4.3 Not Started 项目（0 项）
@@ -144,8 +144,7 @@
 
 | # | 缺口 | 类型 | 优先级 |
 |---|---|---|---|
-| 1 | CL-12: change plan→batch→preflight→commit candidate 端到端 live HTTP | 需要 deliverables 前置 + 可能 Codex 补丁 | 中等 |
-| 2 | CL-16: 真实 provider cost 验证 | 需要用户明确授权 + 可能 Codex 补丁 | 中等 |
+| 1 | CL-16: 真实 provider cost 验证 | 需要用户明确授权 + 可能 Codex 补丁 | 中等 |
 
 ### 5.2 需要 DeepSeek 的 evidence
 
@@ -164,7 +163,7 @@
 
 **Documentation Pass**
 
-- closure-checklist 持续回填，15/18 项 Runtime Pass + 2 Evidence Partial + 1 Documentation Pass
+- closure-checklist 持续回填，16/18 项 Runtime Pass + 1 Evidence Partial + 1 Documentation Pass
 - ledger 持续回填，R1-A~R1-O 共 15 轮
 - 15 份 evidence 文档覆盖所有已审计闭环项
 - 无文档冲突
@@ -186,8 +185,8 @@
 
 **仍为 Partial**
 
-15 Runtime Pass（含 CL-17 全站）+ 2 Evidence Partial + 0 Not Started + 1 Documentation Pass。
-Total closure 不能在 CL-12/CL-16 仍有缺口时标记为 Pass。
+16 Runtime Pass + 1 Evidence Partial + 0 Not Started + 1 Documentation Pass。
+Total closure 不能在 CL-16 仍有缺口时标记为 Pass。
 
 ---
 
@@ -205,7 +204,7 @@ CL-08 调度闭环：Runtime Pass
 CL-09 运行闭环：Runtime Pass
 CL-10 运行闭环：Runtime Pass
 CL-11 失败闭环：Runtime Pass
-CL-12 仓库闭环：Evidence Partial
+CL-12 仓库闭环：Runtime Pass
 CL-13 交付闭环：Runtime Pass
 CL-14 审批闭环：Runtime Pass
 CL-15 治理闭环：Runtime Pass

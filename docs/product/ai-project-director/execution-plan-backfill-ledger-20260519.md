@@ -119,7 +119,7 @@
 | 治理中心 | Phase1 职责收口+返工+补强 | UI Pass | Partial（5 个读 API 全部接入；角色/Skill 搜索已补；写操作按钮禁用） | Partial（角色/Skill 保存 API 存在，确认闭环/记忆闭环无后端） | Partial（build 通过，运行时证据不足） | checklist GOV-01~15（6P/9P）；verification 含数据量稳定性检查 | **Partial** | 搜索+文档修正完成 |
 | 设置页 | Phase1 职责收口 + 账户合并 | UI Pass | API Pass（7 个真实 API 全部接入） | Partial（数据库/Worker/ES 诊断后端缺口） | Partial（build 通过，运行证据不足） | checklist SET-01~10（9P/1P）；账户入口合并完成 | **Pass（Phase1）** | 账户一级入口移除；/me 重定向；无新增后端 |
 | 成本治理 | 未开始总验收 | Partial | Partial | Partial | Not Started | 空白 | **Partial** | 最后按 COST-* 统一验收 |
-| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial（15 Runtime Pass + 2 Evidence Partial + 0 Not Started + 1 Documentation Pass） | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-12/16 后端完备；CL-05/06/17 已 Runtime Pass) | Partial (R1-A~R1-O 15 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial gap 未消除；AI Project Director total closure 不得写成 Pass |
+| 总闭环 CL-01~18 | R1-M 总 Gate 已审计 | Partial（16 Runtime Pass + 1 Evidence Partial + 0 Not Started + 1 Documentation Pass） | Partial (CL-12 draft chain gap / CL-16 provider cost gap) | Partial (CL-12/16 后端完备；CL-05/06/17 已 Runtime Pass) | Partial (R1-A~R1-O 15 evidence docs) | R1-M 已回填 | **Partial** | CL-12/CL-16 Evidence Partial gap 未消除；AI Project Director total closure 不得写成 Pass |
 
 ---
 
@@ -296,23 +296,21 @@
 | Gate 结论 | **R1-G Runtime Pass**（failed + blocked 两组 live HTTP 全链路 evidence + 16 tests passed；不调 provider/worker pool/planning/apply/apply-local/git-commit） |
 | 后续动作 | total closure 仍为 Partial；CL-12~CL-14, CL-15/16 治理中心端到端接入, CL-18 尚未完成 |
 
-#### 4.1.8 R1-H：Repository Evidence Chain Audit（Evidence Partial）
+#### 4.1.8 R1-H：Repository Evidence Chain Audit（Runtime Pass）
 
 | 字段 | 回填 |
 |---|---|
-| 阶段名称 | CL-12 仓库证据链审计 + live HTTP + 测试 |
-| 阶段性质 | 审计 + 测试 + live HTTP + 文档回填 |
-| 基准 commit | `cb56730` |
-| 涉及接口 | `PUT/GET /repositories/projects/{id}`, `POST/GET snapshot`, `POST/GET change-session`, `POST file-locator/search`, `POST context-pack`, `GET change-batches`, `GET commit-candidates`, `GET release-gates`, `GET day15-flow` |
-| Read-Only Live HTTP | 全部 200：workspace binding readback ✓, snapshot refresh+readback (3 files, success) ✓, change session capture+readback (clean, guard=ready) ✓, file locator (2 candidates) ✓, context pack (2 files, 35 bytes) ✓, day15 flow (2/9 steps, git_write_actions_triggered=False) ✓, change batches list (empty) ✓, commit candidates list (empty) ✓, release gates list (empty) ✓ |
-| Draft Chain | ChangePlan → ChangeBatch → Preflight → CommitCandidate → ReleaseGate 全链路后端完备；CommitCandidate 明确为 "review-only draft"；BCL-03 apply-local/git-commit 为独立受控端点 |
-| Draft ≠ Real Commit | Confirmed：day15 flow git_write_actions_triggered=False；CommitCandidate 设计为 "review-only draft"；BCL-03 需要完整 guard chain（workspace binding + release gate approval + preflight pass + commit candidate existence + path safety） |
-| 测试证据 | 11 passed (test_repository_context_pack_api.py) in 3.95s |
-| Runtime Evidence Gap | 完整 Day06-Day14 端到端 (change plan → batch → preflight → commit candidate → release gate) live HTTP 需要 deliverables 前置（需要 worker run 先产出交付物） |
-| checklist 回填 | CL-12 (Evidence Partial) |
-| verification 文档 | `verification-project-director-repository-evidence-r1h-20260530.md` |
-| Gate 结论 | **R1-H Evidence Partial**（只读仓库证据链 live HTTP 完整通过；draft evidence 链后端完备；全端到端 live HTTP 需要 deliverables 前置） |
-| 后续动作 | total closure 仍为 Partial；CL-13/14, CL-15/16, CL-18 尚未完成 |
+| 阶段名称 | CL-12 仓库证据链审计 + Codex 补丁验证 + smoke + tests |
+| 阶段性质 | 审计 + 测试 + smoke + live HTTP + 文档回填 |
+| 基准 commit | `6b1095b`（Codex: draft-chain-readback + git_write_state_tracker） |
+| Codex 补丁 | GET /repositories/projects/{pid}/draft-chain-readback（聚合 deliverable/change plan/change batch/preflight/commit candidate/release gate）；git_write_state_tracker（追踪 apply-local/git-commit 调用） |
+| Smoke 证据 | `v4d_day15_repository_flow_smoke.py` 端到端: review_only=true, safe_runtime_path=true, preflight_status=ready_for_execution, commit_candidate_review_only=true, release_status=approved, apply_local_triggered=false, git_commit_triggered=false, git_write_actions_triggered=false, head_unchanged=true |
+| Draft ≠ Real Commit | draft-chain-readback 显式确认；BCL-03 apply-local/git-commit 独立受控端点有 6 guard tests |
+| 测试证据 | 9 passed: 1 draft chain + 6 guard + 2 worker evidence |
+| checklist 回填 | CL-12 (Runtime Pass) |
+| verification 文档 | `verification-project-director-repository-evidence-r1h-20260530.md`（v2: Evidence Partial → Runtime Pass） |
+| Gate 结论 | **R1-H Runtime Pass**（draft-chain-readback 端到端 smoke + 9 tests；不调 apply-local/git-commit） |
+| 后续动作 | total closure 仍为 Partial；CL-16 Evidence Partial 尚未消除 |
 
 #### 4.1.9 R1-I：Deliverable Closure Audit（Runtime Pass）
 
@@ -1406,7 +1404,7 @@ Gate 预期：Pass / Partial / Blocked / Fail
 | 审批闭环 | Not Started | APV-* 尚未处理 |
 | 治理沉淀 | Not Started | GOV-* 尚未处理 |
 | 成本闭环 | Partial | 部分页面展示 token/cost，但 AI 生成资产台账和成本可信度需总验收 |
-| 总闭环 CL-01~18 | Partial | 15 Runtime Pass + 2 Evidence Partial + 0 Not Started + 1 Documentation Pass；CL-12/CL-16 gap 未消除；total closure 不得写成 Pass |
+| 总闭环 CL-01~18 | Partial | 16 Runtime Pass + 1 Evidence Partial (CL-16) + 0 Not Started + 1 Documentation Pass；CL-16 gap 未消除；total closure 不得写成 Pass |
 
 ---
 
