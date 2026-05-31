@@ -200,6 +200,8 @@ class ProjectResponse(BaseModel):
     repository_workspace: RepositoryWorkspaceResponse | None = None
     latest_repository_snapshot: RepositorySnapshotResponse | None = None
     current_change_session: ChangeSessionResponse | None = None
+    source_plan_version_id: UUID | None = None
+    source_draft_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -209,6 +211,8 @@ class ProjectResponse(BaseModel):
         project: Project,
         *,
         current_change_session: ChangeSession | None = None,
+        source_plan_version_id: UUID | None = None,
+        source_draft_id: str | None = None,
     ) -> "ProjectResponse":
         """Convert the domain project into an API DTO."""
 
@@ -236,6 +240,8 @@ class ProjectResponse(BaseModel):
                 if current_change_session is not None
                 else None
             ),
+            source_plan_version_id=source_plan_version_id,
+            source_draft_id=source_draft_id,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -513,6 +519,7 @@ class ProjectTaskTreeItemResponse(BaseModel):
     downstream_role_code: ProjectRoleCode | None = None
     human_status: TaskHumanStatus
     paused_reason: str | None = None
+    source_plan_version_id: UUID | None = None
     source_draft_id: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -541,6 +548,9 @@ class ProjectTaskTreeItemResponse(BaseModel):
             downstream_role_code=item.task.downstream_role_code,
             human_status=item.task.human_status,
             paused_reason=item.task.paused_reason,
+            source_plan_version_id=extract_project_director_plan_version_id(
+                item.task.source_draft_id
+            ),
             source_draft_id=item.task.source_draft_id,
             created_at=item.task.created_at,
             updated_at=item.task.updated_at,
@@ -558,6 +568,10 @@ class ProjectDetailResponse(ProjectResponse):
     @classmethod
     def from_detail(cls, detail: ProjectDetail) -> "ProjectDetailResponse":
         """Convert the Day04 project aggregate into an API DTO."""
+
+        source_draft_id, source_plan_version_id = extract_project_director_source(
+            [item.task.source_draft_id for item in detail.task_tree]
+        )
 
         return cls(
             id=detail.project.id,
@@ -581,6 +595,8 @@ class ProjectDetailResponse(ProjectResponse):
                 else None
             ),
             current_change_session=None,
+            source_plan_version_id=source_plan_version_id,
+            source_draft_id=source_draft_id,
             created_at=detail.project.created_at,
             updated_at=detail.project.updated_at,
             tasks=[
@@ -602,6 +618,44 @@ class ProjectDetailResponse(ProjectResponse):
                 else None
             ),
         )
+
+
+def extract_project_director_plan_version_id(
+    source_draft_id: str | None,
+) -> UUID | None:
+    """Return the Project Director plan-version UUID encoded in a task source.
+
+    Only `pdv:<plan_version_uuid>:<version_no>` marks AI project-director
+    formalization. Other task sources such as manual tasks, SOP (`sop:*`) or
+    approval rework (`arw:*`) must stay `None` to avoid false readback labels.
+    """
+
+    if not source_draft_id:
+        return None
+
+    parts = source_draft_id.split(":")
+    if len(parts) < 3 or parts[0] != "pdv":
+        return None
+
+    try:
+        return UUID(parts[1])
+    except ValueError:
+        return None
+
+
+def extract_project_director_source(
+    source_draft_ids: list[str | None],
+) -> tuple[str | None, UUID | None]:
+    """Return the first valid Project Director draft source in task order."""
+
+    for source_draft_id in source_draft_ids:
+        source_plan_version_id = extract_project_director_plan_version_id(
+            source_draft_id
+        )
+        if source_plan_version_id is not None:
+            return source_draft_id, source_plan_version_id
+
+    return None, None
 
 
 class ProjectMemoryCountResponse(BaseModel):
@@ -1881,13 +1935,28 @@ def list_projects(
 
     projects = project_service.list_projects()
     change_session_repository = ChangeSessionRepository(session)
-    return [
-        ProjectResponse.from_project(
-            project,
-            current_change_session=change_session_repository.get_by_project_id(project.id),
+    task_repository = TaskRepository(session)
+
+    responses: list[ProjectResponse] = []
+    for project in projects:
+        source_draft_id, source_plan_version_id = extract_project_director_source(
+            [
+                task.source_draft_id
+                for task in task_repository.list_by_project_id(project.id)
+            ]
         )
-        for project in projects
-    ]
+        responses.append(
+            ProjectResponse.from_project(
+                project,
+                current_change_session=change_session_repository.get_by_project_id(
+                    project.id
+                ),
+                source_plan_version_id=source_plan_version_id,
+                source_draft_id=source_draft_id,
+            )
+        )
+
+    return responses
 
 
 @router.get(

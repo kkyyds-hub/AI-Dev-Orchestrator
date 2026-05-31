@@ -35,12 +35,12 @@ export function ProjectDirectorSourceCard({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="text-sm font-semibold text-cyan-100">
-              AI 主管草案来源
+              AI 主管创建
             </h4>
-            <StatusBadge label="readback only" tone="info" />
+            <StatusBadge label="只读来源" tone="info" />
           </div>
           <p className="mt-1 text-xs leading-5 text-cyan-100/75">
-            该项目读回到 AI 项目主管草案来源；这里只展示正式项目与任务队列的来源映射。
+            该项目读回到 AI 项目主管创建来源；这里只展示正式项目与任务队列的来源映射。
           </p>
         </div>
       </div>

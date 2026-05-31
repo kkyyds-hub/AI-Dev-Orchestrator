@@ -363,6 +363,7 @@ class TestCreateTasks:
         )
         assert resp.status_code == 200
         data = resp.json()
+        source_draft_id = f"pdv:{pv['id']}:{confirmed['version_no']}"
 
         assert data["plan_version_id"] == pv["id"]
         assert data["session_id"] == sid
@@ -383,6 +384,8 @@ class TestCreateTasks:
         assert project_resp.status_code == 200
         project_data = project_resp.json()
         assert project_data["id"] == data["project_id"]
+        assert project_data["source_plan_version_id"] == pv["id"]
+        assert project_data["source_draft_id"] == source_draft_id
         assert project_data["task_stats"]["total_tasks"] == data["task_count"]
         assert not project_data["name"].startswith("#")
         assert project_data["name"] != "作战计划摘要"
@@ -396,13 +399,36 @@ class TestCreateTasks:
         assert reread_plan_resp.status_code == 200
         assert reread_plan_resp.json()["project_id"] == data["project_id"]
 
-        source_draft_id = f"pdv:{pv['id']}:{confirmed['version_no']}"
         for task_id in data["created_task_ids"]:
             task_resp = client.get(f"/tasks/{task_id}")
             assert task_resp.status_code == 200
             task_data = task_resp.json()
             assert task_data["project_id"] == data["project_id"]
             assert task_data["source_draft_id"] == source_draft_id
+
+        task_sources = {
+            task["id"]: (
+                task["source_plan_version_id"],
+                task["source_draft_id"],
+            )
+            for task in project_data["tasks"]
+        }
+        assert set(task_sources) == set(data["created_task_ids"])
+        assert set(task_sources.values()) == {(pv["id"], source_draft_id)}
+
+    def test_regular_project_readback_does_not_report_project_director_source(
+        self, client
+    ):
+        """Regular project detail must not be mislabeled as AI-director-created."""
+        project_id = _create_project(client, name="普通项目")
+
+        project_resp = client.get(f"/projects/{project_id}")
+        assert project_resp.status_code == 200
+        project_data = project_resp.json()
+
+        assert project_data["source_plan_version_id"] is None
+        assert project_data["source_draft_id"] is None
+        assert project_data["tasks"] == []
 
     def test_create_formal_project_is_idempotent(self, client, db_session):
         """Second formalization call readbacks the same rows without duplication."""
