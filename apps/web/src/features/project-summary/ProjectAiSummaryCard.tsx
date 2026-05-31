@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { StatusBadge } from "../../components/StatusBadge";
 import { formatDateTime } from "../../lib/format";
 import { RunAiSummaryMarkdown } from "../../pages/runs/components/RunAiSummaryMarkdown";
 import {
@@ -21,9 +22,9 @@ type ProjectAiSummaryState =
   | { kind: "error"; message: string };
 
 function toErrorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "Project AI summary is temporarily unavailable.";
+  return error instanceof Error && error.message.trim()
+    ? `项目总结暂时不可用：${error.message}`
+    : "项目总结暂时不可用，请稍后重试。";
 }
 
 export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
@@ -57,6 +58,19 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
     }
   }, [projectId]);
 
+  const readbackSummary = useCallback(async () => {
+    if (!projectId) {
+      return;
+    }
+
+    const response = await fetchProjectAiSummary(projectId);
+    setState(
+      response.active_summary
+        ? { kind: "ready", summary: response.active_summary }
+        : { kind: "empty" },
+    );
+  }, [projectId]);
+
   const handleToggle = useCallback(() => {
     const nextOpen = !open;
     setOpen(nextOpen);
@@ -72,14 +86,14 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
 
     setBusyAction("generate");
     try {
-      const summary = await generateProjectAiSummary(projectId);
-      setState({ kind: "ready", summary });
+      await generateProjectAiSummary(projectId);
+      await readbackSummary();
     } catch (error) {
       setState({ kind: "error", message: toErrorMessage(error) });
     } finally {
       setBusyAction(null);
     }
-  }, [projectId]);
+  }, [projectId, readbackSummary]);
 
   const handleRegenerate = useCallback(async () => {
     if (!projectId) {
@@ -88,20 +102,25 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
 
     setBusyAction("regenerate");
     try {
-      const summary = await regenerateProjectAiSummary(projectId);
-      setState({ kind: "ready", summary });
+      await regenerateProjectAiSummary(projectId);
+      await readbackSummary();
     } catch (error) {
       setState({ kind: "error", message: toErrorMessage(error) });
     } finally {
       setBusyAction(null);
     }
-  }, [projectId]);
+  }, [projectId, readbackSummary]);
 
   if (!projectId) {
     return null;
   }
 
   const isBusy = busyAction !== null;
+  const readySummary = state.kind === "ready" ? state.summary : null;
+  const sourceBadge =
+    readySummary?.source === "rule_fallback"
+      ? { label: "规则回退", tone: "warning" as const }
+      : { label: "AI 生成", tone: "success" as const };
 
   return (
     <section
@@ -110,22 +129,21 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h4 className="text-sm font-semibold text-zinc-100">AI Summary</h4>
+          <h4 className="text-sm font-semibold text-zinc-100">项目总结</h4>
           <p className="mt-1 text-xs text-zinc-500">
-            GET only reads the current persisted summary. Generate and regenerate
-            save a local rule-fallback snapshot for readback.
+            读取已保存的项目总结；生成或重新生成后会自动刷新最新结果。
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {open && state.kind === "empty" ? (
+          {open && (state.kind === "empty" || state.kind === "error") ? (
             <button
               type="button"
               onClick={handleGenerate}
               disabled={isBusy}
               className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busyAction === "generate" ? "Generating..." : "Generate Project Summary"}
+              {busyAction === "generate" ? "生成中..." : "生成项目总结"}
             </button>
           ) : null}
 
@@ -136,7 +154,7 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
               disabled={isBusy}
               className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busyAction === "regenerate" ? "Regenerating..." : "Regenerate Summary"}
+              {busyAction === "regenerate" ? "重新生成中..." : "重新生成项目总结"}
             </button>
           ) : null}
 
@@ -145,7 +163,7 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
             onClick={handleToggle}
             className="rounded border border-[#4a4a4a] bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-[#292929]"
           >
-            {open ? "Hide AI Summary" : "View AI Summary"}
+            {open ? "收起项目总结" : "查看项目总结"}
           </button>
         </div>
       </div>
@@ -153,13 +171,12 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
       {open ? (
         <div className="mt-4 border-t border-[#333333] pt-4">
           {state.kind === "loading" ? (
-            <p className="text-sm text-zinc-500">Loading project summary...</p>
+            <p className="text-sm text-zinc-500">正在读取项目总结...</p>
           ) : null}
 
           {state.kind === "empty" ? (
             <p className="text-sm leading-6 text-zinc-500">
-              No saved project summary yet. Generate one to persist a snapshot and
-              make it available through GET readback.
+              当前还没有已保存的项目总结。点击“生成项目总结”后，可在这里查看最新读回结果。
             </p>
           ) : null}
 
@@ -169,16 +186,31 @@ export function ProjectAiSummaryCard({ projectId }: ProjectAiSummaryCardProps) {
 
           {state.kind === "ready" ? (
             <div className="space-y-3">
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
-                <span>Source: {state.summary.source}</span>
-                <span>Provider: {state.summary.model_provider ?? "local"}</span>
-                <span>Model: {state.summary.model_name ?? "rule-fallback"}</span>
-                <span>
-                  Triggered live AI: {state.summary.triggered_ai ? "yes" : "no"}
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge
+                  label={sourceBadge.label}
+                  tone={sourceBadge.tone}
+                />
+                {state.summary.stale ? (
+                  <StatusBadge label="摘要可能已过期" tone="warning" />
+                ) : null}
+                <span className="text-xs text-zinc-500">
+                  生成时间：{formatDateTime(state.summary.generated_at)}
                 </span>
-                <span>Generated at: {formatDateTime(state.summary.generated_at)}</span>
               </div>
-              <RunAiSummaryMarkdown markdown={state.summary.summary_markdown} />
+
+              {state.summary.status === "pending" ? (
+                <p className="text-sm leading-6 text-zinc-400">
+                  项目总结生成中，请稍后重新打开查看。
+                </p>
+              ) : state.summary.status === "failed" ? (
+                <p className="text-sm leading-6 text-rose-200">
+                  项目总结生成失败，请稍后重试。
+                  {state.summary.error_summary ? ` ${state.summary.error_summary}` : ""}
+                </p>
+              ) : (
+                <RunAiSummaryMarkdown markdown={state.summary.summary_markdown} />
+              )}
             </div>
           ) : null}
         </div>
