@@ -1,14 +1,16 @@
 """Deliverable repository endpoints for V3 Day09."""
 
 from datetime import datetime
-from typing import Annotated
+from enum import StrEnum
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.approval import ApprovalStatus
 from app.domain.change_evidence import ChangeEvidencePackage
 from app.domain.deliverable import DeliverableContentFormat, DeliverableType
 from app.domain.project import ProjectStage
@@ -42,14 +44,90 @@ from app.services.diff_summary_service import (
 )
 
 
+class DeliverableStatus(StrEnum):
+    """Stage 6-A frontend-facing deliverable lifecycle status."""
+
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REWORK = "rework"
+    ARCHIVED = "archived"
+
+
+def _derive_deliverable_status(latest_approval_status: ApprovalStatus | None) -> DeliverableStatus:
+    """Map the latest approval state into the Stage 6-A deliverable status."""
+
+    if latest_approval_status is None:
+        return DeliverableStatus.DRAFT
+    if latest_approval_status == ApprovalStatus.PENDING_APPROVAL:
+        return DeliverableStatus.SUBMITTED
+    if latest_approval_status == ApprovalStatus.APPROVED:
+        return DeliverableStatus.APPROVED
+    if latest_approval_status in {
+        ApprovalStatus.REJECTED,
+        ApprovalStatus.CHANGES_REQUESTED,
+    }:
+        return DeliverableStatus.REWORK
+    return DeliverableStatus.DRAFT
+
+
+def _latest_approval_status(
+    approval_repository: ApprovalRepository,
+    deliverable_id: UUID,
+    *,
+    current_version_number: int | None = None,
+) -> ApprovalStatus | None:
+    """Return the latest approval status for a deliverable when one exists."""
+
+    latest_record = approval_repository.get_latest_record_by_deliverable_id(deliverable_id)
+    if latest_record is None:
+        return None
+    if (
+        current_version_number is not None
+        and latest_record.approval.deliverable_version_number != current_version_number
+    ):
+        return None
+    return latest_record.approval.status
+
+
+def _derive_source_type(version) -> str | None:
+    """Derive a conservative Stage 6-A source type from existing version links."""
+
+    if version.source_run_id is not None:
+        return "run"
+    if version.source_task_id is not None:
+        return "task"
+    return None
+
+
+def _derive_source_label(version) -> str | None:
+    """Derive a stable source label without introducing new joins or storage."""
+
+    if version.source_run_id is not None:
+        return f"Run {version.source_run_id}"
+    if version.source_task_id is not None:
+        return f"Task {version.source_task_id}"
+    return None
+
+
 class DeliverableVersionSummaryResponse(BaseModel):
     """Compact version payload used by list and related-item responses."""
 
     id: UUID
     version_number: int
+    version_no: int
     author_role_code: ProjectRoleCode
+    created_by: str
     summary: str
+    content_markdown: str | None = None
     content_format: DeliverableContentFormat
+    task_id: UUID | None = None
+    run_id: UUID | None = None
+    source_draft_id: str | None = None
+    repository_change_id: UUID | None = None
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    source_type: str | None = None
+    source_label: str | None = None
     source_task_id: UUID | None = None
     source_run_id: UUID | None = None
     created_at: datetime
@@ -64,9 +142,19 @@ class DeliverableVersionSummaryResponse(BaseModel):
         return cls(
             id=summary_version.id,
             version_number=summary_version.version_number,
+            version_no=summary_version.version_number,
             author_role_code=summary_version.author_role_code,
+            created_by=summary_version.author_role_code.value,
             summary=summary_version.summary,
+            content_markdown=getattr(summary_version, "content", None),
             content_format=summary_version.content_format,
+            task_id=summary_version.source_task_id,
+            run_id=summary_version.source_run_id,
+            source_draft_id=None,
+            repository_change_id=None,
+            evidence_refs=[],
+            source_type=_derive_source_type(summary_version),
+            source_label=_derive_source_label(summary_version),
             source_task_id=summary_version.source_task_id,
             source_run_id=summary_version.source_run_id,
             created_at=summary_version.created_at,
@@ -77,6 +165,7 @@ class DeliverableVersionResponse(DeliverableVersionSummaryResponse):
     """Full immutable snapshot payload returned by the detail endpoint."""
 
     content: str
+    content_markdown: str
 
     @classmethod
     def from_version(cls, version) -> "DeliverableVersionResponse":
@@ -85,10 +174,20 @@ class DeliverableVersionResponse(DeliverableVersionSummaryResponse):
         return cls(
             id=version.id,
             version_number=version.version_number,
+            version_no=version.version_number,
             author_role_code=version.author_role_code,
+            created_by=version.author_role_code.value,
             summary=version.summary,
             content=version.content,
+            content_markdown=version.content,
             content_format=version.content_format,
+            task_id=version.source_task_id,
+            run_id=version.source_run_id,
+            source_draft_id=None,
+            repository_change_id=None,
+            evidence_refs=[],
+            source_type=_derive_source_type(version),
+            source_label=_derive_source_label(version),
             source_task_id=version.source_task_id,
             source_run_id=version.source_run_id,
             created_at=version.created_at,
@@ -102,10 +201,22 @@ class DeliverableSummaryResponse(BaseModel):
     project_id: UUID
     type: DeliverableType
     title: str
+    summary: str
+    content_markdown: str | None = None
+    status: DeliverableStatus
     stage: ProjectStage
     created_by_role_code: ProjectRoleCode
+    created_by: str
     current_version_number: int
+    version_no: int
     total_versions: int
+    task_id: UUID | None = None
+    run_id: UUID | None = None
+    source_draft_id: str | None = None
+    repository_change_id: UUID | None = None
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    source_type: str | None = None
+    source_label: str | None = None
     created_at: datetime
     updated_at: datetime
     latest_version: DeliverableVersionSummaryResponse
@@ -114,23 +225,38 @@ class DeliverableSummaryResponse(BaseModel):
     def from_summary(
         cls,
         summary: DeliverableSummary,
+        *,
+        latest_approval_status: ApprovalStatus | None = None,
     ) -> "DeliverableSummaryResponse":
         """Convert one service-level summary into its API DTO."""
 
         deliverable = summary.deliverable
+        latest_version = summary.latest_version
         return cls(
             id=deliverable.id,
             project_id=deliverable.project_id,
             type=deliverable.type,
             title=deliverable.title,
+            summary=latest_version.summary,
+            content_markdown=latest_version.content,
+            status=_derive_deliverable_status(latest_approval_status),
             stage=deliverable.stage,
             created_by_role_code=deliverable.created_by_role_code,
+            created_by=deliverable.created_by_role_code.value,
             current_version_number=deliverable.current_version_number,
+            version_no=deliverable.current_version_number,
             total_versions=summary.total_versions,
+            task_id=latest_version.source_task_id,
+            run_id=latest_version.source_run_id,
+            source_draft_id=None,
+            repository_change_id=None,
+            evidence_refs=[],
+            source_type=_derive_source_type(latest_version),
+            source_label=_derive_source_label(latest_version),
             created_at=deliverable.created_at,
             updated_at=deliverable.updated_at,
             latest_version=DeliverableVersionSummaryResponse.from_version_summary(
-                summary.latest_version
+                latest_version
             ),
         )
 
@@ -142,28 +268,70 @@ class DeliverableDetailResponse(BaseModel):
     project_id: UUID
     type: DeliverableType
     title: str
+    summary: str
+    content_markdown: str | None = None
+    status: DeliverableStatus
     stage: ProjectStage
     created_by_role_code: ProjectRoleCode
+    created_by: str
     current_version_number: int
+    version_no: int
     total_versions: int
+    task_id: UUID | None = None
+    run_id: UUID | None = None
+    source_draft_id: str | None = None
+    repository_change_id: UUID | None = None
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    source_type: str | None = None
+    source_label: str | None = None
     created_at: datetime
     updated_at: datetime
     versions: list[DeliverableVersionResponse]
 
     @classmethod
-    def from_detail(cls, detail: DeliverableDetail) -> "DeliverableDetailResponse":
+    def from_detail(
+        cls,
+        detail: DeliverableDetail,
+        *,
+        latest_approval_status: ApprovalStatus | None = None,
+    ) -> "DeliverableDetailResponse":
         """Convert one service detail into an API DTO."""
 
         deliverable = detail.deliverable
+        latest_version = detail.versions[0] if detail.versions else None
         return cls(
             id=deliverable.id,
             project_id=deliverable.project_id,
             type=deliverable.type,
             title=deliverable.title,
+            summary=latest_version.summary if latest_version is not None else "",
+            content_markdown=(
+                latest_version.content if latest_version is not None else None
+            ),
+            status=_derive_deliverable_status(latest_approval_status),
             stage=deliverable.stage,
             created_by_role_code=deliverable.created_by_role_code,
+            created_by=deliverable.created_by_role_code.value,
             current_version_number=deliverable.current_version_number,
+            version_no=deliverable.current_version_number,
             total_versions=len(detail.versions),
+            task_id=(
+                latest_version.source_task_id if latest_version is not None else None
+            ),
+            run_id=latest_version.source_run_id if latest_version is not None else None,
+            source_draft_id=None,
+            repository_change_id=None,
+            evidence_refs=[],
+            source_type=(
+                _derive_source_type(latest_version)
+                if latest_version is not None
+                else None
+            ),
+            source_label=(
+                _derive_source_label(latest_version)
+                if latest_version is not None
+                else None
+            ),
             created_at=deliverable.created_at,
             updated_at=deliverable.updated_at,
             versions=[
@@ -186,6 +354,8 @@ class ProjectDeliverableSnapshotResponse(BaseModel):
     def from_snapshot(
         cls,
         snapshot: ProjectDeliverableSnapshot,
+        *,
+        approval_repository: ApprovalRepository | None = None,
     ) -> "ProjectDeliverableSnapshotResponse":
         """Convert one service snapshot into an API DTO."""
 
@@ -195,7 +365,20 @@ class ProjectDeliverableSnapshotResponse(BaseModel):
             total_versions=snapshot.total_versions,
             generated_at=snapshot.generated_at,
             deliverables=[
-                DeliverableSummaryResponse.from_summary(item)
+                DeliverableSummaryResponse.from_summary(
+                    item,
+                    latest_approval_status=(
+                        _latest_approval_status(
+                            approval_repository,
+                            item.deliverable.id,
+                            current_version_number=(
+                                item.deliverable.current_version_number
+                            ),
+                        )
+                        if approval_repository is not None
+                        else None
+                    ),
+                )
                 for item in snapshot.deliverables
             ],
         )
@@ -301,24 +484,101 @@ class DeliverableCreateRequest(BaseModel):
     project_id: UUID
     type: DeliverableType
     title: str = Field(min_length=1, max_length=200)
-    stage: ProjectStage
-    created_by_role_code: ProjectRoleCode
+    stage: ProjectStage = ProjectStage.DELIVERY
+    created_by_role_code: ProjectRoleCode = ProjectRoleCode.PRODUCT_MANAGER
+    created_by: str | None = None
     summary: str = Field(min_length=1, max_length=1_000)
-    content: str = Field(min_length=1, max_length=40_000)
+    content: str = Field(default="", max_length=40_000)
+    content_markdown: str | None = Field(default=None, max_length=40_000)
     content_format: DeliverableContentFormat = DeliverableContentFormat.MARKDOWN
+    version_no: int | None = Field(default=None, ge=1)
+    task_id: UUID | None = None
+    run_id: UUID | None = None
     source_task_id: UUID | None = None
     source_run_id: UUID | None = None
+    source_draft_id: str | None = Field(default=None, max_length=200)
+    repository_change_id: UUID | None = None
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    source_type: str | None = Field(default=None, max_length=50)
+    source_label: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_stage_6a_aliases(cls, data):
+        """Accept Stage 6-A field names while keeping the old service contract."""
+
+        if not isinstance(data, dict):
+            return data
+
+        normalized_data = dict(data)
+        if not normalized_data.get("content") and normalized_data.get("content_markdown"):
+            normalized_data["content"] = normalized_data["content_markdown"]
+        if normalized_data.get("source_task_id") is None and normalized_data.get("task_id"):
+            normalized_data["source_task_id"] = normalized_data["task_id"]
+        if normalized_data.get("source_run_id") is None and normalized_data.get("run_id"):
+            normalized_data["source_run_id"] = normalized_data["run_id"]
+        if (
+            normalized_data.get("created_by_role_code") is None
+            and normalized_data.get("created_by")
+        ):
+            normalized_data["created_by_role_code"] = normalized_data["created_by"]
+        return normalized_data
+
+    @model_validator(mode="after")
+    def validate_content_alias(self) -> "DeliverableCreateRequest":
+        """Require persisted content after resolving Stage 6-A aliases."""
+
+        if not self.content.strip():
+            raise ValueError("Deliverable content cannot be blank.")
+        return self
 
 
 class DeliverableVersionCreateRequest(BaseModel):
     """Payload used to submit one more immutable deliverable version."""
 
     author_role_code: ProjectRoleCode
+    created_by: str | None = None
     summary: str = Field(min_length=1, max_length=1_000)
-    content: str = Field(min_length=1, max_length=40_000)
+    content: str = Field(default="", max_length=40_000)
+    content_markdown: str | None = Field(default=None, max_length=40_000)
     content_format: DeliverableContentFormat = DeliverableContentFormat.MARKDOWN
+    version_no: int | None = Field(default=None, ge=1)
+    task_id: UUID | None = None
+    run_id: UUID | None = None
     source_task_id: UUID | None = None
     source_run_id: UUID | None = None
+    source_draft_id: str | None = Field(default=None, max_length=200)
+    repository_change_id: UUID | None = None
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    source_type: str | None = Field(default=None, max_length=50)
+    source_label: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_stage_6a_aliases(cls, data):
+        """Accept Stage 6-A field names while keeping the old service contract."""
+
+        if not isinstance(data, dict):
+            return data
+
+        normalized_data = dict(data)
+        if not normalized_data.get("content") and normalized_data.get("content_markdown"):
+            normalized_data["content"] = normalized_data["content_markdown"]
+        if normalized_data.get("source_task_id") is None and normalized_data.get("task_id"):
+            normalized_data["source_task_id"] = normalized_data["task_id"]
+        if normalized_data.get("source_run_id") is None and normalized_data.get("run_id"):
+            normalized_data["source_run_id"] = normalized_data["run_id"]
+        if normalized_data.get("author_role_code") is None and normalized_data.get("created_by"):
+            normalized_data["author_role_code"] = normalized_data["created_by"]
+        return normalized_data
+
+    @model_validator(mode="after")
+    def validate_content_alias(self) -> "DeliverableVersionCreateRequest":
+        """Require persisted content after resolving Stage 6-A aliases."""
+
+        if not self.content.strip():
+            raise ValueError("Deliverable version content cannot be blank.")
+        return self
 
 
 def get_deliverable_service(
@@ -347,6 +607,14 @@ def get_diff_summary_service(
         approval_repository=ApprovalRepository(session),
         verification_run_repository=VerificationRunRepository(session),
     )
+
+
+def get_approval_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ApprovalRepository:
+    """Create the approval repository dependency for read-only status projection."""
+
+    return ApprovalRepository(session)
 
 
 router = APIRouter(prefix="/deliverables", tags=["deliverables"])
@@ -389,6 +657,42 @@ def create_deliverable(
 
 
 @router.get(
+    "",
+    response_model=list[DeliverableSummaryResponse],
+    summary="List deliverables by project using the Stage 6-A compatible contract",
+)
+def list_deliverables(
+    project_id: UUID,
+    deliverable_service: Annotated[
+        DeliverableService, Depends(get_deliverable_service)
+    ],
+    approval_repository: Annotated[
+        ApprovalRepository, Depends(get_approval_repository)
+    ],
+) -> list[DeliverableSummaryResponse]:
+    """Return project deliverables as a flat list for Stage 6-A consumers."""
+
+    snapshot = deliverable_service.get_project_deliverable_snapshot(project_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project not found: {project_id}",
+        )
+
+    return [
+        DeliverableSummaryResponse.from_summary(
+            item,
+            latest_approval_status=_latest_approval_status(
+                approval_repository,
+                item.deliverable.id,
+                current_version_number=item.deliverable.current_version_number,
+            ),
+        )
+        for item in snapshot.deliverables
+    ]
+
+
+@router.get(
     "/projects/{project_id}",
     response_model=ProjectDeliverableSnapshotResponse,
     summary="获取项目交付件仓库视图",
@@ -397,6 +701,9 @@ def get_project_deliverable_snapshot(
     project_id: UUID,
     deliverable_service: Annotated[
         DeliverableService, Depends(get_deliverable_service)
+    ],
+    approval_repository: Annotated[
+        ApprovalRepository, Depends(get_approval_repository)
     ],
 ) -> ProjectDeliverableSnapshotResponse:
     """Return the deliverable repository view for one project."""
@@ -408,7 +715,10 @@ def get_project_deliverable_snapshot(
             detail=f"Project not found: {project_id}",
         )
 
-    return ProjectDeliverableSnapshotResponse.from_snapshot(snapshot)
+    return ProjectDeliverableSnapshotResponse.from_snapshot(
+        snapshot,
+        approval_repository=approval_repository,
+    )
 
 
 @router.get(
@@ -566,6 +876,9 @@ def get_deliverable_detail(
     deliverable_service: Annotated[
         DeliverableService, Depends(get_deliverable_service)
     ],
+    approval_repository: Annotated[
+        ApprovalRepository, Depends(get_approval_repository)
+    ],
 ) -> DeliverableDetailResponse:
     """Return one deliverable plus its immutable version snapshots."""
 
@@ -576,7 +889,40 @@ def get_deliverable_detail(
             detail=f"Deliverable not found: {deliverable_id}",
         )
 
-    return DeliverableDetailResponse.from_detail(detail)
+    return DeliverableDetailResponse.from_detail(
+        detail,
+        latest_approval_status=_latest_approval_status(
+            approval_repository,
+            deliverable_id,
+            current_version_number=detail.deliverable.current_version_number,
+        ),
+    )
+
+
+@router.get(
+    "/{deliverable_id}/versions",
+    response_model=list[DeliverableVersionResponse],
+    summary="List immutable deliverable versions for Stage 6-A consumers",
+)
+def list_deliverable_versions(
+    deliverable_id: UUID,
+    deliverable_service: Annotated[
+        DeliverableService, Depends(get_deliverable_service)
+    ],
+) -> list[DeliverableVersionResponse]:
+    """Return the ordered immutable version snapshots for one deliverable."""
+
+    detail = deliverable_service.get_deliverable_detail(deliverable_id)
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Deliverable not found: {deliverable_id}",
+        )
+
+    return [
+        DeliverableVersionResponse.from_version(version)
+        for version in detail.versions
+    ]
 
 
 @router.post(

@@ -14,6 +14,7 @@ from app.domain.project_role import ProjectRoleCode
 class DeliverableType(StrEnum):
     """Stable deliverable types tracked by the project artifact repository."""
 
+    SPEC = "spec"
     PRD = "prd"
     DESIGN = "design"
     TASK_BREAKDOWN = "task_breakdown"
