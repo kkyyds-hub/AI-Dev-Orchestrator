@@ -1,4 +1,5 @@
 export type DeliverableType =
+  | "spec"
   | "prd"
   | "design"
   | "task_breakdown"
@@ -12,12 +13,37 @@ export type DeliverableContentFormat =
   | "json"
   | "link";
 
+export type DeliverableStatus =
+  | "draft"
+  | "pending_review"
+  | "approved"
+  | "needs_rework"
+  | "archived";
+
+export type DeliverableEvidenceRef = {
+  kind?: string | null;
+  ref?: string | null;
+  label?: string | null;
+  url?: string | null;
+  [key: string]: unknown;
+};
+
 export type DeliverableVersionSummary = {
   id: string;
   version_number: number;
+  version_no: number;
   author_role_code: string;
+  created_by: string;
   summary: string;
+  content_markdown: string | null;
   content_format: DeliverableContentFormat;
+  task_id: string | null;
+  run_id: string | null;
+  source_draft_id: string | null;
+  repository_change_id: string | null;
+  evidence_refs: DeliverableEvidenceRef[];
+  source_type: string | null;
+  source_label: string | null;
   source_task_id: string | null;
   source_run_id: string | null;
   created_at: string;
@@ -25,6 +51,7 @@ export type DeliverableVersionSummary = {
 
 export type DeliverableVersion = DeliverableVersionSummary & {
   content: string;
+  content_markdown: string;
 };
 
 export type DeliverableSummary = {
@@ -32,10 +59,22 @@ export type DeliverableSummary = {
   project_id: string;
   type: DeliverableType;
   title: string;
+  summary: string;
+  content_markdown: string | null;
+  status: DeliverableStatus;
   stage: string;
   created_by_role_code: string;
+  created_by: string;
   current_version_number: number;
+  version_no: number;
   total_versions: number;
+  task_id: string | null;
+  run_id: string | null;
+  source_draft_id: string | null;
+  repository_change_id: string | null;
+  evidence_refs: DeliverableEvidenceRef[];
+  source_type: string | null;
+  source_label: string | null;
   created_at: string;
   updated_at: string;
   latest_version: DeliverableVersionSummary;
@@ -54,10 +93,22 @@ export type DeliverableDetail = {
   project_id: string;
   type: DeliverableType;
   title: string;
+  summary: string;
+  content_markdown: string | null;
+  status: DeliverableStatus;
   stage: string;
   created_by_role_code: string;
+  created_by: string;
   current_version_number: number;
+  version_no: number;
   total_versions: number;
+  task_id: string | null;
+  run_id: string | null;
+  source_draft_id: string | null;
+  repository_change_id: string | null;
+  evidence_refs: DeliverableEvidenceRef[];
+  source_type: string | null;
+  source_label: string | null;
   created_at: string;
   updated_at: string;
   versions: DeliverableVersion[];
@@ -283,6 +334,7 @@ export type ChangeEvidencePackage = {
 };
 
 export const DELIVERABLE_TYPE_LABELS: Record<DeliverableType, string> = {
+  spec: "\u89c4\u683c\u8bf4\u660e",
   prd: "PRD",
   design: "设计稿",
   task_breakdown: "任务拆分",
@@ -299,4 +351,23 @@ export const DELIVERABLE_CONTENT_FORMAT_LABELS: Record<
   plain_text: "文本",
   json: "JSON",
   link: "链接",
+};
+
+export const DELIVERABLE_STATUS_LABELS: Record<DeliverableStatus, string> = {
+  draft: "\u8349\u7a3f",
+  pending_review: "\u5f85\u8bc4\u5ba1",
+  approved: "\u5df2\u6279\u51c6",
+  needs_rework: "\u9700\u8fd4\u5de5",
+  archived: "\u5df2\u5f52\u6863",
+};
+
+export const DELIVERABLE_STATUS_TONES: Record<
+  DeliverableStatus,
+  "neutral" | "info" | "success" | "warning" | "danger"
+> = {
+  draft: "neutral",
+  pending_review: "warning",
+  approved: "success",
+  needs_rework: "danger",
+  archived: "neutral",
 };

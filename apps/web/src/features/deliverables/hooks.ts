@@ -6,6 +6,7 @@ import {
   fetchDeliverableDetail,
   fetchProjectChangeEvidence,
   fetchDeliverableVersionDiff,
+  fetchDeliverableVersions,
   fetchProjectDeliverableSnapshot,
   fetchTaskRelatedDeliverables,
 } from "./api";
@@ -22,6 +23,14 @@ export function useDeliverableDetail(deliverableId: string | null) {
   return useQuery({
     queryKey: ["deliverables", "detail", deliverableId],
     queryFn: () => fetchDeliverableDetail(deliverableId as string),
+    enabled: Boolean(deliverableId),
+  });
+}
+
+export function useDeliverableVersions(deliverableId: string | null) {
+  return useQuery({
+    queryKey: ["deliverables", "versions", deliverableId],
+    queryFn: () => fetchDeliverableVersions(deliverableId as string),
     enabled: Boolean(deliverableId),
   });
 }

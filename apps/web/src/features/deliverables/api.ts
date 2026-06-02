@@ -2,12 +2,33 @@ import { requestJson } from "../../lib/http";
 import type {
   ChangeEvidencePackage,
   DeliverableDetail,
+  DeliverableSummary,
+  DeliverableVersion,
   DeliverableVersionDiff,
   ProjectDeliverableSnapshot,
   TaskRelatedDeliverable,
 } from "./types";
 
-export function fetchProjectDeliverableSnapshot(
+export async function fetchProjectDeliverableSnapshot(
+  projectId: string,
+): Promise<ProjectDeliverableSnapshot> {
+  const deliverables = await requestJson<DeliverableSummary[]>(
+    `/deliverables?project_id=${encodeURIComponent(projectId)}`,
+  );
+
+  return {
+    project_id: projectId,
+    total_deliverables: deliverables.length,
+    total_versions: deliverables.reduce(
+      (total, deliverable) => total + deliverable.total_versions,
+      0,
+    ),
+    generated_at: new Date().toISOString(),
+    deliverables,
+  };
+}
+
+export function fetchLegacyProjectDeliverableSnapshot(
   projectId: string,
 ): Promise<ProjectDeliverableSnapshot> {
   return requestJson<ProjectDeliverableSnapshot>(`/deliverables/projects/${projectId}`);
@@ -17,6 +38,12 @@ export function fetchDeliverableDetail(
   deliverableId: string,
 ): Promise<DeliverableDetail> {
   return requestJson<DeliverableDetail>(`/deliverables/${deliverableId}`);
+}
+
+export function fetchDeliverableVersions(
+  deliverableId: string,
+): Promise<DeliverableVersion[]> {
+  return requestJson<DeliverableVersion[]>(`/deliverables/${deliverableId}/versions`);
 }
 
 export function fetchDeliverableVersionDiff(input: {

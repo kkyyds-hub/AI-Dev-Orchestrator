@@ -1,6 +1,6 @@
-import { DeliverableVersionList } from "../DeliverableVersionList";
 import type { DeliverableDetail, DeliverableSummary } from "../types";
 import { DeliverableListPanel } from "./DeliverableListPanel";
+import { DeliverableSummaryPanel } from "./DeliverableSummaryPanel";
 
 type DeliverableCenterContentProps = {
   deliverables: DeliverableSummary[];
@@ -16,7 +16,7 @@ type DeliverableCenterContentProps = {
 
 export function DeliverableCenterContent(props: DeliverableCenterContentProps) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
+    <div className="grid gap-6 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.35fr)]">
       <DeliverableListPanel
         deliverables={props.deliverables}
         generatedAt={props.generatedAt}
@@ -24,7 +24,7 @@ export function DeliverableCenterContent(props: DeliverableCenterContentProps) {
         onSelectDeliverable={props.onSelectDeliverable}
       />
 
-      <DeliverableVersionList
+      <DeliverableSummaryPanel
         deliverable={props.selectedDeliverable}
         detail={props.detail}
         isLoading={props.isDetailLoading}
