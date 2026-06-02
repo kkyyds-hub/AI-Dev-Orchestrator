@@ -65,7 +65,7 @@ function resolveProviderStatus(query: {
 
   if (query.data?.configured) {
     return {
-      label: "真实执行",
+      label: "Provider 已配置",
       tone: "success",
       detail: `Provider 已配置（${query.data.detected_provider_type} / ${query.data.source}）。启动后可能调用真实 AI provider。`,
     };
