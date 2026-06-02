@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { StatusBadge } from "../../../components/StatusBadge";
+import { useConsoleBudgetHealth } from "../../../features/console-metrics/hooks";
 import {
   useConfirmProjectDirectorGoal,
   useCreateProjectDirectorPlanVersion,
@@ -23,9 +25,58 @@ import {
   formatNullableCurrencyUsd,
   formatNullableTokenCount,
 } from "../../../lib/format";
+import { requestJson } from "../../../lib/http";
 import { buildRunRoute } from "../../../lib/run-route";
 import { buildTaskRoute } from "../../../lib/task-route";
 import { ProjectDirectorPlanReviewModal } from "./ProjectDirectorPlanReviewModal";
+
+type OpenAIProviderSettingsSummary = {
+  provider_key: string;
+  configured: boolean;
+  source: "saved_config" | "env" | "none";
+  detected_provider_type: "openai" | "deepseek" | "openai_compatible";
+  model_preset: "openai" | "deepseek" | "custom";
+};
+
+function fetchOpenAIProviderSettings(): Promise<OpenAIProviderSettingsSummary> {
+  return requestJson<OpenAIProviderSettingsSummary>("/provider-settings/openai");
+}
+
+function resolveProviderStatus(query: {
+  data?: OpenAIProviderSettingsSummary;
+  isLoading: boolean;
+  isError: boolean;
+}): { label: string; tone: "info" | "success" | "warning" | "danger"; detail: string } {
+  if (query.isLoading) {
+    return {
+      label: "检查 Provider 配置中",
+      tone: "info",
+      detail: "正在读取 /provider-settings/openai，确认首次真实运行前的 Provider 状态。",
+    };
+  }
+
+  if (query.isError) {
+    return {
+      label: "Provider 状态未知",
+      tone: "danger",
+      detail: "无法读取 Provider 配置，已禁止启动一次执行。",
+    };
+  }
+
+  if (query.data?.configured) {
+    return {
+      label: "真实执行",
+      tone: "success",
+      detail: `Provider 已配置（${query.data.detected_provider_type} / ${query.data.source}）。启动后可能调用真实 AI provider。`,
+    };
+  }
+
+  return {
+    label: "未配置 Provider",
+    tone: "warning",
+    detail: "请先到设置页配置并测试 Provider，再由你本人启动首次真实运行。",
+  };
+}
 
 const EXAMPLE_QUESTIONS = [
   "帮我分析当前项目的阻塞原因。",
@@ -63,10 +114,19 @@ export function DirectorChatEntry({
   const reviewPlanVersionMutation = useReviewProjectDirectorPlanVersion();
   const createTaskQueueMutation = useCreateProjectDirectorTaskQueue();
   const runWorkerOnceMutation = useRunWorkerOnce();
+  const providerSettingsQuery = useQuery({
+    queryKey: ["provider-settings", "openai"],
+    queryFn: fetchOpenAIProviderSettings,
+  });
+  const budgetHealthQuery = useConsoleBudgetHealth();
 
   const scopedProjectId = selectedProjectId === "all" ? null : selectedProjectId;
   const trimmedDraft = draft.trim();
   const workerRunOnceResult = runWorkerOnceMutation.data ?? null;
+  const providerSettings = providerSettingsQuery.data ?? null;
+  const providerConfigured = providerSettings?.configured === true;
+  const providerStatus = resolveProviderStatus(providerSettingsQuery);
+  const budgetHealth = budgetHealthQuery.data ?? null;
   const visibleTaskIds = taskCreation?.created_task_ids.slice(0, 6) ?? [];
   const hiddenTaskCount = Math.max(
     0,
@@ -106,7 +166,11 @@ export function DirectorChatEntry({
     !taskCreation &&
     !createTaskQueueMutation.isPending;
   const canRunWorkerOnce =
-    Boolean(taskCreation?.project_id) && !runWorkerOnceMutation.isPending;
+    Boolean(taskCreation?.project_id) &&
+    providerConfigured &&
+    !providerSettingsQuery.isLoading &&
+    !providerSettingsQuery.isError &&
+    !runWorkerOnceMutation.isPending;
 
   const taskQueueActionLabel = taskCreation
     ? `正式项目已创建（${taskCreation.task_count} 个任务）`
@@ -307,6 +371,14 @@ export function DirectorChatEntry({
 
   const handleRunWorkerOnce = async () => {
     if (!taskCreation?.project_id || !canRunWorkerOnce) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "即将启动一次执行：Provider 已配置，启动后可能调用真实 AI provider 并产生费用。本次仅产生 Run / 日志 / 摘要 / 交付物 / 审批，不会执行 git commit / git push / apply-local。是否继续？",
+    );
+
+    if (!confirmed) {
       return;
     }
 
@@ -568,6 +640,15 @@ export function DirectorChatEntry({
                           </p>
                         </div>
                         <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                          <div
+                            className="flex basis-full flex-wrap items-center gap-2 sm:justify-end"
+                            data-testid="director-chat-provider-status"
+                          >
+                            <StatusBadge label={providerStatus.label} tone={providerStatus.tone} />
+                            <span className="text-[11px] text-zinc-500">
+                              {providerStatus.detail}
+                            </span>
+                          </div>
                           <button
                             type="button"
                             data-testid="director-chat-run-worker-once"
@@ -592,6 +673,21 @@ export function DirectorChatEntry({
                             查看正式项目
                           </Link>
                         </div>
+                      </div>
+                      <div className="mt-3 space-y-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100/90">
+                        <p data-testid="director-chat-real-run-confirmation-copy">
+                          运行前确认：点击“启动一次执行”后会再次确认；Provider 已配置时，启动后可能调用真实 AI provider 并产生费用。
+                        </p>
+                        {providerConfigured ? (
+                          <p data-testid="director-chat-real-run-budget-copy">
+                            每日预算：{formatNullableCurrencyUsd(budgetHealth?.daily_budget_usd ?? null)}
+                            {"，"}会话预算：{formatNullableCurrencyUsd(budgetHealth?.session_budget_usd ?? null)}
+                            {"；"}本次可能产生费用。
+                          </p>
+                        ) : null}
+                        <p data-testid="director-chat-real-run-safety-copy">
+                          安全声明：本次仅产生 Run / 日志 / 摘要 / 交付物 / 审批，不会执行 git commit / git push / apply-local。
+                        </p>
                       </div>
                       <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-300">
                         {taskCreation.next_action}
