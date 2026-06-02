@@ -6,13 +6,39 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from uuid import UUID, uuid4
 
 from app.api.router import api_router
 from app.core.db import get_db_session
-from app.core.db_tables import ORMBase
+from app.core.db_tables import ORMBase, TaskTable
+from app.domain.change_batch import (
+    ChangeBatch,
+    ChangeBatchLinkedDeliverable,
+    ChangeBatchPlanSnapshot,
+    ChangeBatchPreflight,
+    ChangeBatchPreflightStatus,
+    ChangeBatchStatus,
+)
+from app.domain.change_plan import ChangePlanTargetFile
+from app.domain.repository_workspace import RepositoryWorkspace
+from app.domain.verification_run import (
+    VerificationRun,
+    VerificationRunCommandSource,
+    VerificationRunStatus,
+)
+from app.repositories.change_batch_repository import ChangeBatchRepository
+from app.repositories.repository_workspace_repository import (
+    RepositoryWorkspaceRepository,
+)
+from app.repositories.verification_run_repository import VerificationRunRepository
 
 
 def _build_client(tmp_path):
+    client, _ = _build_client_with_session_factory(tmp_path)
+    return client
+
+
+def _build_client_with_session_factory(tmp_path):
     db_path = tmp_path / "orchestrator-test.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
     ORMBase.metadata.create_all(bind=engine)
@@ -34,7 +60,7 @@ def _build_client(tmp_path):
             session.close()
 
     app.dependency_overrides[get_db_session] = override_get_db_session
-    return TestClient(app)
+    return TestClient(app), session_factory
 
 
 def _create_project(client: TestClient) -> str:
@@ -62,6 +88,110 @@ def _create_task(client: TestClient, project_id: str) -> str:
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
+
+
+def _set_task_source_draft_id(session_factory, task_id: str, source_draft_id: str) -> None:
+    session = session_factory()
+    try:
+        task_row = session.get(TaskTable, UUID(task_id))
+        assert task_row is not None
+        task_row.source_draft_id = source_draft_id
+        session.commit()
+    finally:
+        session.close()
+
+
+def _create_minimal_change_evidence_chain(
+    session_factory,
+    tmp_path,
+    *,
+    project_id: str,
+    task_id: str,
+    deliverable: dict,
+):
+    session = session_factory()
+    try:
+        project_uuid = UUID(project_id)
+        task_uuid = UUID(task_id)
+        deliverable_uuid = UUID(deliverable["id"])
+        workspace = RepositoryWorkspaceRepository(session).upsert(
+            RepositoryWorkspace(
+                project_id=project_uuid,
+                root_path=str((tmp_path / "repo").resolve()),
+                display_name="Stage 6-A evidence fixture",
+                default_base_branch="main",
+                allowed_workspace_root=str(tmp_path.resolve()),
+            )
+        )
+        plan_ids = [uuid4(), uuid4()]
+        snapshots = [
+            ChangeBatchPlanSnapshot(
+                change_plan_id=plan_id,
+                change_plan_title=f"Stage 6-A evidence plan {index + 1}",
+                change_plan_status="draft",
+                selected_version_id=uuid4(),
+                selected_version_number=1,
+                task_id=task_uuid,
+                task_title="Prepare compatibility deliverable",
+                task_priority="normal",
+                task_risk_level="normal",
+                intent_summary=f"Collect evidence {index + 1}",
+                source_summary="Existing change-evidence chain.",
+                target_files=[
+                    ChangePlanTargetFile(
+                        relative_path=f"docs/evidence-{index + 1}.md",
+                        language="Markdown",
+                        file_type="md",
+                        rationale="Stage 6-A evidence projection fixture.",
+                    )
+                ],
+                expected_actions=["read existing evidence"],
+                risk_notes=["projection only"],
+                verification_commands=["python -m pytest tests/test_deliverable_compat_contract.py"],
+                related_deliverables=[
+                    ChangeBatchLinkedDeliverable(
+                        deliverable_id=deliverable_uuid,
+                        title=deliverable["title"],
+                        type=deliverable["type"],
+                        current_version_number=deliverable["version_no"],
+                    )
+                ],
+            )
+            for index, plan_id in enumerate(plan_ids)
+        ]
+        change_batch = ChangeBatchRepository(session).create(
+            ChangeBatch(
+                project_id=project_uuid,
+                repository_workspace_id=workspace.id,
+                status=ChangeBatchStatus.PREPARING,
+                title="Stage 6-A evidence batch",
+                summary="Existing change-evidence batch linked to the deliverable.",
+                plan_snapshots=snapshots,
+                preflight=ChangeBatchPreflight(
+                    status=ChangeBatchPreflightStatus.READY_FOR_EXECUTION,
+                    summary="Ready for evidence projection.",
+                    blocked=False,
+                    ready_for_execution=True,
+                    manual_confirmation_required=False,
+                    manual_confirmation_status="not_required",
+                ),
+            )
+        )
+        verification_run = VerificationRunRepository(session).create(
+            VerificationRun(
+                project_id=project_uuid,
+                repository_workspace_id=workspace.id,
+                change_plan_id=plan_ids[0],
+                change_batch_id=change_batch.id,
+                command_source=VerificationRunCommandSource.MANUAL,
+                command="python -m pytest tests/test_deliverable_compat_contract.py",
+                status=VerificationRunStatus.PASSED,
+                output_summary="Compatibility contract passed.",
+            )
+        )
+        return change_batch.id, verification_run.id
+    finally:
+        session.close()
 
 
 def test_stage_6a_deliverable_fields_and_compat_routes(tmp_path):
@@ -96,7 +226,10 @@ def test_stage_6a_deliverable_fields_and_compat_routes(tmp_path):
     assert created["task_id"] == task_id
     assert created["run_id"] is None
     assert created["content_markdown"].startswith("# Compatibility Spec")
-    assert created["evidence_refs"] == []
+    assert any(
+        ref["kind"] == "task" and ref["ref"] == task_id
+        for ref in created["evidence_refs"]
+    )
     assert created["source_type"] == "task"
 
     list_response = client.get(f"/deliverables?project_id={project_id}")
@@ -125,7 +258,82 @@ def test_stage_6a_deliverable_fields_and_compat_routes(tmp_path):
     assert len(versions) == 1
     assert versions[0]["version_no"] == 1
     assert versions[0]["task_id"] == task_id
-    assert versions[0]["evidence_refs"] == []
+    assert any(
+        ref["kind"] == "task" and ref["ref"] == task_id
+        for ref in versions[0]["evidence_refs"]
+    )
+
+
+def test_deliverable_compat_derives_existing_evidence_chain(tmp_path):
+    client, session_factory = _build_client_with_session_factory(tmp_path)
+    project_id = _create_project(client)
+    task_id = _create_task(client, project_id)
+    source_draft_id = "pdv:test-plan:1"
+    _set_task_source_draft_id(session_factory, task_id, source_draft_id)
+
+    create_response = client.post(
+        "/deliverables",
+        json={
+            "project_id": project_id,
+            "task_id": task_id,
+            "type": "stage_artifact",
+            "title": "Evidence-backed deliverable",
+            "created_by": "engineer",
+            "summary": "Evidence-backed summary.",
+            "content_markdown": "# Evidence-backed deliverable",
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+    deliverable = create_response.json()
+    deliverable_id = deliverable["id"]
+    assert deliverable["source_draft_id"] == source_draft_id
+    assert deliverable["repository_change_id"] is None
+    assert {ref["kind"] for ref in deliverable["evidence_refs"]} >= {
+        "task",
+        "source_draft",
+    }
+
+    change_batch_id, verification_run_id = _create_minimal_change_evidence_chain(
+        session_factory,
+        tmp_path,
+        project_id=project_id,
+        task_id=task_id,
+        deliverable=deliverable,
+    )
+
+    detail_response = client.get(f"/deliverables/{deliverable_id}")
+    assert detail_response.status_code == 200, detail_response.text
+    detail = detail_response.json()
+    assert detail["source_draft_id"] == source_draft_id
+    assert detail["repository_change_id"] == str(change_batch_id)
+    kinds = {ref["kind"] for ref in detail["evidence_refs"]}
+    assert kinds >= {
+        "task",
+        "source_draft",
+        "change_batch",
+        "change_plan",
+        "verification_run",
+    }
+    assert any(
+        ref["kind"] == "verification_run" and ref["ref"] == str(verification_run_id)
+        for ref in detail["evidence_refs"]
+    )
+    assert detail["versions"][0]["source_draft_id"] == source_draft_id
+    assert detail["versions"][0]["repository_change_id"] == str(change_batch_id)
+
+    list_response = client.get(f"/deliverables?project_id={project_id}")
+    assert list_response.status_code == 200, list_response.text
+    listed = list_response.json()[0]
+    assert listed["source_draft_id"] == source_draft_id
+    assert listed["repository_change_id"] == str(change_batch_id)
+    assert listed["latest_version"]["source_draft_id"] == source_draft_id
+    assert listed["latest_version"]["repository_change_id"] == str(change_batch_id)
+
+    versions_response = client.get(f"/deliverables/{deliverable_id}/versions")
+    assert versions_response.status_code == 200, versions_response.text
+    version = versions_response.json()[0]
+    assert version["source_draft_id"] == source_draft_id
+    assert version["repository_change_id"] == str(change_batch_id)
 
 
 def test_deliverable_status_derives_from_latest_current_version_approval(tmp_path):

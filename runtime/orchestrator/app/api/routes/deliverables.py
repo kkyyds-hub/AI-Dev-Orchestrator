@@ -1,5 +1,6 @@
 """Deliverable repository endpoints for V3 Day09."""
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
@@ -110,6 +111,206 @@ def _derive_source_label(version) -> str | None:
     return None
 
 
+@dataclass(slots=True, frozen=True)
+class DeliverableEvidenceProjection:
+    """Stage 6-A compatibility evidence derived from existing backend records."""
+
+    source_draft_id: str | None = None
+    repository_change_id: UUID | None = None
+    evidence_refs: list[dict[str, Any]] = field(default_factory=list)
+
+
+class DeliverableEvidenceProjector:
+    """Read-only projector over the existing task/run/change-evidence graph."""
+
+    def __init__(
+        self,
+        *,
+        task_repository: TaskRepository,
+        run_repository: RunRepository,
+        change_batch_repository: ChangeBatchRepository,
+        verification_run_repository: VerificationRunRepository,
+    ) -> None:
+        self.task_repository = task_repository
+        self.run_repository = run_repository
+        self.change_batch_repository = change_batch_repository
+        self.verification_run_repository = verification_run_repository
+        self._task_cache: dict[UUID, Any | None] = {}
+        self._run_cache: dict[UUID, Any | None] = {}
+        self._change_batch_cache: dict[UUID, list[Any]] = {}
+        self._verification_run_cache: dict[UUID, list[Any]] = {}
+
+    def project(self, *, deliverable, version) -> DeliverableEvidenceProjection:
+        """Derive the Stage 6-A evidence fields for one deliverable version."""
+
+        refs: list[dict[str, Any]] = []
+        source_task_id = version.source_task_id
+        source_run = self._get_run(version.source_run_id)
+        if source_task_id is None and source_run is not None:
+            source_task_id = source_run.task_id
+
+        source_task = self._get_task(source_task_id)
+        source_draft_id = source_task.source_draft_id if source_task is not None else None
+
+        if source_task is not None:
+            refs.append(
+                {
+                    "kind": "task",
+                    "ref": str(source_task.id),
+                    "label": source_task.title,
+                }
+            )
+            if source_draft_id:
+                refs.append(
+                    {
+                        "kind": "source_draft",
+                        "ref": source_draft_id,
+                        "label": "Task source draft",
+                    }
+                )
+
+        if source_run is not None:
+            refs.append(
+                {
+                    "kind": "run",
+                    "ref": str(source_run.id),
+                    "label": source_run.result_summary or f"Run {source_run.id}",
+                    "status": source_run.status.value,
+                }
+            )
+
+        change_batch = self._find_relevant_change_batch(
+            project_id=deliverable.project_id,
+            deliverable_id=deliverable.id,
+            source_task_id=source_task_id,
+        )
+        if change_batch is None:
+            return DeliverableEvidenceProjection(
+                source_draft_id=source_draft_id,
+                evidence_refs=refs,
+            )
+
+        refs.append(
+            {
+                "kind": "change_batch",
+                "ref": str(change_batch.id),
+                "label": change_batch.title,
+                "summary": change_batch.summary,
+            }
+        )
+
+        relevant_plan_ids: list[UUID] = []
+        for snapshot in change_batch.plan_snapshots:
+            snapshot_matches_deliverable = any(
+                item.deliverable_id == deliverable.id
+                for item in snapshot.related_deliverables
+            )
+            snapshot_matches_task = (
+                source_task_id is not None and snapshot.task_id == source_task_id
+            )
+            if not snapshot_matches_deliverable and not snapshot_matches_task:
+                continue
+
+            relevant_plan_ids.append(snapshot.change_plan_id)
+            refs.append(
+                {
+                    "kind": "change_plan",
+                    "ref": str(snapshot.change_plan_id),
+                    "label": snapshot.change_plan_title,
+                    "task_id": str(snapshot.task_id),
+                    "selected_version_number": snapshot.selected_version_number,
+                }
+            )
+
+        for verification_run in self._list_verification_runs(change_batch):
+            if (
+                relevant_plan_ids
+                and verification_run.change_plan_id not in relevant_plan_ids
+            ):
+                continue
+            refs.append(
+                {
+                    "kind": "verification_run",
+                    "ref": str(verification_run.id),
+                    "label": verification_run.command,
+                    "status": verification_run.status.value,
+                    "summary": verification_run.output_summary,
+                    "change_plan_id": str(verification_run.change_plan_id),
+                }
+            )
+
+        return DeliverableEvidenceProjection(
+            source_draft_id=source_draft_id,
+            repository_change_id=change_batch.id,
+            evidence_refs=self._deduplicate_refs(refs),
+        )
+
+    def _get_task(self, task_id: UUID | None):
+        if task_id is None:
+            return None
+        if task_id not in self._task_cache:
+            self._task_cache[task_id] = self.task_repository.get_by_id(task_id)
+        return self._task_cache[task_id]
+
+    def _get_run(self, run_id: UUID | None):
+        if run_id is None:
+            return None
+        if run_id not in self._run_cache:
+            self._run_cache[run_id] = self.run_repository.get_by_id(run_id)
+        return self._run_cache[run_id]
+
+    def _list_change_batches(self, project_id: UUID) -> list[Any]:
+        if project_id not in self._change_batch_cache:
+            self._change_batch_cache[project_id] = (
+                self.change_batch_repository.list_by_project_id(project_id)
+            )
+        return self._change_batch_cache[project_id]
+
+    def _list_verification_runs(self, change_batch) -> list[Any]:
+        change_batch_id = change_batch.id
+        if change_batch_id not in self._verification_run_cache:
+            self._verification_run_cache[change_batch_id] = (
+                self.verification_run_repository.list_by_project_id(
+                    change_batch.project_id,
+                    change_batch_id=change_batch_id,
+                )
+            )
+        return self._verification_run_cache[change_batch_id]
+
+    def _find_relevant_change_batch(
+        self,
+        *,
+        project_id: UUID,
+        deliverable_id: UUID,
+        source_task_id: UUID | None,
+    ):
+        fallback = None
+        for change_batch in self._list_change_batches(project_id):
+            for snapshot in change_batch.plan_snapshots:
+                if any(
+                    item.deliverable_id == deliverable_id
+                    for item in snapshot.related_deliverables
+                ):
+                    return change_batch
+                if source_task_id is not None and snapshot.task_id == source_task_id:
+                    fallback = fallback or change_batch
+        return fallback
+
+    @staticmethod
+    def _deduplicate_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized_refs: list[dict[str, Any]] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for ref in refs:
+            kind = str(ref.get("kind") or "evidence")
+            ref_id = str(ref.get("ref") or "")
+            key = (kind, ref_id)
+            if key in seen_keys:
+                continue
+            normalized_refs.append(ref)
+            seen_keys.add(key)
+        return normalized_refs
+
+
 class DeliverableVersionSummaryResponse(BaseModel):
     """Compact version payload used by list and related-item responses."""
 
@@ -136,9 +337,20 @@ class DeliverableVersionSummaryResponse(BaseModel):
     def from_version_summary(
         cls,
         summary_version,
+        *,
+        deliverable=None,
+        evidence_projector: DeliverableEvidenceProjector | None = None,
     ) -> "DeliverableVersionSummaryResponse":
         """Convert one domain deliverable version into a compact DTO."""
 
+        evidence = (
+            evidence_projector.project(
+                deliverable=deliverable,
+                version=summary_version,
+            )
+            if deliverable is not None and evidence_projector is not None
+            else DeliverableEvidenceProjection()
+        )
         return cls(
             id=summary_version.id,
             version_number=summary_version.version_number,
@@ -150,9 +362,9 @@ class DeliverableVersionSummaryResponse(BaseModel):
             content_format=summary_version.content_format,
             task_id=summary_version.source_task_id,
             run_id=summary_version.source_run_id,
-            source_draft_id=None,
-            repository_change_id=None,
-            evidence_refs=[],
+            source_draft_id=evidence.source_draft_id,
+            repository_change_id=evidence.repository_change_id,
+            evidence_refs=evidence.evidence_refs,
             source_type=_derive_source_type(summary_version),
             source_label=_derive_source_label(summary_version),
             source_task_id=summary_version.source_task_id,
@@ -168,9 +380,20 @@ class DeliverableVersionResponse(DeliverableVersionSummaryResponse):
     content_markdown: str
 
     @classmethod
-    def from_version(cls, version) -> "DeliverableVersionResponse":
+    def from_version(
+        cls,
+        version,
+        *,
+        deliverable=None,
+        evidence_projector: DeliverableEvidenceProjector | None = None,
+    ) -> "DeliverableVersionResponse":
         """Convert one full domain version into its API DTO."""
 
+        evidence = (
+            evidence_projector.project(deliverable=deliverable, version=version)
+            if deliverable is not None and evidence_projector is not None
+            else DeliverableEvidenceProjection()
+        )
         return cls(
             id=version.id,
             version_number=version.version_number,
@@ -183,9 +406,9 @@ class DeliverableVersionResponse(DeliverableVersionSummaryResponse):
             content_format=version.content_format,
             task_id=version.source_task_id,
             run_id=version.source_run_id,
-            source_draft_id=None,
-            repository_change_id=None,
-            evidence_refs=[],
+            source_draft_id=evidence.source_draft_id,
+            repository_change_id=evidence.repository_change_id,
+            evidence_refs=evidence.evidence_refs,
             source_type=_derive_source_type(version),
             source_label=_derive_source_label(version),
             source_task_id=version.source_task_id,
@@ -227,11 +450,20 @@ class DeliverableSummaryResponse(BaseModel):
         summary: DeliverableSummary,
         *,
         latest_approval_status: ApprovalStatus | None = None,
+        evidence_projector: DeliverableEvidenceProjector | None = None,
     ) -> "DeliverableSummaryResponse":
         """Convert one service-level summary into its API DTO."""
 
         deliverable = summary.deliverable
         latest_version = summary.latest_version
+        evidence = (
+            evidence_projector.project(
+                deliverable=deliverable,
+                version=latest_version,
+            )
+            if evidence_projector is not None
+            else DeliverableEvidenceProjection()
+        )
         return cls(
             id=deliverable.id,
             project_id=deliverable.project_id,
@@ -248,15 +480,17 @@ class DeliverableSummaryResponse(BaseModel):
             total_versions=summary.total_versions,
             task_id=latest_version.source_task_id,
             run_id=latest_version.source_run_id,
-            source_draft_id=None,
-            repository_change_id=None,
-            evidence_refs=[],
+            source_draft_id=evidence.source_draft_id,
+            repository_change_id=evidence.repository_change_id,
+            evidence_refs=evidence.evidence_refs,
             source_type=_derive_source_type(latest_version),
             source_label=_derive_source_label(latest_version),
             created_at=deliverable.created_at,
             updated_at=deliverable.updated_at,
             latest_version=DeliverableVersionSummaryResponse.from_version_summary(
-                latest_version
+                latest_version,
+                deliverable=deliverable,
+                evidence_projector=evidence_projector,
             ),
         )
 
@@ -294,11 +528,20 @@ class DeliverableDetailResponse(BaseModel):
         detail: DeliverableDetail,
         *,
         latest_approval_status: ApprovalStatus | None = None,
+        evidence_projector: DeliverableEvidenceProjector | None = None,
     ) -> "DeliverableDetailResponse":
         """Convert one service detail into an API DTO."""
 
         deliverable = detail.deliverable
         latest_version = detail.versions[0] if detail.versions else None
+        evidence = (
+            evidence_projector.project(
+                deliverable=deliverable,
+                version=latest_version,
+            )
+            if latest_version is not None and evidence_projector is not None
+            else DeliverableEvidenceProjection()
+        )
         return cls(
             id=deliverable.id,
             project_id=deliverable.project_id,
@@ -319,9 +562,9 @@ class DeliverableDetailResponse(BaseModel):
                 latest_version.source_task_id if latest_version is not None else None
             ),
             run_id=latest_version.source_run_id if latest_version is not None else None,
-            source_draft_id=None,
-            repository_change_id=None,
-            evidence_refs=[],
+            source_draft_id=evidence.source_draft_id,
+            repository_change_id=evidence.repository_change_id,
+            evidence_refs=evidence.evidence_refs,
             source_type=(
                 _derive_source_type(latest_version)
                 if latest_version is not None
@@ -335,7 +578,11 @@ class DeliverableDetailResponse(BaseModel):
             created_at=deliverable.created_at,
             updated_at=deliverable.updated_at,
             versions=[
-                DeliverableVersionResponse.from_version(version)
+                DeliverableVersionResponse.from_version(
+                    version,
+                    deliverable=deliverable,
+                    evidence_projector=evidence_projector,
+                )
                 for version in detail.versions
             ],
         )
@@ -356,6 +603,7 @@ class ProjectDeliverableSnapshotResponse(BaseModel):
         snapshot: ProjectDeliverableSnapshot,
         *,
         approval_repository: ApprovalRepository | None = None,
+        evidence_projector: DeliverableEvidenceProjector | None = None,
     ) -> "ProjectDeliverableSnapshotResponse":
         """Convert one service snapshot into an API DTO."""
 
@@ -378,6 +626,7 @@ class ProjectDeliverableSnapshotResponse(BaseModel):
                         if approval_repository is not None
                         else None
                     ),
+                    evidence_projector=evidence_projector,
                 )
                 for item in snapshot.deliverables
             ],
@@ -410,7 +659,8 @@ class RelatedTaskDeliverableResponse(BaseModel):
             stage=related_item.deliverable.stage,
             current_version_number=related_item.deliverable.current_version_number,
             matched_version=DeliverableVersionSummaryResponse.from_version_summary(
-                related_item.version
+                related_item.version,
+                deliverable=related_item.deliverable,
             ),
         )
 
@@ -617,6 +867,19 @@ def get_approval_repository(
     return ApprovalRepository(session)
 
 
+def get_deliverable_evidence_projector(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> DeliverableEvidenceProjector:
+    """Create the read-only Stage 6-A deliverable evidence projector."""
+
+    return DeliverableEvidenceProjector(
+        task_repository=TaskRepository(session),
+        run_repository=RunRepository(session),
+        change_batch_repository=ChangeBatchRepository(session),
+        verification_run_repository=VerificationRunRepository(session),
+    )
+
+
 router = APIRouter(prefix="/deliverables", tags=["deliverables"])
 
 
@@ -630,6 +893,10 @@ def create_deliverable(
     request: DeliverableCreateRequest,
     deliverable_service: Annotated[
         DeliverableService, Depends(get_deliverable_service)
+    ],
+    evidence_projector: Annotated[
+        DeliverableEvidenceProjector,
+        Depends(get_deliverable_evidence_projector),
     ],
 ) -> DeliverableDetailResponse:
     """Create one Day09 deliverable together with its first immutable snapshot."""
@@ -653,7 +920,10 @@ def create_deliverable(
             detail=str(exc),
         ) from exc
 
-    return DeliverableDetailResponse.from_detail(detail)
+    return DeliverableDetailResponse.from_detail(
+        detail,
+        evidence_projector=evidence_projector,
+    )
 
 
 @router.get(
@@ -668,6 +938,10 @@ def list_deliverables(
     ],
     approval_repository: Annotated[
         ApprovalRepository, Depends(get_approval_repository)
+    ],
+    evidence_projector: Annotated[
+        DeliverableEvidenceProjector,
+        Depends(get_deliverable_evidence_projector),
     ],
 ) -> list[DeliverableSummaryResponse]:
     """Return project deliverables as a flat list for Stage 6-A consumers."""
@@ -687,6 +961,7 @@ def list_deliverables(
                 item.deliverable.id,
                 current_version_number=item.deliverable.current_version_number,
             ),
+            evidence_projector=evidence_projector,
         )
         for item in snapshot.deliverables
     ]
@@ -705,6 +980,10 @@ def get_project_deliverable_snapshot(
     approval_repository: Annotated[
         ApprovalRepository, Depends(get_approval_repository)
     ],
+    evidence_projector: Annotated[
+        DeliverableEvidenceProjector,
+        Depends(get_deliverable_evidence_projector),
+    ],
 ) -> ProjectDeliverableSnapshotResponse:
     """Return the deliverable repository view for one project."""
 
@@ -718,6 +997,7 @@ def get_project_deliverable_snapshot(
     return ProjectDeliverableSnapshotResponse.from_snapshot(
         snapshot,
         approval_repository=approval_repository,
+        evidence_projector=evidence_projector,
     )
 
 
@@ -879,6 +1159,10 @@ def get_deliverable_detail(
     approval_repository: Annotated[
         ApprovalRepository, Depends(get_approval_repository)
     ],
+    evidence_projector: Annotated[
+        DeliverableEvidenceProjector,
+        Depends(get_deliverable_evidence_projector),
+    ],
 ) -> DeliverableDetailResponse:
     """Return one deliverable plus its immutable version snapshots."""
 
@@ -896,6 +1180,7 @@ def get_deliverable_detail(
             deliverable_id,
             current_version_number=detail.deliverable.current_version_number,
         ),
+        evidence_projector=evidence_projector,
     )
 
 
@@ -909,6 +1194,10 @@ def list_deliverable_versions(
     deliverable_service: Annotated[
         DeliverableService, Depends(get_deliverable_service)
     ],
+    evidence_projector: Annotated[
+        DeliverableEvidenceProjector,
+        Depends(get_deliverable_evidence_projector),
+    ],
 ) -> list[DeliverableVersionResponse]:
     """Return the ordered immutable version snapshots for one deliverable."""
 
@@ -920,7 +1209,11 @@ def list_deliverable_versions(
         )
 
     return [
-        DeliverableVersionResponse.from_version(version)
+        DeliverableVersionResponse.from_version(
+            version,
+            deliverable=detail.deliverable,
+            evidence_projector=evidence_projector,
+        )
         for version in detail.versions
     ]
 
@@ -935,6 +1228,10 @@ def submit_deliverable_version(
     request: DeliverableVersionCreateRequest,
     deliverable_service: Annotated[
         DeliverableService, Depends(get_deliverable_service)
+    ],
+    evidence_projector: Annotated[
+        DeliverableEvidenceProjector,
+        Depends(get_deliverable_evidence_projector),
     ],
 ) -> DeliverableDetailResponse:
     """Append one new immutable version snapshot to a deliverable."""
@@ -960,4 +1257,7 @@ def submit_deliverable_version(
             detail=message,
         ) from exc
 
-    return DeliverableDetailResponse.from_detail(detail)
+    return DeliverableDetailResponse.from_detail(
+        detail,
+        evidence_projector=evidence_projector,
+    )
