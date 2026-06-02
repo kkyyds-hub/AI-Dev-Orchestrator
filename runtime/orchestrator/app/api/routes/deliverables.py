@@ -48,9 +48,9 @@ class DeliverableStatus(StrEnum):
     """Stage 6-A frontend-facing deliverable lifecycle status."""
 
     DRAFT = "draft"
-    SUBMITTED = "submitted"
+    PENDING_REVIEW = "pending_review"
     APPROVED = "approved"
-    REWORK = "rework"
+    NEEDS_REWORK = "needs_rework"
     ARCHIVED = "archived"
 
 
@@ -60,14 +60,14 @@ def _derive_deliverable_status(latest_approval_status: ApprovalStatus | None) ->
     if latest_approval_status is None:
         return DeliverableStatus.DRAFT
     if latest_approval_status == ApprovalStatus.PENDING_APPROVAL:
-        return DeliverableStatus.SUBMITTED
+        return DeliverableStatus.PENDING_REVIEW
     if latest_approval_status == ApprovalStatus.APPROVED:
         return DeliverableStatus.APPROVED
     if latest_approval_status in {
         ApprovalStatus.REJECTED,
         ApprovalStatus.CHANGES_REQUESTED,
     }:
-        return DeliverableStatus.REWORK
+        return DeliverableStatus.NEEDS_REWORK
     return DeliverableStatus.DRAFT
 
 

@@ -161,7 +161,7 @@ def test_deliverable_status_derives_from_latest_current_version_approval(tmp_pat
 
     submitted_response = client.get(f"/deliverables/{deliverable_id}")
     assert submitted_response.status_code == 200, submitted_response.text
-    assert submitted_response.json()["status"] == "submitted"
+    assert submitted_response.json()["status"] == "pending_review"
 
     version_response = client.post(
         f"/deliverables/{deliverable_id}/versions",
