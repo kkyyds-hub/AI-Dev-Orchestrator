@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { RepositoryPreflightPanel } from "../../../features/approvals/RepositoryPreflightPanel";
@@ -39,6 +39,15 @@ export function ExecutionRepositoryTab() {
   const session = sessionQuery.data;
   const batches = batchesQuery.data ?? [];
   const candidates = candidatesQuery.data ?? [];
+  const candidateSignature = useMemo(
+    () => candidates.map((candidate) => candidate.id).sort().join("|"),
+    [candidates],
+  );
+  const [commitDraftAcknowledged, setCommitDraftAcknowledged] = useState(false);
+
+  useEffect(() => {
+    setCommitDraftAcknowledged(false);
+  }, [selectedProjectId, candidateSignature]);
 
   // Determine current step for the indicator
   const activeStepIndex = useMemo(() => {
@@ -49,14 +58,16 @@ export function ExecutionRepositoryTab() {
     if (batches.length > 0) {
       const hasPreflight = batches.some((b) => b.preflight.status !== "not_started");
       if (hasPreflight) {
-        if (candidates.length > 0) return 8; // release_judge
+        if (candidates.length > 0) {
+          return commitDraftAcknowledged ? 8 : 7; // commit_draft -> release_judge
+        }
         return 6; // preflight
       }
       return 5; // change_batch
     }
     // Has session but no batches → between file_locate and context_pack
     return 2; // file_locate (early stage)
-  }, [hasProject, snapshot, session, batches, candidates]);
+  }, [hasProject, snapshot, session, batches, candidates, commitDraftAcknowledged]);
 
   const handleOpenFullRepo = () => {
     if (hasProject) {
@@ -160,6 +171,27 @@ export function ExecutionRepositoryTab() {
             projectId={selectedProjectId}
             projectName={selectedProjectName}
           />
+        </section>
+      ) : null}
+
+      {activeStep === "commit_draft" ? (
+        <section
+          className="rounded-lg border border-[#333333] bg-[#1a1a1a] p-4"
+          data-testid="execution-repository-commit-draft-panel"
+        >
+          <div className="text-sm font-semibold text-zinc-100">提交草案确认</div>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            已检测到 {candidates.length} 个提交草案。提交草案仅记录候选版本与证据，
+            不是 git commit，不会执行 git push。确认这条边界后，再进入放行判断。
+          </p>
+          <button
+            type="button"
+            onClick={() => setCommitDraftAcknowledged(true)}
+            className="mt-4 rounded border border-[#444444] px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-400 hover:bg-[#222222]"
+            data-testid="execution-repository-open-release-judge"
+          >
+            查看放行判断
+          </button>
         </section>
       ) : null}
 
