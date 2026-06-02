@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { RepositoryPreflightPanel } from "../../../features/approvals/RepositoryPreflightPanel";
+import { RepositoryReleaseGatePanel } from "../../../features/approvals/RepositoryReleaseGatePanel";
 import {
   useProjectChangeBatches,
   useProjectChangeSession,
@@ -23,7 +25,7 @@ const CHANGE_CHAIN_STEPS = [
 
 export function ExecutionRepositoryTab() {
   const navigate = useNavigate();
-  const { selectedProjectId } = useProjectScope();
+  const { selectedProjectId, selectedProjectName } = useProjectScope();
 
   const hasProject = selectedProjectId !== "all";
 
@@ -47,7 +49,7 @@ export function ExecutionRepositoryTab() {
     if (batches.length > 0) {
       const hasPreflight = batches.some((b) => b.preflight.status !== "not_started");
       if (hasPreflight) {
-        if (candidates.length > 0) return 7; // commit_draft
+        if (candidates.length > 0) return 8; // release_judge
         return 6; // preflight
       }
       return 5; // change_batch
@@ -61,6 +63,8 @@ export function ExecutionRepositoryTab() {
       navigate(`/projects/${selectedProjectId}/repository`);
     }
   };
+
+  const activeStep = CHANGE_CHAIN_STEPS[Math.max(activeStepIndex, 0)].key;
 
   if (!hasProject) {
     return (
@@ -78,7 +82,7 @@ export function ExecutionRepositoryTab() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-testid="execution-repository-tab">
       {/* ── 顶部仓库状态条 ── */}
       <div className="rounded-lg border border-[#333333] bg-[#1a1a1a] p-4">
         <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-3">
@@ -142,13 +146,31 @@ export function ExecutionRepositoryTab() {
 
       {/* ── 当前步骤面板 ── */}
       <CurrentStepPanel
-        activeStep={CHANGE_CHAIN_STEPS[Math.max(activeStepIndex, 0)].key}
+        activeStep={activeStep}
         snapshot={snapshot}
         session={session}
         batchCount={batches.length}
         candidateCount={candidates.length}
         hasPreflight={batches.some((b) => b.preflight.status !== "not_started")}
       />
+
+      {activeStep === "preflight" ? (
+        <section data-testid="execution-repository-preflight-panel">
+          <RepositoryPreflightPanel
+            projectId={selectedProjectId}
+            projectName={selectedProjectName}
+          />
+        </section>
+      ) : null}
+
+      {activeStep === "release_judge" ? (
+        <section data-testid="execution-repository-release-gate-panel">
+          <RepositoryReleaseGatePanel
+            projectId={selectedProjectId}
+            projectName={selectedProjectName}
+          />
+        </section>
+      ) : null}
 
       {/* ── 提交草案说明 ── */}
       {candidates.length > 0 && (

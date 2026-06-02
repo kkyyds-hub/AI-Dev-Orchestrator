@@ -11,8 +11,6 @@ import { ProjectSubviewTabs } from "../projects/components/ProjectSubviewTabs";
 import { PROJECT_STAGE_LABELS } from "../projects/types";
 import { ROLE_CODE_LABELS } from "../roles/types";
 import { ApprovalActionDrawer } from "./ApprovalActionDrawer";
-import { RepositoryPreflightPanel } from "./RepositoryPreflightPanel";
-import { RepositoryReleaseGatePanel } from "./RepositoryReleaseGatePanel";
 import { useCreateApprovalRequest, useProjectApprovalInbox } from "./hooks";
 import type { ApprovalQueueItem } from "./types";
 import { APPROVAL_STATUS_LABELS } from "./types";
@@ -412,57 +410,9 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
             </>
           ),
         },
-        {
-          id: "preflight",
-          label: "预检",
-          panelId: "repository-preflight-tab-panel",
-          content: (
-            <>
-              <MigrationNotice
-                testId="approval-preflight-migration-notice"
-                title="预检能力后续迁移提示"
-                body="预检属于执行中心 / 仓库工作区视角，本阶段仅保留兼容入口并提示职责边界，不迁移现有预检能力。"
-              />
-              <RepositoryPreflightPanel
-                projectId={props.projectId}
-                projectName={props.projectName ?? null}
-              />
-            </>
-          ),
-        },
-        {
-          id: "release-gate",
-          label: "发布门禁",
-          panelId: "repository-release-gate-tab-panel",
-          content: (
-            <>
-              <MigrationNotice
-                testId="approval-release-gate-migration-notice"
-                title="发布门禁后续迁移提示"
-                body="发布门禁属于后续 release gate / 仓库工作区职责，本阶段仅保留兼容入口并提示迁移方向，不迁移发布门禁能力。"
-              />
-              <RepositoryReleaseGatePanel
-                projectId={props.projectId}
-                projectName={props.projectName ?? null}
-              />
-            </>
-          ),
-        },
         ]}
       />
     </div>
-  );
-}
-
-function MigrationNotice(props: { testId: string; title: string; body: string }) {
-  return (
-    <section
-      data-testid={props.testId}
-      className="mb-5 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100"
-    >
-      <div className="font-medium">{props.title}</div>
-      <p className="mt-1 text-amber-100/80">{props.body}</p>
-    </section>
   );
 }
 
