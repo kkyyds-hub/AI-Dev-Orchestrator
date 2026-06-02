@@ -1,8 +1,11 @@
+import { useMemo } from "react";
+
 import { DeliverableCenterContent } from "./components/DeliverableCenterContent";
 import { DeliverableCenterHeader } from "./components/DeliverableCenterHeader";
 import { DeliverableCenterQueryState } from "./components/DeliverableCenterQueryState";
 import { useDeliverableSelection } from "./hooks/useDeliverableSelection";
 import { useDeliverableDetail, useProjectDeliverableSnapshot } from "./hooks";
+import type { DeliverableSummary, DeliverableStatus } from "./types";
 
 type DeliverableCenterPageProps = {
   projectId: string | null;
@@ -14,7 +17,11 @@ type DeliverableCenterPageProps = {
 
 export function DeliverableCenterPage(props: DeliverableCenterPageProps) {
   const snapshotQuery = useProjectDeliverableSnapshot(props.projectId);
-  const deliverables = snapshotQuery.data?.deliverables ?? [];
+  const snapshotDeliverables = snapshotQuery.data?.deliverables ?? [];
+  const deliverables = useMemo(
+    () => sortDeliverablesByHandlingPriority(snapshotDeliverables),
+    [snapshotDeliverables],
+  );
   const deliverableSelection = useDeliverableSelection({
     deliverables,
     requestedDeliverableId: props.requestedDeliverableId,
@@ -65,4 +72,34 @@ export function DeliverableCenterPage(props: DeliverableCenterPageProps) {
       )}
     </section>
   );
+}
+
+const DELIVERABLE_HANDLING_PRIORITY: Record<DeliverableStatus, number> = {
+  pending_review: 0,
+  needs_rework: 1,
+  draft: 2,
+  approved: 3,
+  archived: 4,
+};
+
+function sortDeliverablesByHandlingPriority(
+  deliverables: DeliverableSummary[],
+): DeliverableSummary[] {
+  return [...deliverables].sort((a, b) => {
+    const priorityDiff =
+      DELIVERABLE_HANDLING_PRIORITY[a.status] -
+      DELIVERABLE_HANDLING_PRIORITY[b.status];
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    const updatedDiff =
+      Date.parse(b.updated_at || b.created_at) -
+      Date.parse(a.updated_at || a.created_at);
+    if (updatedDiff !== 0 && Number.isFinite(updatedDiff)) {
+      return updatedDiff;
+    }
+
+    return a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+  });
 }

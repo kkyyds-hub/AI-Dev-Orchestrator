@@ -41,6 +41,8 @@ const LATEST_VERSION = "\u6700\u65b0\u7248\u672c";
 const CREATED_BY = "\u521b\u5efa\u8005";
 const UPDATED_AT = "\u66f4\u65b0\u65f6\u95f4";
 const SOURCE_LABEL = "\u6765\u6e90";
+const SOURCE_DRAFT_ID = "source_draft_id";
+const REPOSITORY_CHANGE_ID = "repository_change_id";
 const TASK_LINK = "\u67e5\u770b\u6765\u6e90\u4efb\u52a1";
 const RUN_LINK = "\u67e5\u770b\u6765\u6e90\u8fd0\u884c";
 const CLOSE = "\u5173\u95ed";
@@ -65,6 +67,10 @@ export function DeliverableSummaryPanel(props: DeliverableSummaryPanelProps) {
   const sourceTaskId = props.detail?.task_id ?? deliverable.task_id;
   const sourceRunId = props.detail?.run_id ?? deliverable.run_id;
   const sourceLabel = props.detail?.source_label ?? deliverable.source_label;
+  const sourceDraftId =
+    props.detail?.source_draft_id ?? deliverable.source_draft_id;
+  const repositoryChangeId =
+    props.detail?.repository_change_id ?? deliverable.repository_change_id;
 
   return (
     <section
@@ -122,7 +128,7 @@ export function DeliverableSummaryPanel(props: DeliverableSummaryPanelProps) {
         </p>
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <MiniInfo label={LATEST_VERSION} value={`v${deliverable.version_no}`} />
         <MiniInfo
           label={CREATED_BY}
@@ -134,6 +140,8 @@ export function DeliverableSummaryPanel(props: DeliverableSummaryPanelProps) {
         />
         <MiniInfo label={UPDATED_AT} value={formatDateTime(deliverable.updated_at)} />
         <MiniInfo label={SOURCE_LABEL} value={sourceLabel ?? deliverable.source_type ?? "-"} />
+        <MiniInfo label={SOURCE_DRAFT_ID} value={sourceDraftId ?? "-"} />
+        <MiniInfo label={REPOSITORY_CHANGE_ID} value={repositoryChangeId ?? "-"} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3" data-testid="deliverable-detail-entrypoints">
@@ -222,7 +230,7 @@ function DeliverableDrawer(props: {
             <h4 className="text-lg font-semibold text-zinc-100">{props.title}</h4>
             {props.latestVersion ? (
               <p className="mt-1 text-xs text-zinc-500">
-                v{props.latestVersion.version_no} ? {formatDateTime(props.latestVersion.created_at)}
+                v{props.latestVersion.version_no} · {formatDateTime(props.latestVersion.created_at)}
               </p>
             ) : null}
           </div>
