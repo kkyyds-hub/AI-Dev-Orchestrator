@@ -1,6 +1,8 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { StatusBadge } from "../../components/StatusBadge";
+import { buildDeliverablesRoute } from "../../lib/deliverable-route";
 import { formatDateTime } from "../../lib/format";
 import { ChangeEvidencePanel } from "../deliverables/ChangeEvidencePanel";
 import { DELIVERABLE_TYPE_LABELS } from "../deliverables/types";
@@ -52,11 +54,11 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
   const selectedActionDescription = useMemo(() => {
     switch (selectedAction) {
       case "approve":
-        return "确认该版本可以通过审批并允许后续阶段继续推进。";
+        return "确认该版本可以通过审批。通过后此版本将标记为已批准，下游可基于此版本继续推进。";
       case "reject":
-        return "明确驳回当前版本，要求下游先处理结论后再继续。";
+        return "明确驳回当前版本。驳回后此版本将被关闭；如需继续，请提交新版本后重新发起审批。";
       case "request_changes":
-        return "记录需要补充的信息、风险说明或修改方向。";
+        return "记录需要补充的信息、风险说明或修改方向。提交后将创建返工任务，由对应角色处理后重新提交版本再发起审批。";
       default:
         return "";
     }
@@ -105,7 +107,10 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
         onClick={props.onClose}
       />
 
-      <aside className="flex h-full w-full max-w-3xl flex-col border-l border-[#333333] bg-[#111111]">
+      <aside
+        className="flex h-full w-full max-w-3xl flex-col border-l border-[#333333] bg-[#111111]"
+        data-testid="approval-action-drawer"
+      >
         <header className="border-b border-[#333333] px-6 py-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -171,6 +176,16 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                     </div>
                     <div>发起时间：{formatDateTime(detail.requested_at)}</div>
                     <div>截止时间：{formatDateTime(detail.due_at)}</div>
+                    <Link
+                      to={buildDeliverablesRoute({
+                        projectId: props.projectId,
+                        deliverableId: detail.deliverable_id,
+                      })}
+                      data-testid="approval-deliverable-body-link"
+                      className="inline-flex rounded border border-[#4a4a4a] px-3 py-2 text-xs font-medium text-zinc-100 transition hover:bg-[#292929]"
+                    >
+                      查看交付物正文
+                    </Link>
                   </div>
                 </FieldBlock>
 
@@ -194,7 +209,10 @@ export function ApprovalActionDrawer(props: ApprovalActionDrawerProps) {
                 <>
                   <section className="border-b border-[#333333] pb-4">
                     <div className="text-sm font-medium text-zinc-100">选择审批动作</div>
-                    <div className="mt-1 text-xs leading-5 text-zinc-400">
+                    <div
+                      className="mt-1 text-xs leading-5 text-zinc-400"
+                      data-testid="approval-action-consequence"
+                    >
                       {selectedActionDescription}
                     </div>
 

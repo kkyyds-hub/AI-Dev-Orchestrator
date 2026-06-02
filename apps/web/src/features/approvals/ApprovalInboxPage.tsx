@@ -39,7 +39,11 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
   } | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
 
-  const approvals = inboxQuery.data?.approvals ?? [];
+  const rawApprovals = inboxQuery.data?.approvals ?? [];
+  const approvals = useMemo(
+    () => sortApprovalsByHandlingPriority(rawApprovals),
+    [rawApprovals],
+  );
   const deliverables = deliverableSnapshotQuery.data?.deliverables ?? [];
 
   const latestApprovalByDeliverable = useMemo(() => {
@@ -366,7 +370,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
             <div>
               <div className="text-sm font-medium text-zinc-100">审批队列</div>
               <div className="mt-1 text-xs leading-5 text-zinc-400">
-                按发起时间倒序展示当前项目全部审批请求，并保留审批记录回放入口。
+                按处理优先级展示：待审批超时 &gt; 待审批未超时 &gt; 需补充 &gt; 已驳回 &gt; 已通过；同组内按发起时间倒序，并保留审批记录回放入口。
               </div>
             </div>
             <div className="text-xs text-zinc-500">
@@ -381,7 +385,7 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
               审批队列加载失败：{inboxQuery.error.message}
             </div>
           ) : approvals.length > 0 ? (
-            <div className="mt-4 divide-y divide-[#333333]">
+            <div className="mt-4 divide-y divide-[#333333]" data-testid="approval-queue-list">
               {approvals.map((approval) => (
                 <ApprovalQueueCard
                   key={approval.id}
@@ -413,10 +417,17 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
           label: "预检",
           panelId: "repository-preflight-tab-panel",
           content: (
-            <RepositoryPreflightPanel
-              projectId={props.projectId}
-              projectName={props.projectName ?? null}
-            />
+            <>
+              <MigrationNotice
+                testId="approval-preflight-migration-notice"
+                title="预检能力后续迁移提示"
+                body="预检属于执行中心 / 仓库工作区视角，本阶段仅保留兼容入口并提示职责边界，不迁移现有预检能力。"
+              />
+              <RepositoryPreflightPanel
+                projectId={props.projectId}
+                projectName={props.projectName ?? null}
+              />
+            </>
           ),
         },
         {
@@ -424,16 +435,70 @@ export function ApprovalInboxPage(props: ApprovalInboxPageProps) {
           label: "发布门禁",
           panelId: "repository-release-gate-tab-panel",
           content: (
-            <RepositoryReleaseGatePanel
-              projectId={props.projectId}
-              projectName={props.projectName ?? null}
-            />
+            <>
+              <MigrationNotice
+                testId="approval-release-gate-migration-notice"
+                title="发布门禁后续迁移提示"
+                body="发布门禁属于后续 release gate / 仓库工作区职责，本阶段仅保留兼容入口并提示迁移方向，不迁移发布门禁能力。"
+              />
+              <RepositoryReleaseGatePanel
+                projectId={props.projectId}
+                projectName={props.projectName ?? null}
+              />
+            </>
           ),
         },
         ]}
       />
     </div>
   );
+}
+
+function MigrationNotice(props: { testId: string; title: string; body: string }) {
+  return (
+    <section
+      data-testid={props.testId}
+      className="mb-5 border-l border-amber-500/50 px-4 py-3 text-sm leading-6 text-amber-100"
+    >
+      <div className="font-medium">{props.title}</div>
+      <p className="mt-1 text-amber-100/80">{props.body}</p>
+    </section>
+  );
+}
+
+const APPROVAL_HANDLING_PRIORITY: Record<ApprovalQueueItem["status"], number> = {
+  pending_approval: 1,
+  changes_requested: 2,
+  rejected: 3,
+  approved: 4,
+};
+
+function getApprovalHandlingPriority(approval: ApprovalQueueItem): number {
+  if (approval.status === "pending_approval" && approval.overdue) {
+    return 0;
+  }
+
+  return APPROVAL_HANDLING_PRIORITY[approval.status] ?? 5;
+}
+
+function sortApprovalsByHandlingPriority(
+  approvals: ApprovalQueueItem[],
+): ApprovalQueueItem[] {
+  return [...approvals].sort((a, b) => {
+    const priorityDiff =
+      getApprovalHandlingPriority(a) - getApprovalHandlingPriority(b);
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    const requestedAtDiff =
+      Date.parse(b.requested_at) - Date.parse(a.requested_at);
+    if (requestedAtDiff !== 0 && Number.isFinite(requestedAtDiff)) {
+      return requestedAtDiff;
+    }
+
+    return a.id.localeCompare(b.id);
+  });
 }
 
 function ApprovalStat(props: { label: string; value: string }) {
@@ -492,7 +557,7 @@ function ApprovalQueueCard(props: {
     ] ?? props.approval.deliverable_type;
 
   return (
-    <div className="px-0 py-4">
+    <div className="px-0 py-4" data-testid="approval-queue-card">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
