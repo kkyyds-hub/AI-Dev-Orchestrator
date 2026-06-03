@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
 from app.core.db import get_db_session
-from app.core.db_tables import ORMBase
+from app.core.db_tables import ORMBase, ProjectDirectorMessageTable, RunTable
 from app.domain.project_director_message import ProjectDirectorMessageRole
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
@@ -42,6 +42,11 @@ class NoProviderConfigService:
         )
 
 
+class ExplodingProviderConfigService:
+    def resolve_openai_runtime_config(self) -> OpenAIProviderRuntimeConfig:
+        raise AssertionError("messages API must not resolve Provider config in Stage 7-B1")
+
+
 @pytest.fixture()
 def sqlite_session_factory(tmp_path):
     db_path = tmp_path / "orchestrator-test.db"
@@ -50,6 +55,15 @@ def sqlite_session_factory(tmp_path):
     return sessionmaker(
         bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
     )
+
+
+@pytest.fixture()
+def db_session(sqlite_session_factory):
+    session = sqlite_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 @pytest.fixture()
@@ -81,6 +95,23 @@ def _create_session(client: TestClient) -> str:
     return resp.json()["id"]
 
 
+def _count_rows(db_session, table) -> int:
+    return db_session.execute(select(func.count()).select_from(table)).scalar_one()
+
+
+def _message_rows_for_session(db_session, session_id: str):
+    session_uuid = UUID(session_id) if isinstance(session_id, str) else session_id
+    return (
+        db_session.execute(
+            select(ProjectDirectorMessageTable)
+            .where(ProjectDirectorMessageTable.session_id == session_uuid)
+            .order_by(ProjectDirectorMessageTable.sequence_no.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+
 def test_post_message_persists_user_and_rule_fallback_assistant(client):
     session_id = _create_session(client)
 
@@ -97,9 +128,12 @@ def test_post_message_persists_user_and_rule_fallback_assistant(client):
     assert "不启动 Worker" in data["forbidden_actions"]
     assert data["user_message"]["role"] == ProjectDirectorMessageRole.USER.value
     assert data["user_message"]["content"] == "请总结当前草案风险"
+    assert data["user_message"]["source"] == "system"
+    assert data["user_message"]["source_detail"] == "user_submitted_message"
     assert data["user_message"]["sequence_no"] == 1
     assert data["assistant_message"]["role"] == "assistant"
     assert data["assistant_message"]["source"] == "rule_fallback"
+    assert data["assistant_message"]["source_detail"] == "stage_7_b1_deterministic_conversation_foundation"
     assert data["assistant_message"]["sequence_no"] == 2
     assert data["assistant_message"]["requires_confirmation"] is False
     assert data["assistant_message"]["suggested_actions"] == []
@@ -190,6 +224,123 @@ def test_list_messages_before_cursor_must_belong_to_same_session(client):
 
     assert resp.status_code == 404
     assert "cursor" in resp.json()["detail"].lower()
+
+
+def test_post_message_rejects_blank_content_without_persisting_messages(client, db_session):
+    session_id = _create_session(client)
+
+    resp = client.post(
+        f"/project-director/sessions/{session_id}/messages",
+        json={"content": "   \n\t  "},
+    )
+
+    assert resp.status_code == 422
+    assert "empty" in resp.json()["detail"].lower() or "whitespace" in resp.json()["detail"].lower()
+    assert _message_rows_for_session(db_session, session_id) == []
+
+
+def test_messages_service_never_resolves_provider_or_creates_run(db_session):
+    session_repo = ProjectDirectorSessionRepository(db_session)
+    director_service = ProjectDirectorService(
+        session_repository=session_repo,
+        provider_config_service=NoProviderConfigService(),
+    )
+    session_obj = director_service.create_session(
+        goal_text="验证消息 API 不触发 Provider 或 Run",
+    )
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+    )
+
+    assert _count_rows(db_session, RunTable) == 0
+    user_message, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="只记录消息，不允许触发执行链路",
+    )
+
+    assert user_message.source == "system"
+    assert assistant_message.source == "rule_fallback"
+    assert assistant_message.source_detail == "stage_7_b1_deterministic_conversation_foundation"
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_messages_service_does_not_use_provider_config_even_if_provider_would_fail(db_session):
+    session_repo = ProjectDirectorSessionRepository(db_session)
+    director_service = ProjectDirectorService(
+        session_repository=session_repo,
+        provider_config_service=NoProviderConfigService(),
+    )
+    session_obj = director_service.create_session(
+        goal_text="验证消息服务与 Provider 配置隔离",
+    )
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+    )
+
+    # If Stage 7-B1 messages tried to resolve Provider config, this test would need
+    # to pass ExplodingProviderConfigService into the service. The constructor has no
+    # provider dependency by design, so posting a message must stay deterministic.
+    user_message, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="Provider 不应参与 Stage 7-B1 message persistence",
+    )
+
+    assert user_message.source_detail == "user_submitted_message"
+    assert assistant_message.source == "rule_fallback"
+    assert "不调用 Provider" in assistant_message.forbidden_actions_detected
+
+
+def test_messages_are_fully_isolated_between_sessions(client, db_session):
+    first_session_id = _create_session(client)
+    second_session_id = _create_session(client)
+
+    client.post(
+        f"/project-director/sessions/{first_session_id}/messages",
+        json={"content": "第一会话消息"},
+    )
+    client.post(
+        f"/project-director/sessions/{second_session_id}/messages",
+        json={"content": "第二会话消息"},
+    )
+
+    first_resp = client.get(f"/project-director/sessions/{first_session_id}/messages")
+    second_resp = client.get(f"/project-director/sessions/{second_session_id}/messages")
+
+    first_messages = first_resp.json()["messages"]
+    second_messages = second_resp.json()["messages"]
+    assert {m["session_id"] for m in first_messages} == {first_session_id}
+    assert {m["session_id"] for m in second_messages} == {second_session_id}
+    assert [m["content"] for m in first_messages if m["role"] == "user"] == ["第一会话消息"]
+    assert [m["content"] for m in second_messages if m["role"] == "user"] == ["第二会话消息"]
+    assert len(_message_rows_for_session(db_session, first_session_id)) == 2
+    assert len(_message_rows_for_session(db_session, second_session_id)) == 2
+
+
+def test_source_detail_readback_matches_persisted_rows(client, db_session):
+    session_id = _create_session(client)
+
+    post_resp = client.post(
+        f"/project-director/sessions/{session_id}/messages",
+        json={"content": "验证 source_detail 可追溯"},
+    )
+    list_resp = client.get(f"/project-director/sessions/{session_id}/messages")
+
+    assert post_resp.status_code == 201
+    assert list_resp.status_code == 200
+    post_data = post_resp.json()
+    messages = list_resp.json()["messages"]
+    rows = _message_rows_for_session(db_session, session_id)
+
+    assert [row.source_detail for row in rows] == [
+        "user_submitted_message",
+        "stage_7_b1_deterministic_conversation_foundation",
+    ]
+    assert [m["source_detail"] for m in messages] == [row.source_detail for row in rows]
+    assert post_data["user_message"]["source_detail"] == rows[0].source_detail
+    assert post_data["assistant_message"]["source_detail"] == rows[1].source_detail
+
 
 def test_message_endpoints_return_404_for_missing_session(client):
     missing_session_id = uuid4()
