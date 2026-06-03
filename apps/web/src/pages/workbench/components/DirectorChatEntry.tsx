@@ -498,14 +498,9 @@ export function DirectorChatEntry({
                                 >
                                   来源：
                                   {question.source === "ai"
-                                    ? "AI provider"
-                                    : "规则 fallback"}
+                                    ? "AI 生成"
+                                    : "系统规则生成"}
                                 </span>
-                                {question.source_detail ? (
-                                  <span className="truncate" title={question.source_detail}>
-                                    {question.source_detail}
-                                  </span>
-                                ) : null}
                               </div>
                               {question.hint ? (
                                 <p className="mt-1 text-xs text-zinc-500">
@@ -884,7 +879,7 @@ export function DirectorChatEntry({
                 </h3>
                 <p className="mb-4 mt-2 text-sm leading-6 text-zinc-500">
                   {mode === "new-project"
-                    ? "输入目标后会创建 AI 项目主管会话，payload 中 project_id=null；系统优先调用已配置的 AI provider 生成澄清问题，provider 不可用时明确标记规则 fallback。确认草案前不会创建任务或启动 Worker。"
+                    ? "输入目标后会创建 AI 项目主管会话，payload 中 project_id=null；系统优先生成贴合目标的澄清问题，必要时自动使用安全规则兜底。确认草案前不会创建任务或启动 Worker。"
                     : "输入目标或调度问题后会创建 AI 项目主管会话；选择具体已有项目时会带入该项目上下文，选择全部项目时不会绑定单个项目。"}
                 </p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

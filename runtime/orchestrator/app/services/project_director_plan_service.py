@@ -34,6 +34,10 @@ from app.repositories.project_director_plan_version_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.services.project_director_output_guardrails import (
+    ProjectDirectorOutputGuardrailError,
+    validate_plan_output,
+)
 from app.services.provider_config_service import ProviderConfigService
 
 
@@ -828,10 +832,33 @@ class ProjectDirectorPlanService:
                 f"provider={runtime_config.detected_provider_type}; "
                 f"model={model_name}; receipt={receipt_id or 'missing'}"
             )
-            return _parse_provider_plan_output(
+            plan_draft = _parse_provider_plan_output(
                 output_text,
                 source_detail=source_detail,
                 provider_receipt_id=receipt_id,
+            )
+            validate_plan_output(
+                goal_text=session_obj.goal_text,
+                constraints=session_obj.constraints,
+                plan_summary=plan_draft.plan_summary,
+                phases=plan_draft.phases,
+                proposed_tasks=plan_draft.proposed_tasks,
+                acceptance_criteria=plan_draft.acceptance_criteria,
+                risks=plan_draft.risks,
+                project_scope=plan_draft.project_scope,
+                agent_team_suggestions=plan_draft.agent_team_suggestions,
+                skill_binding_suggestions=plan_draft.skill_binding_suggestions,
+                verification_mechanisms=plan_draft.verification_mechanisms,
+                repository_binding_suggestions=plan_draft.repository_binding_suggestions,
+                deliverable_boundaries=plan_draft.deliverable_boundaries,
+                complexity_assessment=plan_draft.complexity_assessment,
+            )
+            return plan_draft
+        except ProjectDirectorOutputGuardrailError as exc:
+            return _generate_rule_fallback_plan(
+                session_obj,
+                revision_notes=revision_notes,
+                reason=f"provider_guardrail_blocked:{exc}",
             )
         except Exception as exc:  # noqa: BLE001 - bad provider output must fallback
             return _generate_rule_fallback_plan(

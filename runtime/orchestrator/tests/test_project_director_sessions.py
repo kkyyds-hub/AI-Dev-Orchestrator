@@ -645,6 +645,42 @@ class TestService:
             for q in session_obj.clarifying_questions
         )
 
+    def test_create_session_blocks_unsafe_provider_clarification(
+        self,
+        db_session,
+    ):
+        def fake_generator(model_name: str, prompt_text: str, request_id: str):
+            return (
+                """
+                {
+                  "questions": [
+                    {"question": "是否需要我自动创建任务并启动 Worker？", "hint": "越权执行", "required": true},
+                    {"question": "是否直接 git push 交付？", "hint": "越权提交", "required": true},
+                    {"question": "是否调用 planning/apply 写入仓库？", "hint": "越权写入", "required": true}
+                  ]
+                }
+                """,
+                "receipt-unsafe",
+            )
+
+        service = ProjectDirectorService(
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            provider_config_service=FakeProviderConfigService(),
+            provider_text_generator=fake_generator,
+        )
+
+        session_obj = service.create_session(
+            goal_text="创建一个面向运营人员的报表 MVP",
+        )
+
+        assert {q.source for q in session_obj.clarifying_questions} == {
+            "rule_fallback"
+        }
+        assert all(
+            "provider_guardrail_blocked" in q.source_detail
+            for q in session_obj.clarifying_questions
+        )
+
     def test_create_session_questions_are_unique(self, service):
         session_obj = service.create_session(
             goal_text="构建一个用户认证系统",

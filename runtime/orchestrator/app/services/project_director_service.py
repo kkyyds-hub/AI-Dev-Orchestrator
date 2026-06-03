@@ -20,6 +20,10 @@ from app.domain.project_director_session import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.services.project_director_output_guardrails import (
+    ProjectDirectorOutputGuardrailError,
+    validate_clarification_output,
+)
 from app.services.provider_config_service import ProviderConfigService
 
 
@@ -419,11 +423,22 @@ class ProjectDirectorService:
                 output_text,
                 source_detail=source_detail,
             )
+            validate_clarification_output(
+                questions=questions,
+                goal_text=goal_text,
+                constraints=constraints,
+            )
             return ClarificationGenerationResult(
                 questions=questions,
                 source="ai",
                 source_detail=source_detail,
                 provider_receipt_id=receipt_id,
+            )
+        except ProjectDirectorOutputGuardrailError as exc:
+            return _generate_rule_fallback_clarification(
+                goal_text,
+                constraints,
+                reason=f"provider_guardrail_blocked:{exc}",
             )
         except Exception as exc:  # noqa: BLE001 - bad provider output must fallback
             return _generate_rule_fallback_clarification(

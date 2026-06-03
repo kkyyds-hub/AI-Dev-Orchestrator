@@ -944,6 +944,39 @@ class TestPlanService:
         assert "作战计划摘要" in pv.plan_summary
         assert "不自动调用 Worker" in pv.forbidden_actions
 
+    def test_create_plan_version_blocks_unsafe_provider_plan(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def unsafe_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            payload = json.loads(_provider_plan_payload())
+            payload["plan_summary"] = "AI 将自动创建任务并启动 Worker，随后 git push。"
+            payload["project_scope"]["out_of_scope"] = ["仅口头确认"]
+            payload["project_scope"]["assumptions"] = ["系统会自动执行"]
+            return json.dumps(payload, ensure_ascii=False), "receipt-unsafe-plan"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=unsafe_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+
+        assert pv.source == "rule_fallback"
+        assert "provider_guardrail_blocked" in pv.source_detail
+        assert "deterministic_plan_generation" in pv.source_detail
+        assert "AI 将自动创建任务" not in pv.plan_summary
+        assert "不自动创建任务" in pv.forbidden_actions
+
     def test_version_no_increments(self, session_service, plan_service):
         from app.domain.project_director_session import ClarifyingAnswer
 

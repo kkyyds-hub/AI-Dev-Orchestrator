@@ -54,13 +54,8 @@ export function ProjectDirectorPlanReviewModal({
               }`}
             >
               来源：
-              {planVersion.source === "ai" ? "AI provider" : "规则 fallback"}
+              {planVersion.source === "ai" ? "AI 生成" : "系统规则生成"}
             </span>
-            {planVersion.source_detail ? (
-              <span className="max-w-full truncate" title={planVersion.source_detail}>
-                {planVersion.source_detail}
-              </span>
-            ) : null}
             <span>Gate: {planVersion.gate_conclusion}</span>
           </div>
 
