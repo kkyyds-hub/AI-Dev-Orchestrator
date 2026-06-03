@@ -288,7 +288,7 @@ export function DirectorChatEntry({
 
     setSession(resume.session);
     setPlanVersion(resume.plan_version);
-    setTaskCreation(null);
+    setTaskCreation(resume.task_creation);
     setReviewFeedback("");
     setIsPlanReviewOpen(false);
     setPlanReviewMessage(null);
@@ -306,13 +306,14 @@ export function DirectorChatEntry({
         JSON.stringify({
           sessionId: session.id,
           planVersionId: planVersion?.id ?? null,
+          formalProjectId: taskCreation?.project_id ?? null,
           updatedAt: new Date().toISOString(),
         }),
       );
     } catch {
       // storage unavailable — backend resume still works
     }
-  }, [mode, planVersion?.id, scopedProjectId, session]);
+  }, [mode, planVersion?.id, scopedProjectId, session, taskCreation?.project_id]);
 
   const handleExampleClick = (question: string) => {
     setDraft(question);

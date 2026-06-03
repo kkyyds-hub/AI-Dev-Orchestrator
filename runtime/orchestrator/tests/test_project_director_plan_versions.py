@@ -726,6 +726,50 @@ class TestWorkbenchResume:
         )
         assert "恢复" in data["next_action"]
 
+    def test_resume_new_project_restores_formal_project_task_creation(
+        self, client
+    ):
+        session_id = _prepare_confirmed_session(client)
+        plan_resp = client.post(
+            f"/project-director/sessions/{session_id}/plan-versions"
+        )
+        assert plan_resp.status_code == 201
+        plan_id = plan_resp.json()["id"]
+
+        approve_resp = client.post(
+            f"/project-director/plan-versions/{plan_id}/review",
+            json={"action": "approve"},
+        )
+        assert approve_resp.status_code == 200
+        assert (
+            approve_resp.json()["reviewed_plan_version"]["status"]
+            == PlanVersionStatus.CONFIRMED.value
+        )
+
+        create_resp = client.post(
+            f"/project-director/plan-versions/{plan_id}/create-formal-project"
+        )
+        assert create_resp.status_code == 200
+        created = create_resp.json()
+        assert created["project_id"]
+        assert created["created_task_ids"]
+
+        resp = client.get("/project-director/workbench/resume?mode=new-project")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "backend_recent_task_creation"
+        assert data["session"]["id"] == session_id
+        assert data["plan_version"]["id"] == plan_id
+        assert data["plan_version"]["status"] == PlanVersionStatus.CONFIRMED.value
+        assert data["plan_version"]["project_id"] == created["project_id"]
+        assert data["task_creation"]["plan_version_id"] == plan_id
+        assert data["task_creation"]["project_id"] == created["project_id"]
+        assert data["task_creation"]["created_task_ids"] == created["created_task_ids"]
+        assert data["task_creation"]["task_count"] == created["task_count"]
+        assert data["task_creation"]["status"] == "created"
+        assert "正式项目与任务队列" in data["next_action"]
+
 
 # ── Service Tests ───────────────────────────────────────────────────
 

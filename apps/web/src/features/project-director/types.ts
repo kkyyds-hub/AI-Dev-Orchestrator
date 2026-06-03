@@ -328,7 +328,13 @@ export interface ProjectDirectorPlanReviewResponse {
 export interface ProjectDirectorWorkbenchResume {
   session: ProjectDirectorSession | null;
   plan_version: ProjectDirectorPlanVersion | null;
-  source: "backend_recent_plan" | "backend_recent_session" | "none" | string;
+  task_creation: ProjectDirectorTaskCreationResponse | null;
+  source:
+    | "backend_recent_plan"
+    | "backend_recent_session"
+    | "backend_recent_task_creation"
+    | "none"
+    | string;
   next_action: string;
 }
 
