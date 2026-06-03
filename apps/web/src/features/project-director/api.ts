@@ -6,6 +6,7 @@ import type {
   CreateProjectDirectorPlanVersionInput,
   CreateProjectDirectorSessionInput,
   CreateProjectDirectorTaskQueueInput,
+  FetchProjectDirectorWorkbenchResumeInput,
   ProjectDirectorAgentTeamConfigResponse,
   ProjectDirectorPlanReviewResponse,
   ProjectDirectorPlanVersion,
@@ -15,6 +16,7 @@ import type {
   ProjectDirectorSkillBindingConfigResponse,
   ProjectDirectorTaskCreationResponse,
   ProjectDirectorVerificationConfigResponse,
+  ProjectDirectorWorkbenchResume,
   ReviewProjectDirectorAgentTeamConfigInput,
   ReviewProjectDirectorRepositoryBindingConfigInput,
   ReviewProjectDirectorSkillBindingConfigInput,
@@ -30,6 +32,19 @@ export function createProjectDirectorSession(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function fetchProjectDirectorWorkbenchResume(
+  input: FetchProjectDirectorWorkbenchResumeInput,
+): Promise<ProjectDirectorWorkbenchResume> {
+  const params = new URLSearchParams({ mode: input.mode });
+  if (input.projectId) {
+    params.set("project_id", input.projectId);
+  }
+
+  return requestJson<ProjectDirectorWorkbenchResume>(
+    `/project-director/workbench/resume?${params.toString()}`,
+  );
 }
 
 export function submitProjectDirectorAnswers(

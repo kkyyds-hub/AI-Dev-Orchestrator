@@ -10,6 +10,7 @@ import {
   useCreateProjectDirectorPlanVersion,
   useCreateProjectDirectorSession,
   useCreateProjectDirectorTaskQueue,
+  useProjectDirectorWorkbenchResume,
   useReviewProjectDirectorPlanVersion,
   useSubmitProjectDirectorAnswers,
 } from "../../../features/project-director/hooks";
@@ -85,6 +86,16 @@ const EXAMPLE_QUESTIONS = [
   "我还没有项目，请作为 AI 项目主管先问我必要澄清问题。",
 ];
 
+const DIRECTOR_RESUME_STORAGE_PREFIX =
+  "ai-dev-orchestrator:project-director-workbench-resume";
+
+function buildDirectorResumeStorageKey(
+  mode: "new-project" | "project",
+  projectId: string | null,
+) {
+  return `${DIRECTOR_RESUME_STORAGE_PREFIX}:${mode}:${projectId ?? "unbound"}`;
+}
+
 interface DirectorChatEntryProps {
   selectedProjectId: string | null;
   selectedProjectName: string;
@@ -108,6 +119,7 @@ export function DirectorChatEntry({
   const [pendingReviewAction, setPendingReviewAction] =
     useState<ProjectDirectorPlanReviewAction | null>(null);
   const [planReviewMessage, setPlanReviewMessage] = useState<string | null>(null);
+  const [resumeMessage, setResumeMessage] = useState<string | null>(null);
 
   const createSessionMutation = useCreateProjectDirectorSession();
   const submitAnswersMutation = useSubmitProjectDirectorAnswers();
@@ -126,6 +138,10 @@ export function DirectorChatEntry({
     mode === "project" && selectedProjectId && selectedProjectId !== "all"
       ? selectedProjectId
       : null;
+  const resumeQuery = useProjectDirectorWorkbenchResume({
+    mode,
+    projectId: scopedProjectId,
+  });
   const trimmedDraft = draft.trim();
   const workerRunOnceResult = runWorkerOnceMutation.data ?? null;
   const providerSettings = providerSettingsQuery.data ?? null;
@@ -205,12 +221,25 @@ export function DirectorChatEntry({
     ) {
       return "AI 项目主管正在记录驳回结论。";
     }
+    if (!session && resumeQuery.isLoading) {
+      return "正在检查是否有未完成的 Project Director 流程。";
+    }
+    if (!session && resumeQuery.isError) {
+      return "暂时无法检查未完成流程，你仍可以发起新的 Project Director 会话。";
+    }
+    if (resumeMessage) {
+      return resumeMessage;
+    }
     return planReviewMessage;
   }, [
     createPlanVersionMutation.isPending,
     pendingReviewAction,
     planReviewMessage,
+    resumeMessage,
+    resumeQuery.isError,
+    resumeQuery.isLoading,
     reviewPlanVersionMutation.isPending,
+    session,
   ]);
 
   useEffect(() => {
@@ -239,7 +268,51 @@ export function DirectorChatEntry({
     setReviewFeedback("");
     setPendingReviewAction(null);
     setPlanReviewMessage(null);
+    setResumeMessage(null);
   }, [mode, scopedProjectId]);
+
+  useEffect(() => {
+    if (session || planVersion) {
+      return;
+    }
+
+    const resume = resumeQuery.data;
+    if (!resume) {
+      return;
+    }
+
+    if (!resume.session) {
+      setResumeMessage(null);
+      return;
+    }
+
+    setSession(resume.session);
+    setPlanVersion(resume.plan_version);
+    setTaskCreation(null);
+    setReviewFeedback("");
+    setIsPlanReviewOpen(false);
+    setPlanReviewMessage(null);
+    setResumeMessage(resume.next_action);
+  }, [planVersion, resumeQuery.data, session]);
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(
+        buildDirectorResumeStorageKey(mode, scopedProjectId),
+        JSON.stringify({
+          sessionId: session.id,
+          planVersionId: planVersion?.id ?? null,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      // storage unavailable — backend resume still works
+    }
+  }, [mode, planVersion?.id, scopedProjectId, session]);
 
   const handleExampleClick = (question: string) => {
     setDraft(question);
@@ -264,6 +337,7 @@ export function DirectorChatEntry({
       setReviewFeedback("");
       setPlanReviewMessage(null);
       setIsPlanReviewOpen(false);
+      setResumeMessage(null);
     } catch {
       // Error details are rendered from the mutation state below.
     }
@@ -330,6 +404,7 @@ export function DirectorChatEntry({
       setTaskCreation(null);
       setReviewFeedback("");
       setPlanReviewMessage("项目草案已生成，请点击“查看项目草案”进入审核弹窗。");
+      setResumeMessage(null);
       setIsPlanReviewOpen(true);
     } catch {
       // Error details are rendered from the mutation state below.
@@ -353,6 +428,7 @@ export function DirectorChatEntry({
 
       setPlanVersion(result.replacement_plan_version ?? result.reviewed_plan_version);
       setPlanReviewMessage(result.next_action);
+      setResumeMessage(null);
       setTaskCreation(null);
 
       if (result.replacement_plan_version) {

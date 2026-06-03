@@ -6,6 +6,7 @@ import {
   confirmProjectDirectorPlanVersion,
   createProjectDirectorPlanVersion,
   createProjectDirectorSession,
+  fetchProjectDirectorWorkbenchResume,
   fetchProjectDirectorAgentTeamConfig,
   fetchProjectDirectorRepositoryBindingConfig,
   fetchProjectDirectorSetupReadiness,
@@ -19,9 +20,26 @@ import {
   submitProjectDirectorAnswers,
 } from "./api";
 
+import type { FetchProjectDirectorWorkbenchResumeInput } from "./types";
+
 export function useCreateProjectDirectorSession() {
   return useMutation({
     mutationFn: createProjectDirectorSession,
+  });
+}
+
+export function useProjectDirectorWorkbenchResume(
+  input: FetchProjectDirectorWorkbenchResumeInput,
+) {
+  return useQuery({
+    queryKey: [
+      "project-director",
+      "workbench-resume",
+      input.mode,
+      input.projectId ?? null,
+    ],
+    queryFn: () => fetchProjectDirectorWorkbenchResume(input),
+    retry: false,
   });
 }
 

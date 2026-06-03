@@ -694,6 +694,39 @@ class TestConfirmPlanVersion:
         assert "Partial" in data["gate_conclusion"]
 
 
+class TestWorkbenchResume:
+    def test_resume_empty_workbench_returns_no_active_flow(self, client):
+        resp = client.get("/project-director/workbench/resume?mode=new-project")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session"] is None
+        assert data["plan_version"] is None
+        assert data["source"] == "none"
+
+    def test_resume_new_project_restores_latest_session_and_plan(self, client):
+        session_id = _prepare_confirmed_session(client)
+        plan_resp = client.post(
+            f"/project-director/sessions/{session_id}/plan-versions"
+        )
+        assert plan_resp.status_code == 201
+        plan_id = plan_resp.json()["id"]
+
+        resp = client.get("/project-director/workbench/resume?mode=new-project")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "backend_recent_plan"
+        assert data["session"]["id"] == session_id
+        assert data["session"]["project_id"] is None
+        assert data["plan_version"]["id"] == plan_id
+        assert (
+            data["plan_version"]["status"]
+            == PlanVersionStatus.PENDING_CONFIRMATION.value
+        )
+        assert "恢复" in data["next_action"]
+
+
 # ── Service Tests ───────────────────────────────────────────────────
 
 

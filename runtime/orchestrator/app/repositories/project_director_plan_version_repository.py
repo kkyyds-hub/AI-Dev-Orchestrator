@@ -118,6 +118,34 @@ class ProjectDirectorPlanVersionRepository:
         rows = self._session.execute(stmt).scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    def list_recent_resumable(
+        self,
+        *,
+        project_id: UUID | None = None,
+        unbound_only: bool = False,
+        limit: int = 20,
+    ) -> list[ProjectDirectorPlanVersion]:
+        """Return recent plan drafts that can be reviewed or continued."""
+
+        resumable_statuses = (
+            PlanVersionStatus.PENDING_CONFIRMATION,
+            PlanVersionStatus.CONFIRMED,
+            PlanVersionStatus.REJECTED,
+        )
+        stmt = (
+            select(ProjectDirectorPlanVersionTable)
+            .where(ProjectDirectorPlanVersionTable.status.in_(resumable_statuses))
+            .order_by(ProjectDirectorPlanVersionTable.updated_at.desc())
+            .limit(limit)
+        )
+        if unbound_only:
+            stmt = stmt.where(ProjectDirectorPlanVersionTable.project_id.is_(None))
+        elif project_id is not None:
+            stmt = stmt.where(ProjectDirectorPlanVersionTable.project_id == project_id)
+
+        rows = self._session.execute(stmt).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     def list_by_session_id(
         self, session_id: UUID
     ) -> list[ProjectDirectorPlanVersion]:

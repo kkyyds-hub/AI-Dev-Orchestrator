@@ -325,6 +325,13 @@ export interface ProjectDirectorPlanReviewResponse {
   gate_conclusion: string;
 }
 
+export interface ProjectDirectorWorkbenchResume {
+  session: ProjectDirectorSession | null;
+  plan_version: ProjectDirectorPlanVersion | null;
+  source: "backend_recent_plan" | "backend_recent_session" | "none" | string;
+  next_action: string;
+}
+
 export interface ProjectDirectorTaskCreationResponse {
   plan_version_id: string;
   session_id: string;
@@ -384,6 +391,11 @@ export interface ConfirmProjectDirectorGoalInput {
 
 export interface CreateProjectDirectorPlanVersionInput {
   sessionId: string;
+}
+
+export interface FetchProjectDirectorWorkbenchResumeInput {
+  mode: "new-project" | "project";
+  projectId?: string | null;
 }
 
 export interface ConfirmProjectDirectorPlanVersionInput {

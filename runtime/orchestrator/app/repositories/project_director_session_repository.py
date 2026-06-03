@@ -66,6 +66,34 @@ class ProjectDirectorSessionRepository:
         rows = self._session.execute(stmt).scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    def list_recent_resumable(
+        self,
+        *,
+        project_id: UUID | None = None,
+        unbound_only: bool = False,
+        limit: int = 20,
+    ) -> list[ProjectDirectorSession]:
+        """Return recent Project Director sessions that can still be continued."""
+
+        resumable_statuses = (
+            ProjectDirectorSessionStatus.CLARIFYING,
+            ProjectDirectorSessionStatus.READY_TO_CONFIRM,
+            ProjectDirectorSessionStatus.CONFIRMED,
+        )
+        stmt = (
+            select(ProjectDirectorSessionTable)
+            .where(ProjectDirectorSessionTable.status.in_(resumable_statuses))
+            .order_by(ProjectDirectorSessionTable.updated_at.desc())
+            .limit(limit)
+        )
+        if unbound_only:
+            stmt = stmt.where(ProjectDirectorSessionTable.project_id.is_(None))
+        elif project_id is not None:
+            stmt = stmt.where(ProjectDirectorSessionTable.project_id == project_id)
+
+        rows = self._session.execute(stmt).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     def update(self, session_obj: ProjectDirectorSession) -> ProjectDirectorSession:
         row = self._session.get(ProjectDirectorSessionTable, session_obj.id)
         if row is None:
