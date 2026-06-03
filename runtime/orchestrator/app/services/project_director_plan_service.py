@@ -68,6 +68,10 @@ class PlanGenerationResult:
     provider_receipt_id: str | None = None
 
 
+class ProjectDirectorPlanGenerationError(ValueError):
+    """Raised when configured AI plan generation cannot produce a safe draft."""
+
+
 # ── Deterministic fallback generation ────────────────────────────────
 
 _DEFAULT_FORBIDDEN_ACTIONS = [
@@ -826,7 +830,14 @@ class ProjectDirectorPlanService:
         *,
         revision_notes: str = "",
     ) -> PlanGenerationResult:
-        """Generate a review-only draft: provider first, deterministic fallback."""
+        """Generate a review-only draft with narrow deterministic fallback.
+
+        Fallback is allowed only before a provider attempt is possible: provider
+        config cannot be read or no API key is configured. Once a configured
+        provider is called, parsing, contract, guardrail, and provider-call
+        failures are surfaced to the user instead of silently persisting a
+        deterministic template draft.
+        """
 
         provider_config_service = (
             self._provider_config_service or ProviderConfigService()
@@ -896,17 +907,15 @@ class ProjectDirectorPlanService:
             )
             return plan_draft
         except ProjectDirectorOutputGuardrailError as exc:
-            return _generate_rule_fallback_plan(
-                session_obj,
-                revision_notes=revision_notes,
-                reason=f"provider_guardrail_blocked:{exc}",
-            )
-        except Exception as exc:  # noqa: BLE001 - bad provider output must fallback
-            return _generate_rule_fallback_plan(
-                session_obj,
-                revision_notes=revision_notes,
-                reason=f"provider_generation_failed:{exc}",
-            )
+            raise ProjectDirectorPlanGenerationError(
+                "AI 项目主管已返回计划草案，但未通过安全边界校验；"
+                f"请调整目标/约束后重试。原因：provider_guardrail_blocked:{exc}"
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 - provider output/call failures are user-visible
+            raise ProjectDirectorPlanGenerationError(
+                "AI 项目主管计划草案生成失败，未创建系统规则模板草案；"
+                f"请稍后重试或检查 Provider 输出。原因：provider_generation_failed:{exc}"
+            ) from exc
 
     @staticmethod
     def _call_provider_text(
@@ -987,7 +996,11 @@ class ProjectDirectorPlanService:
     def request_changes(
         self, *, plan_version_id: UUID, feedback: str
     ) -> tuple[ProjectDirectorPlanVersion, ProjectDirectorPlanVersion]:
-        """Reject one draft and generate a new pending_confirmation version."""
+        """Generate a replacement draft, then reject the original draft.
+
+        If AI replacement generation fails, the original pending draft remains
+        reviewable; no deterministic template replacement is created.
+        """
 
         normalized_feedback = feedback.strip()
         if not normalized_feedback:
@@ -995,12 +1008,27 @@ class ProjectDirectorPlanService:
                 "feedback must not be empty when action=request_changes"
             )
 
-        rejected = self.reject_plan_version(plan_version_id)
+        original = self._require_pending_plan_version(plan_version_id)
         replacement = self.create_plan_version(
-            session_id=rejected.session_id,
+            session_id=original.session_id,
             revision_notes=normalized_feedback,
         )
+        rejected = self.reject_plan_version(plan_version_id)
         return rejected, replacement
+
+    def _require_pending_plan_version(
+        self,
+        plan_version_id: UUID,
+    ) -> ProjectDirectorPlanVersion:
+        plan_version = self._plan_repo.get_by_id(plan_version_id)
+        if plan_version is None:
+            raise ValueError(f"Plan version {plan_version_id} not found")
+        if plan_version.status != PlanVersionStatus.PENDING_CONFIRMATION:
+            raise ValueError(
+                f"Plan version is in '{plan_version.status}' status. "
+                f"Only 'pending_confirmation' plan versions can be rejected."
+            )
+        return plan_version
 
     def get_plan_version(
         self, plan_version_id: UUID

@@ -714,6 +714,11 @@ export function DirectorChatEntry({
                       确认时间：{session.confirmed_at}
                     </p>
                   ) : null}
+                  {createPlanVersionMutation.isError ? (
+                    <PlanGenerationErrorPanel
+                      message={createPlanVersionMutation.error.message}
+                    />
+                  ) : null}
                 </div>
               )}
 
@@ -958,9 +963,6 @@ export function DirectorChatEntry({
               {confirmGoalMutation.isError ? (
                 <ErrorLine message={confirmGoalMutation.error.message} />
               ) : null}
-              {createPlanVersionMutation.isError ? (
-                <ErrorLine message={createPlanVersionMutation.error.message} />
-              ) : null}
               {reviewPlanVersionMutation.isError ? (
                 <ErrorLine message={reviewPlanVersionMutation.error.message} />
               ) : null}
@@ -1105,6 +1107,25 @@ function ErrorLine({ message }: { message: string }) {
     <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
       {message}
     </p>
+  );
+}
+
+function PlanGenerationErrorPanel({ message }: { message: string }) {
+  return (
+    <div
+      data-testid="project-director-plan-generation-error"
+      className="mt-4 rounded border border-red-500/30 bg-red-500/10 px-4 py-3"
+    >
+      <p className="text-sm font-medium text-red-200">AI 计划草案生成失败</p>
+      <p className="mt-1 text-xs leading-5 text-red-100/90">
+        Provider 已配置/已尝试生成时，系统不会自动展示 rule_fallback 模板草案，
+        以免把系统规则模板误认为 AI 项目主管输出。请根据下方原因调整目标/约束、
+        检查 Provider 输出后重试。
+      </p>
+      <p className="mt-2 whitespace-pre-wrap rounded border border-red-500/20 bg-[#111111] px-3 py-2 text-xs text-red-100">
+        {message}
+      </p>
+    </div>
   );
 }
 

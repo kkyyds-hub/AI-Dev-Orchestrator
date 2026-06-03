@@ -83,7 +83,10 @@ from app.repositories.task_repository import TaskRepository
 from app.services.project_director_confirmation_service import (
     ProjectDirectorConfirmationService,
 )
-from app.services.project_director_plan_service import ProjectDirectorPlanService
+from app.services.project_director_plan_service import (
+    ProjectDirectorPlanGenerationError,
+    ProjectDirectorPlanService,
+)
 from app.services.project_director_service import ProjectDirectorService
 from app.services.project_director_task_creation_service import (
     ProjectDirectorTaskCreationService,
@@ -902,7 +905,7 @@ def _compute_plan_contract_fields(
     "/sessions/{session_id}/plan-versions",
     response_model=PlanVersionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a provider-first, review-only plan draft with rule fallback",
+    summary="Create a provider-first, review-only plan draft",
 )
 def create_plan_version(
     session_id: UUID,
@@ -911,14 +914,21 @@ def create_plan_version(
     """Generate a provider-first, review-only plan draft from a confirmed session.
 
     Only `confirmed` sessions can generate plan versions. The plan service
-    prefers configured AI provider output, validates it in the backend, and
-    falls back to rule_fallback when provider output is unavailable or blocked.
-    This endpoint does not create tasks, dispatch Worker, call planning/apply,
-    or write repositories.
+    prefers configured AI provider output and validates it in the backend.
+    Deterministic rule_fallback is used only when no provider can be attempted
+    (for example provider not configured). If a configured provider returns
+    invalid or unsafe output, the endpoint returns an explicit error instead of
+    persisting a template draft. This endpoint does not create tasks, dispatch
+    Worker, call planning/apply, or write repositories.
     """
 
     try:
         plan_version = plan_service.create_plan_version(session_id=session_id)
+    except ProjectDirectorPlanGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     except ValueError as exc:
         detail = str(exc)
         if "not found" in detail.lower():
@@ -1061,6 +1071,11 @@ def review_plan_version(
             next_action = (
                 f"已生成整改版 v{replacement.version_no}，请重新审阅后再决定。"
             )
+    except ProjectDirectorPlanGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     except ValueError as exc:
         detail = str(exc)
         if "not found" in detail.lower():

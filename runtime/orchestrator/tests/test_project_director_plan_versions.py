@@ -34,6 +34,7 @@ from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
 from app.services.project_director_plan_service import ProjectDirectorPlanService
+from app.services.project_director_plan_service import ProjectDirectorPlanGenerationError
 from app.services.project_director_service import ProjectDirectorService
 
 
@@ -1098,7 +1099,7 @@ class TestPlanService:
         assert "作战计划摘要" in pv.plan_summary
         assert "不自动调用 Worker" in pv.forbidden_actions
 
-    def test_create_plan_version_blocks_unsafe_provider_plan(
+    def test_create_plan_version_rejects_unsafe_provider_plan_without_fallback(
         self, db_session, session_service
     ):
         session_obj = self._confirmed_session(session_service)
@@ -1124,13 +1125,80 @@ class TestPlanService:
             provider_text_generator=unsafe_generator,
         )
 
-        pv = service.create_plan_version(session_id=session_obj.id)
+        with pytest.raises(ProjectDirectorPlanGenerationError) as exc_info:
+            service.create_plan_version(session_id=session_obj.id)
 
-        assert pv.source == "rule_fallback"
-        assert "provider_guardrail_blocked" in pv.source_detail
-        assert "deterministic_plan_generation" in pv.source_detail
-        assert "AI 将自动创建任务" not in pv.plan_summary
-        assert "不自动创建任务" in pv.forbidden_actions
+        assert "provider_guardrail_blocked" in str(exc_info.value)
+        assert "未通过安全边界校验" in str(exc_info.value)
+        assert service.list_plan_versions(session_obj.id) == []
+
+    def test_create_plan_version_rejects_invalid_provider_json_without_fallback(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def invalid_json_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            return "AI 说：我会稍后补 JSON", "receipt-invalid-json"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=invalid_json_generator,
+        )
+
+        with pytest.raises(ProjectDirectorPlanGenerationError) as exc_info:
+            service.create_plan_version(session_id=session_obj.id)
+
+        assert "provider_generation_failed" in str(exc_info.value)
+        assert "未创建系统规则模板草案" in str(exc_info.value)
+        assert service.list_plan_versions(session_obj.id) == []
+
+    def test_request_changes_keeps_original_pending_when_provider_output_invalid(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+        call_count = 0
+
+        def generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _provider_plan_payload(), "receipt-original"
+            return "not-json", "receipt-rework-invalid"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=generator,
+        )
+
+        original = service.create_plan_version(session_id=session_obj.id)
+
+        with pytest.raises(ProjectDirectorPlanGenerationError):
+            service.request_changes(
+                plan_version_id=original.id,
+                feedback="请补充更清晰的验收标准。",
+            )
+
+        versions = service.list_plan_versions(session_obj.id)
+        assert len(versions) == 1
+        assert versions[0].id == original.id
+        assert versions[0].status == PlanVersionStatus.PENDING_CONFIRMATION
+        assert versions[0].source == "ai"
 
     def test_version_no_increments(self, session_service, plan_service):
         from app.domain.project_director_session import ClarifyingAnswer
