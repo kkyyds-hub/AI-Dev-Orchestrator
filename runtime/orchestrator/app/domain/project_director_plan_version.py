@@ -1,7 +1,8 @@
 """AI Project Director Plan Version domain model.
 
-BCG-02 Phase1: plan draft → pending_confirmation → confirmed.
-Deterministic generation only — no AI, no Provider, no task creation.
+Plan drafts are review-only records. Generation is provider-first with explicit
+rule fallback provenance, but confirmation still does not create tasks or run
+workers.
 """
 
 from datetime import datetime
@@ -140,6 +141,8 @@ class ProjectDirectorPlanVersion(DomainModel):
     repository_binding_suggestions: list[RepositoryBindingSuggestion] = Field(default_factory=list)
     deliverable_boundaries: list[DeliverableBoundary] = Field(default_factory=list)
     complexity_assessment: ComplexityAssessment = Field(default_factory=ComplexityAssessment)
+    source: str = Field(default="rule_fallback", max_length=40)
+    source_detail: str = Field(default="deterministic_plan_generation", max_length=500)
     forbidden_actions: list[str] = Field(default_factory=list)
     confirmed_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now())

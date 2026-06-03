@@ -305,6 +305,8 @@ export interface ProjectDirectorPlanVersion {
   repository_binding_suggestions: ProjectDirectorRepositoryBindingSuggestion[];
   deliverable_boundaries: ProjectDirectorDeliverableBoundary[];
   complexity_assessment: ProjectDirectorComplexityAssessment;
+  source?: "ai" | "rule_fallback" | string;
+  source_detail?: string;
   forbidden_actions: string[];
   confirmed_at: string | null;
   created_at: string;

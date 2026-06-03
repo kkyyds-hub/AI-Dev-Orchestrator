@@ -46,6 +46,21 @@ export function ProjectDirectorPlanReviewModal({
               label={PROJECT_DIRECTOR_PLAN_STATUS_LABELS[planVersion.status]}
               tone={mapPlanStatusTone(planVersion.status)}
             />
+            <span
+              className={`rounded border px-2 py-0.5 ${
+                planVersion.source === "ai"
+                  ? "border-emerald-500/30 text-emerald-300"
+                  : "border-amber-500/30 text-amber-300"
+              }`}
+            >
+              来源：
+              {planVersion.source === "ai" ? "AI provider" : "规则 fallback"}
+            </span>
+            {planVersion.source_detail ? (
+              <span className="max-w-full truncate" title={planVersion.source_detail}>
+                {planVersion.source_detail}
+              </span>
+            ) : null}
             <span>Gate: {planVersion.gate_conclusion}</span>
           </div>
 

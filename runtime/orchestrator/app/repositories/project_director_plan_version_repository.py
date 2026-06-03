@@ -70,6 +70,8 @@ class ProjectDirectorPlanVersionRepository:
             complexity_assessment_json=json.dumps(
                 plan_version.complexity_assessment.model_dump()
             ),
+            source=plan_version.source,
+            source_detail=plan_version.source_detail,
             forbidden_actions_json=json.dumps(plan_version.forbidden_actions),
             confirmed_at=plan_version.confirmed_at,
             created_at=plan_version.created_at,
@@ -193,6 +195,8 @@ class ProjectDirectorPlanVersionRepository:
         row.complexity_assessment_json = json.dumps(
             plan_version.complexity_assessment.model_dump()
         )
+        row.source = plan_version.source
+        row.source_detail = plan_version.source_detail
         row.forbidden_actions_json = json.dumps(plan_version.forbidden_actions)
         row.confirmed_at = plan_version.confirmed_at
         row.updated_at = datetime.now(timezone.utc)
@@ -329,6 +333,11 @@ class ProjectDirectorPlanVersionRepository:
             repository_binding_suggestions=repository_binding_suggestions,
             deliverable_boundaries=deliverable_boundaries,
             complexity_assessment=complexity_assessment,
+            source=getattr(row, "source", None) or "rule_fallback",
+            source_detail=(
+                getattr(row, "source_detail", None)
+                or "deterministic_plan_generation"
+            ),
             forbidden_actions=forbidden,
             confirmed_at=ensure_utc_datetime(row.confirmed_at),
             created_at=ensure_utc_datetime(row.created_at) or datetime.now(timezone.utc),

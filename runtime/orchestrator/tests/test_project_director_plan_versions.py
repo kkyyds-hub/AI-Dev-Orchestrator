@@ -5,6 +5,8 @@ BCG-02 Phase1: plan version generation, listing, confirmation.
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -16,6 +18,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func, select
 
 from app.api.router import api_router
+from app.api.routes.project_director import (
+    _get_plan_service,
+    _get_service,
+)
 from app.core.db import get_db_session
 from app.core.db_tables import ORMBase, TaskTable
 from app.domain.project_director_plan_version import PlanVersionStatus
@@ -67,6 +73,33 @@ def client(sqlite_session_factory):
 
     app.dependency_overrides[get_db_session] = override_get_db_session
 
+    def override_get_service():
+        session = sqlite_session_factory()
+        try:
+            repo = ProjectDirectorSessionRepository(session)
+            yield ProjectDirectorService(
+                session_repository=repo,
+                provider_config_service=_FakeProviderConfigService(configured=False),
+            )
+        finally:
+            session.close()
+
+    def override_get_plan_service():
+        session = sqlite_session_factory()
+        try:
+            plan_repo = ProjectDirectorPlanVersionRepository(session)
+            session_repo = ProjectDirectorSessionRepository(session)
+            yield ProjectDirectorPlanService(
+                plan_version_repository=plan_repo,
+                session_repository=session_repo,
+                provider_config_service=_FakeProviderConfigService(configured=False),
+            )
+        finally:
+            session.close()
+
+    app.dependency_overrides[_get_service] = override_get_service
+    app.dependency_overrides[_get_plan_service] = override_get_plan_service
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -80,13 +113,17 @@ def plan_service(db_session):
     return ProjectDirectorPlanService(
         plan_version_repository=plan_repo,
         session_repository=session_repo,
+        provider_config_service=_FakeProviderConfigService(configured=False),
     )
 
 
 @pytest.fixture()
 def session_service(db_session):
     repo = ProjectDirectorSessionRepository(db_session)
-    return ProjectDirectorService(session_repository=repo)
+    return ProjectDirectorService(
+        session_repository=repo,
+        provider_config_service=_FakeProviderConfigService(configured=False),
+    )
 
 
 def _prepare_confirmed_session(client) -> str:
@@ -118,6 +155,130 @@ def _prepare_confirmed_session(client) -> str:
     resp = client.post(f"/project-director/sessions/{session_id}/confirm")
     assert resp.status_code == 200
     return session_id
+
+
+class _FakeProviderConfigService:
+    def __init__(self, *, configured: bool) -> None:
+        self.configured = configured
+
+    def resolve_openai_runtime_config(self):
+        return SimpleNamespace(
+            api_key="test-provider-key" if self.configured else None,
+            base_url="https://provider.invalid/v1",
+            timeout_seconds=1,
+            detected_provider_type="openai_compatible",
+            model_names={"balanced": "test-plan-model"},
+        )
+
+
+def _provider_plan_payload() -> str:
+    """Return one complete provider JSON plan without calling a real provider."""
+
+    return json.dumps(
+        {
+            "plan_summary": "AI provider 生成的作战计划：围绕目标拆分范围、角色和验收。",
+            "phases": [
+                {
+                    "sequence": 1,
+                    "name": "AI 范围收口",
+                    "goal": "确认范围、不做范围和验收口径",
+                    "task_count_hint": 2,
+                },
+                {
+                    "sequence": 2,
+                    "name": "AI 实施准备",
+                    "goal": "形成可审阅任务与验证建议",
+                    "task_count_hint": 3,
+                },
+            ],
+            "proposed_tasks": [
+                {
+                    "title": "AI 需求复核",
+                    "description": "复核目标、约束和澄清回答",
+                    "suggested_role_code": ProjectRoleCode.ARCHITECT.value,
+                    "priority_hint": "high",
+                },
+                {
+                    "title": "AI 验证设计",
+                    "description": "设计最小验证命令和证据要求",
+                    "suggested_role_code": ProjectRoleCode.REVIEWER.value,
+                    "priority_hint": "normal",
+                },
+            ],
+            "acceptance_criteria": ["用户确认草案后才允许进入任务创建"],
+            "risks": ["草案阶段不得误触发 Worker 或仓库写入"],
+            "project_scope": {
+                "in_scope": ["生成可审核作战计划草案"],
+                "out_of_scope": ["不自动创建任务", "不调用 Worker", "不写仓库"],
+                "assumptions": ["后续执行必须由用户单独触发"],
+            },
+            "agent_team_suggestions": [
+                {
+                    "role_code": ProjectRoleCode.PRODUCT_MANAGER.value,
+                    "role_name": "产品负责人",
+                    "responsibility": "确认范围和验收标准",
+                    "collaboration_notes": ["先确认目标"],
+                },
+                {
+                    "role_code": ProjectRoleCode.REVIEWER.value,
+                    "role_name": "评审者",
+                    "responsibility": "确认验证机制和证据完整性",
+                    "collaboration_notes": ["后续执行前复核"],
+                },
+            ],
+            "skill_binding_suggestions": [
+                {
+                    "skill_code": "verify-v5-runtime-and-regression",
+                    "owner_role_code": ProjectRoleCode.REVIEWER.value,
+                    "usage": "后续实现完成后运行验证",
+                    "activation_stage": "验证",
+                    "binding_mode": "suggested",
+                    "reason": "草案阶段只建议，不创建绑定",
+                }
+            ],
+            "verification_mechanisms": [
+                {
+                    "name": "草案合同检查",
+                    "command_or_method": "pytest tests/test_project_director_plan_versions.py",
+                    "evidence_required": "source/source_detail 和安全字段存在",
+                    "owner_role_code": ProjectRoleCode.REVIEWER.value,
+                    "purpose": "确保 AI 草案合同完整",
+                    "risk_level": "high",
+                    "requires_user_confirmation": True,
+                }
+            ],
+            "repository_binding_suggestions": [
+                {
+                    "binding_type": "review_only",
+                    "binding_mode": "suggested",
+                    "target": "当前项目关联仓库",
+                    "branch": "未指定",
+                    "focus_paths": ["runtime/orchestrator/app/"],
+                    "usage": "只作为后续审阅线索",
+                    "safety_note": "草案阶段不写仓库、不提交代码",
+                }
+            ],
+            "deliverable_boundaries": [
+                {
+                    "name": "AI 草案审阅包",
+                    "description": "让用户判断是否批准后续任务创建",
+                    "owner_role_code": ProjectRoleCode.PRODUCT_MANAGER.value,
+                    "required_contents": ["范围", "不做范围", "验收标准"],
+                    "done_definition": "用户能明确是否通过草案",
+                    "acceptance_signal": "用户点击通过草案",
+                }
+            ],
+            "complexity_assessment": {
+                "level": "medium",
+                "label": "中等复杂度",
+                "score": 3,
+                "recommended_agent_count": 3,
+                "drivers": ["AI provider 根据目标评估"],
+                "mitigation_suggestions": ["保留人工审核 Gate"],
+            },
+        },
+        ensure_ascii=False,
+    )
 
 
 # ── API Tests: Create Plan Version ──────────────────────────────────
@@ -309,6 +470,8 @@ class TestCreatePlanVersion:
         assert "acceptance_signal" in data["deliverable_boundaries"][0]
         assert "label" in data["complexity_assessment"]
         assert "recommended_agent_count" in data["complexity_assessment"]
+        assert "source" in data
+        assert "source_detail" in data
         assert "forbidden_actions" in data
         assert "confirmed_at" in data
         assert "next_action" in data
@@ -652,6 +815,20 @@ class TestReviewPlanVersion:
 
 
 class TestPlanService:
+    def _confirmed_session(self, session_service):
+        from app.domain.project_director_session import ClarifyingAnswer
+
+        session_obj = session_service.create_session(
+            goal_text="构建一个 AI 项目主管首次创建项目链路，范围包括草案生成和人工确认",
+            constraints="不得自动调用 Worker，不得写仓库",
+        )
+        answers = [
+            ClarifyingAnswer(question_id=q.id, answer=f"回答 {i}")
+            for i, q in enumerate(session_obj.clarifying_questions)
+        ]
+        session_obj = session_service.submit_answers(session_obj.id, answers)
+        return session_service.confirm_goal(session_obj.id)
+
     def test_full_plan_flow(self, session_service, plan_service):
         # 1. Create and confirm a session
         session_obj = session_service.create_session(
@@ -695,6 +872,77 @@ class TestPlanService:
         confirmed = plan_service.confirm_plan_version(pv.id)
         assert confirmed.status == PlanVersionStatus.CONFIRMED
         assert confirmed.confirmed_at is not None
+
+    def test_create_plan_version_uses_injected_provider_plan(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+        calls: list[tuple[str, str, str]] = []
+
+        def fake_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            calls.append((model_name, prompt_text, request_id))
+            assert model_name == "test-plan-model"
+            assert request_id.startswith("project-director-plan-")
+            assert "生成一份“可审核的项目作战计划草案”" in prompt_text
+            return _provider_plan_payload(), "receipt-plan-test-1"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=fake_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+
+        assert len(calls) == 1
+        assert pv.source == "ai"
+        assert "provider=openai_compatible" in pv.source_detail
+        assert "model=test-plan-model" in pv.source_detail
+        assert "receipt=receipt-plan-test-1" in pv.source_detail
+        assert pv.plan_summary.startswith("AI provider 生成的作战计划")
+        assert pv.project_scope.out_of_scope
+        assert "不自动创建任务" in pv.forbidden_actions
+
+        retrieved = service.get_plan_version(pv.id)
+        assert retrieved is not None
+        assert retrieved.source == "ai"
+        assert "receipt=receipt-plan-test-1" in retrieved.source_detail
+
+    def test_create_plan_version_fallback_marks_source_without_provider_call(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def forbidden_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            raise AssertionError("provider generator must not be called")
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=False),
+            provider_text_generator=forbidden_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+
+        assert pv.source == "rule_fallback"
+        assert "deterministic_plan_generation" in pv.source_detail
+        assert "provider_not_configured" in pv.source_detail
+        assert "作战计划摘要" in pv.plan_summary
+        assert "不自动调用 Worker" in pv.forbidden_actions
 
     def test_version_no_increments(self, session_service, plan_service):
         from app.domain.project_director_session import ClarifyingAnswer

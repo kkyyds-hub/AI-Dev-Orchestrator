@@ -760,6 +760,8 @@ class PlanVersionResponse(BaseModel):
     complexity_assessment: ComplexityAssessmentResponse = Field(
         default_factory=ComplexityAssessmentResponse
     )
+    source: str = Field(default="rule_fallback")
+    source_detail: str = Field(default="")
     forbidden_actions: list[str] = Field(default_factory=list)
     confirmed_at: str | None
     created_at: str
@@ -812,6 +814,8 @@ class PlanVersionResponse(BaseModel):
             complexity_assessment=ComplexityAssessmentResponse.from_domain(
                 pv.complexity_assessment
             ),
+            source=pv.source,
+            source_detail=pv.source_detail,
             forbidden_actions=pv.forbidden_actions,
             confirmed_at=pv.confirmed_at.isoformat() if pv.confirmed_at else None,
             created_at=pv.created_at.isoformat(),

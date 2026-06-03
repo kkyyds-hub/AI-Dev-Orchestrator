@@ -94,6 +94,8 @@ _PROJECT_DIRECTOR_PLAN_VERSION_TABLE_COLUMN_UPGRADES = {
     "repository_binding_suggestions_json": "ALTER TABLE project_director_plan_versions ADD COLUMN repository_binding_suggestions_json TEXT NOT NULL DEFAULT '[]'",
     "deliverable_boundaries_json": "ALTER TABLE project_director_plan_versions ADD COLUMN deliverable_boundaries_json TEXT NOT NULL DEFAULT '[]'",
     "complexity_assessment_json": "ALTER TABLE project_director_plan_versions ADD COLUMN complexity_assessment_json TEXT NOT NULL DEFAULT '{}'",
+    "source": "ALTER TABLE project_director_plan_versions ADD COLUMN source TEXT NOT NULL DEFAULT 'rule_fallback'",
+    "source_detail": "ALTER TABLE project_director_plan_versions ADD COLUMN source_detail TEXT NOT NULL DEFAULT 'deterministic_plan_generation'",
 }
 
 _TABLE_COLUMN_UPGRADES = {

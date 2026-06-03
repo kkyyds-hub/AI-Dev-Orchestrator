@@ -1,11 +1,15 @@
 """AI Project Director Plan Version service.
 
-BCG-02 Phase1: deterministic plan generation from confirmed sessions.
-No AI, no Provider, no task creation, no worker dispatch.
+Stage 7-A4: provider-first plan draft generation with explicit rule fallback.
+Draft generation remains review-only: no task creation, no worker dispatch, no
+planning/apply, and no repository writes.
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -30,9 +34,37 @@ from app.repositories.project_director_plan_version_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.services.provider_config_service import ProviderConfigService
 
 
-# ── Deterministic plan generation ────────────────────────────────────
+# ── Plan generation contracts ────────────────────────────────────────
+
+PlanDraftSource = str
+ProviderTextGenerator = Callable[[str, str, str], tuple[str, str | None]]
+
+
+@dataclass(frozen=True, slots=True)
+class PlanGenerationResult:
+    """Review-only plan draft content plus provenance."""
+
+    plan_summary: str
+    phases: list[PlanPhase]
+    proposed_tasks: list[ProposedTask]
+    acceptance_criteria: list[str]
+    risks: list[str]
+    project_scope: ProjectScopeSummary
+    agent_team_suggestions: list[AgentTeamSuggestion]
+    skill_binding_suggestions: list[SkillBindingSuggestion]
+    verification_mechanisms: list[VerificationMechanismSuggestion]
+    repository_binding_suggestions: list[RepositoryBindingSuggestion]
+    deliverable_boundaries: list[DeliverableBoundary]
+    complexity_assessment: ComplexityAssessment
+    source: PlanDraftSource
+    source_detail: str
+    provider_receipt_id: str | None = None
+
+
+# ── Deterministic fallback generation ────────────────────────────────
 
 _DEFAULT_FORBIDDEN_ACTIONS = [
     "不自动创建任务",
@@ -463,6 +495,212 @@ def _generate_plan_from_session(
     )
 
 
+def _generate_rule_fallback_plan(
+    session: "ProjectDirectorSession",  # noqa: F821
+    *,
+    revision_notes: str = "",
+    reason: str,
+) -> PlanGenerationResult:
+    """Generate an explicit deterministic fallback plan draft."""
+
+    (
+        plan_summary,
+        phases,
+        proposed_tasks,
+        acceptance_criteria,
+        risks,
+        project_scope,
+        agent_team_suggestions,
+        skill_binding_suggestions,
+        verification_mechanisms,
+        repository_binding_suggestions,
+        deliverable_boundaries,
+        complexity_assessment,
+    ) = _generate_plan_from_session(
+        session,
+        revision_notes=revision_notes,
+    )
+    source_detail = f"deterministic_plan_generation; reason={reason[:220]}"
+    return PlanGenerationResult(
+        plan_summary=plan_summary,
+        phases=phases,
+        proposed_tasks=proposed_tasks,
+        acceptance_criteria=acceptance_criteria,
+        risks=risks,
+        project_scope=project_scope,
+        agent_team_suggestions=agent_team_suggestions,
+        skill_binding_suggestions=skill_binding_suggestions,
+        verification_mechanisms=verification_mechanisms,
+        repository_binding_suggestions=repository_binding_suggestions,
+        deliverable_boundaries=deliverable_boundaries,
+        complexity_assessment=complexity_assessment,
+        source="rule_fallback",
+        source_detail=source_detail,
+    )
+
+
+def _build_plan_prompt(
+    session: "ProjectDirectorSession",  # noqa: F821
+    *,
+    revision_notes: str = "",
+) -> str:
+    """Prompt the provider to produce a complete review-only JSON plan draft."""
+
+    answers = {a.question_id: a.answer for a in session.clarifying_answers}
+    answer_lines = []
+    for question in session.clarifying_questions:
+        answer_lines.append(
+            {
+                "question": question.question,
+                "answer": answers.get(question.id, "（未回答）"),
+            }
+        )
+    revision_block = revision_notes.strip() or "（无整改反馈）"
+    return "\n".join(
+        [
+            "你是 AI-Dev-Orchestrator 的 AI 项目主管。",
+            "请基于已确认目标、约束和澄清回答生成一份“可审核的项目作战计划草案”。",
+            "草案只用于用户审核，不得承诺自动创建任务、调用 Worker、调用 planning/apply、写仓库或提交代码。",
+            "只返回 JSON，不要 Markdown，不要解释。",
+            "JSON 结构必须包含：",
+            "{",
+            '  "plan_summary": "string",',
+            '  "phases": [{"sequence":1,"name":"string","goal":"string","task_count_hint":2}],',
+            '  "proposed_tasks": [{"title":"string","description":"string","suggested_role_code":"architect|engineer|reviewer|product_manager","priority_hint":"high|normal|low"}],',
+            '  "acceptance_criteria": ["string"],',
+            '  "risks": ["string"],',
+            '  "project_scope": {"in_scope":["string"],"out_of_scope":["string"],"assumptions":["string"]},',
+            '  "agent_team_suggestions": [{"role_code":"product_manager|architect|engineer|reviewer","role_name":"string","responsibility":"string","collaboration_notes":["string"]}],',
+            '  "skill_binding_suggestions": [{"skill_code":"string","owner_role_code":"product_manager|architect|engineer|reviewer","usage":"string","activation_stage":"string","binding_mode":"suggested","reason":"string"}],',
+            '  "verification_mechanisms": [{"name":"string","command_or_method":"string","evidence_required":"string","owner_role_code":"reviewer","purpose":"string","risk_level":"low|normal|high","requires_user_confirmation":true}],',
+            '  "repository_binding_suggestions": [{"binding_type":"review_only","binding_mode":"suggested","target":"string","branch":"未指定","focus_paths":["string"],"usage":"string","safety_note":"string"}],',
+            '  "deliverable_boundaries": [{"name":"string","description":"string","owner_role_code":"product_manager|architect|engineer|reviewer","required_contents":["string"],"done_definition":"string","acceptance_signal":"string"}],',
+            '  "complexity_assessment": {"level":"simple|medium|complex|large","label":"string","score":1,"recommended_agent_count":2,"drivers":["string"],"mitigation_suggestions":["string"]}',
+            "}",
+            "",
+            "硬性要求：",
+            "- suggested_role_code / role_code / owner_role_code 只能使用 product_manager、architect、engineer、reviewer。",
+            "- 必须明确保留用户确认闸门，并在 out_of_scope 或 assumptions 里说明草案不会自动执行。",
+            "- plan_summary 应结合用户目标和澄清回答，不要套用固定模板。",
+            "",
+            "用户目标：",
+            session.goal_text.strip(),
+            "",
+            "用户约束：",
+            session.constraints.strip() or "（用户未提供额外约束）",
+            "",
+            "澄清回答：",
+            json.dumps(answer_lines, ensure_ascii=False),
+            "",
+            "整改反馈：",
+            revision_block,
+        ]
+    )
+
+
+def _extract_json_object(output_text: str) -> dict:
+    """Extract one JSON object from plain text or fenced JSON output."""
+
+    text = output_text.strip()
+    if text.startswith("```"):
+        lines = [
+            line for line in text.splitlines()
+            if not line.strip().startswith("```")
+        ]
+        text = "\n".join(lines).strip()
+    if not text.startswith("{"):
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start : end + 1]
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("provider plan output must be a JSON object")
+    return payload
+
+
+def _parse_provider_plan_output(
+    output_text: str,
+    *,
+    source_detail: str,
+    provider_receipt_id: str | None,
+) -> PlanGenerationResult:
+    """Parse and validate provider JSON into the existing plan domain contract."""
+
+    payload = _extract_json_object(output_text)
+
+    def _string_list(key: str) -> list[str]:
+        raw = payload.get(key)
+        if not isinstance(raw, list):
+            raise ValueError(f"provider plan JSON missing {key} list")
+        return [str(item).strip() for item in raw if str(item).strip()]
+
+    plan_summary = str(payload.get("plan_summary") or "").strip()
+    if not plan_summary:
+        raise ValueError("provider plan JSON missing plan_summary")
+
+    phases = [PlanPhase(**item) for item in payload.get("phases") or []]
+    proposed_tasks = [
+        ProposedTask(**item) for item in payload.get("proposed_tasks") or []
+    ]
+    if not phases:
+        raise ValueError("provider plan JSON returned no phases")
+    if not proposed_tasks:
+        raise ValueError("provider plan JSON returned no proposed_tasks")
+
+    project_scope = ProjectScopeSummary(**(payload.get("project_scope") or {}))
+    agent_team_suggestions = [
+        AgentTeamSuggestion(**item)
+        for item in payload.get("agent_team_suggestions") or []
+    ]
+    skill_binding_suggestions = [
+        SkillBindingSuggestion(**item)
+        for item in payload.get("skill_binding_suggestions") or []
+    ]
+    verification_mechanisms = [
+        VerificationMechanismSuggestion(**item)
+        for item in payload.get("verification_mechanisms") or []
+    ]
+    repository_binding_suggestions = [
+        RepositoryBindingSuggestion(**item)
+        for item in payload.get("repository_binding_suggestions") or []
+    ]
+    deliverable_boundaries = [
+        DeliverableBoundary(**item)
+        for item in payload.get("deliverable_boundaries") or []
+    ]
+    complexity_assessment = ComplexityAssessment(
+        **(payload.get("complexity_assessment") or {})
+    )
+
+    if not project_scope.out_of_scope and not project_scope.assumptions:
+        raise ValueError("provider plan JSON missing safety scope boundaries")
+    if not agent_team_suggestions:
+        raise ValueError("provider plan JSON returned no agent_team_suggestions")
+    if not verification_mechanisms:
+        raise ValueError("provider plan JSON returned no verification_mechanisms")
+    if not deliverable_boundaries:
+        raise ValueError("provider plan JSON returned no deliverable_boundaries")
+
+    return PlanGenerationResult(
+        plan_summary=plan_summary,
+        phases=phases,
+        proposed_tasks=proposed_tasks,
+        acceptance_criteria=_string_list("acceptance_criteria"),
+        risks=_string_list("risks"),
+        project_scope=project_scope,
+        agent_team_suggestions=agent_team_suggestions,
+        skill_binding_suggestions=skill_binding_suggestions,
+        verification_mechanisms=verification_mechanisms,
+        repository_binding_suggestions=repository_binding_suggestions,
+        deliverable_boundaries=deliverable_boundaries,
+        complexity_assessment=complexity_assessment,
+        source="ai",
+        source_detail=source_detail,
+        provider_receipt_id=provider_receipt_id,
+    )
+
+
 # ── Service ──────────────────────────────────────────────────────────
 
 
@@ -474,14 +712,18 @@ class ProjectDirectorPlanService:
         *,
         plan_version_repository: ProjectDirectorPlanVersionRepository,
         session_repository: ProjectDirectorSessionRepository,
+        provider_config_service: ProviderConfigService | None = None,
+        provider_text_generator: ProviderTextGenerator | None = None,
     ) -> None:
         self._plan_repo = plan_version_repository
         self._session_repo = session_repository
+        self._provider_config_service = provider_config_service
+        self._provider_text_generator = provider_text_generator
 
     def create_plan_version(
         self, *, session_id: UUID, revision_notes: str = ""
     ) -> ProjectDirectorPlanVersion:
-        """Generate a deterministic plan version from a confirmed session.
+        """Generate a provider-first plan version from a confirmed session.
 
         Requires the session to be in `confirmed` status.
         """
@@ -499,20 +741,7 @@ class ProjectDirectorPlanService:
 
         version_no = self._plan_repo.get_next_version_no(session_id)
 
-        (
-            plan_summary,
-            phases,
-            proposed_tasks,
-            acceptance_criteria,
-            risks,
-            project_scope,
-            agent_team_suggestions,
-            skill_binding_suggestions,
-            verification_mechanisms,
-            repository_binding_suggestions,
-            deliverable_boundaries,
-            complexity_assessment,
-        ) = _generate_plan_from_session(
+        plan_draft = self._generate_plan_draft(
             session_obj,
             revision_notes=revision_notes,
         )
@@ -524,18 +753,20 @@ class ProjectDirectorPlanService:
             project_id=session_obj.project_id,
             version_no=version_no,
             status=PlanVersionStatus.PENDING_CONFIRMATION,
-            plan_summary=plan_summary,
-            phases=phases,
-            proposed_tasks=proposed_tasks,
-            acceptance_criteria=acceptance_criteria,
-            risks=risks,
-            project_scope=project_scope,
-            agent_team_suggestions=agent_team_suggestions,
-            skill_binding_suggestions=skill_binding_suggestions,
-            verification_mechanisms=verification_mechanisms,
-            repository_binding_suggestions=repository_binding_suggestions,
-            deliverable_boundaries=deliverable_boundaries,
-            complexity_assessment=complexity_assessment,
+            plan_summary=plan_draft.plan_summary,
+            phases=plan_draft.phases,
+            proposed_tasks=plan_draft.proposed_tasks,
+            acceptance_criteria=plan_draft.acceptance_criteria,
+            risks=plan_draft.risks,
+            project_scope=plan_draft.project_scope,
+            agent_team_suggestions=plan_draft.agent_team_suggestions,
+            skill_binding_suggestions=plan_draft.skill_binding_suggestions,
+            verification_mechanisms=plan_draft.verification_mechanisms,
+            repository_binding_suggestions=plan_draft.repository_binding_suggestions,
+            deliverable_boundaries=plan_draft.deliverable_boundaries,
+            complexity_assessment=plan_draft.complexity_assessment,
+            source=plan_draft.source,
+            source_detail=plan_draft.source_detail,
             forbidden_actions=list(_DEFAULT_FORBIDDEN_ACTIONS),
             confirmed_at=None,
             created_at=now,
@@ -543,6 +774,102 @@ class ProjectDirectorPlanService:
         )
 
         return self._plan_repo.create(plan_version)
+
+    def _generate_plan_draft(
+        self,
+        session_obj: "ProjectDirectorSession",  # noqa: F821
+        *,
+        revision_notes: str = "",
+    ) -> PlanGenerationResult:
+        """Generate a review-only draft: provider first, deterministic fallback."""
+
+        provider_config_service = (
+            self._provider_config_service or ProviderConfigService()
+        )
+        try:
+            runtime_config = provider_config_service.resolve_openai_runtime_config()
+        except Exception as exc:  # noqa: BLE001 - config failures must fallback
+            return _generate_rule_fallback_plan(
+                session_obj,
+                revision_notes=revision_notes,
+                reason=f"provider_config_unavailable:{exc}",
+            )
+
+        if not runtime_config.api_key:
+            return _generate_rule_fallback_plan(
+                session_obj,
+                revision_notes=revision_notes,
+                reason="provider_not_configured",
+            )
+
+        model_name = runtime_config.model_names.get(
+            "balanced",
+            next(iter(runtime_config.model_names.values()), "gpt-5.5"),
+        )
+        prompt_text = _build_plan_prompt(session_obj, revision_notes=revision_notes)
+        request_id = f"project-director-plan-{uuid4().hex[:12]}"
+
+        try:
+            if self._provider_text_generator is not None:
+                output_text, receipt_id = self._provider_text_generator(
+                    model_name,
+                    prompt_text,
+                    request_id,
+                )
+            else:
+                output_text, receipt_id = self._call_provider_text(
+                    runtime_config=runtime_config,
+                    model_name=model_name,
+                    prompt_text=prompt_text,
+                    request_id=request_id,
+                )
+
+            source_detail = (
+                f"provider={runtime_config.detected_provider_type}; "
+                f"model={model_name}; receipt={receipt_id or 'missing'}"
+            )
+            return _parse_provider_plan_output(
+                output_text,
+                source_detail=source_detail,
+                provider_receipt_id=receipt_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - bad provider output must fallback
+            return _generate_rule_fallback_plan(
+                session_obj,
+                revision_notes=revision_notes,
+                reason=f"provider_generation_failed:{exc}",
+            )
+
+    @staticmethod
+    def _call_provider_text(
+        *,
+        runtime_config: object,
+        model_name: str,
+        prompt_text: str,
+        request_id: str,
+    ) -> tuple[str, str | None]:
+        """Invoke the configured OpenAI-compatible provider."""
+
+        from app.services.openai_provider_executor_service import (
+            OpenAIProviderExecutorService,
+        )
+
+        executor = OpenAIProviderExecutorService(
+            api_key=runtime_config.api_key,
+            base_url=runtime_config.base_url,
+            timeout_seconds=runtime_config.timeout_seconds,
+        )
+        response = executor.generate_text(
+            model_name=model_name,
+            prompt_text=prompt_text,
+            request_id=request_id,
+            prompt_key="project_director_plan_generation",
+            provider_key=runtime_config.detected_provider_type,
+        )
+        receipt_id = None
+        if response.provider_usage_receipt is not None:
+            receipt_id = response.provider_usage_receipt.receipt_id
+        return response.output_text or response.summary, receipt_id
 
     def reject_plan_version(
         self, plan_version_id: UUID
@@ -580,6 +907,8 @@ class ProjectDirectorPlanService:
             repository_binding_suggestions=plan_version.repository_binding_suggestions,
             deliverable_boundaries=plan_version.deliverable_boundaries,
             complexity_assessment=plan_version.complexity_assessment,
+            source=plan_version.source,
+            source_detail=plan_version.source_detail,
             forbidden_actions=plan_version.forbidden_actions,
             confirmed_at=None,
             created_at=plan_version.created_at,
@@ -666,6 +995,8 @@ class ProjectDirectorPlanService:
                 repository_binding_suggestions=existing_confirmed.repository_binding_suggestions,
                 deliverable_boundaries=existing_confirmed.deliverable_boundaries,
                 complexity_assessment=existing_confirmed.complexity_assessment,
+                source=existing_confirmed.source,
+                source_detail=existing_confirmed.source_detail,
                 forbidden_actions=existing_confirmed.forbidden_actions,
                 confirmed_at=existing_confirmed.confirmed_at,
                 created_at=existing_confirmed.created_at,
@@ -691,6 +1022,8 @@ class ProjectDirectorPlanService:
             repository_binding_suggestions=plan_version.repository_binding_suggestions,
             deliverable_boundaries=plan_version.deliverable_boundaries,
             complexity_assessment=plan_version.complexity_assessment,
+            source=plan_version.source,
+            source_detail=plan_version.source_detail,
             forbidden_actions=plan_version.forbidden_actions,
             confirmed_at=datetime.now(timezone.utc),
             created_at=plan_version.created_at,

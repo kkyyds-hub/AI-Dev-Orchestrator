@@ -1746,6 +1746,12 @@ class ProjectDirectorPlanVersionTable(ORMBase):
     complexity_assessment_json: Mapped[str] = mapped_column(
         Text, nullable=False, default="{}"
     )
+    source: Mapped[str] = mapped_column(
+        Text, nullable=False, default="rule_fallback"
+    )
+    source_detail: Mapped[str] = mapped_column(
+        Text, nullable=False, default="deterministic_plan_generation"
+    )
     forbidden_actions_json: Mapped[str] = mapped_column(
         Text, nullable=False, default="[]"
     )
