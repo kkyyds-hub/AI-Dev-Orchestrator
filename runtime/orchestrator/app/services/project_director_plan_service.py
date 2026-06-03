@@ -673,9 +673,14 @@ def _parse_provider_plan_output(
         DeliverableBoundary(**item)
         for item in payload.get("deliverable_boundaries") or []
     ]
-    complexity_assessment = ComplexityAssessment(
-        **(payload.get("complexity_assessment") or {})
+    complexity_assessment, normalized_complexity = _parse_complexity_assessment(
+        payload.get("complexity_assessment") or {}
     )
+    normalized_source_detail = source_detail
+    if normalized_complexity:
+        normalized_source_detail = (
+            f"{source_detail}; normalized_by_backend:complexity_assessment"
+        )
 
     if not project_scope.out_of_scope and not project_scope.assumptions:
         raise ValueError("provider plan JSON missing safety scope boundaries")
@@ -700,9 +705,45 @@ def _parse_provider_plan_output(
         deliverable_boundaries=deliverable_boundaries,
         complexity_assessment=complexity_assessment,
         source="ai",
-        source_detail=source_detail,
+        source_detail=normalized_source_detail,
         provider_receipt_id=provider_receipt_id,
     )
+
+
+def _parse_complexity_assessment(
+    raw_complexity: object,
+) -> tuple[ComplexityAssessment, bool]:
+    """Parse provider complexity, normalizing only low-risk numeric score bounds."""
+
+    if not isinstance(raw_complexity, dict):
+        raise ValueError("provider plan JSON complexity_assessment must be an object")
+
+    normalized = False
+    data = dict(raw_complexity)
+    raw_score = data.get("score")
+    if not isinstance(raw_score, bool):
+        score = _coerce_numeric_score(raw_score)
+        if score is not None:
+            clamped_score = min(5, max(1, score))
+            if clamped_score != raw_score:
+                data["score"] = clamped_score
+                normalized = True
+
+    return ComplexityAssessment(**data), normalized
+
+
+def _coerce_numeric_score(raw_score: object) -> int | None:
+    if isinstance(raw_score, int):
+        return raw_score
+    if isinstance(raw_score, float) and raw_score.is_integer():
+        return int(raw_score)
+    if isinstance(raw_score, str):
+        stripped = raw_score.strip()
+        if stripped.isdigit() or (
+            stripped.startswith("-") and stripped[1:].isdigit()
+        ):
+            return int(stripped)
+    return None
 
 
 # ── Service ──────────────────────────────────────────────────────────

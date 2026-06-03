@@ -917,6 +917,81 @@ class TestPlanService:
         assert retrieved.source == "ai"
         assert "receipt=receipt-plan-test-1" in retrieved.source_detail
 
+    def test_create_plan_version_normalizes_provider_complexity_score(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def score_six_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            payload = json.loads(_provider_plan_payload())
+            payload["complexity_assessment"]["score"] = 6
+            return json.dumps(payload, ensure_ascii=False), "receipt-score-six"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=score_six_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+
+        assert pv.source == "ai"
+        assert pv.complexity_assessment.score == 5
+        assert "provider=openai_compatible" in pv.source_detail
+        assert "model=test-plan-model" in pv.source_detail
+        assert "receipt=receipt-score-six" in pv.source_detail
+        assert "normalized_by_backend:complexity_assessment" in pv.source_detail
+        assert "deterministic_plan_generation" not in pv.source_detail
+
+    def test_request_changes_normalizes_provider_complexity_score(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+        call_count = 0
+
+        def generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            nonlocal call_count
+            call_count += 1
+            payload = json.loads(_provider_plan_payload())
+            if call_count == 2:
+                payload["complexity_assessment"]["score"] = 6
+            return json.dumps(payload, ensure_ascii=False), f"receipt-change-{call_count}"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=generator,
+        )
+
+        original = service.create_plan_version(session_id=session_obj.id)
+        rejected, replacement = service.request_changes(
+            plan_version_id=original.id,
+            feedback="请把验收标准拆得更清晰，并保持人工确认 Gate。",
+        )
+
+        assert call_count == 2
+        assert rejected.status == PlanVersionStatus.REJECTED
+        assert replacement.source == "ai"
+        assert replacement.version_no == 2
+        assert replacement.complexity_assessment.score == 5
+        assert "receipt=receipt-change-2" in replacement.source_detail
+        assert "normalized_by_backend:complexity_assessment" in replacement.source_detail
+        assert "deterministic_plan_generation" not in replacement.source_detail
+
     def test_create_plan_version_fallback_marks_source_without_provider_call(
         self, db_session, session_service
     ):
@@ -962,6 +1037,7 @@ class TestPlanService:
             payload["plan_summary"] = "AI 将自动创建任务并启动 Worker，随后 git push。"
             payload["project_scope"]["out_of_scope"] = ["仅口头确认"]
             payload["project_scope"]["assumptions"] = ["系统会自动执行"]
+            payload["complexity_assessment"]["score"] = 6
             return json.dumps(payload, ensure_ascii=False), "receipt-unsafe-plan"
 
         service = ProjectDirectorPlanService(
