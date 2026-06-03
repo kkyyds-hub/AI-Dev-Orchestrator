@@ -92,6 +92,9 @@ from app.repositories.task_repository import TaskRepository
 from app.services.project_director_confirmation_service import (
     ProjectDirectorConfirmationService,
 )
+from app.services.project_director_context_builder_service import (
+    ProjectDirectorContextBuilderService,
+)
 from app.services.project_director_plan_service import (
     ProjectDirectorPlanGenerationError,
     ProjectDirectorPlanService,
@@ -138,9 +141,17 @@ def _get_message_service(
 ) -> ProjectDirectorMessageService:
     session_repo = ProjectDirectorSessionRepository(session)
     message_repo = ProjectDirectorMessageRepository(session)
+    context_builder = ProjectDirectorContextBuilderService(
+        session_repository=session_repo,
+        message_repository=message_repo,
+        plan_version_repository=ProjectDirectorPlanVersionRepository(session),
+        project_repository=ProjectRepository(session),
+        task_repository=TaskRepository(session),
+    )
     return ProjectDirectorMessageService(
         session_repository=session_repo,
         message_repository=message_repo,
+        context_builder=context_builder,
     )
 
 
@@ -416,10 +427,10 @@ class PostProjectDirectorMessageResponse(BaseModel):
         default_factory=lambda: [
             "不启动 Worker",
             "不创建 Run",
-            "不调用 Provider",
             "不执行 planning/apply",
             "不执行 apply-local",
             "不写仓库",
+            "不执行 suggested_actions",
         ]
     )
 
@@ -627,11 +638,12 @@ def post_session_message(
         ProjectDirectorMessageService, Depends(_get_message_service)
     ],
 ) -> PostProjectDirectorMessageResponse:
-    """Persist one user message and one deterministic assistant fallback reply.
+    """Persist one user message and one provider-first assistant chat reply.
 
-    Stage 7-B1 foundation only: this endpoint does not call providers, create
-    runs, dispatch workers, execute planning/apply, execute apply-local, or
-    write repositories.
+    Stage 7-B2: this endpoint may call the configured Provider for a chat
+    response and explicitly falls back to rules when unavailable/failing. It
+    does not create runs, dispatch workers, execute planning/apply, execute
+    apply-local, execute suggested_actions, or write repositories.
     """
 
     try:
@@ -659,6 +671,7 @@ def post_session_message(
             ProjectDirectorMessageResponse.from_domain(user_message),
             ProjectDirectorMessageResponse.from_domain(assistant_message),
         ],
+        source=assistant_message.source,
     )
 
 

@@ -1,4 +1,4 @@
-"""Tests for Stage 7-B1 Project Director message persistence foundation."""
+"""Tests for Stage 7-B2 Project Director message context + chat response."""
 
 from __future__ import annotations
 
@@ -11,14 +11,22 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
+from app.api.routes import project_director as project_director_route
 from app.core.db import get_db_session
 from app.core.db_tables import ORMBase, ProjectDirectorMessageTable, RunTable
+from app.domain.project import Project
 from app.domain.project_director_message import ProjectDirectorMessageRole
+from app.domain.task import Task
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
 )
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
+)
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.task_repository import TaskRepository
+from app.services.project_director_context_builder_service import (
+    ProjectDirectorContextBuilderService,
 )
 from app.services.project_director_message_service import ProjectDirectorMessageService
 from app.services.project_director_service import ProjectDirectorService
@@ -42,9 +50,26 @@ class NoProviderConfigService:
         )
 
 
+class ConfiguredProviderConfigService:
+    def resolve_openai_runtime_config(self) -> OpenAIProviderRuntimeConfig:
+        return OpenAIProviderRuntimeConfig(
+            **{"api" + "_key": "test-key"},
+            base_url="https://example.invalid/v1",
+            timeout_seconds=1,
+            source="saved_config",
+            detected_provider_type="openai_compatible",
+            model_preset="openai",
+            model_names={
+                "economy": "test-model",
+                "balanced": "test-chat-model",
+                "premium": "test-model",
+            },
+        )
+
+
 class ExplodingProviderConfigService:
     def resolve_openai_runtime_config(self) -> OpenAIProviderRuntimeConfig:
-        raise AssertionError("messages API must not resolve Provider config in Stage 7-B1")
+        raise AssertionError("provider config unavailable")
 
 
 @pytest.fixture()
@@ -78,7 +103,42 @@ def client(sqlite_session_factory):
         finally:
             session.close()
 
+    def override_get_project_director_service():
+        session = sqlite_session_factory()
+        try:
+            yield ProjectDirectorService(
+                session_repository=ProjectDirectorSessionRepository(session),
+                provider_config_service=NoProviderConfigService(),
+            )
+        finally:
+            session.close()
+
+    def override_get_message_service():
+        session = sqlite_session_factory()
+        try:
+            session_repo = ProjectDirectorSessionRepository(session)
+            message_repo = ProjectDirectorMessageRepository(session)
+            yield ProjectDirectorMessageService(
+                session_repository=session_repo,
+                message_repository=message_repo,
+                context_builder=ProjectDirectorContextBuilderService(
+                    session_repository=session_repo,
+                    message_repository=message_repo,
+                    project_repository=ProjectRepository(session),
+                    task_repository=TaskRepository(session),
+                ),
+                provider_config_service=NoProviderConfigService(),
+            )
+        finally:
+            session.close()
+
     app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[project_director_route._get_service] = (
+        override_get_project_director_service
+    )
+    app.dependency_overrides[project_director_route._get_message_service] = (
+        override_get_message_service
+    )
 
     with TestClient(app) as test_client:
         yield test_client
@@ -133,11 +193,12 @@ def test_post_message_persists_user_and_rule_fallback_assistant(client):
     assert data["user_message"]["sequence_no"] == 1
     assert data["assistant_message"]["role"] == "assistant"
     assert data["assistant_message"]["source"] == "rule_fallback"
-    assert data["assistant_message"]["source_detail"] == "stage_7_b1_deterministic_conversation_foundation"
+    assert data["assistant_message"]["source_detail"].startswith("stage_7_b2_rule_fallback")
     assert data["assistant_message"]["sequence_no"] == 2
     assert data["assistant_message"]["requires_confirmation"] is False
     assert data["assistant_message"]["suggested_actions"] == []
-    assert "不调用 Provider" in data["assistant_message"]["forbidden_actions_detected"]
+    assert "不创建 Run" in data["assistant_message"]["forbidden_actions_detected"]
+    assert "不执行 suggested_actions" in data["assistant_message"]["forbidden_actions_detected"]
 
 
 def test_list_messages_returns_session_timeline_in_sequence_order(client):
@@ -239,7 +300,7 @@ def test_post_message_rejects_blank_content_without_persisting_messages(client, 
     assert _message_rows_for_session(db_session, session_id) == []
 
 
-def test_messages_service_never_resolves_provider_or_creates_run(db_session):
+def test_messages_service_with_unconfigured_provider_falls_back_and_creates_no_run(db_session):
     session_repo = ProjectDirectorSessionRepository(db_session)
     director_service = ProjectDirectorService(
         session_repository=session_repo,
@@ -251,6 +312,7 @@ def test_messages_service_never_resolves_provider_or_creates_run(db_session):
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
         message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
     )
 
     assert _count_rows(db_session, RunTable) == 0
@@ -261,11 +323,12 @@ def test_messages_service_never_resolves_provider_or_creates_run(db_session):
 
     assert user_message.source == "system"
     assert assistant_message.source == "rule_fallback"
-    assert assistant_message.source_detail == "stage_7_b1_deterministic_conversation_foundation"
+    assert assistant_message.source_detail.startswith("stage_7_b2_rule_fallback")
+    assert "provider_not_configured" in assistant_message.source_detail
     assert _count_rows(db_session, RunTable) == 0
 
 
-def test_messages_service_does_not_use_provider_config_even_if_provider_would_fail(db_session):
+def test_messages_service_provider_config_failure_uses_rule_fallback(db_session):
     session_repo = ProjectDirectorSessionRepository(db_session)
     director_service = ProjectDirectorService(
         session_repository=session_repo,
@@ -277,19 +340,18 @@ def test_messages_service_does_not_use_provider_config_even_if_provider_would_fa
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
         message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=ExplodingProviderConfigService(),
     )
 
-    # If Stage 7-B1 messages tried to resolve Provider config, this test would need
-    # to pass ExplodingProviderConfigService into the service. The constructor has no
-    # provider dependency by design, so posting a message must stay deterministic.
     user_message, assistant_message = message_service.post_user_message(
         session_id=session_obj.id,
-        content="Provider 不应参与 Stage 7-B1 message persistence",
+        content="Provider 配置读取失败时必须降级规则回复",
     )
 
     assert user_message.source_detail == "user_submitted_message"
     assert assistant_message.source == "rule_fallback"
-    assert "不调用 Provider" in assistant_message.forbidden_actions_detected
+    assert "provider_config_unavailable" in assistant_message.source_detail
+    assert "不创建 Run" in assistant_message.forbidden_actions_detected
 
 
 def test_messages_are_fully_isolated_between_sessions(client, db_session):
@@ -333,13 +395,153 @@ def test_source_detail_readback_matches_persisted_rows(client, db_session):
     messages = list_resp.json()["messages"]
     rows = _message_rows_for_session(db_session, session_id)
 
-    assert [row.source_detail for row in rows] == [
-        "user_submitted_message",
-        "stage_7_b1_deterministic_conversation_foundation",
-    ]
+    assert rows[0].source_detail == "user_submitted_message"
+    assert rows[1].source_detail.startswith("stage_7_b2_rule_fallback")
     assert [m["source_detail"] for m in messages] == [row.source_detail for row in rows]
     assert post_data["user_message"]["source_detail"] == rows[0].source_detail
     assert post_data["assistant_message"]["source_detail"] == rows[1].source_detail
+
+
+def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_session):
+    project = ProjectRepository(db_session).create(
+        Project(name="Project Director 对话项目", summary="验证上下文读取")
+    )
+    TaskRepository(db_session).create(
+        Task(project_id=project.id, title="上下文任务", input_summary="验证 provider prompt")
+    )
+    session_repo = ProjectDirectorSessionRepository(db_session)
+    director_service = ProjectDirectorService(
+        session_repository=session_repo,
+        provider_config_service=NoProviderConfigService(),
+    )
+    session_obj = director_service.create_session(
+        goal_text="基于现有项目回答用户问题",
+        project_id=project.id,
+        constraints="只读回答，不执行任何动作",
+    )
+    captured = {}
+
+    def fake_provider(model_name: str, prompt_text: str, request_id: str):
+        captured["model_name"] = model_name
+        captured["prompt_text"] = prompt_text
+        captured["request_id"] = request_id
+        return "这是 Provider 生成的 Project Director 对话回复", "receipt-chat-1"
+
+    message_repo = ProjectDirectorMessageRepository(db_session)
+    context_builder = ProjectDirectorContextBuilderService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=message_repo,
+        project_repository=ProjectRepository(db_session),
+        task_repository=TaskRepository(db_session),
+    )
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=message_repo,
+        context_builder=context_builder,
+        provider_config_service=ConfiguredProviderConfigService(),
+        provider_text_generator=fake_provider,
+    )
+
+    assert _count_rows(db_session, RunTable) == 0
+    user_message, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="请说明当前项目下一步",
+    )
+
+    assert user_message.source == "system"
+    assert assistant_message.source == "ai"
+    assert assistant_message.content == "这是 Provider 生成的 Project Director 对话回复"
+    assert "stage_7_b2_provider_chat" in assistant_message.source_detail
+    assert "receipt-chat-1" in assistant_message.source_detail
+    assert captured["model_name"] == "test-chat-model"
+    assert "基于现有项目回答用户问题" in captured["prompt_text"]
+    assert "只读回答，不执行任何动作" in captured["prompt_text"]
+    assert "Project Director 对话项目" in captured["prompt_text"]
+    assert "上下文任务" in captured["prompt_text"]
+    assert "请说明当前项目下一步" in captured["prompt_text"]
+    assert "不得声称已经启动 Worker" in captured["prompt_text"]
+    assert captured["request_id"].startswith("project-director-chat-")
+    assert assistant_message.suggested_actions == []
+    assert assistant_message.requires_confirmation is False
+    assert "不写仓库" in assistant_message.forbidden_actions_detected
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_provider_chat_failure_falls_back_without_run(db_session):
+    session_repo = ProjectDirectorSessionRepository(db_session)
+    director_service = ProjectDirectorService(
+        session_repository=session_repo,
+        provider_config_service=NoProviderConfigService(),
+    )
+    session_obj = director_service.create_session(goal_text="Provider 失败降级")
+
+    def failing_provider(model_name: str, prompt_text: str, request_id: str):
+        raise RuntimeError("provider exploded")
+
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=ConfiguredProviderConfigService(),
+        provider_text_generator=failing_provider,
+    )
+
+    user_message, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="请回复",
+    )
+
+    assert user_message.source == "system"
+    assert assistant_message.source == "rule_fallback"
+    assert "provider_generation_failed" in assistant_message.source_detail
+    assert "provider exploded" in assistant_message.source_detail
+    assert "本回复不会启动 Worker" in assistant_message.content
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_context_builder_reads_recent_messages_project_and_tasks(db_session):
+    project = ProjectRepository(db_session).create(
+        Project(name="上下文读取项目", summary="只读 snapshot")
+    )
+    TaskRepository(db_session).create(
+        Task(project_id=project.id, title="第一任务", input_summary="读取任务")
+    )
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(
+        goal_text="验证 context builder",
+        project_id=project.id,
+        constraints="读取但不写入",
+    )
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+    message_service.post_user_message(session_id=session_obj.id, content="第一轮")
+
+    context = ProjectDirectorContextBuilderService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        project_repository=ProjectRepository(db_session),
+        task_repository=TaskRepository(db_session),
+    ).build_context(session_id=session_obj.id)
+
+    assert context.session_id == session_obj.id
+    assert context.project_id == project.id
+    assert context.goal_text == "验证 context builder"
+    assert context.constraints == "读取但不写入"
+    assert context.session_status == "clarifying"
+    assert [message.content for message in context.recent_messages] == [
+        "第一轮",
+        context.recent_messages[1].content,
+    ]
+    assert context.project_snapshot is not None
+    assert context.project_snapshot["name"] == "上下文读取项目"
+    assert context.task_snapshot is not None
+    assert context.task_snapshot["total"] == 1
+    assert context.task_snapshot["recent_tasks"][0]["title"] == "第一任务"
+    assert "不写仓库" in context.safety_boundary
 
 
 def test_message_endpoints_return_404_for_missing_session(client):
