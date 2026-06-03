@@ -5,11 +5,15 @@ import { useBackendHealth, useConsoleOverview } from "../../features/console/hoo
 import type { ConsoleOverview } from "../../features/console/types";
 import { useConsoleEventStream } from "../../features/events/hooks";
 import { useRunWorkerOnce } from "../../features/task-actions/hooks";
+import { useProjectDirectorWorkbenchResumableSessions } from "../../features/project-director/hooks";
 import { formatDateTime } from "../../lib/format";
 import { buildTaskRoute } from "../../lib/task-route";
 import { useProjectScope } from "../shared/useProjectScope";
 import { DirectorChatEntry } from "./components/DirectorChatEntry";
-import { WorkbenchHeader } from "./components/WorkbenchHeader";
+import {
+  parseDirectorSessionOptionValue,
+  WorkbenchHeader,
+} from "./components/WorkbenchHeader";
 import { WorkbenchRightRail } from "./components/WorkbenchRightRail";
 
 const WORKBENCH_CONTEXT_MODE_STORAGE_KEY =
@@ -40,6 +44,7 @@ export function WorkbenchPage() {
     enablePollingFallback: realtime.status !== "open",
   });
   const healthQuery = useBackendHealth();
+  const resumableSessionsQuery = useProjectDirectorWorkbenchResumableSessions();
   const {
     selectedProjectId,
     selectedProjectName,
@@ -56,6 +61,23 @@ export function WorkbenchPage() {
       ? "new-project"
       : (readStoredWorkbenchMode() ?? "project"),
   );
+  const [selectedDirectorSessionId, setSelectedDirectorSessionId] = useState<
+    string | null
+  >(() => searchParams.get("directorSessionId"));
+  const resumableSessions = resumableSessionsQuery.data?.sessions ?? [];
+  const selectedDirectorSession = selectedDirectorSessionId
+    ? resumableSessions.find(
+        (session) => session.session_id === selectedDirectorSessionId,
+      ) ?? null
+    : null;
+  const directorSessionUrlProjectId = selectedDirectorSessionId
+    ? searchParams.get("projectId")
+    : null;
+  const activeWorkbenchMode: WorkbenchContextMode = selectedDirectorSessionId
+    ? selectedDirectorSession?.project_id || directorSessionUrlProjectId
+      ? "project"
+      : "new-project"
+    : workbenchMode;
 
   useEffect(() => {
     if (overviewQuery.data) {
@@ -81,6 +103,7 @@ export function WorkbenchPage() {
         ? "new-project"
         : (readStoredWorkbenchMode() ?? "project");
     setWorkbenchMode((current) => (current === urlMode ? current : urlMode));
+    setSelectedDirectorSessionId(searchParams.get("directorSessionId"));
   }, [searchParams]);
 
   useEffect(() => {
@@ -88,11 +111,38 @@ export function WorkbenchPage() {
   }, [workbenchMode]);
 
   useEffect(() => {
-    if (workbenchMode !== "new-project" || selectedProjectId === "all") {
+    if (
+      activeWorkbenchMode !== "new-project" ||
+      selectedDirectorSessionId ||
+      selectedProjectId === "all"
+    ) {
       return;
     }
     setSelectedProjectId("all");
-  }, [selectedProjectId, setSelectedProjectId, workbenchMode]);
+  }, [
+    activeWorkbenchMode,
+    selectedDirectorSessionId,
+    selectedProjectId,
+    setSelectedProjectId,
+  ]);
+
+  useEffect(() => {
+    if (
+      selectedDirectorSessionId ||
+      workbenchMode !== "project" ||
+      selectedProjectId !== "all" ||
+      projects.length === 0
+    ) {
+      return;
+    }
+    setSelectedProjectId(projects[0].id);
+  }, [
+    projects,
+    selectedDirectorSessionId,
+    selectedProjectId,
+    setSelectedProjectId,
+    workbenchMode,
+  ]);
 
   const lastUpdatedText = useMemo(() => {
     if (!overviewQuery.dataUpdatedAt && !stableOverviewData) {
@@ -105,12 +155,25 @@ export function WorkbenchPage() {
 
   const overviewIsInitialLoading =
     !stableOverviewData && (overviewQuery.isLoading || overviewQuery.isFetching);
-  const activeProjectId = workbenchMode === "new-project" ? null : selectedProjectId;
+  const activeProjectId = selectedDirectorSessionId
+    ? selectedDirectorSession?.project_id ?? directorSessionUrlProjectId
+    : activeWorkbenchMode === "new-project"
+      ? null
+      : selectedProjectId;
   const activeProjectName =
-    workbenchMode === "new-project" ? "新项目会话" : selectedProjectName;
+    selectedDirectorSessionId
+      ? selectedDirectorSession?.project_name ?? "未完成 AI 主管会话"
+      : activeWorkbenchMode === "new-project"
+        ? "新项目会话"
+        : selectedProjectName;
   const visibleOverviewData = useMemo(
-    () => filterOverviewByProject(stableOverviewData, activeProjectId, workbenchMode),
-    [activeProjectId, stableOverviewData, workbenchMode],
+    () =>
+      filterOverviewByProject(
+        stableOverviewData,
+        activeProjectId,
+        activeWorkbenchMode,
+      ),
+    [activeProjectId, activeWorkbenchMode, stableOverviewData],
   );
 
   const handleRefresh = async () => {
@@ -126,8 +189,8 @@ export function WorkbenchPage() {
 
   const handleNavigateToTask = (taskId: string, projectId?: string | null) => {
     const fallbackProjectId =
-      workbenchMode === "project" && selectedProjectId !== "all"
-        ? selectedProjectId
+      activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all"
+        ? activeProjectId
         : null;
 
     navigate(
@@ -140,57 +203,88 @@ export function WorkbenchPage() {
   };
 
   const handleNavigateToTasks = () => {
-    if (workbenchMode === "project" && selectedProjectId !== "all") {
-      navigate(`/tasks?projectId=${selectedProjectId}`);
+    if (activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all") {
+      navigate(`/tasks?projectId=${activeProjectId}`);
     } else {
       navigate("/tasks");
     }
   };
 
   const handleNavigateToProjects = () => {
-    if (workbenchMode === "project" && selectedProjectId !== "all") {
-      navigate(`/projects?projectId=${selectedProjectId}`);
+    if (activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all") {
+      navigate(`/projects?projectId=${activeProjectId}`);
     } else {
       navigate("/projects");
     }
   };
 
   const handleNavigateToRuns = () => {
-    if (workbenchMode === "project" && selectedProjectId !== "all") {
-      navigate(`/runs?projectId=${selectedProjectId}`);
+    if (activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all") {
+      navigate(`/runs?projectId=${activeProjectId}`);
     } else {
       navigate("/runs");
     }
   };
 
   const handleSelectWorkbenchContext = (nextValue: string) => {
+    const directorSessionId = parseDirectorSessionOptionValue(nextValue);
+    if (directorSessionId) {
+      const session = resumableSessions.find(
+        (item) => item.session_id === directorSessionId,
+      );
+      const nextMode: WorkbenchContextMode = session?.project_id
+        ? "project"
+        : "new-project";
+      setSelectedDirectorSessionId(directorSessionId);
+      setWorkbenchMode(nextMode);
+      writeStoredWorkbenchMode(nextMode);
+      setSelectedProjectId(session?.project_id ?? "all");
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("directorSessionId", directorSessionId);
+      if (nextMode === "new-project") {
+        nextParams.set("mode", "new-project");
+        nextParams.delete("projectId");
+      } else {
+        nextParams.delete("mode");
+        if (session?.project_id) {
+          nextParams.set("projectId", session.project_id);
+        }
+      }
+      navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
+      return;
+    }
+
     if (nextValue === NEW_PROJECT_CONTEXT_VALUE) {
+      setSelectedDirectorSessionId(null);
       setWorkbenchMode("new-project");
       writeStoredWorkbenchMode("new-project");
       setSelectedProjectId("all");
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("mode", "new-project");
       nextParams.delete("projectId");
+      nextParams.delete("directorSessionId");
       navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
       return;
     }
 
+    if (!nextValue) {
+      return;
+    }
+
+    setSelectedDirectorSessionId(null);
     setWorkbenchMode("project");
     writeStoredWorkbenchMode("project");
-    const nextProjectId = nextValue || "all";
+    const nextProjectId = nextValue;
     setSelectedProjectId(nextProjectId);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("mode");
-    if (nextProjectId === "all") {
-      nextParams.delete("projectId");
-    } else {
-      nextParams.set("projectId", nextProjectId);
-    }
+    nextParams.delete("directorSessionId");
+    nextParams.set("projectId", nextProjectId);
     navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
   };
 
   const handleRightRailRunWorkerOnce = () => {
-    if (workbenchMode === "new-project") {
+    if (activeWorkbenchMode === "new-project") {
       return;
     }
 
@@ -200,7 +294,7 @@ export function WorkbenchPage() {
   };
 
   const rightRailRunWorkerOnceDisabledReason =
-    workbenchMode === "new-project"
+    activeWorkbenchMode === "new-project"
       ? "新项目会话尚未创建正式项目，右侧 run-once 已禁用。"
       : null;
 
@@ -212,10 +306,15 @@ export function WorkbenchPage() {
         lastUpdatedText={lastUpdatedText}
         selectedProjectName={activeProjectName}
         selectedProjectId={activeProjectId ?? "new-project"}
-        mode={workbenchMode}
+        mode={activeWorkbenchMode}
+        selectedDirectorSessionId={selectedDirectorSessionId}
+        resumableSessions={resumableSessions}
+        resumableSessionsLoading={resumableSessionsQuery.isLoading}
         projects={projects}
         projectsLoading={projectsLoading}
-        projectNotFound={workbenchMode === "project" && projectNotFound}
+        projectNotFound={
+          !selectedDirectorSessionId && activeWorkbenchMode === "project" && projectNotFound
+        }
         onSelectContext={handleSelectWorkbenchContext}
       />
 
@@ -224,7 +323,8 @@ export function WorkbenchPage() {
           <DirectorChatEntry
             selectedProjectId={activeProjectId}
             selectedProjectName={activeProjectName}
-            mode={workbenchMode}
+            mode={activeWorkbenchMode}
+            resumeSessionId={selectedDirectorSessionId}
           />
         </div>
 
@@ -245,13 +345,13 @@ export function WorkbenchPage() {
             runWorkerOnceDisabledReason={rightRailRunWorkerOnceDisabledReason}
             onRunWorkerOnce={handleRightRailRunWorkerOnce}
             workerOnceData={
-              workbenchMode === "new-project" ? null : runWorkerOnceMutation.data
+              activeWorkbenchMode === "new-project" ? null : runWorkerOnceMutation.data
             }
             workerOnceIsError={
-              workbenchMode === "new-project" ? false : runWorkerOnceMutation.isError
+              activeWorkbenchMode === "new-project" ? false : runWorkerOnceMutation.isError
             }
             workerOnceErrorMessage={
-              workbenchMode !== "new-project" && runWorkerOnceMutation.isError
+              activeWorkbenchMode !== "new-project" && runWorkerOnceMutation.isError
                 ? runWorkerOnceMutation.error.message
                 : null
             }

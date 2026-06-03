@@ -306,6 +306,73 @@ class TestGetSession:
         assert "not found" in resp.json()["detail"].lower()
 
 
+class TestWorkbenchReadback:
+    def test_resumable_sessions_lists_unfinished_director_sessions(self, client):
+        create_resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": "创建一个刷新后可恢复的新项目主管会话"},
+        )
+        session_id = create_resp.json()["id"]
+
+        resp = client.get("/project-director/workbench/resumable-sessions")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "project_director_session_repository"
+        assert [item["session_id"] for item in data["sessions"]] == [session_id]
+        assert data["sessions"][0]["status"] == "clarifying"
+        assert data["sessions"][0]["project_id"] is None
+
+    def test_workbench_resume_can_restore_selected_session_id(self, client):
+        first_resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": "第一个未完成会话，不应该被本次点击恢复"},
+        )
+        selected_resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": "用户从下拉点击恢复的指定会话"},
+        )
+
+        resp = client.get(
+            "/project-director/workbench/resume",
+            params={
+                "mode": "new-project",
+                "session_id": selected_resp.json()["id"],
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session"]["id"] == selected_resp.json()["id"]
+        assert data["session"]["id"] != first_resp.json()["id"]
+        assert data["source"] == "backend_recent_session"
+        assert "选中的未完成" in data["next_action"]
+
+    def test_workbench_resume_rejects_session_context_mismatch(
+        self,
+        client,
+        seeded_project,
+    ):
+        create_resp = client.post(
+            "/project-director/sessions",
+            json={
+                "goal_text": "绑定正式项目的主管会话",
+                "project_id": str(seeded_project.id),
+            },
+        )
+
+        resp = client.get(
+            "/project-director/workbench/resume",
+            params={
+                "mode": "new-project",
+                "session_id": create_resp.json()["id"],
+            },
+        )
+
+        assert resp.status_code == 422
+        assert "does not match" in resp.json()["detail"]
+
+
 # ── API Tests: Submit Answers ──────────────────────────────────────
 
 

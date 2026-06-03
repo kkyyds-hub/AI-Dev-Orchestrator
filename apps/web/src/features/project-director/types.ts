@@ -338,6 +338,25 @@ export interface ProjectDirectorWorkbenchResume {
   next_action: string;
 }
 
+export interface ProjectDirectorWorkbenchResumableSession {
+  session_id: string;
+  project_id: string | null;
+  project_name: string | null;
+  status: ProjectDirectorSessionStatus;
+  goal_text: string;
+  goal_summary: string;
+  updated_at: string;
+  plan_version_id: string | null;
+  plan_version_status: ProjectDirectorPlanVersionStatus | null;
+  source: "backend_recent_plan" | "backend_recent_session" | string;
+  next_action: string;
+}
+
+export interface ProjectDirectorWorkbenchResumableSessionsResponse {
+  sessions: ProjectDirectorWorkbenchResumableSession[];
+  source: string;
+}
+
 export interface ProjectDirectorTaskCreationResponse {
   plan_version_id: string;
   session_id: string;
@@ -402,6 +421,7 @@ export interface CreateProjectDirectorPlanVersionInput {
 export interface FetchProjectDirectorWorkbenchResumeInput {
   mode: "new-project" | "project";
   projectId?: string | null;
+  sessionId?: string | null;
 }
 
 export interface ConfirmProjectDirectorPlanVersionInput {

@@ -1,4 +1,5 @@
 import { StatusBadge } from "../../../components/StatusBadge";
+import type { ProjectDirectorWorkbenchResumableSession } from "../../../features/project-director/types";
 import type { BossProjectItem } from "../../../features/projects/types";
 
 type WorkbenchHeaderProps = {
@@ -8,6 +9,9 @@ type WorkbenchHeaderProps = {
   selectedProjectName: string;
   selectedProjectId: string;
   mode: "new-project" | "project";
+  selectedDirectorSessionId: string | null;
+  resumableSessions: ProjectDirectorWorkbenchResumableSession[];
+  resumableSessionsLoading: boolean;
   projects: BossProjectItem[];
   projectsLoading: boolean;
   projectNotFound: boolean;
@@ -47,13 +51,28 @@ export function WorkbenchHeader({
   selectedProjectName,
   selectedProjectId,
   mode,
+  selectedDirectorSessionId,
+  resumableSessions,
+  resumableSessionsLoading,
   projects,
   projectsLoading,
   projectNotFound,
   onSelectContext,
 }: WorkbenchHeaderProps) {
   const selectorValue =
-    mode === "new-project" ? "new-project" : selectedProjectId === "all" ? "all" : selectedProjectId;
+    selectedDirectorSessionId
+      ? buildDirectorSessionOptionValue(selectedDirectorSessionId)
+      : mode === "new-project"
+        ? "new-project"
+        : selectedProjectId === "all"
+          ? ""
+          : selectedProjectId;
+  const selectedDirectorSession = selectedDirectorSessionId
+    ? resumableSessions.find(
+        (session) => session.session_id === selectedDirectorSessionId,
+      ) ?? null
+    : null;
+  const selectorDisabled = projectsLoading || resumableSessionsLoading;
 
   return (
     <header
@@ -66,11 +85,13 @@ export function WorkbenchHeader({
             AI 项目主管工作台
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            {mode === "new-project"
+            {selectedDirectorSession
+              ? `恢复未完成 AI 主管会话：${formatSessionOptionLabel(selectedDirectorSession)}`
+              : mode === "new-project"
               ? "新项目会话：从目标澄清进入首次创建链路"
               : selectedProjectId === "all"
-              ? "全部项目总览"
-              : `当前项目：${selectedProjectName}`}
+                ? "请选择一个正式项目，或从未完成 AI 主管会话恢复"
+                : `当前正式项目：${selectedProjectName}`}
           </p>
           {projectNotFound ? (
             <p className="mt-2 text-xs text-amber-300">
@@ -87,17 +108,39 @@ export function WorkbenchHeader({
             <select
               value={selectorValue}
               onChange={(event) => onSelectContext(event.target.value)}
-              disabled={projectsLoading}
+              disabled={selectorDisabled}
               className="w-full rounded border border-[#333333] bg-[#111111] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500 disabled:cursor-not-allowed disabled:text-zinc-600"
             >
               <option value="new-project">新项目会话（首次创建）</option>
-              <option value="all">全部已有项目</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
+              {resumableSessions.length > 0 ? (
+                <optgroup label="未完成 AI 主管会话">
+                  {resumableSessions.map((session) => (
+                    <option
+                      key={session.session_id}
+                      value={buildDirectorSessionOptionValue(session.session_id)}
+                    >
+                      {formatSessionOptionLabel(session)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              <optgroup label="正式项目">
+                {projects.length > 0 ? (
+                  projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="" disabled>
+                    暂无正式项目
+                  </option>
+                )}
+              </optgroup>
             </select>
+            {resumableSessionsLoading ? (
+              <p className="mt-1 text-xs text-zinc-600">正在读取未完成 AI 主管会话...</p>
+            ) : null}
           </label>
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 lg:justify-end">
@@ -115,4 +158,35 @@ export function WorkbenchHeader({
       </div>
     </header>
   );
+}
+
+export const DIRECTOR_SESSION_CONTEXT_PREFIX = "pd-session:";
+
+export function buildDirectorSessionOptionValue(sessionId: string) {
+  return `${DIRECTOR_SESSION_CONTEXT_PREFIX}${sessionId}`;
+}
+
+export function parseDirectorSessionOptionValue(value: string): string | null {
+  return value.startsWith(DIRECTOR_SESSION_CONTEXT_PREFIX)
+    ? value.slice(DIRECTOR_SESSION_CONTEXT_PREFIX.length)
+    : null;
+}
+
+function formatSessionOptionLabel(
+  session: ProjectDirectorWorkbenchResumableSession,
+) {
+  const context = session.project_name ?? "新项目";
+  const goal = compactText(session.goal_summary || session.goal_text, 34);
+  const planHint = session.plan_version_status
+    ? ` / 草案:${session.plan_version_status}`
+    : "";
+  return `${context} · ${session.status}${planHint} · ${goal}`;
+}
+
+function compactText(text: string, maxLength: number) {
+  const compacted = text.replace(/\s+/g, " ").trim();
+  if (compacted.length <= maxLength) {
+    return compacted;
+  }
+  return `${compacted.slice(0, maxLength)}…`;
 }

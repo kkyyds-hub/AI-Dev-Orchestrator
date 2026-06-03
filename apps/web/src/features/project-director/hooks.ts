@@ -6,12 +6,13 @@ import {
   confirmProjectDirectorPlanVersion,
   createProjectDirectorPlanVersion,
   createProjectDirectorSession,
-  fetchProjectDirectorWorkbenchResume,
   fetchProjectDirectorAgentTeamConfig,
   fetchProjectDirectorRepositoryBindingConfig,
   fetchProjectDirectorSetupReadiness,
   fetchProjectDirectorSkillBindingConfig,
   fetchProjectDirectorVerificationConfig,
+  fetchProjectDirectorWorkbenchResume,
+  fetchProjectDirectorWorkbenchResumableSessions,
   reviewProjectDirectorAgentTeamConfig,
   reviewProjectDirectorRepositoryBindingConfig,
   reviewProjectDirectorSkillBindingConfig,
@@ -37,8 +38,17 @@ export function useProjectDirectorWorkbenchResume(
       "workbench-resume",
       input.mode,
       input.projectId ?? null,
+      input.sessionId ?? null,
     ],
     queryFn: () => fetchProjectDirectorWorkbenchResume(input),
+    retry: false,
+  });
+}
+
+export function useProjectDirectorWorkbenchResumableSessions() {
+  return useQuery({
+    queryKey: ["project-director", "workbench-resumable-sessions"],
+    queryFn: fetchProjectDirectorWorkbenchResumableSessions,
     retry: false,
   });
 }

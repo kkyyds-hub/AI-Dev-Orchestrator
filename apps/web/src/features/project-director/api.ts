@@ -17,6 +17,7 @@ import type {
   ProjectDirectorTaskCreationResponse,
   ProjectDirectorVerificationConfigResponse,
   ProjectDirectorWorkbenchResume,
+  ProjectDirectorWorkbenchResumableSessionsResponse,
   ReviewProjectDirectorAgentTeamConfigInput,
   ReviewProjectDirectorRepositoryBindingConfigInput,
   ReviewProjectDirectorSkillBindingConfigInput,
@@ -41,9 +42,18 @@ export function fetchProjectDirectorWorkbenchResume(
   if (input.projectId) {
     params.set("project_id", input.projectId);
   }
+  if (input.sessionId) {
+    params.set("session_id", input.sessionId);
+  }
 
   return requestJson<ProjectDirectorWorkbenchResume>(
     `/project-director/workbench/resume?${params.toString()}`,
+  );
+}
+
+export function fetchProjectDirectorWorkbenchResumableSessions(): Promise<ProjectDirectorWorkbenchResumableSessionsResponse> {
+  return requestJson<ProjectDirectorWorkbenchResumableSessionsResponse>(
+    "/project-director/workbench/resumable-sessions",
   );
 }
 

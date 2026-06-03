@@ -2003,6 +2003,25 @@ class WorkbenchResumeResponse(BaseModel):
     next_action: str = Field(default="暂无可恢复的 Project Director 流程。")
 
 
+class WorkbenchResumableSessionSummary(BaseModel):
+    session_id: UUID
+    project_id: UUID | None = None
+    project_name: str | None = None
+    status: ProjectDirectorSessionStatus
+    goal_text: str
+    goal_summary: str = ""
+    updated_at: str
+    plan_version_id: UUID | None = None
+    plan_version_status: PlanVersionStatus | None = None
+    source: str = Field(default="backend_recent_session")
+    next_action: str
+
+
+class WorkbenchResumableSessionsResponse(BaseModel):
+    sessions: list[WorkbenchResumableSessionSummary] = Field(default_factory=list)
+    source: str = Field(default="project_director_session_repository")
+
+
 def _task_creation_response_from_result(result) -> TaskCreationResponse:
     return TaskCreationResponse(
         plan_version_id=result.plan_version_id,
@@ -2051,6 +2070,151 @@ def _build_task_creation_readback(
     return _task_creation_response_from_result(result)
 
 
+def _latest_resumable_plan_for_session(
+    *,
+    plan_repo: ProjectDirectorPlanVersionRepository,
+    session_id: UUID,
+) -> ProjectDirectorPlanVersion | None:
+    for plan_version in plan_repo.list_by_session_id(session_id):
+        if plan_version.status in {
+            PlanVersionStatus.PENDING_CONFIRMATION,
+            PlanVersionStatus.CONFIRMED,
+            PlanVersionStatus.REJECTED,
+        }:
+            return plan_version
+    return None
+
+
+def _build_workbench_resume_for_session(
+    *,
+    db_session: Session,
+    session_obj,
+    plan_repo: ProjectDirectorPlanVersionRepository,
+) -> WorkbenchResumeResponse:
+    latest_plan_version = _latest_resumable_plan_for_session(
+        plan_repo=plan_repo,
+        session_id=session_obj.id,
+    )
+    task_creation = (
+        _build_task_creation_readback(
+            db_session=db_session,
+            plan_repo=plan_repo,
+            plan_version_id=latest_plan_version.id,
+        )
+        if latest_plan_version is not None
+        else None
+    )
+    return WorkbenchResumeResponse(
+        session=SessionResponse.from_domain(session_obj),
+        plan_version=(
+            PlanVersionResponse.from_domain(latest_plan_version)
+            if latest_plan_version is not None
+            else None
+        ),
+        task_creation=task_creation,
+        source=(
+            "backend_recent_task_creation"
+            if task_creation is not None
+            else (
+                "backend_recent_plan"
+                if latest_plan_version is not None
+                else "backend_recent_session"
+            )
+        ),
+        next_action=(
+            "已恢复正式项目与任务队列，可继续查看执行中心、正式项目或手动启动一次执行。"
+            if task_creation is not None
+            else "已恢复选中的未完成 Project Director 会话，请继续处理下一步。"
+        ),
+    )
+
+
+def _project_name_by_id(
+    project_repo: ProjectRepository,
+    project_id: UUID | None,
+) -> str | None:
+    if project_id is None:
+        return None
+    project = project_repo.get_by_id(project_id)
+    return project.name if project is not None else None
+
+
+@router.get(
+    "/workbench/resumable-sessions",
+    response_model=WorkbenchResumableSessionsResponse,
+    summary="List unfinished Project Director workbench sessions",
+)
+def list_workbench_resumable_sessions(
+    db_session: Annotated[Session, Depends(get_db_session)],
+    limit: int = 20,
+) -> WorkbenchResumableSessionsResponse:
+    """Return unfinished Project Director sessions for explicit workbench restore.
+
+    Read-only recovery list for the workbench UI. It does not create sessions,
+    generate plans, create tasks, dispatch Worker, call planning/apply, or write
+    repositories.
+    """
+
+    session_repo = ProjectDirectorSessionRepository(db_session)
+    plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+    project_repo = ProjectRepository(db_session)
+    safe_limit = max(1, min(limit, 50))
+    summaries: list[WorkbenchResumableSessionSummary] = []
+
+    for session_obj in session_repo.list_recent_resumable(limit=safe_limit * 2):
+        latest_plan_version = _latest_resumable_plan_for_session(
+            plan_repo=plan_repo,
+            session_id=session_obj.id,
+        )
+        task_creation = (
+            _build_task_creation_readback(
+                db_session=db_session,
+                plan_repo=plan_repo,
+                plan_version_id=latest_plan_version.id,
+            )
+            if latest_plan_version is not None
+            else None
+        )
+        if task_creation is not None:
+            continue
+
+        summaries.append(
+            WorkbenchResumableSessionSummary(
+                session_id=session_obj.id,
+                project_id=session_obj.project_id,
+                project_name=_project_name_by_id(project_repo, session_obj.project_id),
+                status=session_obj.status,
+                goal_text=session_obj.goal_text,
+                goal_summary=session_obj.goal_summary,
+                updated_at=session_obj.updated_at.isoformat(),
+                plan_version_id=(
+                    latest_plan_version.id if latest_plan_version is not None else None
+                ),
+                plan_version_status=(
+                    latest_plan_version.status
+                    if latest_plan_version is not None
+                    else None
+                ),
+                source=(
+                    "backend_recent_plan"
+                    if latest_plan_version is not None
+                    else "backend_recent_session"
+                ),
+                next_action=(
+                    "继续审核项目草案"
+                    if latest_plan_version is not None
+                    and latest_plan_version.status
+                    == PlanVersionStatus.PENDING_CONFIRMATION
+                    else SessionResponse.from_domain(session_obj).next_action
+                ),
+            )
+        )
+        if len(summaries) >= safe_limit:
+            break
+
+    return WorkbenchResumableSessionsResponse(sessions=summaries)
+
+
 @router.get(
     "/workbench/resume",
     response_model=WorkbenchResumeResponse,
@@ -2060,6 +2224,7 @@ def get_workbench_resume(
     db_session: Annotated[Session, Depends(get_db_session)],
     mode: Literal["new-project", "project"] = "new-project",
     project_id: UUID | None = None,
+    session_id: UUID | None = None,
 ) -> WorkbenchResumeResponse:
     """Return the latest session / plan/task creation that can still be continued.
 
@@ -2070,6 +2235,28 @@ def get_workbench_resume(
 
     session_repo = ProjectDirectorSessionRepository(db_session)
     plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+
+    if session_id is not None:
+        session_obj = session_repo.get_by_id(session_id)
+        if session_obj is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Project Director session {session_id} not found",
+            )
+        if not _session_matches_workbench_resume_context(
+            session_obj,
+            mode=mode,
+            project_id=project_id,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Selected Project Director session does not match the requested workbench context",
+            )
+        return _build_workbench_resume_for_session(
+            db_session=db_session,
+            session_obj=session_obj,
+            plan_repo=plan_repo,
+        )
 
     recent_plan_versions = plan_repo.list_recent_resumable(
         project_id=project_id if mode == "project" else None,
@@ -2115,47 +2302,17 @@ def get_workbench_resume(
         limit=50,
     )
     for session_obj in recent_sessions:
-        latest_plan_version = next(
-            (
-                plan_version
-                for plan_version in plan_repo.list_by_session_id(session_obj.id)
-                if plan_version.status
-                in {
-                    PlanVersionStatus.PENDING_CONFIRMATION,
-                    PlanVersionStatus.CONFIRMED,
-                    PlanVersionStatus.REJECTED,
-                }
-            ),
-            None,
+        resume = _build_workbench_resume_for_session(
+            db_session=db_session,
+            session_obj=session_obj,
+            plan_repo=plan_repo,
         )
-        task_creation = (
-            _build_task_creation_readback(
-                db_session=db_session,
-                plan_repo=plan_repo,
-                plan_version_id=latest_plan_version.id,
-            )
-            if latest_plan_version is not None
-            else None
+        resume.next_action = (
+            "已恢复正式项目与任务队列，可继续查看执行中心、正式项目或手动启动一次执行。"
+            if resume.task_creation is not None
+            else "已恢复最近 Project Director 会话，请继续处理下一步。"
         )
-        return WorkbenchResumeResponse(
-            session=SessionResponse.from_domain(session_obj),
-            plan_version=(
-                PlanVersionResponse.from_domain(latest_plan_version)
-                if latest_plan_version is not None
-                else None
-            ),
-            task_creation=task_creation,
-            source=(
-                "backend_recent_task_creation"
-                if task_creation is not None
-                else "backend_recent_session"
-            ),
-            next_action=(
-                "已恢复正式项目与任务队列，可继续查看执行中心、正式项目或手动启动一次执行。"
-                if task_creation is not None
-                else "已恢复最近 Project Director 会话，请继续处理下一步。"
-            ),
-        )
+        return resume
 
     return WorkbenchResumeResponse()
 

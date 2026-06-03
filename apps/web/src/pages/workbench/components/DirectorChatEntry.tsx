@@ -100,12 +100,14 @@ interface DirectorChatEntryProps {
   selectedProjectId: string | null;
   selectedProjectName: string;
   mode: "new-project" | "project";
+  resumeSessionId?: string | null;
 }
 
 export function DirectorChatEntry({
   selectedProjectId,
   selectedProjectName,
   mode,
+  resumeSessionId = null,
 }: DirectorChatEntryProps) {
   const [draft, setDraft] = useState("");
   const [session, setSession] = useState<ProjectDirectorSession | null>(null);
@@ -139,9 +141,11 @@ export function DirectorChatEntry({
     mode === "project" && selectedProjectId && selectedProjectId !== "all"
       ? selectedProjectId
       : null;
+  const hasAmbiguousProjectScope = mode === "project" && !scopedProjectId;
   const resumeQuery = useProjectDirectorWorkbenchResume({
     mode,
     projectId: scopedProjectId,
+    sessionId: resumeSessionId,
   });
   const resumeCandidate = resumeQuery.data?.session ?? null;
   const trimmedDraft = draft.trim();
@@ -170,7 +174,8 @@ export function DirectorChatEntry({
     reviewPlanVersionMutation.isPending ||
     createTaskQueueMutation.isPending;
 
-  const canSend = trimmedDraft.length > 0 && !isMutating;
+  const canSend =
+    trimmedDraft.length > 0 && !isMutating && !hasAmbiguousProjectScope;
   const canSubmitAnswers =
     session?.status === "clarifying" &&
     session.clarifying_questions.length > 0 &&
@@ -223,11 +228,14 @@ export function DirectorChatEntry({
     ) {
       return "AI 项目主管正在记录驳回结论。";
     }
-    if (!session && resumeQuery.isLoading && mode !== "new-project") {
+    if (!session && resumeQuery.isLoading && (mode !== "new-project" || resumeSessionId)) {
       return "正在检查是否有未完成的 Project Director 流程。";
     }
-    if (!session && resumeQuery.isError && mode !== "new-project") {
+    if (!session && resumeQuery.isError && (mode !== "new-project" || resumeSessionId)) {
       return "暂时无法检查未完成流程，你仍可以发起新的 Project Director 会话。";
+    }
+    if (!session && resumeSessionId && !resumeCandidate && !resumeQuery.isLoading) {
+      return "正在按下拉选择恢复指定的未完成 AI 主管会话。";
     }
     if (!session && mode === "new-project" && resumeCandidate) {
       return "检测到最近未完成的首次创建流程；新项目会话默认保持空白，需要时可手动恢复。";
@@ -244,6 +252,7 @@ export function DirectorChatEntry({
     resumeCandidate,
     resumeQuery.isError,
     resumeQuery.isLoading,
+    resumeSessionId,
     reviewPlanVersionMutation.isPending,
     session,
     mode,
@@ -277,14 +286,14 @@ export function DirectorChatEntry({
     setPlanReviewMessage(null);
     setResumeMessage(null);
     setManualResumeRequested(false);
-  }, [mode, scopedProjectId]);
+  }, [mode, resumeSessionId, scopedProjectId]);
 
   useEffect(() => {
     if (session || planVersion) {
       return;
     }
 
-    if (mode === "new-project" && !manualResumeRequested) {
+    if (mode === "new-project" && !manualResumeRequested && !resumeSessionId) {
       return;
     }
 
@@ -305,7 +314,14 @@ export function DirectorChatEntry({
     setIsPlanReviewOpen(false);
     setPlanReviewMessage(null);
     setResumeMessage(resume.next_action);
-  }, [manualResumeRequested, mode, planVersion, resumeQuery.data, session]);
+  }, [
+    manualResumeRequested,
+    mode,
+    planVersion,
+    resumeQuery.data,
+    resumeSessionId,
+    session,
+  ]);
 
   useEffect(() => {
     if (!session) {
@@ -529,7 +545,7 @@ export function DirectorChatEntry({
                 ? `项目上下文：${selectedProjectName}`
                 : mode === "new-project"
                   ? "新项目会话：project_id=null"
-                  : "全部项目视图：新会话不绑定单个项目"}
+                  : "请选择一个正式项目上下文"}
             </span>
           </div>
           {directorStatusMessage ? (
@@ -972,12 +988,14 @@ export function DirectorChatEntry({
                     ? "还没有正式项目时，从这里开始"
                     : scopedProjectId
                       ? `继续调度：${selectedProjectName}`
-                      : "选择新项目会话或指定已有项目"}
+                      : "请先选择新项目会话或一个正式项目"}
                 </h3>
                 <p className="mb-4 mt-2 text-sm leading-6 text-zinc-500">
                   {mode === "new-project"
                     ? "输入目标后会创建 AI 项目主管会话，payload 中 project_id=null；系统优先生成贴合目标的澄清问题，必要时自动使用安全规则兜底。确认草案前不会创建任务或启动 Worker。"
-                    : "输入目标或调度问题后会创建 AI 项目主管会话；选择具体已有项目时会带入该项目上下文，选择全部项目时不会绑定单个项目。"}
+                    : scopedProjectId
+                      ? "输入目标或调度问题后会创建绑定该正式项目的 AI 项目主管会话。"
+                      : "为避免上下文污染，项目模式必须先选择一个正式项目；无正式项目时请切换到“新项目会话”。"}
                 </p>
                 {mode === "new-project" && resumeCandidate ? (
                   <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-left">
