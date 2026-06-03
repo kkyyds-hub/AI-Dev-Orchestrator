@@ -57,11 +57,20 @@ from app.domain.project_director_session import (
     ClarifyingQuestion,
     ProjectDirectorSessionStatus,
 )
+from app.domain.project_director_message import (
+    ProjectDirectorMessage,
+    ProjectDirectorMessageRiskLevel,
+    ProjectDirectorMessageRole,
+    ProjectDirectorMessageSource,
+)
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
 )
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
+)
+from app.repositories.project_director_message_repository import (
+    ProjectDirectorMessageRepository,
 )
 from app.repositories.project_director_task_creation_repository import (
     ProjectDirectorTaskCreationRecordRepository,
@@ -88,6 +97,7 @@ from app.services.project_director_plan_service import (
     ProjectDirectorPlanService,
 )
 from app.services.project_director_service import ProjectDirectorService
+from app.services.project_director_message_service import ProjectDirectorMessageService
 from app.services.project_director_task_creation_service import (
     ProjectDirectorTaskCreationService,
 )
@@ -121,6 +131,17 @@ def _get_service(
 ) -> ProjectDirectorService:
     repo = ProjectDirectorSessionRepository(session)
     return ProjectDirectorService(session_repository=repo)
+
+
+def _get_message_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorMessageService:
+    session_repo = ProjectDirectorSessionRepository(session)
+    message_repo = ProjectDirectorMessageRepository(session)
+    return ProjectDirectorMessageService(
+        session_repository=session_repo,
+        message_repository=message_repo,
+    )
 
 
 def _get_plan_service(
@@ -330,6 +351,78 @@ class SubmitAnswersRequest(BaseModel):
     answers: list[ClarifyingAnswer] = Field(min_length=1)
 
 
+class ProjectDirectorMessageResponse(BaseModel):
+    id: UUID
+    session_id: UUID
+    role: ProjectDirectorMessageRole
+    content: str
+    sequence_no: int
+    intent: str | None = None
+    related_plan_version_id: UUID | None = None
+    related_project_id: UUID | None = None
+    related_task_id: UUID | None = None
+    source: ProjectDirectorMessageSource
+    source_detail: str = ""
+    suggested_actions: list[dict] = Field(default_factory=list)
+    requires_confirmation: bool = False
+    risk_level: ProjectDirectorMessageRiskLevel | None = None
+    forbidden_actions_detected: list[str] = Field(default_factory=list)
+    token_count: int | None = None
+    estimated_cost: float | None = None
+    created_at: str
+
+    @classmethod
+    def from_domain(cls, message: ProjectDirectorMessage) -> "ProjectDirectorMessageResponse":
+        return cls(
+            id=message.id,
+            session_id=message.session_id,
+            role=message.role,
+            content=message.content,
+            sequence_no=message.sequence_no,
+            intent=message.intent,
+            related_plan_version_id=message.related_plan_version_id,
+            related_project_id=message.related_project_id,
+            related_task_id=message.related_task_id,
+            source=message.source,
+            source_detail=message.source_detail,
+            suggested_actions=message.suggested_actions,
+            requires_confirmation=message.requires_confirmation,
+            risk_level=message.risk_level,
+            forbidden_actions_detected=message.forbidden_actions_detected,
+            token_count=message.token_count,
+            estimated_cost=message.estimated_cost,
+            created_at=message.created_at.isoformat(),
+        )
+
+
+class ProjectDirectorMessageListResponse(BaseModel):
+    session_id: UUID
+    messages: list[ProjectDirectorMessageResponse] = Field(default_factory=list)
+
+
+class PostProjectDirectorMessageRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=10_000)
+
+
+class PostProjectDirectorMessageResponse(BaseModel):
+    session_id: UUID
+    user_message: ProjectDirectorMessageResponse
+    assistant_message: ProjectDirectorMessageResponse
+    messages: list[ProjectDirectorMessageResponse]
+    source: ProjectDirectorMessageSource = ProjectDirectorMessageSource.RULE_FALLBACK
+    gate_conclusion: str = "Partial"
+    forbidden_actions: list[str] = Field(
+        default_factory=lambda: [
+            "不启动 Worker",
+            "不创建 Run",
+            "不调用 Provider",
+            "不执行 planning/apply",
+            "不执行 apply-local",
+            "不写仓库",
+        ]
+    )
+
+
 # ── Contract field computation ──────────────────────────────────────
 
 
@@ -477,6 +570,92 @@ def get_session(
         )
 
     return SessionResponse.from_domain(session_obj)
+
+
+@router.get(
+    "/sessions/{session_id}/messages",
+    response_model=ProjectDirectorMessageListResponse,
+    summary="List Project Director session messages",
+)
+def list_session_messages(
+    session_id: UUID,
+    message_service: Annotated[
+        ProjectDirectorMessageService, Depends(_get_message_service)
+    ],
+    limit: int = 200,
+) -> ProjectDirectorMessageListResponse:
+    """Return persisted conversation messages for one Project Director session."""
+
+    safe_limit = max(1, min(limit, 500))
+    try:
+        messages = message_service.list_messages(
+            session_id=session_id,
+            limit=safe_limit,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return ProjectDirectorMessageListResponse(
+        session_id=session_id,
+        messages=[ProjectDirectorMessageResponse.from_domain(m) for m in messages],
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/messages",
+    response_model=PostProjectDirectorMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Persist a Project Director user message and fallback assistant reply",
+)
+def post_session_message(
+    session_id: UUID,
+    request: PostProjectDirectorMessageRequest,
+    message_service: Annotated[
+        ProjectDirectorMessageService, Depends(_get_message_service)
+    ],
+) -> PostProjectDirectorMessageResponse:
+    """Persist one user message and one deterministic assistant fallback reply.
+
+    Stage 7-B1 foundation only: this endpoint does not call providers, create
+    runs, dispatch workers, execute planning/apply, execute apply-local, or
+    write repositories.
+    """
+
+    try:
+        user_message, assistant_message = message_service.post_user_message(
+            session_id=session_id,
+            content=request.content,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return PostProjectDirectorMessageResponse(
+        session_id=session_id,
+        user_message=ProjectDirectorMessageResponse.from_domain(user_message),
+        assistant_message=ProjectDirectorMessageResponse.from_domain(assistant_message),
+        messages=[
+            ProjectDirectorMessageResponse.from_domain(user_message),
+            ProjectDirectorMessageResponse.from_domain(assistant_message),
+        ],
+    )
 
 
 @router.post(

@@ -98,6 +98,38 @@ _PROJECT_DIRECTOR_PLAN_VERSION_TABLE_COLUMN_UPGRADES = {
     "source_detail": "ALTER TABLE project_director_plan_versions ADD COLUMN source_detail TEXT NOT NULL DEFAULT 'deterministic_plan_generation'",
 }
 
+_PROJECT_DIRECTOR_MESSAGES_TABLE_CREATE = """
+CREATE TABLE IF NOT EXISTS project_director_messages (
+    id CHAR(32) PRIMARY KEY,
+    session_id CHAR(32) NOT NULL REFERENCES project_director_sessions(id) ON DELETE CASCADE,
+    role VARCHAR(16) NOT NULL,
+    content TEXT NOT NULL,
+    sequence_no INTEGER NOT NULL,
+    intent VARCHAR(80),
+    related_plan_version_id CHAR(32) REFERENCES project_director_plan_versions(id) ON DELETE SET NULL,
+    related_project_id CHAR(32) REFERENCES projects(id) ON DELETE SET NULL,
+    related_task_id CHAR(32) REFERENCES tasks(id) ON DELETE SET NULL,
+    source VARCHAR(32) NOT NULL DEFAULT 'system',
+    source_detail TEXT NOT NULL DEFAULT '',
+    suggested_actions_json TEXT NOT NULL DEFAULT '[]',
+    requires_confirmation INTEGER NOT NULL DEFAULT 0,
+    risk_level VARCHAR(16),
+    forbidden_actions_detected_json TEXT NOT NULL DEFAULT '[]',
+    token_count INTEGER,
+    estimated_cost FLOAT,
+    created_at TIMESTAMP NOT NULL
+)
+"""
+
+_PROJECT_DIRECTOR_MESSAGES_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_pd_messages_session_sequence "
+    "ON project_director_messages(session_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS idx_pd_messages_session_created "
+    "ON project_director_messages(session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_pd_messages_plan_version "
+    "ON project_director_messages(related_plan_version_id)",
+)
+
 _TABLE_COLUMN_UPGRADES = {
     "projects": _PROJECT_TABLE_COLUMN_UPGRADES,
     "tasks": _TASK_TABLE_COLUMN_UPGRADES,
@@ -162,10 +194,11 @@ def migrate_database_schema() -> None:
             if column_name not in existing_columns
         )
 
-    if not statements:
-        return
-
     with engine.begin() as connection:
+        if "project_director_messages" not in table_names:
+            connection.exec_driver_sql(_PROJECT_DIRECTOR_MESSAGES_TABLE_CREATE)
+        for index_statement in _PROJECT_DIRECTOR_MESSAGES_INDEXES:
+            connection.exec_driver_sql(index_statement)
         for statement in statements:
             connection.exec_driver_sql(statement)
 

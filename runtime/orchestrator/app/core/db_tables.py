@@ -42,6 +42,11 @@ from app.domain.project_director_repository_binding_config import (
 from app.domain.project_director_skill_binding_config import SkillBindingConfigStatus
 from app.domain.project_director_verification_config import VerificationConfigStatus
 from app.domain.project_director_session import ProjectDirectorSessionStatus
+from app.domain.project_director_message import (
+    ProjectDirectorMessageRole,
+    ProjectDirectorMessageSource,
+    ProjectDirectorMessageRiskLevel,
+)
 from app.domain.project_role import ProjectRoleCode
 from app.domain.repository_snapshot import RepositorySnapshotStatus
 from app.domain.repository_verification import RepositoryVerificationCategory
@@ -1690,6 +1695,81 @@ class ProjectDirectorSessionTable(ORMBase):
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
+    )
+
+
+class ProjectDirectorMessageTable(ORMBase):
+    """AI Project Director session-scoped conversation messages."""
+
+    __tablename__ = "project_director_messages"
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[ProjectDirectorMessageRole] = mapped_column(
+        Enum(
+            ProjectDirectorMessageRole,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    intent: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    related_plan_version_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_plan_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    related_project_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    related_task_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source: Mapped[ProjectDirectorMessageSource] = mapped_column(
+        Enum(
+            ProjectDirectorMessageSource,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ProjectDirectorMessageSource.SYSTEM,
+    )
+    source_detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    suggested_actions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    requires_confirmation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    risk_level: Mapped[ProjectDirectorMessageRiskLevel | None] = mapped_column(
+        Enum(
+            ProjectDirectorMessageRiskLevel,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    forbidden_actions_detected_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
     )
 
 
