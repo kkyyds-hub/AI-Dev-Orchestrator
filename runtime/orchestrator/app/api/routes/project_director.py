@@ -1,10 +1,12 @@
 """AI Project Director session, plan version & confirmation inbox API routes.
 
 BCG-01: goal intake → clarification → confirmation.
-BCG-02: plan version generation → pending_confirmation → confirmed.
+BCG-02: provider-first plan draft generation with rule_fallback
+        → pending_confirmation → confirmed.
 BCG-03: pending confirmation inbox (read-only aggregation).
 BCG-04A: confirmed plan version → real task queue creation.
-No AI, no Provider, no planning/apply, no worker dispatch.
+Plan draft generation is review-only: it does not create tasks, dispatch
+workers, call planning/apply, or write repositories.
 """
 
 from __future__ import annotations
@@ -900,16 +902,19 @@ def _compute_plan_contract_fields(
     "/sessions/{session_id}/plan-versions",
     response_model=PlanVersionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a plan version from a confirmed session",
+    summary="Create a provider-first, review-only plan draft with rule fallback",
 )
 def create_plan_version(
     session_id: UUID,
     plan_service: Annotated[ProjectDirectorPlanService, Depends(_get_plan_service)],
 ) -> PlanVersionResponse:
-    """Generate a deterministic plan version from a confirmed session.
+    """Generate a provider-first, review-only plan draft from a confirmed session.
 
-    Only `confirmed` sessions can generate plan versions.
-    No AI, no Provider, no task creation, no worker dispatch.
+    Only `confirmed` sessions can generate plan versions. The plan service
+    prefers configured AI provider output, validates it in the backend, and
+    falls back to rule_fallback when provider output is unavailable or blocked.
+    This endpoint does not create tasks, dispatch Worker, call planning/apply,
+    or write repositories.
     """
 
     try:

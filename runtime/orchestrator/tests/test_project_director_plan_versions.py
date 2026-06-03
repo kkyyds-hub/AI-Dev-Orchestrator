@@ -472,6 +472,8 @@ class TestCreatePlanVersion:
         assert "recommended_agent_count" in data["complexity_assessment"]
         assert "source" in data
         assert "source_detail" in data
+        assert data["source"] in {"ai", "rule_fallback"}
+        assert isinstance(data["source_detail"], str)
         assert "forbidden_actions" in data
         assert "confirmed_at" in data
         assert "next_action" in data
