@@ -145,6 +145,7 @@ def _get_message_service(
         session_repository=session_repo,
         message_repository=message_repo,
         plan_version_repository=ProjectDirectorPlanVersionRepository(session),
+        task_creation_repository=ProjectDirectorTaskCreationRecordRepository(session),
         project_repository=ProjectRepository(session),
         task_repository=TaskRepository(session),
     )

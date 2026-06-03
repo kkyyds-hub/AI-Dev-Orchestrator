@@ -20,6 +20,9 @@ from app.repositories.project_director_plan_version_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.repositories.project_director_task_creation_repository import (
+    ProjectDirectorTaskCreationRecordRepository,
+)
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
 
@@ -34,9 +37,12 @@ class ProjectDirectorConversationContext:
     constraints: str
     session_status: str
     goal_summary: str
+    confirmed_at: str | None = None
+    clarifying_questions: list[dict[str, object]] = field(default_factory=list)
     clarifying_answers: list[dict[str, str]] = field(default_factory=list)
     recent_messages: list[ProjectDirectorMessage] = field(default_factory=list)
     latest_plan_version: dict[str, object] | None = None
+    task_creation: dict[str, object] | None = None
     project_snapshot: dict[str, object] | None = None
     task_snapshot: dict[str, object] | None = None
     safety_boundary: list[str] = field(default_factory=list)
@@ -45,7 +51,7 @@ class ProjectDirectorConversationContext:
 class ProjectDirectorContextBuilderService:
     """Build a read-only context package for one Project Director session."""
 
-    DEFAULT_RECENT_MESSAGE_LIMIT = 12
+    DEFAULT_RECENT_MESSAGE_LIMIT = 20
 
     def __init__(
         self,
@@ -53,12 +59,15 @@ class ProjectDirectorContextBuilderService:
         session_repository: ProjectDirectorSessionRepository,
         message_repository: ProjectDirectorMessageRepository,
         plan_version_repository: ProjectDirectorPlanVersionRepository | None = None,
+        task_creation_repository: ProjectDirectorTaskCreationRecordRepository
+        | None = None,
         project_repository: ProjectRepository | None = None,
         task_repository: TaskRepository | None = None,
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
         self._plan_version_repository = plan_version_repository
+        self._task_creation_repository = task_creation_repository
         self._project_repository = project_repository
         self._task_repository = task_repository
 
@@ -78,6 +87,7 @@ class ProjectDirectorContextBuilderService:
             limit=safe_limit,
         )
 
+        latest_plan_version = self._build_latest_plan_version(session_id=session_id)
         return ProjectDirectorConversationContext(
             session_id=session_obj.id,
             project_id=session_obj.project_id,
@@ -85,12 +95,30 @@ class ProjectDirectorContextBuilderService:
             constraints=session_obj.constraints,
             session_status=session_obj.status.value,
             goal_summary=session_obj.goal_summary,
+            confirmed_at=(
+                session_obj.confirmed_at.isoformat()
+                if session_obj.confirmed_at
+                else None
+            ),
+            clarifying_questions=[
+                {
+                    "id": question.id,
+                    "question": question.question,
+                    "hint": question.hint,
+                    "required": question.required,
+                    "source": question.source,
+                }
+                for question in session_obj.clarifying_questions
+            ],
             clarifying_answers=[
                 {"question_id": answer.question_id, "answer": answer.answer}
                 for answer in session_obj.clarifying_answers
             ],
             recent_messages=recent_messages,
-            latest_plan_version=self._build_latest_plan_version(session_id=session_id),
+            latest_plan_version=latest_plan_version,
+            task_creation=self._build_task_creation_readback(
+                latest_plan_version=latest_plan_version
+            ),
             project_snapshot=self._build_project_snapshot(
                 project_id=session_obj.project_id
             ),
@@ -120,11 +148,64 @@ class ProjectDirectorContextBuilderService:
             "status": latest.status.value,
             "source": latest.source,
             "source_detail": latest.source_detail,
-            "plan_summary": latest.plan_summary[:1200],
-            "phase_names": [phase.name for phase in latest.phases[:8]],
-            "proposed_task_titles": [task.title for task in latest.proposed_tasks[:12]],
+            "plan_summary": latest.plan_summary[:2000],
+            "phases": [
+                {
+                    "sequence": phase.sequence,
+                    "name": phase.name,
+                    "goal": phase.goal,
+                    "task_count_hint": phase.task_count_hint,
+                }
+                for phase in latest.phases[:8]
+            ],
+            "proposed_tasks": [
+                {
+                    "title": task.title,
+                    "description": task.description[:500],
+                    "suggested_role_code": task.suggested_role_code.value,
+                    "priority_hint": task.priority_hint,
+                }
+                for task in latest.proposed_tasks[:12]
+            ],
             "risks": latest.risks[:8],
             "acceptance_criteria": latest.acceptance_criteria[:8],
+            "project_scope": latest.project_scope.model_dump(),
+            "complexity_assessment": latest.complexity_assessment.model_dump(),
+        }
+
+    def _build_task_creation_readback(
+        self, *, latest_plan_version: dict[str, object] | None
+    ) -> dict[str, object] | None:
+        if self._task_creation_repository is None or latest_plan_version is None:
+            return None
+        plan_version_id = latest_plan_version.get("id")
+        if plan_version_id is None:
+            return None
+        try:
+            record = self._task_creation_repository.get_by_plan_version_id(
+                UUID(str(plan_version_id))
+            )
+        except ValueError:
+            return None
+        if record is None:
+            return None
+
+        project_name: str | None = None
+        if self._project_repository is not None:
+            project = self._project_repository.get_by_id(record.project_id)
+            if project is not None:
+                project_name = project.name
+
+        return {
+            "plan_version_id": str(record.plan_version_id),
+            "project_id": str(record.project_id),
+            "project_name": project_name,
+            "version_no": record.version_no,
+            "task_count": record.task_count,
+            "created_task_ids": [str(task_id) for task_id in record.task_ids],
+            "source_type": record.source_type,
+            "status": "created",
+            "created_at": record.created_at.isoformat(),
         }
 
     def _build_project_snapshot(
