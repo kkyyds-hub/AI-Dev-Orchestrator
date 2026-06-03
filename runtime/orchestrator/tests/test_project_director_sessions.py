@@ -348,6 +348,37 @@ class TestWorkbenchReadback:
         assert data["source"] == "backend_recent_session"
         assert "选中的未完成" in data["next_action"]
 
+
+    def test_workbench_resume_includes_recent_messages_for_selected_session(self, client):
+        selected_resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": "恢复时读取最近对话消息"},
+        )
+        session_id = selected_resp.json()["id"]
+        for index in range(11):
+            message_resp = client.post(
+                f"/project-director/sessions/{session_id}/messages",
+                json={"content": f"恢复消息 {index:02d}"},
+            )
+            assert message_resp.status_code == 201
+
+        resp = client.get(
+            "/project-director/workbench/resume",
+            params={
+                "mode": "new-project",
+                "session_id": session_id,
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session"]["id"] == session_id
+        assert len(data["recent_messages"]) == 20
+        assert [m["sequence_no"] for m in data["recent_messages"]] == list(range(3, 23))
+        assert data["recent_messages"][0]["role"] == "user"
+        assert data["recent_messages"][-1]["role"] == "assistant"
+        assert data["recent_messages"][-2]["content"] == "恢复消息 10"
+
     def test_workbench_resume_rejects_session_context_mismatch(
         self,
         client,

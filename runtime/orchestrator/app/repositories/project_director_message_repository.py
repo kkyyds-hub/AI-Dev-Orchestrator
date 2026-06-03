@@ -52,23 +52,49 @@ class ProjectDirectorMessageRepository:
         self._session.flush()
         return self._to_domain(row)
 
+    def get_by_id(self, message_id: UUID) -> ProjectDirectorMessage | None:
+        row = self._session.get(ProjectDirectorMessageTable, message_id)
+        if row is None:
+            return None
+        return self._to_domain(row)
+
     def list_by_session_id(
         self,
         *,
         session_id: UUID,
-        limit: int = 200,
-    ) -> list[ProjectDirectorMessage]:
-        statement = (
-            select(ProjectDirectorMessageTable)
-            .where(ProjectDirectorMessageTable.session_id == session_id)
-            .order_by(
-                ProjectDirectorMessageTable.sequence_no.asc(),
-                ProjectDirectorMessageTable.created_at.asc(),
+        limit: int = 50,
+        before_message_id: UUID | None = None,
+    ) -> tuple[list[ProjectDirectorMessage], bool]:
+        """Return the latest message window in chronological order.
+
+        When before_message_id is supplied, return messages older than that
+        cursor. Fetch limit + 1 rows to expose has_more without a count query.
+        """
+
+        statement = select(ProjectDirectorMessageTable).where(
+            ProjectDirectorMessageTable.session_id == session_id
+        )
+        if before_message_id is not None:
+            cursor_row = self._session.get(ProjectDirectorMessageTable, before_message_id)
+            if cursor_row is None or cursor_row.session_id != session_id:
+                raise ValueError(
+                    f"Project Director message cursor {before_message_id} not found for session {session_id}"
+                )
+            statement = statement.where(
+                ProjectDirectorMessageTable.sequence_no < cursor_row.sequence_no
             )
-            .limit(limit)
+
+        statement = (
+            statement.order_by(
+                ProjectDirectorMessageTable.sequence_no.desc(),
+                ProjectDirectorMessageTable.created_at.desc(),
+            )
+            .limit(limit + 1)
         )
         rows = self._session.execute(statement).scalars().all()
-        return [self._to_domain(row) for row in rows]
+        has_more = len(rows) > limit
+        window_rows = list(reversed(rows[:limit]))
+        return [self._to_domain(row) for row in window_rows], has_more
 
     def get_next_sequence_no(self, *, session_id: UUID) -> int:
         statement = (

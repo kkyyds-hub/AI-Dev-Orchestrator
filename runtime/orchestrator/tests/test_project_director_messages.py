@@ -120,7 +120,9 @@ def test_list_messages_returns_session_timeline_in_sequence_order(client):
     resp = client.get(f"/project-director/sessions/{session_id}/messages")
 
     assert resp.status_code == 200
-    messages = resp.json()["messages"]
+    data = resp.json()
+    assert data["has_more"] is False
+    messages = data["messages"]
     assert [m["sequence_no"] for m in messages] == [1, 2, 3, 4]
     assert [m["role"] for m in messages] == [
         "user",
@@ -131,6 +133,63 @@ def test_list_messages_returns_session_timeline_in_sequence_order(client):
     assert messages[0]["content"] == "第一条"
     assert messages[2]["content"] == "第二条"
 
+
+
+def test_list_messages_for_empty_session_matches_contract(client):
+    session_id = _create_session(client)
+
+    resp = client.get(f"/project-director/sessions/{session_id}/messages")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == {"session_id": session_id, "messages": [], "has_more": False}
+
+
+def test_list_messages_defaults_to_latest_50_and_supports_before_cursor(client):
+    session_id = _create_session(client)
+    for index in range(26):
+        resp = client.post(
+            f"/project-director/sessions/{session_id}/messages",
+            json={"content": f"消息 {index:02d}"},
+        )
+        assert resp.status_code == 201
+
+    first_page_resp = client.get(f"/project-director/sessions/{session_id}/messages")
+
+    assert first_page_resp.status_code == 200
+    first_page = first_page_resp.json()
+    assert first_page["has_more"] is True
+    assert len(first_page["messages"]) == 50
+    assert [m["sequence_no"] for m in first_page["messages"]] == list(range(3, 53))
+
+    before_id = first_page["messages"][0]["id"]
+    previous_page_resp = client.get(
+        f"/project-director/sessions/{session_id}/messages",
+        params={"before": before_id},
+    )
+
+    assert previous_page_resp.status_code == 200
+    previous_page = previous_page_resp.json()
+    assert previous_page["has_more"] is False
+    assert [m["sequence_no"] for m in previous_page["messages"]] == [1, 2]
+
+
+def test_list_messages_before_cursor_must_belong_to_same_session(client):
+    session_id = _create_session(client)
+    other_session_id = _create_session(client)
+    other_post = client.post(
+        f"/project-director/sessions/{other_session_id}/messages",
+        json={"content": "另一个 session 的消息"},
+    )
+    other_message_id = other_post.json()["user_message"]["id"]
+
+    resp = client.get(
+        f"/project-director/sessions/{session_id}/messages",
+        params={"before": other_message_id},
+    )
+
+    assert resp.status_code == 404
+    assert "cursor" in resp.json()["detail"].lower()
 
 def test_message_endpoints_return_404_for_missing_session(client):
     missing_session_id = uuid4()

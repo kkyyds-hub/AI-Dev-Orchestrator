@@ -39,12 +39,14 @@ class ProjectDirectorMessageService:
         self,
         *,
         session_id: UUID,
-        limit: int = 200,
-    ) -> list[ProjectDirectorMessage]:
+        limit: int = 50,
+        before_message_id: UUID | None = None,
+    ) -> tuple[list[ProjectDirectorMessage], bool]:
         self._ensure_session_exists(session_id)
         return self._message_repository.list_by_session_id(
             session_id=session_id,
             limit=limit,
+            before_message_id=before_message_id,
         )
 
     def post_user_message(

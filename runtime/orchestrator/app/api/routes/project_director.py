@@ -398,6 +398,7 @@ class ProjectDirectorMessageResponse(BaseModel):
 class ProjectDirectorMessageListResponse(BaseModel):
     session_id: UUID
     messages: list[ProjectDirectorMessageResponse] = Field(default_factory=list)
+    has_more: bool = False
 
 
 class PostProjectDirectorMessageRequest(BaseModel):
@@ -582,15 +583,17 @@ def list_session_messages(
     message_service: Annotated[
         ProjectDirectorMessageService, Depends(_get_message_service)
     ],
-    limit: int = 200,
+    limit: int = 50,
+    before: UUID | None = None,
 ) -> ProjectDirectorMessageListResponse:
     """Return persisted conversation messages for one Project Director session."""
 
     safe_limit = max(1, min(limit, 500))
     try:
-        messages = message_service.list_messages(
+        messages, has_more = message_service.list_messages(
             session_id=session_id,
             limit=safe_limit,
+            before_message_id=before,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -607,6 +610,7 @@ def list_session_messages(
     return ProjectDirectorMessageListResponse(
         session_id=session_id,
         messages=[ProjectDirectorMessageResponse.from_domain(m) for m in messages],
+        has_more=has_more,
     )
 
 
@@ -2193,6 +2197,7 @@ class WorkbenchResumeResponse(BaseModel):
     session: SessionResponse | None = None
     plan_version: PlanVersionResponse | None = None
     task_creation: TaskCreationResponse | None = None
+    recent_messages: list[ProjectDirectorMessageResponse] = Field(default_factory=list)
     source: str = Field(default="none")
     next_action: str = Field(default="暂无可恢复的 Project Director 流程。")
 
@@ -2279,6 +2284,22 @@ def _latest_resumable_plan_for_session(
     return None
 
 
+
+
+def _recent_message_responses(
+    *,
+    db_session: Session,
+    session_id: UUID,
+    limit: int = 20,
+) -> list[ProjectDirectorMessageResponse]:
+    messages, _has_more = ProjectDirectorMessageRepository(
+        db_session
+    ).list_by_session_id(
+        session_id=session_id,
+        limit=limit,
+    )
+    return [ProjectDirectorMessageResponse.from_domain(m) for m in messages]
+
 def _build_workbench_resume_for_session(
     *,
     db_session: Session,
@@ -2306,6 +2327,10 @@ def _build_workbench_resume_for_session(
             else None
         ),
         task_creation=task_creation,
+        recent_messages=_recent_message_responses(
+            db_session=db_session,
+            session_id=session_obj.id,
+        ),
         source=(
             "backend_recent_task_creation"
             if task_creation is not None
@@ -2474,6 +2499,10 @@ def get_workbench_resume(
             session=SessionResponse.from_domain(session_obj),
             plan_version=PlanVersionResponse.from_domain(plan_version),
             task_creation=task_creation,
+            recent_messages=_recent_message_responses(
+                db_session=db_session,
+                session_id=session_obj.id,
+            ),
             source=(
                 "backend_recent_task_creation"
                 if task_creation is not None
