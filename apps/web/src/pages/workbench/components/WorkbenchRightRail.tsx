@@ -13,6 +13,7 @@ type WorkbenchRightRailProps = {
   onNavigateToProjects: () => void;
   onNavigateToRuns: () => void;
   isRunWorkerOncePending: boolean;
+  runWorkerOnceDisabledReason?: string | null;
   onRunWorkerOnce: () => void;
   workerOnceData: unknown;
   workerOnceIsError: boolean;
@@ -30,6 +31,7 @@ export function WorkbenchRightRail({
   onNavigateToProjects,
   onNavigateToRuns,
   isRunWorkerOncePending,
+  runWorkerOnceDisabledReason,
   onRunWorkerOnce,
   workerOnceData,
   workerOnceIsError,
@@ -65,6 +67,8 @@ export function WorkbenchRightRail({
   } else {
     suggestion = "暂无需要处理的事项。";
   }
+  const isRunWorkerOnceDisabled =
+    isRunWorkerOncePending || Boolean(runWorkerOnceDisabledReason);
 
   const handleBlockingClick = () => {
     if (blockedTasks.length > 0) {
@@ -166,11 +170,20 @@ export function WorkbenchRightRail({
               type="button"
               data-testid="right-rail-run-worker-once"
               onClick={onRunWorkerOnce}
-              disabled={isRunWorkerOncePending}
+              disabled={isRunWorkerOnceDisabled}
               className="w-full rounded border border-[#333333] px-3 py-1.5 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-[#222222] disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent"
             >
               {isRunWorkerOncePending ? "启动中..." : "启动一次执行"}
             </button>
+
+            {runWorkerOnceDisabledReason ? (
+              <p
+                data-testid="right-rail-run-worker-once-disabled-reason"
+                className="text-xs text-zinc-500"
+              >
+                {runWorkerOnceDisabledReason}
+              </p>
+            ) : null}
 
             {workerOnceData != null && !workerOnceIsError && (
               <p className="text-xs text-zinc-500">

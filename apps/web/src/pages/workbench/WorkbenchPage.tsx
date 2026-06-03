@@ -87,6 +87,13 @@ export function WorkbenchPage() {
     writeStoredWorkbenchMode(workbenchMode);
   }, [workbenchMode]);
 
+  useEffect(() => {
+    if (workbenchMode !== "new-project" || selectedProjectId === "all") {
+      return;
+    }
+    setSelectedProjectId("all");
+  }, [selectedProjectId, setSelectedProjectId, workbenchMode]);
+
   const lastUpdatedText = useMemo(() => {
     if (!overviewQuery.dataUpdatedAt && !stableOverviewData) {
       return "暂未刷新";
@@ -160,6 +167,7 @@ export function WorkbenchPage() {
     if (nextValue === NEW_PROJECT_CONTEXT_VALUE) {
       setWorkbenchMode("new-project");
       writeStoredWorkbenchMode("new-project");
+      setSelectedProjectId("all");
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("mode", "new-project");
       nextParams.delete("projectId");
@@ -180,6 +188,21 @@ export function WorkbenchPage() {
     }
     navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
   };
+
+  const handleRightRailRunWorkerOnce = () => {
+    if (workbenchMode === "new-project") {
+      return;
+    }
+
+    runWorkerOnceMutation.mutate(
+      activeProjectId === null || activeProjectId === "all" ? null : activeProjectId,
+    );
+  };
+
+  const rightRailRunWorkerOnceDisabledReason =
+    workbenchMode === "new-project"
+      ? "新项目会话尚未创建正式项目，右侧 run-once 已禁用。"
+      : null;
 
   return (
     <div className="relative min-w-0 space-y-6">
@@ -219,15 +242,18 @@ export function WorkbenchPage() {
             onNavigateToProjects={handleNavigateToProjects}
             onNavigateToRuns={handleNavigateToRuns}
             isRunWorkerOncePending={runWorkerOnceMutation.isPending}
-            onRunWorkerOnce={() =>
-              runWorkerOnceMutation.mutate(
-                selectedProjectId === "all" ? null : selectedProjectId,
-              )
+            runWorkerOnceDisabledReason={rightRailRunWorkerOnceDisabledReason}
+            onRunWorkerOnce={handleRightRailRunWorkerOnce}
+            workerOnceData={
+              workbenchMode === "new-project" ? null : runWorkerOnceMutation.data
             }
-            workerOnceData={runWorkerOnceMutation.data}
-            workerOnceIsError={runWorkerOnceMutation.isError}
+            workerOnceIsError={
+              workbenchMode === "new-project" ? false : runWorkerOnceMutation.isError
+            }
             workerOnceErrorMessage={
-              runWorkerOnceMutation.isError ? runWorkerOnceMutation.error.message : null
+              workbenchMode !== "new-project" && runWorkerOnceMutation.isError
+                ? runWorkerOnceMutation.error.message
+                : null
             }
           />
         </div>
