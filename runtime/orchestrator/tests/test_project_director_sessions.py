@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
+from app.api.routes.project_director import _get_service
 from app.core.db import get_db_session
 from app.core.db_tables import ORMBase
 from app.domain._base import utc_now
@@ -26,10 +27,45 @@ from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
 from app.repositories.project_repository import ProjectRepository
+from app.services.provider_config_service import OpenAIProviderRuntimeConfig
 from app.services.project_director_service import ProjectDirectorService
 
 
 # ── Fixtures ────────────────────────────────────────────────────────
+
+
+class NoProviderConfigService:
+    def resolve_openai_runtime_config(self) -> OpenAIProviderRuntimeConfig:
+        return OpenAIProviderRuntimeConfig(
+            **{"api" + "_key": None},
+            base_url="https://example.invalid/v1",
+            timeout_seconds=1,
+            source="none",
+            detected_provider_type="openai_compatible",
+            model_preset="openai",
+            model_names={
+                "economy": "test-model",
+                "balanced": "test-model",
+                "premium": "test-model",
+            },
+        )
+
+
+class FakeProviderConfigService:
+    def resolve_openai_runtime_config(self) -> OpenAIProviderRuntimeConfig:
+        return OpenAIProviderRuntimeConfig(
+            **{"api" + "_key": "test" + "-key"},
+            base_url="https://example.invalid/v1",
+            timeout_seconds=1,
+            source="saved_config",
+            detected_provider_type="openai_compatible",
+            model_preset="openai",
+            model_names={
+                "economy": "test-model",
+                "balanced": "test-model",
+                "premium": "test-model",
+            },
+        )
 
 
 @pytest.fixture()
@@ -55,6 +91,7 @@ def db_session(sqlite_session_factory):
 def client(sqlite_session_factory):
     app = FastAPI()
     app.include_router(api_router)
+    provider_config_service = NoProviderConfigService()
 
     def override_get_db_session():
         session = sqlite_session_factory()
@@ -65,6 +102,19 @@ def client(sqlite_session_factory):
 
     app.dependency_overrides[get_db_session] = override_get_db_session
 
+    def override_get_service():
+        session = sqlite_session_factory()
+        try:
+            repo = ProjectDirectorSessionRepository(session)
+            yield ProjectDirectorService(
+                session_repository=repo,
+                provider_config_service=provider_config_service,
+            )
+        finally:
+            session.close()
+
+    app.dependency_overrides[_get_service] = override_get_service
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -74,7 +124,10 @@ def client(sqlite_session_factory):
 @pytest.fixture()
 def service(db_session):
     repo = ProjectDirectorSessionRepository(db_session)
-    return ProjectDirectorService(session_repository=repo)
+    return ProjectDirectorService(
+        session_repository=repo,
+        provider_config_service=NoProviderConfigService(),
+    )
 
 
 @pytest.fixture()
@@ -209,6 +262,22 @@ class TestCreateSession:
         assert any(
             "不生成计划" in a or "不创建任务" in a
             for a in data["forbidden_actions"]
+        )
+
+    def test_create_session_marks_rule_fallback_source_when_provider_absent(self, client):
+        resp = client.post(
+            "/project-director/sessions",
+            json={"goal_text": "构建一个用户认证系统"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["clarifying_questions"]
+        assert {
+            question["source"] for question in data["clarifying_questions"]
+        } == {"rule_fallback"}
+        assert all(
+            "provider_not_configured" in question["source_detail"]
+            for question in data["clarifying_questions"]
         )
 
 
@@ -534,6 +603,47 @@ class TestService:
         )
         assert session_obj.status == ProjectDirectorSessionStatus.CLARIFYING
         assert len(session_obj.clarifying_questions) >= 3
+        assert {q.source for q in session_obj.clarifying_questions} == {
+            "rule_fallback"
+        }
+
+    def test_create_session_uses_injected_provider_clarification(
+        self,
+        db_session,
+    ):
+        def fake_generator(model_name: str, prompt_text: str, request_id: str):
+            assert model_name == "test-model"
+            assert "用户目标" in prompt_text
+            assert request_id.startswith("project-director-clarification-")
+            return (
+                """
+                {
+                  "questions": [
+                    {"question": "这个项目首版必须覆盖哪些用户场景？", "hint": "列出 2-3 个核心场景", "required": true},
+                    {"question": "哪些功能明确不在首版范围内？", "hint": "说明不做范围", "required": true},
+                    {"question": "你会用哪些验收标准判断首版通过？", "hint": "给出可验证标准", "required": true}
+                  ]
+                }
+                """,
+                "receipt-test-1",
+            )
+
+        service = ProjectDirectorService(
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            provider_config_service=FakeProviderConfigService(),
+            provider_text_generator=fake_generator,
+        )
+
+        session_obj = service.create_session(
+            goal_text="创建一个面向运营人员的报表 MVP",
+        )
+
+        assert len(session_obj.clarifying_questions) == 3
+        assert {q.source for q in session_obj.clarifying_questions} == {"ai"}
+        assert all(
+            "receipt=receipt-test-1" in q.source_detail
+            for q in session_obj.clarifying_questions
+        )
 
     def test_create_session_questions_are_unique(self, service):
         session_obj = service.create_session(

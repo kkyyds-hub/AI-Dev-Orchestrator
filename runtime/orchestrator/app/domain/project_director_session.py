@@ -25,6 +25,8 @@ class ClarifyingQuestion(DomainModel):
     question: str = Field(min_length=1, max_length=500)
     hint: str = Field(default="", max_length=200)
     required: bool = Field(default=True)
+    source: str = Field(default="rule_fallback", max_length=40)
+    source_detail: str = Field(default="deterministic_clarification_rules", max_length=300)
 
 
 class ClarifyingAnswer(DomainModel):

@@ -32,6 +32,8 @@ export interface ClarifyingQuestion {
   question: string;
   hint: string;
   required: boolean;
+  source?: "ai" | "rule_fallback" | string;
+  source_detail?: string;
 }
 
 export interface ClarifyingAnswer {

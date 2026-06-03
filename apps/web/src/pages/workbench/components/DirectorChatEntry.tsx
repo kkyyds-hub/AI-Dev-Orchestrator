@@ -79,10 +79,10 @@ function resolveProviderStatus(query: {
 }
 
 const EXAMPLE_QUESTIONS = [
-  "帮我分析当前项目的阻塞原因。",
-  "生成一份项目作战计划草案。",
-  "当前哪些任务需要我确认？",
-  "重新评估项目风险并给出调整建议。",
+  "我要从 0 创建一个新项目：做一个可验收的 MVP，请先帮我澄清目标。",
+  "我想把现有想法收口成项目草案，请先追问范围、验收标准和风险。",
+  "帮我为一个前后端功能生成首次项目创建会话，但不要自动执行任务。",
+  "我还没有项目，请作为 AI 项目主管先问我必要澄清问题。",
 ];
 
 interface DirectorChatEntryProps {
@@ -411,7 +411,9 @@ export function DirectorChatEntry({
               </p>
             </div>
             <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
-              项目上下文：{selectedProjectName}
+              {scopedProjectId
+                ? `项目上下文：${selectedProjectName}`
+                : "新项目会话：尚未绑定正式项目"}
             </span>
           </div>
           {directorStatusMessage ? (
@@ -467,6 +469,25 @@ export function DirectorChatEntry({
                                   </span>
                                 ) : null}
                               </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-zinc-600">
+                                <span
+                                  className={`rounded border px-1.5 py-0.5 ${
+                                    question.source === "ai"
+                                      ? "border-emerald-500/30 text-emerald-300"
+                                      : "border-amber-500/30 text-amber-300"
+                                  }`}
+                                >
+                                  来源：
+                                  {question.source === "ai"
+                                    ? "AI provider"
+                                    : "规则 fallback"}
+                                </span>
+                                {question.source_detail ? (
+                                  <span className="truncate" title={question.source_detail}>
+                                    {question.source_detail}
+                                  </span>
+                                ) : null}
+                              </div>
                               {question.hint ? (
                                 <p className="mt-1 text-xs text-zinc-500">
                                   {question.hint}
@@ -832,8 +853,14 @@ export function DirectorChatEntry({
           ) : (
             <div className="flex h-full min-h-[260px] flex-col items-center justify-center">
               <div className="w-full max-w-lg text-center">
-                <p className="mb-4 text-sm text-zinc-600">
-                  暂无对话记录，输入目标开始。发送后会创建 Project Director 会话并返回澄清问题。
+                <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
+                  新项目入口
+                </p>
+                <h3 className="mt-2 text-lg font-semibold text-zinc-100">
+                  还没有正式项目时，从这里开始
+                </h3>
+                <p className="mb-4 mt-2 text-sm leading-6 text-zinc-500">
+                  输入目标后会创建 AI 项目主管会话，并优先调用已配置的 AI provider 生成澄清问题；provider 不可用时会明确标记规则 fallback。确认草案前不会创建任务或启动 Worker。
                 </p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {EXAMPLE_QUESTIONS.map((question) => (

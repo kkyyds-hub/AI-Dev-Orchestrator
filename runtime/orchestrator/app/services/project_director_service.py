@@ -1,11 +1,13 @@
 """AI Project Director service — goal intake, clarification, confirmation.
 
-Phase 1: deterministic rule-based clarification (no AI, no Provider).
+Stage 7-A2: provider-first clarification with an explicit rule fallback.
 """
 
 from __future__ import annotations
 
-import re
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -18,12 +20,31 @@ from app.domain.project_director_session import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.services.provider_config_service import ProviderConfigService
 
 
-# ── Deterministic clarification rule sets ──────────────────────────
+ClarificationSource = str
+ProviderTextGenerator = Callable[[str, str, str], tuple[str, str | None]]
+
+
+@dataclass(frozen=True, slots=True)
+class ClarificationGenerationResult:
+    """Questions plus provenance for the initial clarification step."""
+
+    questions: list[ClarifyingQuestion]
+    source: ClarificationSource
+    source_detail: str
+    provider_receipt_id: str | None = None
+
+
+# ── Provider-first clarification with deterministic fallback ─────────
 
 def _generate_clarifying_questions(
-    goal_text: str, constraints: str
+    goal_text: str,
+    constraints: str,
+    *,
+    source: ClarificationSource = "rule_fallback",
+    source_detail: str = "deterministic_clarification_rules",
 ) -> list[ClarifyingQuestion]:
     """Generate clarifying questions using deterministic keyword rules.
 
@@ -46,6 +67,8 @@ def _generate_clarifying_questions(
                     "预期的最终效果是什么？"
                 ),
                 hint="请用 2-5 句话描述目标",
+                source=source,
+                source_detail=source_detail,
             )
         )
 
@@ -59,6 +82,8 @@ def _generate_clarifying_questions(
                     "哪些内容明确不在本次范围内？"
                 ),
                 hint="明确范围和「不做」的边界",
+                source=source,
+                source_detail=source_detail,
             )
         )
 
@@ -74,6 +99,8 @@ def _generate_clarifying_questions(
                     "你如何判断目标已经完成？请描述 2-3 条关键的验收标准。"
                 ),
                 hint="具体可衡量的完成标准",
+                source=source,
+                source_detail=source_detail,
             )
         )
 
@@ -91,6 +118,8 @@ def _generate_clarifying_questions(
                     "例如：必须使用某个语言、数据库、或部署环境？"
                 ),
                 hint="技术栈约束，无约束可答「无特殊要求」",
+                source=source,
+                source_detail=source_detail,
             )
         )
 
@@ -107,6 +136,8 @@ def _generate_clarifying_questions(
                     "是否有关键截止日期或必须优先完成的部分？"
                 ),
                 hint="时间线/优先级，无要求可答「无特殊时间要求」",
+                source=source,
+                source_detail=source_detail,
             )
         )
 
@@ -120,6 +151,8 @@ def _generate_clarifying_questions(
                     "例如：是否依赖其他团队、外部服务、或特定数据？"
                 ),
                 hint="已知风险或依赖，无可答「暂未发现」",
+                source=source,
+                source_detail=source_detail,
             )
         )
 
@@ -132,10 +165,117 @@ def _generate_clarifying_questions(
                     "用户/系统/业务会有什么不同？"
                 ),
                 hint="描述成功后的最终效果",
+                source=source,
+                source_detail=source_detail,
             )
         )
 
     return questions
+
+
+def _generate_rule_fallback_clarification(
+    goal_text: str,
+    constraints: str,
+    *,
+    reason: str,
+) -> ClarificationGenerationResult:
+    source_detail = f"deterministic_clarification_rules; reason={reason[:180]}"
+    return ClarificationGenerationResult(
+        questions=_generate_clarifying_questions(
+            goal_text,
+            constraints,
+            source="rule_fallback",
+            source_detail=source_detail,
+        ),
+        source="rule_fallback",
+        source_detail=source_detail,
+    )
+
+
+def _build_clarification_prompt(goal_text: str, constraints: str) -> str:
+    """Prompt the provider to produce concise, goal-specific JSON questions."""
+
+    constraint_block = constraints.strip() or "（用户未提供额外约束）"
+    return "\n".join(
+        [
+            "你是 AI-Dev-Orchestrator 的 AI 项目主管。",
+            "请根据用户目标生成 3-6 个首次项目创建前必须澄清的问题。",
+            "问题必须贴合用户目标，不要套用固定模板；优先覆盖范围、不做范围、验收标准、关键约束、风险依赖与优先级。",
+            "只返回 JSON，不要 Markdown，不要解释。",
+            'JSON 结构：{"questions":[{"question":"...","hint":"...","required":true}]}',
+            "",
+            "用户目标：",
+            goal_text.strip(),
+            "",
+            "用户约束：",
+            constraint_block,
+        ]
+    )
+
+
+def _parse_provider_clarifying_questions(
+    output_text: str,
+    *,
+    source_detail: str,
+) -> list[ClarifyingQuestion]:
+    """Parse provider JSON into validated question models."""
+
+    payload = _extract_json_payload(output_text)
+    raw_questions = payload.get("questions")
+    if not isinstance(raw_questions, list):
+        raise ValueError("provider clarification JSON missing questions list")
+
+    questions: list[ClarifyingQuestion] = []
+    for raw in raw_questions[:6]:
+        if not isinstance(raw, dict):
+            continue
+
+        raw_question = raw.get("question")
+        if not isinstance(raw_question, str) or not raw_question.strip():
+            continue
+
+        raw_hint = raw.get("hint")
+        raw_required = raw.get("required")
+        questions.append(
+            ClarifyingQuestion(
+                question=raw_question.strip()[:500],
+                hint=(raw_hint.strip()[:200] if isinstance(raw_hint, str) else ""),
+                required=raw_required if isinstance(raw_required, bool) else True,
+                source="ai",
+                source_detail=source_detail,
+            )
+        )
+
+    if len(questions) < 3:
+        raise ValueError("provider clarification returned fewer than 3 valid questions")
+
+    return questions
+
+
+def _extract_json_payload(output_text: str) -> dict[str, object]:
+    """Extract one JSON object from plain text or fenced provider output."""
+
+    text = output_text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        payload = json.loads(text[start : end + 1])
+
+    if not isinstance(payload, dict):
+        raise ValueError("provider clarification output must be a JSON object")
+    return payload
 
 
 def _generate_goal_summary(
@@ -177,8 +317,12 @@ class ProjectDirectorService:
         self,
         *,
         session_repository: ProjectDirectorSessionRepository,
+        provider_config_service: ProviderConfigService | None = None,
+        provider_text_generator: ProviderTextGenerator | None = None,
     ) -> None:
         self._session_repo = session_repository
+        self._provider_config_service = provider_config_service
+        self._provider_text_generator = provider_text_generator
 
     def create_session(
         self,
@@ -192,7 +336,10 @@ class ProjectDirectorService:
         if not goal_text.strip():
             raise ValueError("goal_text must not be empty or whitespace-only")
 
-        questions = _generate_clarifying_questions(goal_text, constraints)
+        clarification = self._generate_initial_clarification(
+            goal_text=goal_text,
+            constraints=constraints,
+        )
 
         now = datetime.now(timezone.utc)
         session_obj = ProjectDirectorSession(
@@ -201,7 +348,7 @@ class ProjectDirectorService:
             goal_text=goal_text.strip(),
             constraints=constraints.strip(),
             status=ProjectDirectorSessionStatus.CLARIFYING,
-            clarifying_questions=questions,
+            clarifying_questions=clarification.questions,
             clarifying_answers=[],
             goal_summary="",
             confirmed_at=None,
@@ -210,6 +357,111 @@ class ProjectDirectorService:
         )
 
         return self._session_repo.create(session_obj)
+
+    def _generate_initial_clarification(
+        self,
+        *,
+        goal_text: str,
+        constraints: str,
+    ) -> ClarificationGenerationResult:
+        """Generate goal-specific clarification questions.
+
+        Provider is preferred when configured. The deterministic rule fallback is
+        always explicit in every question's ``source`` / ``source_detail``.
+        """
+
+        provider_config_service = (
+            self._provider_config_service or ProviderConfigService()
+        )
+        try:
+            runtime_config = provider_config_service.resolve_openai_runtime_config()
+        except Exception as exc:  # noqa: BLE001 - config read failures must fallback
+            return _generate_rule_fallback_clarification(
+                goal_text,
+                constraints,
+                reason=f"provider_config_unavailable:{exc}",
+            )
+
+        if not runtime_config.api_key:
+            return _generate_rule_fallback_clarification(
+                goal_text,
+                constraints,
+                reason="provider_not_configured",
+            )
+
+        model_name = runtime_config.model_names.get(
+            "balanced",
+            next(iter(runtime_config.model_names.values()), "gpt-5.5"),
+        )
+        prompt_text = _build_clarification_prompt(goal_text, constraints)
+        request_id = f"project-director-clarification-{uuid4().hex[:12]}"
+
+        try:
+            if self._provider_text_generator is not None:
+                output_text, receipt_id = self._provider_text_generator(
+                    model_name,
+                    prompt_text,
+                    request_id,
+                )
+            else:
+                output_text, receipt_id = self._call_provider_text(
+                    runtime_config=runtime_config,
+                    model_name=model_name,
+                    prompt_text=prompt_text,
+                    request_id=request_id,
+                )
+
+            source_detail = (
+                f"provider={runtime_config.detected_provider_type}; "
+                f"model={model_name}; receipt={receipt_id or 'missing'}"
+            )
+            questions = _parse_provider_clarifying_questions(
+                output_text,
+                source_detail=source_detail,
+            )
+            return ClarificationGenerationResult(
+                questions=questions,
+                source="ai",
+                source_detail=source_detail,
+                provider_receipt_id=receipt_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - bad provider output must fallback
+            return _generate_rule_fallback_clarification(
+                goal_text,
+                constraints,
+                reason=f"provider_generation_failed:{exc}",
+            )
+
+    @staticmethod
+    def _call_provider_text(
+        *,
+        runtime_config: object,
+        model_name: str,
+        prompt_text: str,
+        request_id: str,
+    ) -> tuple[str, str | None]:
+        """Invoke the configured OpenAI-compatible provider."""
+
+        from app.services.openai_provider_executor_service import (
+            OpenAIProviderExecutorService,
+        )
+
+        executor = OpenAIProviderExecutorService(
+            api_key=runtime_config.api_key,
+            base_url=runtime_config.base_url,
+            timeout_seconds=runtime_config.timeout_seconds,
+        )
+        response = executor.generate_text(
+            model_name=model_name,
+            prompt_text=prompt_text,
+            request_id=request_id,
+            prompt_key="project_director_clarification",
+            provider_key=runtime_config.detected_provider_type,
+        )
+        receipt_id = None
+        if response.provider_usage_receipt is not None:
+            receipt_id = response.provider_usage_receipt.receipt_id
+        return response.output_text or response.summary, receipt_id
 
     def get_session(self, session_id: UUID) -> ProjectDirectorSession | None:
         """Return the session or None."""

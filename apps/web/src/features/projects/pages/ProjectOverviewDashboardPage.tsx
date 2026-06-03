@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 
-import { ProjectCreateFlow } from "../ProjectCreateFlow";
 import { ProjectSummaryCards } from "../components/ProjectSummaryCards";
 import { ProjectOverviewTableAndDetailSection } from "../sections/ProjectOverviewTableAndDetailSection";
 import type {
@@ -43,18 +43,11 @@ type ProjectOverviewDashboardPageProps = {
 export function ProjectOverviewDashboardPage(
   props: ProjectOverviewDashboardPageProps,
 ) {
-  const [isCreateFlowOpen, setIsCreateFlowOpen] = useState(false);
-  const createFlowRef = useRef<HTMLDivElement | null>(null);
+  const navigate = useNavigate();
 
-  const handleOpenCreateFlow = useCallback(() => {
-    setIsCreateFlowOpen(true);
-    window.setTimeout(() => {
-      createFlowRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 0);
-  }, []);
+  const handleStartNewProjectSession = useCallback(() => {
+    navigate("/workbench?mode=new-project");
+  }, [navigate]);
 
   return (
     <div
@@ -76,24 +69,23 @@ export function ProjectOverviewDashboardPage(
             <p className="max-w-xl text-sm leading-6 text-zinc-500 lg:text-right">
               项目进展、风险和待处理事项。
             </p>
-            <button
-              type="button"
-              onClick={handleOpenCreateFlow}
-              className="inline-flex shrink-0 items-center justify-center rounded border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
-            >
-              {isCreateFlowOpen ? "定位到创建项目草案" : "创建项目草案"}
-            </button>
+            <div className="flex flex-col gap-2 lg:items-end">
+              <button
+                type="button"
+                onClick={handleStartNewProjectSession}
+                className="inline-flex shrink-0 items-center justify-center rounded border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
+              >
+                去工作台开始新项目会话
+              </button>
+              <p className="max-w-sm text-xs leading-5 text-zinc-600 lg:text-right">
+                首次创建项目统一从 AI 项目主管对话进入；项目页只展示正式项目档案与计划摘要。
+              </p>
+            </div>
           </div>
         </div>
 
         <ProjectSummaryCards overview={props.overview} />
       </section>
-
-      {isCreateFlowOpen ? (
-        <div id="project-create-draft-panel" ref={createFlowRef}>
-          <ProjectCreateFlow onProjectCreated={props.onProjectCreated} />
-        </div>
-      ) : null}
 
       <ProjectOverviewTableAndDetailSection
         projects={props.projects}
@@ -112,7 +104,7 @@ export function ProjectOverviewDashboardPage(
         stageActionFeedback={props.stageActionFeedback}
         isProjectDetailLoading={props.isProjectDetailLoading}
         projectDetailErrorMessage={props.projectDetailErrorMessage}
-        onCreateProjectDraft={handleOpenCreateFlow}
+        onCreateProjectDraft={handleStartNewProjectSession}
         onNavigateToRepositoryWorkspace={props.onNavigateToRepositoryWorkspace}
       />
 

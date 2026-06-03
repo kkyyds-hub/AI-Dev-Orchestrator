@@ -245,10 +245,19 @@ class ClarifyingQuestionResponse(BaseModel):
     question: str
     hint: str
     required: bool
+    source: str = Field(default="rule_fallback")
+    source_detail: str = Field(default="")
 
     @classmethod
     def from_domain(cls, q: ClarifyingQuestion) -> "ClarifyingQuestionResponse":
-        return cls(id=q.id, question=q.question, hint=q.hint, required=q.required)
+        return cls(
+            id=q.id,
+            question=q.question,
+            hint=q.hint,
+            required=q.required,
+            source=q.source,
+            source_detail=q.source_detail,
+        )
 
 
 class ClarifyingAnswerResponse(BaseModel):
@@ -418,8 +427,9 @@ def create_session(
 ) -> SessionResponse:
     """Submit a user goal and receive clarifying questions.
 
-    The session starts in `clarifying` status with deterministic questions.
-    No AI or Provider is called.
+    The session starts in `clarifying` status. Provider-generated
+    clarification is preferred when configured; otherwise each returned
+    question is explicitly marked as `source=rule_fallback`.
     """
 
     if not request.goal_text.strip():

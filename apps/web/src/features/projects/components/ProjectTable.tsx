@@ -51,13 +51,15 @@ export function ProjectTable({
       {projects.length === 0 ? (
         <div className="mt-4 border border-dashed border-[#3a3a3a] px-4 py-8 text-center text-sm text-zinc-500">
           <p className="text-base font-medium text-zinc-300">还没有项目</p>
-          <p className="mt-2">可以先创建一个项目草案，再确认生成项目与任务。</p>
+          <p className="mt-2">
+            首次创建项目请回到工作台，由 AI 项目主管先根据目标生成澄清问题。
+          </p>
           <button
             type="button"
             onClick={onCreateProjectDraft}
             className="mt-4 inline-flex rounded border border-zinc-300 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white"
           >
-            创建项目草案
+            去工作台开始新项目会话
           </button>
         </div>
       ) : (
