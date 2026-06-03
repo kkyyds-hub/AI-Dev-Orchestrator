@@ -86,13 +86,15 @@ const EXAMPLE_QUESTIONS = [
 ];
 
 interface DirectorChatEntryProps {
-  selectedProjectId: string;
+  selectedProjectId: string | null;
   selectedProjectName: string;
+  mode: "new-project" | "project";
 }
 
 export function DirectorChatEntry({
   selectedProjectId,
   selectedProjectName,
+  mode,
 }: DirectorChatEntryProps) {
   const [draft, setDraft] = useState("");
   const [session, setSession] = useState<ProjectDirectorSession | null>(null);
@@ -120,7 +122,10 @@ export function DirectorChatEntry({
   });
   const budgetHealthQuery = useConsoleBudgetHealth();
 
-  const scopedProjectId = selectedProjectId === "all" ? null : selectedProjectId;
+  const scopedProjectId =
+    mode === "project" && selectedProjectId && selectedProjectId !== "all"
+      ? selectedProjectId
+      : null;
   const trimmedDraft = draft.trim();
   const workerRunOnceResult = runWorkerOnceMutation.data ?? null;
   const providerSettings = providerSettingsQuery.data ?? null;
@@ -223,6 +228,18 @@ export function DirectorChatEntry({
       ),
     );
   }, [session]);
+
+  useEffect(() => {
+    setDraft("");
+    setSession(null);
+    setPlanVersion(null);
+    setTaskCreation(null);
+    setAnswerDrafts({});
+    setIsPlanReviewOpen(false);
+    setReviewFeedback("");
+    setPendingReviewAction(null);
+    setPlanReviewMessage(null);
+  }, [mode, scopedProjectId]);
 
   const handleExampleClick = (question: string) => {
     setDraft(question);
@@ -413,7 +430,9 @@ export function DirectorChatEntry({
             <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
               {scopedProjectId
                 ? `项目上下文：${selectedProjectName}`
-                : "新项目会话：尚未绑定正式项目"}
+                : mode === "new-project"
+                  ? "新项目会话：project_id=null"
+                  : "全部项目视图：新会话不绑定单个项目"}
             </span>
           </div>
           {directorStatusMessage ? (
@@ -854,13 +873,19 @@ export function DirectorChatEntry({
             <div className="flex h-full min-h-[260px] flex-col items-center justify-center">
               <div className="w-full max-w-lg text-center">
                 <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
-                  新项目入口
+                  {mode === "new-project" ? "新项目入口" : "项目主管对话"}
                 </p>
                 <h3 className="mt-2 text-lg font-semibold text-zinc-100">
-                  还没有正式项目时，从这里开始
+                  {mode === "new-project"
+                    ? "还没有正式项目时，从这里开始"
+                    : scopedProjectId
+                      ? `继续调度：${selectedProjectName}`
+                      : "选择新项目会话或指定已有项目"}
                 </h3>
                 <p className="mb-4 mt-2 text-sm leading-6 text-zinc-500">
-                  输入目标后会创建 AI 项目主管会话，并优先调用已配置的 AI provider 生成澄清问题；provider 不可用时会明确标记规则 fallback。确认草案前不会创建任务或启动 Worker。
+                  {mode === "new-project"
+                    ? "输入目标后会创建 AI 项目主管会话，payload 中 project_id=null；系统优先调用已配置的 AI provider 生成澄清问题，provider 不可用时明确标记规则 fallback。确认草案前不会创建任务或启动 Worker。"
+                    : "输入目标或调度问题后会创建 AI 项目主管会话；选择具体已有项目时会带入该项目上下文，选择全部项目时不会绑定单个项目。"}
                 </p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {EXAMPLE_QUESTIONS.map((question) => (
@@ -906,6 +931,8 @@ export function DirectorChatEntry({
             <p>Ctrl/⌘ + Enter 发送；发送后会进入目标澄清与项目草案审核流程。</p>
             {scopedProjectId ? (
               <p>当前项目范围：{selectedProjectName}</p>
+            ) : mode === "new-project" ? (
+              <p>新项目模式：project_id=null</p>
             ) : (
               <p>全局项目范围</p>
             )}
