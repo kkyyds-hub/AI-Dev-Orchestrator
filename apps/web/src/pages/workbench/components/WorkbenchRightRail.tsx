@@ -83,7 +83,7 @@ export function WorkbenchRightRail({
     <>
       <aside
         data-testid="workbench-right-rail"
-        className="space-y-4 rounded-lg border border-[#333333] bg-[#1a1a1a] p-4"
+        className="h-full space-y-4 overflow-y-auto rounded-lg border border-[#333333] bg-[#1a1a1a] p-4"
       >
         <section>
           <div className="mb-2 flex items-center justify-between gap-2">

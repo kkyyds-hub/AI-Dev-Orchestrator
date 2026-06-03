@@ -120,6 +120,7 @@ export function DirectorChatEntry({
     useState<ProjectDirectorPlanReviewAction | null>(null);
   const [planReviewMessage, setPlanReviewMessage] = useState<string | null>(null);
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
+  const [manualResumeRequested, setManualResumeRequested] = useState(false);
 
   const createSessionMutation = useCreateProjectDirectorSession();
   const submitAnswersMutation = useSubmitProjectDirectorAnswers();
@@ -142,6 +143,7 @@ export function DirectorChatEntry({
     mode,
     projectId: scopedProjectId,
   });
+  const resumeCandidate = resumeQuery.data?.session ?? null;
   const trimmedDraft = draft.trim();
   const workerRunOnceResult = runWorkerOnceMutation.data ?? null;
   const providerSettings = providerSettingsQuery.data ?? null;
@@ -221,11 +223,14 @@ export function DirectorChatEntry({
     ) {
       return "AI 项目主管正在记录驳回结论。";
     }
-    if (!session && resumeQuery.isLoading) {
+    if (!session && resumeQuery.isLoading && mode !== "new-project") {
       return "正在检查是否有未完成的 Project Director 流程。";
     }
-    if (!session && resumeQuery.isError) {
+    if (!session && resumeQuery.isError && mode !== "new-project") {
       return "暂时无法检查未完成流程，你仍可以发起新的 Project Director 会话。";
+    }
+    if (!session && mode === "new-project" && resumeCandidate) {
+      return "检测到最近未完成的首次创建流程；新项目会话默认保持空白，需要时可手动恢复。";
     }
     if (resumeMessage) {
       return resumeMessage;
@@ -236,10 +241,12 @@ export function DirectorChatEntry({
     pendingReviewAction,
     planReviewMessage,
     resumeMessage,
+    resumeCandidate,
     resumeQuery.isError,
     resumeQuery.isLoading,
     reviewPlanVersionMutation.isPending,
     session,
+    mode,
   ]);
 
   useEffect(() => {
@@ -269,10 +276,15 @@ export function DirectorChatEntry({
     setPendingReviewAction(null);
     setPlanReviewMessage(null);
     setResumeMessage(null);
+    setManualResumeRequested(false);
   }, [mode, scopedProjectId]);
 
   useEffect(() => {
     if (session || planVersion) {
+      return;
+    }
+
+    if (mode === "new-project" && !manualResumeRequested) {
       return;
     }
 
@@ -293,7 +305,7 @@ export function DirectorChatEntry({
     setIsPlanReviewOpen(false);
     setPlanReviewMessage(null);
     setResumeMessage(resume.next_action);
-  }, [planVersion, resumeQuery.data, session]);
+  }, [manualResumeRequested, mode, planVersion, resumeQuery.data, session]);
 
   useEffect(() => {
     if (!session) {
@@ -317,6 +329,14 @@ export function DirectorChatEntry({
 
   const handleExampleClick = (question: string) => {
     setDraft(question);
+  };
+
+  const handleManualResume = () => {
+    if (!resumeCandidate) {
+      return;
+    }
+
+    setManualResumeRequested(true);
   };
 
   const handleSubmit = async () => {
@@ -494,7 +514,7 @@ export function DirectorChatEntry({
     <>
       <section
         data-testid="director-chat-entry"
-        className="flex flex-col rounded-lg border border-[#333333] bg-[#1a1a1a] p-6 lg:min-h-[calc(100vh-220px)]"
+        className="flex h-full min-h-0 flex-col rounded-lg border border-[#333333] bg-[#1a1a1a] p-6"
       >
         <div className="mb-5 shrink-0">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -519,7 +539,7 @@ export function DirectorChatEntry({
           ) : null}
         </div>
 
-        <div className="mb-5 min-h-[160px] flex-1 overflow-y-auto">
+        <div className="mb-5 min-h-0 flex-1 overflow-y-auto">
           {session ? (
             <div className="space-y-4">
               <div className="rounded-lg border border-[#333333] bg-[#111111] p-4">
@@ -959,6 +979,30 @@ export function DirectorChatEntry({
                     ? "输入目标后会创建 AI 项目主管会话，payload 中 project_id=null；系统优先生成贴合目标的澄清问题，必要时自动使用安全规则兜底。确认草案前不会创建任务或启动 Worker。"
                     : "输入目标或调度问题后会创建 AI 项目主管会话；选择具体已有项目时会带入该项目上下文，选择全部项目时不会绑定单个项目。"}
                 </p>
+                {mode === "new-project" && resumeCandidate ? (
+                  <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-left">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-amber-100">
+                          发现最近未完成流程
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                          默认不自动占用新项目会话；如需继续，可手动恢复：
+                          {resumeCandidate.goal_text}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid="project-director-manual-resume"
+                        disabled={resumeQuery.isLoading || manualResumeRequested}
+                        onClick={handleManualResume}
+                        className="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                      >
+                        {manualResumeRequested ? "恢复中..." : "恢复最近流程"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {EXAMPLE_QUESTIONS.map((question) => (
                     <button
