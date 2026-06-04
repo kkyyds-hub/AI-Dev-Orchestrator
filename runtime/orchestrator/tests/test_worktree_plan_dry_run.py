@@ -26,9 +26,15 @@ from app.domain.agent_session import (
     AgentSessionStatus,
 )
 from app.domain.repository_workspace import RepositoryWorkspace
+from app.domain.worktree_prepare import WorktreeGitPreflight
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
-from app.services.worktree_command_runner import WorktreeCommandRunner
+from app.services.worktree_command_runner import (
+    WorktreeCommandResult,
+    WorktreeCommandRunner,
+    WorktreeCommandSpec,
+)
+from app.services.worktree_git_preflight_service import WorktreeGitPreflightService
 from app.services.worktree_prepare_service import (
     WorktreePrepareHashMismatchError,
     WorktreePrepareRequest,
@@ -79,6 +85,110 @@ def _create_agent_session(db_session, *, project_id):
         context_rehydrated=False,
         summary="Planning only",
     )
+
+
+class FakeWorktreeGitPreflightService:
+    """Test double that simulates read-only git preflight without executing git."""
+
+    def __init__(
+        self,
+        *,
+        preflight: WorktreeGitPreflight | None = None,
+    ) -> None:
+        self.preflight = preflight or WorktreeGitPreflight(
+            preflight_status="passed",
+            commands_run=[
+                "git rev-parse HEAD",
+                "git status --porcelain",
+                "git worktree list --porcelain",
+                "git branch --list session/*",
+            ],
+            repository_head_sha="a" * 40,
+            repository_clean=True,
+            planned_branch_exists=False,
+            planned_worktree_registered=False,
+            registered_worktree_paths=["/tmp/repo"],
+        )
+        self.calls: list[dict[str, str]] = []
+
+    def run_preflight(
+        self,
+        *,
+        repository_path: str,
+        planned_branch_name: str,
+        planned_worktree_path: str,
+    ) -> WorktreeGitPreflight:
+        """Record the preflight call and return a fixed read-only result."""
+
+        self.calls.append(
+            {
+                "repository_path": repository_path,
+                "planned_branch_name": planned_branch_name,
+                "planned_worktree_path": planned_worktree_path,
+            }
+        )
+        return self.preflight
+
+
+class FakeReadOnlyCommandRunner:
+    """Test double for WorktreeGitPreflightService that never executes git."""
+
+    default_timeout_seconds = 30
+
+    def __init__(self) -> None:
+        self.run_specs: list[WorktreeCommandSpec] = []
+
+    def git_rev_parse(self, *, repository_path: str, ref: str) -> WorktreeCommandSpec:
+        return WorktreeCommandSpec(
+            argv=("git", "rev-parse", ref),
+            cwd=repository_path,
+            timeout_seconds=self.default_timeout_seconds,
+            mutates_repository=False,
+        )
+
+    def git_status_porcelain(self, *, repository_path: str) -> WorktreeCommandSpec:
+        return WorktreeCommandSpec(
+            argv=("git", "status", "--porcelain"),
+            cwd=repository_path,
+            timeout_seconds=self.default_timeout_seconds,
+            mutates_repository=False,
+        )
+
+    def git_worktree_list(self, *, repository_path: str) -> WorktreeCommandSpec:
+        return WorktreeCommandSpec(
+            argv=("git", "worktree", "list", "--porcelain"),
+            cwd=repository_path,
+            timeout_seconds=self.default_timeout_seconds,
+            mutates_repository=False,
+        )
+
+    def git_branch_list(self, *, repository_path: str, pattern: str) -> WorktreeCommandSpec:
+        return WorktreeCommandSpec(
+            argv=("git", "branch", "--list", pattern),
+            cwd=repository_path,
+            timeout_seconds=self.default_timeout_seconds,
+            mutates_repository=False,
+        )
+
+    def run(self, spec: WorktreeCommandSpec) -> WorktreeCommandResult:
+        self.run_specs.append(spec)
+        stdout_by_argv = {
+            ("git", "rev-parse", "HEAD"): "b" * 40 + "\n",
+            ("git", "status", "--porcelain"): "",
+            (
+                "git",
+                "worktree",
+                "list",
+                "--porcelain",
+            ): "worktree /tmp/repo\nHEAD " + "b" * 40 + "\nbranch refs/heads/main\n",
+            ("git", "branch", "--list", "session/proj-test-12345678"): "",
+        }
+        return WorktreeCommandResult(
+            spec=spec,
+            return_code=0,
+            stdout=stdout_by_argv.get(spec.argv, ""),
+            stderr="",
+        )
 
 
 def test_branch_name_policy_generates_stable_safe_session_branch():
@@ -524,8 +634,12 @@ def test_worktree_prepare_skeleton_returns_blocked_for_current_hash(
         repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
     )
     plan = plan_service.build_plan(agent_session_id=session.id)
+    fake_preflight = FakeWorktreeGitPreflightService()
 
-    result = WorktreePrepareService(worktree_plan_service=plan_service).prepare_workspace(
+    result = WorktreePrepareService(
+        worktree_plan_service=plan_service,
+        git_preflight_service=fake_preflight,
+    ).prepare_workspace(
         WorktreePrepareRequest(
             agent_session_id=session.id,
             plan_hash=plan.plan_hash,
@@ -545,9 +659,23 @@ def test_worktree_prepare_skeleton_returns_blocked_for_current_hash(
     assert result.branch_name == plan.branch_name
     assert result.creates_worktree is False
     assert result.creates_branch is False
-    assert result.runs_git is False
+    assert result.runs_git is True
+    assert result.runs_write_git is False
     assert result.mutates_agent_session_workspace is False
-    assert "workspace prepare execution is not implemented in P1-D-C" in result.blockers
+    assert result.git_preflight is not None
+    assert result.git_preflight.read_only is True
+    assert result.git_preflight.preflight_status == "passed"
+    assert result.git_preflight.repository_clean is True
+    assert result.git_preflight.planned_branch_exists is False
+    assert result.git_preflight.planned_worktree_registered is False
+    assert "workspace prepare execution is not implemented in P1-D-D" in result.blockers
+    assert fake_preflight.calls == [
+        {
+            "repository_path": str(repository_root),
+            "planned_branch_name": plan.branch_name,
+            "planned_worktree_path": plan.worktree_path,
+        }
+    ]
 
     unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
     assert unchanged_session is not None
@@ -608,11 +736,12 @@ def test_worktree_prepare_skeleton_keeps_blocked_plan_blocked(db_session):
     )
 
     assert result.prepare_status == "blocked"
-    assert "workspace prepare execution is not implemented in P1-D-C" in result.blockers
+    assert "workspace prepare execution is not implemented in P1-D-D" in result.blockers
     assert "repository workspace is not bound for this project" in result.blockers
     assert result.creates_worktree is False
     assert result.creates_branch is False
     assert result.runs_git is False
+    assert result.runs_write_git is False
     assert result.mutates_agent_session_workspace is False
 
 
@@ -640,7 +769,10 @@ def test_worktree_prepare_response_exposes_blocked_guard_fields(db_session, tmp_
         repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
     )
     plan = plan_service.build_plan(agent_session_id=session.id)
-    result = WorktreePrepareService(worktree_plan_service=plan_service).prepare_workspace(
+    result = WorktreePrepareService(
+        worktree_plan_service=plan_service,
+        git_preflight_service=FakeWorktreeGitPreflightService(),
+    ).prepare_workspace(
         WorktreePrepareRequest(
             agent_session_id=session.id,
             plan_hash=plan.plan_hash,
@@ -660,8 +792,17 @@ def test_worktree_prepare_response_exposes_blocked_guard_fields(db_session, tmp_
     assert payload["requires_user_confirmation"] is True
     assert payload["creates_worktree"] is False
     assert payload["creates_branch"] is False
-    assert payload["runs_git"] is False
+    assert payload["runs_git"] is True
+    assert payload["runs_write_git"] is False
     assert payload["mutates_agent_session_workspace"] is False
+    assert payload["git_preflight"]["read_only"] is True
+    assert payload["git_preflight"]["preflight_status"] == "passed"
+    assert payload["git_preflight"]["commands_run"] == [
+        "git rev-parse HEAD",
+        "git status --porcelain",
+        "git worktree list --porcelain",
+        "git branch --list session/*",
+    ]
 
 
 def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path):
@@ -688,7 +829,10 @@ def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path
         repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
     )
     plan = plan_service.build_plan(agent_session_id=session.id)
-    prepare_service = WorktreePrepareService(worktree_plan_service=plan_service)
+    prepare_service = WorktreePrepareService(
+        worktree_plan_service=plan_service,
+        git_preflight_service=FakeWorktreeGitPreflightService(),
+    )
 
     response = prepare_agent_session_workspace(
         session_id=session.id,
@@ -704,7 +848,10 @@ def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path
     assert response.plan_hash == plan.plan_hash
     assert response.creates_worktree is False
     assert response.creates_branch is False
-    assert response.runs_git is False
+    assert response.runs_git is True
+    assert response.runs_write_git is False
+    assert response.git_preflight is not None
+    assert response.git_preflight.read_only is True
     assert response.mutates_agent_session_workspace is False
 
     unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
@@ -713,13 +860,45 @@ def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path
     assert unchanged_session.branch_name is None
 
 
+def test_worktree_git_preflight_service_runs_only_read_only_commands():
+    """Git preflight invokes only read-only allowlisted commands."""
+
+    runner = FakeReadOnlyCommandRunner()
+    preflight = WorktreeGitPreflightService(command_runner=runner).run_preflight(
+        repository_path="/tmp/repo",
+        planned_branch_name="session/proj-test-12345678",
+        planned_worktree_path="/tmp/workspaces/session-1",
+    )
+
+    assert [spec.argv for spec in runner.run_specs] == [
+        ("git", "rev-parse", "HEAD"),
+        ("git", "status", "--porcelain"),
+        ("git", "worktree", "list", "--porcelain"),
+        ("git", "branch", "--list", "session/proj-test-12345678"),
+    ]
+    assert all(not spec.mutates_repository for spec in runner.run_specs)
+    assert preflight.preflight_status == "passed"
+    assert preflight.read_only is True
+    assert preflight.repository_head_sha == "b" * 40
+    assert preflight.repository_clean is True
+    assert preflight.planned_branch_exists is False
+    assert preflight.planned_worktree_registered is False
+    assert preflight.registered_worktree_paths == ["/tmp/repo"]
+    assert preflight.errors == []
+    assert preflight.commands_run == [
+        "git rev-parse HEAD",
+        "git status --porcelain",
+        "git worktree list --porcelain",
+        "git branch --list session/proj-test-12345678",
+    ]
+
+
 def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_path):
-    """Runner returns immutable specs only and does not execute git."""
+    """Runner returns immutable specs only for read-only preflight commands."""
 
     runner = WorktreeCommandRunner(default_timeout_seconds=30)
     repository_path = str(tmp_path / "repo")
 
-    fetch = runner.git_fetch(repository_path=repository_path)
     rev_parse = runner.git_rev_parse(repository_path=repository_path, ref="HEAD")
     status = runner.git_status_porcelain(repository_path=repository_path)
     worktree_list = runner.git_worktree_list(repository_path=repository_path)
@@ -728,16 +907,15 @@ def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_pat
         pattern="session/*",
     )
 
-    assert fetch.argv == ("git", "fetch", "origin")
     assert rev_parse.argv == ("git", "rev-parse", "HEAD")
     assert status.argv == ("git", "status", "--porcelain")
     assert worktree_list.argv == ("git", "worktree", "list", "--porcelain")
     assert branch_list.argv == ("git", "branch", "--list", "session/*")
     assert all(
         not spec.mutates_repository
-        for spec in [fetch, rev_parse, status, worktree_list, branch_list]
+        for spec in [rev_parse, status, worktree_list, branch_list]
     )
-    assert fetch.timeout_seconds == 30
+    assert rev_parse.timeout_seconds == 30
 
 
 def test_worktree_command_runner_does_not_expose_write_specs():
@@ -745,7 +923,35 @@ def test_worktree_command_runner_does_not_expose_write_specs():
 
     runner = WorktreeCommandRunner()
 
+    assert not hasattr(runner, "git_fetch")
     assert not hasattr(runner, "git_worktree_add")
     assert not hasattr(runner, "git_checkout_new_branch")
     assert not hasattr(runner, "git_worktree_remove")
     assert not hasattr(runner, "git_branch_delete")
+
+
+def test_worktree_command_runner_rejects_arbitrary_or_mutating_specs(tmp_path):
+    """Runner execution rejects arbitrary or mutating command specs."""
+
+    runner = WorktreeCommandRunner()
+    repository_path = str(tmp_path / "repo")
+
+    with pytest.raises(ValueError):
+        runner.run(
+            WorktreeCommandSpec(
+                argv=("git", "checkout", "-b", "session/test"),
+                cwd=repository_path,
+                timeout_seconds=30,
+                mutates_repository=True,
+            )
+        )
+
+    with pytest.raises(ValueError):
+        runner.run(
+            WorktreeCommandSpec(
+                argv=("git", "fetch", "origin"),
+                cwd=repository_path,
+                timeout_seconds=30,
+                mutates_repository=False,
+            )
+        )

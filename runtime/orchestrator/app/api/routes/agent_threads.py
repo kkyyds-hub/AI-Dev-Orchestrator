@@ -15,7 +15,7 @@ from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
 from app.domain.worktree_plan import WorktreePlan
 from app.domain.worktree_plan_confirmation import WorktreePlanConfirmationReceipt
-from app.domain.worktree_prepare import WorktreePrepareResult
+from app.domain.worktree_prepare import WorktreeGitPreflight, WorktreePrepareResult
 from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
@@ -269,6 +269,30 @@ class WorktreePrepareRequestBody(BaseModel):
     user_confirmed: bool = True
 
 
+class WorktreeGitPreflightResponse(BaseModel):
+    """Read-only git preflight details for future workspace prepare execution."""
+
+    preflight_status: str
+    read_only: bool
+    commands_run: list[str] = Field(default_factory=list)
+    repository_head_sha: str | None = None
+    repository_clean: bool | None = None
+    planned_branch_exists: bool | None = None
+    planned_worktree_registered: bool | None = None
+    registered_worktree_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_preflight(
+        cls,
+        preflight: WorktreeGitPreflight,
+    ) -> "WorktreeGitPreflightResponse":
+        """Convert domain preflight to API DTO."""
+
+        return cls(**preflight.model_dump())
+
+
 class WorktreePrepareResponse(BaseModel):
     """Blocked response for future real workspace prepare execution."""
 
@@ -286,19 +310,26 @@ class WorktreePrepareResponse(BaseModel):
     base_branch: str | None = None
     base_commit_sha: str | None = None
     checked_at: datetime
+    git_preflight: WorktreeGitPreflightResponse | None = None
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     next_action: str
     creates_worktree: bool
     creates_branch: bool
     runs_git: bool
+    runs_write_git: bool
     mutates_agent_session_workspace: bool
 
     @classmethod
     def from_result(cls, result: WorktreePrepareResult) -> "WorktreePrepareResponse":
         """Convert domain prepare result to API DTO."""
 
-        return cls(**result.model_dump())
+        payload = result.model_dump()
+        if result.git_preflight is not None:
+            payload["git_preflight"] = WorktreeGitPreflightResponse.from_preflight(
+                result.git_preflight
+            )
+        return cls(**payload)
 
 
 def get_agent_conversation_service(

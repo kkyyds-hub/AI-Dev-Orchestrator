@@ -1,13 +1,14 @@
 """Deny-by-default read-only worktree git command allowlist.
 
-P1-D-A defines the command surface only.  It intentionally does not execute
-git, load a process runner, create worktrees, or create branches.
+The runner executes only explicitly allowlisted read-only git commands.  It
+never exposes worktree/branch creation or deletion commands.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,27 +21,29 @@ class WorktreeCommandSpec:
     mutates_repository: bool
 
 
+@dataclass(frozen=True, slots=True)
+class WorktreeCommandResult:
+    """Captured result from one allowlisted read-only git command."""
+
+    spec: WorktreeCommandSpec
+    return_code: int
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+
 class WorktreeCommandRunner:
     """Deny-by-default command builder for read-only worktree checks.
 
     The class exposes named methods only; it does not accept arbitrary command
-    strings.  P1-D-A stops at read-only command specification so no git command
-    is run and no mutating command spec can be produced.
+    strings.  P1-D-D permits execution of these read-only commands for
+    preflight, while still forbidding mutating command specs.
     """
 
     def __init__(self, *, default_timeout_seconds: int = 120) -> None:
         if default_timeout_seconds <= 0:
             raise ValueError("default_timeout_seconds must be positive")
         self.default_timeout_seconds = default_timeout_seconds
-
-    def git_fetch(self, *, repository_path: str, remote: str = "origin") -> WorktreeCommandSpec:
-        """Allowlisted future command: git fetch <remote>."""
-
-        return self._spec(
-            cwd=repository_path,
-            argv=("git", "fetch", remote),
-            mutates_repository=False,
-        )
 
     def git_rev_parse(self, *, repository_path: str, ref: str) -> WorktreeCommandSpec:
         """Allowlisted future command: git rev-parse <ref>."""
@@ -49,6 +52,34 @@ class WorktreeCommandRunner:
             cwd=repository_path,
             argv=("git", "rev-parse", ref),
             mutates_repository=False,
+        )
+
+    def run(self, spec: WorktreeCommandSpec) -> WorktreeCommandResult:
+        """Execute one allowlisted read-only git command."""
+
+        self._ensure_read_only_allowlisted(spec)
+        try:
+            completed = subprocess.run(
+                spec.argv,
+                cwd=spec.cwd,
+                capture_output=True,
+                text=True,
+                timeout=spec.timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return WorktreeCommandResult(
+                spec=spec,
+                return_code=124,
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or "git command timed out",
+                timed_out=True,
+            )
+        return WorktreeCommandResult(
+            spec=spec,
+            return_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
         )
 
     def git_status_porcelain(self, *, repository_path: str) -> WorktreeCommandSpec:
@@ -98,3 +129,20 @@ class WorktreeCommandRunner:
             timeout_seconds=self.default_timeout_seconds,
             mutates_repository=mutates_repository,
         )
+
+    @staticmethod
+    def _ensure_read_only_allowlisted(spec: WorktreeCommandSpec) -> None:
+        """Reject arbitrary or mutating command specs."""
+
+        if spec.mutates_repository:
+            raise ValueError("mutating git command specs are not allowed")
+        argv = spec.argv
+        if argv == ("git", "rev-parse", "HEAD"):
+            return
+        if argv == ("git", "status", "--porcelain"):
+            return
+        if argv == ("git", "worktree", "list", "--porcelain"):
+            return
+        if len(argv) == 4 and argv[:3] == ("git", "branch", "--list"):
+            return
+        raise ValueError(f"git command is not allowlisted: {' '.join(argv)}")
