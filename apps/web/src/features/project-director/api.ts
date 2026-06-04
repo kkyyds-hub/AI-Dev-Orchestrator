@@ -7,7 +7,10 @@ import type {
   CreateProjectDirectorSessionInput,
   CreateProjectDirectorTaskQueueInput,
   FetchProjectDirectorWorkbenchResumeInput,
+  PostProjectDirectorMessageInput,
+  PostProjectDirectorMessageResponse,
   ProjectDirectorAgentTeamConfigResponse,
+  ProjectDirectorMessageListResponse,
   ProjectDirectorPlanReviewResponse,
   ProjectDirectorPlanVersion,
   ProjectDirectorRepositoryBindingConfigResponse,
@@ -54,6 +57,26 @@ export function fetchProjectDirectorWorkbenchResume(
 export function fetchProjectDirectorWorkbenchResumableSessions(): Promise<ProjectDirectorWorkbenchResumableSessionsResponse> {
   return requestJson<ProjectDirectorWorkbenchResumableSessionsResponse>(
     "/project-director/workbench/resumable-sessions",
+  );
+}
+
+export function fetchProjectDirectorSessionMessages(
+  sessionId: string,
+): Promise<ProjectDirectorMessageListResponse> {
+  return requestJson<ProjectDirectorMessageListResponse>(
+    `/project-director/sessions/${sessionId}/messages`,
+  );
+}
+
+export function postProjectDirectorSessionMessage(
+  input: PostProjectDirectorMessageInput,
+): Promise<PostProjectDirectorMessageResponse> {
+  return requestJson<PostProjectDirectorMessageResponse>(
+    `/project-director/sessions/${input.sessionId}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({ content: input.content }),
+    },
   );
 }
 

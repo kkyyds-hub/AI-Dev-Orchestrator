@@ -10,15 +10,19 @@ import {
   useCreateProjectDirectorPlanVersion,
   useCreateProjectDirectorSession,
   useCreateProjectDirectorTaskQueue,
+  usePostProjectDirectorSessionMessage,
+  useProjectDirectorSessionMessages,
   useProjectDirectorWorkbenchResume,
   useReviewProjectDirectorPlanVersion,
   useSubmitProjectDirectorAnswers,
 } from "../../../features/project-director/hooks";
 import { PROJECT_DIRECTOR_PLAN_STATUS_LABELS } from "../../../features/project-director/types";
 import type {
+  ProjectDirectorMessage,
   ProjectDirectorPlanReviewAction,
   ProjectDirectorPlanVersion,
   ProjectDirectorSession,
+  ProjectDirectorSuggestedAction,
   ProjectDirectorTaskCreationResponse,
 } from "../../../features/project-director/types";
 import { useRunWorkerOnce } from "../../../features/task-actions/hooks";
@@ -115,6 +119,9 @@ export function DirectorChatEntry({
     useState<ProjectDirectorPlanVersion | null>(null);
   const [taskCreation, setTaskCreation] =
     useState<ProjectDirectorTaskCreationResponse | null>(null);
+  const [messageTimeline, setMessageTimeline] = useState<ProjectDirectorMessage[]>(
+    [],
+  );
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [isPlanReviewOpen, setIsPlanReviewOpen] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState("");
@@ -125,6 +132,7 @@ export function DirectorChatEntry({
   const [manualResumeRequested, setManualResumeRequested] = useState(false);
 
   const createSessionMutation = useCreateProjectDirectorSession();
+  const postMessageMutation = usePostProjectDirectorSessionMessage();
   const submitAnswersMutation = useSubmitProjectDirectorAnswers();
   const confirmGoalMutation = useConfirmProjectDirectorGoal();
   const createPlanVersionMutation = useCreateProjectDirectorPlanVersion();
@@ -147,6 +155,7 @@ export function DirectorChatEntry({
     projectId: scopedProjectId,
     sessionId: resumeSessionId,
   });
+  const messagesQuery = useProjectDirectorSessionMessages(session?.id ?? null);
   const resumeCandidate = resumeQuery.data?.session ?? null;
   const trimmedDraft = draft.trim();
   const workerRunOnceResult = runWorkerOnceMutation.data ?? null;
@@ -168,6 +177,7 @@ export function DirectorChatEntry({
 
   const isMutating =
     createSessionMutation.isPending ||
+    postMessageMutation.isPending ||
     submitAnswersMutation.isPending ||
     confirmGoalMutation.isPending ||
     createPlanVersionMutation.isPending ||
@@ -175,7 +185,9 @@ export function DirectorChatEntry({
     createTaskQueueMutation.isPending;
 
   const canSend =
-    trimmedDraft.length > 0 && !isMutating && !hasAmbiguousProjectScope;
+    trimmedDraft.length > 0 &&
+    !isMutating &&
+    (!hasAmbiguousProjectScope || Boolean(session));
   const canSubmitAnswers =
     session?.status === "clarifying" &&
     session.clarifying_questions.length > 0 &&
@@ -279,6 +291,7 @@ export function DirectorChatEntry({
     setSession(null);
     setPlanVersion(null);
     setTaskCreation(null);
+    setMessageTimeline([]);
     setAnswerDrafts({});
     setIsPlanReviewOpen(false);
     setReviewFeedback("");
@@ -310,6 +323,7 @@ export function DirectorChatEntry({
     setSession(resume.session);
     setPlanVersion(resume.plan_version);
     setTaskCreation(resume.task_creation);
+    setMessageTimeline(resume.recent_messages ?? []);
     setReviewFeedback("");
     setIsPlanReviewOpen(false);
     setPlanReviewMessage(null);
@@ -322,6 +336,17 @@ export function DirectorChatEntry({
     resumeSessionId,
     session,
   ]);
+
+  useEffect(() => {
+    if (!session) {
+      setMessageTimeline([]);
+      return;
+    }
+
+    if (messagesQuery.data) {
+      setMessageTimeline(messagesQuery.data.messages);
+    }
+  }, [messagesQuery.data, session]);
 
   useEffect(() => {
     if (!session) {
@@ -361,6 +386,23 @@ export function DirectorChatEntry({
     }
 
     try {
+      if (session) {
+        const result = await postMessageMutation.mutateAsync({
+          sessionId: session.id,
+          content: trimmedDraft,
+        });
+        setMessageTimeline((current) => [
+          ...current,
+          ...result.messages.filter(
+            (message) =>
+              !current.some((existing) => existing.id === message.id),
+          ),
+        ]);
+        setDraft("");
+        setResumeMessage("AI 项目主管已基于当前会话上下文回复。");
+        return;
+      }
+
       const createdSession = await createSessionMutation.mutateAsync({
         goal_text: trimmedDraft,
         project_id: scopedProjectId,
@@ -371,6 +413,7 @@ export function DirectorChatEntry({
       setDraft("");
       setPlanVersion(null);
       setTaskCreation(null);
+      setMessageTimeline([]);
       setReviewFeedback("");
       setPlanReviewMessage(null);
       setIsPlanReviewOpen(false);
@@ -572,6 +615,39 @@ export function DirectorChatEntry({
                 <p className="whitespace-pre-wrap text-sm text-zinc-300">
                   {session.goal_text}
                 </p>
+              </div>
+
+              <div className="rounded-lg border border-[#333333] bg-[#111111] p-4">
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-zinc-200">
+                      AI 项目主管对话
+                    </h3>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      已有 session 下的输入会追加到消息时间线，不再新建会话。
+                    </p>
+                  </div>
+                  <span className="rounded border border-[#333333] px-2 py-1 text-[10px] text-zinc-500">
+                    {messagesQuery.isFetching
+                      ? "正在刷新历史"
+                      : `${messageTimeline.length} 条消息`}
+                  </span>
+                </div>
+
+                {messageTimeline.length > 0 ? (
+                  <div
+                    data-testid="project-director-message-timeline"
+                    className="space-y-3"
+                  >
+                    {messageTimeline.map((message) => (
+                      <MessageBubble key={message.id} message={message} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded border border-dashed border-[#333333] bg-[#171717] px-3 py-4 text-sm text-zinc-500">
+                    暂无对话消息。你可以继续输入“总结这个草案 / 为什么这么拆 / 有什么风险”，后端会基于当前 session 上下文回复。
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
@@ -1046,7 +1122,11 @@ export function DirectorChatEntry({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="描述你的项目目标或当前遇到的问题..."
+              placeholder={
+                session
+                  ? "继续和 AI 项目主管讨论：总结草案、追问风险、询问下一步..."
+                  : "描述你的项目目标或当前遇到的问题..."
+              }
               rows={3}
               className="w-full resize-none bg-transparent px-4 py-3 pr-24 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
             />
@@ -1059,12 +1139,19 @@ export function DirectorChatEntry({
                 }}
                 className="rounded border border-[#3f3f46] bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#1a1a1a] disabled:text-zinc-600"
               >
-                {createSessionMutation.isPending ? "发送中..." : "发送"}
+                {createSessionMutation.isPending || postMessageMutation.isPending
+                  ? "发送中..."
+                  : "发送"}
               </button>
             </div>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-700">
-            <p>Ctrl/⌘ + Enter 发送；发送后会进入目标澄清与项目草案审核流程。</p>
+            <p>
+              Ctrl/⌘ + Enter 发送；
+              {session
+                ? "已有会话会调用 POST /sessions/{id}/messages 并追加消息。"
+                : "首次发送会创建 Project Director session。"}
+            </p>
             {scopedProjectId ? (
               <p>当前项目范围：{selectedProjectName}</p>
             ) : mode === "new-project" ? (
@@ -1076,6 +1163,16 @@ export function DirectorChatEntry({
           {createSessionMutation.isError ? (
             <p className="mt-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
               {createSessionMutation.error.message}
+            </p>
+          ) : null}
+          {postMessageMutation.isError ? (
+            <p className="mt-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {postMessageMutation.error.message}
+            </p>
+          ) : null}
+          {messagesQuery.isError ? (
+            <p className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              消息历史刷新失败：{messagesQuery.error.message}
             </p>
           ) : null}
         </div>
@@ -1107,6 +1204,97 @@ function ErrorLine({ message }: { message: string }) {
     <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
       {message}
     </p>
+  );
+}
+
+function MessageBubble({ message }: { message: ProjectDirectorMessage }) {
+  const isUser = message.role === "user";
+
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[92%] rounded-lg border px-3 py-2 ${
+          isUser
+            ? "border-blue-500/30 bg-blue-500/10 text-blue-50"
+            : "border-[#333333] bg-[#171717] text-zinc-200"
+        }`}
+      >
+        <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px]">
+          <span className={isUser ? "text-blue-200" : "text-zinc-400"}>
+            {isUser ? "你" : "AI 项目主管"}
+          </span>
+          <span className="text-zinc-600">#{message.sequence_no}</span>
+          {!isUser ? (
+            <SourceBadge source={message.source} sourceDetail={message.source_detail} />
+          ) : null}
+          {message.intent ? (
+            <span className="rounded border border-[#333333] px-1.5 py-0.5 text-zinc-500">
+              intent: {message.intent}
+            </span>
+          ) : null}
+        </div>
+        <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+        {!isUser && message.suggested_actions.length > 0 ? (
+          <SuggestedActions actions={message.suggested_actions} />
+        ) : null}
+        {!isUser && message.forbidden_actions_detected.length > 0 ? (
+          <p className="mt-2 text-[10px] leading-4 text-zinc-600">
+            安全边界：{message.forbidden_actions_detected.join(" / ")}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SourceBadge({
+  source,
+  sourceDetail,
+}: {
+  source: ProjectDirectorMessage["source"];
+  sourceDetail: string;
+}) {
+  const label =
+    source === "ai"
+      ? "AI 生成"
+      : source === "rule_fallback"
+        ? "规则 fallback"
+        : "系统";
+  const toneClass =
+    source === "ai"
+      ? "border-emerald-500/30 text-emerald-300"
+      : source === "rule_fallback"
+        ? "border-amber-500/30 text-amber-300"
+        : "border-[#333333] text-zinc-500";
+
+  return (
+    <span
+      className={`rounded border px-1.5 py-0.5 ${toneClass}`}
+      title={sourceDetail}
+    >
+      {label}
+    </span>
+  );
+}
+
+function SuggestedActions({
+  actions,
+}: {
+  actions: ProjectDirectorSuggestedAction[];
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {actions.map((action, index) => (
+        <span
+          key={`${action.type ?? "action"}-${index}`}
+          className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[10px] text-violet-100"
+          title="当前阶段只展示 suggested_actions，不自动执行。"
+        >
+          建议：{action.label || action.type || "下一步"}
+          {action.requires_confirmation ? "（需确认）" : ""}
+        </span>
+      ))}
+    </div>
   );
 }
 

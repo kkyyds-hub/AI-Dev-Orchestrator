@@ -16,6 +16,12 @@ export type ProjectDirectorPlanReviewAction =
   | "reject"
   | "request_changes";
 
+export type ProjectDirectorMessageRole = "user" | "assistant" | "system";
+
+export type ProjectDirectorMessageSource = "ai" | "rule_fallback" | "system" | string;
+
+export type ProjectDirectorMessageRiskLevel = "low" | "medium" | "high" | string;
+
 export const PROJECT_DIRECTOR_PLAN_STATUS_LABELS: Record<
   ProjectDirectorPlanVersionStatus,
   string
@@ -325,10 +331,60 @@ export interface ProjectDirectorPlanReviewResponse {
   gate_conclusion: string;
 }
 
+export interface ProjectDirectorSuggestedAction {
+  type?: string;
+  label?: string;
+  requires_confirmation?: boolean;
+  risk_level?: ProjectDirectorMessageRiskLevel;
+}
+
+export interface ProjectDirectorMessage {
+  id: string;
+  session_id: string;
+  role: ProjectDirectorMessageRole;
+  content: string;
+  sequence_no: number;
+  intent: string | null;
+  related_plan_version_id: string | null;
+  related_project_id: string | null;
+  related_task_id: string | null;
+  source: ProjectDirectorMessageSource;
+  source_detail: string;
+  suggested_actions: ProjectDirectorSuggestedAction[];
+  requires_confirmation: boolean;
+  risk_level: ProjectDirectorMessageRiskLevel | null;
+  forbidden_actions_detected: string[];
+  token_count: number | null;
+  estimated_cost: number | null;
+  created_at: string;
+}
+
+export interface ProjectDirectorMessageListResponse {
+  session_id: string;
+  messages: ProjectDirectorMessage[];
+  has_more: boolean;
+}
+
+export interface PostProjectDirectorMessageInput {
+  sessionId: string;
+  content: string;
+}
+
+export interface PostProjectDirectorMessageResponse {
+  session_id: string;
+  user_message: ProjectDirectorMessage;
+  assistant_message: ProjectDirectorMessage;
+  messages: ProjectDirectorMessage[];
+  source: ProjectDirectorMessageSource;
+  gate_conclusion: string;
+  forbidden_actions: string[];
+}
+
 export interface ProjectDirectorWorkbenchResume {
   session: ProjectDirectorSession | null;
   plan_version: ProjectDirectorPlanVersion | null;
   task_creation: ProjectDirectorTaskCreationResponse | null;
+  recent_messages: ProjectDirectorMessage[];
   source:
     | "backend_recent_plan"
     | "backend_recent_session"

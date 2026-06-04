@@ -10,9 +10,11 @@ import {
   fetchProjectDirectorRepositoryBindingConfig,
   fetchProjectDirectorSetupReadiness,
   fetchProjectDirectorSkillBindingConfig,
+  fetchProjectDirectorSessionMessages,
   fetchProjectDirectorVerificationConfig,
   fetchProjectDirectorWorkbenchResume,
   fetchProjectDirectorWorkbenchResumableSessions,
+  postProjectDirectorSessionMessage,
   reviewProjectDirectorAgentTeamConfig,
   reviewProjectDirectorRepositoryBindingConfig,
   reviewProjectDirectorSkillBindingConfig,
@@ -50,6 +52,28 @@ export function useProjectDirectorWorkbenchResumableSessions() {
     queryKey: ["project-director", "workbench-resumable-sessions"],
     queryFn: fetchProjectDirectorWorkbenchResumableSessions,
     retry: false,
+  });
+}
+
+export function useProjectDirectorSessionMessages(sessionId: string | null) {
+  return useQuery({
+    queryKey: ["project-director", "session-messages", sessionId],
+    queryFn: () => fetchProjectDirectorSessionMessages(sessionId as string),
+    enabled: Boolean(sessionId),
+    retry: false,
+  });
+}
+
+export function usePostProjectDirectorSessionMessage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: postProjectDirectorSessionMessage,
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["project-director", "session-messages", result.session_id],
+      });
+    },
   });
 }
 
