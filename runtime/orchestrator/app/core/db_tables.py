@@ -1028,6 +1028,7 @@ class AgentSessionTable(ORMBase):
     )
     workspace_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     workspace_clean: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_workspace_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -75,6 +75,7 @@ def test_agent_sessions_table_contains_p0_coding_columns(db_session):
         "workspace_type",
         "workspace_path",
         "workspace_clean",
+        "last_workspace_error",
     }.issubset(columns)
 
 
@@ -102,6 +103,7 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
         workspace_type=WorkspaceType.IN_PLACE,
         workspace_path=" /tmp/project ",
         workspace_clean=True,
+        last_workspace_error=" previous failure ",
     )
 
     assert session.agent_type == AgentType.OPENAI_PROVIDER
@@ -113,6 +115,7 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
     assert session.workspace_type == WorkspaceType.IN_PLACE
     assert session.workspace_path == "/tmp/project"
     assert session.workspace_clean is True
+    assert session.last_workspace_error == "previous failure"
 
     updated = repository.update_status(
         session.id,
@@ -121,6 +124,7 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
         branch_name="",
         workspace_type=WorkspaceType.READ_ONLY,
         workspace_path="",
+        last_workspace_error="",
         finished=True,
     )
 
@@ -130,6 +134,7 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
     assert updated.workspace_type == WorkspaceType.READ_ONLY
     assert updated.workspace_path is None
     assert updated.workspace_clean is True
+    assert updated.last_workspace_error is None
     assert updated.finished_at is not None
 
 
@@ -265,6 +270,7 @@ def test_agent_session_response_exposes_p0_coding_fields(db_session):
         workspace_type=WorkspaceType.IN_PLACE,
         workspace_path="/tmp/project",
         workspace_clean=False,
+        last_workspace_error="worktree add failed: dry-run only",
     )
 
     payload = AgentSessionResponse.from_session(session).model_dump(mode="json")
@@ -278,6 +284,7 @@ def test_agent_session_response_exposes_p0_coding_fields(db_session):
     assert payload["workspace_type"] == "in_place"
     assert payload["workspace_path"] == "/tmp/project"
     assert payload["workspace_clean"] is False
+    assert payload["last_workspace_error"] == "worktree add failed: dry-run only"
 
 
 def test_worker_run_once_response_exposes_p0_coding_fields_without_running_worker():
@@ -296,6 +303,7 @@ def test_worker_run_once_response_exposes_p0_coding_fields_without_running_worke
             workspace_type="in_place",
             workspace_path=None,
             workspace_clean=None,
+            last_workspace_error=None,
         )
     ).model_dump(mode="json")
 
@@ -308,3 +316,4 @@ def test_worker_run_once_response_exposes_p0_coding_fields_without_running_worke
     assert payload["workspace_type"] == "in_place"
     assert payload["workspace_path"] is None
     assert payload["workspace_clean"] is None
+    assert payload["last_workspace_error"] is None

@@ -7,6 +7,8 @@ create directories, create branches, or persist AgentSession workspace state.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from hashlib import sha256
+import json
 from pathlib import Path
 import re
 import shlex
@@ -283,6 +285,19 @@ class WorktreePlanService:
                 repository_workspace.id if repository_workspace is not None else None
             ),
             safe=len(blockers) == 0,
+            plan_hash=self._compute_plan_hash(
+                agent_session_id=session.id,
+                project_id=session.project_id,
+                repository_workspace_id=(
+                    repository_workspace.id
+                    if repository_workspace is not None
+                    else None
+                ),
+                worktree_path=worktree_path,
+                branch_name=branch_name,
+                base_branch=base_branch,
+                base_commit_sha=None,
+            ),
             worktree_path=worktree_path,
             branch_name=branch_name,
             base_branch=base_branch,
@@ -291,6 +306,40 @@ class WorktreePlanService:
             blockers=blockers,
             warnings=warnings,
         )
+
+    @staticmethod
+    def _compute_plan_hash(
+        *,
+        agent_session_id: UUID,
+        project_id: UUID,
+        repository_workspace_id: UUID | None,
+        worktree_path: str | None,
+        branch_name: str | None,
+        base_branch: str | None,
+        base_commit_sha: str | None,
+    ) -> str:
+        """Return a stable SHA-256 hash for stale-plan detection."""
+
+        payload = {
+            "agent_session_id": str(agent_session_id),
+            "project_id": str(project_id),
+            "repository_workspace_id": (
+                str(repository_workspace_id)
+                if repository_workspace_id is not None
+                else None
+            ),
+            "worktree_path": worktree_path,
+            "branch_name": branch_name,
+            "base_branch": base_branch,
+            "base_commit_sha": base_commit_sha,
+        }
+        canonical_payload = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return sha256(canonical_payload.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _project_prefix(project_id: UUID) -> str:

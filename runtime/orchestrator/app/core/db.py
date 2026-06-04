@@ -74,6 +74,7 @@ _AGENT_SESSION_TABLE_COLUMN_UPGRADES = {
     "workspace_type": "ALTER TABLE agent_sessions ADD COLUMN workspace_type TEXT DEFAULT 'in_place'",
     "workspace_path": "ALTER TABLE agent_sessions ADD COLUMN workspace_path TEXT",
     "workspace_clean": "ALTER TABLE agent_sessions ADD COLUMN workspace_clean INTEGER",
+    "last_workspace_error": "ALTER TABLE agent_sessions ADD COLUMN last_workspace_error TEXT",
 }
 
 _PROJECT_TABLE_COLUMN_UPGRADES = {

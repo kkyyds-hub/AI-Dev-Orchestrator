@@ -51,6 +51,7 @@ class AgentSessionRepository:
         workspace_type: WorkspaceType | None = WorkspaceType.IN_PLACE,
         workspace_path: str | None = None,
         workspace_clean: bool | None = None,
+        last_workspace_error: str | None = None,
     ) -> AgentSession:
         """Create and persist one new session row."""
 
@@ -80,6 +81,11 @@ class AgentSessionRepository:
                 workspace_path.strip() or None if workspace_path is not None else None
             ),
             workspace_clean=workspace_clean,
+            last_workspace_error=(
+                last_workspace_error.strip() or None
+                if last_workspace_error is not None
+                else None
+            ),
             started_at=utc_now(),
             updated_at=utc_now(),
         )
@@ -145,6 +151,7 @@ class AgentSessionRepository:
         workspace_type: WorkspaceType | None = None,
         workspace_path: str | None = None,
         workspace_clean: bool | None = None,
+        last_workspace_error: str | None = None,
         finished: bool = False,
     ) -> AgentSession:
         """Update session status/coding fields and return the latest snapshot."""
@@ -184,6 +191,8 @@ class AgentSessionRepository:
             row.workspace_path = workspace_path.strip() or None
         if workspace_clean is not None:
             row.workspace_clean = workspace_clean
+        if last_workspace_error is not None:
+            row.last_workspace_error = last_workspace_error.strip() or None
         row.updated_at = utc_now()
         if finished:
             row.finished_at = utc_now()
@@ -218,6 +227,7 @@ class AgentSessionRepository:
             workspace_type=row.workspace_type,
             workspace_path=row.workspace_path,
             workspace_clean=row.workspace_clean,
+            last_workspace_error=row.last_workspace_error,
             started_at=ensure_utc_datetime(row.started_at),
             updated_at=ensure_utc_datetime(row.updated_at),
             finished_at=ensure_utc_datetime(row.finished_at),

@@ -125,6 +125,7 @@ class WorkerRunResult:
     workspace_type: str | None = None
     workspace_path: str | None = None
     workspace_clean: bool | None = None
+    last_workspace_error: str | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -447,6 +448,7 @@ class TaskWorker:
         workspace_type: str | None = None
         workspace_path: str | None = None
         workspace_clean: bool | None = None
+        last_workspace_error: str | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -712,6 +714,7 @@ class TaskWorker:
                 )
                 workspace_path = agent_session.workspace_path
                 workspace_clean = agent_session.workspace_clean
+                last_workspace_error = agent_session.last_workspace_error
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -862,6 +865,7 @@ class TaskWorker:
                 )
                 workspace_path = agent_session.workspace_path
                 workspace_clean = agent_session.workspace_clean
+                last_workspace_error = agent_session.last_workspace_error
             self._log_finalization(
                 task=task,
                 run=run,
@@ -1010,6 +1014,7 @@ class TaskWorker:
                 workspace_type=workspace_type,
                 workspace_path=workspace_path,
                 workspace_clean=workspace_clean,
+                last_workspace_error=last_workspace_error,
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier

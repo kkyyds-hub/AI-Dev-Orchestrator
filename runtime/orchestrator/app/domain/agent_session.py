@@ -133,6 +133,7 @@ class AgentSession(DomainModel):
     workspace_type: WorkspaceType | None = Field(default=WorkspaceType.IN_PLACE)
     workspace_path: str | None = Field(default=None, max_length=1_000)
     workspace_clean: bool | None = None
+    last_workspace_error: str | None = Field(default=None, max_length=2_000)
     started_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
@@ -145,6 +146,7 @@ class AgentSession(DomainModel):
         "runtime_handle_id",
         "branch_name",
         "workspace_path",
+        "last_workspace_error",
     )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:

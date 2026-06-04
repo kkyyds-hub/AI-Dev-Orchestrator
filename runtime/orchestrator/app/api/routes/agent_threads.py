@@ -46,6 +46,7 @@ class AgentSessionResponse(BaseModel):
     workspace_type: str | None = None
     workspace_path: str | None = None
     workspace_clean: bool | None = None
+    last_workspace_error: str | None = None
     started_at: datetime
     updated_at: datetime
     finished_at: datetime | None = None
@@ -87,6 +88,7 @@ class AgentSessionResponse(BaseModel):
             ),
             workspace_path=session.workspace_path,
             workspace_clean=session.workspace_clean,
+            last_workspace_error=session.last_workspace_error,
             started_at=session.started_at,
             updated_at=session.updated_at,
             finished_at=session.finished_at,
@@ -188,6 +190,7 @@ class WorktreePlanResponse(BaseModel):
     safe: bool
     dry_run: bool
     requires_user_confirmation: bool
+    plan_hash: str
     workspace_type: str
     worktree_path: str | None = None
     branch_name: str | None = None

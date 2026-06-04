@@ -108,6 +108,7 @@ class WorkerRunOnceResponse(BaseModel):
     workspace_type: str | None = None
     workspace_path: str | None = None
     workspace_clean: bool | None = None
+    last_workspace_error: str | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -224,6 +225,7 @@ class WorkerRunOnceResponse(BaseModel):
             workspace_type=result.workspace_type,
             workspace_path=result.workspace_path,
             workspace_clean=result.workspace_clean,
+            last_workspace_error=result.last_workspace_error,
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
             task_status=result.task.status if result.task else None,
