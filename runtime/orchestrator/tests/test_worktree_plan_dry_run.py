@@ -319,7 +319,6 @@ def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_pat
 
     runner = WorktreeCommandRunner(default_timeout_seconds=30)
     repository_path = str(tmp_path / "repo")
-    worktree_path = str(tmp_path / "worktree")
 
     fetch = runner.git_fetch(repository_path=repository_path)
     rev_parse = runner.git_rev_parse(repository_path=repository_path, ref="HEAD")
@@ -329,40 +328,25 @@ def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_pat
         repository_path=repository_path,
         pattern="session/*",
     )
-    worktree_add = runner.git_worktree_add(
-        repository_path=repository_path,
-        worktree_path=worktree_path,
-        base_ref="origin/main",
-    )
-    checkout = runner.git_checkout_new_branch(
-        worktree_path=worktree_path,
-        branch_name="session/proj-12345678",
-    )
-    worktree_remove = runner.git_worktree_remove(
-        repository_path=repository_path,
-        worktree_path=worktree_path,
-    )
-    branch_delete = runner.git_branch_delete(
-        repository_path=repository_path,
-        branch_name="session/proj-12345678",
-    )
 
     assert fetch.argv == ("git", "fetch", "origin")
     assert rev_parse.argv == ("git", "rev-parse", "HEAD")
     assert status.argv == ("git", "status", "--porcelain")
     assert worktree_list.argv == ("git", "worktree", "list", "--porcelain")
     assert branch_list.argv == ("git", "branch", "--list", "session/*")
-    assert worktree_add.argv == ("git", "worktree", "add", worktree_path, "origin/main")
-    assert checkout.argv == ("git", "checkout", "-b", "session/proj-12345678")
-    assert worktree_remove.argv == ("git", "worktree", "remove", "--force", worktree_path)
-    assert branch_delete.argv == ("git", "branch", "-D", "session/proj-12345678")
-    assert not fetch.mutates_repository
-    assert not rev_parse.mutates_repository
-    assert not status.mutates_repository
-    assert not worktree_list.mutates_repository
-    assert not branch_list.mutates_repository
-    assert worktree_add.mutates_repository
-    assert checkout.mutates_repository
-    assert worktree_remove.mutates_repository
-    assert branch_delete.mutates_repository
+    assert all(
+        not spec.mutates_repository
+        for spec in [fetch, rev_parse, status, worktree_list, branch_list]
+    )
     assert fetch.timeout_seconds == 30
+
+
+def test_worktree_command_runner_does_not_expose_write_specs():
+    """P1-D-A boundary exposes no mutating worktree or branch specs."""
+
+    runner = WorktreeCommandRunner()
+
+    assert not hasattr(runner, "git_worktree_add")
+    assert not hasattr(runner, "git_checkout_new_branch")
+    assert not hasattr(runner, "git_worktree_remove")
+    assert not hasattr(runner, "git_branch_delete")

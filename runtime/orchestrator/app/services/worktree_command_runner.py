@@ -1,4 +1,4 @@
-"""Deny-by-default worktree git command allowlist.
+"""Deny-by-default read-only worktree git command allowlist.
 
 P1-D-A defines the command surface only.  It intentionally does not execute
 git, load a process runner, create worktrees, or create branches.
@@ -21,10 +21,11 @@ class WorktreeCommandSpec:
 
 
 class WorktreeCommandRunner:
-    """Deny-by-default command builder for future worktree operations.
+    """Deny-by-default command builder for read-only worktree checks.
 
     The class exposes named methods only; it does not accept arbitrary command
-    strings.  P1-D-A stops at command specification so no git command is run.
+    strings.  P1-D-A stops at read-only command specification so no git command
+    is run and no mutating command spec can be produced.
     """
 
     def __init__(self, *, default_timeout_seconds: int = 120) -> None:
@@ -75,69 +76,6 @@ class WorktreeCommandRunner:
             cwd=repository_path,
             argv=("git", "branch", "--list", pattern),
             mutates_repository=False,
-        )
-
-    def git_worktree_add(
-        self,
-        *,
-        repository_path: str,
-        worktree_path: str,
-        base_ref: str,
-    ) -> WorktreeCommandSpec:
-        """Allowlisted future command: git worktree add <path> <base-ref>."""
-
-        return self._spec(
-            cwd=repository_path,
-            argv=("git", "worktree", "add", worktree_path, base_ref),
-            mutates_repository=True,
-        )
-
-    def git_checkout_new_branch(
-        self,
-        *,
-        worktree_path: str,
-        branch_name: str,
-    ) -> WorktreeCommandSpec:
-        """Allowlisted future command: git checkout -b <branch>."""
-
-        return self._spec(
-            cwd=worktree_path,
-            argv=("git", "checkout", "-b", branch_name),
-            mutates_repository=True,
-        )
-
-    def git_worktree_remove(
-        self,
-        *,
-        repository_path: str,
-        worktree_path: str,
-        force: bool = True,
-    ) -> WorktreeCommandSpec:
-        """Allowlisted future command: git worktree remove [--force] <path>."""
-
-        argv = ("git", "worktree", "remove", "--force", worktree_path)
-        if not force:
-            argv = ("git", "worktree", "remove", worktree_path)
-        return self._spec(
-            cwd=repository_path,
-            argv=argv,
-            mutates_repository=True,
-        )
-
-    def git_branch_delete(
-        self,
-        *,
-        repository_path: str,
-        branch_name: str,
-        force: bool = True,
-    ) -> WorktreeCommandSpec:
-        """Allowlisted future command: git branch -D/-d <branch>."""
-
-        delete_flag = "-D" if force else "-d"
-        return self._spec(
-            cwd=repository_path,
-            argv=("git", "branch", delete_flag, branch_name),
-            mutates_repository=True,
         )
 
     def _spec(
