@@ -13,10 +13,12 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
+from app.domain.worktree_plan import WorktreePlan
 from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.agent_conversation_service import AgentConversationService
+from app.services.worktree_plan_service import WorktreePlanService
 
 
 class AgentSessionResponse(BaseModel):
@@ -177,6 +179,29 @@ class AgentInterventionWriteResponse(BaseModel):
     intervention_message: AgentMessageResponse
 
 
+class WorktreePlanResponse(BaseModel):
+    """Dry-run preview for a future per-session worktree."""
+
+    agent_session_id: UUID
+    project_id: UUID
+    repository_workspace_id: UUID | None = None
+    safe: bool
+    workspace_type: str
+    worktree_path: str | None = None
+    branch_name: str | None = None
+    base_branch: str | None = None
+    base_commit_sha: str | None = None
+    git_commands_to_run: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_plan(cls, plan: WorktreePlan) -> "WorktreePlanResponse":
+        """Convert domain plan to API DTO."""
+
+        return cls(**plan.model_dump())
+
+
 def get_agent_conversation_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> AgentConversationService:
@@ -189,7 +214,60 @@ def get_agent_conversation_service(
     )
 
 
+def get_worktree_plan_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> WorktreePlanService:
+    """Create the P1-C dry-run worktree plan service dependency."""
+
+    return WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
+    )
+
+
 router = APIRouter(prefix="/agent-threads", tags=["agent-threads"])
+
+
+@router.post(
+    "/sessions/{session_id}/workspace-plan",
+    response_model=WorktreePlanResponse,
+    summary="Build a dry-run worktree plan for one agent session",
+)
+def create_agent_session_workspace_plan(
+    session_id: UUID,
+    worktree_plan_service: Annotated[
+        WorktreePlanService, Depends(get_worktree_plan_service)
+    ],
+) -> WorktreePlanResponse:
+    """Return a pure dry-run plan; no git command or filesystem write is executed."""
+
+    try:
+        plan = worktree_plan_service.build_plan(agent_session_id=session_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    return WorktreePlanResponse.from_plan(plan)
+
+
+@router.get(
+    "/sessions/{session_id}/workspace-plan",
+    response_model=WorktreePlanResponse,
+    summary="Read back the current dry-run worktree plan for one agent session",
+)
+def get_agent_session_workspace_plan(
+    session_id: UUID,
+    worktree_plan_service: Annotated[
+        WorktreePlanService, Depends(get_worktree_plan_service)
+    ],
+) -> WorktreePlanResponse:
+    """Recompute the current pure dry-run plan without mutating repository state."""
+
+    return create_agent_session_workspace_plan(
+        session_id=session_id,
+        worktree_plan_service=worktree_plan_service,
+    )
 
 
 @router.get(
