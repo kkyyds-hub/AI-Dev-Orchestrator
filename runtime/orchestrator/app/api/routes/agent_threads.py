@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
+from app.domain.worktree_create import WorktreeCreateResult, WorktreeWriteCommandPreview
 from app.domain.worktree_plan import WorktreePlan
 from app.domain.worktree_plan_confirmation import WorktreePlanConfirmationReceipt
 from app.domain.worktree_prepare import WorktreeGitPreflight, WorktreePrepareResult
@@ -20,6 +21,12 @@ from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.agent_conversation_service import AgentConversationService
+from app.services.worktree_create_service import (
+    WorktreeCreateError,
+    WorktreeCreateHashMismatchError,
+    WorktreeCreateRequest,
+    WorktreeCreateService,
+)
 from app.services.worktree_prepare_service import (
     WorktreePrepareError,
     WorktreePrepareHashMismatchError,
@@ -333,6 +340,74 @@ class WorktreePrepareResponse(BaseModel):
         return cls(**payload)
 
 
+class WorktreeCreateRequestBody(BaseModel):
+    """Request body for the blocked P1-D-E-A workspace create skeleton."""
+
+    plan_hash: str = Field(min_length=64, max_length=64)
+    user_confirmed: bool = True
+
+
+class WorktreeWriteCommandPreviewResponse(BaseModel):
+    """Disabled preview of one future write git command."""
+
+    argv: tuple[str, ...]
+    cwd: str
+    timeout_seconds: int
+    mutates_repository: bool
+    command_kind: str
+    execution_enabled: bool
+
+    @classmethod
+    def from_preview(
+        cls,
+        preview: WorktreeWriteCommandPreview,
+    ) -> "WorktreeWriteCommandPreviewResponse":
+        """Convert domain write command preview to API DTO."""
+
+        return cls(**preview.model_dump())
+
+
+class WorktreeCreateResponse(BaseModel):
+    """Blocked response for future real workspace create execution."""
+
+    agent_session_id: UUID
+    project_id: UUID
+    repository_workspace_id: UUID | None = None
+    plan_hash: str
+    submitted_plan_hash: str
+    create_status: str
+    blocked_reason: str
+    dry_run: bool
+    requires_user_confirmation: bool
+    worktree_path: str | None = None
+    branch_name: str | None = None
+    base_branch: str | None = None
+    base_commit_sha: str | None = None
+    checked_at: datetime
+    write_command_preview: list[WorktreeWriteCommandPreviewResponse] = Field(
+        default_factory=list
+    )
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_action: str
+    creates_worktree: bool
+    creates_branch: bool
+    runs_git: bool
+    runs_write_git: bool
+    mutates_agent_session_workspace: bool
+
+    @classmethod
+    def from_result(cls, result: WorktreeCreateResult) -> "WorktreeCreateResponse":
+        """Convert domain create result to API DTO."""
+
+        payload = result.model_dump()
+        payload["write_command_preview"] = [
+            WorktreeWriteCommandPreviewResponse.from_preview(item)
+            for item in result.write_command_preview
+        ]
+        return cls(**payload)
+
+
 def get_agent_conversation_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> AgentConversationService:
@@ -376,6 +451,18 @@ def get_worktree_prepare_service(
     """Create the P1-D-C blocked workspace prepare dependency."""
 
     return WorktreePrepareService(
+        worktree_plan_service=worktree_plan_service,
+    )
+
+
+def get_worktree_create_service(
+    worktree_plan_service: Annotated[
+        WorktreePlanService, Depends(get_worktree_plan_service)
+    ],
+) -> WorktreeCreateService:
+    """Create the P1-D-E-A blocked workspace create dependency."""
+
+    return WorktreeCreateService(
         worktree_plan_service=worktree_plan_service,
     )
 
@@ -514,6 +601,51 @@ def prepare_agent_session_workspace(
         raise
 
     return WorktreePrepareResponse.from_result(result)
+
+
+@router.post(
+    "/sessions/{session_id}/workspace/create",
+    response_model=WorktreeCreateResponse,
+    summary="Validate and block future workspace create execution",
+)
+def create_agent_session_workspace(
+    session_id: UUID,
+    request: WorktreeCreateRequestBody,
+    create_service: Annotated[
+        WorktreeCreateService,
+        Depends(get_worktree_create_service),
+    ],
+) -> WorktreeCreateResponse:
+    """Return blocked/not_implemented; no git, branch, worktree, or session mutation occurs."""
+
+    try:
+        result = create_service.create_workspace(
+            WorktreeCreateRequest(
+                agent_session_id=session_id,
+                plan_hash=request.plan_hash,
+                user_confirmed=request.user_confirmed,
+            )
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "Agent session not found" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreeCreateHashMismatchError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreeCreateError):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=detail,
+            ) from exc
+        raise
+
+    return WorktreeCreateResponse.from_result(result)
 
 
 @router.get(

@@ -13,10 +13,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.agent_threads import (
+    WorktreeCreateRequestBody,
+    WorktreeCreateResponse,
     WorktreePlanConfirmationReceiptResponse,
     WorktreePlanResponse,
     WorktreePrepareRequestBody,
     WorktreePrepareResponse,
+    create_agent_session_workspace,
     prepare_agent_session_workspace,
 )
 from app.core.db_tables import ORMBase
@@ -33,6 +36,11 @@ from app.services.worktree_command_runner import (
     WorktreeCommandResult,
     WorktreeCommandRunner,
     WorktreeCommandSpec,
+)
+from app.services.worktree_create_service import (
+    WorktreeCreateHashMismatchError,
+    WorktreeCreateRequest,
+    WorktreeCreateService,
 )
 from app.services.worktree_git_preflight_service import WorktreeGitPreflightService
 from app.services.worktree_prepare_service import (
@@ -51,6 +59,7 @@ from app.services.worktree_plan_service import (
     WorktreeGuardService,
     WorktreePlanService,
 )
+from app.services.worktree_write_command_runner import WorktreeWriteCommandRunner
 
 
 @pytest.fixture()
@@ -960,6 +969,238 @@ def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path
     assert response.git_preflight.read_only is True
     assert response.git_preflight.repository_is_git_worktree is True
     assert response.mutates_agent_session_workspace is False
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
+
+
+def test_worktree_write_command_runner_builds_disabled_preview(tmp_path):
+    """Write runner only builds a disabled preview and exposes no executor."""
+
+    runner = WorktreeWriteCommandRunner(default_timeout_seconds=30)
+    repository_path = str(tmp_path / "repo")
+    worktree_path = str(tmp_path / "workspaces" / "session-1")
+
+    preview = runner.git_worktree_add_new_branch(
+        repository_path=repository_path,
+        worktree_path=worktree_path,
+        branch_name="session/proj-test-12345678",
+        base_ref="origin/main",
+    )
+
+    assert preview.argv == (
+        "git",
+        "worktree",
+        "add",
+        "-b",
+        "session/proj-test-12345678",
+        worktree_path,
+        "origin/main",
+    )
+    assert preview.cwd == repository_path
+    assert preview.timeout_seconds == 30
+    assert preview.mutates_repository is True
+    assert preview.command_kind == "git_worktree_add_new_branch"
+    assert preview.execution_enabled is False
+    assert not hasattr(runner, "run")
+
+
+def test_worktree_create_skeleton_returns_blocked_with_write_preview(
+    db_session, tmp_path
+):
+    """Create skeleton validates hash but does not execute write git."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+
+    result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.agent_session_id == session.id
+    assert result.project_id == project_id
+    assert result.plan_hash == plan.plan_hash
+    assert result.submitted_plan_hash == plan.plan_hash
+    assert result.create_status == "blocked"
+    assert result.blocked_reason == "workspace_create_not_implemented"
+    assert result.dry_run is True
+    assert result.requires_user_confirmation is True
+    assert result.worktree_path == plan.worktree_path
+    assert result.branch_name == plan.branch_name
+    assert result.creates_worktree is False
+    assert result.creates_branch is False
+    assert result.runs_git is False
+    assert result.runs_write_git is False
+    assert result.mutates_agent_session_workspace is False
+    assert "workspace create execution is not implemented in P1-D-E-A" in result.blockers
+    assert len(result.write_command_preview) == 1
+    assert result.write_command_preview[0].argv[:4] == (
+        "git",
+        "worktree",
+        "add",
+        "-b",
+    )
+    assert result.write_command_preview[0].mutates_repository is True
+    assert result.write_command_preview[0].execution_enabled is False
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
+
+
+def test_worktree_create_skeleton_rejects_stale_plan_hash(db_session, tmp_path):
+    """Create skeleton uses current-plan hash stale check before previewing writes."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+
+    with pytest.raises(WorktreeCreateHashMismatchError):
+        WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+            WorktreeCreateRequest(
+                agent_session_id=session.id,
+                plan_hash="0" * 64,
+                user_confirmed=True,
+            )
+        )
+
+
+def test_worktree_create_response_exposes_blocked_guard_fields(db_session, tmp_path):
+    """Create response exposes disabled write command preview and no-mutation fields."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+    result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    payload = WorktreeCreateResponse.from_result(result).model_dump(mode="json")
+
+    assert payload["agent_session_id"] == str(session.id)
+    assert payload["project_id"] == str(project_id)
+    assert payload["plan_hash"] == plan.plan_hash
+    assert payload["submitted_plan_hash"] == plan.plan_hash
+    assert payload["create_status"] == "blocked"
+    assert payload["blocked_reason"] == "workspace_create_not_implemented"
+    assert payload["creates_worktree"] is False
+    assert payload["creates_branch"] is False
+    assert payload["runs_git"] is False
+    assert payload["runs_write_git"] is False
+    assert payload["mutates_agent_session_workspace"] is False
+    assert payload["write_command_preview"][0]["mutates_repository"] is True
+    assert payload["write_command_preview"][0]["execution_enabled"] is False
+
+
+def test_worktree_create_endpoint_returns_blocked_skeleton(db_session, tmp_path):
+    """Route function returns the blocked create DTO without mutating the session."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+    create_service = WorktreeCreateService(worktree_plan_service=plan_service)
+
+    response = create_agent_session_workspace(
+        session_id=session.id,
+        request=WorktreeCreateRequestBody(
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        ),
+        create_service=create_service,
+    )
+
+    assert response.create_status == "blocked"
+    assert response.blocked_reason == "workspace_create_not_implemented"
+    assert response.plan_hash == plan.plan_hash
+    assert response.creates_worktree is False
+    assert response.creates_branch is False
+    assert response.runs_git is False
+    assert response.runs_write_git is False
+    assert response.mutates_agent_session_workspace is False
+    assert response.write_command_preview[0].execution_enabled is False
 
     unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
     assert unchanged_session is not None
