@@ -21,6 +21,7 @@ from app.api.router import api_router
 from app.api.routes.project_director import (
     _get_plan_service,
     _get_service,
+    PlanVersionResponse,
 )
 from app.core.db import get_db_session
 from app.core.db_tables import ORMBase, TaskTable
@@ -1027,6 +1028,68 @@ class TestPlanService:
         assert "receipt=receipt-score-six" in pv.source_detail
         assert "normalized_by_backend:complexity_assessment" in pv.source_detail
         assert "deterministic_plan_generation" not in pv.source_detail
+
+    def test_create_plan_version_leniently_fills_missing_non_core_provider_fields(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def incomplete_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            payload = json.loads(_provider_plan_payload())
+            payload.pop("acceptance_criteria")
+            payload.pop("risks")
+            payload["project_scope"] = {"in_scope": ["保留 provider 给出的范围"]}
+            payload.pop("agent_team_suggestions")
+            payload.pop("skill_binding_suggestions")
+            payload.pop("verification_mechanisms")
+            payload.pop("repository_binding_suggestions")
+            payload.pop("deliverable_boundaries")
+            payload.pop("complexity_assessment")
+            return json.dumps(payload, ensure_ascii=False), "receipt-incomplete"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=incomplete_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+        api_payload = PlanVersionResponse.from_domain(pv)
+
+        assert pv.source == "ai"
+        assert "receipt=receipt-incomplete" in pv.source_detail
+        assert "deterministic_plan_generation" not in pv.source_detail
+        assert pv.plan_summary.startswith("AI provider 生成的作战计划")
+        assert len(pv.phases) == 2
+        assert len(pv.proposed_tasks) == 2
+        assert pv.acceptance_criteria
+        assert pv.risks
+        assert pv.project_scope.in_scope == ["保留 provider 给出的范围"]
+        assert pv.project_scope.out_of_scope
+        assert pv.agent_team_suggestions
+        assert pv.skill_binding_suggestions
+        assert pv.verification_mechanisms
+        assert pv.repository_binding_suggestions
+        assert pv.deliverable_boundaries
+        assert pv.complexity_assessment.score >= 1
+        assert "normalized_by_backend:plan_draft_schema" in pv.source_detail
+        assert "normalization_warnings=" in pv.source_detail
+        assert "acceptance_criteria:filled_from_backend_template" in (
+            api_payload.normalization_warnings
+        )
+        assert "project_scope:filled_safety_boundaries" in (
+            api_payload.normalization_warnings
+        )
+        assert "complexity_assessment:normalized_by_backend" in (
+            api_payload.normalization_warnings
+        )
 
     def test_request_changes_normalizes_provider_complexity_score(
         self, db_session, session_service

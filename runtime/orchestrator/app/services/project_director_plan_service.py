@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -66,6 +66,7 @@ class PlanGenerationResult:
     source: PlanDraftSource
     source_detail: str
     provider_receipt_id: str | None = None
+    normalization_warnings: list[str] = field(default_factory=list)
 
 
 class ProjectDirectorPlanGenerationError(ValueError):
@@ -281,8 +282,9 @@ def _generate_plan_from_session(
         ],
         out_of_scope=[
             "不自动创建 Project、Task、Agent Session 或 Skill 绑定",
-            "不调用真实 provider、Worker Pool、planning/apply、apply-local 或 git-commit",
-            "不写入仓库、不绑定真实远端仓库、不提交代码变更",
+            "不调用真实 provider；不调用 Worker Pool；不调用 planning/apply",
+            "不调用 apply-local；不执行 git-commit；不提交代码变更",
+            "不写入仓库、不绑定真实远端仓库",
         ],
         assumptions=[
             "用户确认草案后，后续任务创建、Worker 调度、仓库写入仍需单独显式触发",
@@ -404,7 +406,10 @@ def _generate_plan_from_session(
                 "apps/web/src/pages/workbench/components/",
             ],
             usage="用于后续文件定位、变更计划和交付件证据读取；本草案不创建 repository binding",
-            safety_note="草案审核阶段只提示绑定建议，不执行目录扫描、仓库写入、apply-local 或 git-commit",
+            safety_note=(
+                "草案审核阶段只提示绑定建议；不执行目录扫描；不写仓库；"
+                "不调用 apply-local；不执行 git-commit"
+            ),
         )
     ]
 
@@ -632,16 +637,45 @@ def _parse_provider_plan_output(
     *,
     source_detail: str,
     provider_receipt_id: str | None,
+    normalization_template: PlanGenerationResult,
 ) -> PlanGenerationResult:
-    """Parse and validate provider JSON into the existing plan domain contract."""
+    """Parse provider JSON into the plan contract with lenient non-core fill.
+
+    Core conversational draft fields stay strict: the provider must return a
+    JSON object with non-empty ``plan_summary``, ``phases`` and
+    ``proposed_tasks``. Review-assist fields are normalized from the local
+    deterministic template so a slightly incomplete provider response can still
+    become a discussable, review-only draft.
+    """
 
     payload = _extract_json_object(output_text)
+    warnings: list[str] = []
 
-    def _string_list(key: str) -> list[str]:
+    def _string_list(key: str, fallback: list[str]) -> list[str]:
         raw = payload.get(key)
         if not isinstance(raw, list):
-            raise ValueError(f"provider plan JSON missing {key} list")
-        return [str(item).strip() for item in raw if str(item).strip()]
+            warnings.append(f"{key}:filled_from_backend_template")
+            return list(fallback)
+        values = [str(item).strip() for item in raw if str(item).strip()]
+        if not values:
+            warnings.append(f"{key}:filled_from_backend_template")
+            return list(fallback)
+        return values
+
+    def _model_list(key: str, model_type, fallback):
+        raw = payload.get(key)
+        if not isinstance(raw, list):
+            warnings.append(f"{key}:filled_from_backend_template")
+            return list(fallback)
+        try:
+            items = [model_type(**item) for item in raw]
+        except (TypeError, ValueError):
+            warnings.append(f"{key}:filled_from_backend_template")
+            return list(fallback)
+        if not items:
+            warnings.append(f"{key}:filled_from_backend_template")
+            return list(fallback)
+        return items
 
     plan_summary = str(payload.get("plan_summary") or "").strip()
     if not plan_summary:
@@ -656,51 +690,60 @@ def _parse_provider_plan_output(
     if not proposed_tasks:
         raise ValueError("provider plan JSON returned no proposed_tasks")
 
-    project_scope = ProjectScopeSummary(**(payload.get("project_scope") or {}))
-    agent_team_suggestions = [
-        AgentTeamSuggestion(**item)
-        for item in payload.get("agent_team_suggestions") or []
-    ]
-    skill_binding_suggestions = [
-        SkillBindingSuggestion(**item)
-        for item in payload.get("skill_binding_suggestions") or []
-    ]
-    verification_mechanisms = [
-        VerificationMechanismSuggestion(**item)
-        for item in payload.get("verification_mechanisms") or []
-    ]
-    repository_binding_suggestions = [
-        RepositoryBindingSuggestion(**item)
-        for item in payload.get("repository_binding_suggestions") or []
-    ]
-    deliverable_boundaries = [
-        DeliverableBoundary(**item)
-        for item in payload.get("deliverable_boundaries") or []
-    ]
-    complexity_assessment, normalized_complexity = _parse_complexity_assessment(
-        payload.get("complexity_assessment") or {}
+    project_scope, normalized_project_scope = _parse_project_scope(
+        payload.get("project_scope"),
+        fallback=normalization_template.project_scope,
     )
-    normalized_source_detail = source_detail
-    if normalized_complexity:
-        normalized_source_detail = (
-            f"{source_detail}; normalized_by_backend:complexity_assessment"
-        )
+    if normalized_project_scope:
+        warnings.append("project_scope:filled_safety_boundaries")
 
-    if not project_scope.out_of_scope and not project_scope.assumptions:
-        raise ValueError("provider plan JSON missing safety scope boundaries")
-    if not agent_team_suggestions:
-        raise ValueError("provider plan JSON returned no agent_team_suggestions")
-    if not verification_mechanisms:
-        raise ValueError("provider plan JSON returned no verification_mechanisms")
-    if not deliverable_boundaries:
-        raise ValueError("provider plan JSON returned no deliverable_boundaries")
+    agent_team_suggestions = _model_list(
+        "agent_team_suggestions",
+        AgentTeamSuggestion,
+        normalization_template.agent_team_suggestions,
+    )
+    skill_binding_suggestions = _model_list(
+        "skill_binding_suggestions",
+        SkillBindingSuggestion,
+        normalization_template.skill_binding_suggestions,
+    )
+    verification_mechanisms = _model_list(
+        "verification_mechanisms",
+        VerificationMechanismSuggestion,
+        normalization_template.verification_mechanisms,
+    )
+    repository_binding_suggestions = _model_list(
+        "repository_binding_suggestions",
+        RepositoryBindingSuggestion,
+        normalization_template.repository_binding_suggestions,
+    )
+    deliverable_boundaries = _model_list(
+        "deliverable_boundaries",
+        DeliverableBoundary,
+        normalization_template.deliverable_boundaries,
+    )
+    complexity_assessment, normalized_complexity = _parse_complexity_assessment(
+        payload.get("complexity_assessment"),
+        fallback=normalization_template.complexity_assessment,
+    )
+    if normalized_complexity:
+        warnings.append("complexity_assessment:normalized_by_backend")
+    acceptance_criteria = _string_list(
+        "acceptance_criteria",
+        normalization_template.acceptance_criteria,
+    )
+    risks = _string_list("risks", normalization_template.risks)
+    normalized_source_detail = _append_normalization_source_detail(
+        source_detail,
+        warnings,
+    )
 
     return PlanGenerationResult(
         plan_summary=plan_summary,
         phases=phases,
         proposed_tasks=proposed_tasks,
-        acceptance_criteria=_string_list("acceptance_criteria"),
-        risks=_string_list("risks"),
+        acceptance_criteria=acceptance_criteria,
+        risks=risks,
         project_scope=project_scope,
         agent_team_suggestions=agent_team_suggestions,
         skill_binding_suggestions=skill_binding_suggestions,
@@ -711,21 +754,54 @@ def _parse_provider_plan_output(
         source="ai",
         source_detail=normalized_source_detail,
         provider_receipt_id=provider_receipt_id,
+        normalization_warnings=warnings,
     )
+
+
+def _parse_project_scope(
+    raw_scope: object,
+    *,
+    fallback: ProjectScopeSummary,
+) -> tuple[ProjectScopeSummary, bool]:
+    """Parse project scope while preserving review-only safety boundaries."""
+
+    if not isinstance(raw_scope, dict):
+        return fallback, True
+
+    data = dict(raw_scope)
+    normalized = False
+    fallback_data = fallback.model_dump()
+    for key, value in fallback_data.items():
+        if key not in data or not isinstance(data.get(key), list) or not data.get(key):
+            data[key] = value
+            normalized = True
+
+    return ProjectScopeSummary(**data), normalized
 
 
 def _parse_complexity_assessment(
     raw_complexity: object,
+    *,
+    fallback: ComplexityAssessment,
 ) -> tuple[ComplexityAssessment, bool]:
-    """Parse provider complexity, normalizing only low-risk numeric score bounds."""
+    """Parse provider complexity, normalizing only low-risk incomplete values."""
 
     if not isinstance(raw_complexity, dict):
-        raise ValueError("provider plan JSON complexity_assessment must be an object")
+        return fallback, True
 
     normalized = False
     data = dict(raw_complexity)
+    fallback_data = fallback.model_dump()
+    for key, value in fallback_data.items():
+        if key not in data or data.get(key) in (None, "", []):
+            data[key] = value
+            normalized = True
+
     raw_score = data.get("score")
-    if not isinstance(raw_score, bool):
+    if isinstance(raw_score, bool):
+        data["score"] = fallback.score
+        normalized = True
+    else:
         score = _coerce_numeric_score(raw_score)
         if score is not None:
             clamped_score = min(5, max(1, score))
@@ -734,6 +810,24 @@ def _parse_complexity_assessment(
                 normalized = True
 
     return ComplexityAssessment(**data), normalized
+
+
+def _append_normalization_source_detail(
+    source_detail: str,
+    warnings: list[str],
+) -> str:
+    """Append compact normalization provenance into existing source_detail."""
+
+    if not warnings:
+        return source_detail
+    markers = ["normalized_by_backend:plan_draft_schema"]
+    if any(item.startswith("complexity_assessment:") for item in warnings):
+        markers.append("normalized_by_backend:complexity_assessment")
+    warning_text = ",".join(warnings)
+    return (
+        f"{source_detail}; {'; '.join(markers)};"
+        f" normalization_warnings={warning_text}"
+    )[:1000]
 
 
 def _coerce_numeric_score(raw_score: object) -> int | None:
@@ -884,10 +978,16 @@ class ProjectDirectorPlanService:
                 f"provider={runtime_config.detected_provider_type}; "
                 f"model={model_name}; receipt={receipt_id or 'missing'}"
             )
+            normalization_template = _generate_rule_fallback_plan(
+                session_obj,
+                revision_notes=revision_notes,
+                reason="provider_schema_normalization_template",
+            )
             plan_draft = _parse_provider_plan_output(
                 output_text,
                 source_detail=source_detail,
                 provider_receipt_id=receipt_id,
+                normalization_template=normalization_template,
             )
             validate_plan_output(
                 goal_text=session_obj.goal_text,

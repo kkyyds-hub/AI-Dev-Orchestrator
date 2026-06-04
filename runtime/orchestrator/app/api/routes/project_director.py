@@ -964,6 +964,7 @@ class PlanVersionResponse(BaseModel):
     )
     source: str = Field(default="rule_fallback")
     source_detail: str = Field(default="")
+    normalization_warnings: list[str] = Field(default_factory=list)
     forbidden_actions: list[str] = Field(default_factory=list)
     confirmed_at: str | None
     created_at: str
@@ -1018,6 +1019,9 @@ class PlanVersionResponse(BaseModel):
             ),
             source=pv.source,
             source_detail=pv.source_detail,
+            normalization_warnings=_extract_normalization_warnings(
+                pv.source_detail
+            ),
             forbidden_actions=pv.forbidden_actions,
             confirmed_at=pv.confirmed_at.isoformat() if pv.confirmed_at else None,
             created_at=pv.created_at.isoformat(),
@@ -1027,6 +1031,14 @@ class PlanVersionResponse(BaseModel):
             needs_user_confirmation=needs_confirmation,
             gate_conclusion=gate,
         )
+
+
+def _extract_normalization_warnings(source_detail: str) -> list[str]:
+    marker = "normalization_warnings="
+    if marker not in source_detail:
+        return []
+    raw = source_detail.split(marker, 1)[1].split(";", 1)[0]
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 class PlanVersionListResponse(BaseModel):

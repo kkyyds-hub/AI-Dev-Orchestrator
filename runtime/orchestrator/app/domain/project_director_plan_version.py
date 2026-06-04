@@ -142,7 +142,7 @@ class ProjectDirectorPlanVersion(DomainModel):
     deliverable_boundaries: list[DeliverableBoundary] = Field(default_factory=list)
     complexity_assessment: ComplexityAssessment = Field(default_factory=ComplexityAssessment)
     source: str = Field(default="rule_fallback", max_length=40)
-    source_detail: str = Field(default="deterministic_plan_generation", max_length=500)
+    source_detail: str = Field(default="deterministic_plan_generation", max_length=1000)
     forbidden_actions: list[str] = Field(default_factory=list)
     confirmed_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now())
