@@ -1,3 +1,4 @@
+import { AgentCodingSessionSnapshot } from "./AgentCodingSessionSnapshot";
 import { AgentTimelineList } from "./AgentTimelineList";
 import { BossInterventionForm } from "./BossInterventionForm";
 import type { AgentSessionSnapshot, AgentTimelineMessage } from "../types";
@@ -27,6 +28,8 @@ export function AgentThreadControlGrid(props: {
           selectedSessionId={props.selectedSessionId}
           onSelectSession={props.onSelectSession}
         />
+
+        <AgentCodingSessionSnapshot selectedSession={props.selectedSession} />
 
         <BossInterventionForm
           projectId={props.projectId}

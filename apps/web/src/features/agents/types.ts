@@ -12,6 +12,12 @@ export type AgentSessionSnapshot = {
   latest_intervention_type: string | null;
   latest_note_event_type: string | null;
   summary: string | null;
+  agent_type: string | null;
+  runtime_type: string | null;
+  runtime_handle_id: string | null;
+  coding_status: string | null;
+  activity_state: string | null;
+  branch_name: string | null;
   started_at: string;
   updated_at: string;
   finished_at: string | null;

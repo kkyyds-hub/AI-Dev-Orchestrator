@@ -1,6 +1,14 @@
 import { StatusBadge } from "../../../components/StatusBadge";
 import { formatDateTime } from "../../../lib/format";
 import type { AgentSessionSnapshot } from "../types";
+import {
+  getActivityStateLabel,
+  getActivityStateTone,
+  getAgentTypeLabel,
+  getCodingStatusLabel,
+  getCodingStatusTone,
+  getRuntimeTypeLabel,
+} from "./AgentCodingSessionSnapshot";
 
 type AgentSessionListProps = {
   sessions: AgentSessionSnapshot[];
@@ -74,13 +82,33 @@ export function AgentSessionList(props: AgentSessionListProps) {
               <StatusBadge label={formatStatusLabel(session.session_status)} tone="info" />
               <StatusBadge label={formatStatusLabel(session.review_status)} tone="warning" />
               <StatusBadge label={formatStatusLabel(session.current_phase)} tone="neutral" />
+              <StatusBadge
+                label={getCodingStatusLabel(session.coding_status)}
+                tone={getCodingStatusTone(session.coding_status)}
+              />
+              <StatusBadge
+                label={getActivityStateLabel(session.activity_state)}
+                tone={getActivityStateTone(session.activity_state)}
+              />
             </div>
 
             <div className="mt-2 space-y-1 text-xs text-slate-500">
               <div className="flex min-w-0 gap-1.5">
+                <span className="shrink-0">智能体：</span>
+                <span className="truncate">
+                  {getAgentTypeLabel(session.agent_type)} / {getRuntimeTypeLabel(session.runtime_type)}
+                </span>
+              </div>
+              <div className="flex min-w-0 gap-1.5">
                 <span className="shrink-0">运行：</span>
                 <span className="truncate font-mono" title={session.run_id}>
                   {shortId(session.run_id)}
+                </span>
+              </div>
+              <div className="flex min-w-0 gap-1.5">
+                <span className="shrink-0">分支：</span>
+                <span className="truncate" title={session.branch_name ?? undefined}>
+                  {session.branch_name ?? "未创建独立分支"}
                 </span>
               </div>
               <div>开始：{formatDateTime(session.started_at)}</div>
