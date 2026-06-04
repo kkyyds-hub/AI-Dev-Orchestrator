@@ -108,7 +108,7 @@ export function AgentSessionList(props: AgentSessionListProps) {
               <div className="flex min-w-0 gap-1.5">
                 <span className="shrink-0">分支：</span>
                 <span className="truncate" title={session.branch_name ?? undefined}>
-                  {session.branch_name ?? "未创建独立分支"}
+                  {session.branch_name ?? "暂未分配独立分支"}
                 </span>
               </div>
               <div>开始：{formatDateTime(session.started_at)}</div>

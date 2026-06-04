@@ -7,36 +7,36 @@ const AGENT_TYPE_LABELS: Record<string, string> = {
   claude_code: "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
-  openai_provider: "OpenAI Provider",
-  shell: "Shell",
-  simulate: "模拟执行",
+  openai_provider: "在线模型执行",
+  shell: "本地命令执行",
+  simulate: "模拟任务执行",
 };
 
 const RUNTIME_TYPE_LABELS: Record<string, string> = {
-  docker: "Docker",
-  process: "独立进程",
-  subprocess: "子进程",
-  tmux: "tmux",
+  docker: "容器环境",
+  process: "本地进程",
+  subprocess: "后台执行通道",
+  tmux: "终端会话",
 };
 
 const CODING_STATUS_LABELS: Record<string, string> = {
-  completed: "编码完成",
-  failed: "编码失败",
-  idle: "空闲",
-  needs_input: "等待输入",
-  spawning: "启动中",
-  stuck: "疑似卡住",
-  terminated: "已终止",
-  working: "编码中",
+  completed: "任务已完成",
+  failed: "任务失败",
+  idle: "暂时空闲",
+  needs_input: "等待人工输入",
+  spawning: "正在准备",
+  stuck: "需要关注",
+  terminated: "已停止",
+  working: "正在处理",
 };
 
 const ACTIVITY_STATE_LABELS: Record<string, string> = {
-  active: "有活动",
-  blocked: "阻塞",
-  exited: "已退出",
-  idle: "空闲",
-  ready: "就绪",
-  waiting_input: "等待输入",
+  active: "有新动作",
+  blocked: "遇到阻塞",
+  exited: "本轮已结束",
+  idle: "暂无动作",
+  ready: "可继续",
+  waiting_input: "等你回复",
 };
 
 const CODING_STATUS_TONES: Record<string, CodingTone> = {
@@ -129,13 +129,13 @@ export function AgentCodingSessionSnapshot(props: {
   if (!session) {
     return (
       <section className="rounded-3xl border border-dashed border-[#333333] bg-slate-950/20 p-4 text-sm leading-6 text-slate-400">
-        请选择一个会话查看 Coding Session 运行快照。
+        请选择一个会话查看运行状态。
       </section>
     );
   }
 
-  const branchLabel = session.branch_name ?? "未创建独立分支";
-  const handleLabel = session.runtime_handle_id ?? "未记录运行句柄";
+  const branchLabel = session.branch_name ?? "暂未分配独立分支";
+  const handleLabel = session.runtime_handle_id ?? "暂无后台通道编号";
 
   return (
     <section
@@ -145,10 +145,10 @@ export function AgentCodingSessionSnapshot(props: {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h4 className="text-sm font-semibold text-slate-100">
-            Coding Session 运行快照
+            会话运行状态
           </h4>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            只读展示当前会话的执行身份、运行载体与活动状态；这里不会启动终端、创建分支或触发 PR。
+            只读展示这轮任务是谁在处理、处理到哪一步，以及当前是否还在活动；这里不会启动终端、创建分支或发起交付。
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -174,13 +174,13 @@ export function AgentCodingSessionSnapshot(props: {
           value={getRuntimeTypeLabel(session.runtime_type)}
           title={session.runtime_type}
         />
-        <CompactField label="运行句柄" value={handleLabel} title={session.runtime_handle_id} />
+        <CompactField label="后台通道" value={handleLabel} title={session.runtime_handle_id} />
         <CompactField label="分支" value={branchLabel} title={session.branch_name} />
       </div>
 
       <p className="mt-3 rounded-2xl border border-[#333333] bg-black/20 px-3 py-2 text-xs leading-5 text-slate-500">
-        P0 只提供可观测字段：智能体类型、运行载体、运行句柄、编码状态、活动状态、分支名。
-        工作区、PR、CI 与 Review 状态仍属于后续阶段。
+        当前阶段只做运行状态可视化：可看到处理者、后台通道、任务进度、活动情况和分支占位。
+        独立工作区、交付请求、自动检查和评审结果仍将在后续阶段接入。
       </p>
     </section>
   );
