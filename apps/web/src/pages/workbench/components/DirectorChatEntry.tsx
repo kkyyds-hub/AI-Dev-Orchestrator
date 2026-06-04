@@ -493,17 +493,20 @@ export function DirectorChatEntry({
 
   const handleReviewPlanVersion = async (
     action: ProjectDirectorPlanReviewAction,
+    feedbackOverride?: string,
   ) => {
     if (!planVersion || planVersion.status !== "pending_confirmation") {
       return;
     }
+
+    const feedback = (feedbackOverride ?? reviewFeedback).trim();
 
     try {
       setPendingReviewAction(action);
       const result = await reviewPlanVersionMutation.mutateAsync({
         planVersionId: planVersion.id,
         action,
-        feedback: reviewFeedback,
+        feedback,
       });
 
       setPlanVersion(result.replacement_plan_version ?? result.reviewed_plan_version);
@@ -540,6 +543,59 @@ export function DirectorChatEntry({
     } catch {
       // Error details are rendered from the mutation state below.
     }
+  };
+
+  const handleSuggestedRequestChanges = async () => {
+    if (!planVersion || planVersion.status !== "pending_confirmation") {
+      setPlanReviewMessage(
+        "当前没有待审核的项目草案，不能从 suggested_actions 发起 request_changes。",
+      );
+      return;
+    }
+
+    const feedback = window.prompt(
+      "请输入整改意见。确认后将调用现有 Project Director 草案审核接口 request_changes；不会启动 Worker、创建 Run 或写仓库。",
+    );
+    const normalizedFeedback = feedback?.trim() ?? "";
+    if (!normalizedFeedback) {
+      setPlanReviewMessage("已取消：request_changes 需要先填写非空整改意见。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "确认要求修改当前项目草案？系统将调用 POST /project-director/plan-versions/{id}/review，action=request_changes，并基于你的整改意见生成替代草案版本。",
+    );
+    if (!confirmed) {
+      setPlanReviewMessage("已取消 suggested_actions 的 request_changes 调用。");
+      return;
+    }
+
+    setReviewFeedback(normalizedFeedback);
+    await handleReviewPlanVersion("request_changes", normalizedFeedback);
+  };
+
+  const handleSuggestedCreateFormalProject = async () => {
+    if (!planVersion || planVersion.status !== "confirmed") {
+      setPlanReviewMessage(
+        "当前草案尚未通过人工审核，不能从 suggested_actions 创建正式项目。",
+      );
+      return;
+    }
+
+    if (taskCreation) {
+      setPlanReviewMessage("正式项目与任务队列已创建，无需重复执行 suggested_actions。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "确认创建正式项目与任务队列？系统将调用现有 create-formal-project 后端接口；本操作不会启动 Worker、创建 Run、调用 Provider 或写仓库。",
+    );
+    if (!confirmed) {
+      setPlanReviewMessage("已取消 suggested_actions 的 create_formal_project 调用。");
+      return;
+    }
+
+    await handleCreateTaskQueue();
   };
 
   const handleRunWorkerOnce = async () => {
@@ -640,7 +696,16 @@ export function DirectorChatEntry({
                     className="space-y-3"
                   >
                     {messageTimeline.map((message) => (
-                      <MessageBubble key={message.id} message={message} />
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        planVersion={planVersion}
+                        taskCreation={taskCreation}
+                        isReviewPending={reviewPlanVersionMutation.isPending}
+                        isCreateTaskQueuePending={createTaskQueueMutation.isPending}
+                        onRequestChanges={handleSuggestedRequestChanges}
+                        onCreateFormalProject={handleSuggestedCreateFormalProject}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -1207,7 +1272,23 @@ function ErrorLine({ message }: { message: string }) {
   );
 }
 
-function MessageBubble({ message }: { message: ProjectDirectorMessage }) {
+function MessageBubble({
+  message,
+  planVersion,
+  taskCreation,
+  isReviewPending,
+  isCreateTaskQueuePending,
+  onRequestChanges,
+  onCreateFormalProject,
+}: {
+  message: ProjectDirectorMessage;
+  planVersion: ProjectDirectorPlanVersion | null;
+  taskCreation: ProjectDirectorTaskCreationResponse | null;
+  isReviewPending: boolean;
+  isCreateTaskQueuePending: boolean;
+  onRequestChanges: () => void;
+  onCreateFormalProject: () => void;
+}) {
   const isUser = message.role === "user";
 
   return (
@@ -1238,7 +1319,15 @@ function MessageBubble({ message }: { message: ProjectDirectorMessage }) {
           <SourceDetail sourceDetail={message.source_detail} />
         ) : null}
         {!isUser && message.suggested_actions.length > 0 ? (
-          <SuggestedActions actions={message.suggested_actions} />
+          <SuggestedActions
+            actions={message.suggested_actions}
+            planVersion={planVersion}
+            taskCreation={taskCreation}
+            isReviewPending={isReviewPending}
+            isCreateTaskQueuePending={isCreateTaskQueuePending}
+            onRequestChanges={onRequestChanges}
+            onCreateFormalProject={onCreateFormalProject}
+          />
         ) : null}
         {!isUser && message.forbidden_actions_detected.length > 0 ? (
           <p className="mt-2 text-[10px] leading-4 text-zinc-600">
@@ -1290,66 +1379,208 @@ function SourceDetail({ sourceDetail }: { sourceDetail: string }) {
 
 function SuggestedActions({
   actions,
+  planVersion,
+  taskCreation,
+  isReviewPending,
+  isCreateTaskQueuePending,
+  onRequestChanges,
+  onCreateFormalProject,
 }: {
   actions: ProjectDirectorSuggestedAction[];
+  planVersion: ProjectDirectorPlanVersion | null;
+  taskCreation: ProjectDirectorTaskCreationResponse | null;
+  isReviewPending: boolean;
+  isCreateTaskQueuePending: boolean;
+  onRequestChanges: () => void;
+  onCreateFormalProject: () => void;
 }) {
   return (
     <div
       className="mt-3 rounded-lg border border-violet-500/25 bg-violet-500/5 p-3"
       data-testid="project-director-suggested-actions-readonly"
+      data-bridge-mode="confirmation"
     >
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-medium text-violet-100">AI 主管建议</p>
           <p className="mt-1 text-[10px] leading-4 text-violet-100/70">
-            以下 suggested_actions 仅为只读建议，不会创建任务、启动 Worker、写仓库或执行任何动作。
+            仅 request_changes / create_formal_project 可在你确认后调用既有后端闭环；其它 suggested_actions 仍为只读或禁用。
           </p>
         </div>
         <span className="w-fit rounded border border-[#333333] bg-[#111111] px-2 py-0.5 text-[10px] text-zinc-500">
-          read-only
+          confirmation bridge
         </span>
       </div>
       <ol className="mt-3 space-y-2">
-        {actions.map((action, index) => (
-          <li
-            key={`${action.type ?? "action"}-${index}`}
-            className="rounded border border-[#333333] bg-[#111111] px-3 py-2"
-          >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-zinc-100">
-                  {action.label || action.type || "下一步建议"}
-                </p>
-                {action.type ? (
-                  <p className="mt-1 text-[10px] text-zinc-600">
-                    类型：{action.type}
+        {actions.map((action, index) => {
+          const bridgeState = resolveSuggestedActionBridge({
+            action,
+            planVersion,
+            taskCreation,
+            isReviewPending,
+            isCreateTaskQueuePending,
+          });
+          const requiresConfirmation =
+            action.requires_confirmation || bridgeState.kind !== "disabled";
+
+          return (
+            <li
+              key={`${action.type ?? "action"}-${index}`}
+              className="rounded border border-[#333333] bg-[#111111] px-3 py-2"
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-zinc-100">
+                    {action.label || action.type || "下一步建议"}
                   </p>
-                ) : null}
+                  {action.type ? (
+                    <p className="mt-1 text-[10px] text-zinc-600">
+                      类型：{action.type}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-1.5">
+                  <span
+                    className={`rounded border px-1.5 py-0.5 text-[10px] ${mapSuggestedActionRiskClass(
+                      action.risk_level,
+                    )}`}
+                  >
+                    风险：{formatSuggestedActionRisk(action.risk_level)}
+                  </span>
+                  <span
+                    className={`rounded border px-1.5 py-0.5 text-[10px] ${
+                      requiresConfirmation
+                        ? "border-amber-500/30 text-amber-300"
+                        : "border-[#333333] text-zinc-500"
+                    }`}
+                  >
+                    {requiresConfirmation ? "需要用户确认" : "无需立即确认"}
+                  </span>
+                </div>
               </div>
-              <div className="flex shrink-0 flex-wrap gap-1.5">
-                <span
-                  className={`rounded border px-1.5 py-0.5 text-[10px] ${mapSuggestedActionRiskClass(
-                    action.risk_level,
-                  )}`}
+              <div className="mt-2 flex flex-col gap-2 border-t border-[#262626] pt-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[10px] leading-4 text-zinc-500">
+                  {bridgeState.description}
+                </p>
+                <button
+                  type="button"
+                  disabled={bridgeState.disabled}
+                  onClick={() => {
+                    if (bridgeState.kind === "request_changes") {
+                      onRequestChanges();
+                    }
+                    if (bridgeState.kind === "create_formal_project") {
+                      onCreateFormalProject();
+                    }
+                  }}
+                  className="w-fit rounded border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 text-[10px] font-medium text-violet-100 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
                 >
-                  风险：{formatSuggestedActionRisk(action.risk_level)}
-                </span>
-                <span
-                  className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                    action.requires_confirmation
-                      ? "border-amber-500/30 text-amber-300"
-                      : "border-[#333333] text-zinc-500"
-                  }`}
-                >
-                  {action.requires_confirmation ? "需要用户确认" : "无需立即确认"}
-                </span>
+                  {bridgeState.buttonLabel}
+                </button>
               </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ol>
     </div>
   );
+}
+
+function resolveSuggestedActionBridge({
+  action,
+  planVersion,
+  taskCreation,
+  isReviewPending,
+  isCreateTaskQueuePending,
+}: {
+  action: ProjectDirectorSuggestedAction;
+  planVersion: ProjectDirectorPlanVersion | null;
+  taskCreation: ProjectDirectorTaskCreationResponse | null;
+  isReviewPending: boolean;
+  isCreateTaskQueuePending: boolean;
+}): {
+  kind: "request_changes" | "create_formal_project" | "disabled";
+  buttonLabel: string;
+  description: string;
+  disabled: boolean;
+} {
+  if (action.type === "request_changes") {
+    if (isReviewPending) {
+      return {
+        kind: "request_changes",
+        buttonLabel: "整改提交中...",
+        description: "正在调用既有草案审核接口，请等待完成。",
+        disabled: true,
+      };
+    }
+    if (planVersion?.status !== "pending_confirmation") {
+      return {
+        kind: "request_changes",
+        buttonLabel: "要求修改",
+        description: "仅待审核的项目草案可执行 request_changes；当前状态不满足。",
+        disabled: true,
+      };
+    }
+    return {
+      kind: "request_changes",
+      buttonLabel: "填写意见并确认要求修改",
+      description:
+        "确认后调用现有 plan review 接口 action=request_changes；需要你输入非空整改意见。",
+      disabled: false,
+    };
+  }
+
+  if (action.type === "create_formal_project") {
+    if (isCreateTaskQueuePending) {
+      return {
+        kind: "create_formal_project",
+        buttonLabel: "创建中...",
+        description: "正在调用既有 create-formal-project 接口，请等待完成。",
+        disabled: true,
+      };
+    }
+    if (taskCreation) {
+      return {
+        kind: "create_formal_project",
+        buttonLabel: "已创建",
+        description: "正式项目与任务队列已创建，不能从 suggested_actions 重复执行。",
+        disabled: true,
+      };
+    }
+    if (planVersion?.status !== "confirmed") {
+      return {
+        kind: "create_formal_project",
+        buttonLabel: "创建正式项目",
+        description: "仅人工审核通过的草案可创建正式项目；当前状态不满足。",
+        disabled: true,
+      };
+    }
+    return {
+      kind: "create_formal_project",
+      buttonLabel: "确认创建正式项目",
+      description:
+        "确认后调用既有 create-formal-project 接口，只创建正式项目与任务队列，不启动 Worker。",
+      disabled: false,
+    };
+  }
+
+  if (action.type === "run_worker_once") {
+    return {
+      kind: "disabled",
+      buttonLabel: "不可从建议启动",
+      description:
+        "run_worker_once 属于高风险执行入口，本阶段禁止从 suggested_actions 触发；如需运行，请使用正式项目卡片中的受控按钮并再次确认。",
+      disabled: true,
+    };
+  }
+
+  return {
+    kind: "disabled",
+    buttonLabel: "只读建议",
+    description:
+      "该 suggested_action 当前没有桥接后端动作，仅展示建议内容，不会执行。",
+    disabled: true,
+  };
 }
 
 function formatSuggestedActionRisk(
