@@ -128,8 +128,10 @@ def validate_clarification_output(
 ) -> None:
     """Validate provider-generated clarification questions.
 
-    The guardrail checks only backend contract and drift/safety properties. It
-    does not add noisy validation fields to the API response.
+    The guardrail checks only backend contract, drift properties, and
+    execution-claim warnings. It does not add noisy validation fields to the API
+    response; clarification falls back to deterministic questions when a
+    provider claims execution has started/completed or skipped confirmation.
     """
 
     if not 3 <= len(questions) <= 6:
@@ -158,7 +160,7 @@ def validate_clarification_output(
             required_count += 1
         combined = f"{question_text} {hint_text}"
         all_text.append(combined)
-        _assert_no_unsafe_execution_intent(
+        _assert_no_execution_claim_warning(
             combined,
             context="clarification",
         )
@@ -246,11 +248,11 @@ def validate_plan_output(
             raise ProjectDirectorOutputGuardrailError("plan_context_drift")
 
 
-def _assert_no_unsafe_execution_intent(text: str, *, context: str) -> None:
+def _assert_no_execution_claim_warning(text: str, *, context: str) -> None:
     claims = detect_provider_execution_claims(text, context=context)
     if claims:
         raise ProjectDirectorOutputGuardrailError(
-            f"{context}_unsafe_execution_intent:{claims[0]}"
+            f"{context}_execution_claim_warning:{claims[0]}"
         )
 
 
