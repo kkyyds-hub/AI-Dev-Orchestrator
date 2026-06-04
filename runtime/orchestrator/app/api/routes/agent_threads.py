@@ -186,6 +186,8 @@ class WorktreePlanResponse(BaseModel):
     project_id: UUID
     repository_workspace_id: UUID | None = None
     safe: bool
+    dry_run: bool
+    requires_user_confirmation: bool
     workspace_type: str
     worktree_path: str | None = None
     branch_name: str | None = None

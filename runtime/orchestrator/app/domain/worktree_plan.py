@@ -20,6 +20,8 @@ class WorktreePlan(DomainModel):
     project_id: UUID
     repository_workspace_id: UUID | None = None
     safe: bool
+    dry_run: bool = True
+    requires_user_confirmation: bool = True
     workspace_type: str = "worktree"
     worktree_path: str | None = Field(default=None, max_length=1_000)
     branch_name: str | None = Field(default=None, max_length=200)

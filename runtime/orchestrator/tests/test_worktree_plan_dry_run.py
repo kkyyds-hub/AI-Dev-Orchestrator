@@ -183,6 +183,8 @@ def test_worktree_plan_generates_safe_dry_run_for_bound_repository(db_session, t
     ).build_plan(agent_session_id=session.id)
 
     assert plan.safe
+    assert plan.dry_run is True
+    assert plan.requires_user_confirmation is True
     assert plan.repository_workspace_id == workspace.id
     assert plan.workspace_type == "worktree"
     assert plan.worktree_path is not None
@@ -226,6 +228,8 @@ def test_worktree_plan_response_exposes_dry_run_fields(db_session, tmp_path):
     assert payload["agent_session_id"] == str(session.id)
     assert payload["project_id"] == str(project_id)
     assert payload["safe"] is True
+    assert payload["dry_run"] is True
+    assert payload["requires_user_confirmation"] is True
     assert payload["workspace_type"] == "worktree"
     assert payload["worktree_path"] == plan.worktree_path
     assert payload["branch_name"] == plan.branch_name
