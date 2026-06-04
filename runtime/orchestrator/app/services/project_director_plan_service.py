@@ -36,6 +36,7 @@ from app.repositories.project_director_session_repository import (
 )
 from app.services.project_director_output_guardrails import (
     ProjectDirectorOutputGuardrailError,
+    detect_provider_execution_claims,
     validate_plan_output,
 )
 from app.services.provider_config_service import ProviderConfigService
@@ -650,6 +651,9 @@ def _parse_provider_plan_output(
 
     payload = _extract_json_object(output_text)
     warnings: list[str] = []
+    warnings.extend(
+        detect_provider_execution_claims(output_text, context="plan_draft")
+    )
 
     def _payload_value(key: str, aliases: tuple[str, ...] = ()) -> tuple[object, bool]:
         for candidate in (key, *aliases):
@@ -1088,9 +1092,18 @@ def _append_normalization_source_detail(
 
     if not warnings:
         return source_detail
-    markers = ["normalized_by_backend:plan_draft_schema"]
+    normalization_warnings = [
+        item
+        for item in warnings
+        if not item.startswith("provider_execution_claim:")
+    ]
+    markers = []
+    if normalization_warnings:
+        markers.append("normalized_by_backend:plan_draft_schema")
     if any(item.startswith("complexity_assessment:") for item in warnings):
         markers.append("normalized_by_backend:complexity_assessment")
+    if any(item.startswith("provider_execution_claim:") for item in warnings):
+        markers.append("provider_execution_claim_detected")
     warning_text = ",".join(warnings)
     return (
         f"{source_detail}; {'; '.join(markers)};"

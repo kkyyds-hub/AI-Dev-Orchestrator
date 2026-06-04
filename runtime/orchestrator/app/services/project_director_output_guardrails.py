@@ -7,6 +7,7 @@ frontend can continue showing a simple business status.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from enum import Enum
 from typing import Any
@@ -23,38 +24,76 @@ _NEGATION_MARKERS = (
     "禁止",
     "不能",
     "不要",
+    "非",
+    "未",
     "no ",
     "not ",
     "never ",
     "do not",
     "does not",
-    "without",
 )
 
-_UNSAFE_EXECUTION_PHRASES = (
-    "自动创建任务",
-    "自动生成任务",
-    "直接创建任务",
-    "立即创建任务",
-    "自动启动",
-    "启动 worker",
-    "调用 worker",
-    "运行 worker",
-    "worker pool",
-    "写仓库",
-    "修改仓库",
-    "提交代码",
-    "git commit",
-    "git push",
-    "apply-local",
-    "planning/apply",
-    "automatically create task",
-    "automatically create tasks",
-    "start worker",
-    "run worker",
-    "write repository",
-    "commit code",
-    "push code",
+_EXECUTION_CLAIM_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        "provider_execution_claim:already_git_push",
+        r"(已|已经|已完成|already|completed)[\s\S]{0,16}(git\s*push|push\s+code|提交代码|代码提交)",
+    ),
+    (
+        "provider_execution_claim:already_committed_code",
+        r"(已|已经|已完成|already|completed)[\s\S]{0,16}(提交代码|git\s*commit|commit\s+code)",
+    ),
+    (
+        "provider_execution_claim:already_wrote_repository",
+        r"(已|已经|已完成|already|completed)[\s\S]{0,16}(写入?仓库|修改仓库|write\s+repository)",
+    ),
+    (
+        "provider_execution_claim:already_created_run",
+        r"(已|已经|已完成|already|completed)[\s\S]{0,16}(创建\s*run|create(?:d)?\s+run)",
+    ),
+    (
+        "provider_execution_claim:already_started_worker",
+        r"(已|已经|已完成|already|completed)[\s\S]{0,16}(启动\s*worker|调用\s*worker|运行\s*worker|start(?:ed)?\s+worker|run\s+worker)",
+    ),
+    (
+        "provider_execution_claim:execution_started",
+        r"(正在执行|开始执行|已开始执行|execution\s+started|now\s+executing)",
+    ),
+    (
+        "provider_execution_claim:auto_task_creation",
+        r"(自动|automatically)[\s\S]{0,12}(创建任务|生成任务|create\s+tasks?|task\s+creation)",
+    ),
+    (
+        "provider_execution_claim:auto_worker",
+        r"(自动|automatically)[\s\S]{0,12}(启动\s*worker|调用\s*worker|运行\s*worker|start\s+worker|run\s+worker)",
+    ),
+    (
+        "provider_execution_claim:auto_commit",
+        r"(自动|automatically)[\s\S]{0,12}(提交代码|git\s*commit|git\s*push|commit\s+code|push\s+code)",
+    ),
+    (
+        "provider_execution_claim:auto_repository_write",
+        r"(自动|automatically)[\s\S]{0,12}(写入?仓库|修改仓库|write\s+repository)",
+    ),
+    (
+        "provider_execution_claim:auto_planning_apply",
+        r"(自动|automatically)[\s\S]{0,12}(planning/apply|apply-local)",
+    ),
+    (
+        "provider_execution_claim:no_confirmation_apply_local",
+        r"(无需确认|不需要确认|跳过确认|without\s+confirmation|no\s+confirmation)[\s\S]{0,18}(apply-local|planning/apply|执行)",
+    ),
+    (
+        "provider_execution_claim:direct_apply_local",
+        r"(直接执行|直接调用|directly)[\s\S]{0,12}(apply-local|planning/apply)",
+    ),
+    (
+        "provider_execution_claim:direct_git_push",
+        r"(直接提交|直接执行|直接|directly)[\s\S]{0,12}(git\s*push|push\s+code|提交代码)",
+    ),
+    (
+        "provider_execution_claim:direct_repository_write",
+        r"(直接写入|直接修改|directly)[\s\S]{0,12}(仓库|repository)",
+    ),
 )
 
 _CLARIFICATION_THEMES: dict[str, tuple[str, ...]] = {
@@ -194,27 +233,6 @@ def validate_plan_output(
     if not out_of_scope and not assumptions:
         raise ProjectDirectorOutputGuardrailError("plan_safety_boundary_missing")
 
-    all_text_values = _collect_text_values(
-        [
-            goal_text,
-            constraints,
-            plan_summary,
-            phases,
-            proposed_tasks,
-            acceptance_criteria,
-            risks,
-            project_scope,
-            agent_team_suggestions,
-            skill_binding_suggestions,
-            verification_mechanisms,
-            repository_binding_suggestions,
-            deliverable_boundaries,
-            complexity_assessment,
-        ]
-    )
-    for text in all_text_values:
-        _assert_no_unsafe_execution_intent(text, context="plan")
-
     safety_text = " ".join(out_of_scope + assumptions).lower()
     if not _contains_any(safety_text, _PLAN_SAFETY_MARKERS):
         raise ProjectDirectorOutputGuardrailError("plan_execution_boundary_missing")
@@ -229,17 +247,37 @@ def validate_plan_output(
 
 
 def _assert_no_unsafe_execution_intent(text: str, *, context: str) -> None:
-    normalized = " ".join(str(text).lower().split())
-    for phrase in _UNSAFE_EXECUTION_PHRASES:
-        index = normalized.find(phrase)
-        if index < 0:
-            continue
-        window = normalized[max(0, index - 18) : index]
-        if any(marker in window for marker in _NEGATION_MARKERS):
-            continue
+    claims = detect_provider_execution_claims(text, context=context)
+    if claims:
         raise ProjectDirectorOutputGuardrailError(
-            f"{context}_unsafe_execution_intent:{phrase}"
+            f"{context}_unsafe_execution_intent:{claims[0]}"
         )
+
+
+def detect_provider_execution_claims(text: str, context: str) -> list[str]:
+    """Return provider execution-claim warnings without blocking plan drafts.
+
+    Engineering action words such as ``git push`` or ``planning/apply`` are
+    allowed in draft prose. This detector only flags provider claims that an
+    action has already started/completed, will run automatically, or skips the
+    required explicit confirmation boundary.
+    """
+
+    normalized = " ".join(str(text or "").lower().split())
+    warnings: list[str] = []
+    for warning_key, pattern in _EXECUTION_CLAIM_PATTERNS:
+        for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
+            if _is_negated_execution_claim(normalized, match.start()):
+                continue
+            if warning_key not in warnings:
+                warnings.append(warning_key)
+            break
+    return warnings
+
+
+def _is_negated_execution_claim(normalized_text: str, match_start: int) -> bool:
+    window = normalized_text[max(0, match_start - 24) : match_start]
+    return any(marker in window for marker in _NEGATION_MARKERS)
 
 
 def _contains_any(text: str, keywords: Iterable[str]) -> bool:

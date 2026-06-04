@@ -910,6 +910,35 @@ class TestPlanService:
         session_obj = session_service.submit_answers(session_obj.id, answers)
         return session_service.confirm_goal(session_obj.id)
 
+    def _service_with_payload_mutation(
+        self,
+        db_session,
+        session_service,
+        mutator,
+        *,
+        receipt_id: str = "receipt-mutated-plan",
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            payload = json.loads(_provider_plan_payload())
+            mutator(payload)
+            return json.dumps(payload, ensure_ascii=False), receipt_id
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=generator,
+        )
+        return service, session_obj
+
     def test_full_plan_flow(self, session_service, plan_service):
         # 1. Create and confirm a session
         session_obj = session_service.create_session(
@@ -995,6 +1024,99 @@ class TestPlanService:
         assert retrieved is not None
         assert retrieved.source == "ai"
         assert "receipt=receipt-plan-test-1" in retrieved.source_detail
+
+    @pytest.mark.parametrize(
+        "draft_phrase",
+        [
+            "交付物包括提交代码记录，供后续人工审阅。",
+            "后续人工确认后 git push，不由草案自动触发。",
+            "计划修改仓库文件，但只作为后续任务范围描述。",
+            "建议启动 Worker 前先完成用户确认和任务创建。",
+            "下一步可以执行 planning/apply，但必须由用户单独触发。",
+            "边界说明：不执行 apply-local / 不自动启动 Worker / 不写仓库。",
+        ],
+    )
+    def test_create_plan_version_allows_engineering_action_words_in_draft(
+        self, db_session, session_service, draft_phrase
+    ):
+        def mutator(payload: dict) -> None:
+            payload["plan_summary"] = (
+                f"{payload['plan_summary']} {draft_phrase}"
+            )
+
+        service, session_obj = self._service_with_payload_mutation(
+            db_session,
+            session_service,
+            mutator,
+            receipt_id="receipt-action-words",
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+        api_payload = PlanVersionResponse.from_domain(pv)
+
+        assert pv.source == "ai"
+        assert draft_phrase in pv.plan_summary
+        assert "provider_guardrail_blocked" not in pv.source_detail
+        assert not any(
+            warning.startswith("provider_execution_claim:")
+            for warning in api_payload.normalization_warnings
+        )
+
+    @pytest.mark.parametrize(
+        ("draft_phrase", "expected_warning"),
+        [
+            (
+                "Provider 声称已提交代码，但系统状态仍以真实执行入口为准。",
+                "provider_execution_claim:already_committed_code",
+            ),
+            (
+                "Provider 声称已经 git push，但草案仍只是 review-only。",
+                "provider_execution_claim:already_git_push",
+            ),
+            (
+                "Provider 声称自动启动 Worker，但后端不会据此调度。",
+                "provider_execution_claim:auto_worker",
+            ),
+            (
+                "Provider 声称无需确认直接执行 apply-local。",
+                "provider_execution_claim:no_confirmation_apply_local",
+            ),
+            (
+                "Provider 声称已创建 Run，但数据库真实状态没有 Run 创建。",
+                "provider_execution_claim:already_created_run",
+            ),
+            (
+                "Provider 声称自动执行 planning/apply。",
+                "provider_execution_claim:auto_planning_apply",
+            ),
+        ],
+    )
+    def test_create_plan_version_records_execution_claim_warnings_without_failure(
+        self, db_session, session_service, draft_phrase, expected_warning
+    ):
+        def mutator(payload: dict) -> None:
+            payload["plan_summary"] = (
+                f"{payload['plan_summary']} {draft_phrase}"
+            )
+
+        service, session_obj = self._service_with_payload_mutation(
+            db_session,
+            session_service,
+            mutator,
+            receipt_id="receipt-execution-claim",
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+        api_payload = PlanVersionResponse.from_domain(pv)
+
+        assert pv.source == "ai"
+        assert draft_phrase in pv.plan_summary
+        assert "provider_execution_claim_detected" in pv.source_detail
+        assert expected_warning in api_payload.normalization_warnings
+        assert any(
+            warning.startswith("provider_execution_claim:")
+            for warning in api_payload.normalization_warnings
+        )
 
     def test_create_plan_version_normalizes_provider_complexity_score(
         self, db_session, session_service
@@ -1323,36 +1445,37 @@ class TestPlanService:
         assert "作战计划摘要" in pv.plan_summary
         assert "不自动调用 Worker" in pv.forbidden_actions
 
-    def test_create_plan_version_rejects_unsafe_provider_plan_without_fallback(
+    def test_create_plan_version_rejects_missing_execution_boundary_without_fallback(
         self, db_session, session_service
     ):
         session_obj = self._confirmed_session(session_service)
         plan_repo = ProjectDirectorPlanVersionRepository(db_session)
         session_repo = ProjectDirectorSessionRepository(db_session)
 
-        def unsafe_generator(
+        def missing_boundary_generator(
             model_name: str,
             prompt_text: str,
             request_id: str,
         ) -> tuple[str, str | None]:
             payload = json.loads(_provider_plan_payload())
-            payload["plan_summary"] = "AI 将自动创建任务并启动 Worker，随后 git push。"
+            payload["plan_summary"] = "AI provider 生成的作战计划：缺少草案执行边界说明。"
             payload["project_scope"]["out_of_scope"] = ["仅口头确认"]
-            payload["project_scope"]["assumptions"] = ["系统会自动执行"]
+            payload["project_scope"]["assumptions"] = ["后续状态由系统界面展示"]
             payload["complexity_assessment"]["score"] = 6
-            return json.dumps(payload, ensure_ascii=False), "receipt-unsafe-plan"
+            return json.dumps(payload, ensure_ascii=False), "receipt-missing-boundary"
 
         service = ProjectDirectorPlanService(
             plan_version_repository=plan_repo,
             session_repository=session_repo,
             provider_config_service=_FakeProviderConfigService(configured=True),
-            provider_text_generator=unsafe_generator,
+            provider_text_generator=missing_boundary_generator,
         )
 
         with pytest.raises(ProjectDirectorPlanGenerationError) as exc_info:
             service.create_plan_version(session_id=session_obj.id)
 
         assert "provider_guardrail_blocked" in str(exc_info.value)
+        assert "plan_execution_boundary_missing" in str(exc_info.value)
         assert "未通过安全边界校验" in str(exc_info.value)
         assert service.list_plan_versions(session_obj.id) == []
 
@@ -1382,6 +1505,39 @@ class TestPlanService:
 
         assert "provider_generation_failed" in str(exc_info.value)
         assert "未创建系统规则模板草案" in str(exc_info.value)
+        assert service.list_plan_versions(session_obj.id) == []
+
+    @pytest.mark.parametrize(
+        ("field_name", "empty_value", "expected_reason"),
+        [
+            ("plan_summary", "", "missing plan_summary"),
+            ("phases", [], "returned no phases"),
+            ("proposed_tasks", [], "returned no proposed_tasks"),
+        ],
+    )
+    def test_create_plan_version_rejects_empty_core_provider_fields_without_fallback(
+        self,
+        db_session,
+        session_service,
+        field_name,
+        empty_value,
+        expected_reason,
+    ):
+        def mutator(payload: dict) -> None:
+            payload[field_name] = empty_value
+
+        service, session_obj = self._service_with_payload_mutation(
+            db_session,
+            session_service,
+            mutator,
+            receipt_id=f"receipt-empty-{field_name}",
+        )
+
+        with pytest.raises(ProjectDirectorPlanGenerationError) as exc_info:
+            service.create_plan_version(session_id=session_obj.id)
+
+        assert "provider_generation_failed" in str(exc_info.value)
+        assert expected_reason in str(exc_info.value)
         assert service.list_plan_versions(session_obj.id) == []
 
     def test_request_changes_keeps_original_pending_when_provider_output_invalid(
