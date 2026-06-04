@@ -699,6 +699,94 @@ def test_worktree_prepare_skeleton_returns_blocked_for_current_hash(
     assert unchanged_session.branch_name is None
 
 
+@pytest.mark.parametrize(
+    ("preflight_overrides", "expected_blocker"),
+    [
+        (
+            {"repository_is_git_worktree": False},
+            "repository root is not a git worktree",
+        ),
+        (
+            {"repository_clean": False},
+            "repository has uncommitted changes",
+        ),
+        (
+            {"planned_branch_exists": True},
+            "planned branch already exists",
+        ),
+        (
+            {"planned_worktree_registered": True},
+            "planned worktree path is already registered",
+        ),
+    ],
+)
+def test_worktree_prepare_blocks_unsafe_preflight_states(
+    db_session, tmp_path, preflight_overrides, expected_blocker
+):
+    """Unsafe read-only preflight states explicitly block workspace prepare."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+    preflight_payload = {
+        "preflight_status": "passed",
+        "commands_run": [
+            "git rev-parse --is-inside-work-tree",
+            "git rev-parse HEAD",
+            "git status --porcelain",
+            "git worktree list --porcelain",
+            "git branch --list session/*",
+        ],
+        "repository_is_git_worktree": True,
+        "repository_clean": True,
+        "planned_branch_exists": False,
+        "planned_worktree_registered": False,
+    }
+    preflight_payload.update(preflight_overrides)
+    preflight = WorktreeGitPreflight(**preflight_payload)
+
+    result = WorktreePrepareService(
+        worktree_plan_service=plan_service,
+        git_preflight_service=FakeWorktreeGitPreflightService(preflight=preflight),
+    ).prepare_workspace(
+        WorktreePrepareRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.prepare_status == "blocked"
+    assert expected_blocker in result.blockers
+    assert result.creates_worktree is False
+    assert result.creates_branch is False
+    assert result.runs_write_git is False
+    assert result.mutates_agent_session_workspace is False
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
+
+
 def test_worktree_prepare_skeleton_rejects_stale_plan_hash(db_session, tmp_path):
     """Prepare skeleton uses the same current-plan hash stale check."""
 

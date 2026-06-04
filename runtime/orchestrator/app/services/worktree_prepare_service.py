@@ -96,6 +96,10 @@ class WorktreePrepareService:
                 )
                 if git_preflight.errors:
                     blockers.extend(git_preflight.errors)
+                if git_preflight.repository_is_git_worktree is False:
+                    blockers.append("repository root is not a git worktree")
+                if git_preflight.repository_clean is False:
+                    blockers.append("repository has uncommitted changes")
                 if git_preflight.planned_branch_exists:
                     blockers.append("planned branch already exists")
                 if git_preflight.planned_worktree_registered:
