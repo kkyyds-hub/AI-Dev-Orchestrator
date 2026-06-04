@@ -15,6 +15,9 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes.agent_threads import (
     WorktreePlanConfirmationReceiptResponse,
     WorktreePlanResponse,
+    WorktreePrepareRequestBody,
+    WorktreePrepareResponse,
+    prepare_agent_session_workspace,
 )
 from app.core.db_tables import ORMBase
 from app.domain.agent_session import (
@@ -26,6 +29,11 @@ from app.domain.repository_workspace import RepositoryWorkspace
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.worktree_command_runner import WorktreeCommandRunner
+from app.services.worktree_prepare_service import (
+    WorktreePrepareHashMismatchError,
+    WorktreePrepareRequest,
+    WorktreePrepareService,
+)
 from app.services.worktree_plan_confirmation_service import (
     WorktreePlanConfirmationError,
     WorktreePlanConfirmationRequest,
@@ -488,6 +496,221 @@ def test_worktree_plan_confirmation_receipt_response_exposes_guard_fields(
     assert payload["creates_worktree"] is False
     assert payload["creates_branch"] is False
     assert payload["mutates_agent_session_workspace"] is False
+
+
+def test_worktree_prepare_skeleton_returns_blocked_for_current_hash(
+    db_session, tmp_path
+):
+    """Prepare skeleton validates the hash but remains blocked/not_implemented."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+
+    result = WorktreePrepareService(worktree_plan_service=plan_service).prepare_workspace(
+        WorktreePrepareRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.agent_session_id == session.id
+    assert result.project_id == project_id
+    assert result.plan_hash == plan.plan_hash
+    assert result.submitted_plan_hash == plan.plan_hash
+    assert result.prepare_status == "blocked"
+    assert result.blocked_reason == "workspace_prepare_not_implemented"
+    assert result.dry_run is True
+    assert result.requires_user_confirmation is True
+    assert result.worktree_path == plan.worktree_path
+    assert result.branch_name == plan.branch_name
+    assert result.creates_worktree is False
+    assert result.creates_branch is False
+    assert result.runs_git is False
+    assert result.mutates_agent_session_workspace is False
+    assert "workspace prepare execution is not implemented in P1-D-C" in result.blockers
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
+
+
+def test_worktree_prepare_skeleton_rejects_stale_plan_hash(db_session, tmp_path):
+    """Prepare skeleton uses the same current-plan hash stale check."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+
+    with pytest.raises(WorktreePrepareHashMismatchError):
+        WorktreePrepareService(worktree_plan_service=plan_service).prepare_workspace(
+            WorktreePrepareRequest(
+                agent_session_id=session.id,
+                plan_hash="0" * 64,
+                user_confirmed=True,
+            )
+        )
+
+
+def test_worktree_prepare_skeleton_keeps_blocked_plan_blocked(db_session):
+    """Blocked plans return an explicit skeleton blocker plus plan blockers."""
+
+    session = _create_agent_session(db_session, project_id=uuid4())
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    blocked_plan = plan_service.build_plan(agent_session_id=session.id)
+
+    result = WorktreePrepareService(worktree_plan_service=plan_service).prepare_workspace(
+        WorktreePrepareRequest(
+            agent_session_id=session.id,
+            plan_hash=blocked_plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.prepare_status == "blocked"
+    assert "workspace prepare execution is not implemented in P1-D-C" in result.blockers
+    assert "repository workspace is not bound for this project" in result.blockers
+    assert result.creates_worktree is False
+    assert result.creates_branch is False
+    assert result.runs_git is False
+    assert result.mutates_agent_session_workspace is False
+
+
+def test_worktree_prepare_response_exposes_blocked_guard_fields(db_session, tmp_path):
+    """Prepare response makes not-implemented and no-mutation fields observable."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+    result = WorktreePrepareService(worktree_plan_service=plan_service).prepare_workspace(
+        WorktreePrepareRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    payload = WorktreePrepareResponse.from_result(result).model_dump(mode="json")
+
+    assert payload["agent_session_id"] == str(session.id)
+    assert payload["project_id"] == str(project_id)
+    assert payload["plan_hash"] == plan.plan_hash
+    assert payload["submitted_plan_hash"] == plan.plan_hash
+    assert payload["prepare_status"] == "blocked"
+    assert payload["blocked_reason"] == "workspace_prepare_not_implemented"
+    assert payload["dry_run"] is True
+    assert payload["requires_user_confirmation"] is True
+    assert payload["creates_worktree"] is False
+    assert payload["creates_branch"] is False
+    assert payload["runs_git"] is False
+    assert payload["mutates_agent_session_workspace"] is False
+
+
+def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path):
+    """Route function returns the blocked prepare DTO without mutating the session."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+    prepare_service = WorktreePrepareService(worktree_plan_service=plan_service)
+
+    response = prepare_agent_session_workspace(
+        session_id=session.id,
+        request=WorktreePrepareRequestBody(
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        ),
+        prepare_service=prepare_service,
+    )
+
+    assert response.prepare_status == "blocked"
+    assert response.blocked_reason == "workspace_prepare_not_implemented"
+    assert response.plan_hash == plan.plan_hash
+    assert response.creates_worktree is False
+    assert response.creates_branch is False
+    assert response.runs_git is False
+    assert response.mutates_agent_session_workspace is False
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
 
 
 def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_path):

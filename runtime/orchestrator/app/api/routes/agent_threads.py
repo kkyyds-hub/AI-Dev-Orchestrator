@@ -15,10 +15,17 @@ from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
 from app.domain.worktree_plan import WorktreePlan
 from app.domain.worktree_plan_confirmation import WorktreePlanConfirmationReceipt
+from app.domain.worktree_prepare import WorktreePrepareResult
 from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.agent_conversation_service import AgentConversationService
+from app.services.worktree_prepare_service import (
+    WorktreePrepareError,
+    WorktreePrepareHashMismatchError,
+    WorktreePrepareRequest,
+    WorktreePrepareService,
+)
 from app.services.worktree_plan_confirmation_service import (
     WorktreePlanConfirmationError,
     WorktreePlanConfirmationRequest,
@@ -255,6 +262,45 @@ class WorktreePlanConfirmationReceiptResponse(BaseModel):
         return cls(**receipt.model_dump())
 
 
+class WorktreePrepareRequestBody(BaseModel):
+    """Request body for the blocked P1-D-C workspace prepare skeleton."""
+
+    plan_hash: str = Field(min_length=64, max_length=64)
+    user_confirmed: bool = True
+
+
+class WorktreePrepareResponse(BaseModel):
+    """Blocked response for future real workspace prepare execution."""
+
+    agent_session_id: UUID
+    project_id: UUID
+    repository_workspace_id: UUID | None = None
+    plan_hash: str
+    submitted_plan_hash: str
+    prepare_status: str
+    blocked_reason: str
+    dry_run: bool
+    requires_user_confirmation: bool
+    worktree_path: str | None = None
+    branch_name: str | None = None
+    base_branch: str | None = None
+    base_commit_sha: str | None = None
+    checked_at: datetime
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_action: str
+    creates_worktree: bool
+    creates_branch: bool
+    runs_git: bool
+    mutates_agent_session_workspace: bool
+
+    @classmethod
+    def from_result(cls, result: WorktreePrepareResult) -> "WorktreePrepareResponse":
+        """Convert domain prepare result to API DTO."""
+
+        return cls(**result.model_dump())
+
+
 def get_agent_conversation_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> AgentConversationService:
@@ -286,6 +332,18 @@ def get_worktree_plan_confirmation_service(
     """Create the P1-D-B workspace plan confirmation dependency."""
 
     return WorktreePlanConfirmationService(
+        worktree_plan_service=worktree_plan_service,
+    )
+
+
+def get_worktree_prepare_service(
+    worktree_plan_service: Annotated[
+        WorktreePlanService, Depends(get_worktree_plan_service)
+    ],
+) -> WorktreePrepareService:
+    """Create the P1-D-C blocked workspace prepare dependency."""
+
+    return WorktreePrepareService(
         worktree_plan_service=worktree_plan_service,
     )
 
@@ -379,6 +437,51 @@ def confirm_agent_session_workspace_plan(
         raise
 
     return WorktreePlanConfirmationReceiptResponse.from_receipt(receipt)
+
+
+@router.post(
+    "/sessions/{session_id}/workspace/prepare",
+    response_model=WorktreePrepareResponse,
+    summary="Validate and block future workspace prepare execution",
+)
+def prepare_agent_session_workspace(
+    session_id: UUID,
+    request: WorktreePrepareRequestBody,
+    prepare_service: Annotated[
+        WorktreePrepareService,
+        Depends(get_worktree_prepare_service),
+    ],
+) -> WorktreePrepareResponse:
+    """Return blocked/not_implemented; no git, branch, worktree, or session mutation occurs."""
+
+    try:
+        result = prepare_service.prepare_workspace(
+            WorktreePrepareRequest(
+                agent_session_id=session_id,
+                plan_hash=request.plan_hash,
+                user_confirmed=request.user_confirmed,
+            )
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "Agent session not found" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreePrepareHashMismatchError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreePrepareError):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=detail,
+            ) from exc
+        raise
+
+    return WorktreePrepareResponse.from_result(result)
 
 
 @router.get(
