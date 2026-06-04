@@ -1225,7 +1225,7 @@ function MessageBubble({ message }: { message: ProjectDirectorMessage }) {
           </span>
           <span className="text-zinc-600">#{message.sequence_no}</span>
           {!isUser ? (
-            <SourceBadge source={message.source} sourceDetail={message.source_detail} />
+            <SourceBadge source={message.source} />
           ) : null}
           {message.intent ? (
             <span className="rounded border border-[#333333] px-1.5 py-0.5 text-zinc-500">
@@ -1234,6 +1234,9 @@ function MessageBubble({ message }: { message: ProjectDirectorMessage }) {
           ) : null}
         </div>
         <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+        {!isUser && message.source_detail ? (
+          <SourceDetail sourceDetail={message.source_detail} />
+        ) : null}
         {!isUser && message.suggested_actions.length > 0 ? (
           <SuggestedActions actions={message.suggested_actions} />
         ) : null}
@@ -1249,10 +1252,8 @@ function MessageBubble({ message }: { message: ProjectDirectorMessage }) {
 
 function SourceBadge({
   source,
-  sourceDetail,
 }: {
   source: ProjectDirectorMessage["source"];
-  sourceDetail: string;
 }) {
   const label =
     source === "ai"
@@ -1268,12 +1269,22 @@ function SourceBadge({
         : "border-[#333333] text-zinc-500";
 
   return (
-    <span
-      className={`rounded border px-1.5 py-0.5 ${toneClass}`}
-      title={sourceDetail}
-    >
+    <span className={`rounded border px-1.5 py-0.5 ${toneClass}`}>
       {label}
     </span>
+  );
+}
+
+function SourceDetail({ sourceDetail }: { sourceDetail: string }) {
+  return (
+    <details className="mt-2 rounded border border-[#333333] bg-[#101010] px-2 py-1.5 text-[10px] text-zinc-500">
+      <summary className="cursor-pointer select-none text-zinc-400">
+        展开来源细节
+      </summary>
+      <p className="mt-1 whitespace-pre-wrap break-words leading-4">
+        {sourceDetail}
+      </p>
+    </details>
   );
 }
 
@@ -1283,19 +1294,98 @@ function SuggestedActions({
   actions: ProjectDirectorSuggestedAction[];
 }) {
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {actions.map((action, index) => (
-        <span
-          key={`${action.type ?? "action"}-${index}`}
-          className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[10px] text-violet-100"
-          title="当前阶段只展示 suggested_actions，不自动执行。"
-        >
-          建议：{action.label || action.type || "下一步"}
-          {action.requires_confirmation ? "（需确认）" : ""}
+    <div
+      className="mt-3 rounded-lg border border-violet-500/25 bg-violet-500/5 p-3"
+      data-testid="project-director-suggested-actions-readonly"
+    >
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-medium text-violet-100">AI 主管建议</p>
+          <p className="mt-1 text-[10px] leading-4 text-violet-100/70">
+            以下 suggested_actions 仅为只读建议，不会创建任务、启动 Worker、写仓库或执行任何动作。
+          </p>
+        </div>
+        <span className="w-fit rounded border border-[#333333] bg-[#111111] px-2 py-0.5 text-[10px] text-zinc-500">
+          read-only
         </span>
-      ))}
+      </div>
+      <ol className="mt-3 space-y-2">
+        {actions.map((action, index) => (
+          <li
+            key={`${action.type ?? "action"}-${index}`}
+            className="rounded border border-[#333333] bg-[#111111] px-3 py-2"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-zinc-100">
+                  {action.label || action.type || "下一步建议"}
+                </p>
+                {action.type ? (
+                  <p className="mt-1 text-[10px] text-zinc-600">
+                    类型：{action.type}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-1.5">
+                <span
+                  className={`rounded border px-1.5 py-0.5 text-[10px] ${mapSuggestedActionRiskClass(
+                    action.risk_level,
+                  )}`}
+                >
+                  风险：{formatSuggestedActionRisk(action.risk_level)}
+                </span>
+                <span
+                  className={`rounded border px-1.5 py-0.5 text-[10px] ${
+                    action.requires_confirmation
+                      ? "border-amber-500/30 text-amber-300"
+                      : "border-[#333333] text-zinc-500"
+                  }`}
+                >
+                  {action.requires_confirmation ? "需要用户确认" : "无需立即确认"}
+                </span>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
+}
+
+function formatSuggestedActionRisk(
+  riskLevel: ProjectDirectorSuggestedAction["risk_level"],
+) {
+  if (!riskLevel) {
+    return "未标注";
+  }
+
+  if (riskLevel === "low") {
+    return "低";
+  }
+  if (riskLevel === "medium") {
+    return "中";
+  }
+  if (riskLevel === "high") {
+    return "高";
+  }
+
+  return riskLevel;
+}
+
+function mapSuggestedActionRiskClass(
+  riskLevel: ProjectDirectorSuggestedAction["risk_level"],
+) {
+  if (riskLevel === "high") {
+    return "border-red-500/30 text-red-300";
+  }
+  if (riskLevel === "medium") {
+    return "border-amber-500/30 text-amber-300";
+  }
+  if (riskLevel === "low") {
+    return "border-emerald-500/30 text-emerald-300";
+  }
+
+  return "border-[#333333] text-zinc-500";
 }
 
 function PlanGenerationErrorPanel({ message }: { message: string }) {
