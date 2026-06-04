@@ -187,7 +187,7 @@ setMessageTimeline(resume.recent_messages ?? []);
 | `request_changes` | `window.prompt` 输入反馈 + `window.confirm` 二次确认 | ✅ |
 | `create_formal_project` | `window.confirm` 确认 | ✅ |
 | `run_worker_once` | **被禁用** — 标签 "不可从建议启动"，说明 "本阶段禁止从 suggested_actions 触发" | ✅ 禁止 |
-| `navigate` | 直接跳转（只读） | ✅ |
+| `navigate` / other actions | 只读展示或禁用提示，不桥接后端动作 | ✅ 只读 |
 
 ### 5.3 独立 Worker 入口
 
