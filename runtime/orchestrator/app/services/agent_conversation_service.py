@@ -15,11 +15,14 @@ from app.domain.agent_session import (
     CodingSessionActivityState,
     CodingSessionStatus,
     RuntimeType,
+    WorkspaceType,
 )
+from app.domain.repository_workspace import RepositoryAccessMode
 from app.domain.project_role import ProjectRoleCode
 from app.domain.run import RunFailureCategory, RunStatus
 from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
+from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.context_builder_service import AgentThreadContextSeed
 
 
@@ -39,9 +42,11 @@ class AgentConversationService:
         *,
         agent_session_repository: AgentSessionRepository,
         agent_message_repository: AgentMessageRepository,
+        repository_workspace_repository: RepositoryWorkspaceRepository | None = None,
     ) -> None:
         self.agent_session_repository = agent_session_repository
         self.agent_message_repository = agent_message_repository
+        self.repository_workspace_repository = repository_workspace_repository
 
     def start_session(
         self,
@@ -53,6 +58,17 @@ class AgentConversationService:
         context_seed: AgentThreadContextSeed,
     ) -> AgentSession:
         """Create the Day11 session row and seed context-recovery timeline messages."""
+
+        workspace_type = WorkspaceType.IN_PLACE
+        workspace_path: str | None = None
+        if self.repository_workspace_repository is not None:
+            repository_workspace = (
+                self.repository_workspace_repository.get_by_project_id(project_id)
+            )
+            if repository_workspace is not None:
+                workspace_path = repository_workspace.root_path
+                if repository_workspace.access_mode == RepositoryAccessMode.READ_ONLY:
+                    workspace_type = WorkspaceType.READ_ONLY
 
         session = self.agent_session_repository.create(
             project_id=project_id,
@@ -69,6 +85,9 @@ class AgentConversationService:
             runtime_type=RuntimeType.SUBPROCESS,
             coding_status=CodingSessionStatus.WORKING,
             activity_state=CodingSessionActivityState.ACTIVE,
+            workspace_type=workspace_type,
+            workspace_path=workspace_path,
+            workspace_clean=None,
         )
         self._append_message(
             session=session,

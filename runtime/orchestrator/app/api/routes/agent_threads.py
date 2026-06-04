@@ -15,6 +15,7 @@ from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
 from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
+from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.agent_conversation_service import AgentConversationService
 
 
@@ -40,6 +41,9 @@ class AgentSessionResponse(BaseModel):
     coding_status: str | None = None
     activity_state: str | None = None
     branch_name: str | None = None
+    workspace_type: str | None = None
+    workspace_path: str | None = None
+    workspace_clean: bool | None = None
     started_at: datetime
     updated_at: datetime
     finished_at: datetime | None = None
@@ -76,6 +80,11 @@ class AgentSessionResponse(BaseModel):
                 session.activity_state.value if session.activity_state is not None else None
             ),
             branch_name=session.branch_name,
+            workspace_type=(
+                session.workspace_type.value if session.workspace_type is not None else None
+            ),
+            workspace_path=session.workspace_path,
+            workspace_clean=session.workspace_clean,
             started_at=session.started_at,
             updated_at=session.updated_at,
             finished_at=session.finished_at,
@@ -176,6 +185,7 @@ def get_agent_conversation_service(
     return AgentConversationService(
         agent_session_repository=AgentSessionRepository(session),
         agent_message_repository=AgentMessageRepository(session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
     )
 
 

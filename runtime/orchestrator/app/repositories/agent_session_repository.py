@@ -18,6 +18,7 @@ from app.domain.agent_session import (
     CodingSessionActivityState,
     CodingSessionStatus,
     RuntimeType,
+    WorkspaceType,
 )
 from app.domain.project_role import ProjectRoleCode
 
@@ -47,6 +48,9 @@ class AgentSessionRepository:
         coding_status: CodingSessionStatus | None = None,
         activity_state: CodingSessionActivityState | None = None,
         branch_name: str | None = None,
+        workspace_type: WorkspaceType | None = WorkspaceType.IN_PLACE,
+        workspace_path: str | None = None,
+        workspace_clean: bool | None = None,
     ) -> AgentSession:
         """Create and persist one new session row."""
 
@@ -71,6 +75,11 @@ class AgentSessionRepository:
             coding_status=coding_status,
             activity_state=activity_state,
             branch_name=branch_name.strip() or None if branch_name is not None else None,
+            workspace_type=workspace_type,
+            workspace_path=(
+                workspace_path.strip() or None if workspace_path is not None else None
+            ),
+            workspace_clean=workspace_clean,
             started_at=utc_now(),
             updated_at=utc_now(),
         )
@@ -133,6 +142,9 @@ class AgentSessionRepository:
         coding_status: CodingSessionStatus | None = None,
         activity_state: CodingSessionActivityState | None = None,
         branch_name: str | None = None,
+        workspace_type: WorkspaceType | None = None,
+        workspace_path: str | None = None,
+        workspace_clean: bool | None = None,
         finished: bool = False,
     ) -> AgentSession:
         """Update session status/coding fields and return the latest snapshot."""
@@ -166,6 +178,12 @@ class AgentSessionRepository:
             row.activity_state = activity_state
         if branch_name is not None:
             row.branch_name = branch_name.strip() or None
+        if workspace_type is not None:
+            row.workspace_type = workspace_type
+        if workspace_path is not None:
+            row.workspace_path = workspace_path.strip() or None
+        if workspace_clean is not None:
+            row.workspace_clean = workspace_clean
         row.updated_at = utc_now()
         if finished:
             row.finished_at = utc_now()
@@ -197,6 +215,9 @@ class AgentSessionRepository:
             coding_status=row.coding_status,
             activity_state=row.activity_state,
             branch_name=row.branch_name,
+            workspace_type=row.workspace_type,
+            workspace_path=row.workspace_path,
+            workspace_clean=row.workspace_clean,
             started_at=ensure_utc_datetime(row.started_at),
             updated_at=ensure_utc_datetime(row.updated_at),
             finished_at=ensure_utc_datetime(row.finished_at),

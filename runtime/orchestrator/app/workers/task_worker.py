@@ -25,6 +25,7 @@ from app.domain.task import (
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.project_role_repository import ProjectRoleRepository
+from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.skill_repository import SkillRepository
 from app.repositories.task_repository import TaskRepository
@@ -121,6 +122,9 @@ class WorkerRunResult:
     coding_status: str | None = None
     activity_state: str | None = None
     branch_name: str | None = None
+    workspace_type: str | None = None
+    workspace_path: str | None = None
+    workspace_clean: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -440,6 +444,9 @@ class TaskWorker:
         coding_status: str | None = None
         activity_state: str | None = None
         branch_name: str | None = None
+        workspace_type: str | None = None
+        workspace_path: str | None = None
+        workspace_clean: bool | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -698,6 +705,13 @@ class TaskWorker:
                     else None
                 )
                 branch_name = agent_session.branch_name
+                workspace_type = (
+                    agent_session.workspace_type.value
+                    if agent_session.workspace_type is not None
+                    else None
+                )
+                workspace_path = agent_session.workspace_path
+                workspace_clean = agent_session.workspace_clean
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -841,6 +855,13 @@ class TaskWorker:
                     else None
                 )
                 branch_name = agent_session.branch_name
+                workspace_type = (
+                    agent_session.workspace_type.value
+                    if agent_session.workspace_type is not None
+                    else None
+                )
+                workspace_path = agent_session.workspace_path
+                workspace_clean = agent_session.workspace_clean
             self._log_finalization(
                 task=task,
                 run=run,
@@ -986,6 +1007,9 @@ class TaskWorker:
                 coding_status=coding_status,
                 activity_state=activity_state,
                 branch_name=branch_name,
+                workspace_type=workspace_type,
+                workspace_path=workspace_path,
+                workspace_clean=workspace_clean,
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier
@@ -1820,6 +1844,7 @@ def build_task_worker(*, session: Session) -> TaskWorker:
     agent_conversation_service = AgentConversationService(
         agent_session_repository=agent_session_repository,
         agent_message_repository=agent_message_repository,
+        repository_workspace_repository=RepositoryWorkspaceRepository(session),
     )
     project_memory_service = ProjectMemoryService(
         project_repository=ProjectRepository(session),

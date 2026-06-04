@@ -70,6 +70,12 @@ _RUN_AI_SUMMARY_TABLE_COLUMN_UPGRADES = {
     "error_summary": "ALTER TABLE run_ai_summaries ADD COLUMN error_summary TEXT",
 }
 
+_AGENT_SESSION_TABLE_COLUMN_UPGRADES = {
+    "workspace_type": "ALTER TABLE agent_sessions ADD COLUMN workspace_type TEXT DEFAULT 'in_place'",
+    "workspace_path": "ALTER TABLE agent_sessions ADD COLUMN workspace_path TEXT",
+    "workspace_clean": "ALTER TABLE agent_sessions ADD COLUMN workspace_clean INTEGER",
+}
+
 _PROJECT_TABLE_COLUMN_UPGRADES = {
     "sop_template_code": "ALTER TABLE projects ADD COLUMN sop_template_code VARCHAR(100)",
     "stage_history_json": "ALTER TABLE projects ADD COLUMN stage_history_json TEXT NOT NULL DEFAULT '[]'",
@@ -138,6 +144,7 @@ _TABLE_COLUMN_UPGRADES = {
     "change_plan_versions": _CHANGE_PLAN_VERSION_TABLE_COLUMN_UPGRADES,
     "project_director_plan_versions": _PROJECT_DIRECTOR_PLAN_VERSION_TABLE_COLUMN_UPGRADES,
     "change_batches": _CHANGE_BATCH_TABLE_COLUMN_UPGRADES,
+    "agent_sessions": _AGENT_SESSION_TABLE_COLUMN_UPGRADES,
 }
 
 

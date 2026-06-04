@@ -84,7 +84,7 @@ class CodingSessionActivityState(StrEnum):
 
 
 class WorkspaceType(StrEnum):
-    """Reserved workspace-axis values; P1 leaves AgentSession.workspace_type unmodeled."""
+    """P1 coding-session workspace axis visible on AgentSession."""
 
     WORKTREE = "worktree"
     CLONE = "clone"
@@ -93,7 +93,7 @@ class WorkspaceType(StrEnum):
 
 
 class DeliveryStatus(StrEnum):
-    """Reserved delivery-axis values; P1/P2 leave AgentSession.delivery_status unmodeled."""
+    """Reserved delivery-axis values; P1-B leaves AgentSession.delivery_status unmodeled."""
 
     NONE = "none"
     BRANCH_CREATED = "branch_created"
@@ -130,6 +130,9 @@ class AgentSession(DomainModel):
     coding_status: CodingSessionStatus | None = None
     activity_state: CodingSessionActivityState | None = None
     branch_name: str | None = Field(default=None, max_length=200)
+    workspace_type: WorkspaceType | None = Field(default=WorkspaceType.IN_PLACE)
+    workspace_path: str | None = Field(default=None, max_length=1_000)
+    workspace_clean: bool | None = None
     started_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
@@ -141,6 +144,7 @@ class AgentSession(DomainModel):
         "summary",
         "runtime_handle_id",
         "branch_name",
+        "workspace_path",
     )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:

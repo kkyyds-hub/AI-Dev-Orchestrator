@@ -28,6 +28,7 @@ from app.domain.agent_session import (
     CodingSessionActivityState,
     CodingSessionStatus,
     RuntimeType,
+    WorkspaceType,
 )
 from app.domain.change_batch import ChangeBatchStatus
 from app.domain.commit_candidate import CommitCandidateStatus
@@ -1015,6 +1016,18 @@ class AgentSessionTable(ORMBase):
         nullable=True,
     )
     branch_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    workspace_type: Mapped[WorkspaceType | None] = mapped_column(
+        Enum(
+            WorkspaceType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+        default=WorkspaceType.IN_PLACE,
+    )
+    workspace_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workspace_clean: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

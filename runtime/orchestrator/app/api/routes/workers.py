@@ -105,6 +105,9 @@ class WorkerRunOnceResponse(BaseModel):
     coding_status: str | None = None
     activity_state: str | None = None
     branch_name: str | None = None
+    workspace_type: str | None = None
+    workspace_path: str | None = None
+    workspace_clean: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -218,6 +221,9 @@ class WorkerRunOnceResponse(BaseModel):
             coding_status=result.coding_status,
             activity_state=result.activity_state,
             branch_name=result.branch_name,
+            workspace_type=result.workspace_type,
+            workspace_path=result.workspace_path,
+            workspace_clean=result.workspace_clean,
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
             task_status=result.task.status if result.task else None,

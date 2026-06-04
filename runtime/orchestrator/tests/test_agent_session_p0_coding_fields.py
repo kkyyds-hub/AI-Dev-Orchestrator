@@ -23,13 +23,16 @@ from app.domain.agent_session import (
     CodingSessionActivityState,
     CodingSessionStatus,
     RuntimeType,
+    WorkspaceType,
 )
 from app.domain.project import Project
+from app.domain.repository_workspace import RepositoryWorkspace
 from app.domain.run import RunStatus
 from app.domain.task import Task
 from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.agent_conversation_service import AgentConversationService
@@ -69,6 +72,9 @@ def test_agent_sessions_table_contains_p0_coding_columns(db_session):
         "coding_status",
         "activity_state",
         "branch_name",
+        "workspace_type",
+        "workspace_path",
+        "workspace_clean",
     }.issubset(columns)
 
 
@@ -93,6 +99,9 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
         coding_status=CodingSessionStatus.WORKING,
         activity_state=CodingSessionActivityState.ACTIVE,
         branch_name=" main ",
+        workspace_type=WorkspaceType.IN_PLACE,
+        workspace_path=" /tmp/project ",
+        workspace_clean=True,
     )
 
     assert session.agent_type == AgentType.OPENAI_PROVIDER
@@ -101,18 +110,26 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
     assert session.coding_status == CodingSessionStatus.WORKING
     assert session.activity_state == CodingSessionActivityState.ACTIVE
     assert session.branch_name == "main"
+    assert session.workspace_type == WorkspaceType.IN_PLACE
+    assert session.workspace_path == "/tmp/project"
+    assert session.workspace_clean is True
 
     updated = repository.update_status(
         session.id,
         coding_status=CodingSessionStatus.COMPLETED,
         activity_state=CodingSessionActivityState.EXITED,
         branch_name="",
+        workspace_type=WorkspaceType.READ_ONLY,
+        workspace_path="",
         finished=True,
     )
 
     assert updated.coding_status == CodingSessionStatus.COMPLETED
     assert updated.activity_state == CodingSessionActivityState.EXITED
     assert updated.branch_name is None
+    assert updated.workspace_type == WorkspaceType.READ_ONLY
+    assert updated.workspace_path is None
+    assert updated.workspace_clean is True
     assert updated.finished_at is not None
 
 
@@ -134,6 +151,7 @@ def test_agent_conversation_service_fills_p0_defaults_and_final_state(db_session
     service = AgentConversationService(
         agent_session_repository=AgentSessionRepository(db_session),
         agent_message_repository=AgentMessageRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
     )
 
     session = service.start_session(
@@ -159,6 +177,9 @@ def test_agent_conversation_service_fills_p0_defaults_and_final_state(db_session
     assert session.coding_status == CodingSessionStatus.WORKING
     assert session.activity_state == CodingSessionActivityState.ACTIVE
     assert session.branch_name is None
+    assert session.workspace_type == WorkspaceType.IN_PLACE
+    assert session.workspace_path is None
+    assert session.workspace_clean is None
 
     finalized = service.finalize_session(
         session_id=session.id,
@@ -169,6 +190,58 @@ def test_agent_conversation_service_fills_p0_defaults_and_final_state(db_session
 
     assert finalized.coding_status == CodingSessionStatus.COMPLETED
     assert finalized.activity_state == CodingSessionActivityState.EXITED
+    assert finalized.workspace_type == WorkspaceType.IN_PLACE
+
+
+def test_agent_conversation_service_fills_workspace_from_repository_binding(db_session):
+    """Session workspace defaults are computed from project repository binding only."""
+
+    project = ProjectRepository(db_session).create(
+        Project(name="P1 workspace fields", summary="Project with repository binding.")
+    )
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project.id,
+            root_path="/tmp/aido-project",
+            display_name="aido",
+            allowed_workspace_root="/tmp",
+        )
+    )
+    task = TaskRepository(db_session).create(
+        Task(
+            project_id=project.id,
+            title="P1 workspace task",
+            input_summary="simulate: validate workspace observability",
+        )
+    )
+    run = RunRepository(db_session).create_running_run(task_id=task.id)
+
+    service = AgentConversationService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        agent_message_repository=AgentMessageRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+
+    session = service.start_session(
+        project_id=project.id,
+        task_id=task.id,
+        run_id=run.id,
+        owner_role_code=None,
+        context_seed=AgentThreadContextSeed(
+            task_id=task.id,
+            context_checkpoint_id=None,
+            context_rehydrated=False,
+            pressure_level=None,
+            usage_ratio=None,
+            bad_context_detected=False,
+            bad_context_reasons=[],
+            context_contract_summary="No checkpoint.",
+        ),
+    )
+
+    assert session.workspace_type == WorkspaceType.READ_ONLY
+    assert session.workspace_path == "/tmp/aido-project"
+    assert session.workspace_clean is None
 
 
 def test_agent_session_response_exposes_p0_coding_fields(db_session):
@@ -189,6 +262,9 @@ def test_agent_session_response_exposes_p0_coding_fields(db_session):
         runtime_type=RuntimeType.SUBPROCESS,
         coding_status=CodingSessionStatus.WORKING,
         activity_state=CodingSessionActivityState.ACTIVE,
+        workspace_type=WorkspaceType.IN_PLACE,
+        workspace_path="/tmp/project",
+        workspace_clean=False,
     )
 
     payload = AgentSessionResponse.from_session(session).model_dump(mode="json")
@@ -199,6 +275,9 @@ def test_agent_session_response_exposes_p0_coding_fields(db_session):
     assert payload["coding_status"] == "working"
     assert payload["activity_state"] == "active"
     assert payload["branch_name"] is None
+    assert payload["workspace_type"] == "in_place"
+    assert payload["workspace_path"] == "/tmp/project"
+    assert payload["workspace_clean"] is False
 
 
 def test_worker_run_once_response_exposes_p0_coding_fields_without_running_worker():
@@ -214,6 +293,9 @@ def test_worker_run_once_response_exposes_p0_coding_fields_without_running_worke
             coding_status="completed",
             activity_state="exited",
             branch_name=None,
+            workspace_type="in_place",
+            workspace_path=None,
+            workspace_clean=None,
         )
     ).model_dump(mode="json")
 
@@ -223,3 +305,6 @@ def test_worker_run_once_response_exposes_p0_coding_fields_without_running_worke
     assert payload["coding_status"] == "completed"
     assert payload["activity_state"] == "exited"
     assert payload["branch_name"] is None
+    assert payload["workspace_type"] == "in_place"
+    assert payload["workspace_path"] is None
+    assert payload["workspace_clean"] is None
