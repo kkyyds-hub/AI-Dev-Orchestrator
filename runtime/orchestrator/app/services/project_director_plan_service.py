@@ -651,8 +651,21 @@ def _parse_provider_plan_output(
     payload = _extract_json_object(output_text)
     warnings: list[str] = []
 
-    def _string_list(key: str, fallback: list[str]) -> list[str]:
-        raw = payload.get(key)
+    def _payload_value(key: str, aliases: tuple[str, ...] = ()) -> tuple[object, bool]:
+        for candidate in (key, *aliases):
+            if candidate in payload:
+                return payload.get(candidate), candidate != key
+        return None, False
+
+    def _string_list(
+        key: str,
+        fallback: list[str],
+        *,
+        aliases: tuple[str, ...] = (),
+    ) -> list[str]:
+        raw, used_alias = _payload_value(key, aliases)
+        if used_alias:
+            warnings.append(f"{key}:mapped_from_provider_alias")
         if not isinstance(raw, list):
             warnings.append(f"{key}:filled_from_backend_template")
             return list(fallback)
@@ -662,13 +675,28 @@ def _parse_provider_plan_output(
             return list(fallback)
         return values
 
-    def _model_list(key: str, model_type, fallback):
-        raw = payload.get(key)
+    def _model_list(
+        key: str,
+        model_type,
+        fallback,
+        *,
+        aliases: tuple[str, ...] = (),
+        normalizer=None,
+    ):
+        raw, used_alias = _payload_value(key, aliases)
+        if used_alias:
+            warnings.append(f"{key}:mapped_from_provider_alias")
         if not isinstance(raw, list):
             warnings.append(f"{key}:filled_from_backend_template")
             return list(fallback)
         try:
-            items = [model_type(**item) for item in raw]
+            prepared = [
+                normalizer(item, index, fallback, warnings)
+                if normalizer is not None
+                else _normalize_role_fields(item, warnings)
+                for index, item in enumerate(raw)
+            ]
+            items = [model_type(**item) for item in prepared]
         except (TypeError, ValueError):
             warnings.append(f"{key}:filled_from_backend_template")
             return list(fallback)
@@ -677,14 +705,35 @@ def _parse_provider_plan_output(
             return list(fallback)
         return items
 
-    plan_summary = str(payload.get("plan_summary") or "").strip()
+    raw_plan_summary, summary_used_alias = _payload_value(
+        "plan_summary",
+        ("summary", "overview", "plan", "plan_overview"),
+    )
+    if summary_used_alias:
+        warnings.append("plan_summary:mapped_from_provider_alias")
+    plan_summary = str(raw_plan_summary or "").strip()
     if not plan_summary:
         raise ValueError("provider plan JSON missing plan_summary")
 
-    phases = [PlanPhase(**item) for item in payload.get("phases") or []]
-    proposed_tasks = [
-        ProposedTask(**item) for item in payload.get("proposed_tasks") or []
+    raw_phases, phases_used_alias = _payload_value(
+        "phases",
+        ("stages", "plan_phases", "milestones"),
+    )
+    if phases_used_alias:
+        warnings.append("phases:mapped_from_provider_alias")
+    phases = [PlanPhase(**item) for item in raw_phases or []]
+
+    raw_tasks, tasks_used_alias = _payload_value(
+        "proposed_tasks",
+        ("tasks", "task_list", "proposed_task_list"),
+    )
+    if tasks_used_alias:
+        warnings.append("proposed_tasks:mapped_from_provider_alias")
+    proposed_task_payloads = [
+        _normalize_proposed_task(item, index, normalization_template.proposed_tasks, warnings)
+        for index, item in enumerate(raw_tasks or [])
     ]
+    proposed_tasks = [ProposedTask(**item) for item in proposed_task_payloads]
     if not phases:
         raise ValueError("provider plan JSON returned no phases")
     if not proposed_tasks:
@@ -701,26 +750,31 @@ def _parse_provider_plan_output(
         "agent_team_suggestions",
         AgentTeamSuggestion,
         normalization_template.agent_team_suggestions,
+        aliases=("agent_team", "team", "roles"),
     )
     skill_binding_suggestions = _model_list(
         "skill_binding_suggestions",
         SkillBindingSuggestion,
         normalization_template.skill_binding_suggestions,
+        aliases=("skill_bindings", "skills"),
     )
     verification_mechanisms = _model_list(
         "verification_mechanisms",
         VerificationMechanismSuggestion,
         normalization_template.verification_mechanisms,
+        aliases=("verification", "validations", "test_plan"),
     )
     repository_binding_suggestions = _model_list(
         "repository_binding_suggestions",
         RepositoryBindingSuggestion,
         normalization_template.repository_binding_suggestions,
+        aliases=("repository_bindings", "repository_suggestions"),
     )
     deliverable_boundaries = _model_list(
         "deliverable_boundaries",
         DeliverableBoundary,
         normalization_template.deliverable_boundaries,
+        aliases=("deliverables", "delivery_boundaries"),
     )
     complexity_assessment, normalized_complexity = _parse_complexity_assessment(
         payload.get("complexity_assessment"),
@@ -731,8 +785,13 @@ def _parse_provider_plan_output(
     acceptance_criteria = _string_list(
         "acceptance_criteria",
         normalization_template.acceptance_criteria,
+        aliases=("acceptance", "criteria", "acceptanceCriteria"),
     )
-    risks = _string_list("risks", normalization_template.risks)
+    risks = _string_list(
+        "risks",
+        normalization_template.risks,
+        aliases=("risk_list", "risk_assessment"),
+    )
     normalized_source_detail = _append_normalization_source_detail(
         source_detail,
         warnings,
@@ -756,6 +815,215 @@ def _parse_provider_plan_output(
         provider_receipt_id=provider_receipt_id,
         normalization_warnings=warnings,
     )
+
+
+_ROLE_ALIAS_TO_CODE: dict[str, ProjectRoleCode] = {
+    "pm": ProjectRoleCode.PRODUCT_MANAGER,
+    "product": ProjectRoleCode.PRODUCT_MANAGER,
+    "product_owner": ProjectRoleCode.PRODUCT_MANAGER,
+    "product owner": ProjectRoleCode.PRODUCT_MANAGER,
+    "product-manager": ProjectRoleCode.PRODUCT_MANAGER,
+    "product manager": ProjectRoleCode.PRODUCT_MANAGER,
+    "产品": ProjectRoleCode.PRODUCT_MANAGER,
+    "产品经理": ProjectRoleCode.PRODUCT_MANAGER,
+    "产品负责人": ProjectRoleCode.PRODUCT_MANAGER,
+    "architecture": ProjectRoleCode.ARCHITECT,
+    "solution_architect": ProjectRoleCode.ARCHITECT,
+    "solution architect": ProjectRoleCode.ARCHITECT,
+    "tech_lead": ProjectRoleCode.ARCHITECT,
+    "tech lead": ProjectRoleCode.ARCHITECT,
+    "架构": ProjectRoleCode.ARCHITECT,
+    "架构师": ProjectRoleCode.ARCHITECT,
+    "developer": ProjectRoleCode.ENGINEER,
+    "dev": ProjectRoleCode.ENGINEER,
+    "coder": ProjectRoleCode.ENGINEER,
+    "programmer": ProjectRoleCode.ENGINEER,
+    "backend": ProjectRoleCode.ENGINEER,
+    "backend_engineer": ProjectRoleCode.ENGINEER,
+    "frontend": ProjectRoleCode.ENGINEER,
+    "frontend_developer": ProjectRoleCode.ENGINEER,
+    "frontend engineer": ProjectRoleCode.ENGINEER,
+    "fullstack": ProjectRoleCode.ENGINEER,
+    "full_stack_engineer": ProjectRoleCode.ENGINEER,
+    "engineer": ProjectRoleCode.ENGINEER,
+    "工程师": ProjectRoleCode.ENGINEER,
+    "开发": ProjectRoleCode.ENGINEER,
+    "qa": ProjectRoleCode.REVIEWER,
+    "tester": ProjectRoleCode.REVIEWER,
+    "test": ProjectRoleCode.REVIEWER,
+    "quality": ProjectRoleCode.REVIEWER,
+    "quality_assurance": ProjectRoleCode.REVIEWER,
+    "review": ProjectRoleCode.REVIEWER,
+    "reviewer": ProjectRoleCode.REVIEWER,
+    "评审": ProjectRoleCode.REVIEWER,
+    "评审者": ProjectRoleCode.REVIEWER,
+    "测试": ProjectRoleCode.REVIEWER,
+}
+
+
+def _normalize_proposed_task(
+    raw_item: object,
+    index: int,
+    fallback_tasks: list[ProposedTask],
+    warnings: list[str],
+) -> dict:
+    """Normalize one provider task item without making the task list optional."""
+
+    fallback = fallback_tasks[min(index, len(fallback_tasks) - 1)] if fallback_tasks else None
+    if isinstance(raw_item, str):
+        warnings.append("proposed_tasks.item:mapped_from_string")
+        data: dict[str, object] = {"title": raw_item}
+    elif isinstance(raw_item, dict):
+        data = dict(raw_item)
+    else:
+        warnings.append("proposed_tasks.item:filled_from_backend_template")
+        return fallback.model_dump() if fallback is not None else {
+            "title": f"任务 {index + 1}",
+            "description": "Provider 返回的任务项结构不完整，由后端补齐为可审核草案任务。",
+            "suggested_role_code": ProjectRoleCode.ENGINEER,
+            "priority_hint": "normal",
+        }
+
+    title = _first_non_empty_text(
+        data,
+        "title",
+        "name",
+        "task",
+        "task_name",
+        "summary",
+        "goal",
+    )
+    if not title and fallback is not None:
+        title = fallback.title
+        warnings.append("proposed_tasks.title:filled_from_backend_template")
+    elif "title" not in data:
+        warnings.append("proposed_tasks.title:mapped_from_provider_alias")
+
+    description = _first_non_empty_text(
+        data,
+        "description",
+        "details",
+        "detail",
+        "body",
+        "goal",
+    )
+    if not description:
+        description = (
+            fallback.description
+            if fallback is not None and fallback.description
+            else "Provider 未提供任务描述；后端补齐为可审核草案占位描述。"
+        )
+        warnings.append("proposed_tasks.description:filled_from_backend_template")
+
+    role_raw = _first_value(
+        data,
+        "suggested_role_code",
+        "role_code",
+        "role",
+        "owner_role_code",
+        "assignee_role",
+    )
+    role_code, role_normalized = _normalize_role_code(
+        role_raw,
+        fallback=(
+            fallback.suggested_role_code
+            if fallback is not None
+            else ProjectRoleCode.ENGINEER
+        ),
+    )
+    if role_normalized:
+        warnings.append("proposed_tasks.suggested_role_code:normalized_role_enum")
+
+    priority = _first_non_empty_text(
+        data,
+        "priority_hint",
+        "priority",
+        "importance",
+    )
+    if not priority:
+        priority = fallback.priority_hint if fallback is not None else "normal"
+        warnings.append("proposed_tasks.priority_hint:filled_from_backend_template")
+
+    return {
+        "title": title or f"任务 {index + 1}",
+        "description": description,
+        "suggested_role_code": role_code,
+        "priority_hint": _normalize_priority_hint(priority),
+    }
+
+
+def _normalize_role_fields(raw_item: object, warnings: list[str]) -> dict:
+    """Normalize role enum fields in non-core suggestion objects."""
+
+    if not isinstance(raw_item, dict):
+        raise TypeError("provider suggestion item must be an object")
+    data = dict(raw_item)
+    for field_name, fallback in (
+        ("role_code", ProjectRoleCode.ENGINEER),
+        ("owner_role_code", ProjectRoleCode.ENGINEER),
+        ("suggested_role_code", ProjectRoleCode.ENGINEER),
+    ):
+        if field_name not in data:
+            continue
+        role_code, normalized = _normalize_role_code(
+            data.get(field_name),
+            fallback=fallback,
+        )
+        if normalized:
+            warnings.append(f"{field_name}:normalized_role_enum")
+        data[field_name] = role_code
+    return data
+
+
+def _normalize_role_code(
+    raw_role: object,
+    *,
+    fallback: ProjectRoleCode,
+) -> tuple[ProjectRoleCode, bool]:
+    if isinstance(raw_role, ProjectRoleCode):
+        return raw_role, False
+    normalized = str(raw_role or "").strip()
+    if not normalized:
+        return fallback, True
+    lowered = normalized.lower().replace("-", "_")
+    try:
+        return ProjectRoleCode(lowered), lowered != normalized
+    except ValueError:
+        pass
+    compact = lowered.replace("_", " ")
+    alias = _ROLE_ALIAS_TO_CODE.get(lowered) or _ROLE_ALIAS_TO_CODE.get(compact)
+    if alias is not None:
+        return alias, True
+    return fallback, True
+
+
+def _first_value(data: dict, *keys: str) -> object:
+    for key in keys:
+        if key in data:
+            return data.get(key)
+    return None
+
+
+def _first_non_empty_text(data: dict, *keys: str) -> str:
+    for key in keys:
+        value = data.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _normalize_priority_hint(raw_priority: object) -> str:
+    value = str(raw_priority or "normal").strip().lower()
+    if value in {"urgent", "critical", "p0", "p1", "高", "最高", "高优先级"}:
+        return "high"
+    if value in {"low", "p3", "p4", "低", "低优先级"}:
+        return "low"
+    if value in {"high", "normal"}:
+        return value
+    return "normal"
 
 
 def _parse_project_scope(

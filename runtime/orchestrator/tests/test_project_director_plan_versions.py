@@ -1091,6 +1091,167 @@ class TestPlanService:
             api_payload.normalization_warnings
         )
 
+    def test_create_plan_version_maps_provider_summary_and_tasks_aliases(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def alias_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            payload = json.loads(_provider_plan_payload())
+            payload["summary"] = payload.pop("plan_summary")
+            payload["stages"] = payload.pop("phases")
+            payload["tasks"] = [
+                {
+                    "name": "按别名生成的需求复核任务",
+                    "details": "Provider 使用 tasks/name/details 字段，后端应映射为 proposed_tasks。",
+                    "role": "architect",
+                    "priority": "p1",
+                }
+            ]
+            payload.pop("proposed_tasks")
+            payload["acceptance"] = payload.pop("acceptance_criteria")
+            payload["risk_list"] = payload.pop("risks")
+            return json.dumps(payload, ensure_ascii=False), "receipt-aliases"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=alias_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+        api_payload = PlanVersionResponse.from_domain(pv)
+
+        assert pv.source == "ai"
+        assert pv.plan_summary.startswith("AI provider 生成的作战计划")
+        assert pv.proposed_tasks[0].title == "按别名生成的需求复核任务"
+        assert pv.proposed_tasks[0].description.startswith("Provider 使用")
+        assert pv.proposed_tasks[0].suggested_role_code == ProjectRoleCode.ARCHITECT
+        assert pv.proposed_tasks[0].priority_hint == "high"
+        assert "plan_summary:mapped_from_provider_alias" in (
+            api_payload.normalization_warnings
+        )
+        assert "phases:mapped_from_provider_alias" in (
+            api_payload.normalization_warnings
+        )
+        assert "proposed_tasks:mapped_from_provider_alias" in (
+            api_payload.normalization_warnings
+        )
+        assert "acceptance_criteria:mapped_from_provider_alias" in (
+            api_payload.normalization_warnings
+        )
+        assert "risks:mapped_from_provider_alias" in (
+            api_payload.normalization_warnings
+        )
+
+    def test_create_plan_version_fills_missing_proposed_task_fields(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def missing_task_fields_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            payload = json.loads(_provider_plan_payload())
+            payload["proposed_tasks"] = [{"title": "只给标题的 provider 任务"}]
+            return json.dumps(payload, ensure_ascii=False), "receipt-task-fill"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=missing_task_fields_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+        api_payload = PlanVersionResponse.from_domain(pv)
+
+        assert pv.source == "ai"
+        assert len(pv.proposed_tasks) == 1
+        assert pv.proposed_tasks[0].title == "只给标题的 provider 任务"
+        assert pv.proposed_tasks[0].description
+        assert pv.proposed_tasks[0].suggested_role_code == ProjectRoleCode.ARCHITECT
+        assert pv.proposed_tasks[0].priority_hint == "high"
+        assert "proposed_tasks.description:filled_from_backend_template" in (
+            api_payload.normalization_warnings
+        )
+        assert "proposed_tasks.suggested_role_code:normalized_role_enum" in (
+            api_payload.normalization_warnings
+        )
+        assert "proposed_tasks.priority_hint:filled_from_backend_template" in (
+            api_payload.normalization_warnings
+        )
+
+    def test_create_plan_version_normalizes_provider_role_enum_aliases(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+
+        def role_alias_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            payload = json.loads(_provider_plan_payload())
+            payload["proposed_tasks"][0]["suggested_role_code"] = "frontend_developer"
+            payload["proposed_tasks"][1]["suggested_role_code"] = "QA"
+            payload["agent_team_suggestions"][0]["role_code"] = "Product Owner"
+            payload["agent_team_suggestions"][1]["role_code"] = "QA"
+            payload["skill_binding_suggestions"][0]["owner_role_code"] = "tester"
+            payload["verification_mechanisms"][0]["owner_role_code"] = "quality_assurance"
+            payload["deliverable_boundaries"][0]["owner_role_code"] = "产品负责人"
+            return json.dumps(payload, ensure_ascii=False), "receipt-role-alias"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=role_alias_generator,
+        )
+
+        pv = service.create_plan_version(session_id=session_obj.id)
+        api_payload = PlanVersionResponse.from_domain(pv)
+
+        assert pv.source == "ai"
+        assert pv.proposed_tasks[0].suggested_role_code == ProjectRoleCode.ENGINEER
+        assert pv.proposed_tasks[1].suggested_role_code == ProjectRoleCode.REVIEWER
+        assert pv.agent_team_suggestions[0].role_code == ProjectRoleCode.PRODUCT_MANAGER
+        assert pv.agent_team_suggestions[1].role_code == ProjectRoleCode.REVIEWER
+        assert (
+            pv.skill_binding_suggestions[0].owner_role_code
+            == ProjectRoleCode.REVIEWER
+        )
+        assert (
+            pv.verification_mechanisms[0].owner_role_code
+            == ProjectRoleCode.REVIEWER
+        )
+        assert (
+            pv.deliverable_boundaries[0].owner_role_code
+            == ProjectRoleCode.PRODUCT_MANAGER
+        )
+        assert "proposed_tasks.suggested_role_code:normalized_role_enum" in (
+            api_payload.normalization_warnings
+        )
+        assert "role_code:normalized_role_enum" in (
+            api_payload.normalization_warnings
+        )
+        assert "owner_role_code:normalized_role_enum" in (
+            api_payload.normalization_warnings
+        )
+
     def test_request_changes_normalizes_provider_complexity_score(
         self, db_session, session_service
     ):
