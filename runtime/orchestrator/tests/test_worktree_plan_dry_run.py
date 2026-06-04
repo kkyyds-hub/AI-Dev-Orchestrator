@@ -12,7 +12,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes.agent_threads import WorktreePlanResponse
+from app.api.routes.agent_threads import (
+    WorktreePlanConfirmationReceiptResponse,
+    WorktreePlanResponse,
+)
 from app.core.db_tables import ORMBase
 from app.domain.agent_session import (
     AgentSessionPhase,
@@ -23,6 +26,12 @@ from app.domain.repository_workspace import RepositoryWorkspace
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.worktree_command_runner import WorktreeCommandRunner
+from app.services.worktree_plan_confirmation_service import (
+    WorktreePlanConfirmationError,
+    WorktreePlanConfirmationRequest,
+    WorktreePlanConfirmationService,
+    WorktreePlanHashMismatchError,
+)
 from app.services.worktree_plan_service import (
     BranchNamePolicy,
     WorktreeGuardService,
@@ -312,6 +321,173 @@ def test_worktree_plan_response_exposes_dry_run_fields(db_session, tmp_path):
     assert payload["base_commit_sha"] is None
     assert payload["blockers"] == []
     assert payload["warnings"] == []
+
+
+def test_worktree_plan_confirmation_receipt_accepts_current_hash_only(
+    db_session, tmp_path
+):
+    """Confirmation returns a receipt for the current safe dry-run plan hash."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+
+    receipt = WorktreePlanConfirmationService(
+        worktree_plan_service=plan_service,
+    ).confirm_plan(
+        WorktreePlanConfirmationRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+            confirmed_by=" reviewer ",
+        )
+    )
+
+    assert receipt.agent_session_id == session.id
+    assert receipt.project_id == project_id
+    assert receipt.plan_hash == plan.plan_hash
+    assert receipt.confirmed_plan_hash == plan.plan_hash
+    assert receipt.confirmation_status == "confirmed"
+    assert receipt.confirmation_scope == "workspace_plan_dry_run"
+    assert receipt.dry_run is True
+    assert receipt.requires_user_confirmation is True
+    assert receipt.worktree_path == plan.worktree_path
+    assert receipt.branch_name == plan.branch_name
+    assert receipt.confirmed_by == "reviewer"
+    assert receipt.next_action == "await_explicit_workspace_creation_request"
+    assert receipt.creates_worktree is False
+    assert receipt.creates_branch is False
+    assert receipt.mutates_agent_session_workspace is False
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
+
+
+def test_worktree_plan_confirmation_rejects_stale_plan_hash(db_session, tmp_path):
+    """Submitted plan_hash must match the current recomputed dry-run plan."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+
+    with pytest.raises(WorktreePlanHashMismatchError):
+        WorktreePlanConfirmationService(worktree_plan_service=plan_service).confirm_plan(
+            WorktreePlanConfirmationRequest(
+                agent_session_id=session.id,
+                plan_hash="0" * 64,
+                user_confirmed=True,
+            )
+        )
+
+
+def test_worktree_plan_confirmation_rejects_blocked_plan(db_session):
+    """Blocked dry-run plans cannot produce a confirmation receipt."""
+
+    session = _create_agent_session(db_session, project_id=uuid4())
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    blocked_plan = plan_service.build_plan(agent_session_id=session.id)
+
+    with pytest.raises(WorktreePlanConfirmationError):
+        WorktreePlanConfirmationService(worktree_plan_service=plan_service).confirm_plan(
+            WorktreePlanConfirmationRequest(
+                agent_session_id=session.id,
+                plan_hash=blocked_plan.plan_hash,
+                user_confirmed=True,
+            )
+        )
+
+
+def test_worktree_plan_confirmation_receipt_response_exposes_guard_fields(
+    db_session, tmp_path
+):
+    """Receipt DTO exposes confirmation guard fields without execution semantics."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = allowed_root / "repo"
+    repository_root.mkdir()
+    (repository_root / ".git").mkdir()
+
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+    receipt = WorktreePlanConfirmationService(
+        worktree_plan_service=plan_service,
+    ).confirm_plan(
+        WorktreePlanConfirmationRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    payload = WorktreePlanConfirmationReceiptResponse.from_receipt(receipt).model_dump(
+        mode="json"
+    )
+
+    assert payload["agent_session_id"] == str(session.id)
+    assert payload["project_id"] == str(project_id)
+    assert payload["plan_hash"] == plan.plan_hash
+    assert payload["confirmed_plan_hash"] == plan.plan_hash
+    assert payload["confirmation_status"] == "confirmed"
+    assert payload["confirmation_scope"] == "workspace_plan_dry_run"
+    assert payload["dry_run"] is True
+    assert payload["requires_user_confirmation"] is True
+    assert payload["creates_worktree"] is False
+    assert payload["creates_branch"] is False
+    assert payload["mutates_agent_session_workspace"] is False
 
 
 def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_path):

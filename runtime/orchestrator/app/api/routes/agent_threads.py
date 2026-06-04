@@ -14,10 +14,17 @@ from app.core.db import get_db_session
 from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
 from app.domain.worktree_plan import WorktreePlan
+from app.domain.worktree_plan_confirmation import WorktreePlanConfirmationReceipt
 from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.agent_conversation_service import AgentConversationService
+from app.services.worktree_plan_confirmation_service import (
+    WorktreePlanConfirmationError,
+    WorktreePlanConfirmationRequest,
+    WorktreePlanConfirmationService,
+    WorktreePlanHashMismatchError,
+)
 from app.services.worktree_plan_service import WorktreePlanService
 
 
@@ -207,6 +214,47 @@ class WorktreePlanResponse(BaseModel):
         return cls(**plan.model_dump())
 
 
+class WorktreePlanConfirmationRequestBody(BaseModel):
+    """Explicit user confirmation body for one current workspace plan hash."""
+
+    plan_hash: str = Field(min_length=64, max_length=64)
+    user_confirmed: bool = True
+    confirmed_by: str | None = Field(default=None, max_length=200)
+
+
+class WorktreePlanConfirmationReceiptResponse(BaseModel):
+    """Receipt returned after accepting a dry-run workspace plan confirmation."""
+
+    agent_session_id: UUID
+    project_id: UUID
+    repository_workspace_id: UUID | None = None
+    plan_hash: str
+    confirmed_plan_hash: str
+    confirmation_status: str
+    confirmation_scope: str
+    dry_run: bool
+    requires_user_confirmation: bool
+    worktree_path: str | None = None
+    branch_name: str | None = None
+    base_branch: str | None = None
+    base_commit_sha: str | None = None
+    confirmed_by: str | None = None
+    confirmed_at: datetime
+    next_action: str
+    creates_worktree: bool
+    creates_branch: bool
+    mutates_agent_session_workspace: bool
+
+    @classmethod
+    def from_receipt(
+        cls,
+        receipt: WorktreePlanConfirmationReceipt,
+    ) -> "WorktreePlanConfirmationReceiptResponse":
+        """Convert domain receipt to API DTO."""
+
+        return cls(**receipt.model_dump())
+
+
 def get_agent_conversation_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> AgentConversationService:
@@ -227,6 +275,18 @@ def get_worktree_plan_service(
     return WorktreePlanService(
         agent_session_repository=AgentSessionRepository(session),
         repository_workspace_repository=RepositoryWorkspaceRepository(session),
+    )
+
+
+def get_worktree_plan_confirmation_service(
+    worktree_plan_service: Annotated[
+        WorktreePlanService, Depends(get_worktree_plan_service)
+    ],
+) -> WorktreePlanConfirmationService:
+    """Create the P1-D-B workspace plan confirmation dependency."""
+
+    return WorktreePlanConfirmationService(
+        worktree_plan_service=worktree_plan_service,
     )
 
 
@@ -273,6 +333,52 @@ def get_agent_session_workspace_plan(
         session_id=session_id,
         worktree_plan_service=worktree_plan_service,
     )
+
+
+@router.post(
+    "/sessions/{session_id}/workspace-plan/confirm",
+    response_model=WorktreePlanConfirmationReceiptResponse,
+    summary="Confirm the current dry-run workspace plan hash",
+)
+def confirm_agent_session_workspace_plan(
+    session_id: UUID,
+    request: WorktreePlanConfirmationRequestBody,
+    confirmation_service: Annotated[
+        WorktreePlanConfirmationService,
+        Depends(get_worktree_plan_confirmation_service),
+    ],
+) -> WorktreePlanConfirmationReceiptResponse:
+    """Return a confirmation receipt; no worktree, branch, git, or session mutation occurs."""
+
+    try:
+        receipt = confirmation_service.confirm_plan(
+            WorktreePlanConfirmationRequest(
+                agent_session_id=session_id,
+                plan_hash=request.plan_hash,
+                user_confirmed=request.user_confirmed,
+                confirmed_by=request.confirmed_by,
+            )
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "Agent session not found" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreePlanHashMismatchError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreePlanConfirmationError):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=detail,
+            ) from exc
+        raise
+
+    return WorktreePlanConfirmationReceiptResponse.from_receipt(receipt)
 
 
 @router.get(
