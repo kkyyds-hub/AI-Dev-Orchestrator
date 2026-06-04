@@ -1,4 +1,4 @@
-"""Workspace create blocked skeleton domain models."""
+"""Workspace create domain models."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pydantic import Field, field_validator
 
 from app.domain._base import DomainModel, utc_now
 from app.domain.worktree_plan import WorktreePlan
+from app.domain.worktree_prepare import WorktreeGitPreflight
 
 
 class WorktreeWriteCommandPreview(DomainModel):
@@ -33,12 +34,7 @@ class WorktreeWriteCommandPreview(DomainModel):
 
 
 class WorktreeCreateResult(DomainModel):
-    """Blocked response shape for future real workspace creation.
-
-    P1-D-E-A defines the write-command boundary and API/service contract only.
-    It never runs git, creates a worktree, creates a branch, or mutates
-    AgentSession workspace fields.
-    """
+    """Response shape for guarded real workspace creation."""
 
     agent_session_id: UUID
     project_id: UUID
@@ -46,7 +42,7 @@ class WorktreeCreateResult(DomainModel):
     plan_hash: str = Field(min_length=64, max_length=64)
     submitted_plan_hash: str = Field(min_length=64, max_length=64)
     create_status: str = "blocked"
-    blocked_reason: str = "workspace_create_not_implemented"
+    blocked_reason: str | None = "workspace_create_blocked"
     dry_run: bool = True
     requires_user_confirmation: bool = True
     worktree_path: str | None = Field(default=None, max_length=1_000)
@@ -54,10 +50,11 @@ class WorktreeCreateResult(DomainModel):
     base_branch: str | None = Field(default=None, max_length=200)
     base_commit_sha: str | None = Field(default=None, max_length=80)
     checked_at: datetime = Field(default_factory=utc_now)
+    git_preflight: WorktreeGitPreflight | None = None
     write_command_preview: list[WorktreeWriteCommandPreview] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    next_action: str = "implement_workspace_create_execution_after_gate"
+    next_action: str = "resolve_workspace_create_blockers"
     creates_worktree: bool = False
     creates_branch: bool = False
     runs_git: bool = False
@@ -86,12 +83,95 @@ class WorktreeCreateResult(DomainModel):
             branch_name=plan.branch_name,
             base_branch=plan.base_branch,
             base_commit_sha=plan.base_commit_sha,
+            git_preflight=None,
             write_command_preview=write_command_preview or [],
             blockers=blockers,
             warnings=warnings or [],
         )
 
-    @field_validator("create_status", "blocked_reason", "next_action")
+    @classmethod
+    def created_from_plan(
+        cls,
+        *,
+        plan: WorktreePlan,
+        submitted_plan_hash: str,
+        git_preflight: WorktreeGitPreflight,
+        write_command_preview: list[WorktreeWriteCommandPreview],
+        warnings: list[str] | None = None,
+    ) -> "WorktreeCreateResult":
+        """Build a successful create result from a validated plan."""
+
+        return cls(
+            agent_session_id=plan.agent_session_id,
+            project_id=plan.project_id,
+            repository_workspace_id=plan.repository_workspace_id,
+            plan_hash=plan.plan_hash,
+            submitted_plan_hash=submitted_plan_hash,
+            create_status="created",
+            blocked_reason=None,
+            dry_run=False,
+            requires_user_confirmation=plan.requires_user_confirmation,
+            worktree_path=plan.worktree_path,
+            branch_name=plan.branch_name,
+            base_branch=plan.base_branch,
+            base_commit_sha=git_preflight.repository_head_sha,
+            git_preflight=git_preflight,
+            write_command_preview=write_command_preview,
+            blockers=[],
+            warnings=warnings or [],
+            next_action="workspace_created_ready_for_coding",
+            creates_worktree=True,
+            creates_branch=True,
+            runs_git=True,
+            runs_write_git=True,
+            mutates_agent_session_workspace=True,
+        )
+
+    @classmethod
+    def failed_from_plan(
+        cls,
+        *,
+        plan: WorktreePlan,
+        submitted_plan_hash: str,
+        blocked_reason: str,
+        blockers: list[str],
+        warnings: list[str] | None = None,
+        git_preflight: WorktreeGitPreflight | None = None,
+        write_command_preview: list[WorktreeWriteCommandPreview] | None = None,
+        attempted_write_git: bool = False,
+        wrote_agent_session_error: bool = False,
+    ) -> "WorktreeCreateResult":
+        """Build a failed create result after guarded validation or execution."""
+
+        return cls(
+            agent_session_id=plan.agent_session_id,
+            project_id=plan.project_id,
+            repository_workspace_id=plan.repository_workspace_id,
+            plan_hash=plan.plan_hash,
+            submitted_plan_hash=submitted_plan_hash,
+            create_status="failed" if attempted_write_git else "blocked",
+            blocked_reason=blocked_reason,
+            dry_run=True,
+            requires_user_confirmation=plan.requires_user_confirmation,
+            worktree_path=plan.worktree_path,
+            branch_name=plan.branch_name,
+            base_branch=plan.base_branch,
+            base_commit_sha=(
+                git_preflight.repository_head_sha if git_preflight is not None else None
+            ),
+            git_preflight=git_preflight,
+            write_command_preview=write_command_preview or [],
+            blockers=blockers,
+            warnings=warnings or [],
+            next_action="resolve_workspace_create_blockers",
+            creates_worktree=False,
+            creates_branch=False,
+            runs_git=git_preflight is not None or attempted_write_git,
+            runs_write_git=attempted_write_git,
+            mutates_agent_session_workspace=wrote_agent_session_error,
+        )
+
+    @field_validator("create_status", "next_action")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         """Trim required status labels."""
@@ -100,6 +180,16 @@ class WorktreeCreateResult(DomainModel):
         if not normalized_value:
             raise ValueError("create label must not be blank")
         return normalized_value
+
+    @field_validator("blocked_reason")
+    @classmethod
+    def normalize_optional_blocked_reason(cls, value: str | None) -> str | None:
+        """Trim optional blocked reason."""
+
+        if value is None:
+            return None
+        normalized_value = value.strip()
+        return normalized_value or None
 
     @field_validator("blockers", "warnings")
     @classmethod

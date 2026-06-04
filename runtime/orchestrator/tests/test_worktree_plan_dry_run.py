@@ -1,11 +1,13 @@
-"""P1-C WorktreePlan dry-run coverage.
+"""Worktree plan/prepare/create coverage.
 
-These tests verify pure planning behavior only. They do not call git, create
-worktrees, create branches, or write to a repository.
+Plan, confirmation, and prepare coverage remains non-mutating. P1-D-E-B create
+coverage uses only tmp_path git fixtures for real worktree/branch execution.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+import subprocess
 from uuid import uuid4
 
 import pytest
@@ -94,6 +96,56 @@ def _create_agent_session(db_session, *, project_id):
         context_rehydrated=False,
         summary="Planning only",
     )
+
+
+def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run git only inside tmp_path repository fixtures."""
+
+    return subprocess.run(
+        ("git", *args),
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _create_tmp_git_repository(parent_path: Path) -> Path:
+    """Create a committed git repository fixture under tmp_path."""
+
+    repository_root = parent_path / "repo"
+    repository_root.mkdir()
+    _run_git(repository_root, "init")
+    _run_git(repository_root, "config", "user.email", "test@example.invalid")
+    _run_git(repository_root, "config", "user.name", "AIDO Test")
+    (repository_root / "README.md").write_text("fixture\n")
+    _run_git(repository_root, "add", "README.md")
+    _run_git(repository_root, "commit", "-m", "initial fixture commit")
+    return repository_root
+
+
+def _create_bound_git_session(db_session, tmp_path):
+    """Persist one session bound to a real tmp_path git repository."""
+
+    allowed_root = tmp_path / "workspaces"
+    allowed_root.mkdir()
+    repository_root = _create_tmp_git_repository(allowed_root)
+    project_id = uuid4()
+    session = _create_agent_session(db_session, project_id=project_id)
+    RepositoryWorkspaceRepository(db_session).upsert(
+        RepositoryWorkspace(
+            project_id=project_id,
+            root_path=str(repository_root),
+            display_name="Repo",
+            allowed_workspace_root=str(allowed_root),
+        )
+    )
+    plan_service = WorktreePlanService(
+        agent_session_repository=AgentSessionRepository(db_session),
+        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+    )
+    plan = plan_service.build_plan(agent_session_id=session.id)
+    return project_id, session, repository_root, plan_service, plan
 
 
 class FakeWorktreeGitPreflightService:
@@ -212,6 +264,23 @@ class FakeReadOnlyCommandRunner:
             return_code=0,
             stdout=stdout_by_argv.get(spec.argv, ""),
             stderr="",
+        )
+
+
+class FailingWriteCommandRunner(WorktreeWriteCommandRunner):
+    """Test double that records the allowlisted write command but returns failure."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = []
+
+    def run(self, preview):
+        self.calls.append(preview)
+        return WorktreeCommandResult(
+            spec=preview,
+            return_code=1,
+            stdout="",
+            stderr="simulated worktree add failure",
         )
 
 
@@ -976,8 +1045,8 @@ def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path
     assert unchanged_session.branch_name is None
 
 
-def test_worktree_write_command_runner_builds_disabled_preview(tmp_path):
-    """Write runner only builds a disabled preview and exposes no executor."""
+def test_worktree_write_command_runner_builds_executable_allowlisted_command(tmp_path):
+    """Write runner builds the single executable worktree add command shape."""
 
     runner = WorktreeWriteCommandRunner(default_timeout_seconds=30)
     repository_path = str(tmp_path / "repo")
@@ -987,7 +1056,7 @@ def test_worktree_write_command_runner_builds_disabled_preview(tmp_path):
         repository_path=repository_path,
         worktree_path=worktree_path,
         branch_name="session/proj-test-12345678",
-        base_ref="origin/main",
+        base_ref="HEAD",
     )
 
     assert preview.argv == (
@@ -997,42 +1066,24 @@ def test_worktree_write_command_runner_builds_disabled_preview(tmp_path):
         "-b",
         "session/proj-test-12345678",
         worktree_path,
-        "origin/main",
+        "HEAD",
     )
     assert preview.cwd == repository_path
     assert preview.timeout_seconds == 30
     assert preview.mutates_repository is True
     assert preview.command_kind == "git_worktree_add_new_branch"
-    assert preview.execution_enabled is False
-    assert not hasattr(runner, "run")
+    assert preview.execution_enabled is True
+    assert hasattr(runner, "run")
 
 
-def test_worktree_create_skeleton_returns_blocked_with_write_preview(
+def test_worktree_create_executes_real_worktree_and_writes_agent_session(
     db_session, tmp_path
 ):
-    """Create skeleton validates hash but does not execute write git."""
+    """Create validates hash/preflight, runs one git worktree add, and persists workspace fields."""
 
-    allowed_root = tmp_path / "workspaces"
-    allowed_root.mkdir()
-    repository_root = allowed_root / "repo"
-    repository_root.mkdir()
-    (repository_root / ".git").mkdir()
-
-    project_id = uuid4()
-    session = _create_agent_session(db_session, project_id=project_id)
-    RepositoryWorkspaceRepository(db_session).upsert(
-        RepositoryWorkspace(
-            project_id=project_id,
-            root_path=str(repository_root),
-            display_name="Repo",
-            allowed_workspace_root=str(allowed_root),
-        )
+    project_id, session, repository_root, plan_service, plan = _create_bound_git_session(
+        db_session, tmp_path
     )
-    plan_service = WorktreePlanService(
-        agent_session_repository=AgentSessionRepository(db_session),
-        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
-    )
-    plan = plan_service.build_plan(agent_session_id=session.id)
 
     result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
         WorktreeCreateRequest(
@@ -1046,57 +1097,52 @@ def test_worktree_create_skeleton_returns_blocked_with_write_preview(
     assert result.project_id == project_id
     assert result.plan_hash == plan.plan_hash
     assert result.submitted_plan_hash == plan.plan_hash
-    assert result.create_status == "blocked"
-    assert result.blocked_reason == "workspace_create_not_implemented"
-    assert result.dry_run is True
+    assert result.create_status == "created"
+    assert result.blocked_reason is None
+    assert result.dry_run is False
     assert result.requires_user_confirmation is True
     assert result.worktree_path == plan.worktree_path
     assert result.branch_name == plan.branch_name
-    assert result.creates_worktree is False
-    assert result.creates_branch is False
-    assert result.runs_git is False
-    assert result.runs_write_git is False
-    assert result.mutates_agent_session_workspace is False
-    assert "workspace create execution is not implemented in P1-D-E-A" in result.blockers
+    assert result.base_commit_sha == _run_git(repository_root, "rev-parse", "HEAD").stdout.strip()
+    assert result.creates_worktree is True
+    assert result.creates_branch is True
+    assert result.runs_git is True
+    assert result.runs_write_git is True
+    assert result.mutates_agent_session_workspace is True
+    assert result.git_preflight is not None
+    assert result.git_preflight.read_only is True
+    assert result.git_preflight.repository_clean is True
+    assert result.git_preflight.planned_branch_exists is False
+    assert result.git_preflight.planned_worktree_registered is False
+    assert result.blockers == []
     assert len(result.write_command_preview) == 1
-    assert result.write_command_preview[0].argv[:4] == (
+    assert result.write_command_preview[0].argv == (
         "git",
         "worktree",
         "add",
         "-b",
+        plan.branch_name,
+        plan.worktree_path,
+        result.base_commit_sha,
     )
-    assert result.write_command_preview[0].mutates_repository is True
-    assert result.write_command_preview[0].execution_enabled is False
+    assert result.write_command_preview[0].execution_enabled is True
+    assert Path(plan.worktree_path).is_dir()
+    assert (Path(plan.worktree_path) / "README.md").read_text() == "fixture\n"
+    assert _run_git(repository_root, "branch", "--list", plan.branch_name).stdout.strip()
 
-    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
-    assert unchanged_session is not None
-    assert unchanged_session.workspace_path is None
-    assert unchanged_session.branch_name is None
+    updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert updated_session is not None
+    assert updated_session.workspace_type == "worktree"
+    assert updated_session.workspace_path == plan.worktree_path
+    assert updated_session.branch_name == plan.branch_name
+    assert updated_session.workspace_clean is True
+    assert updated_session.last_workspace_error is None
 
 
-def test_worktree_create_skeleton_rejects_stale_plan_hash(db_session, tmp_path):
-    """Create skeleton uses current-plan hash stale check before previewing writes."""
+def test_worktree_create_rejects_stale_plan_hash(db_session, tmp_path):
+    """Create uses current-plan hash stale check before any write git command."""
 
-    allowed_root = tmp_path / "workspaces"
-    allowed_root.mkdir()
-    repository_root = allowed_root / "repo"
-    repository_root.mkdir()
-    (repository_root / ".git").mkdir()
-
-    project_id = uuid4()
-    session = _create_agent_session(db_session, project_id=project_id)
-    RepositoryWorkspaceRepository(db_session).upsert(
-        RepositoryWorkspace(
-            project_id=project_id,
-            root_path=str(repository_root),
-            display_name="Repo",
-            allowed_workspace_root=str(allowed_root),
-        )
-    )
-    plan_service = WorktreePlanService(
-        agent_session_repository=AgentSessionRepository(db_session),
-        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
-    )
+    _, session, _, plan_service, _ = _create_bound_git_session(db_session, tmp_path)
 
     with pytest.raises(WorktreeCreateHashMismatchError):
         WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
@@ -1108,30 +1154,126 @@ def test_worktree_create_skeleton_rejects_stale_plan_hash(db_session, tmp_path):
         )
 
 
-def test_worktree_create_response_exposes_blocked_guard_fields(db_session, tmp_path):
-    """Create response exposes disabled write command preview and no-mutation fields."""
+def test_worktree_create_blocks_unsafe_preflight_and_writes_last_error(
+    db_session, tmp_path
+):
+    """Unsafe read-only preflight blocks writes and records last_workspace_error."""
 
-    allowed_root = tmp_path / "workspaces"
-    allowed_root.mkdir()
-    repository_root = allowed_root / "repo"
-    repository_root.mkdir()
-    (repository_root / ".git").mkdir()
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    preflight = WorktreeGitPreflight(
+        preflight_status="passed",
+        commands_run=["git status --porcelain"],
+        repository_is_git_worktree=True,
+        repository_head_sha="c" * 40,
+        repository_clean=False,
+        planned_branch_exists=False,
+        planned_worktree_registered=False,
+    )
 
-    project_id = uuid4()
-    session = _create_agent_session(db_session, project_id=project_id)
-    RepositoryWorkspaceRepository(db_session).upsert(
-        RepositoryWorkspace(
-            project_id=project_id,
-            root_path=str(repository_root),
-            display_name="Repo",
-            allowed_workspace_root=str(allowed_root),
+    result = WorktreeCreateService(
+        worktree_plan_service=plan_service,
+        git_preflight_service=FakeWorktreeGitPreflightService(preflight=preflight),
+    ).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
         )
     )
-    plan_service = WorktreePlanService(
-        agent_session_repository=AgentSessionRepository(db_session),
-        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
+
+    assert result.create_status == "blocked"
+    assert result.blocked_reason == "workspace_create_preflight_blocked"
+    assert "repository has uncommitted changes" in result.blockers
+    assert result.creates_worktree is False
+    assert result.creates_branch is False
+    assert result.runs_git is True
+    assert result.runs_write_git is False
+    assert result.mutates_agent_session_workspace is True
+    assert not Path(plan.worktree_path).exists()
+
+    updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert updated_session is not None
+    assert updated_session.workspace_path is None
+    assert updated_session.branch_name is None
+    assert updated_session.workspace_clean is None
+    assert updated_session.last_workspace_error is not None
+    assert updated_session.last_workspace_error.startswith("preflight blocked:")
+    assert "repository has uncommitted changes" in updated_session.last_workspace_error
+
+
+def test_worktree_create_write_failure_records_last_workspace_error(
+    db_session, tmp_path
+):
+    """Plan/preflight blockers persist last_workspace_error without running write git."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    Path(plan.worktree_path).mkdir(parents=True)
+    (Path(plan.worktree_path) / "occupied.txt").write_text("busy\n")
+
+    result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
     )
-    plan = plan_service.build_plan(agent_session_id=session.id)
+
+    assert result.create_status == "blocked"
+    assert result.blocked_reason == "workspace_create_preflight_blocked"
+    assert "worktree path already exists and is not empty" in result.blockers
+    assert result.runs_write_git is False
+    assert result.mutates_agent_session_workspace is True
+
+    updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert updated_session is not None
+    assert updated_session.workspace_path is None
+    assert updated_session.branch_name is None
+    assert updated_session.last_workspace_error is not None
+    assert "worktree path already exists and is not empty" in updated_session.last_workspace_error
+
+
+def test_worktree_create_write_command_failure_records_last_workspace_error(
+    db_session, tmp_path
+):
+    """If git worktree add fails, success fields stay unchanged and last error is persisted."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    failing_runner = FailingWriteCommandRunner()
+
+    result = WorktreeCreateService(
+        worktree_plan_service=plan_service,
+        write_command_runner=failing_runner,
+    ).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.create_status == "failed"
+    assert result.blocked_reason == "workspace_create_git_write_failed"
+    assert result.runs_write_git is True
+    assert result.runs_git is True
+    assert result.mutates_agent_session_workspace is True
+    assert "git worktree add failed: simulated worktree add failure" in result.blockers
+    assert len(failing_runner.calls) == 1
+    assert failing_runner.calls[0].argv[:4] == ("git", "worktree", "add", "-b")
+    assert not Path(plan.worktree_path).exists()
+
+    updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert updated_session is not None
+    assert updated_session.workspace_path is None
+    assert updated_session.branch_name is None
+    assert updated_session.workspace_clean is None
+    assert updated_session.last_workspace_error is not None
+    assert updated_session.last_workspace_error.startswith("git worktree add failed:")
+
+
+def test_worktree_create_response_exposes_created_guard_fields(db_session, tmp_path):
+    """Create response exposes preflight, write command, and mutation fields."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
     result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
         WorktreeCreateRequest(
             agent_session_id=session.id,
@@ -1143,44 +1285,24 @@ def test_worktree_create_response_exposes_blocked_guard_fields(db_session, tmp_p
     payload = WorktreeCreateResponse.from_result(result).model_dump(mode="json")
 
     assert payload["agent_session_id"] == str(session.id)
-    assert payload["project_id"] == str(project_id)
     assert payload["plan_hash"] == plan.plan_hash
     assert payload["submitted_plan_hash"] == plan.plan_hash
-    assert payload["create_status"] == "blocked"
-    assert payload["blocked_reason"] == "workspace_create_not_implemented"
-    assert payload["creates_worktree"] is False
-    assert payload["creates_branch"] is False
-    assert payload["runs_git"] is False
-    assert payload["runs_write_git"] is False
-    assert payload["mutates_agent_session_workspace"] is False
+    assert payload["create_status"] == "created"
+    assert payload["blocked_reason"] is None
+    assert payload["creates_worktree"] is True
+    assert payload["creates_branch"] is True
+    assert payload["runs_git"] is True
+    assert payload["runs_write_git"] is True
+    assert payload["mutates_agent_session_workspace"] is True
+    assert payload["git_preflight"]["read_only"] is True
     assert payload["write_command_preview"][0]["mutates_repository"] is True
-    assert payload["write_command_preview"][0]["execution_enabled"] is False
+    assert payload["write_command_preview"][0]["execution_enabled"] is True
 
 
-def test_worktree_create_endpoint_returns_blocked_skeleton(db_session, tmp_path):
-    """Route function returns the blocked create DTO without mutating the session."""
+def test_worktree_create_endpoint_creates_workspace(db_session, tmp_path):
+    """Route function creates the worktree and mutates the session workspace fields."""
 
-    allowed_root = tmp_path / "workspaces"
-    allowed_root.mkdir()
-    repository_root = allowed_root / "repo"
-    repository_root.mkdir()
-    (repository_root / ".git").mkdir()
-
-    project_id = uuid4()
-    session = _create_agent_session(db_session, project_id=project_id)
-    RepositoryWorkspaceRepository(db_session).upsert(
-        RepositoryWorkspace(
-            project_id=project_id,
-            root_path=str(repository_root),
-            display_name="Repo",
-            allowed_workspace_root=str(allowed_root),
-        )
-    )
-    plan_service = WorktreePlanService(
-        agent_session_repository=AgentSessionRepository(db_session),
-        repository_workspace_repository=RepositoryWorkspaceRepository(db_session),
-    )
-    plan = plan_service.build_plan(agent_session_id=session.id)
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
     create_service = WorktreeCreateService(worktree_plan_service=plan_service)
 
     response = create_agent_session_workspace(
@@ -1192,21 +1314,22 @@ def test_worktree_create_endpoint_returns_blocked_skeleton(db_session, tmp_path)
         create_service=create_service,
     )
 
-    assert response.create_status == "blocked"
-    assert response.blocked_reason == "workspace_create_not_implemented"
+    assert response.create_status == "created"
+    assert response.blocked_reason is None
     assert response.plan_hash == plan.plan_hash
-    assert response.creates_worktree is False
-    assert response.creates_branch is False
-    assert response.runs_git is False
-    assert response.runs_write_git is False
-    assert response.mutates_agent_session_workspace is False
-    assert response.write_command_preview[0].execution_enabled is False
+    assert response.creates_worktree is True
+    assert response.creates_branch is True
+    assert response.runs_git is True
+    assert response.runs_write_git is True
+    assert response.mutates_agent_session_workspace is True
+    assert response.git_preflight is not None
+    assert response.git_preflight.read_only is True
+    assert response.write_command_preview[0].execution_enabled is True
 
-    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
-    assert unchanged_session is not None
-    assert unchanged_session.workspace_path is None
-    assert unchanged_session.branch_name is None
-
+    updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert updated_session is not None
+    assert updated_session.workspace_path == plan.worktree_path
+    assert updated_session.branch_name == plan.branch_name
 
 def test_worktree_git_preflight_service_runs_only_read_only_commands():
     """Git preflight invokes only read-only allowlisted commands."""

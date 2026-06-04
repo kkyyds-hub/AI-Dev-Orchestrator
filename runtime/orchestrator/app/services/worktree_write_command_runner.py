@@ -1,18 +1,16 @@
-"""Write git command boundary previews for future worktree creation.
-
-P1-D-E-A intentionally defines command shape only.  This module does not import
-subprocess, expose a run method, execute git, or create worktrees/branches.
-"""
+"""Guarded write git command boundary for worktree creation."""
 
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from app.domain.worktree_create import WorktreeWriteCommandPreview
+from app.services.worktree_command_runner import WorktreeCommandResult
 
 
 class WorktreeWriteCommandRunner:
-    """Build deny-by-default previews for future mutating worktree commands."""
+    """Build and execute the single allowlisted mutating worktree command."""
 
     def __init__(self, *, default_timeout_seconds: int = 120) -> None:
         if default_timeout_seconds <= 0:
@@ -27,7 +25,7 @@ class WorktreeWriteCommandRunner:
         branch_name: str,
         base_ref: str,
     ) -> WorktreeWriteCommandPreview:
-        """Preview the future atomic command: git worktree add -b <branch> <path> <base>."""
+        """Build the atomic command: git worktree add -b <branch> <path> <base>."""
 
         return self._preview(
             cwd=repository_path,
@@ -41,6 +39,34 @@ class WorktreeWriteCommandRunner:
                 base_ref,
             ),
             command_kind="git_worktree_add_new_branch",
+        )
+
+    def run(self, preview: WorktreeWriteCommandPreview) -> WorktreeCommandResult:
+        """Execute one allowlisted mutating worktree command."""
+
+        self._ensure_write_allowlisted(preview)
+        try:
+            completed = subprocess.run(
+                preview.argv,
+                cwd=preview.cwd,
+                capture_output=True,
+                text=True,
+                timeout=preview.timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return WorktreeCommandResult(
+                spec=preview,
+                return_code=124,
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or "git write command timed out",
+                timed_out=True,
+            )
+        return WorktreeCommandResult(
+            spec=preview,
+            return_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
         )
 
     def _preview(
@@ -63,5 +89,30 @@ class WorktreeWriteCommandRunner:
             timeout_seconds=self.default_timeout_seconds,
             mutates_repository=True,
             command_kind=command_kind,
-            execution_enabled=False,
+            execution_enabled=True,
         )
+
+    @staticmethod
+    def _ensure_write_allowlisted(preview: WorktreeWriteCommandPreview) -> None:
+        """Reject arbitrary mutating commands before subprocess execution."""
+
+        argv = preview.argv
+        if not preview.execution_enabled:
+            raise ValueError("write command execution is disabled")
+        if not preview.mutates_repository:
+            raise ValueError("write command must be marked as mutating")
+        if preview.command_kind != "git_worktree_add_new_branch":
+            raise ValueError("write command kind is not allowlisted")
+        if len(argv) != 7:
+            raise ValueError("git worktree add command shape is invalid")
+        if argv[:4] != ("git", "worktree", "add", "-b"):
+            raise ValueError("git write command is not allowlisted")
+        branch_name = argv[4]
+        worktree_path = Path(argv[5]).expanduser()
+        base_ref = argv[6]
+        if branch_name.startswith("-"):
+            raise ValueError("branch name must not start with '-'")
+        if not worktree_path.is_absolute():
+            raise ValueError("worktree path must be absolute")
+        if base_ref.startswith("-"):
+            raise ValueError("base ref must not start with '-'")

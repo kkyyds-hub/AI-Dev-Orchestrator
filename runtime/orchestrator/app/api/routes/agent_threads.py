@@ -341,7 +341,7 @@ class WorktreePrepareResponse(BaseModel):
 
 
 class WorktreeCreateRequestBody(BaseModel):
-    """Request body for the blocked P1-D-E-A workspace create skeleton."""
+    """Request body for guarded P1-D-E-B workspace creation."""
 
     plan_hash: str = Field(min_length=64, max_length=64)
     user_confirmed: bool = True
@@ -368,7 +368,7 @@ class WorktreeWriteCommandPreviewResponse(BaseModel):
 
 
 class WorktreeCreateResponse(BaseModel):
-    """Blocked response for future real workspace create execution."""
+    """Response for guarded real workspace create execution."""
 
     agent_session_id: UUID
     project_id: UUID
@@ -376,7 +376,7 @@ class WorktreeCreateResponse(BaseModel):
     plan_hash: str
     submitted_plan_hash: str
     create_status: str
-    blocked_reason: str
+    blocked_reason: str | None = None
     dry_run: bool
     requires_user_confirmation: bool
     worktree_path: str | None = None
@@ -384,6 +384,7 @@ class WorktreeCreateResponse(BaseModel):
     base_branch: str | None = None
     base_commit_sha: str | None = None
     checked_at: datetime
+    git_preflight: WorktreeGitPreflightResponse | None = None
     write_command_preview: list[WorktreeWriteCommandPreviewResponse] = Field(
         default_factory=list
     )
@@ -401,6 +402,10 @@ class WorktreeCreateResponse(BaseModel):
         """Convert domain create result to API DTO."""
 
         payload = result.model_dump()
+        if result.git_preflight is not None:
+            payload["git_preflight"] = WorktreeGitPreflightResponse.from_preflight(
+                result.git_preflight
+            )
         payload["write_command_preview"] = [
             WorktreeWriteCommandPreviewResponse.from_preview(item)
             for item in result.write_command_preview
@@ -460,7 +465,7 @@ def get_worktree_create_service(
         WorktreePlanService, Depends(get_worktree_plan_service)
     ],
 ) -> WorktreeCreateService:
-    """Create the P1-D-E-A blocked workspace create dependency."""
+    """Create the P1-D-E-B guarded workspace create dependency."""
 
     return WorktreeCreateService(
         worktree_plan_service=worktree_plan_service,
@@ -606,7 +611,7 @@ def prepare_agent_session_workspace(
 @router.post(
     "/sessions/{session_id}/workspace/create",
     response_model=WorktreeCreateResponse,
-    summary="Validate and block future workspace create execution",
+    summary="Create a guarded per-session workspace worktree",
 )
 def create_agent_session_workspace(
     session_id: UUID,
@@ -616,7 +621,7 @@ def create_agent_session_workspace(
         Depends(get_worktree_create_service),
     ],
 ) -> WorktreeCreateResponse:
-    """Return blocked/not_implemented; no git, branch, worktree, or session mutation occurs."""
+    """Create a worktree only after confirmation, hash match, and safe preflight."""
 
     try:
         result = create_service.create_workspace(
