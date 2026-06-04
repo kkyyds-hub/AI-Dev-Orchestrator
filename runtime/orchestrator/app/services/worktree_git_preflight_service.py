@@ -29,6 +29,9 @@ class WorktreeGitPreflightService:
         """Read current repository status without mutating refs, branches, or worktrees."""
 
         specs = [
+            self.command_runner.git_rev_parse_is_inside_work_tree(
+                repository_path=repository_path,
+            ),
             self.command_runner.git_rev_parse(
                 repository_path=repository_path,
                 ref="HEAD",
@@ -42,9 +45,10 @@ class WorktreeGitPreflightService:
         ]
         results = [self.command_runner.run(spec) for spec in specs]
         errors = self._collect_errors(results)
-        status_result = results[1]
-        worktree_result = results[2]
-        branch_result = results[3]
+        inside_work_tree_result = results[0]
+        status_result = results[2]
+        worktree_result = results[3]
+        branch_result = results[4]
         registered_worktree_paths = self._parse_worktree_paths(worktree_result.stdout)
         planned_worktree_registered = (
             str(Path(planned_worktree_path).expanduser()) in registered_worktree_paths
@@ -68,8 +72,13 @@ class WorktreeGitPreflightService:
         return WorktreeGitPreflight(
             preflight_status="failed" if errors else "passed",
             commands_run=[self._format_command(spec) for spec in specs],
+            repository_is_git_worktree=(
+                inside_work_tree_result.stdout.strip().lower() == "true"
+                if inside_work_tree_result.return_code == 0
+                else None
+            ),
             repository_head_sha=(
-                results[0].stdout.strip() if results[0].return_code == 0 else None
+                results[1].stdout.strip() if results[1].return_code == 0 else None
             ),
             repository_clean=repository_clean,
             planned_branch_exists=planned_branch_exists,

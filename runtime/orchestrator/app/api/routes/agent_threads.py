@@ -275,6 +275,7 @@ class WorktreeGitPreflightResponse(BaseModel):
     preflight_status: str
     read_only: bool
     commands_run: list[str] = Field(default_factory=list)
+    repository_is_git_worktree: bool | None = None
     repository_head_sha: str | None = None
     repository_clean: bool | None = None
     planned_branch_exists: bool | None = None

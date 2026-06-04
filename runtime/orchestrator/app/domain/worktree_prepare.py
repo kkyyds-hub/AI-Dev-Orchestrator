@@ -17,6 +17,7 @@ class WorktreeGitPreflight(DomainModel):
     preflight_status: str = "not_run"
     read_only: bool = True
     commands_run: list[str] = Field(default_factory=list)
+    repository_is_git_worktree: bool | None = None
     repository_head_sha: str | None = Field(default=None, max_length=80)
     repository_clean: bool | None = None
     planned_branch_exists: bool | None = None

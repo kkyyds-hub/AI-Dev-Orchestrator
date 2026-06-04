@@ -54,6 +54,19 @@ class WorktreeCommandRunner:
             mutates_repository=False,
         )
 
+    def git_rev_parse_is_inside_work_tree(
+        self,
+        *,
+        repository_path: str,
+    ) -> WorktreeCommandSpec:
+        """Allowlisted command: git rev-parse --is-inside-work-tree."""
+
+        return self._spec(
+            cwd=repository_path,
+            argv=("git", "rev-parse", "--is-inside-work-tree"),
+            mutates_repository=False,
+        )
+
     def run(self, spec: WorktreeCommandSpec) -> WorktreeCommandResult:
         """Execute one allowlisted read-only git command."""
 
@@ -137,6 +150,8 @@ class WorktreeCommandRunner:
         if spec.mutates_repository:
             raise ValueError("mutating git command specs are not allowed")
         argv = spec.argv
+        if argv == ("git", "rev-parse", "--is-inside-work-tree"):
+            return
         if argv == ("git", "rev-parse", "HEAD"):
             return
         if argv == ("git", "status", "--porcelain"):

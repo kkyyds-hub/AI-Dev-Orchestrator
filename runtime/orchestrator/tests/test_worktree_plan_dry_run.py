@@ -98,11 +98,13 @@ class FakeWorktreeGitPreflightService:
         self.preflight = preflight or WorktreeGitPreflight(
             preflight_status="passed",
             commands_run=[
+                "git rev-parse --is-inside-work-tree",
                 "git rev-parse HEAD",
                 "git status --porcelain",
                 "git worktree list --porcelain",
                 "git branch --list session/*",
             ],
+            repository_is_git_worktree=True,
             repository_head_sha="a" * 40,
             repository_clean=True,
             planned_branch_exists=False,
@@ -137,6 +139,18 @@ class FakeReadOnlyCommandRunner:
 
     def __init__(self) -> None:
         self.run_specs: list[WorktreeCommandSpec] = []
+
+    def git_rev_parse_is_inside_work_tree(
+        self,
+        *,
+        repository_path: str,
+    ) -> WorktreeCommandSpec:
+        return WorktreeCommandSpec(
+            argv=("git", "rev-parse", "--is-inside-work-tree"),
+            cwd=repository_path,
+            timeout_seconds=self.default_timeout_seconds,
+            mutates_repository=False,
+        )
 
     def git_rev_parse(self, *, repository_path: str, ref: str) -> WorktreeCommandSpec:
         return WorktreeCommandSpec(
@@ -173,6 +187,7 @@ class FakeReadOnlyCommandRunner:
     def run(self, spec: WorktreeCommandSpec) -> WorktreeCommandResult:
         self.run_specs.append(spec)
         stdout_by_argv = {
+            ("git", "rev-parse", "--is-inside-work-tree"): "true\n",
             ("git", "rev-parse", "HEAD"): "b" * 40 + "\n",
             ("git", "status", "--porcelain"): "",
             (
@@ -665,6 +680,7 @@ def test_worktree_prepare_skeleton_returns_blocked_for_current_hash(
     assert result.git_preflight is not None
     assert result.git_preflight.read_only is True
     assert result.git_preflight.preflight_status == "passed"
+    assert result.git_preflight.repository_is_git_worktree is True
     assert result.git_preflight.repository_clean is True
     assert result.git_preflight.planned_branch_exists is False
     assert result.git_preflight.planned_worktree_registered is False
@@ -797,7 +813,9 @@ def test_worktree_prepare_response_exposes_blocked_guard_fields(db_session, tmp_
     assert payload["mutates_agent_session_workspace"] is False
     assert payload["git_preflight"]["read_only"] is True
     assert payload["git_preflight"]["preflight_status"] == "passed"
+    assert payload["git_preflight"]["repository_is_git_worktree"] is True
     assert payload["git_preflight"]["commands_run"] == [
+        "git rev-parse --is-inside-work-tree",
         "git rev-parse HEAD",
         "git status --porcelain",
         "git worktree list --porcelain",
@@ -852,6 +870,7 @@ def test_worktree_prepare_endpoint_returns_blocked_skeleton(db_session, tmp_path
     assert response.runs_write_git is False
     assert response.git_preflight is not None
     assert response.git_preflight.read_only is True
+    assert response.git_preflight.repository_is_git_worktree is True
     assert response.mutates_agent_session_workspace is False
 
     unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
@@ -871,6 +890,7 @@ def test_worktree_git_preflight_service_runs_only_read_only_commands():
     )
 
     assert [spec.argv for spec in runner.run_specs] == [
+        ("git", "rev-parse", "--is-inside-work-tree"),
         ("git", "rev-parse", "HEAD"),
         ("git", "status", "--porcelain"),
         ("git", "worktree", "list", "--porcelain"),
@@ -879,6 +899,7 @@ def test_worktree_git_preflight_service_runs_only_read_only_commands():
     assert all(not spec.mutates_repository for spec in runner.run_specs)
     assert preflight.preflight_status == "passed"
     assert preflight.read_only is True
+    assert preflight.repository_is_git_worktree is True
     assert preflight.repository_head_sha == "b" * 40
     assert preflight.repository_clean is True
     assert preflight.planned_branch_exists is False
@@ -886,6 +907,7 @@ def test_worktree_git_preflight_service_runs_only_read_only_commands():
     assert preflight.registered_worktree_paths == ["/tmp/repo"]
     assert preflight.errors == []
     assert preflight.commands_run == [
+        "git rev-parse --is-inside-work-tree",
         "git rev-parse HEAD",
         "git status --porcelain",
         "git worktree list --porcelain",
@@ -899,6 +921,9 @@ def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_pat
     runner = WorktreeCommandRunner(default_timeout_seconds=30)
     repository_path = str(tmp_path / "repo")
 
+    inside_work_tree = runner.git_rev_parse_is_inside_work_tree(
+        repository_path=repository_path,
+    )
     rev_parse = runner.git_rev_parse(repository_path=repository_path, ref="HEAD")
     status = runner.git_status_porcelain(repository_path=repository_path)
     worktree_list = runner.git_worktree_list(repository_path=repository_path)
@@ -907,13 +932,14 @@ def test_worktree_command_runner_exposes_deny_by_default_allowlist_specs(tmp_pat
         pattern="session/*",
     )
 
+    assert inside_work_tree.argv == ("git", "rev-parse", "--is-inside-work-tree")
     assert rev_parse.argv == ("git", "rev-parse", "HEAD")
     assert status.argv == ("git", "status", "--porcelain")
     assert worktree_list.argv == ("git", "worktree", "list", "--porcelain")
     assert branch_list.argv == ("git", "branch", "--list", "session/*")
     assert all(
         not spec.mutates_repository
-        for spec in [rev_parse, status, worktree_list, branch_list]
+        for spec in [inside_work_tree, rev_parse, status, worktree_list, branch_list]
     )
     assert rev_parse.timeout_seconds == 30
 
