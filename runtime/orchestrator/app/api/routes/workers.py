@@ -99,6 +99,12 @@ class WorkerRunOnceResponse(BaseModel):
     agent_session_status: str | None = None
     agent_review_status: str | None = None
     agent_current_phase: str | None = None
+    agent_type: str | None = None
+    runtime_type: str | None = None
+    runtime_handle_id: str | None = None
+    coding_status: str | None = None
+    activity_state: str | None = None
+    branch_name: str | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -206,6 +212,12 @@ class WorkerRunOnceResponse(BaseModel):
             agent_session_status=result.agent_session_status,
             agent_review_status=result.agent_review_status,
             agent_current_phase=result.agent_current_phase,
+            agent_type=result.agent_type,
+            runtime_type=result.runtime_type,
+            runtime_handle_id=result.runtime_handle_id,
+            coding_status=result.coding_status,
+            activity_state=result.activity_state,
+            branch_name=result.branch_name,
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
             task_status=result.task.status if result.task else None,

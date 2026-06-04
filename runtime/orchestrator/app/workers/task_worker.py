@@ -115,6 +115,12 @@ class WorkerRunResult:
     agent_session_status: str | None = None
     agent_review_status: str | None = None
     agent_current_phase: str | None = None
+    agent_type: str | None = None
+    runtime_type: str | None = None
+    runtime_handle_id: str | None = None
+    coding_status: str | None = None
+    activity_state: str | None = None
+    branch_name: str | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -428,6 +434,12 @@ class TaskWorker:
         agent_session_status: str | None = None
         agent_review_status: str | None = None
         agent_current_phase: str | None = None
+        agent_type: str | None = None
+        runtime_type: str | None = None
+        runtime_handle_id: str | None = None
+        coding_status: str | None = None
+        activity_state: str | None = None
+        branch_name: str | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -664,6 +676,28 @@ class TaskWorker:
                 agent_session_status = agent_session.status.value
                 agent_review_status = agent_session.review_status.value
                 agent_current_phase = agent_session.current_phase.value
+                agent_type = (
+                    agent_session.agent_type.value
+                    if agent_session.agent_type is not None
+                    else None
+                )
+                runtime_type = (
+                    agent_session.runtime_type.value
+                    if agent_session.runtime_type is not None
+                    else None
+                )
+                runtime_handle_id = agent_session.runtime_handle_id
+                coding_status = (
+                    agent_session.coding_status.value
+                    if agent_session.coding_status is not None
+                    else None
+                )
+                activity_state = (
+                    agent_session.activity_state.value
+                    if agent_session.activity_state is not None
+                    else None
+                )
+                branch_name = agent_session.branch_name
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -785,6 +819,28 @@ class TaskWorker:
                 agent_session_status = agent_session.status.value
                 agent_review_status = agent_session.review_status.value
                 agent_current_phase = agent_session.current_phase.value
+                agent_type = (
+                    agent_session.agent_type.value
+                    if agent_session.agent_type is not None
+                    else None
+                )
+                runtime_type = (
+                    agent_session.runtime_type.value
+                    if agent_session.runtime_type is not None
+                    else None
+                )
+                runtime_handle_id = agent_session.runtime_handle_id
+                coding_status = (
+                    agent_session.coding_status.value
+                    if agent_session.coding_status is not None
+                    else None
+                )
+                activity_state = (
+                    agent_session.activity_state.value
+                    if agent_session.activity_state is not None
+                    else None
+                )
+                branch_name = agent_session.branch_name
             self._log_finalization(
                 task=task,
                 run=run,
@@ -924,6 +980,12 @@ class TaskWorker:
                 agent_session_status=agent_session_status,
                 agent_review_status=agent_review_status,
                 agent_current_phase=agent_current_phase,
+                agent_type=agent_type,
+                runtime_type=runtime_type,
+                runtime_handle_id=runtime_handle_id,
+                coding_status=coding_status,
+                activity_state=activity_state,
+                branch_name=branch_name,
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier

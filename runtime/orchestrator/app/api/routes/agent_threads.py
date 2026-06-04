@@ -34,6 +34,12 @@ class AgentSessionResponse(BaseModel):
     latest_intervention_type: str | None = None
     latest_note_event_type: str | None = None
     summary: str | None = None
+    agent_type: str | None = None
+    runtime_type: str | None = None
+    runtime_handle_id: str | None = None
+    coding_status: str | None = None
+    activity_state: str | None = None
+    branch_name: str | None = None
     started_at: datetime
     updated_at: datetime
     finished_at: datetime | None = None
@@ -58,6 +64,18 @@ class AgentSessionResponse(BaseModel):
             latest_intervention_type=session.latest_intervention_type,
             latest_note_event_type=session.latest_note_event_type,
             summary=session.summary,
+            agent_type=session.agent_type.value if session.agent_type is not None else None,
+            runtime_type=(
+                session.runtime_type.value if session.runtime_type is not None else None
+            ),
+            runtime_handle_id=session.runtime_handle_id,
+            coding_status=(
+                session.coding_status.value if session.coding_status is not None else None
+            ),
+            activity_state=(
+                session.activity_state.value if session.activity_state is not None else None
+            ),
+            branch_name=session.branch_name,
             started_at=session.started_at,
             updated_at=session.updated_at,
             finished_at=session.finished_at,

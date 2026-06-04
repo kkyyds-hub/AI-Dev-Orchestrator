@@ -14,6 +14,10 @@ from app.domain.agent_session import (
     AgentSessionPhase,
     AgentSessionReviewStatus,
     AgentSessionStatus,
+    AgentType,
+    CodingSessionActivityState,
+    CodingSessionStatus,
+    RuntimeType,
 )
 from app.domain.project_role import ProjectRoleCode
 
@@ -37,6 +41,12 @@ class AgentSessionRepository:
         context_checkpoint_id: str | None,
         context_rehydrated: bool,
         summary: str | None,
+        agent_type: AgentType | None = None,
+        runtime_type: RuntimeType | None = None,
+        runtime_handle_id: str | None = None,
+        coding_status: CodingSessionStatus | None = None,
+        activity_state: CodingSessionActivityState | None = None,
+        branch_name: str | None = None,
     ) -> AgentSession:
         """Create and persist one new session row."""
 
@@ -51,6 +61,16 @@ class AgentSessionRepository:
             context_checkpoint_id=context_checkpoint_id,
             context_rehydrated=context_rehydrated,
             summary=summary,
+            agent_type=agent_type,
+            runtime_type=runtime_type,
+            runtime_handle_id=(
+                runtime_handle_id.strip() or None
+                if runtime_handle_id is not None
+                else None
+            ),
+            coding_status=coding_status,
+            activity_state=activity_state,
+            branch_name=branch_name.strip() or None if branch_name is not None else None,
             started_at=utc_now(),
             updated_at=utc_now(),
         )
@@ -107,9 +127,15 @@ class AgentSessionRepository:
         latest_intervention_type: str | None = None,
         latest_note_event_type: str | None = None,
         summary: str | None = None,
+        agent_type: AgentType | None = None,
+        runtime_type: RuntimeType | None = None,
+        runtime_handle_id: str | None = None,
+        coding_status: CodingSessionStatus | None = None,
+        activity_state: CodingSessionActivityState | None = None,
+        branch_name: str | None = None,
         finished: bool = False,
     ) -> AgentSession:
-        """Update status-phase fields and return the latest session snapshot."""
+        """Update session status/coding fields and return the latest snapshot."""
 
         row = self.session.get(AgentSessionTable, session_id)
         if row is None:
@@ -128,6 +154,18 @@ class AgentSessionRepository:
             row.latest_note_event_type = latest_note_event_type.strip() or None
         if summary is not None:
             row.summary = summary.strip() or None
+        if agent_type is not None:
+            row.agent_type = agent_type
+        if runtime_type is not None:
+            row.runtime_type = runtime_type
+        if runtime_handle_id is not None:
+            row.runtime_handle_id = runtime_handle_id.strip() or None
+        if coding_status is not None:
+            row.coding_status = coding_status
+        if activity_state is not None:
+            row.activity_state = activity_state
+        if branch_name is not None:
+            row.branch_name = branch_name.strip() or None
         row.updated_at = utc_now()
         if finished:
             row.finished_at = utc_now()
@@ -153,6 +191,12 @@ class AgentSessionRepository:
             latest_intervention_type=row.latest_intervention_type,
             latest_note_event_type=row.latest_note_event_type,
             summary=row.summary,
+            agent_type=row.agent_type,
+            runtime_type=row.runtime_type,
+            runtime_handle_id=row.runtime_handle_id,
+            coding_status=row.coding_status,
+            activity_state=row.activity_state,
+            branch_name=row.branch_name,
             started_at=ensure_utc_datetime(row.started_at),
             updated_at=ensure_utc_datetime(row.updated_at),
             finished_at=ensure_utc_datetime(row.finished_at),

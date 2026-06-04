@@ -39,6 +39,75 @@ class AgentSessionPhase(StrEnum):
     FINALIZED = "finalized"
 
 
+class AgentType(StrEnum):
+    """P0 coding-session agent identity visible on AgentSession."""
+
+    CLAUDE_CODE = "claude_code"
+    CODEX = "codex"
+    OPENCODE = "opencode"
+    OPENAI_PROVIDER = "openai_provider"
+    SHELL = "shell"
+    SIMULATE = "simulate"
+
+
+class RuntimeType(StrEnum):
+    """P0 coding-session runtime identity visible on AgentSession."""
+
+    TMUX = "tmux"
+    SUBPROCESS = "subprocess"
+    DOCKER = "docker"
+    PROCESS = "process"
+
+
+class CodingSessionStatus(StrEnum):
+    """P0 coding-session execution status snapshot."""
+
+    SPAWNING = "spawning"
+    WORKING = "working"
+    IDLE = "idle"
+    NEEDS_INPUT = "needs_input"
+    STUCK = "stuck"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    TERMINATED = "terminated"
+
+
+class CodingSessionActivityState(StrEnum):
+    """P0 coding-session activity state snapshot."""
+
+    ACTIVE = "active"
+    READY = "ready"
+    IDLE = "idle"
+    WAITING_INPUT = "waiting_input"
+    BLOCKED = "blocked"
+    EXITED = "exited"
+
+
+class WorkspaceType(StrEnum):
+    """Reserved workspace-axis values; P1 leaves AgentSession.workspace_type unmodeled."""
+
+    WORKTREE = "worktree"
+    CLONE = "clone"
+    IN_PLACE = "in_place"
+    READ_ONLY = "read_only"
+
+
+class DeliveryStatus(StrEnum):
+    """Reserved delivery-axis values; P1/P2 leave AgentSession.delivery_status unmodeled."""
+
+    NONE = "none"
+    BRANCH_CREATED = "branch_created"
+    PR_OPENED = "pr_opened"
+    CI_PENDING = "ci_pending"
+    CI_PASSING = "ci_passing"
+    CI_FAILED = "ci_failed"
+    REVIEW_PENDING = "review_pending"
+    REVIEW_APPROVED = "review_approved"
+    CHANGES_REQUESTED = "changes_requested"
+    MERGED = "merged"
+    CLOSED = "closed"
+
+
 class AgentSession(DomainModel):
     """Persisted Day11 agent-thread session."""
 
@@ -55,6 +124,12 @@ class AgentSession(DomainModel):
     latest_intervention_type: str | None = Field(default=None, max_length=80)
     latest_note_event_type: str | None = Field(default=None, max_length=80)
     summary: str | None = Field(default=None, max_length=2_000)
+    agent_type: AgentType | None = None
+    runtime_type: RuntimeType | None = None
+    runtime_handle_id: str | None = Field(default=None, max_length=200)
+    coding_status: CodingSessionStatus | None = None
+    activity_state: CodingSessionActivityState | None = None
+    branch_name: str | None = Field(default=None, max_length=200)
     started_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
@@ -64,6 +139,8 @@ class AgentSession(DomainModel):
         "latest_intervention_type",
         "latest_note_event_type",
         "summary",
+        "runtime_handle_id",
+        "branch_name",
     )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:

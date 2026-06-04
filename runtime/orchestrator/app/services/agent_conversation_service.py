@@ -11,6 +11,10 @@ from app.domain.agent_session import (
     AgentSessionPhase,
     AgentSessionReviewStatus,
     AgentSessionStatus,
+    AgentType,
+    CodingSessionActivityState,
+    CodingSessionStatus,
+    RuntimeType,
 )
 from app.domain.project_role import ProjectRoleCode
 from app.domain.run import RunFailureCategory, RunStatus
@@ -61,6 +65,10 @@ class AgentConversationService:
             context_checkpoint_id=context_seed.context_checkpoint_id,
             context_rehydrated=context_seed.context_rehydrated,
             summary="Day11 session started from worker main chain.",
+            agent_type=AgentType.OPENAI_PROVIDER,
+            runtime_type=RuntimeType.SUBPROCESS,
+            coding_status=CodingSessionStatus.WORKING,
+            activity_state=CodingSessionActivityState.ACTIVE,
         )
         self._append_message(
             session=session,
@@ -340,16 +348,21 @@ class AgentConversationService:
 
         session = self._require_session(session_id)
         next_status = AgentSessionStatus.COMPLETED
+        next_coding_status = CodingSessionStatus.COMPLETED
         if run_status == RunStatus.CANCELLED:
             next_status = AgentSessionStatus.BLOCKED
+            next_coding_status = CodingSessionStatus.TERMINATED
         elif run_status == RunStatus.FAILED:
             next_status = AgentSessionStatus.FAILED
+            next_coding_status = CodingSessionStatus.FAILED
 
         session = self.agent_session_repository.update_status(
             session.id,
             status=next_status,
             current_phase=AgentSessionPhase.FINALIZED,
             summary=final_summary,
+            coding_status=next_coding_status,
+            activity_state=CodingSessionActivityState.EXITED,
             finished=True,
         )
         self._append_message(

@@ -24,6 +24,10 @@ from app.domain.agent_session import (
     AgentSessionPhase,
     AgentSessionReviewStatus,
     AgentSessionStatus,
+    AgentType,
+    CodingSessionActivityState,
+    CodingSessionStatus,
+    RuntimeType,
 )
 from app.domain.change_batch import ChangeBatchStatus
 from app.domain.commit_candidate import CommitCandidateStatus
@@ -973,6 +977,44 @@ class AgentSessionTable(ORMBase):
     latest_intervention_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
     latest_note_event_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    agent_type: Mapped[AgentType | None] = mapped_column(
+        Enum(
+            AgentType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    runtime_type: Mapped[RuntimeType | None] = mapped_column(
+        Enum(
+            RuntimeType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    runtime_handle_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    coding_status: Mapped[CodingSessionStatus | None] = mapped_column(
+        Enum(
+            CodingSessionStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    activity_state: Mapped[CodingSessionActivityState | None] = mapped_column(
+        Enum(
+            CodingSessionActivityState,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    branch_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
