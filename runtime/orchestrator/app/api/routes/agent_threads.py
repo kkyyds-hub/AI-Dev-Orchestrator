@@ -13,6 +13,10 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
+from app.domain.worktree_cleanup import (
+    WorktreeCleanupCommandPreview,
+    WorktreeCleanupResult,
+)
 from app.domain.worktree_create import WorktreeCreateResult, WorktreeWriteCommandPreview
 from app.domain.worktree_plan import WorktreePlan
 from app.domain.worktree_plan_confirmation import WorktreePlanConfirmationReceipt
@@ -21,6 +25,12 @@ from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
 from app.services.agent_conversation_service import AgentConversationService
+from app.services.worktree_cleanup_service import (
+    WorktreeCleanupError,
+    WorktreeCleanupHashMismatchError,
+    WorktreeCleanupRequest,
+    WorktreeCleanupService,
+)
 from app.services.worktree_create_service import (
     WorktreeCreateError,
     WorktreeCreateHashMismatchError,
@@ -413,6 +423,75 @@ class WorktreeCreateResponse(BaseModel):
         return cls(**payload)
 
 
+class WorktreeCleanupRequestBody(BaseModel):
+    """Request body for blocked P1-E-A workspace cleanup preview."""
+
+    plan_hash: str = Field(min_length=64, max_length=64)
+    user_confirmed: bool = True
+
+
+class WorktreeCleanupCommandPreviewResponse(BaseModel):
+    """Disabled preview of one future cleanup command."""
+
+    argv: tuple[str, ...]
+    cwd: str
+    timeout_seconds: int
+    mutates_repository: bool
+    command_kind: str
+    execution_enabled: bool
+
+    @classmethod
+    def from_preview(
+        cls,
+        preview: WorktreeCleanupCommandPreview,
+    ) -> "WorktreeCleanupCommandPreviewResponse":
+        """Convert domain cleanup command preview to API DTO."""
+
+        return cls(**preview.model_dump())
+
+
+class WorktreeCleanupResponse(BaseModel):
+    """Blocked response for future workspace cleanup execution."""
+
+    agent_session_id: UUID
+    project_id: UUID
+    repository_workspace_id: UUID | None = None
+    plan_hash: str
+    submitted_plan_hash: str
+    cleanup_status: str
+    blocked_reason: str
+    dry_run: bool
+    requires_user_confirmation: bool
+    worktree_path: str | None = None
+    branch_name: str | None = None
+    base_branch: str | None = None
+    base_commit_sha: str | None = None
+    checked_at: datetime
+    cleanup_command_preview: list[WorktreeCleanupCommandPreviewResponse] = Field(
+        default_factory=list
+    )
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    next_action: str
+    removes_worktree: bool
+    deletes_branch: bool
+    deletes_directory: bool
+    runs_git: bool
+    runs_write_git: bool
+    mutates_agent_session_workspace: bool
+
+    @classmethod
+    def from_result(cls, result: WorktreeCleanupResult) -> "WorktreeCleanupResponse":
+        """Convert domain cleanup result to API DTO."""
+
+        payload = result.model_dump()
+        payload["cleanup_command_preview"] = [
+            WorktreeCleanupCommandPreviewResponse.from_preview(item)
+            for item in result.cleanup_command_preview
+        ]
+        return cls(**payload)
+
+
 def get_agent_conversation_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> AgentConversationService:
@@ -468,6 +547,18 @@ def get_worktree_create_service(
     """Create the P1-D-E-B guarded workspace create dependency."""
 
     return WorktreeCreateService(
+        worktree_plan_service=worktree_plan_service,
+    )
+
+
+def get_worktree_cleanup_service(
+    worktree_plan_service: Annotated[
+        WorktreePlanService, Depends(get_worktree_plan_service)
+    ],
+) -> WorktreeCleanupService:
+    """Create the P1-E-A blocked workspace cleanup dependency."""
+
+    return WorktreeCleanupService(
         worktree_plan_service=worktree_plan_service,
     )
 
@@ -651,6 +742,51 @@ def create_agent_session_workspace(
         raise
 
     return WorktreeCreateResponse.from_result(result)
+
+
+@router.post(
+    "/sessions/{session_id}/workspace/cleanup",
+    response_model=WorktreeCleanupResponse,
+    summary="Preview and block future workspace cleanup execution",
+)
+def cleanup_agent_session_workspace(
+    session_id: UUID,
+    request: WorktreeCleanupRequestBody,
+    cleanup_service: Annotated[
+        WorktreeCleanupService,
+        Depends(get_worktree_cleanup_service),
+    ],
+) -> WorktreeCleanupResponse:
+    """Return blocked cleanup preview; no worktree, branch, directory, or session mutation occurs."""
+
+    try:
+        result = cleanup_service.cleanup_workspace(
+            WorktreeCleanupRequest(
+                agent_session_id=session_id,
+                plan_hash=request.plan_hash,
+                user_confirmed=request.user_confirmed,
+            )
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "Agent session not found" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreeCleanupHashMismatchError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if isinstance(exc, WorktreeCleanupError):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=detail,
+            ) from exc
+        raise
+
+    return WorktreeCleanupResponse.from_result(result)
 
 
 @router.get(

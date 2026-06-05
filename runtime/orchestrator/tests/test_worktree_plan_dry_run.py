@@ -15,12 +15,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.agent_threads import (
+    WorktreeCleanupRequestBody,
+    WorktreeCleanupResponse,
     WorktreeCreateRequestBody,
     WorktreeCreateResponse,
     WorktreePlanConfirmationReceiptResponse,
     WorktreePlanResponse,
     WorktreePrepareRequestBody,
     WorktreePrepareResponse,
+    cleanup_agent_session_workspace,
     create_agent_session_workspace,
     prepare_agent_session_workspace,
 )
@@ -38,6 +41,11 @@ from app.services.worktree_command_runner import (
     WorktreeCommandResult,
     WorktreeCommandRunner,
     WorktreeCommandSpec,
+)
+from app.services.worktree_cleanup_service import (
+    WorktreeCleanupHashMismatchError,
+    WorktreeCleanupRequest,
+    WorktreeCleanupService,
 )
 from app.services.worktree_create_service import (
     WorktreeCreateHashMismatchError,
@@ -1437,3 +1445,149 @@ def test_worktree_command_runner_rejects_arbitrary_or_mutating_specs(tmp_path):
                 mutates_repository=False,
             )
         )
+
+
+def test_worktree_cleanup_returns_blocked_preview_without_mutation(db_session, tmp_path):
+    """P1-E-A cleanup is a blocked skeleton and never removes worktree/branch."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+
+    result = WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+        WorktreeCleanupRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.cleanup_status == "blocked"
+    assert result.blocked_reason == "workspace_cleanup_blocked"
+    assert "workspace cleanup execution is blocked in P1-E-A" in result.blockers
+    assert "git worktree remove is not enabled" in result.blockers
+    assert "git branch delete is not enabled" in result.blockers
+    assert result.worktree_path == plan.worktree_path
+    assert result.branch_name == plan.branch_name
+    assert result.removes_worktree is False
+    assert result.deletes_branch is False
+    assert result.deletes_directory is False
+    assert result.runs_git is False
+    assert result.runs_write_git is False
+    assert result.mutates_agent_session_workspace is False
+    assert result.cleanup_command_preview == [
+        result.cleanup_command_preview[0],
+        result.cleanup_command_preview[1],
+    ]
+    assert result.cleanup_command_preview[0].argv == (
+        "git",
+        "worktree",
+        "remove",
+        plan.worktree_path,
+    )
+    assert result.cleanup_command_preview[0].command_kind == "git_worktree_remove"
+    assert result.cleanup_command_preview[0].execution_enabled is False
+    assert result.cleanup_command_preview[1].argv == (
+        "git",
+        "branch",
+        "-d",
+        plan.branch_name,
+    )
+    assert result.cleanup_command_preview[1].command_kind == "git_branch_delete"
+    assert result.cleanup_command_preview[1].execution_enabled is False
+    assert not Path(plan.worktree_path).exists()
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
+    assert unchanged_session.workspace_clean is None
+    assert unchanged_session.last_workspace_error is None
+
+
+def test_worktree_cleanup_rejects_stale_plan_hash(db_session, tmp_path):
+    """Cleanup preview requires the current dry-run plan hash."""
+
+    _, session, _, plan_service, _ = _create_bound_git_session(db_session, tmp_path)
+
+    with pytest.raises(WorktreeCleanupHashMismatchError):
+        WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+            WorktreeCleanupRequest(
+                agent_session_id=session.id,
+                plan_hash="0" * 64,
+                user_confirmed=True,
+            )
+        )
+
+
+def test_worktree_cleanup_response_exposes_blocked_guard_fields(db_session, tmp_path):
+    """Cleanup API DTO exposes review-only command previews and false mutation flags."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    result = WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+        WorktreeCleanupRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    payload = WorktreeCleanupResponse.from_result(result).model_dump(mode="json")
+
+    assert payload["agent_session_id"] == str(session.id)
+    assert payload["plan_hash"] == plan.plan_hash
+    assert payload["submitted_plan_hash"] == plan.plan_hash
+    assert payload["cleanup_status"] == "blocked"
+    assert payload["blocked_reason"] == "workspace_cleanup_blocked"
+    assert payload["removes_worktree"] is False
+    assert payload["deletes_branch"] is False
+    assert payload["deletes_directory"] is False
+    assert payload["runs_git"] is False
+    assert payload["runs_write_git"] is False
+    assert payload["mutates_agent_session_workspace"] is False
+    assert payload["cleanup_command_preview"][0]["command_kind"] == "git_worktree_remove"
+    assert payload["cleanup_command_preview"][0]["execution_enabled"] is False
+    assert payload["cleanup_command_preview"][1]["command_kind"] == "git_branch_delete"
+    assert payload["cleanup_command_preview"][1]["execution_enabled"] is False
+
+
+def test_worktree_cleanup_endpoint_returns_blocked_preview(db_session, tmp_path):
+    """Route function returns blocked cleanup preview without executing cleanup."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    cleanup_service = WorktreeCleanupService(worktree_plan_service=plan_service)
+
+    response = cleanup_agent_session_workspace(
+        session_id=session.id,
+        request=WorktreeCleanupRequestBody(
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        ),
+        cleanup_service=cleanup_service,
+    )
+
+    assert response.cleanup_status == "blocked"
+    assert response.blocked_reason == "workspace_cleanup_blocked"
+    assert response.removes_worktree is False
+    assert response.deletes_branch is False
+    assert response.deletes_directory is False
+    assert response.runs_git is False
+    assert response.runs_write_git is False
+    assert response.mutates_agent_session_workspace is False
+    assert response.cleanup_command_preview[0].argv == (
+        "git",
+        "worktree",
+        "remove",
+        plan.worktree_path,
+    )
+    assert response.cleanup_command_preview[0].execution_enabled is False
+    assert response.cleanup_command_preview[1].argv == (
+        "git",
+        "branch",
+        "-d",
+        plan.branch_name,
+    )
+    assert response.cleanup_command_preview[1].execution_enabled is False
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path is None
+    assert unchanged_session.branch_name is None
