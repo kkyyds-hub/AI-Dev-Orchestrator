@@ -57,8 +57,8 @@ class RuntimeEventSafetyFlags(DomainModel):
     """Safety switches embedded in every runtime event content_detail.
 
     P3-D2 defaults all real-execution indicators to ``False``.  Future phases
-    may build events with explicit true values when those capabilities are
-    genuinely implemented and audited.
+    may allow explicit true values only when those capabilities are genuinely
+    implemented and audited.
     """
 
     execution_enabled: bool = False
@@ -306,9 +306,16 @@ class RuntimeEventBuilder:
         created_by: str = "RuntimeEventBuilder",
         event_id: UUID | None = None,
     ) -> RuntimeEventSchema:
-        """Build any of the 14 P3-D event schemas without side effects."""
+        """Build one currently supported P3-D2 runtime event schema.
+
+        P3-D2 may only materialize the two launch-gate evidence events.  The
+        remaining 12 runtime lifecycle events stay in the enum/schema contract
+        for future phases, but constructing them here would falsely imply that
+        real launch/probe/exit/kill/cleanup capabilities already exist.
+        """
 
         normalized_event_type = RuntimeEventType(event_type)
+        _ensure_p3d2_buildable_event_type(normalized_event_type)
         previous_state = _coerce_state(
             previous_runtime_state,
             _default_previous_state(normalized_event_type),
@@ -342,6 +349,10 @@ class RuntimeEventBuilder:
 
 
 RUNTIME_EVENT_TYPES: tuple[RuntimeEventType, ...] = tuple(RuntimeEventType)
+P3D2_BUILDABLE_RUNTIME_EVENT_TYPES: tuple[RuntimeEventType, ...] = (
+    RuntimeEventType.LAUNCH_GATE_EVALUATED,
+    RuntimeEventType.LAUNCH_GATE_BLOCKED,
+)
 
 
 _EVENT_STATE_TRANSITIONS: dict[
@@ -478,6 +489,17 @@ def _coerce_state(
     if value is None:
         return default
     return RuntimeEventState(value)
+
+
+def _ensure_p3d2_buildable_event_type(event_type: RuntimeEventType) -> None:
+    if event_type in P3D2_BUILDABLE_RUNTIME_EVENT_TYPES:
+        return
+    supported = ", ".join(item.value for item in P3D2_BUILDABLE_RUNTIME_EVENT_TYPES)
+    raise ValueError(
+        f"RuntimeEventBuilder P3-D2 can only build launch-gate events "
+        f"({supported}); {event_type.value!r} is a future runtime lifecycle "
+        "event and remains Not started."
+    )
 
 
 def _coerce_safety_flags(

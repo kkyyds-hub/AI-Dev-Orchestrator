@@ -11,6 +11,7 @@ from app.domain.runtime_event import (
     RUNTIME_EVENT_CONTENT_DETAIL_MAX_LENGTH,
     RUNTIME_EVENT_SCHEMA_VERSION,
     RUNTIME_EVENT_TYPES,
+    P3D2_BUILDABLE_RUNTIME_EVENT_TYPES,
     RuntimeEventBuilder,
     RuntimeEventSchema,
     RuntimeEventState,
@@ -148,61 +149,57 @@ def test_build_gate_blocked_event_from_failed_gate_result():
     assert len(event.to_content_detail_json()) <= RUNTIME_EVENT_CONTENT_DETAIL_MAX_LENGTH
 
 
-def test_build_generic_runtime_event_uses_default_state_reason_and_summary():
+def test_build_only_supports_p3d2_launch_gate_event_types():
     ids = _ids()
 
-    event = RuntimeEventBuilder.build(
-        **ids,
-        event_type=RuntimeEventType.ALIVE_OBSERVED,
-        runtime_handle_id="fake:pid:90001",
-        runtime_type="subprocess",
-        agent_type="openai_provider",
-        adapter_kind="fake",
-        evidence={"probe_attempt": 1, "probe_method": "fake", "handle_id": "fake:pid:90001"},
-        created_by="RuntimeLifecycleManager",
-    )
+    events = [
+        RuntimeEventBuilder.build(**ids, event_type=event_type)
+        for event_type in P3D2_BUILDABLE_RUNTIME_EVENT_TYPES
+    ]
 
-    assert event.previous_runtime_state == RuntimeEventState.SPAWNING
-    assert event.next_runtime_state == RuntimeEventState.ALIVE
-    assert event.reason_code == "probe_confirmed_alive"
-    assert event.summary_cn == "运行时进程已确认存活。"
-    assert event.runtime_handle_id == "fake:pid:90001"
-    assert event.created_by == "RuntimeLifecycleManager"
-    assert json.loads(event.to_content_detail_json())["evidence"]["probe_attempt"] == 1
-
-
-def test_build_supports_all_14_event_types_without_database_or_agent_message():
-    ids = _ids()
-
-    events = [RuntimeEventBuilder.build(**ids, event_type=event_type) for event_type in RUNTIME_EVENT_TYPES]
-
-    assert len(events) == 14
-    assert {event.event_type for event in events} == set(RuntimeEventType)
-    assert all(event.created_by == "RuntimeEventBuilder" for event in events)
+    assert [event.event_type for event in events] == [
+        RuntimeEventType.LAUNCH_GATE_EVALUATED,
+        RuntimeEventType.LAUNCH_GATE_BLOCKED,
+    ]
+    assert all(event.previous_runtime_state == RuntimeEventState.UNKNOWN for event in events)
+    assert all(event.next_runtime_state == RuntimeEventState.UNKNOWN for event in events)
+    assert all(event.runtime_handle_id is None for event in events)
     assert all(event.safety_flags.execution_enabled is False for event in events)
     assert all(event.safety_flags.fake_launch_started is False for event in events)
     assert all(event.safety_flags.real_runtime_started is False for event in events)
     assert all(event.safety_flags.runtime_probe_started is False for event in events)
-    assert events[3].event_type == RuntimeEventType.SPAWNING
-    assert events[3].next_runtime_state == RuntimeEventState.SPAWNING
-    assert events[6].event_type == RuntimeEventType.EXITED
-    assert events[6].next_runtime_state == RuntimeEventState.EXITED
+
+
+def test_build_rejects_future_not_started_runtime_events():
+    ids = _ids()
+    future_event_types = [
+        event_type
+        for event_type in RUNTIME_EVENT_TYPES
+        if event_type not in P3D2_BUILDABLE_RUNTIME_EVENT_TYPES
+    ]
+
+    assert len(future_event_types) == 12
+    for event_type in future_event_types:
+        with pytest.raises(ValueError) as exc_info:
+            RuntimeEventBuilder.build(**ids, event_type=event_type)
+        assert event_type.value in str(exc_info.value)
+        assert "Not started" in str(exc_info.value)
 
 
 def test_content_detail_json_is_bounded_for_agent_message_field_contract():
     ids = _ids()
     event = RuntimeEventBuilder.build(
         **ids,
-        event_type=RuntimeEventType.PROBE_FAILED,
+        event_type=RuntimeEventType.LAUNCH_GATE_BLOCKED,
         technical_detail="x" * 2_000,
-        evidence={"large_probe_output": "y" * 10_000},
+        evidence={"large_gate_output": "y" * 10_000},
     )
 
     content_detail = event.to_content_detail_json()
     payload = json.loads(content_detail)
 
     assert len(content_detail) <= RUNTIME_EVENT_CONTENT_DETAIL_MAX_LENGTH
-    assert payload["event_type"] == "runtime_probe_failed"
+    assert payload["event_type"] == "runtime_launch_gate_blocked"
     assert payload["evidence"]["truncated"] is True
     assert payload["safety_flags"]["runtime_probe_started"] is False
 
@@ -210,14 +207,14 @@ def test_content_detail_json_is_bounded_for_agent_message_field_contract():
 def test_runtime_event_schema_rejects_unknown_event_type_and_schema_version():
     ids = _ids()
 
-    try:
+    with pytest.raises(ValueError) as exc_info:
         RuntimeEventBuilder.build(**ids, event_type="runtime_not_a_real_event")
-    except ValueError as exc:
-        assert "runtime_not_a_real_event" in str(exc)
-    else:  # pragma: no cover - defensive assertion
-        raise AssertionError("unknown runtime event type should be rejected")
+    assert "runtime_not_a_real_event" in str(exc_info.value)
 
-    event = RuntimeEventBuilder.build(**ids, event_type=RuntimeEventType.CLEANUP_STARTED)
+    event = RuntimeEventBuilder.build(
+        **ids,
+        event_type=RuntimeEventType.LAUNCH_GATE_EVALUATED,
+    )
     payload = event.model_dump()
     payload["schema_version"] = "2.0"
     with pytest.raises(ValueError):
