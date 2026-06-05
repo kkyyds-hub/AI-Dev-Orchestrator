@@ -21,7 +21,7 @@ const RUNTIME_TYPE_LABELS: Record<string, string> = {
 
 const WORKSPACE_TYPE_LABELS: Record<string, string> = {
   in_place: "项目原地工作区",
-  worktree: "独立 Git worktree",
+  worktree: "独立 Git 工作区",
 };
 
 const CODING_STATUS_LABELS: Record<string, string> = {
@@ -65,12 +65,12 @@ const ACTIVITY_STATE_TONES: Record<string, CodingTone> = {
 };
 
 const RUNTIME_LIFECYCLE_STATE_LABELS: Record<string, string> = {
-  alive: "Runtime 已确认存活",
-  exited: "Runtime 已确认退出",
-  missing: "Runtime 句柄丢失",
-  probe_failed: "Runtime 探测失败",
-  spawning: "Runtime 启动中",
-  unknown: "Runtime 未探测",
+  alive: "运行时已确认存活",
+  exited: "运行时已确认退出",
+  missing: "运行时句柄丢失",
+  probe_failed: "运行时探测失败",
+  spawning: "运行时启动中",
+  unknown: "运行时未探测",
 };
 
 const RUNTIME_LIFECYCLE_STATE_TONES: Record<string, CodingTone> = {
@@ -102,6 +102,25 @@ const SESSION_LIFECYCLE_STATE_TONES: Record<string, CodingTone> = {
   working: "info",
 };
 
+const RUNTIME_LIFECYCLE_REASON_LABELS: Record<string, string> = {
+  handle_not_assigned: "尚未分配运行时句柄",
+  handle_recorded_no_probe: "已有运行时句柄记录，但本阶段未做探测",
+  snapshot_only_no_runtime_probe: "仅基于会话记录生成快照，未做运行时探测",
+};
+
+const SESSION_LIFECYCLE_REASON_LABELS: Record<string, string> = {
+  activity_blocked: "活动状态显示遇到阻塞",
+  activity_exited: "活动状态显示本轮已结束",
+  coding_completed: "编码会话已完成",
+  coding_failed: "编码会话失败",
+  coding_idle: "编码会话暂时空闲",
+  coding_needs_input: "编码会话等待人工输入",
+  coding_stuck: "编码会话需要关注",
+  coding_terminated: "编码会话已停止",
+  coding_working: "编码会话正在处理",
+  session_created: "会话已创建，尚未进入执行",
+};
+
 const WORKSPACE_CLEAN_LABELS: Record<string, string> = {
   clean: "工作区干净",
   dirty: "存在未清理变更",
@@ -113,6 +132,9 @@ const WORKSPACE_CLEAN_TONES: Record<string, CodingTone> = {
   dirty: "warning",
   unknown: "neutral",
 };
+
+type RuntimeLifecycleSnapshot =
+  AgentSessionSnapshot["runtime_lifecycle_snapshot"];
 
 function labelFromMap(
   value: string | null,
@@ -216,6 +238,32 @@ export function getSessionLifecycleStateTone(value: string | null): CodingTone {
   return toneFromMap(value, SESSION_LIFECYCLE_STATE_TONES);
 }
 
+function getRuntimeLifecycleReasonLabel(value: string | null) {
+  return labelFromMap(value, RUNTIME_LIFECYCLE_REASON_LABELS);
+}
+
+function getSessionLifecycleReasonLabel(value: string | null) {
+  return labelFromMap(value, SESSION_LIFECYCLE_REASON_LABELS);
+}
+
+function formatBooleanLabel(value: boolean) {
+  return value ? "是" : "否";
+}
+
+function buildRuntimeLifecycleSummary(snapshot: RuntimeLifecycleSnapshot) {
+  return [
+    `运行时轴：${getRuntimeLifecycleStateLabel(snapshot.state)}。`,
+    `运行时原因：${getRuntimeLifecycleReasonLabel(snapshot.reason)}。`,
+    `会话派生状态：${getSessionLifecycleStateLabel(
+      snapshot.session_lifecycle_state,
+    )}。`,
+    `会话派生原因：${getSessionLifecycleReasonLabel(
+      snapshot.session_lifecycle_reason,
+    )}。`,
+    "该快照只读取已保存的会话字段，不会触发模拟启动、真实运行时或运行时探测。",
+  ].join("");
+}
+
 export function AgentCodingSessionSnapshot(props: {
   selectedSession: AgentSessionSnapshot | null;
 }) {
@@ -224,7 +272,7 @@ export function AgentCodingSessionSnapshot(props: {
   if (!session) {
     return (
       <section className="rounded-3xl border border-dashed border-[#333333] bg-slate-950/20 p-4 text-sm leading-6 text-slate-400">
-        请选择一个已有会话查看只读运行状态；本区域不会创建 worktree、启动 AI runtime 或触发自动编码。
+        请选择一个已有会话查看只读运行状态；本区域不会创建独立工作区、启动 AI 运行时或触发自动编码。
       </section>
     );
   }
@@ -233,6 +281,7 @@ export function AgentCodingSessionSnapshot(props: {
   const handleLabel = session.runtime_handle_id ?? "暂无后台通道编号";
   const workspacePathLabel = session.workspace_path ?? "暂未绑定独立工作区路径";
   const runtimeSnapshot = session.runtime_lifecycle_snapshot;
+  const runtimeLifecycleSummary = buildRuntimeLifecycleSummary(runtimeSnapshot);
 
   return (
     <section
@@ -280,26 +329,28 @@ export function AgentCodingSessionSnapshot(props: {
           title={session.runtime_type}
         />
         <CompactField
-          label="P3-C1 Runtime 轴状态"
+          label="P3-C1 运行时轴状态"
           value={getRuntimeLifecycleStateLabel(runtimeSnapshot.state)}
-          title={`${runtimeSnapshot.state} / ${runtimeSnapshot.reason}`}
+          title={runtimeLifecycleSummary}
         />
         <CompactField
-          label="Runtime 轴原因"
-          value={runtimeSnapshot.reason}
-          title={runtimeSnapshot.summary}
+          label="运行时轴原因"
+          value={getRuntimeLifecycleReasonLabel(runtimeSnapshot.reason)}
+          title={runtimeLifecycleSummary}
         />
         <CompactField
           label="会话派生状态"
           value={getSessionLifecycleStateLabel(
             runtimeSnapshot.session_lifecycle_state,
           )}
-          title={`${runtimeSnapshot.session_lifecycle_state} / ${runtimeSnapshot.session_lifecycle_reason}`}
+          title={runtimeLifecycleSummary}
         />
         <CompactField
           label="会话派生原因"
-          value={runtimeSnapshot.session_lifecycle_reason}
-          title={runtimeSnapshot.summary}
+          value={getSessionLifecycleReasonLabel(
+            runtimeSnapshot.session_lifecycle_reason,
+          )}
+          title={runtimeLifecycleSummary}
         />
         <CompactField label="后台通道" value={handleLabel} title={session.runtime_handle_id} />
         <CompactField label="分支" value={branchLabel} title={session.branch_name} />
@@ -325,22 +376,37 @@ export function AgentCodingSessionSnapshot(props: {
       ) : null}
 
       <p className="mt-3 rounded-2xl border border-[#333333] bg-black/20 px-3 py-2 text-xs leading-5 text-slate-500">
-        当前阶段只读展示 AgentSession 与 timeline 已有数据：可看到处理者、后台通道、任务进度、活动情况、工作区绑定、分支名和工作区审计错误。
-        P3-C1 的 Runtime 轴只展示已有证据；未启动或未探测时不会把会话处理状态误标为 Runtime 存活。这里不会创建或清理 worktree，也不表示已经进入 AI runtime、自动编码、提交、推送或创建 PR。
+        当前阶段只读展示智能体会话与时间线已有数据：可看到处理者、后台通道、任务进度、活动情况、工作区绑定、分支名和工作区审计错误。
+        P3-C1 的运行时轴只展示已有证据；未启动或未探测时不会把会话处理状态误标为运行时存活。这里不会创建或清理独立工作区，也不表示已经进入 AI 运行时、自动编码、提交、推送或创建 PR。
       </p>
 
       <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs leading-5 text-emerald-100">
-        <div className="font-medium">P3-C1 AgentSession runtime lifecycle snapshot</div>
+        <div className="font-medium">P3-C1 智能体会话运行时生命周期快照</div>
         <div className="mt-1 text-emerald-100/80">
-          {runtimeSnapshot.summary}
+          {runtimeLifecycleSummary}
         </div>
         <div className="mt-2 grid gap-1 sm:grid-cols-2">
-          <span>runtime state: {runtimeSnapshot.state}</span>
-          <span>session state: {runtimeSnapshot.session_lifecycle_state}</span>
-          <span>fake launch: {String(runtimeSnapshot.fake_launch_started)}</span>
-          <span>real runtime: {String(runtimeSnapshot.real_runtime_started)}</span>
-          <span>runtime probe: {String(runtimeSnapshot.runtime_probe_started)}</span>
-          <span>execution enabled: {String(runtimeSnapshot.execution_enabled)}</span>
+          <span>运行时轴状态：{getRuntimeLifecycleStateLabel(runtimeSnapshot.state)}</span>
+          <span>
+            会话派生状态：
+            {getSessionLifecycleStateLabel(runtimeSnapshot.session_lifecycle_state)}
+          </span>
+          <span>
+            模拟启动已触发：
+            {formatBooleanLabel(runtimeSnapshot.fake_launch_started)}
+          </span>
+          <span>
+            真实运行时已启动：
+            {formatBooleanLabel(runtimeSnapshot.real_runtime_started)}
+          </span>
+          <span>
+            运行时探测已启动：
+            {formatBooleanLabel(runtimeSnapshot.runtime_probe_started)}
+          </span>
+          <span>
+            执行开关已开启：
+            {formatBooleanLabel(runtimeSnapshot.execution_enabled)}
+          </span>
         </div>
       </div>
     </section>
