@@ -1,6 +1,7 @@
 """Single-cycle task worker used by Day 6 to Day 9."""
 
 from dataclasses import asdict, dataclass, field
+import shlex
 from pathlib import Path
 from uuid import UUID
 
@@ -144,6 +145,24 @@ class WorkerRunResult:
     workspace_context_runs_git: bool | None = None
     workspace_context_runs_write_git: bool | None = None
     workspace_context_launches_runtime: bool | None = None
+    runtime_launch_dry_run_ready: bool | None = None
+    runtime_launch_dry_run_source: str | None = None
+    runtime_launch_dry_run_reason_code: str | None = None
+    runtime_launch_dry_run_session_id: str | None = None
+    runtime_launch_dry_run_agent_type: str | None = None
+    runtime_launch_dry_run_runtime_type: str | None = None
+    runtime_launch_dry_run_workspace_path: str | None = None
+    runtime_launch_dry_run_resolved_workspace_path: str | None = None
+    runtime_launch_dry_run_launch_cwd_preview: str | None = None
+    runtime_launch_dry_run_launch_command_preview: str | None = None
+    runtime_launch_dry_run_uses_agent_workspace: bool | None = None
+    runtime_launch_dry_run_command_preview_uses_workspace: bool | None = None
+    runtime_launch_dry_run_execution_enabled: bool | None = None
+    runtime_launch_dry_run_changes_cwd: bool | None = None
+    runtime_launch_dry_run_runs_command: bool | None = None
+    runtime_launch_dry_run_runs_git: bool | None = None
+    runtime_launch_dry_run_runs_write_git: bool | None = None
+    runtime_launch_dry_run_launches_runtime: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -172,6 +191,37 @@ class WorkerWorkspaceContextResolution:
     resolved_workspace_path: str | None
     uses_agent_workspace: bool
     changes_cwd: bool = False
+    runs_git: bool = False
+    runs_write_git: bool = False
+    launches_runtime: bool = False
+
+
+@dataclass(slots=True, frozen=True)
+class WorkerRuntimeLaunchDryRun:
+    """Pure P2-C preview of how a runtime would bind to a worktree.
+
+    This object mirrors the Agent Orchestrator ``RuntimeCreateConfig`` seam
+    without invoking any runtime plugin, changing cwd, running shell commands,
+    or running git. It is evidence only: ``execution_enabled`` and
+    ``launches_runtime`` must remain False until a later phase explicitly
+    enables the runtime lifecycle.
+    """
+
+    ready: bool
+    source: str
+    reason_code: str | None
+    session_id: str | None
+    agent_type: str | None
+    runtime_type: str | None
+    workspace_path: str | None
+    resolved_workspace_path: str | None
+    launch_cwd_preview: str | None
+    launch_command_preview: str | None
+    uses_agent_workspace: bool
+    command_preview_uses_workspace: bool
+    execution_enabled: bool = False
+    changes_cwd: bool = False
+    runs_command: bool = False
     runs_git: bool = False
     runs_write_git: bool = False
     launches_runtime: bool = False
@@ -329,6 +379,144 @@ def resolve_worker_workspace_context(
         resolved_workspace_path=validation.resolved_workspace_path,
         uses_agent_workspace=uses_agent_workspace,
         changes_cwd=False,
+        runs_git=False,
+        runs_write_git=False,
+        launches_runtime=False,
+    )
+
+
+def build_worker_runtime_launch_dry_run(
+    *,
+    agent_session: AgentSession,
+    workspace_context: WorkerWorkspaceContextResolution,
+) -> WorkerRuntimeLaunchDryRun:
+    """Build a non-executing runtime launch preview for P2-C.
+
+    P2-C only proves that the future runtime launch configuration can consume
+    ``AgentSession.workspace_path`` as its launch workspace. It does not call
+    ``ExecutorService``, ``subprocess``, git, or any AI provider/runtime.
+    """
+
+    session_id = str(agent_session.id)
+    agent_type = (
+        agent_session.agent_type.value
+        if agent_session.agent_type is not None
+        else None
+    )
+    runtime_type = (
+        agent_session.runtime_type.value
+        if agent_session.runtime_type is not None
+        else None
+    )
+    workspace_path = workspace_context.workspace_path
+    resolved_workspace_path = workspace_context.resolved_workspace_path
+
+    if not workspace_context.ready:
+        return WorkerRuntimeLaunchDryRun(
+            ready=False,
+            source="workspace_context_blocked",
+            reason_code=workspace_context.reason_code
+            or "workspace_context_not_ready",
+            session_id=session_id,
+            agent_type=agent_type,
+            runtime_type=runtime_type,
+            workspace_path=workspace_path,
+            resolved_workspace_path=resolved_workspace_path,
+            launch_cwd_preview=None,
+            launch_command_preview=None,
+            uses_agent_workspace=False,
+            command_preview_uses_workspace=False,
+        )
+
+    if not workspace_context.uses_agent_workspace:
+        return WorkerRuntimeLaunchDryRun(
+            ready=False,
+            source=workspace_context.source,
+            reason_code="agent_worktree_not_available",
+            session_id=session_id,
+            agent_type=agent_type,
+            runtime_type=runtime_type,
+            workspace_path=workspace_path,
+            resolved_workspace_path=resolved_workspace_path,
+            launch_cwd_preview=None,
+            launch_command_preview=None,
+            uses_agent_workspace=False,
+            command_preview_uses_workspace=False,
+        )
+
+    if agent_type is None:
+        return WorkerRuntimeLaunchDryRun(
+            ready=False,
+            source="agent_session_worktree_runtime_dry_run_blocked",
+            reason_code="agent_type_missing",
+            session_id=session_id,
+            agent_type=None,
+            runtime_type=runtime_type,
+            workspace_path=workspace_path,
+            resolved_workspace_path=resolved_workspace_path,
+            launch_cwd_preview=None,
+            launch_command_preview=None,
+            uses_agent_workspace=True,
+            command_preview_uses_workspace=False,
+        )
+
+    if runtime_type is None:
+        return WorkerRuntimeLaunchDryRun(
+            ready=False,
+            source="agent_session_worktree_runtime_dry_run_blocked",
+            reason_code="runtime_type_missing",
+            session_id=session_id,
+            agent_type=agent_type,
+            runtime_type=None,
+            workspace_path=workspace_path,
+            resolved_workspace_path=resolved_workspace_path,
+            launch_cwd_preview=None,
+            launch_command_preview=None,
+            uses_agent_workspace=True,
+            command_preview_uses_workspace=False,
+        )
+
+    launch_cwd_preview = resolved_workspace_path or workspace_path
+    if launch_cwd_preview is None:
+        return WorkerRuntimeLaunchDryRun(
+            ready=False,
+            source="agent_session_worktree_runtime_dry_run_blocked",
+            reason_code="runtime_workspace_path_missing",
+            session_id=session_id,
+            agent_type=agent_type,
+            runtime_type=runtime_type,
+            workspace_path=workspace_path,
+            resolved_workspace_path=resolved_workspace_path,
+            launch_cwd_preview=None,
+            launch_command_preview=None,
+            uses_agent_workspace=True,
+            command_preview_uses_workspace=False,
+        )
+
+    launch_command_preview = (
+        "RuntimeCreateConfig("
+        f"session_id={session_id}, "
+        f"runtime_type={runtime_type}, "
+        f"agent_type={agent_type}, "
+        f"workspace_path={shlex.quote(launch_cwd_preview)}"
+        ")"
+    )
+    return WorkerRuntimeLaunchDryRun(
+        ready=True,
+        source="agent_session_worktree_runtime_dry_run",
+        reason_code=None,
+        session_id=session_id,
+        agent_type=agent_type,
+        runtime_type=runtime_type,
+        workspace_path=workspace_path,
+        resolved_workspace_path=resolved_workspace_path,
+        launch_cwd_preview=launch_cwd_preview,
+        launch_command_preview=launch_command_preview,
+        uses_agent_workspace=True,
+        command_preview_uses_workspace=True,
+        execution_enabled=False,
+        changes_cwd=False,
+        runs_command=False,
         runs_git=False,
         runs_write_git=False,
         launches_runtime=False,
@@ -664,6 +852,24 @@ class TaskWorker:
         workspace_context_runs_git: bool | None = None
         workspace_context_runs_write_git: bool | None = None
         workspace_context_launches_runtime: bool | None = None
+        runtime_launch_dry_run_ready: bool | None = None
+        runtime_launch_dry_run_source: str | None = None
+        runtime_launch_dry_run_reason_code: str | None = None
+        runtime_launch_dry_run_session_id: str | None = None
+        runtime_launch_dry_run_agent_type: str | None = None
+        runtime_launch_dry_run_runtime_type: str | None = None
+        runtime_launch_dry_run_workspace_path: str | None = None
+        runtime_launch_dry_run_resolved_workspace_path: str | None = None
+        runtime_launch_dry_run_launch_cwd_preview: str | None = None
+        runtime_launch_dry_run_launch_command_preview: str | None = None
+        runtime_launch_dry_run_uses_agent_workspace: bool | None = None
+        runtime_launch_dry_run_command_preview_uses_workspace: bool | None = None
+        runtime_launch_dry_run_execution_enabled: bool | None = None
+        runtime_launch_dry_run_changes_cwd: bool | None = None
+        runtime_launch_dry_run_runs_command: bool | None = None
+        runtime_launch_dry_run_runs_git: bool | None = None
+        runtime_launch_dry_run_runs_write_git: bool | None = None
+        runtime_launch_dry_run_launches_runtime: bool | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -948,10 +1154,66 @@ class TaskWorker:
                 workspace_context_runs_git = workspace_context.runs_git
                 workspace_context_runs_write_git = workspace_context.runs_write_git
                 workspace_context_launches_runtime = workspace_context.launches_runtime
+                runtime_launch_dry_run = build_worker_runtime_launch_dry_run(
+                    agent_session=agent_session,
+                    workspace_context=workspace_context,
+                )
+                runtime_launch_dry_run_ready = runtime_launch_dry_run.ready
+                runtime_launch_dry_run_source = runtime_launch_dry_run.source
+                runtime_launch_dry_run_reason_code = (
+                    runtime_launch_dry_run.reason_code
+                )
+                runtime_launch_dry_run_session_id = (
+                    runtime_launch_dry_run.session_id
+                )
+                runtime_launch_dry_run_agent_type = (
+                    runtime_launch_dry_run.agent_type
+                )
+                runtime_launch_dry_run_runtime_type = (
+                    runtime_launch_dry_run.runtime_type
+                )
+                runtime_launch_dry_run_workspace_path = (
+                    runtime_launch_dry_run.workspace_path
+                )
+                runtime_launch_dry_run_resolved_workspace_path = (
+                    runtime_launch_dry_run.resolved_workspace_path
+                )
+                runtime_launch_dry_run_launch_cwd_preview = (
+                    runtime_launch_dry_run.launch_cwd_preview
+                )
+                runtime_launch_dry_run_launch_command_preview = (
+                    runtime_launch_dry_run.launch_command_preview
+                )
+                runtime_launch_dry_run_uses_agent_workspace = (
+                    runtime_launch_dry_run.uses_agent_workspace
+                )
+                runtime_launch_dry_run_command_preview_uses_workspace = (
+                    runtime_launch_dry_run.command_preview_uses_workspace
+                )
+                runtime_launch_dry_run_execution_enabled = (
+                    runtime_launch_dry_run.execution_enabled
+                )
+                runtime_launch_dry_run_changes_cwd = (
+                    runtime_launch_dry_run.changes_cwd
+                )
+                runtime_launch_dry_run_runs_command = (
+                    runtime_launch_dry_run.runs_command
+                )
+                runtime_launch_dry_run_runs_git = runtime_launch_dry_run.runs_git
+                runtime_launch_dry_run_runs_write_git = (
+                    runtime_launch_dry_run.runs_write_git
+                )
+                runtime_launch_dry_run_launches_runtime = (
+                    runtime_launch_dry_run.launches_runtime
+                )
                 self._log_workspace_validation(
                     run=run,
                     validation=workspace_validation,
                     context=workspace_context,
+                )
+                self._log_runtime_launch_dry_run(
+                    run=run,
+                    dry_run=runtime_launch_dry_run,
                 )
                 if not workspace_validation.ready:
                     last_workspace_error = workspace_validation.summary
@@ -1078,6 +1340,60 @@ class TaskWorker:
                         ),
                         workspace_context_launches_runtime=(
                             workspace_context_launches_runtime
+                        ),
+                        runtime_launch_dry_run_ready=(
+                            runtime_launch_dry_run_ready
+                        ),
+                        runtime_launch_dry_run_source=(
+                            runtime_launch_dry_run_source
+                        ),
+                        runtime_launch_dry_run_reason_code=(
+                            runtime_launch_dry_run_reason_code
+                        ),
+                        runtime_launch_dry_run_session_id=(
+                            runtime_launch_dry_run_session_id
+                        ),
+                        runtime_launch_dry_run_agent_type=(
+                            runtime_launch_dry_run_agent_type
+                        ),
+                        runtime_launch_dry_run_runtime_type=(
+                            runtime_launch_dry_run_runtime_type
+                        ),
+                        runtime_launch_dry_run_workspace_path=(
+                            runtime_launch_dry_run_workspace_path
+                        ),
+                        runtime_launch_dry_run_resolved_workspace_path=(
+                            runtime_launch_dry_run_resolved_workspace_path
+                        ),
+                        runtime_launch_dry_run_launch_cwd_preview=(
+                            runtime_launch_dry_run_launch_cwd_preview
+                        ),
+                        runtime_launch_dry_run_launch_command_preview=(
+                            runtime_launch_dry_run_launch_command_preview
+                        ),
+                        runtime_launch_dry_run_uses_agent_workspace=(
+                            runtime_launch_dry_run_uses_agent_workspace
+                        ),
+                        runtime_launch_dry_run_command_preview_uses_workspace=(
+                            runtime_launch_dry_run_command_preview_uses_workspace
+                        ),
+                        runtime_launch_dry_run_execution_enabled=(
+                            runtime_launch_dry_run_execution_enabled
+                        ),
+                        runtime_launch_dry_run_changes_cwd=(
+                            runtime_launch_dry_run_changes_cwd
+                        ),
+                        runtime_launch_dry_run_runs_command=(
+                            runtime_launch_dry_run_runs_command
+                        ),
+                        runtime_launch_dry_run_runs_git=(
+                            runtime_launch_dry_run_runs_git
+                        ),
+                        runtime_launch_dry_run_runs_write_git=(
+                            runtime_launch_dry_run_runs_write_git
+                        ),
+                        runtime_launch_dry_run_launches_runtime=(
+                            runtime_launch_dry_run_launches_runtime
                         ),
                         model_name=run.model_name,
                         model_tier=(
@@ -1425,6 +1741,44 @@ class TaskWorker:
                 workspace_context_runs_git=workspace_context_runs_git,
                 workspace_context_runs_write_git=workspace_context_runs_write_git,
                 workspace_context_launches_runtime=workspace_context_launches_runtime,
+                runtime_launch_dry_run_ready=runtime_launch_dry_run_ready,
+                runtime_launch_dry_run_source=runtime_launch_dry_run_source,
+                runtime_launch_dry_run_reason_code=runtime_launch_dry_run_reason_code,
+                runtime_launch_dry_run_session_id=runtime_launch_dry_run_session_id,
+                runtime_launch_dry_run_agent_type=runtime_launch_dry_run_agent_type,
+                runtime_launch_dry_run_runtime_type=runtime_launch_dry_run_runtime_type,
+                runtime_launch_dry_run_workspace_path=(
+                    runtime_launch_dry_run_workspace_path
+                ),
+                runtime_launch_dry_run_resolved_workspace_path=(
+                    runtime_launch_dry_run_resolved_workspace_path
+                ),
+                runtime_launch_dry_run_launch_cwd_preview=(
+                    runtime_launch_dry_run_launch_cwd_preview
+                ),
+                runtime_launch_dry_run_launch_command_preview=(
+                    runtime_launch_dry_run_launch_command_preview
+                ),
+                runtime_launch_dry_run_uses_agent_workspace=(
+                    runtime_launch_dry_run_uses_agent_workspace
+                ),
+                runtime_launch_dry_run_command_preview_uses_workspace=(
+                    runtime_launch_dry_run_command_preview_uses_workspace
+                ),
+                runtime_launch_dry_run_execution_enabled=(
+                    runtime_launch_dry_run_execution_enabled
+                ),
+                runtime_launch_dry_run_changes_cwd=runtime_launch_dry_run_changes_cwd,
+                runtime_launch_dry_run_runs_command=(
+                    runtime_launch_dry_run_runs_command
+                ),
+                runtime_launch_dry_run_runs_git=runtime_launch_dry_run_runs_git,
+                runtime_launch_dry_run_runs_write_git=(
+                    runtime_launch_dry_run_runs_write_git
+                ),
+                runtime_launch_dry_run_launches_runtime=(
+                    runtime_launch_dry_run_launches_runtime
+                ),
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier
@@ -1829,6 +2183,54 @@ class TaskWorker:
                 "runs_git": context.runs_git,
                 "runs_write_git": context.runs_write_git,
                 "launches_runtime": context.launches_runtime,
+            },
+        )
+
+    def _log_runtime_launch_dry_run(
+        self,
+        *,
+        run: Run,
+        dry_run: WorkerRuntimeLaunchDryRun,
+    ) -> None:
+        """Write the P2-C runtime launch dry-run snapshot to the run log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event=(
+                "agent_runtime_launch_dry_run_ready"
+                if dry_run.ready
+                else "agent_runtime_launch_dry_run_blocked"
+            ),
+            level="info",
+            message=(
+                "Runtime launch dry-run can target the AgentSession worktree."
+                if dry_run.ready
+                else "Runtime launch dry-run is not ready for a worktree launch."
+            ),
+            data={
+                "ready": dry_run.ready,
+                "source": dry_run.source,
+                "reason_code": dry_run.reason_code,
+                "session_id": dry_run.session_id,
+                "agent_type": dry_run.agent_type,
+                "runtime_type": dry_run.runtime_type,
+                "workspace_path": dry_run.workspace_path,
+                "resolved_workspace_path": dry_run.resolved_workspace_path,
+                "launch_cwd_preview": dry_run.launch_cwd_preview,
+                "launch_command_preview": dry_run.launch_command_preview,
+                "uses_agent_workspace": dry_run.uses_agent_workspace,
+                "command_preview_uses_workspace": (
+                    dry_run.command_preview_uses_workspace
+                ),
+                "execution_enabled": dry_run.execution_enabled,
+                "changes_cwd": dry_run.changes_cwd,
+                "runs_command": dry_run.runs_command,
+                "runs_git": dry_run.runs_git,
+                "runs_write_git": dry_run.runs_write_git,
+                "launches_runtime": dry_run.launches_runtime,
             },
         )
 

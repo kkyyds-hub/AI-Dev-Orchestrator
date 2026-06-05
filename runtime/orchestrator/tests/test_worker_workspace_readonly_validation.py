@@ -10,9 +10,15 @@ from __future__ import annotations
 from uuid import uuid4
 
 from app.api.routes.workers import WorkerRunOnceResponse
-from app.domain.agent_session import AgentSession, WorkspaceType
+from app.domain.agent_session import (
+    AgentSession,
+    AgentType,
+    RuntimeType,
+    WorkspaceType,
+)
 from app.workers.task_worker import (
     WorkerRunResult,
+    build_worker_runtime_launch_dry_run,
     resolve_worker_workspace_context,
     validate_worker_agent_workspace,
 )
@@ -23,11 +29,15 @@ def _session(
     workspace_type: WorkspaceType | None = WorkspaceType.WORKTREE,
     workspace_path: str | None = None,
     workspace_clean: bool | None = None,
+    agent_type: AgentType | None = AgentType.OPENAI_PROVIDER,
+    runtime_type: RuntimeType | None = RuntimeType.SUBPROCESS,
 ) -> AgentSession:
     return AgentSession(
         project_id=uuid4(),
         task_id=uuid4(),
         run_id=uuid4(),
+        agent_type=agent_type,
+        runtime_type=runtime_type,
         workspace_type=workspace_type,
         workspace_path=workspace_path,
         workspace_clean=workspace_clean,
@@ -150,6 +160,76 @@ def test_validate_worker_agent_workspace_accepts_existing_clean_worktree_metadat
     assert context.launches_runtime is False
 
 
+def test_runtime_launch_dry_run_targets_clean_worktree_without_execution(tmp_path):
+    session = _session(workspace_path=tmp_path.as_posix(), workspace_clean=True)
+    validation = validate_worker_agent_workspace(session)
+    context = resolve_worker_workspace_context(validation)
+
+    dry_run = build_worker_runtime_launch_dry_run(
+        agent_session=session,
+        workspace_context=context,
+    )
+
+    assert dry_run.ready is True
+    assert dry_run.source == "agent_session_worktree_runtime_dry_run"
+    assert dry_run.reason_code is None
+    assert dry_run.session_id == str(session.id)
+    assert dry_run.agent_type == "openai_provider"
+    assert dry_run.runtime_type == "subprocess"
+    assert dry_run.workspace_path == tmp_path.as_posix()
+    assert dry_run.resolved_workspace_path == tmp_path.as_posix()
+    assert dry_run.launch_cwd_preview == tmp_path.as_posix()
+    assert tmp_path.as_posix() in (dry_run.launch_command_preview or "")
+    assert dry_run.uses_agent_workspace is True
+    assert dry_run.command_preview_uses_workspace is True
+    assert dry_run.execution_enabled is False
+    assert dry_run.changes_cwd is False
+    assert dry_run.runs_command is False
+    assert dry_run.runs_git is False
+    assert dry_run.runs_write_git is False
+    assert dry_run.launches_runtime is False
+
+
+def test_runtime_launch_dry_run_blocks_non_worktree_without_execution():
+    session = _session(workspace_type=WorkspaceType.IN_PLACE)
+    validation = validate_worker_agent_workspace(session)
+    context = resolve_worker_workspace_context(validation)
+
+    dry_run = build_worker_runtime_launch_dry_run(
+        agent_session=session,
+        workspace_context=context,
+    )
+
+    assert dry_run.ready is False
+    assert dry_run.source == "agent_session_non_worktree"
+    assert dry_run.reason_code == "agent_worktree_not_available"
+    assert dry_run.launch_command_preview is None
+    assert dry_run.uses_agent_workspace is False
+    assert dry_run.command_preview_uses_workspace is False
+    assert dry_run.execution_enabled is False
+    assert dry_run.runs_command is False
+    assert dry_run.launches_runtime is False
+
+
+def test_runtime_launch_dry_run_blocks_invalid_worktree_context(tmp_path):
+    session = _session(workspace_path=(tmp_path / "missing").as_posix())
+    validation = validate_worker_agent_workspace(session)
+    context = resolve_worker_workspace_context(validation)
+
+    dry_run = build_worker_runtime_launch_dry_run(
+        agent_session=session,
+        workspace_context=context,
+    )
+
+    assert dry_run.ready is False
+    assert dry_run.source == "workspace_context_blocked"
+    assert dry_run.reason_code == "workspace_path_not_found"
+    assert dry_run.launch_cwd_preview is None
+    assert dry_run.launch_command_preview is None
+    assert dry_run.runs_command is False
+    assert dry_run.launches_runtime is False
+
+
 def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     payload = WorkerRunOnceResponse.from_result(
         WorkerRunResult(
@@ -168,6 +248,30 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             workspace_context_runs_git=False,
             workspace_context_runs_write_git=False,
             workspace_context_launches_runtime=False,
+            runtime_launch_dry_run_ready=True,
+            runtime_launch_dry_run_source=(
+                "agent_session_worktree_runtime_dry_run"
+            ),
+            runtime_launch_dry_run_reason_code=None,
+            runtime_launch_dry_run_session_id="session-123",
+            runtime_launch_dry_run_agent_type="openai_provider",
+            runtime_launch_dry_run_runtime_type="subprocess",
+            runtime_launch_dry_run_workspace_path="/tmp/aido-worktree",
+            runtime_launch_dry_run_resolved_workspace_path="/tmp/aido-worktree",
+            runtime_launch_dry_run_launch_cwd_preview="/tmp/aido-worktree",
+            runtime_launch_dry_run_launch_command_preview=(
+                "RuntimeCreateConfig(session_id=session-123, "
+                "runtime_type=subprocess, agent_type=openai_provider, "
+                "workspace_path=/tmp/aido-worktree)"
+            ),
+            runtime_launch_dry_run_uses_agent_workspace=True,
+            runtime_launch_dry_run_command_preview_uses_workspace=True,
+            runtime_launch_dry_run_execution_enabled=False,
+            runtime_launch_dry_run_changes_cwd=False,
+            runtime_launch_dry_run_runs_command=False,
+            runtime_launch_dry_run_runs_git=False,
+            runtime_launch_dry_run_runs_write_git=False,
+            runtime_launch_dry_run_launches_runtime=False,
         )
     ).model_dump(mode="json")
 
@@ -181,3 +285,35 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["workspace_context_runs_git"] is False
     assert payload["workspace_context_runs_write_git"] is False
     assert payload["workspace_context_launches_runtime"] is False
+    assert payload["runtime_launch_dry_run_ready"] is True
+    assert (
+        payload["runtime_launch_dry_run_source"]
+        == "agent_session_worktree_runtime_dry_run"
+    )
+    assert payload["runtime_launch_dry_run_reason_code"] is None
+    assert payload["runtime_launch_dry_run_session_id"] == "session-123"
+    assert payload["runtime_launch_dry_run_agent_type"] == "openai_provider"
+    assert payload["runtime_launch_dry_run_runtime_type"] == "subprocess"
+    assert payload["runtime_launch_dry_run_workspace_path"] == "/tmp/aido-worktree"
+    assert (
+        payload["runtime_launch_dry_run_resolved_workspace_path"]
+        == "/tmp/aido-worktree"
+    )
+    assert (
+        payload["runtime_launch_dry_run_launch_cwd_preview"]
+        == "/tmp/aido-worktree"
+    )
+    assert (
+        "/tmp/aido-worktree"
+        in payload["runtime_launch_dry_run_launch_command_preview"]
+    )
+    assert payload["runtime_launch_dry_run_uses_agent_workspace"] is True
+    assert (
+        payload["runtime_launch_dry_run_command_preview_uses_workspace"] is True
+    )
+    assert payload["runtime_launch_dry_run_execution_enabled"] is False
+    assert payload["runtime_launch_dry_run_changes_cwd"] is False
+    assert payload["runtime_launch_dry_run_runs_command"] is False
+    assert payload["runtime_launch_dry_run_runs_git"] is False
+    assert payload["runtime_launch_dry_run_runs_write_git"] is False
+    assert payload["runtime_launch_dry_run_launches_runtime"] is False

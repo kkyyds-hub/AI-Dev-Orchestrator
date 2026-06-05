@@ -119,6 +119,24 @@ class WorkerRunOnceResponse(BaseModel):
     workspace_context_runs_git: bool | None = None
     workspace_context_runs_write_git: bool | None = None
     workspace_context_launches_runtime: bool | None = None
+    runtime_launch_dry_run_ready: bool | None = None
+    runtime_launch_dry_run_source: str | None = None
+    runtime_launch_dry_run_reason_code: str | None = None
+    runtime_launch_dry_run_session_id: str | None = None
+    runtime_launch_dry_run_agent_type: str | None = None
+    runtime_launch_dry_run_runtime_type: str | None = None
+    runtime_launch_dry_run_workspace_path: str | None = None
+    runtime_launch_dry_run_resolved_workspace_path: str | None = None
+    runtime_launch_dry_run_launch_cwd_preview: str | None = None
+    runtime_launch_dry_run_launch_command_preview: str | None = None
+    runtime_launch_dry_run_uses_agent_workspace: bool | None = None
+    runtime_launch_dry_run_command_preview_uses_workspace: bool | None = None
+    runtime_launch_dry_run_execution_enabled: bool | None = None
+    runtime_launch_dry_run_changes_cwd: bool | None = None
+    runtime_launch_dry_run_runs_command: bool | None = None
+    runtime_launch_dry_run_runs_git: bool | None = None
+    runtime_launch_dry_run_runs_write_git: bool | None = None
+    runtime_launch_dry_run_launches_runtime: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -249,6 +267,56 @@ class WorkerRunOnceResponse(BaseModel):
             workspace_context_runs_write_git=result.workspace_context_runs_write_git,
             workspace_context_launches_runtime=(
                 result.workspace_context_launches_runtime
+            ),
+            runtime_launch_dry_run_ready=result.runtime_launch_dry_run_ready,
+            runtime_launch_dry_run_source=result.runtime_launch_dry_run_source,
+            runtime_launch_dry_run_reason_code=(
+                result.runtime_launch_dry_run_reason_code
+            ),
+            runtime_launch_dry_run_session_id=(
+                result.runtime_launch_dry_run_session_id
+            ),
+            runtime_launch_dry_run_agent_type=(
+                result.runtime_launch_dry_run_agent_type
+            ),
+            runtime_launch_dry_run_runtime_type=(
+                result.runtime_launch_dry_run_runtime_type
+            ),
+            runtime_launch_dry_run_workspace_path=(
+                result.runtime_launch_dry_run_workspace_path
+            ),
+            runtime_launch_dry_run_resolved_workspace_path=(
+                result.runtime_launch_dry_run_resolved_workspace_path
+            ),
+            runtime_launch_dry_run_launch_cwd_preview=(
+                result.runtime_launch_dry_run_launch_cwd_preview
+            ),
+            runtime_launch_dry_run_launch_command_preview=(
+                result.runtime_launch_dry_run_launch_command_preview
+            ),
+            runtime_launch_dry_run_uses_agent_workspace=(
+                result.runtime_launch_dry_run_uses_agent_workspace
+            ),
+            runtime_launch_dry_run_command_preview_uses_workspace=(
+                result.runtime_launch_dry_run_command_preview_uses_workspace
+            ),
+            runtime_launch_dry_run_execution_enabled=(
+                result.runtime_launch_dry_run_execution_enabled
+            ),
+            runtime_launch_dry_run_changes_cwd=(
+                result.runtime_launch_dry_run_changes_cwd
+            ),
+            runtime_launch_dry_run_runs_command=(
+                result.runtime_launch_dry_run_runs_command
+            ),
+            runtime_launch_dry_run_runs_git=(
+                result.runtime_launch_dry_run_runs_git
+            ),
+            runtime_launch_dry_run_runs_write_git=(
+                result.runtime_launch_dry_run_runs_write_git
+            ),
+            runtime_launch_dry_run_launches_runtime=(
+                result.runtime_launch_dry_run_launches_runtime
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
