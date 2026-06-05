@@ -53,6 +53,11 @@ from app.workers.task_worker import (
     resolve_worker_workspace_context,
     validate_worker_agent_workspace,
 )
+from app.workers.runtime_adapter import (
+    RuntimeLifecycleReason,
+    RuntimeLifecycleSnapshot,
+    RuntimeLifecycleState,
+)
 from app.workers.worktree_safe_command import (
     WorkerPwdCommandResult,
     WorkerPwdCommandSpec,
@@ -902,6 +907,12 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
     assert result.runtime_launch_dry_run_ready is False
     assert result.runtime_launch_dry_run_reason_code == "runtime_type_missing"
     assert result.worktree_safe_command_proof_ready is True
+    assert result.runtime_lifecycle_snapshot is not None
+    assert result.runtime_lifecycle_snapshot.ready is False
+    assert result.runtime_lifecycle_snapshot.reason_code == "runtime_type_missing"
+    assert result.runtime_lifecycle_snapshot.fake_launch_started is False
+    assert result.runtime_lifecycle_snapshot.real_runtime_started is False
+    assert result.runtime_lifecycle_snapshot.runtime_probe_started is False
     assert result.runtime_handle_id is None
     assert result.task is not None
     assert result.task.status == TaskStatus.BLOCKED
@@ -1025,6 +1036,43 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             runtime_launch_gate_runs_write_git=False,
             runtime_launch_gate_launches_ai_runtime=False,
             runtime_launch_gate_execution_enabled=False,
+            runtime_lifecycle_snapshot=RuntimeLifecycleSnapshot(
+                ready=True,
+                source="runtime_lifecycle_snapshot_ready",
+                state=RuntimeLifecycleState.UNKNOWN,
+                reason=RuntimeLifecycleReason.SNAPSHOT_ONLY,
+                reason_code="snapshot_only",
+                summary=(
+                    "Runtime lifecycle snapshot captured launch-gate-ready "
+                    "evidence only; fake_launch_started=False; "
+                    "real_runtime_started=False; runtime_probe_started=False."
+                ),
+                session_id="session-123",
+                agent_type="openai_provider",
+                runtime_type="subprocess",
+                adapter_kind="fake",
+                workspace_path="/tmp/aido-worktree",
+                resolved_workspace_path="/tmp/aido-worktree",
+                launch_cwd_preview="/tmp/aido-worktree",
+                gates_passed=[
+                    "workspace_validation",
+                    "workspace_context",
+                    "runtime_dry_run",
+                    "safe_command_proof",
+                    "adapter_capability",
+                ],
+                gates_failed=[],
+                launch_requested=False,
+                fake_launch_started=False,
+                real_runtime_started=False,
+                runtime_probe_started=False,
+                execution_enabled=False,
+                changes_process_cwd=False,
+                runs_real_command=False,
+                runs_git=False,
+                runs_write_git=False,
+                launches_ai_runtime=False,
+            ),
             worktree_safe_command_proof_ready=True,
             worktree_safe_command_proof_source=(
                 "agent_session_worktree_safe_command"
@@ -1112,6 +1160,49 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["runtime_launch_gate_runs_write_git"] is False
     assert payload["runtime_launch_gate_launches_ai_runtime"] is False
     assert payload["runtime_launch_gate_execution_enabled"] is False
+    assert payload["runtime_lifecycle_snapshot"] == {
+        "ready": True,
+        "source": "runtime_lifecycle_snapshot_ready",
+        "state": "unknown",
+        "reason": "snapshot_only",
+        "reason_code": "snapshot_only",
+        "summary": (
+            "Runtime lifecycle snapshot captured launch-gate-ready "
+            "evidence only; fake_launch_started=False; "
+            "real_runtime_started=False; runtime_probe_started=False."
+        ),
+        "session_id": "session-123",
+        "agent_type": "openai_provider",
+        "runtime_type": "subprocess",
+        "adapter_kind": "fake",
+        "workspace_path": "/tmp/aido-worktree",
+        "resolved_workspace_path": "/tmp/aido-worktree",
+        "launch_cwd_preview": "/tmp/aido-worktree",
+        "runtime_handle_id": None,
+        "gates_passed": [
+            "workspace_validation",
+            "workspace_context",
+            "runtime_dry_run",
+            "safe_command_proof",
+            "adapter_capability",
+        ],
+        "gates_failed": [],
+        "blocking_reason_code": None,
+        "blocking_summary": None,
+        "launch_requested": False,
+        "fake_launch_started": False,
+        "real_runtime_started": False,
+        "runtime_probe_started": False,
+        "probe_state": None,
+        "probe_reason_code": None,
+        "probe_error_summary": None,
+        "execution_enabled": False,
+        "changes_process_cwd": False,
+        "runs_real_command": False,
+        "runs_git": False,
+        "runs_write_git": False,
+        "launches_ai_runtime": False,
+    }
     assert payload["worktree_safe_command_proof_ready"] is True
     assert (
         payload["worktree_safe_command_proof_source"]

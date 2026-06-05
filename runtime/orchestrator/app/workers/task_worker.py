@@ -72,7 +72,9 @@ from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult, VerifierService
 from app.workers.runtime_adapter import (
     FakeRuntimeAdapter,
+    RuntimeLifecycleSnapshot,
     RuntimeLaunchGateResult,
+    build_runtime_lifecycle_snapshot,
     check_runtime_launch_gates,
 )
 
@@ -183,6 +185,7 @@ class WorkerRunResult:
     runtime_launch_gate_runs_write_git: bool | None = None
     runtime_launch_gate_launches_ai_runtime: bool | None = None
     runtime_launch_gate_execution_enabled: bool | None = None
+    runtime_lifecycle_snapshot: RuntimeLifecycleSnapshot | None = None
     worktree_safe_command_proof_ready: bool | None = None
     worktree_safe_command_proof_source: str | None = None
     worktree_safe_command_proof_reason_code: str | None = None
@@ -970,6 +973,7 @@ class TaskWorker:
         runtime_launch_gate_runs_write_git: bool | None = None
         runtime_launch_gate_launches_ai_runtime: bool | None = None
         runtime_launch_gate_execution_enabled: bool | None = None
+        runtime_lifecycle_snapshot: RuntimeLifecycleSnapshot | None = None
         worktree_safe_command_proof_ready: bool | None = None
         worktree_safe_command_proof_source: str | None = None
         worktree_safe_command_proof_reason_code: str | None = None
@@ -1385,13 +1389,20 @@ class TaskWorker:
                 worktree_safe_command_proof_launches_ai_runtime = (
                     worktree_safe_command_proof.launches_ai_runtime
                 )
+                runtime_adapter = FakeRuntimeAdapter()
                 runtime_launch_gate = check_runtime_launch_gates(
                     workspace_context=workspace_context,
                     runtime_dry_run=runtime_launch_dry_run,
                     safe_command_proof=worktree_safe_command_proof,
-                    runtime_adapter=FakeRuntimeAdapter(),
+                    runtime_adapter=runtime_adapter,
                     agent_type=agent_type,
                     runtime_type=runtime_type,
+                )
+                runtime_lifecycle_snapshot = build_runtime_lifecycle_snapshot(
+                    workspace_context=workspace_context,
+                    runtime_dry_run=runtime_launch_dry_run,
+                    gate=runtime_launch_gate,
+                    adapter_kind=runtime_adapter.adapter_kind(),
                 )
                 runtime_launch_gate_ready = runtime_launch_gate.ready
                 runtime_launch_gate_gates_passed = list(runtime_launch_gate.gates_passed)
@@ -1640,6 +1651,7 @@ class TaskWorker:
                         runtime_launch_gate_execution_enabled=(
                             runtime_launch_gate_execution_enabled
                         ),
+                        runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
                         ),
@@ -1951,6 +1963,7 @@ class TaskWorker:
                         runtime_launch_gate_execution_enabled=(
                             runtime_launch_gate_execution_enabled
                         ),
+                        runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
                         ),
@@ -2050,6 +2063,11 @@ class TaskWorker:
                     run=run,
                     gate=runtime_launch_gate,
                 )
+                if runtime_lifecycle_snapshot is not None:
+                    self._log_runtime_lifecycle_snapshot(
+                        run=run,
+                        snapshot=runtime_lifecycle_snapshot,
+                    )
                 if not runtime_launch_gate.ready:
                     runtime_gate_block_summary = (
                         _build_runtime_launch_gate_block_summary(runtime_launch_gate)
@@ -2252,6 +2270,7 @@ class TaskWorker:
                         runtime_launch_gate_execution_enabled=(
                             runtime_launch_gate_execution_enabled
                         ),
+                        runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
                         ),
@@ -2720,6 +2739,7 @@ class TaskWorker:
                 runtime_launch_gate_execution_enabled=(
                     runtime_launch_gate_execution_enabled
                 ),
+                runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
                 worktree_safe_command_proof_ready=worktree_safe_command_proof_ready,
                 worktree_safe_command_proof_source=worktree_safe_command_proof_source,
                 worktree_safe_command_proof_reason_code=(
@@ -3350,6 +3370,29 @@ class TaskWorker:
                 else _build_runtime_launch_gate_block_summary(gate)
             ),
             data=asdict(gate),
+        )
+
+    def _log_runtime_lifecycle_snapshot(
+        self,
+        *,
+        run: Run,
+        snapshot: RuntimeLifecycleSnapshot,
+    ) -> None:
+        """Write the P3-C1 runtime lifecycle snapshot to the run log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event=(
+                "agent_runtime_lifecycle_snapshot_ready"
+                if snapshot.ready
+                else "agent_runtime_lifecycle_snapshot_blocked"
+            ),
+            level="info" if snapshot.ready else "warning",
+            message=snapshot.summary,
+            data=asdict(snapshot),
         )
 
     def _log_guard_blocked(

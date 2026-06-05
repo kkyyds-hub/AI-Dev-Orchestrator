@@ -35,6 +35,7 @@ type WorkerRuntimeLaunchGateEvidenceCardProps = Pick<
   | "runtime_launch_gate_runs_write_git"
   | "runtime_launch_gate_launches_ai_runtime"
   | "runtime_launch_gate_execution_enabled"
+  | "runtime_lifecycle_snapshot"
   | "worktree_safe_command_proof_ready"
   | "worktree_safe_command_proof_reason_code"
   | "worktree_safe_command_proof_observed_pwd"
@@ -175,6 +176,36 @@ export function WorkerRuntimeLaunchGateEvidenceCard(
   ];
 
   const safetyFields: EvidenceField[] = [
+    {
+      key: "snapshot_launch_requested",
+      label: "Snapshot Launch Requested",
+      value: formatBooleanEvidence(props.runtime_lifecycle_snapshot?.launch_requested),
+      tone: props.runtime_lifecycle_snapshot?.launch_requested ? "danger" : "safe",
+    },
+    {
+      key: "snapshot_fake_launch_started",
+      label: "Snapshot Fake Launch",
+      value: formatBooleanEvidence(
+        props.runtime_lifecycle_snapshot?.fake_launch_started,
+      ),
+      tone: props.runtime_lifecycle_snapshot?.fake_launch_started ? "danger" : "safe",
+    },
+    {
+      key: "snapshot_real_runtime_started",
+      label: "Snapshot Real Runtime",
+      value: formatBooleanEvidence(
+        props.runtime_lifecycle_snapshot?.real_runtime_started,
+      ),
+      tone: props.runtime_lifecycle_snapshot?.real_runtime_started ? "danger" : "safe",
+    },
+    {
+      key: "snapshot_runtime_probe_started",
+      label: "Snapshot Runtime Probe",
+      value: formatBooleanEvidence(
+        props.runtime_lifecycle_snapshot?.runtime_probe_started,
+      ),
+      tone: props.runtime_lifecycle_snapshot?.runtime_probe_started ? "danger" : "safe",
+    },
     {
       key: "gate_execution_enabled",
       label: "Gate Execution Enabled",
@@ -320,6 +351,50 @@ export function WorkerRuntimeLaunchGateEvidenceCard(
         </div>
       </div>
 
+      {props.runtime_lifecycle_snapshot ? (
+        <div className="mt-3 rounded-xl border border-[#333333] bg-[#1f1f1f] p-3">
+          <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+            P3-C1 Runtime Lifecycle Snapshot
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <EvidenceInfo
+              label="Snapshot Source"
+              value={formatNullableText(props.runtime_lifecycle_snapshot.source)}
+            />
+            <EvidenceInfo
+              label="Runtime State / Reason"
+              value={`${formatNullableText(
+                props.runtime_lifecycle_snapshot.state,
+              )} / ${formatNullableText(props.runtime_lifecycle_snapshot.reason)}`}
+            />
+            <EvidenceInfo
+              label="Snapshot Reason Code"
+              value={formatNullableText(props.runtime_lifecycle_snapshot.reason_code)}
+            />
+            <EvidenceInfo
+              label="Adapter Kind"
+              value={formatNullableText(props.runtime_lifecycle_snapshot.adapter_kind)}
+            />
+            <EvidenceInfo
+              label="Snapshot Runtime Handle"
+              value={formatNullableText(
+                props.runtime_lifecycle_snapshot.runtime_handle_id,
+              )}
+              tone={props.runtime_lifecycle_snapshot.runtime_handle_id ? "warning" : "safe"}
+            />
+            <EvidenceInfo
+              label="Probe State"
+              value={formatNullableText(props.runtime_lifecycle_snapshot.probe_state)}
+              tone={props.runtime_lifecycle_snapshot.probe_state ? "warning" : "safe"}
+            />
+            <EvidenceInfo
+              label="Lifecycle Summary"
+              value={props.runtime_lifecycle_snapshot.summary}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {dryRunFields.map((field) => (
           <EvidenceInfo
@@ -360,7 +435,8 @@ function hasRuntimeLaunchGateEvidence(
     props.worktree_safe_command_proof_ready !== null ||
     props.runtime_launch_gate_gates_passed.length > 0 ||
     props.runtime_launch_gate_gates_failed.length > 0 ||
-    Boolean(props.runtime_launch_gate_blocking_reason_code)
+    Boolean(props.runtime_launch_gate_blocking_reason_code) ||
+    props.runtime_lifecycle_snapshot !== null
   );
 }
 

@@ -74,6 +74,9 @@ class RuntimeLifecycleReason(StrEnum):
     ADAPTER_UNAVAILABLE = "adapter_unavailable"
     ADAPTER_LAUNCH_BLOCKED = "adapter_launch_blocked"
 
+    # evidence-only lifecycle snapshot
+    SNAPSHOT_ONLY = "snapshot_only"
+
 
 # ---------------------------------------------------------------------------
 # Runtime handle
@@ -154,6 +157,50 @@ class RuntimeProbeResult:
     reason: RuntimeLifecycleReason
     exit_code: int | None = None
     error_summary: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class RuntimeLifecycleSnapshot:
+    """P3-C1 evidence-only snapshot of the runtime lifecycle boundary.
+
+    This snapshot follows the Agent Orchestrator pattern of keeping runtime
+    lifecycle truth explicit and separate from task/session status.  P3-C1 does
+    **not** launch, fake-launch, probe, kill, or mutate a runtime; it records
+    the latest gate/dry-run/workspace evidence as a structured lifecycle
+    snapshot for API/UI consumers.
+    """
+
+    ready: bool
+    source: str
+    state: RuntimeLifecycleState
+    reason: RuntimeLifecycleReason
+    reason_code: str | None
+    summary: str
+    session_id: str | None
+    agent_type: str | None
+    runtime_type: str | None
+    adapter_kind: str | None
+    workspace_path: str | None
+    resolved_workspace_path: str | None
+    launch_cwd_preview: str | None
+    runtime_handle_id: str | None = None
+    gates_passed: list[str] = field(default_factory=list)
+    gates_failed: list[str] = field(default_factory=list)
+    blocking_reason_code: str | None = None
+    blocking_summary: str | None = None
+    launch_requested: bool = False
+    fake_launch_started: bool = False
+    real_runtime_started: bool = False
+    runtime_probe_started: bool = False
+    probe_state: str | None = None
+    probe_reason_code: str | None = None
+    probe_error_summary: str | None = None
+    execution_enabled: bool = False
+    changes_process_cwd: bool = False
+    runs_real_command: bool = False
+    runs_git: bool = False
+    runs_write_git: bool = False
+    launches_ai_runtime: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -547,6 +594,83 @@ def check_runtime_launch_gates(
         gates_failed=gates_failed,
         blocking_reason_code=None,
         blocking_summary=None,
+    )
+
+
+def build_runtime_lifecycle_snapshot(
+    *,
+    workspace_context,  # WorkerWorkspaceContextResolution
+    runtime_dry_run,  # WorkerRuntimeLaunchDryRun
+    gate: RuntimeLaunchGateResult,
+    adapter_kind: str | None = None,
+) -> RuntimeLifecycleSnapshot:
+    """Build the P3-C1 runtime lifecycle snapshot without runtime side effects.
+
+    The snapshot intentionally stops at the lifecycle evidence boundary.  It
+    does not call :func:`run_fake_runtime_simulation`,
+    :meth:`RuntimeAdapter.launch`, :meth:`RuntimeAdapter.is_alive`, or any real
+    process probe.
+    """
+
+    source = (
+        "runtime_lifecycle_snapshot_ready"
+        if gate.ready
+        else "runtime_lifecycle_snapshot_blocked"
+    )
+    reason_code = gate.blocking_reason_code or RuntimeLifecycleReason.SNAPSHOT_ONLY.value
+    if gate.ready:
+        summary = (
+            "Runtime lifecycle snapshot captured launch-gate-ready evidence only; "
+            "launch_requested=False; fake_launch_started=False; "
+            "real_runtime_started=False; runtime_probe_started=False."
+        )
+    else:
+        blocking_summary = (
+            gate.blocking_summary
+            or "Runtime launch gate is not ready for lifecycle progression."
+        )
+        summary = (
+            "Runtime lifecycle snapshot captured controlled blocking evidence; "
+            f"reason_code={reason_code}; summary={blocking_summary}; "
+            "launch_requested=False; fake_launch_started=False; "
+            "real_runtime_started=False; runtime_probe_started=False."
+        )
+
+    return RuntimeLifecycleSnapshot(
+        ready=gate.ready,
+        source=source,
+        state=RuntimeLifecycleState.UNKNOWN,
+        reason=RuntimeLifecycleReason.SNAPSHOT_ONLY,
+        reason_code=reason_code,
+        summary=summary,
+        session_id=runtime_dry_run.session_id,
+        agent_type=runtime_dry_run.agent_type,
+        runtime_type=runtime_dry_run.runtime_type,
+        adapter_kind=adapter_kind,
+        workspace_path=runtime_dry_run.workspace_path or workspace_context.workspace_path,
+        resolved_workspace_path=(
+            runtime_dry_run.resolved_workspace_path
+            or workspace_context.resolved_workspace_path
+        ),
+        launch_cwd_preview=runtime_dry_run.launch_cwd_preview,
+        runtime_handle_id=None,
+        gates_passed=list(gate.gates_passed),
+        gates_failed=list(gate.gates_failed),
+        blocking_reason_code=gate.blocking_reason_code,
+        blocking_summary=gate.blocking_summary,
+        launch_requested=False,
+        fake_launch_started=False,
+        real_runtime_started=False,
+        runtime_probe_started=False,
+        probe_state=None,
+        probe_reason_code=None,
+        probe_error_summary=None,
+        execution_enabled=gate.execution_enabled,
+        changes_process_cwd=gate.changes_process_cwd,
+        runs_real_command=gate.runs_real_command,
+        runs_git=gate.runs_git,
+        runs_write_git=gate.runs_write_git,
+        launches_ai_runtime=gate.launches_ai_runtime,
     )
 
 

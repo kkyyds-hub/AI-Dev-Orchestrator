@@ -48,6 +48,82 @@ class WorkerRunOnceResponse(BaseModel):
                 detail=item.detail,
             )
 
+    class RuntimeLifecycleSnapshotResponse(BaseModel):
+        """P3-C1 evidence-only runtime lifecycle snapshot."""
+
+        ready: bool
+        source: str
+        state: str
+        reason: str
+        reason_code: str | None = None
+        summary: str
+        session_id: str | None = None
+        agent_type: str | None = None
+        runtime_type: str | None = None
+        adapter_kind: str | None = None
+        workspace_path: str | None = None
+        resolved_workspace_path: str | None = None
+        launch_cwd_preview: str | None = None
+        runtime_handle_id: str | None = None
+        gates_passed: list[str] = Field(default_factory=list)
+        gates_failed: list[str] = Field(default_factory=list)
+        blocking_reason_code: str | None = None
+        blocking_summary: str | None = None
+        launch_requested: bool = False
+        fake_launch_started: bool = False
+        real_runtime_started: bool = False
+        runtime_probe_started: bool = False
+        probe_state: str | None = None
+        probe_reason_code: str | None = None
+        probe_error_summary: str | None = None
+        execution_enabled: bool = False
+        changes_process_cwd: bool = False
+        runs_real_command: bool = False
+        runs_git: bool = False
+        runs_write_git: bool = False
+        launches_ai_runtime: bool = False
+
+        @classmethod
+        def from_snapshot(
+            cls,
+            snapshot,
+        ) -> "WorkerRunOnceResponse.RuntimeLifecycleSnapshotResponse":
+            """Convert one worker-side snapshot into an API DTO."""
+
+            return cls(
+                ready=snapshot.ready,
+                source=snapshot.source,
+                state=snapshot.state.value,
+                reason=snapshot.reason.value,
+                reason_code=snapshot.reason_code,
+                summary=snapshot.summary,
+                session_id=snapshot.session_id,
+                agent_type=snapshot.agent_type,
+                runtime_type=snapshot.runtime_type,
+                adapter_kind=snapshot.adapter_kind,
+                workspace_path=snapshot.workspace_path,
+                resolved_workspace_path=snapshot.resolved_workspace_path,
+                launch_cwd_preview=snapshot.launch_cwd_preview,
+                runtime_handle_id=snapshot.runtime_handle_id,
+                gates_passed=list(snapshot.gates_passed),
+                gates_failed=list(snapshot.gates_failed),
+                blocking_reason_code=snapshot.blocking_reason_code,
+                blocking_summary=snapshot.blocking_summary,
+                launch_requested=snapshot.launch_requested,
+                fake_launch_started=snapshot.fake_launch_started,
+                real_runtime_started=snapshot.real_runtime_started,
+                runtime_probe_started=snapshot.runtime_probe_started,
+                probe_state=snapshot.probe_state,
+                probe_reason_code=snapshot.probe_reason_code,
+                probe_error_summary=snapshot.probe_error_summary,
+                execution_enabled=snapshot.execution_enabled,
+                changes_process_cwd=snapshot.changes_process_cwd,
+                runs_real_command=snapshot.runs_real_command,
+                runs_git=snapshot.runs_git,
+                runs_write_git=snapshot.runs_write_git,
+                launches_ai_runtime=snapshot.launches_ai_runtime,
+            )
+
     claimed: bool
     message: str
     execution_mode: str | None = None
@@ -148,6 +224,7 @@ class WorkerRunOnceResponse(BaseModel):
     runtime_launch_gate_runs_write_git: bool | None = None
     runtime_launch_gate_launches_ai_runtime: bool | None = None
     runtime_launch_gate_execution_enabled: bool | None = None
+    runtime_lifecycle_snapshot: RuntimeLifecycleSnapshotResponse | None = None
     worktree_safe_command_proof_ready: bool | None = None
     worktree_safe_command_proof_source: str | None = None
     worktree_safe_command_proof_reason_code: str | None = None
@@ -378,6 +455,13 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             runtime_launch_gate_execution_enabled=(
                 result.runtime_launch_gate_execution_enabled
+            ),
+            runtime_lifecycle_snapshot=(
+                cls.RuntimeLifecycleSnapshotResponse.from_snapshot(
+                    result.runtime_lifecycle_snapshot
+                )
+                if result.runtime_lifecycle_snapshot is not None
+                else None
             ),
             worktree_safe_command_proof_ready=(
                 result.worktree_safe_command_proof_ready

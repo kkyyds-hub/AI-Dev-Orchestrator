@@ -30,6 +30,7 @@ from app.workers.runtime_adapter import (
     RuntimeLifecycleReason,
     RuntimeLifecycleState,
     RuntimeProbeResult,
+    build_runtime_lifecycle_snapshot,
     check_runtime_launch_gates,
     run_fake_runtime_simulation,
 )
@@ -463,6 +464,98 @@ class TestGateChainAllPassed:
         # Verify the handle was stored by the adapter
         probe = adapter.is_alive(handle=launch.handle)
         assert probe.state == RuntimeLifecycleState.ALIVE
+
+
+# ---------------------------------------------------------------------------
+# P3-C1 runtime lifecycle snapshot — no launch, no probe
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeLifecycleSnapshot:
+    def test_ready_snapshot_records_gate_evidence_without_launch_or_probe(self, tmp_path):
+        context = _ready_context(tmp_path)
+        dry_run = _ready_dry_run(tmp_path)
+        proof = _passed_proof()
+        adapter = FakeRuntimeAdapter()
+
+        gate = check_runtime_launch_gates(
+            workspace_context=context,
+            runtime_dry_run=dry_run,
+            safe_command_proof=proof,
+            runtime_adapter=adapter,
+            agent_type="openai_provider",
+            runtime_type="subprocess",
+        )
+        snapshot = build_runtime_lifecycle_snapshot(
+            workspace_context=context,
+            runtime_dry_run=dry_run,
+            gate=gate,
+            adapter_kind=adapter.adapter_kind(),
+        )
+
+        assert snapshot.ready is True
+        assert snapshot.source == "runtime_lifecycle_snapshot_ready"
+        assert snapshot.state == RuntimeLifecycleState.UNKNOWN
+        assert snapshot.reason == RuntimeLifecycleReason.SNAPSHOT_ONLY
+        assert snapshot.reason_code == "snapshot_only"
+        assert snapshot.session_id == dry_run.session_id
+        assert snapshot.adapter_kind == "fake"
+        assert snapshot.runtime_handle_id is None
+        assert snapshot.gates_passed == gate.gates_passed
+        assert snapshot.gates_failed == []
+        assert snapshot.launch_requested is False
+        assert snapshot.fake_launch_started is False
+        assert snapshot.real_runtime_started is False
+        assert snapshot.runtime_probe_started is False
+        assert snapshot.probe_state is None
+        assert snapshot.execution_enabled is False
+        assert snapshot.launches_ai_runtime is False
+        assert "fake_launch_started=False" in snapshot.summary
+        assert "runtime_probe_started=False" in snapshot.summary
+
+    def test_blocked_snapshot_records_reason_without_launch_or_probe(self, tmp_path):
+        context = _ready_context(tmp_path)
+        proof = _passed_proof()
+        adapter = FakeRuntimeAdapter()
+        session = _session(
+            workspace_path=tmp_path.as_posix(),
+            workspace_clean=True,
+            runtime_type=None,
+        )
+        dry_run = build_worker_runtime_launch_dry_run(
+            agent_session=session,
+            workspace_context=context,
+        )
+
+        gate = check_runtime_launch_gates(
+            workspace_context=context,
+            runtime_dry_run=dry_run,
+            safe_command_proof=proof,
+            runtime_adapter=adapter,
+            agent_type="openai_provider",
+            runtime_type=None,
+        )
+        snapshot = build_runtime_lifecycle_snapshot(
+            workspace_context=context,
+            runtime_dry_run=dry_run,
+            gate=gate,
+            adapter_kind=adapter.adapter_kind(),
+        )
+
+        assert snapshot.ready is False
+        assert snapshot.source == "runtime_lifecycle_snapshot_blocked"
+        assert snapshot.state == RuntimeLifecycleState.UNKNOWN
+        assert snapshot.reason == RuntimeLifecycleReason.SNAPSHOT_ONLY
+        assert snapshot.reason_code == "runtime_type_missing"
+        assert snapshot.blocking_reason_code == "runtime_type_missing"
+        assert snapshot.gates_failed == ["runtime_dry_run"]
+        assert snapshot.runtime_handle_id is None
+        assert snapshot.launch_requested is False
+        assert snapshot.fake_launch_started is False
+        assert snapshot.real_runtime_started is False
+        assert snapshot.runtime_probe_started is False
+        assert snapshot.probe_reason_code is None
+        assert "controlled blocking evidence" in snapshot.summary
 
 
 # ---------------------------------------------------------------------------
