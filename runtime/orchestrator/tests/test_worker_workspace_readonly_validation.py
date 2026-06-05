@@ -10,13 +10,44 @@ from __future__ import annotations
 from uuid import uuid4
 
 from app.api.routes.workers import WorkerRunOnceResponse
+from app.domain._base import utc_now
 from app.domain.agent_session import (
     AgentSession,
+    AgentSessionPhase,
+    AgentSessionStatus,
     AgentType,
+    CodingSessionActivityState,
+    CodingSessionStatus,
     RuntimeType,
     WorkspaceType,
 )
+from app.domain.run import (
+    Run,
+    RunBudgetPressureLevel,
+    RunBudgetStrategyAction,
+    RunFailureCategory,
+    RunStatus,
+)
+from app.domain.task import (
+    Task,
+    TaskHumanStatus,
+    TaskPriority,
+    TaskRiskLevel,
+    TaskStatus,
+)
+from app.services.budget_guard_service import (
+    BudgetGuardDecision,
+    BudgetSnapshot,
+    RetryStatus,
+)
+from app.services.context_builder_service import (
+    AgentThreadContextSeed,
+    TaskContextPackage,
+)
+from app.services.task_router_service import TaskRoutingDecision
+from app.services.task_state_machine_service import TaskStateMachineService
 from app.workers.task_worker import (
+    TaskWorker,
     WorkerRunResult,
     build_worker_runtime_launch_dry_run,
     resolve_worker_workspace_context,
@@ -25,6 +56,7 @@ from app.workers.task_worker import (
 from app.workers.worktree_safe_command import (
     WorkerPwdCommandResult,
     WorkerPwdCommandSpec,
+    WorkerWorktreeSafeCommandProof,
     WorkerWorktreeSafeCommandProofRunner,
 )
 
@@ -381,6 +413,386 @@ def test_worktree_safe_command_proof_rejects_mutating_probe_spec(tmp_path):
     assert proof.runs_write_git is False
     assert proof.launches_worker_loop is False
     assert proof.launches_ai_runtime is False
+
+
+class _NoopDbSession:
+    def __init__(self) -> None:
+        self.commits = 0
+        self.rollbacks = 0
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class _FakeTaskRepository:
+    def __init__(self, task: Task) -> None:
+        self.task = task
+
+    def claim_pending_task(self, task_id):
+        assert task_id == self.task.id
+        if self.task.status != TaskStatus.PENDING:
+            return None
+        self.task = self.task.model_copy(
+            update={"status": TaskStatus.RUNNING, "updated_at": utc_now()}
+        )
+        return self.task
+
+    def update_control_state(self, task_id, **kwargs):
+        assert task_id == self.task.id
+        self.task = self.task.model_copy(
+            update={**kwargs, "updated_at": utc_now()}
+        )
+        return self.task
+
+
+class _FakeRunRepository:
+    def __init__(self) -> None:
+        self.run: Run | None = None
+
+    def create_running_run(self, *, task_id, **kwargs):
+        self.run = Run(
+            task_id=task_id,
+            status=RunStatus.RUNNING,
+            started_at=utc_now(),
+            **kwargs,
+        )
+        return self.run
+
+    def set_log_path(self, run_id, log_path):
+        assert self.run is not None
+        assert run_id == self.run.id
+        self.run = self.run.model_copy(update={"log_path": log_path})
+        return self.run
+
+    def finish_run(self, run_id, **kwargs):
+        assert self.run is not None
+        assert run_id == self.run.id
+        self.run = self.run.model_copy(
+            update={**kwargs, "finished_at": utc_now()}
+        )
+        return self.run
+
+
+class _ExplodingExecutorService:
+    def __init__(self) -> None:
+        self.build_execution_plan_calls = 0
+        self.execute_task_calls = 0
+
+    def build_execution_plan(self, *args, **kwargs):
+        self.build_execution_plan_calls += 1
+        raise AssertionError("executor plan must not be built when proof fails")
+
+    def execute_task(self, *args, **kwargs):
+        self.execute_task_calls += 1
+        raise AssertionError("executor must not run when proof fails")
+
+
+class _AllowingBudgetGuardService:
+    def evaluate_before_execution(self, task_id, *, project_id=None):
+        budget = BudgetSnapshot(
+            daily_budget_usd=100.0,
+            daily_cost_used=0.0,
+            daily_cost_remaining=100.0,
+            daily_usage_ratio=0.0,
+            daily_budget_exceeded=False,
+            daily_window_started_at=utc_now(),
+            session_budget_usd=100.0,
+            session_cost_used=0.0,
+            session_cost_remaining=100.0,
+            session_usage_ratio=0.0,
+            session_budget_exceeded=False,
+            session_started_at=utc_now(),
+            max_task_retries=3,
+            pressure_level=RunBudgetPressureLevel.NORMAL,
+            suggested_action=RunBudgetStrategyAction.FULL_SPEED,
+            strategy_code="test_allow",
+            strategy_label="Test allow",
+            strategy_summary="Test budget allows execution.",
+            preferred_model_tier="standard",
+            budget_blocked_runs_daily=0,
+            budget_blocked_runs_session=0,
+        )
+        retry_status = RetryStatus(
+            execution_attempts=0,
+            max_task_retries=3,
+            retries_used=0,
+            retries_remaining=3,
+            retry_limit_reached=False,
+        )
+        return BudgetGuardDecision(
+            allowed=True,
+            summary=None,
+            failure_category=None,
+            pressure_level=RunBudgetPressureLevel.NORMAL,
+            suggested_action=RunBudgetStrategyAction.FULL_SPEED,
+            strategy_code="test_allow",
+            budget=budget,
+            retry_status=retry_status,
+        )
+
+
+class _NoopRunLoggingService:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def initialize_run_log(self, *, task_id, run_id):
+        return f"runs/{task_id}/{run_id}.jsonl"
+
+    def append_event(self, *, log_path, event, message, data, level="info"):
+        self.events.append(event)
+
+    def append_role_handoff_event(self, *, log_path, **kwargs):
+        self.events.append("role_handoff")
+
+
+class _FakeContextBuilderService:
+    def build_context_package(
+        self,
+        *,
+        task,
+        run_id,
+        include_project_memory,
+    ):
+        return TaskContextPackage(
+            task_id=task.id,
+            task_title=task.title,
+            input_summary=task.input_summary,
+            acceptance_criteria=list(task.acceptance_criteria),
+            priority=task.priority,
+            risk_level=task.risk_level,
+            human_status=task.human_status,
+            paused_reason=task.paused_reason,
+            ready_for_execution=True,
+            blocking_signals=[],
+            blocking_reasons=[],
+            dependency_items=[],
+            recent_runs=[],
+            context_summary="fake context ready",
+        )
+
+    def build_agent_thread_context_seed(self, *, task, context_package):
+        return AgentThreadContextSeed(
+            task_id=task.id,
+            context_checkpoint_id=None,
+            context_rehydrated=False,
+            pressure_level=None,
+            usage_ratio=None,
+            bad_context_detected=False,
+            bad_context_reasons=[],
+            context_contract_summary="fake context seed",
+        )
+
+
+class _FakeTaskRouterService:
+    def __init__(self, task: Task) -> None:
+        self.task = task
+
+    def route_next_task(self, *, project_id=None):
+        return TaskRoutingDecision(
+            selected_task=self.task,
+            routing_score=100.0,
+            route_reason="test route",
+            routing_score_breakdown=[],
+            candidates=[],
+            message="selected fake task",
+            budget_pressure_level=RunBudgetPressureLevel.NORMAL,
+            budget_action=RunBudgetStrategyAction.FULL_SPEED,
+            budget_strategy_code="test_allow",
+            budget_strategy_summary="Test budget allows execution.",
+            project_stage=None,
+            owner_role_code=None,
+            upstream_role_code=None,
+            downstream_role_code=None,
+            dispatch_status=None,
+            handoff_reason=None,
+            model_name=None,
+            model_tier=None,
+            selected_skill_codes=(),
+            selected_skill_names=(),
+            strategy_code=None,
+            strategy_summary=None,
+            strategy_reasons=[],
+            strategy_decision=None,
+        )
+
+
+class _FakeAgentSessionRepository:
+    def __init__(self, agent_session: AgentSession) -> None:
+        self.agent_session = agent_session
+
+    def update_status(self, session_id, **kwargs):
+        assert session_id == self.agent_session.id
+        updates = dict(kwargs)
+        if updates.pop("finished", False):
+            updates["finished_at"] = utc_now()
+        updates["updated_at"] = utc_now()
+        self.agent_session = self.agent_session.model_copy(update=updates)
+        return self.agent_session
+
+
+class _FakeAgentConversationService:
+    def __init__(self, agent_session: AgentSession) -> None:
+        self.agent_session_repository = _FakeAgentSessionRepository(agent_session)
+
+    def start_session(
+        self,
+        *,
+        project_id,
+        task_id,
+        run_id,
+        owner_role_code,
+        context_seed,
+    ):
+        self.agent_session_repository.agent_session = (
+            self.agent_session_repository.agent_session.model_copy(
+                update={
+                    "project_id": project_id,
+                    "task_id": task_id,
+                    "run_id": run_id,
+                    "status": AgentSessionStatus.RUNNING,
+                    "current_phase": AgentSessionPhase.CONTEXT_READY,
+                    "coding_status": CodingSessionStatus.WORKING,
+                    "activity_state": CodingSessionActivityState.ACTIVE,
+                }
+            )
+        )
+        return self.agent_session_repository.agent_session
+
+    def record_execution_started(self, *, session_id):
+        return self.agent_session_repository.update_status(
+            session_id,
+            current_phase=AgentSessionPhase.EXECUTING,
+            summary="Execution has started in the worker chain.",
+        )
+
+    def finalize_session(
+        self,
+        *,
+        session_id,
+        run_status,
+        run_failure_category,
+        final_summary,
+    ):
+        assert run_status == RunStatus.CANCELLED
+        return self.agent_session_repository.update_status(
+            session_id,
+            status=AgentSessionStatus.BLOCKED,
+            current_phase=AgentSessionPhase.FINALIZED,
+            summary=final_summary,
+            coding_status=CodingSessionStatus.TERMINATED,
+            activity_state=CodingSessionActivityState.EXITED,
+            finished=True,
+        )
+
+
+def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
+    monkeypatch,
+    tmp_path,
+):
+    task = Task(
+        project_id=uuid4(),
+        title="Proof blocks executor",
+        input_summary="simulate: should not reach executor",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+    )
+    proof = WorkerWorktreeSafeCommandProof(
+        ready=False,
+        source="agent_session_worktree_safe_command_blocked",
+        reason_code="pwd_mismatch_workspace_path",
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd="/unexpected/worktree",
+        pwd_matches_workspace_path=False,
+        exit_code=0,
+        stdout="/unexpected/worktree",
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+
+    class _FailingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return proof
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _FailingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+
+    executor_service = _ExplodingExecutorService()
+    task_repository = _FakeTaskRepository(task)
+    run_repository = _FakeRunRepository()
+    agent_conversation_service = _FakeAgentConversationService(agent_session)
+    worker = TaskWorker(
+        session=_NoopDbSession(),
+        task_repository=task_repository,
+        run_repository=run_repository,
+        executor_service=executor_service,
+        verifier_service=None,
+        budget_guard_service=_AllowingBudgetGuardService(),
+        run_logging_service=_NoopRunLoggingService(),
+        cost_estimator_service=None,
+        context_builder_service=_FakeContextBuilderService(),
+        task_router_service=_FakeTaskRouterService(task),
+        model_routing_service=None,
+        prompt_registry_service=None,
+        prompt_builder_service=None,
+        token_accounting_service=None,
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type(
+            "_NoopFailureReviewService",
+            (),
+            {"ensure_review": lambda self, *, task, run: None},
+        )(),
+        agent_conversation_service=agent_conversation_service,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.execution_mode == "worktree_safe_command_proof"
+    assert "blocked executor dispatch" in result.message
+    assert result.worktree_safe_command_proof_ready is False
+    assert result.worktree_safe_command_proof_reason_code == (
+        "pwd_mismatch_workspace_path"
+    )
+    assert result.task is not None
+    assert result.task.status == TaskStatus.BLOCKED
+    assert result.run is not None
+    assert result.run.status == RunStatus.CANCELLED
+    assert result.run.failure_category == RunFailureCategory.EXECUTION_FAILED
+    assert result.run.quality_gate_passed is False
+    assert result.run.verification_summary == (
+        "Verification skipped because worker worktree safe command proof failed."
+    )
+    assert result.agent_session_status == "blocked"
+    assert result.agent_current_phase == "finalized"
+    assert result.coding_status == "terminated"
+    assert result.activity_state == "exited"
+    assert result.last_workspace_error is not None
+    assert "reason_code=pwd_mismatch_workspace_path" in result.last_workspace_error
+    assert executor_service.build_execution_plan_calls == 0
+    assert executor_service.execute_task_calls == 0
 
 
 def test_runtime_launch_dry_run_blocks_non_worktree_without_execution():

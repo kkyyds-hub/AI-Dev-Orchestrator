@@ -548,6 +548,32 @@ def build_worker_runtime_launch_dry_run(
     )
 
 
+def _build_worktree_safe_command_proof_block_summary(
+    proof: "WorkerWorktreeSafeCommandProof",
+) -> str:
+    """Build the stable failure summary when the safe command proof blocks."""
+
+    reason_code = proof.reason_code or "worktree_safe_command_proof_not_ready"
+    details = [
+        "Worker worktree safe command proof blocked executor dispatch.",
+        f"reason_code={reason_code}",
+    ]
+    if proof.command is not None:
+        details.append(f"command={proof.command}")
+    if proof.expected_workspace_path is not None:
+        details.append(f"expected_workspace_path={proof.expected_workspace_path}")
+    if proof.observed_pwd is not None:
+        details.append(f"observed_pwd={proof.observed_pwd}")
+    if proof.exit_code is not None:
+        details.append(f"exit_code={proof.exit_code}")
+    if proof.timed_out is True:
+        details.append("timed_out=True")
+    if proof.stderr:
+        details.append(f"stderr={proof.stderr}")
+
+    return "; ".join(details)[:_RUN_RESULT_SUMMARY_MAX_LENGTH]
+
+
 def _truncate_deliverable_text(value: str, max_length: int) -> str:
     """Truncate one text field to the deliverable domain length limit.
 
@@ -1598,6 +1624,288 @@ class TaskWorker:
                         task=task,
                         run=run,
                     )
+                if not worktree_safe_command_proof.ready:
+                    proof_block_summary = (
+                        _build_worktree_safe_command_proof_block_summary(
+                            worktree_safe_command_proof
+                        )
+                    )
+                    last_workspace_error = proof_block_summary
+                    agent_session = (
+                        self.agent_conversation_service.agent_session_repository.update_status(
+                            agent_session.id,
+                            summary=(
+                                "Worker worktree safe command proof blocked execution."
+                            ),
+                            coding_status=CodingSessionStatus.STUCK,
+                            activity_state=CodingSessionActivityState.BLOCKED,
+                            last_workspace_error=last_workspace_error,
+                        )
+                    )
+                    task, run = self._finalize_worktree_safe_command_proof_blocked_run(
+                        task=task,
+                        run=run,
+                        proof=worktree_safe_command_proof,
+                    )
+                    agent_session = self.agent_conversation_service.finalize_session(
+                        session_id=agent_session.id,
+                        run_status=run.status,
+                        run_failure_category=run.failure_category,
+                        final_summary=run.result_summary or proof_block_summary,
+                    )
+                    agent_session_status = agent_session.status.value
+                    agent_review_status = agent_session.review_status.value
+                    agent_current_phase = agent_session.current_phase.value
+                    agent_type = (
+                        agent_session.agent_type.value
+                        if agent_session.agent_type is not None
+                        else None
+                    )
+                    runtime_type = (
+                        agent_session.runtime_type.value
+                        if agent_session.runtime_type is not None
+                        else None
+                    )
+                    runtime_handle_id = agent_session.runtime_handle_id
+                    coding_status = (
+                        agent_session.coding_status.value
+                        if agent_session.coding_status is not None
+                        else None
+                    )
+                    activity_state = (
+                        agent_session.activity_state.value
+                        if agent_session.activity_state is not None
+                        else None
+                    )
+                    branch_name = agent_session.branch_name
+                    workspace_type = (
+                        agent_session.workspace_type.value
+                        if agent_session.workspace_type is not None
+                        else None
+                    )
+                    workspace_path = agent_session.workspace_path
+                    workspace_clean = agent_session.workspace_clean
+                    last_workspace_error = agent_session.last_workspace_error
+                    self._log_finalization(
+                        task=task,
+                        run=run,
+                        final_summary=run.result_summary or proof_block_summary,
+                    )
+                    self.session.commit()
+                    self._record_failure_review_if_needed(task=task, run=run)
+
+                    return WorkerRunResult(
+                        claimed=True,
+                        message=proof_block_summary,
+                        execution_mode="worktree_safe_command_proof",
+                        failure_category=run.failure_category,
+                        quality_gate_passed=run.quality_gate_passed,
+                        route_reason=run.route_reason,
+                        routing_score=run.routing_score,
+                        routing_score_breakdown=run.routing_score_breakdown,
+                        budget_pressure_level=(
+                            routing_decision.budget_pressure_level
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_action=(
+                            routing_decision.budget_action
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_strategy_code=(
+                            routing_decision.budget_strategy_code
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_strategy_summary=(
+                            routing_decision.budget_strategy_summary
+                            if routing_decision is not None
+                            else None
+                        ),
+                        result_summary=run.result_summary,
+                        context_summary=context_package.context_summary,
+                        agent_session_id=agent_session_id,
+                        agent_session_status=agent_session_status,
+                        agent_review_status=agent_review_status,
+                        agent_current_phase=agent_current_phase,
+                        agent_type=agent_type,
+                        runtime_type=runtime_type,
+                        runtime_handle_id=runtime_handle_id,
+                        coding_status=coding_status,
+                        activity_state=activity_state,
+                        branch_name=branch_name,
+                        workspace_type=workspace_type,
+                        workspace_path=workspace_path,
+                        workspace_clean=workspace_clean,
+                        last_workspace_error=last_workspace_error,
+                        workspace_context_ready=workspace_context_ready,
+                        workspace_context_source=workspace_context_source,
+                        workspace_context_reason_code=workspace_context_reason_code,
+                        workspace_context_path=workspace_context_path,
+                        workspace_context_resolved_path=(
+                            workspace_context_resolved_path
+                        ),
+                        workspace_context_uses_agent_workspace=(
+                            workspace_context_uses_agent_workspace
+                        ),
+                        workspace_context_changes_cwd=workspace_context_changes_cwd,
+                        workspace_context_runs_git=workspace_context_runs_git,
+                        workspace_context_runs_write_git=(
+                            workspace_context_runs_write_git
+                        ),
+                        workspace_context_launches_runtime=(
+                            workspace_context_launches_runtime
+                        ),
+                        runtime_launch_dry_run_ready=(
+                            runtime_launch_dry_run_ready
+                        ),
+                        runtime_launch_dry_run_source=(
+                            runtime_launch_dry_run_source
+                        ),
+                        runtime_launch_dry_run_reason_code=(
+                            runtime_launch_dry_run_reason_code
+                        ),
+                        runtime_launch_dry_run_session_id=(
+                            runtime_launch_dry_run_session_id
+                        ),
+                        runtime_launch_dry_run_agent_type=(
+                            runtime_launch_dry_run_agent_type
+                        ),
+                        runtime_launch_dry_run_runtime_type=(
+                            runtime_launch_dry_run_runtime_type
+                        ),
+                        runtime_launch_dry_run_workspace_path=(
+                            runtime_launch_dry_run_workspace_path
+                        ),
+                        runtime_launch_dry_run_resolved_workspace_path=(
+                            runtime_launch_dry_run_resolved_workspace_path
+                        ),
+                        runtime_launch_dry_run_launch_cwd_preview=(
+                            runtime_launch_dry_run_launch_cwd_preview
+                        ),
+                        runtime_launch_dry_run_launch_command_preview=(
+                            runtime_launch_dry_run_launch_command_preview
+                        ),
+                        runtime_launch_dry_run_uses_agent_workspace=(
+                            runtime_launch_dry_run_uses_agent_workspace
+                        ),
+                        runtime_launch_dry_run_command_preview_uses_workspace=(
+                            runtime_launch_dry_run_command_preview_uses_workspace
+                        ),
+                        runtime_launch_dry_run_execution_enabled=(
+                            runtime_launch_dry_run_execution_enabled
+                        ),
+                        runtime_launch_dry_run_changes_cwd=(
+                            runtime_launch_dry_run_changes_cwd
+                        ),
+                        runtime_launch_dry_run_runs_command=(
+                            runtime_launch_dry_run_runs_command
+                        ),
+                        runtime_launch_dry_run_runs_git=(
+                            runtime_launch_dry_run_runs_git
+                        ),
+                        runtime_launch_dry_run_runs_write_git=(
+                            runtime_launch_dry_run_runs_write_git
+                        ),
+                        runtime_launch_dry_run_launches_runtime=(
+                            runtime_launch_dry_run_launches_runtime
+                        ),
+                        worktree_safe_command_proof_ready=(
+                            worktree_safe_command_proof_ready
+                        ),
+                        worktree_safe_command_proof_source=(
+                            worktree_safe_command_proof_source
+                        ),
+                        worktree_safe_command_proof_reason_code=(
+                            worktree_safe_command_proof_reason_code
+                        ),
+                        worktree_safe_command_proof_command=(
+                            worktree_safe_command_proof_command
+                        ),
+                        worktree_safe_command_proof_cwd=worktree_safe_command_proof_cwd,
+                        worktree_safe_command_proof_expected_workspace_path=(
+                            worktree_safe_command_proof_expected_workspace_path
+                        ),
+                        worktree_safe_command_proof_observed_pwd=(
+                            worktree_safe_command_proof_observed_pwd
+                        ),
+                        worktree_safe_command_proof_pwd_matches_workspace_path=(
+                            worktree_safe_command_proof_pwd_matches_workspace_path
+                        ),
+                        worktree_safe_command_proof_exit_code=(
+                            worktree_safe_command_proof_exit_code
+                        ),
+                        worktree_safe_command_proof_stdout=(
+                            worktree_safe_command_proof_stdout
+                        ),
+                        worktree_safe_command_proof_stderr=(
+                            worktree_safe_command_proof_stderr
+                        ),
+                        worktree_safe_command_proof_timed_out=(
+                            worktree_safe_command_proof_timed_out
+                        ),
+                        worktree_safe_command_proof_read_only=(
+                            worktree_safe_command_proof_read_only
+                        ),
+                        worktree_safe_command_proof_allowlisted=(
+                            worktree_safe_command_proof_allowlisted
+                        ),
+                        worktree_safe_command_proof_uses_agent_workspace=(
+                            worktree_safe_command_proof_uses_agent_workspace
+                        ),
+                        worktree_safe_command_proof_changes_process_cwd=(
+                            worktree_safe_command_proof_changes_process_cwd
+                        ),
+                        worktree_safe_command_proof_runs_command=(
+                            worktree_safe_command_proof_runs_command
+                        ),
+                        worktree_safe_command_proof_runs_git=(
+                            worktree_safe_command_proof_runs_git
+                        ),
+                        worktree_safe_command_proof_runs_write_git=(
+                            worktree_safe_command_proof_runs_write_git
+                        ),
+                        worktree_safe_command_proof_launches_worker_loop=(
+                            worktree_safe_command_proof_launches_worker_loop
+                        ),
+                        worktree_safe_command_proof_launches_ai_runtime=(
+                            worktree_safe_command_proof_launches_ai_runtime
+                        ),
+                        model_name=run.model_name,
+                        model_tier=(
+                            run.strategy_decision.model_tier
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        selected_skill_codes=(
+                            list(run.strategy_decision.selected_skill_codes)
+                            if run.strategy_decision is not None
+                            else []
+                        ),
+                        selected_skill_names=(
+                            list(run.strategy_decision.selected_skill_names)
+                            if run.strategy_decision is not None
+                            else []
+                        ),
+                        strategy_code=(
+                            run.strategy_decision.strategy_code
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        strategy_summary=(
+                            run.strategy_decision.summary
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        owner_role_code=run.owner_role_code,
+                        upstream_role_code=run.upstream_role_code,
+                        downstream_role_code=run.downstream_role_code,
+                        handoff_reason=run.handoff_reason,
+                        dispatch_status=run.dispatch_status,
+                        task=task,
+                        run=run,
+                    )
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -2139,6 +2447,43 @@ class TaskWorker:
             result_summary=validation.summary,
             verification_summary=(
                 "Verification skipped because worker workspace preflight failed."
+            ),
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            quality_gate_passed=False,
+        )
+        event_stream_service.publish_task_updated(
+            task=updated_task,
+            reason=transition.event_reason,
+            previous_status=task.status,
+        )
+        return updated_task, updated_run
+
+    def _finalize_worktree_safe_command_proof_blocked_run(
+        self,
+        *,
+        task: Task,
+        run: Run,
+        proof: "WorkerWorktreeSafeCommandProof",
+    ) -> tuple[Task, Run]:
+        """Persist a blocked task/run pair when the worktree proof fails."""
+
+        summary = _build_worktree_safe_command_proof_block_summary(proof)
+        transition = TaskStateTransition(
+            status=TaskStatus.BLOCKED,
+            event_reason=TaskEventReason.GUARD_BLOCKED,
+            message="Worker worktree safe command proof blocked execution.",
+        )
+        updated_task = self._apply_task_transition(
+            task_id=task.id,
+            transition=transition,
+        )
+        updated_run = self.run_repository.finish_run(
+            run.id,
+            status=RunStatus.CANCELLED,
+            result_summary=summary,
+            verification_summary=(
+                "Verification skipped because worker worktree safe command "
+                "proof failed."
             ),
             failure_category=RunFailureCategory.EXECUTION_FAILED,
             quality_gate_passed=False,
