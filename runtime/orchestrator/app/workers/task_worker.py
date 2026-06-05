@@ -69,10 +69,6 @@ from app.services.task_state_machine_service import (
 )
 from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult, VerifierService
-from app.services.worktree_command_runner import (
-    WorktreeCommandRunner,
-    WorktreeCommandSpec,
-)
 
 
 _RUN_RESULT_SUMMARY_MAX_LENGTH = 2_000
@@ -167,23 +163,6 @@ class WorkerRunResult:
     runtime_launch_dry_run_runs_git: bool | None = None
     runtime_launch_dry_run_runs_write_git: bool | None = None
     runtime_launch_dry_run_launches_runtime: bool | None = None
-    worktree_safe_command_ready: bool | None = None
-    worktree_safe_command_source: str | None = None
-    worktree_safe_command_reason_code: str | None = None
-    worktree_safe_command_command: str | None = None
-    worktree_safe_command_cwd: str | None = None
-    worktree_safe_command_exit_code: int | None = None
-    worktree_safe_command_stdout: str | None = None
-    worktree_safe_command_stderr: str | None = None
-    worktree_safe_command_timed_out: bool | None = None
-    worktree_safe_command_read_only: bool | None = None
-    worktree_safe_command_allowlisted: bool | None = None
-    worktree_safe_command_uses_agent_workspace: bool | None = None
-    worktree_safe_command_changes_cwd: bool | None = None
-    worktree_safe_command_runs_command: bool | None = None
-    worktree_safe_command_runs_git: bool | None = None
-    worktree_safe_command_runs_write_git: bool | None = None
-    worktree_safe_command_launches_runtime: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -241,29 +220,6 @@ class WorkerRuntimeLaunchDryRun:
     uses_agent_workspace: bool
     command_preview_uses_workspace: bool
     execution_enabled: bool = False
-    changes_cwd: bool = False
-    runs_command: bool = False
-    runs_git: bool = False
-    runs_write_git: bool = False
-    launches_runtime: bool = False
-
-
-@dataclass(slots=True, frozen=True)
-class WorkerWorktreeSafeCommandRun:
-    """P2-D result for one allowlisted read-only command in an AgentSession worktree."""
-
-    ready: bool
-    source: str
-    reason_code: str | None
-    command: str | None
-    cwd: str | None
-    exit_code: int | None
-    stdout: str | None
-    stderr: str | None
-    timed_out: bool | None
-    read_only: bool
-    allowlisted: bool
-    uses_agent_workspace: bool
     changes_cwd: bool = False
     runs_command: bool = False
     runs_git: bool = False
@@ -429,118 +385,6 @@ def resolve_worker_workspace_context(
     )
 
 
-def run_worker_worktree_safe_read_only_command(
-    *,
-    workspace_context: WorkerWorkspaceContextResolution,
-    command_runner: WorktreeCommandRunner | None = None,
-) -> WorkerWorktreeSafeCommandRun:
-    """Run the P2-D safe command probe inside the resolved AgentSession worktree.
-
-    The probe is deliberately narrow: it executes exactly one named,
-    allowlisted, read-only git command via ``WorktreeCommandRunner`` with the
-    command cwd set to the AgentSession worktree. It never accepts arbitrary
-    command text, never calls ``chdir()``, never runs write-git commands, and
-    never launches an AI runtime.
-    """
-
-    if not workspace_context.ready:
-        return WorkerWorktreeSafeCommandRun(
-            ready=False,
-            source="workspace_context_blocked",
-            reason_code=workspace_context.reason_code
-            or "workspace_context_not_ready",
-            command=None,
-            cwd=workspace_context.resolved_workspace_path
-            or workspace_context.workspace_path,
-            exit_code=None,
-            stdout=None,
-            stderr=None,
-            timed_out=None,
-            read_only=True,
-            allowlisted=False,
-            uses_agent_workspace=False,
-        )
-
-    if not workspace_context.uses_agent_workspace:
-        return WorkerWorktreeSafeCommandRun(
-            ready=True,
-            source="agent_session_non_worktree_safe_command_skipped",
-            reason_code=None,
-            command=None,
-            cwd=None,
-            exit_code=None,
-            stdout=None,
-            stderr=None,
-            timed_out=None,
-            read_only=True,
-            allowlisted=False,
-            uses_agent_workspace=False,
-        )
-
-    cwd = workspace_context.resolved_workspace_path or workspace_context.workspace_path
-    if cwd is None:
-        return WorkerWorktreeSafeCommandRun(
-            ready=False,
-            source="agent_session_worktree_safe_command_blocked",
-            reason_code="workspace_path_missing",
-            command=None,
-            cwd=None,
-            exit_code=None,
-            stdout=None,
-            stderr=None,
-            timed_out=None,
-            read_only=True,
-            allowlisted=False,
-            uses_agent_workspace=True,
-        )
-
-    runner = command_runner or WorktreeCommandRunner()
-    spec = runner.git_rev_parse_is_inside_work_tree(repository_path=cwd)
-    result = runner.run(spec)
-    stdout = result.stdout.strip()
-    stderr = result.stderr.strip()
-    command = _format_observable_command(result.spec)
-    allowlisted = (
-        result.spec.argv == ("git", "rev-parse", "--is-inside-work-tree")
-        and not result.spec.mutates_repository
-    )
-    ready = allowlisted and result.return_code == 0 and stdout.lower() == "true"
-    if ready:
-        reason_code = None
-    elif not allowlisted:
-        reason_code = "safe_command_not_allowlisted"
-    elif result.timed_out:
-        reason_code = "safe_command_timed_out"
-    elif result.return_code != 0:
-        reason_code = "safe_command_failed"
-    else:
-        reason_code = "workspace_not_git_worktree"
-
-    return WorkerWorktreeSafeCommandRun(
-        ready=ready,
-        source=(
-            "agent_session_worktree_safe_command"
-            if ready
-            else "agent_session_worktree_safe_command_blocked"
-        ),
-        reason_code=reason_code,
-        command=command,
-        cwd=result.spec.cwd,
-        exit_code=result.return_code,
-        stdout=stdout[:500],
-        stderr=stderr[:500],
-        timed_out=result.timed_out,
-        read_only=not result.spec.mutates_repository,
-        allowlisted=allowlisted,
-        uses_agent_workspace=True,
-        changes_cwd=False,
-        runs_command=True,
-        runs_git=True,
-        runs_write_git=False,
-        launches_runtime=False,
-    )
-
-
 def build_worker_runtime_launch_dry_run(
     *,
     agent_session: AgentSession,
@@ -677,12 +521,6 @@ def build_worker_runtime_launch_dry_run(
         runs_write_git=False,
         launches_runtime=False,
     )
-
-
-def _format_observable_command(spec: WorktreeCommandSpec) -> str:
-    """Return a shell-escaped command string for logs/API evidence only."""
-
-    return " ".join(shlex.quote(part) for part in spec.argv)
 
 
 def _truncate_deliverable_text(value: str, max_length: int) -> str:
@@ -954,7 +792,6 @@ class TaskWorker:
         task_state_machine_service: TaskStateMachineService,
         failure_review_service: FailureReviewService,
         agent_conversation_service: AgentConversationService,
-        worktree_command_runner: WorktreeCommandRunner | None = None,
         deliverable_service: DeliverableService | None = None,
         approval_service: ApprovalService | None = None,
     ) -> None:
@@ -975,7 +812,6 @@ class TaskWorker:
         self.task_state_machine_service = task_state_machine_service
         self.failure_review_service = failure_review_service
         self.agent_conversation_service = agent_conversation_service
-        self.worktree_command_runner = worktree_command_runner or WorktreeCommandRunner()
         self.deliverable_service = deliverable_service
         self.approval_service = approval_service
 
@@ -1034,23 +870,6 @@ class TaskWorker:
         runtime_launch_dry_run_runs_git: bool | None = None
         runtime_launch_dry_run_runs_write_git: bool | None = None
         runtime_launch_dry_run_launches_runtime: bool | None = None
-        worktree_safe_command_ready: bool | None = None
-        worktree_safe_command_source: str | None = None
-        worktree_safe_command_reason_code: str | None = None
-        worktree_safe_command_command: str | None = None
-        worktree_safe_command_cwd: str | None = None
-        worktree_safe_command_exit_code: int | None = None
-        worktree_safe_command_stdout: str | None = None
-        worktree_safe_command_stderr: str | None = None
-        worktree_safe_command_timed_out: bool | None = None
-        worktree_safe_command_read_only: bool | None = None
-        worktree_safe_command_allowlisted: bool | None = None
-        worktree_safe_command_uses_agent_workspace: bool | None = None
-        worktree_safe_command_changes_cwd: bool | None = None
-        worktree_safe_command_runs_command: bool | None = None
-        worktree_safe_command_runs_git: bool | None = None
-        worktree_safe_command_runs_write_git: bool | None = None
-        worktree_safe_command_launches_runtime: bool | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -1610,277 +1429,6 @@ class TaskWorker:
                         task=task,
                         run=run,
                     )
-                worktree_safe_command = run_worker_worktree_safe_read_only_command(
-                    workspace_context=workspace_context,
-                    command_runner=self.worktree_command_runner,
-                )
-                worktree_safe_command_ready = worktree_safe_command.ready
-                worktree_safe_command_source = worktree_safe_command.source
-                worktree_safe_command_reason_code = worktree_safe_command.reason_code
-                worktree_safe_command_command = worktree_safe_command.command
-                worktree_safe_command_cwd = worktree_safe_command.cwd
-                worktree_safe_command_exit_code = worktree_safe_command.exit_code
-                worktree_safe_command_stdout = worktree_safe_command.stdout
-                worktree_safe_command_stderr = worktree_safe_command.stderr
-                worktree_safe_command_timed_out = worktree_safe_command.timed_out
-                worktree_safe_command_read_only = worktree_safe_command.read_only
-                worktree_safe_command_allowlisted = worktree_safe_command.allowlisted
-                worktree_safe_command_uses_agent_workspace = (
-                    worktree_safe_command.uses_agent_workspace
-                )
-                worktree_safe_command_changes_cwd = worktree_safe_command.changes_cwd
-                worktree_safe_command_runs_command = worktree_safe_command.runs_command
-                worktree_safe_command_runs_git = worktree_safe_command.runs_git
-                worktree_safe_command_runs_write_git = (
-                    worktree_safe_command.runs_write_git
-                )
-                worktree_safe_command_launches_runtime = (
-                    worktree_safe_command.launches_runtime
-                )
-                self._log_worktree_safe_command(
-                    run=run,
-                    command_run=worktree_safe_command,
-                )
-                if (
-                    worktree_safe_command.runs_command
-                    and not worktree_safe_command.ready
-                ):
-                    last_workspace_error = (
-                        "Worker worktree safe read-only command blocked execution: "
-                        f"{worktree_safe_command.reason_code or 'unknown'}."
-                    )
-                    agent_session = (
-                        self.agent_conversation_service.agent_session_repository.update_status(
-                            agent_session.id,
-                            summary="Worker worktree safe command blocked execution.",
-                            coding_status=CodingSessionStatus.STUCK,
-                            activity_state=CodingSessionActivityState.BLOCKED,
-                            last_workspace_error=last_workspace_error,
-                        )
-                    )
-                    task, run = self._finalize_worktree_safe_command_blocked_run(
-                        task=task,
-                        run=run,
-                        command_run=worktree_safe_command,
-                    )
-                    agent_session = self.agent_conversation_service.finalize_session(
-                        session_id=agent_session.id,
-                        run_status=run.status,
-                        run_failure_category=run.failure_category,
-                        final_summary=run.result_summary or last_workspace_error,
-                    )
-                    agent_session_status = agent_session.status.value
-                    agent_review_status = agent_session.review_status.value
-                    agent_current_phase = agent_session.current_phase.value
-                    coding_status = (
-                        agent_session.coding_status.value
-                        if agent_session.coding_status is not None
-                        else None
-                    )
-                    activity_state = (
-                        agent_session.activity_state.value
-                        if agent_session.activity_state is not None
-                        else None
-                    )
-                    last_workspace_error = agent_session.last_workspace_error
-                    self._log_finalization(
-                        task=task,
-                        run=run,
-                        final_summary=run.result_summary or last_workspace_error or "",
-                    )
-                    self.session.commit()
-                    self._record_failure_review_if_needed(task=task, run=run)
-
-                    return WorkerRunResult(
-                        claimed=True,
-                        message=run.result_summary or last_workspace_error,
-                        execution_mode="worktree_safe_command",
-                        failure_category=run.failure_category,
-                        quality_gate_passed=run.quality_gate_passed,
-                        route_reason=run.route_reason,
-                        routing_score=run.routing_score,
-                        routing_score_breakdown=run.routing_score_breakdown,
-                        budget_pressure_level=(
-                            routing_decision.budget_pressure_level
-                            if routing_decision is not None
-                            else None
-                        ),
-                        budget_action=(
-                            routing_decision.budget_action
-                            if routing_decision is not None
-                            else None
-                        ),
-                        budget_strategy_code=(
-                            routing_decision.budget_strategy_code
-                            if routing_decision is not None
-                            else None
-                        ),
-                        budget_strategy_summary=(
-                            routing_decision.budget_strategy_summary
-                            if routing_decision is not None
-                            else None
-                        ),
-                        result_summary=run.result_summary,
-                        context_summary=context_package.context_summary,
-                        agent_session_id=agent_session_id,
-                        agent_session_status=agent_session_status,
-                        agent_review_status=agent_review_status,
-                        agent_current_phase=agent_current_phase,
-                        agent_type=agent_type,
-                        runtime_type=runtime_type,
-                        runtime_handle_id=runtime_handle_id,
-                        coding_status=coding_status,
-                        activity_state=activity_state,
-                        branch_name=branch_name,
-                        workspace_type=workspace_type,
-                        workspace_path=workspace_path,
-                        workspace_clean=workspace_clean,
-                        last_workspace_error=last_workspace_error,
-                        workspace_context_ready=workspace_context_ready,
-                        workspace_context_source=workspace_context_source,
-                        workspace_context_reason_code=workspace_context_reason_code,
-                        workspace_context_path=workspace_context_path,
-                        workspace_context_resolved_path=(
-                            workspace_context_resolved_path
-                        ),
-                        workspace_context_uses_agent_workspace=(
-                            workspace_context_uses_agent_workspace
-                        ),
-                        workspace_context_changes_cwd=workspace_context_changes_cwd,
-                        workspace_context_runs_git=workspace_context_runs_git,
-                        workspace_context_runs_write_git=(
-                            workspace_context_runs_write_git
-                        ),
-                        workspace_context_launches_runtime=(
-                            workspace_context_launches_runtime
-                        ),
-                        runtime_launch_dry_run_ready=(
-                            runtime_launch_dry_run_ready
-                        ),
-                        runtime_launch_dry_run_source=(
-                            runtime_launch_dry_run_source
-                        ),
-                        runtime_launch_dry_run_reason_code=(
-                            runtime_launch_dry_run_reason_code
-                        ),
-                        runtime_launch_dry_run_session_id=(
-                            runtime_launch_dry_run_session_id
-                        ),
-                        runtime_launch_dry_run_agent_type=(
-                            runtime_launch_dry_run_agent_type
-                        ),
-                        runtime_launch_dry_run_runtime_type=(
-                            runtime_launch_dry_run_runtime_type
-                        ),
-                        runtime_launch_dry_run_workspace_path=(
-                            runtime_launch_dry_run_workspace_path
-                        ),
-                        runtime_launch_dry_run_resolved_workspace_path=(
-                            runtime_launch_dry_run_resolved_workspace_path
-                        ),
-                        runtime_launch_dry_run_launch_cwd_preview=(
-                            runtime_launch_dry_run_launch_cwd_preview
-                        ),
-                        runtime_launch_dry_run_launch_command_preview=(
-                            runtime_launch_dry_run_launch_command_preview
-                        ),
-                        runtime_launch_dry_run_uses_agent_workspace=(
-                            runtime_launch_dry_run_uses_agent_workspace
-                        ),
-                        runtime_launch_dry_run_command_preview_uses_workspace=(
-                            runtime_launch_dry_run_command_preview_uses_workspace
-                        ),
-                        runtime_launch_dry_run_execution_enabled=(
-                            runtime_launch_dry_run_execution_enabled
-                        ),
-                        runtime_launch_dry_run_changes_cwd=(
-                            runtime_launch_dry_run_changes_cwd
-                        ),
-                        runtime_launch_dry_run_runs_command=(
-                            runtime_launch_dry_run_runs_command
-                        ),
-                        runtime_launch_dry_run_runs_git=(
-                            runtime_launch_dry_run_runs_git
-                        ),
-                        runtime_launch_dry_run_runs_write_git=(
-                            runtime_launch_dry_run_runs_write_git
-                        ),
-                        runtime_launch_dry_run_launches_runtime=(
-                            runtime_launch_dry_run_launches_runtime
-                        ),
-                        worktree_safe_command_ready=worktree_safe_command_ready,
-                        worktree_safe_command_source=worktree_safe_command_source,
-                        worktree_safe_command_reason_code=(
-                            worktree_safe_command_reason_code
-                        ),
-                        worktree_safe_command_command=worktree_safe_command_command,
-                        worktree_safe_command_cwd=worktree_safe_command_cwd,
-                        worktree_safe_command_exit_code=(
-                            worktree_safe_command_exit_code
-                        ),
-                        worktree_safe_command_stdout=worktree_safe_command_stdout,
-                        worktree_safe_command_stderr=worktree_safe_command_stderr,
-                        worktree_safe_command_timed_out=(
-                            worktree_safe_command_timed_out
-                        ),
-                        worktree_safe_command_read_only=(
-                            worktree_safe_command_read_only
-                        ),
-                        worktree_safe_command_allowlisted=(
-                            worktree_safe_command_allowlisted
-                        ),
-                        worktree_safe_command_uses_agent_workspace=(
-                            worktree_safe_command_uses_agent_workspace
-                        ),
-                        worktree_safe_command_changes_cwd=(
-                            worktree_safe_command_changes_cwd
-                        ),
-                        worktree_safe_command_runs_command=(
-                            worktree_safe_command_runs_command
-                        ),
-                        worktree_safe_command_runs_git=(
-                            worktree_safe_command_runs_git
-                        ),
-                        worktree_safe_command_runs_write_git=(
-                            worktree_safe_command_runs_write_git
-                        ),
-                        worktree_safe_command_launches_runtime=(
-                            worktree_safe_command_launches_runtime
-                        ),
-                        model_name=run.model_name,
-                        model_tier=(
-                            run.strategy_decision.model_tier
-                            if run.strategy_decision is not None
-                            else None
-                        ),
-                        selected_skill_codes=(
-                            list(run.strategy_decision.selected_skill_codes)
-                            if run.strategy_decision is not None
-                            else []
-                        ),
-                        selected_skill_names=(
-                            list(run.strategy_decision.selected_skill_names)
-                            if run.strategy_decision is not None
-                            else []
-                        ),
-                        strategy_code=(
-                            run.strategy_decision.strategy_code
-                            if run.strategy_decision is not None
-                            else None
-                        ),
-                        strategy_summary=(
-                            run.strategy_decision.summary
-                            if run.strategy_decision is not None
-                            else None
-                        ),
-                        owner_role_code=run.owner_role_code,
-                        upstream_role_code=run.upstream_role_code,
-                        downstream_role_code=run.downstream_role_code,
-                        handoff_reason=run.handoff_reason,
-                        dispatch_status=run.dispatch_status,
-                        task=task,
-                        run=run,
-                    )
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -2231,29 +1779,6 @@ class TaskWorker:
                 runtime_launch_dry_run_launches_runtime=(
                     runtime_launch_dry_run_launches_runtime
                 ),
-                worktree_safe_command_ready=worktree_safe_command_ready,
-                worktree_safe_command_source=worktree_safe_command_source,
-                worktree_safe_command_reason_code=worktree_safe_command_reason_code,
-                worktree_safe_command_command=worktree_safe_command_command,
-                worktree_safe_command_cwd=worktree_safe_command_cwd,
-                worktree_safe_command_exit_code=worktree_safe_command_exit_code,
-                worktree_safe_command_stdout=worktree_safe_command_stdout,
-                worktree_safe_command_stderr=worktree_safe_command_stderr,
-                worktree_safe_command_timed_out=worktree_safe_command_timed_out,
-                worktree_safe_command_read_only=worktree_safe_command_read_only,
-                worktree_safe_command_allowlisted=worktree_safe_command_allowlisted,
-                worktree_safe_command_uses_agent_workspace=(
-                    worktree_safe_command_uses_agent_workspace
-                ),
-                worktree_safe_command_changes_cwd=worktree_safe_command_changes_cwd,
-                worktree_safe_command_runs_command=worktree_safe_command_runs_command,
-                worktree_safe_command_runs_git=worktree_safe_command_runs_git,
-                worktree_safe_command_runs_write_git=(
-                    worktree_safe_command_runs_write_git
-                ),
-                worktree_safe_command_launches_runtime=(
-                    worktree_safe_command_launches_runtime
-                ),
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier
@@ -2396,46 +1921,6 @@ class TaskWorker:
             result_summary=validation.summary,
             verification_summary=(
                 "Verification skipped because worker workspace preflight failed."
-            ),
-            failure_category=RunFailureCategory.EXECUTION_FAILED,
-            quality_gate_passed=False,
-        )
-        event_stream_service.publish_task_updated(
-            task=updated_task,
-            reason=transition.event_reason,
-            previous_status=task.status,
-        )
-        return updated_task, updated_run
-
-    def _finalize_worktree_safe_command_blocked_run(
-        self,
-        *,
-        task: Task,
-        run: Run,
-        command_run: WorkerWorktreeSafeCommandRun,
-    ) -> tuple[Task, Run]:
-        """Persist a blocked task/run pair when the P2-D safe command fails."""
-
-        summary = (
-            "Worker worktree safe read-only command blocked execution: "
-            f"{command_run.reason_code or 'unknown'}."
-        )
-        transition = TaskStateTransition(
-            status=TaskStatus.BLOCKED,
-            event_reason=TaskEventReason.GUARD_BLOCKED,
-            message=summary,
-        )
-        updated_task = self._apply_task_transition(
-            task_id=task.id,
-            transition=transition,
-        )
-        updated_run = self.run_repository.finish_run(
-            run.id,
-            status=RunStatus.CANCELLED,
-            result_summary=summary,
-            verification_summary=(
-                "Verification skipped because the worker worktree safe "
-                "read-only command failed."
             ),
             failure_category=RunFailureCategory.EXECUTION_FAILED,
             quality_gate_passed=False,
@@ -2746,56 +2231,6 @@ class TaskWorker:
                 "runs_git": dry_run.runs_git,
                 "runs_write_git": dry_run.runs_write_git,
                 "launches_runtime": dry_run.launches_runtime,
-            },
-        )
-
-    def _log_worktree_safe_command(
-        self,
-        *,
-        run: Run,
-        command_run: WorkerWorktreeSafeCommandRun,
-    ) -> None:
-        """Write the P2-D safe read-only worktree command snapshot."""
-
-        if run.log_path is None:
-            return
-
-        if not command_run.runs_command:
-            event = "agent_worktree_safe_command_skipped"
-            level = "info"
-            message = "No AgentSession worktree safe command was required."
-        elif command_run.ready:
-            event = "agent_worktree_safe_command_ready"
-            level = "info"
-            message = "Worker executed one allowlisted read-only command in the worktree."
-        else:
-            event = "agent_worktree_safe_command_blocked"
-            level = "error"
-            message = "Worker worktree safe read-only command blocked execution."
-
-        self.run_logging_service.append_event(
-            log_path=run.log_path,
-            event=event,
-            level=level,
-            message=message,
-            data={
-                "ready": command_run.ready,
-                "source": command_run.source,
-                "reason_code": command_run.reason_code,
-                "command": command_run.command,
-                "cwd": command_run.cwd,
-                "exit_code": command_run.exit_code,
-                "stdout": command_run.stdout,
-                "stderr": command_run.stderr,
-                "timed_out": command_run.timed_out,
-                "read_only": command_run.read_only,
-                "allowlisted": command_run.allowlisted,
-                "uses_agent_workspace": command_run.uses_agent_workspace,
-                "changes_cwd": command_run.changes_cwd,
-                "runs_command": command_run.runs_command,
-                "runs_git": command_run.runs_git,
-                "runs_write_git": command_run.runs_write_git,
-                "launches_runtime": command_run.launches_runtime,
             },
         )
 

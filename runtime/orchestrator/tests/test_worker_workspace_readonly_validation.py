@@ -19,10 +19,10 @@ from app.domain.agent_session import (
 from app.workers.task_worker import (
     WorkerRunResult,
     build_worker_runtime_launch_dry_run,
-    run_worker_worktree_safe_read_only_command,
     resolve_worker_workspace_context,
     validate_worker_agent_workspace,
 )
+from app.workers.worktree_safe_command import WorkerWorktreeSafeCommandProofRunner
 from app.services.worktree_command_runner import (
     WorktreeCommandResult,
     WorktreeCommandSpec,
@@ -30,10 +30,18 @@ from app.services.worktree_command_runner import (
 
 
 class _FakeWorktreeCommandRunner:
-    def __init__(self, *, return_code: int = 0, stdout: str = "true\n", stderr: str = ""):
+    def __init__(
+        self,
+        *,
+        return_code: int = 0,
+        stdout: str = "true\n",
+        stderr: str = "",
+        mutates_repository: bool = False,
+    ) -> None:
         self.return_code = return_code
         self.stdout = stdout
         self.stderr = stderr
+        self.mutates_repository = mutates_repository
         self.requested_repository_path: str | None = None
         self.ran_spec: WorktreeCommandSpec | None = None
 
@@ -47,7 +55,7 @@ class _FakeWorktreeCommandRunner:
             argv=("git", "rev-parse", "--is-inside-work-tree"),
             cwd=repository_path,
             timeout_seconds=30,
-            mutates_repository=False,
+            mutates_repository=self.mutates_repository,
         )
 
     def run(self, spec: WorktreeCommandSpec) -> WorktreeCommandResult:
@@ -226,94 +234,122 @@ def test_runtime_launch_dry_run_targets_clean_worktree_without_execution(tmp_pat
     assert dry_run.launches_runtime is False
 
 
-def test_worktree_safe_read_only_command_executes_allowlisted_probe_in_worktree(
+def test_worktree_safe_command_proof_runs_one_allowlisted_probe_in_worktree(
     tmp_path,
 ):
     session = _session(workspace_path=tmp_path.as_posix(), workspace_clean=True)
     validation = validate_worker_agent_workspace(session)
     context = resolve_worker_workspace_context(validation)
-    runner = _FakeWorktreeCommandRunner()
-
-    result = run_worker_worktree_safe_read_only_command(
-        workspace_context=context,
-        command_runner=runner,
+    fake_runner = _FakeWorktreeCommandRunner()
+    proof_runner = WorkerWorktreeSafeCommandProofRunner(
+        command_runner=fake_runner,
     )
 
-    assert result.ready is True
-    assert result.source == "agent_session_worktree_safe_command"
-    assert result.reason_code is None
-    assert result.command == "git rev-parse --is-inside-work-tree"
-    assert result.cwd == tmp_path.as_posix()
-    assert result.exit_code == 0
-    assert result.stdout == "true"
-    assert result.stderr == ""
-    assert result.timed_out is False
-    assert result.read_only is True
-    assert result.allowlisted is True
-    assert result.uses_agent_workspace is True
-    assert result.changes_cwd is False
-    assert result.runs_command is True
-    assert result.runs_git is True
-    assert result.runs_write_git is False
-    assert result.launches_runtime is False
-    assert runner.requested_repository_path == tmp_path.as_posix()
-    assert runner.ran_spec is not None
-    assert runner.ran_spec.cwd == tmp_path.as_posix()
-    assert runner.ran_spec.mutates_repository is False
+    proof = proof_runner.run_probe(workspace_context=context)
+
+    assert proof.ready is True
+    assert proof.source == "agent_session_worktree_safe_command"
+    assert proof.reason_code is None
+    assert proof.command == "git rev-parse --is-inside-work-tree"
+    assert proof.cwd == tmp_path.as_posix()
+    assert proof.exit_code == 0
+    assert proof.stdout == "true"
+    assert proof.stderr == ""
+    assert proof.timed_out is False
+    assert proof.read_only is True
+    assert proof.allowlisted is True
+    assert proof.uses_agent_workspace is True
+    assert proof.changes_process_cwd is False
+    assert proof.runs_command is True
+    assert proof.runs_git is True
+    assert proof.runs_write_git is False
+    assert proof.launches_worker_loop is False
+    assert proof.launches_ai_runtime is False
+    assert fake_runner.requested_repository_path == tmp_path.as_posix()
+    assert fake_runner.ran_spec is not None
+    assert fake_runner.ran_spec.argv == (
+        "git",
+        "rev-parse",
+        "--is-inside-work-tree",
+    )
+    assert fake_runner.ran_spec.cwd == tmp_path.as_posix()
+    assert fake_runner.ran_spec.mutates_repository is False
 
 
-def test_worktree_safe_read_only_command_blocks_failed_probe(tmp_path):
+def test_worktree_safe_command_proof_blocks_failed_probe(tmp_path):
     session = _session(workspace_path=tmp_path.as_posix(), workspace_clean=True)
     validation = validate_worker_agent_workspace(session)
     context = resolve_worker_workspace_context(validation)
-    runner = _FakeWorktreeCommandRunner(
-        return_code=128,
-        stdout="",
-        stderr="fatal: not a git repository",
+    proof_runner = WorkerWorktreeSafeCommandProofRunner(
+        command_runner=_FakeWorktreeCommandRunner(
+            return_code=128,
+            stdout="",
+            stderr="fatal: not a git repository",
+        ),
     )
 
-    result = run_worker_worktree_safe_read_only_command(
-        workspace_context=context,
-        command_runner=runner,
-    )
+    proof = proof_runner.run_probe(workspace_context=context)
 
-    assert result.ready is False
-    assert result.source == "agent_session_worktree_safe_command_blocked"
-    assert result.reason_code == "safe_command_failed"
-    assert result.command == "git rev-parse --is-inside-work-tree"
-    assert result.cwd == tmp_path.as_posix()
-    assert result.exit_code == 128
-    assert result.stderr == "fatal: not a git repository"
-    assert result.read_only is True
-    assert result.allowlisted is True
-    assert result.runs_command is True
-    assert result.runs_git is True
-    assert result.runs_write_git is False
-    assert result.launches_runtime is False
+    assert proof.ready is False
+    assert proof.source == "agent_session_worktree_safe_command_blocked"
+    assert proof.reason_code == "safe_command_failed"
+    assert proof.command == "git rev-parse --is-inside-work-tree"
+    assert proof.cwd == tmp_path.as_posix()
+    assert proof.exit_code == 128
+    assert proof.stderr == "fatal: not a git repository"
+    assert proof.read_only is True
+    assert proof.allowlisted is True
+    assert proof.runs_command is True
+    assert proof.runs_git is True
+    assert proof.runs_write_git is False
+    assert proof.launches_worker_loop is False
+    assert proof.launches_ai_runtime is False
 
 
-def test_worktree_safe_read_only_command_skips_non_worktree_without_execution():
+def test_worktree_safe_command_proof_skips_non_worktree_without_execution():
     session = _session(workspace_type=WorkspaceType.IN_PLACE)
     validation = validate_worker_agent_workspace(session)
     context = resolve_worker_workspace_context(validation)
-    runner = _FakeWorktreeCommandRunner()
-
-    result = run_worker_worktree_safe_read_only_command(
-        workspace_context=context,
-        command_runner=runner,
+    fake_runner = _FakeWorktreeCommandRunner()
+    proof_runner = WorkerWorktreeSafeCommandProofRunner(
+        command_runner=fake_runner,
     )
 
-    assert result.ready is True
-    assert result.source == "agent_session_non_worktree_safe_command_skipped"
-    assert result.command is None
-    assert result.cwd is None
-    assert result.allowlisted is False
-    assert result.uses_agent_workspace is False
-    assert result.runs_command is False
-    assert result.runs_git is False
-    assert result.runs_write_git is False
-    assert result.launches_runtime is False
-    assert runner.ran_spec is None
+    proof = proof_runner.run_probe(workspace_context=context)
+
+    assert proof.ready is True
+    assert proof.source == "agent_session_non_worktree_safe_command_skipped"
+    assert proof.command is None
+    assert proof.cwd is None
+    assert proof.allowlisted is False
+    assert proof.uses_agent_workspace is False
+    assert proof.runs_command is False
+    assert proof.runs_git is False
+    assert proof.runs_write_git is False
+    assert proof.launches_worker_loop is False
+    assert proof.launches_ai_runtime is False
+    assert fake_runner.ran_spec is None
+
+
+def test_worktree_safe_command_proof_rejects_mutating_probe_spec(tmp_path):
+    session = _session(workspace_path=tmp_path.as_posix(), workspace_clean=True)
+    validation = validate_worker_agent_workspace(session)
+    context = resolve_worker_workspace_context(validation)
+    proof_runner = WorkerWorktreeSafeCommandProofRunner(
+        command_runner=_FakeWorktreeCommandRunner(mutates_repository=True),
+    )
+
+    proof = proof_runner.run_probe(workspace_context=context)
+
+    assert proof.ready is False
+    assert proof.reason_code == "safe_command_not_allowlisted"
+    assert proof.read_only is False
+    assert proof.allowlisted is False
+    assert proof.runs_command is True
+    assert proof.runs_git is True
+    assert proof.runs_write_git is True
+    assert proof.launches_worker_loop is False
+    assert proof.launches_ai_runtime is False
 
 
 def test_runtime_launch_dry_run_blocks_non_worktree_without_execution():
@@ -398,23 +434,6 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             runtime_launch_dry_run_runs_git=False,
             runtime_launch_dry_run_runs_write_git=False,
             runtime_launch_dry_run_launches_runtime=False,
-            worktree_safe_command_ready=True,
-            worktree_safe_command_source="agent_session_worktree_safe_command",
-            worktree_safe_command_reason_code=None,
-            worktree_safe_command_command="git rev-parse --is-inside-work-tree",
-            worktree_safe_command_cwd="/tmp/aido-worktree",
-            worktree_safe_command_exit_code=0,
-            worktree_safe_command_stdout="true",
-            worktree_safe_command_stderr="",
-            worktree_safe_command_timed_out=False,
-            worktree_safe_command_read_only=True,
-            worktree_safe_command_allowlisted=True,
-            worktree_safe_command_uses_agent_workspace=True,
-            worktree_safe_command_changes_cwd=False,
-            worktree_safe_command_runs_command=True,
-            worktree_safe_command_runs_git=True,
-            worktree_safe_command_runs_write_git=False,
-            worktree_safe_command_launches_runtime=False,
         )
     ).model_dump(mode="json")
 
@@ -460,26 +479,3 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["runtime_launch_dry_run_runs_git"] is False
     assert payload["runtime_launch_dry_run_runs_write_git"] is False
     assert payload["runtime_launch_dry_run_launches_runtime"] is False
-    assert payload["worktree_safe_command_ready"] is True
-    assert (
-        payload["worktree_safe_command_source"]
-        == "agent_session_worktree_safe_command"
-    )
-    assert payload["worktree_safe_command_reason_code"] is None
-    assert (
-        payload["worktree_safe_command_command"]
-        == "git rev-parse --is-inside-work-tree"
-    )
-    assert payload["worktree_safe_command_cwd"] == "/tmp/aido-worktree"
-    assert payload["worktree_safe_command_exit_code"] == 0
-    assert payload["worktree_safe_command_stdout"] == "true"
-    assert payload["worktree_safe_command_stderr"] == ""
-    assert payload["worktree_safe_command_timed_out"] is False
-    assert payload["worktree_safe_command_read_only"] is True
-    assert payload["worktree_safe_command_allowlisted"] is True
-    assert payload["worktree_safe_command_uses_agent_workspace"] is True
-    assert payload["worktree_safe_command_changes_cwd"] is False
-    assert payload["worktree_safe_command_runs_command"] is True
-    assert payload["worktree_safe_command_runs_git"] is True
-    assert payload["worktree_safe_command_runs_write_git"] is False
-    assert payload["worktree_safe_command_launches_runtime"] is False
