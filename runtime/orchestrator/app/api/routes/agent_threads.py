@@ -15,6 +15,7 @@ from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
 from app.domain.worktree_cleanup import (
     WorktreeCleanupCommandPreview,
+    WorktreeCleanupPreflight,
     WorktreeCleanupResult,
 )
 from app.domain.worktree_create import WorktreeCreateResult, WorktreeWriteCommandPreview
@@ -450,6 +451,32 @@ class WorktreeCleanupCommandPreviewResponse(BaseModel):
         return cls(**preview.model_dump())
 
 
+class WorktreeCleanupPreflightResponse(BaseModel):
+    """Read-only cleanup preflight details for the current session worktree."""
+
+    preflight_status: str
+    read_only: bool
+    commands_run: list[str] = Field(default_factory=list)
+    worktree_path_exists: bool | None = None
+    worktree_path_is_directory: bool | None = None
+    worktree_path_safe: bool | None = None
+    worktree_registered: bool | None = None
+    worktree_clean: bool | None = None
+    repository_is_git_worktree: bool | None = None
+    registered_worktree_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_preflight(
+        cls,
+        preflight: WorktreeCleanupPreflight,
+    ) -> "WorktreeCleanupPreflightResponse":
+        """Convert domain cleanup preflight to API DTO."""
+
+        return cls(**preflight.model_dump())
+
+
 class WorktreeCleanupResponse(BaseModel):
     """Blocked response for future workspace cleanup execution."""
 
@@ -467,6 +494,7 @@ class WorktreeCleanupResponse(BaseModel):
     base_branch: str | None = None
     base_commit_sha: str | None = None
     checked_at: datetime
+    cleanup_preflight: WorktreeCleanupPreflightResponse | None = None
     cleanup_command_preview: list[WorktreeCleanupCommandPreviewResponse] = Field(
         default_factory=list
     )
@@ -485,6 +513,12 @@ class WorktreeCleanupResponse(BaseModel):
         """Convert domain cleanup result to API DTO."""
 
         payload = result.model_dump()
+        if result.cleanup_preflight is not None:
+            payload["cleanup_preflight"] = (
+                WorktreeCleanupPreflightResponse.from_preflight(
+                    result.cleanup_preflight
+                )
+            )
         payload["cleanup_command_preview"] = [
             WorktreeCleanupCommandPreviewResponse.from_preview(item)
             for item in result.cleanup_command_preview

@@ -36,6 +36,40 @@ class WorktreeCleanupCommandPreview(DomainModel):
         return normalized_value
 
 
+class WorktreeCleanupPreflight(DomainModel):
+    """Read-only cleanup preflight for the current AgentSession worktree."""
+
+    preflight_status: str = "not_run"
+    read_only: bool = True
+    commands_run: list[str] = Field(default_factory=list)
+    worktree_path_exists: bool | None = None
+    worktree_path_is_directory: bool | None = None
+    worktree_path_safe: bool | None = None
+    worktree_registered: bool | None = None
+    worktree_clean: bool | None = None
+    repository_is_git_worktree: bool | None = None
+    registered_worktree_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("preflight_status")
+    @classmethod
+    def normalize_preflight_status(cls, value: str) -> str:
+        """Trim preflight status."""
+
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("cleanup preflight status must not be blank")
+        return normalized_value
+
+    @field_validator("commands_run", "registered_worktree_paths", "errors", "warnings")
+    @classmethod
+    def normalize_preflight_lists(cls, value: list[str]) -> list[str]:
+        """Trim, drop blanks and deduplicate preflight lists."""
+
+        return _normalize_string_list(value)
+
+
 class WorktreeCleanupResult(DomainModel):
     """Blocked cleanup result for future workspace removal.
 
@@ -58,6 +92,7 @@ class WorktreeCleanupResult(DomainModel):
     base_branch: str | None = Field(default=None, max_length=200)
     base_commit_sha: str | None = Field(default=None, max_length=80)
     checked_at: datetime = Field(default_factory=utc_now)
+    cleanup_preflight: WorktreeCleanupPreflight | None = None
     cleanup_command_preview: list[WorktreeCleanupCommandPreview] = Field(
         default_factory=list
     )
@@ -81,6 +116,7 @@ class WorktreeCleanupResult(DomainModel):
         branch_name: str | None,
         blockers: list[str],
         warnings: list[str] | None = None,
+        cleanup_preflight: WorktreeCleanupPreflight | None = None,
         cleanup_command_preview: list[WorktreeCleanupCommandPreview] | None = None,
     ) -> "WorktreeCleanupResult":
         """Build the default blocked cleanup skeleton from the current plan."""
@@ -95,9 +131,14 @@ class WorktreeCleanupResult(DomainModel):
             branch_name=branch_name,
             base_branch=plan.base_branch,
             base_commit_sha=plan.base_commit_sha,
+            cleanup_preflight=cleanup_preflight,
             cleanup_command_preview=cleanup_command_preview or [],
             blockers=blockers,
             warnings=warnings or [],
+            runs_git=(
+                cleanup_preflight is not None
+                and len(cleanup_preflight.commands_run) > 0
+            ),
         )
 
     @field_validator("cleanup_status", "blocked_reason", "next_action")
@@ -115,12 +156,18 @@ class WorktreeCleanupResult(DomainModel):
     def normalize_reason_lists(cls, value: list[str]) -> list[str]:
         """Trim, drop blanks and deduplicate reason lists."""
 
-        normalized_items: list[str] = []
-        seen_items: set[str] = set()
-        for item in value:
-            normalized_item = item.strip()
-            if not normalized_item or normalized_item in seen_items:
-                continue
-            normalized_items.append(normalized_item)
-            seen_items.add(normalized_item)
-        return normalized_items
+        return _normalize_string_list(value)
+
+
+def _normalize_string_list(value: list[str]) -> list[str]:
+    """Trim, drop blanks and deduplicate one string list."""
+
+    normalized_items: list[str] = []
+    seen_items: set[str] = set()
+    for item in value:
+        normalized_item = item.strip()
+        if not normalized_item or normalized_item in seen_items:
+            continue
+        normalized_items.append(normalized_item)
+        seen_items.add(normalized_item)
+    return normalized_items

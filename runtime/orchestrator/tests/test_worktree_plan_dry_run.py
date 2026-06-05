@@ -1591,3 +1591,185 @@ def test_worktree_cleanup_endpoint_returns_blocked_preview(db_session, tmp_path)
     assert unchanged_session is not None
     assert unchanged_session.workspace_path is None
     assert unchanged_session.branch_name is None
+
+
+def test_worktree_cleanup_read_only_preflight_checks_bound_worktree(
+    db_session, tmp_path
+):
+    """P1-E-B cleanup preflight inspects bound worktree state without cleanup writes."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    create_result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+    assert create_result.create_status == "created"
+    created_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert created_session is not None
+    original_workspace_path = created_session.workspace_path
+    original_branch_name = created_session.branch_name
+    original_workspace_type = created_session.workspace_type
+
+    result = WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+        WorktreeCleanupRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.cleanup_status == "blocked"
+    assert result.blocked_reason == "workspace_cleanup_blocked"
+    assert result.cleanup_preflight is not None
+    assert result.cleanup_preflight.read_only is True
+    assert result.cleanup_preflight.worktree_path_exists is True
+    assert result.cleanup_preflight.worktree_path_is_directory is True
+    assert result.cleanup_preflight.worktree_path_safe is True
+    assert result.cleanup_preflight.worktree_registered is True
+    assert result.cleanup_preflight.worktree_clean is True
+    assert result.cleanup_preflight.repository_is_git_worktree is True
+    assert result.cleanup_preflight.errors == []
+    assert result.cleanup_preflight.commands_run == [
+        "git rev-parse --is-inside-work-tree",
+        "git worktree list --porcelain",
+        "git status --porcelain",
+        f"git branch --list {plan.branch_name}",
+    ]
+    assert result.runs_git is True
+    assert result.runs_write_git is False
+    assert result.removes_worktree is False
+    assert result.deletes_branch is False
+    assert result.deletes_directory is False
+    assert result.mutates_agent_session_workspace is False
+    assert result.cleanup_command_preview[0].argv == (
+        "git",
+        "worktree",
+        "remove",
+        original_workspace_path,
+    )
+    assert result.cleanup_command_preview[0].execution_enabled is False
+    assert result.cleanup_command_preview[1].argv == (
+        "git",
+        "branch",
+        "-d",
+        original_branch_name,
+    )
+    assert result.cleanup_command_preview[1].execution_enabled is False
+    assert Path(original_workspace_path).exists()
+
+    unchanged_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert unchanged_session is not None
+    assert unchanged_session.workspace_path == original_workspace_path
+    assert unchanged_session.branch_name == original_branch_name
+    assert unchanged_session.workspace_type == original_workspace_type
+
+
+def test_worktree_cleanup_read_only_preflight_blocks_dirty_bound_worktree(
+    db_session, tmp_path
+):
+    """Dirty bound worktrees are reported by cleanup preflight without deletion."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+    created_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert created_session is not None
+    assert created_session.workspace_path is not None
+    Path(created_session.workspace_path, "dirty.txt").write_text("dirty\n")
+
+    result = WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+        WorktreeCleanupRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.cleanup_preflight is not None
+    assert result.cleanup_preflight.worktree_clean is False
+    assert "AgentSession worktree has uncommitted changes" in result.blockers
+    assert result.removes_worktree is False
+    assert result.deletes_branch is False
+    assert result.deletes_directory is False
+    assert result.runs_write_git is False
+    assert Path(created_session.workspace_path).exists()
+
+
+def test_worktree_cleanup_read_only_preflight_skips_status_for_missing_path(
+    db_session, tmp_path
+):
+    """Missing bound paths are blocked without running git status in that cwd."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    created_branch = plan.branch_name
+    missing_path = str(tmp_path / "workspaces" / ".aido-worktrees" / "missing-session")
+    AgentSessionRepository(db_session).update_status(
+        session.id,
+        workspace_path=missing_path,
+        branch_name=created_branch,
+    )
+
+    result = WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+        WorktreeCleanupRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.cleanup_preflight is not None
+    assert result.cleanup_preflight.worktree_path_exists is False
+    assert result.cleanup_preflight.worktree_clean is None
+    assert result.cleanup_preflight.commands_run == [
+        "git rev-parse --is-inside-work-tree",
+        "git worktree list --porcelain",
+        f"git branch --list {created_branch}",
+    ]
+    assert "AgentSession worktree path does not exist" in result.blockers
+    assert result.removes_worktree is False
+    assert result.deletes_branch is False
+    assert result.deletes_directory is False
+    assert result.runs_write_git is False
+
+
+def test_worktree_cleanup_response_exposes_read_only_preflight(
+    db_session, tmp_path
+):
+    """Cleanup API response includes P1-E-B read-only preflight fields."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+    WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    result = WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+        WorktreeCleanupRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+    payload = WorktreeCleanupResponse.from_result(result).model_dump(mode="json")
+
+    assert payload["cleanup_status"] == "blocked"
+    assert payload["cleanup_preflight"]["read_only"] is True
+    assert payload["cleanup_preflight"]["worktree_path_exists"] is True
+    assert payload["cleanup_preflight"]["worktree_registered"] is True
+    assert payload["cleanup_preflight"]["worktree_clean"] is True
+    assert payload["runs_git"] is True
+    assert payload["runs_write_git"] is False
+    assert payload["removes_worktree"] is False
+    assert payload["deletes_branch"] is False
+    assert payload["deletes_directory"] is False
