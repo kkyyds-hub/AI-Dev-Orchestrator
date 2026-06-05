@@ -425,7 +425,7 @@ class WorktreeCreateResponse(BaseModel):
 
 
 class WorktreeCleanupRequestBody(BaseModel):
-    """Request body for blocked P1-E-A workspace cleanup preview."""
+    """Request body for P1-E-C guarded workspace cleanup."""
 
     plan_hash: str = Field(min_length=64, max_length=64)
     user_confirmed: bool = True
@@ -486,7 +486,7 @@ class WorktreeCleanupResponse(BaseModel):
     plan_hash: str
     submitted_plan_hash: str
     cleanup_status: str
-    blocked_reason: str
+    blocked_reason: str | None = None
     dry_run: bool
     requires_user_confirmation: bool
     worktree_path: str | None = None
@@ -590,7 +590,7 @@ def get_worktree_cleanup_service(
         WorktreePlanService, Depends(get_worktree_plan_service)
     ],
 ) -> WorktreeCleanupService:
-    """Create the P1-E-A blocked workspace cleanup dependency."""
+    """Create the P1-E-C guarded workspace cleanup dependency."""
 
     return WorktreeCleanupService(
         worktree_plan_service=worktree_plan_service,
@@ -781,7 +781,7 @@ def create_agent_session_workspace(
 @router.post(
     "/sessions/{session_id}/workspace/cleanup",
     response_model=WorktreeCleanupResponse,
-    summary="Preview and block future workspace cleanup execution",
+    summary="Execute guarded worktree cleanup after read-only preflight",
 )
 def cleanup_agent_session_workspace(
     session_id: UUID,
@@ -791,7 +791,7 @@ def cleanup_agent_session_workspace(
         Depends(get_worktree_cleanup_service),
     ],
 ) -> WorktreeCleanupResponse:
-    """Return blocked cleanup preview; no worktree, branch, directory, or session mutation occurs."""
+    """Remove a clean registered worktree only; branch deletion and direct file deletion are forbidden."""
 
     try:
         result = cleanup_service.cleanup_workspace(

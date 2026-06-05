@@ -1,9 +1,8 @@
-"""Blocked workspace cleanup skeleton with read-only preflight.
+"""Guarded workspace cleanup with read-only preflight.
 
-P1-E-B validates the current plan_hash, runs allowlisted read-only cleanup
-preflight, and returns disabled cleanup command previews.  It performs no
-write git command, no filesystem deletion, no branch removal, no worktree
-removal, and no AgentSession workspace mutation.
+P1-E-C validates the current plan_hash, runs allowlisted read-only cleanup
+preflight, and permits only ``git worktree remove <path>`` when every cleanup
+gate passes.  It performs no branch removal and no direct filesystem deletion.
 """
 
 from __future__ import annotations
@@ -22,6 +21,9 @@ from app.services.worktree_command_runner import (
     WorktreeCommandResult,
     WorktreeCommandRunner,
     WorktreeCommandSpec,
+)
+from app.services.worktree_cleanup_write_command_runner import (
+    WorktreeCleanupWriteCommandRunner,
 )
 from app.services.worktree_plan_service import WorktreePlanService
 
@@ -241,21 +243,25 @@ class _CleanupPathInspection:
 
 
 class WorktreeCleanupService:
-    """Validate cleanup preconditions and return blocked command previews."""
+    """Validate cleanup preconditions and execute guarded worktree removal."""
 
     def __init__(
         self,
         *,
         worktree_plan_service: WorktreePlanService,
         cleanup_preflight_service: WorktreeCleanupPreflightService | None = None,
+        cleanup_write_command_runner: WorktreeCleanupWriteCommandRunner | None = None,
     ) -> None:
         self.worktree_plan_service = worktree_plan_service
         self.cleanup_preflight_service = (
             cleanup_preflight_service or WorktreeCleanupPreflightService()
         )
+        self.cleanup_write_command_runner = (
+            cleanup_write_command_runner or WorktreeCleanupWriteCommandRunner()
+        )
 
     def cleanup_workspace(self, request: WorktreeCleanupRequest) -> WorktreeCleanupResult:
-        """Return a blocked cleanup result without executing repository writes."""
+        """Remove one clean registered worktree after guarded cleanup preflight."""
 
         if not request.user_confirmed:
             raise WorktreeCleanupError(
@@ -280,19 +286,11 @@ class WorktreeCleanupService:
         if session is None:
             raise WorktreeCleanupError(f"Agent session not found: {request.agent_session_id}")
 
-        blockers = [
-            "workspace cleanup execution is blocked in P1-E-A",
-            "git worktree remove is not enabled",
-            "git branch delete is not enabled",
-        ]
+        blockers: list[str] = []
         warnings = [
-            "cleanup command preview is review-only and was not executed",
-            "no worktree or branch was deleted",
-            "no directory was removed",
-            "AgentSession workspace fields were not changed",
+            "branch deletion is not performed in P1-E-C",
+            "direct filesystem deletion is not performed",
         ]
-        if not plan.safe:
-            blockers.extend(plan.blockers)
         if not plan.dry_run:
             blockers.append("workspace cleanup only accepts dry-run plans")
         if not plan.requires_user_confirmation:
@@ -301,42 +299,138 @@ class WorktreeCleanupService:
         worktree_path = session.workspace_path or plan.worktree_path
         branch_name = session.branch_name or plan.branch_name
         if session.workspace_path is None:
+            blockers.append("AgentSession workspace_path is required for cleanup execution")
             warnings.append("AgentSession has no workspace_path; using planned path preview")
         if session.branch_name is None:
+            blockers.append("AgentSession branch_name is required for cleanup execution")
             warnings.append("AgentSession has no branch_name; using planned branch preview")
 
+        repository_workspace = (
+            self.worktree_plan_service.repository_workspace_repository.get_by_project_id(
+                plan.project_id
+            )
+        )
+        if repository_workspace is None:
+            blockers.append("repository workspace is not bound for this project")
+
+        repository_cwd = (
+            repository_workspace.root_path
+            if repository_workspace is not None
+            else self._repository_cwd(plan.project_id)
+        )
         cleanup_command_preview = self._build_cleanup_command_preview(
-            repository_cwd=self._repository_cwd(plan.project_id),
+            repository_cwd=repository_cwd,
             worktree_path=worktree_path,
             branch_name=branch_name,
+            enable_worktree_remove=False,
         )
         cleanup_preflight = None
-        if session.workspace_path is not None and session.branch_name is not None:
-            repository_workspace = (
-                self.worktree_plan_service.repository_workspace_repository.get_by_project_id(
-                    plan.project_id
-                )
+        if (
+            repository_workspace is not None
+            and session.workspace_path is not None
+            and session.branch_name is not None
+        ):
+            cleanup_preflight = self.cleanup_preflight_service.run_preflight(
+                repository_path=repository_workspace.root_path,
+                worktree_path=session.workspace_path,
+                branch_name=session.branch_name,
+                allowed_workspace_root=repository_workspace.allowed_workspace_root,
             )
-            if repository_workspace is None:
-                blockers.append("repository workspace is not bound for this project")
-            else:
-                cleanup_preflight = self.cleanup_preflight_service.run_preflight(
-                    repository_path=repository_workspace.root_path,
-                    worktree_path=worktree_path,
-                    branch_name=branch_name,
-                    allowed_workspace_root=repository_workspace.allowed_workspace_root,
-                )
-                blockers.extend(self._unsafe_preflight_blockers(cleanup_preflight))
+            blockers.extend(self._unsafe_preflight_blockers(cleanup_preflight))
 
-        return WorktreeCleanupResult.blocked_from_plan(
+        if blockers:
+            self._write_last_workspace_error(
+                session_id=request.agent_session_id,
+                message=self._format_workspace_error("cleanup blocked", blockers),
+            )
+            return WorktreeCleanupResult.failed_from_plan(
+                plan=plan,
+                submitted_plan_hash=submitted_plan_hash,
+                worktree_path=worktree_path or "",
+                branch_name=branch_name or "",
+                blocked_reason="workspace_cleanup_preflight_blocked",
+                blockers=blockers,
+                warnings=warnings,
+                cleanup_preflight=cleanup_preflight,
+                cleanup_command_preview=cleanup_command_preview,
+                attempted_write_git=False,
+                wrote_agent_session_error=True,
+            )
+
+        if (
+            repository_workspace is None
+            or session.workspace_path is None
+            or session.branch_name is None
+            or cleanup_preflight is None
+        ):
+            blockers.append("workspace cleanup command could not be prepared")
+            self._write_last_workspace_error(
+                session_id=request.agent_session_id,
+                message=self._format_workspace_error("cleanup setup failed", blockers),
+            )
+            return WorktreeCleanupResult.failed_from_plan(
+                plan=plan,
+                submitted_plan_hash=submitted_plan_hash,
+                worktree_path=worktree_path or "",
+                branch_name=branch_name or "",
+                blocked_reason="workspace_cleanup_setup_failed",
+                blockers=blockers,
+                warnings=warnings,
+                cleanup_preflight=cleanup_preflight,
+                cleanup_command_preview=cleanup_command_preview,
+                attempted_write_git=False,
+                wrote_agent_session_error=True,
+            )
+
+        enabled_remove_preview = self.cleanup_write_command_runner.git_worktree_remove(
+            repository_path=repository_workspace.root_path,
+            worktree_path=session.workspace_path,
+        )
+        cleanup_command_preview = [
+            enabled_remove_preview,
+            *[
+                item
+                for item in cleanup_command_preview
+                if item.command_kind != "git_worktree_remove"
+            ],
+        ]
+        write_result = self.cleanup_write_command_runner.run(enabled_remove_preview)
+        if write_result.return_code != 0:
+            stderr = write_result.stderr.strip() or write_result.stdout.strip()
+            blockers.append(f"git worktree remove failed: {stderr[:500]}")
+            self._write_last_workspace_error(
+                session_id=request.agent_session_id,
+                message=self._format_workspace_error(
+                    "git worktree remove failed",
+                    blockers,
+                ),
+            )
+            return WorktreeCleanupResult.failed_from_plan(
+                plan=plan,
+                submitted_plan_hash=submitted_plan_hash,
+                worktree_path=session.workspace_path,
+                branch_name=session.branch_name,
+                blocked_reason="workspace_cleanup_git_write_failed",
+                blockers=blockers,
+                warnings=warnings,
+                cleanup_preflight=cleanup_preflight,
+                cleanup_command_preview=cleanup_command_preview,
+                attempted_write_git=True,
+                wrote_agent_session_error=True,
+            )
+
+        self.worktree_plan_service.agent_session_repository.mark_workspace_removed(
+            request.agent_session_id
+        )
+
+        return WorktreeCleanupResult.removed_from_plan(
             plan=plan,
             submitted_plan_hash=submitted_plan_hash,
-            worktree_path=worktree_path,
-            branch_name=branch_name,
-            blockers=blockers,
-            warnings=warnings,
+            worktree_path=session.workspace_path,
+            branch_name=session.branch_name,
             cleanup_preflight=cleanup_preflight,
             cleanup_command_preview=cleanup_command_preview,
+            warnings=warnings,
         )
 
     @staticmethod
@@ -380,8 +474,9 @@ class WorktreeCleanupService:
         repository_cwd: str,
         worktree_path: str | None,
         branch_name: str | None,
+        enable_worktree_remove: bool = False,
     ) -> list[WorktreeCleanupCommandPreview]:
-        """Build disabled cleanup previews for later gated implementation."""
+        """Build cleanup command previews; only worktree remove can be enabled."""
 
         previews: list[WorktreeCleanupCommandPreview] = []
         if worktree_path is not None:
@@ -390,7 +485,7 @@ class WorktreeCleanupService:
                     argv=("git", "worktree", "remove", worktree_path),
                     cwd=repository_cwd,
                     command_kind="git_worktree_remove",
-                    execution_enabled=False,
+                    execution_enabled=enable_worktree_remove,
                 )
             )
         if branch_name is not None:
@@ -403,3 +498,18 @@ class WorktreeCleanupService:
                 )
             )
         return previews
+
+    def _write_last_workspace_error(self, *, session_id: UUID, message: str) -> None:
+        """Persist a bounded cleanup error without changing workspace binding fields."""
+
+        self.worktree_plan_service.agent_session_repository.update_status(
+            session_id,
+            last_workspace_error=message[:2_000],
+        )
+
+    @staticmethod
+    def _format_workspace_error(prefix: str, blockers: list[str]) -> str:
+        """Build the AgentSession.last_workspace_error payload."""
+
+        details = "; ".join(item.strip() for item in blockers if item.strip())
+        return f"{prefix}: {details}" if details else prefix

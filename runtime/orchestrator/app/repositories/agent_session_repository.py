@@ -207,6 +207,21 @@ class AgentSessionRepository:
         self.session.flush()
         return self._to_domain(row)
 
+    def mark_workspace_removed(self, session_id: UUID) -> AgentSession:
+        """Mark a worktree workspace as removed while preserving branch metadata."""
+
+        row = self.session.get(AgentSessionTable, session_id)
+        if row is None:
+            raise ValueError(f"Agent session not found: {session_id}")
+
+        row.workspace_path = None
+        row.workspace_type = WorkspaceType.IN_PLACE
+        row.workspace_clean = None
+        row.last_workspace_error = None
+        row.updated_at = utc_now()
+        self.session.flush()
+        return self._to_domain(row)
+
     @staticmethod
     def _to_domain(row: AgentSessionTable) -> AgentSession:
         """Convert ORM row into domain model."""

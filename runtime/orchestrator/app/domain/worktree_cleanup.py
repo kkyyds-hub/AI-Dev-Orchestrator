@@ -1,4 +1,4 @@
-"""Blocked workspace cleanup domain models."""
+"""Workspace cleanup domain models."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from app.domain.worktree_plan import WorktreePlan
 
 
 class WorktreeCleanupCommandPreview(DomainModel):
-    """Disabled preview of one future cleanup command.
+    """Preview of one cleanup command.
 
-    P1-E-A exposes intended commands for review only.  These previews must not
-    be passed to a runner and are always returned with execution_enabled=False.
+    P1-E-C may enable only ``git worktree remove <path>`` after all cleanup
+    gates pass.  Branch deletion previews remain disabled.
     """
 
     argv: tuple[str, ...]
@@ -71,11 +71,10 @@ class WorktreeCleanupPreflight(DomainModel):
 
 
 class WorktreeCleanupResult(DomainModel):
-    """Blocked cleanup result for future workspace removal.
+    """Cleanup result for guarded workspace removal.
 
-    P1-E-A is intentionally non-mutating: no git command is executed, no
-    worktree or branch is deleted, no directory is removed, and AgentSession
-    workspace fields are not changed.
+    P1-E-C permits only guarded ``git worktree remove <path>`` execution.  It
+    never deletes branches and never performs direct filesystem deletion.
     """
 
     agent_session_id: UUID
@@ -84,7 +83,7 @@ class WorktreeCleanupResult(DomainModel):
     plan_hash: str = Field(min_length=64, max_length=64)
     submitted_plan_hash: str = Field(min_length=64, max_length=64)
     cleanup_status: str = "blocked"
-    blocked_reason: str = "workspace_cleanup_blocked"
+    blocked_reason: str | None = "workspace_cleanup_blocked"
     dry_run: bool = True
     requires_user_confirmation: bool = True
     worktree_path: str | None = Field(default=None, max_length=1_000)
@@ -119,7 +118,7 @@ class WorktreeCleanupResult(DomainModel):
         cleanup_preflight: WorktreeCleanupPreflight | None = None,
         cleanup_command_preview: list[WorktreeCleanupCommandPreview] | None = None,
     ) -> "WorktreeCleanupResult":
-        """Build the default blocked cleanup skeleton from the current plan."""
+        """Build a blocked cleanup result from the current plan."""
 
         return cls(
             agent_session_id=plan.agent_session_id,
@@ -141,7 +140,97 @@ class WorktreeCleanupResult(DomainModel):
             ),
         )
 
-    @field_validator("cleanup_status", "blocked_reason", "next_action")
+    @classmethod
+    def removed_from_plan(
+        cls,
+        *,
+        plan: WorktreePlan,
+        submitted_plan_hash: str,
+        worktree_path: str,
+        branch_name: str,
+        cleanup_preflight: WorktreeCleanupPreflight,
+        cleanup_command_preview: list[WorktreeCleanupCommandPreview],
+        warnings: list[str] | None = None,
+    ) -> "WorktreeCleanupResult":
+        """Build a successful cleanup result after guarded worktree removal."""
+
+        return cls(
+            agent_session_id=plan.agent_session_id,
+            project_id=plan.project_id,
+            repository_workspace_id=plan.repository_workspace_id,
+            plan_hash=plan.plan_hash,
+            submitted_plan_hash=submitted_plan_hash,
+            cleanup_status="removed",
+            blocked_reason=None,
+            dry_run=False,
+            requires_user_confirmation=plan.requires_user_confirmation,
+            worktree_path=worktree_path,
+            branch_name=branch_name,
+            base_branch=plan.base_branch,
+            base_commit_sha=plan.base_commit_sha,
+            cleanup_preflight=cleanup_preflight,
+            cleanup_command_preview=cleanup_command_preview,
+            blockers=[],
+            warnings=warnings or [],
+            next_action="workspace_removed_branch_retained",
+            removes_worktree=True,
+            deletes_branch=False,
+            deletes_directory=False,
+            runs_git=True,
+            runs_write_git=True,
+            mutates_agent_session_workspace=True,
+        )
+
+    @classmethod
+    def failed_from_plan(
+        cls,
+        *,
+        plan: WorktreePlan,
+        submitted_plan_hash: str,
+        worktree_path: str,
+        branch_name: str,
+        blocked_reason: str,
+        blockers: list[str],
+        cleanup_preflight: WorktreeCleanupPreflight | None,
+        cleanup_command_preview: list[WorktreeCleanupCommandPreview],
+        warnings: list[str] | None = None,
+        attempted_write_git: bool = False,
+        wrote_agent_session_error: bool = False,
+    ) -> "WorktreeCleanupResult":
+        """Build a failed cleanup result after validation or write failure."""
+
+        return cls(
+            agent_session_id=plan.agent_session_id,
+            project_id=plan.project_id,
+            repository_workspace_id=plan.repository_workspace_id,
+            plan_hash=plan.plan_hash,
+            submitted_plan_hash=submitted_plan_hash,
+            cleanup_status="failed" if attempted_write_git else "blocked",
+            blocked_reason=blocked_reason,
+            dry_run=True,
+            requires_user_confirmation=plan.requires_user_confirmation,
+            worktree_path=worktree_path,
+            branch_name=branch_name,
+            base_branch=plan.base_branch,
+            base_commit_sha=plan.base_commit_sha,
+            cleanup_preflight=cleanup_preflight,
+            cleanup_command_preview=cleanup_command_preview,
+            blockers=blockers,
+            warnings=warnings or [],
+            next_action="resolve_workspace_cleanup_blockers",
+            removes_worktree=False,
+            deletes_branch=False,
+            deletes_directory=False,
+            runs_git=(
+                cleanup_preflight is not None
+                and len(cleanup_preflight.commands_run) > 0
+            )
+            or attempted_write_git,
+            runs_write_git=attempted_write_git,
+            mutates_agent_session_workspace=wrote_agent_session_error,
+        )
+
+    @field_validator("cleanup_status", "next_action")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         """Trim required status labels."""
@@ -150,6 +239,16 @@ class WorktreeCleanupResult(DomainModel):
         if not normalized_value:
             raise ValueError("cleanup label must not be blank")
         return normalized_value
+
+    @field_validator("blocked_reason")
+    @classmethod
+    def normalize_optional_blocked_reason(cls, value: str | None) -> str | None:
+        """Trim optional blocked reason."""
+
+        if value is None:
+            return None
+        normalized_value = value.strip()
+        return normalized_value or None
 
     @field_validator("blockers", "warnings")
     @classmethod
