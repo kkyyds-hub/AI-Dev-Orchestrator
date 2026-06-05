@@ -174,7 +174,7 @@ class WorktreeCreateService:
             workspace_type=WorkspaceType.WORKTREE,
             workspace_path=plan.worktree_path,
             workspace_clean=True,
-            last_workspace_error="",
+            last_workspace_error=None,
         )
 
         return WorktreeCreateResult.created_from_plan(

@@ -1084,6 +1084,10 @@ def test_worktree_create_executes_real_worktree_and_writes_agent_session(
     project_id, session, repository_root, plan_service, plan = _create_bound_git_session(
         db_session, tmp_path
     )
+    AgentSessionRepository(db_session).update_status(
+        session.id,
+        last_workspace_error="stale workspace failure",
+    )
 
     result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
         WorktreeCreateRequest(

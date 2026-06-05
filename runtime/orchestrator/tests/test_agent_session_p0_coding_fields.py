@@ -117,6 +117,14 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
     assert session.workspace_clean is True
     assert session.last_workspace_error == "previous failure"
 
+    unchanged_error = repository.update_status(
+        session.id,
+        coding_status=CodingSessionStatus.IDLE,
+    )
+
+    assert unchanged_error.coding_status == CodingSessionStatus.IDLE
+    assert unchanged_error.last_workspace_error == "previous failure"
+
     updated = repository.update_status(
         session.id,
         coding_status=CodingSessionStatus.COMPLETED,
@@ -124,7 +132,7 @@ def test_agent_session_repository_round_trips_p0_coding_fields(db_session):
         branch_name="",
         workspace_type=WorkspaceType.READ_ONLY,
         workspace_path="",
-        last_workspace_error="",
+        last_workspace_error=None,
         finished=True,
     )
 

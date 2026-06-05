@@ -23,6 +23,9 @@ from app.domain.agent_session import (
 from app.domain.project_role import ProjectRoleCode
 
 
+_UNSET = object()
+
+
 class AgentSessionRepository:
     """Encapsulate Day11 agent-session persistence operations."""
 
@@ -151,7 +154,7 @@ class AgentSessionRepository:
         workspace_type: WorkspaceType | None = None,
         workspace_path: str | None = None,
         workspace_clean: bool | None = None,
-        last_workspace_error: str | None = None,
+        last_workspace_error: str | None | object = _UNSET,
         finished: bool = False,
     ) -> AgentSession:
         """Update session status/coding fields and return the latest snapshot."""
@@ -191,8 +194,12 @@ class AgentSessionRepository:
             row.workspace_path = workspace_path.strip() or None
         if workspace_clean is not None:
             row.workspace_clean = workspace_clean
-        if last_workspace_error is not None:
-            row.last_workspace_error = last_workspace_error.strip() or None
+        if last_workspace_error is not _UNSET:
+            row.last_workspace_error = (
+                last_workspace_error.strip() or None
+                if isinstance(last_workspace_error, str)
+                else None
+            )
         row.updated_at = utc_now()
         if finished:
             row.finished_at = utc_now()
