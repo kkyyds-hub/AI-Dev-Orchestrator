@@ -1,4 +1,5 @@
 import { StatusBadge } from "../../components/StatusBadge";
+import { WorkerRuntimeLaunchGateEvidenceCard } from "../../features/task-actions/WorkerRuntimeLaunchGateEvidenceCard";
 import type { WorkerPoolRunResponse } from "../../features/task-actions/types";
 
 type WorkerPoolResultSectionProps = {
@@ -30,6 +31,27 @@ export function WorkerPoolResultSection(props: WorkerPoolResultSectionProps) {
         </div>
         {!props.isError && props.data ? <StatusBadge label={`${props.data.slot_snapshot.running_slots} 个槽位运行中`} tone="neutral" /> : null}
       </div>
+
+      {!props.isError && props.data?.results.length ? (
+        <div className="mt-4 space-y-3">
+          {props.data.results.map((result, index) => (
+            <div
+              key={result.run_id ?? result.task_id ?? `worker-result-${index}`}
+              className="rounded-xl border border-[#333333] bg-transparent p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  Worker #{index + 1} runtime gate evidence
+                </div>
+                <span className="text-xs text-zinc-400">
+                  {result.task_title ?? result.message}
+                </span>
+              </div>
+              <WorkerRuntimeLaunchGateEvidenceCard {...result} />
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

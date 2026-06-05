@@ -2,6 +2,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { WorkerMemoryRecallCard } from "../../features/task-actions/WorkerMemoryRecallCard";
 import { WorkerProviderPromptTokenCard } from "../../features/task-actions/WorkerProviderPromptTokenCard";
 import { WorkerRoleModelPolicyCard } from "../../features/task-actions/WorkerRoleModelPolicyCard";
+import { WorkerRuntimeLaunchGateEvidenceCard } from "../../features/task-actions/WorkerRuntimeLaunchGateEvidenceCard";
 import type { WorkerRunOnceResponse } from "../../features/task-actions/types";
 import { formatDateTime } from "../../lib/format";
 
@@ -108,6 +109,9 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
       ) : null}
 
       {!props.isError && props.data ? <WorkerRoleModelPolicyCard {...props.data} /> : null}
+      {!props.isError && props.data ? (
+        <WorkerRuntimeLaunchGateEvidenceCard {...props.data} />
+      ) : null}
 
       {!props.isError && props.data ? <div className="mt-3 text-xs tracking-[0.16em] text-zinc-500">模型调用信息</div> : null}
       {!props.isError && props.data ? <WorkerProviderPromptTokenCard {...props.data} /> : null}
