@@ -560,7 +560,7 @@ def run_fake_runtime_simulation(
     workspace_context,       # WorkerWorkspaceContextResolution
     runtime_dry_run,         # WorkerRuntimeLaunchDryRun
     safe_command_proof,      # WorkerWorktreeSafeCommandProof
-    runtime_adapter: RuntimeAdapter | None = None,
+    runtime_adapter: FakeRuntimeAdapter | None = None,
     agent_type: str | None = None,
     runtime_type: str | None = None,
 ) -> tuple[RuntimeLaunchGateResult, RuntimeLaunchResult | None]:
@@ -568,20 +568,32 @@ def run_fake_runtime_simulation(
 
     This is the P3-B1 reference pipeline:
 
-    1. Call :func:`check_runtime_launch_gates`.
-    2. If gates pass **and** a ``runtime_adapter`` is provided, call
-       ``runtime_adapter.launch()`` with a fake-only adapter.
-    3. Return the gate result and (if applicable) the fake launch result.
+    1. Reject any adapter that is not the concrete
+       :class:`FakeRuntimeAdapter` before invoking adapter methods.
+    2. Call :func:`check_runtime_launch_gates`.
+    3. If gates pass **and** a ``runtime_adapter`` is provided, call
+       ``runtime_adapter.launch()`` with the fake-only adapter.
+    4. Return the gate result and (if applicable) the fake launch result.
 
-    **P3-B1 safety**: the returned launch result is always from a
-    :class:`FakeRuntimeAdapter`.  No real process is ever started by this
-    function or its callees.
+    **P3-B1 safety**: this helper accepts only the exact
+    :class:`FakeRuntimeAdapter` concrete class.  It intentionally rejects all
+    other :class:`RuntimeAdapter` implementations before calling
+    ``can_launch()`` or ``launch()`` so a future real adapter cannot be wired
+    into the fake simulation path by accident.  No real process is ever
+    started by this function or its callees.
 
     Returns
     -------
     tuple[RuntimeLaunchGateResult, RuntimeLaunchResult | None]
         The gate result and an optional fake launch result.
     """
+    if runtime_adapter is not None and type(runtime_adapter) is not FakeRuntimeAdapter:
+        raise TypeError(
+            "run_fake_runtime_simulation() only accepts FakeRuntimeAdapter "
+            "instances in P3-B1; arbitrary RuntimeAdapter implementations are "
+            "not allowed on the fake simulation path."
+        )
+
     gate = check_runtime_launch_gates(
         workspace_context=workspace_context,
         runtime_dry_run=runtime_dry_run,

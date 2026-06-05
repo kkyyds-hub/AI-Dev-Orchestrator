@@ -22,6 +22,7 @@ from app.domain.agent_session import (
 )
 from app.workers.runtime_adapter import (
     FakeRuntimeAdapter,
+    RuntimeAdapter,
     RuntimeHandle,
     RuntimeLaunchGateResult,
     RuntimeLaunchRequest,
@@ -137,6 +138,61 @@ def _failed_proof(
         uses_agent_workspace=True,
         runs_command=True,
     )
+
+
+class _NonFakeRuntimeAdapter(RuntimeAdapter):
+    """RuntimeAdapter test double that must never enter fake simulation."""
+
+    def __init__(self) -> None:
+        self.can_launch_called = False
+        self.launch_called = False
+
+    def adapter_kind(self) -> str:
+        return "non_fake"
+
+    def can_launch(
+        self,
+        *,
+        agent_type: str,
+        runtime_type: str,
+    ) -> bool:
+        self.can_launch_called = True
+        return True
+
+    def launch(
+        self,
+        *,
+        request: RuntimeLaunchRequest,
+    ) -> RuntimeLaunchResult:
+        self.launch_called = True
+        return RuntimeLaunchResult(
+            launched=True,
+            handle=RuntimeHandle(handle_kind="subprocess", handle_value="pid:1"),
+            reason_code=RuntimeLifecycleReason.LAUNCH_SUCCEEDED,
+        )
+
+    def is_alive(
+        self,
+        *,
+        handle: RuntimeHandle,
+    ) -> RuntimeProbeResult:
+        return RuntimeProbeResult(
+            alive=True,
+            state=RuntimeLifecycleState.ALIVE,
+            reason=RuntimeLifecycleReason.PROBE_CONFIRMED_ALIVE,
+        )
+
+    def kill(
+        self,
+        *,
+        handle: RuntimeHandle,
+    ) -> RuntimeProbeResult:
+        return RuntimeProbeResult(
+            alive=False,
+            state=RuntimeLifecycleState.EXITED,
+            reason=RuntimeLifecycleReason.PROCESS_KILLED,
+            exit_code=-1,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +375,35 @@ class TestFakeAdapterCanLaunch:
 
     def test_adapter_kind_is_fake(self):
         assert FakeRuntimeAdapter().adapter_kind() == "fake"
+
+
+# ---------------------------------------------------------------------------
+# Fake simulation safety boundary
+# ---------------------------------------------------------------------------
+
+
+class TestFakeRuntimeSimulationSafetyBoundary:
+    def test_rejects_non_fake_runtime_adapter_before_any_adapter_method_call(self, tmp_path):
+        context = _ready_context(tmp_path)
+        dry_run = _ready_dry_run(tmp_path)
+        proof = _passed_proof()
+        adapter = _NonFakeRuntimeAdapter()
+
+        try:
+            run_fake_runtime_simulation(
+                workspace_context=context,
+                runtime_dry_run=dry_run,
+                safe_command_proof=proof,
+                runtime_adapter=adapter,
+                agent_type="openai_provider",
+                runtime_type="subprocess",
+            )
+            raise AssertionError("expected TypeError")
+        except TypeError as exc:
+            assert "only accepts FakeRuntimeAdapter" in str(exc)
+
+        assert adapter.can_launch_called is False
+        assert adapter.launch_called is False
 
 
 # ---------------------------------------------------------------------------
