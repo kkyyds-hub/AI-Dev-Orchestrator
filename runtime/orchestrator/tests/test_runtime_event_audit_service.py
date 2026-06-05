@@ -25,11 +25,7 @@ from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
-from app.services.runtime_event_audit_service import (
-    RUNTIME_LAUNCH_GATE_BLOCKED_NOTE_EVENT,
-    RUNTIME_LAUNCH_GATE_EVALUATED_NOTE_EVENT,
-    RuntimeEventAuditService,
-)
+from app.services.runtime_event_audit_service import RuntimeEventAuditService
 from app.workers.runtime_adapter import RuntimeLaunchGateResult
 
 
@@ -107,14 +103,16 @@ def test_runtime_event_audit_service_records_gate_evaluated_agent_message(db_ses
     payload = json.loads(message.content_detail or "{}")
     assert message.sequence_no == 1
     assert message.role == AgentMessageRole.SYSTEM
-    assert message.message_type == AgentMessageType.NOTE_EVENT
-    assert message.event_type == "runtime_lifecycle_event"
-    assert message.note_event_type == RUNTIME_LAUNCH_GATE_EVALUATED_NOTE_EVENT
+    assert message.message_type == AgentMessageType.TIMELINE
+    assert message.event_type == "runtime_launch_gate_evaluated"
+    assert message.note_event_type is None
     assert message.phase == "executing"
     assert message.state_from == "unknown"
     assert message.state_to == "unknown"
     assert payload["event_type"] == "runtime_launch_gate_evaluated"
+    assert payload["event_type"] == message.event_type
     assert payload["reason_code"] == "launch_gate_evaluated"
+    assert payload["created_by"] == "TaskWorker.run_once"
     assert payload["adapter_kind"] == "fake"
     assert payload["runtime_type"] == "subprocess"
     assert payload["agent_type"] == "openai_provider"
@@ -157,9 +155,13 @@ def test_runtime_event_audit_service_records_gate_blocked_agent_message(db_sessi
     )
 
     payload = json.loads(message.content_detail or "{}")
-    assert message.note_event_type == RUNTIME_LAUNCH_GATE_BLOCKED_NOTE_EVENT
+    assert message.message_type == AgentMessageType.TIMELINE
+    assert message.event_type == "runtime_launch_gate_blocked"
+    assert message.note_event_type is None
     assert payload["event_type"] == "runtime_launch_gate_blocked"
+    assert payload["event_type"] == message.event_type
     assert payload["reason_code"] == "runtime_type_missing"
+    assert payload["created_by"] == "TaskWorker.run_once"
     assert payload["evidence"]["gates_failed"] == ["runtime_dry_run"]
     assert payload["evidence"]["blocking_summary"] == (
         "Runtime launch dry-run is not ready."

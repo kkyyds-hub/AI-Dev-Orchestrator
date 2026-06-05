@@ -8,10 +8,6 @@ from app.domain.runtime_event import RuntimeEventBuilder, RuntimeEventSchema
 from app.repositories.agent_message_repository import AgentMessageRepository
 
 
-RUNTIME_LAUNCH_GATE_EVALUATED_NOTE_EVENT = "runtime.launch_gate.evaluated"
-RUNTIME_LAUNCH_GATE_BLOCKED_NOTE_EVENT = "runtime.launch_gate.blocked"
-
-
 class RuntimeEventAuditService:
     """Append P3-D runtime gate events to the existing AgentMessage stream.
 
@@ -19,8 +15,6 @@ class RuntimeEventAuditService:
     start fake launches, start real runtimes, probe runtime processes, run git,
     or write any future non-gate runtime lifecycle event.
     """
-
-    event_type = "runtime_lifecycle_event"
 
     def __init__(self, agent_message_repository: AgentMessageRepository) -> None:
         self.agent_message_repository = agent_message_repository
@@ -57,17 +51,11 @@ class RuntimeEventAuditService:
             workspace_path=workspace_path,
             observed_pwd=observed_pwd,
             launch_cwd_preview=launch_cwd_preview,
-            created_by="RuntimeEventAuditService.record_launch_gate_event",
-        )
-        note_event_type = (
-            RUNTIME_LAUNCH_GATE_EVALUATED_NOTE_EVENT
-            if event.event_type.value == "runtime_launch_gate_evaluated"
-            else RUNTIME_LAUNCH_GATE_BLOCKED_NOTE_EVENT
+            created_by="TaskWorker.run_once",
         )
         return self._append_runtime_event_message(
             session=session,
             event=event,
-            note_event_type=note_event_type,
         )
 
     def _append_runtime_event_message(
@@ -75,7 +63,6 @@ class RuntimeEventAuditService:
         *,
         session: AgentSession,
         event: RuntimeEventSchema,
-        note_event_type: str,
     ) -> AgentMessage:
         """Append one runtime event into the per-session message timeline."""
 
@@ -89,13 +76,13 @@ class RuntimeEventAuditService:
             run_id=session.run_id,
             sequence_no=sequence_no,
             role=AgentMessageRole.SYSTEM,
-            message_type=AgentMessageType.NOTE_EVENT,
-            event_type=self.event_type,
+            message_type=AgentMessageType.TIMELINE,
+            event_type=event.event_type.value,
             phase=session.current_phase.value,
             state_from=event.previous_runtime_state.value,
             state_to=event.next_runtime_state.value,
             intervention_type=None,
-            note_event_type=note_event_type,
+            note_event_type=None,
             context_checkpoint_id=session.context_checkpoint_id,
             context_rehydrated=session.context_rehydrated,
             content_summary=event.summary_cn,
