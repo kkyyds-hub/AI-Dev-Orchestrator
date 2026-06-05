@@ -25,6 +25,10 @@ from app.services.worktree_command_runner import (
 from app.services.worktree_cleanup_write_command_runner import (
     WorktreeCleanupWriteCommandRunner,
 )
+from app.repositories.agent_message_repository import AgentMessageRepository
+from app.services.workspace_lifecycle_audit_service import (
+    WorkspaceLifecycleAuditService,
+)
 from app.services.worktree_plan_service import WorktreePlanService
 
 
@@ -343,7 +347,7 @@ class WorktreeCleanupService:
                 session_id=request.agent_session_id,
                 message=self._format_workspace_error("cleanup blocked", blockers),
             )
-            return WorktreeCleanupResult.failed_from_plan(
+            result = WorktreeCleanupResult.failed_from_plan(
                 plan=plan,
                 submitted_plan_hash=submitted_plan_hash,
                 worktree_path=worktree_path or "",
@@ -356,6 +360,8 @@ class WorktreeCleanupService:
                 attempted_write_git=False,
                 wrote_agent_session_error=True,
             )
+            self._record_audit_event(session=session, result=result)
+            return result
 
         if (
             repository_workspace is None
@@ -368,7 +374,7 @@ class WorktreeCleanupService:
                 session_id=request.agent_session_id,
                 message=self._format_workspace_error("cleanup setup failed", blockers),
             )
-            return WorktreeCleanupResult.failed_from_plan(
+            result = WorktreeCleanupResult.failed_from_plan(
                 plan=plan,
                 submitted_plan_hash=submitted_plan_hash,
                 worktree_path=worktree_path or "",
@@ -381,6 +387,8 @@ class WorktreeCleanupService:
                 attempted_write_git=False,
                 wrote_agent_session_error=True,
             )
+            self._record_audit_event(session=session, result=result)
+            return result
 
         enabled_remove_preview = self.cleanup_write_command_runner.git_worktree_remove(
             repository_path=repository_workspace.root_path,
@@ -405,7 +413,7 @@ class WorktreeCleanupService:
                     blockers,
                 ),
             )
-            return WorktreeCleanupResult.failed_from_plan(
+            result = WorktreeCleanupResult.failed_from_plan(
                 plan=plan,
                 submitted_plan_hash=submitted_plan_hash,
                 worktree_path=session.workspace_path,
@@ -418,12 +426,14 @@ class WorktreeCleanupService:
                 attempted_write_git=True,
                 wrote_agent_session_error=True,
             )
+            self._record_audit_event(session=session, result=result)
+            return result
 
         self.worktree_plan_service.agent_session_repository.mark_workspace_cleaned(
             request.agent_session_id
         )
 
-        return WorktreeCleanupResult.removed_from_plan(
+        result = WorktreeCleanupResult.removed_from_plan(
             plan=plan,
             submitted_plan_hash=submitted_plan_hash,
             worktree_path=session.workspace_path,
@@ -432,6 +442,8 @@ class WorktreeCleanupService:
             cleanup_command_preview=cleanup_command_preview,
             warnings=warnings,
         )
+        self._record_audit_event(session=session, result=result)
+        return result
 
     @staticmethod
     def _unsafe_preflight_blockers(
@@ -506,6 +518,20 @@ class WorktreeCleanupService:
             session_id,
             last_workspace_error=message[:2_000],
         )
+
+    def _record_audit_event(
+        self,
+        *,
+        session,
+        result: WorktreeCleanupResult,
+    ) -> None:
+        """Persist the cleanup lifecycle audit event."""
+
+        WorkspaceLifecycleAuditService(
+            AgentMessageRepository(
+                self.worktree_plan_service.agent_session_repository.session
+            )
+        ).record_cleanup_result(session=session, result=result)
 
     @staticmethod
     def _format_workspace_error(prefix: str, blockers: list[str]) -> str:

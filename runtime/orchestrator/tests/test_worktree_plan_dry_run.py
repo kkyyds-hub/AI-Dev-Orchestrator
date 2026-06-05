@@ -6,6 +6,7 @@ coverage uses only tmp_path git fixtures for real worktree/branch execution.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 from uuid import uuid4
@@ -36,8 +37,18 @@ from app.domain.agent_session import (
 )
 from app.domain.repository_workspace import RepositoryWorkspace
 from app.domain.worktree_prepare import WorktreeGitPreflight
+from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.repository_workspace_repository import RepositoryWorkspaceRepository
+from app.services.workspace_lifecycle_audit_service import (
+    WORKSPACE_CLEANUP_BLOCKED_EVENT,
+    WORKSPACE_CLEANUP_CLEANED_EVENT,
+    WORKSPACE_CLEANUP_FAILED_EVENT,
+    WORKSPACE_CREATE_BLOCKED_EVENT,
+    WORKSPACE_CREATE_CREATED_EVENT,
+    WORKSPACE_CREATE_FAILED_EVENT,
+    WorkspaceLifecycleAuditService,
+)
 from app.services.worktree_command_runner import (
     WorktreeCommandResult,
     WorktreeCommandRunner,
@@ -158,6 +169,24 @@ def _create_bound_git_session(db_session, tmp_path):
     )
     plan = plan_service.build_plan(agent_session_id=session.id)
     return project_id, session, repository_root, plan_service, plan
+
+
+def _workspace_audit_messages(db_session, session_id):
+    """Return workspace audit AgentMessage rows for one AgentSession."""
+
+    messages = AgentMessageRepository(db_session).list_by_session_id(session_id=session_id)
+    return [
+        message
+        for message in messages
+        if message.event_type == WorkspaceLifecycleAuditService.event_type
+    ]
+
+
+def _workspace_audit_detail(message):
+    """Decode structured workspace audit detail from AgentMessage.content_detail."""
+
+    assert message.content_detail is not None
+    return json.loads(message.content_detail)
 
 
 class FakeWorktreeGitPreflightService:
@@ -1171,6 +1200,20 @@ def test_worktree_create_executes_real_worktree_and_writes_agent_session(
     assert updated_session.workspace_clean is True
     assert updated_session.last_workspace_error is None
 
+    audit_events = _workspace_audit_messages(db_session, session.id)
+    assert len(audit_events) == 1
+    assert audit_events[0].message_type == "note_event"
+    assert audit_events[0].event_type == "workspace_lifecycle_audit"
+    assert audit_events[0].note_event_type == WORKSPACE_CREATE_CREATED_EVENT
+    detail = _workspace_audit_detail(audit_events[0])
+    assert detail["outcome"] == "succeeded"
+    assert detail["plan_hash"] == plan.plan_hash
+    assert detail["submitted_plan_hash"] == plan.plan_hash
+    assert detail["workspace_path"] == plan.worktree_path
+    assert detail["branch_name"] == plan.branch_name
+    assert detail["blocked_reason"] is None
+    assert detail["runs_write_git"] is True
+
 
 def test_worktree_create_rejects_stale_plan_hash(db_session, tmp_path):
     """Create uses current-plan hash stale check before any write git command."""
@@ -1232,6 +1275,15 @@ def test_worktree_create_blocks_unsafe_preflight_and_writes_last_error(
     assert updated_session.last_workspace_error is not None
     assert updated_session.last_workspace_error.startswith("preflight blocked:")
     assert "repository has uncommitted changes" in updated_session.last_workspace_error
+
+    audit_events = _workspace_audit_messages(db_session, session.id)
+    assert len(audit_events) == 1
+    assert audit_events[0].note_event_type == WORKSPACE_CREATE_BLOCKED_EVENT
+    detail = _workspace_audit_detail(audit_events[0])
+    assert detail["outcome"] == "blocked"
+    assert detail["blocked_reason"] == "workspace_create_preflight_blocked"
+    assert "repository has uncommitted changes" in detail["blockers"]
+    assert detail["runs_write_git"] is False
 
 
 def test_worktree_create_write_failure_records_last_workspace_error(
@@ -1301,6 +1353,14 @@ def test_worktree_create_write_command_failure_records_last_workspace_error(
     assert updated_session.workspace_clean is None
     assert updated_session.last_workspace_error is not None
     assert updated_session.last_workspace_error.startswith("git worktree add failed:")
+
+    audit_events = _workspace_audit_messages(db_session, session.id)
+    assert len(audit_events) == 1
+    assert audit_events[0].note_event_type == WORKSPACE_CREATE_FAILED_EVENT
+    detail = _workspace_audit_detail(audit_events[0])
+    assert detail["outcome"] == "failed"
+    assert detail["blocked_reason"] == "workspace_create_git_write_failed"
+    assert detail["runs_write_git"] is True
 
 
 def test_worktree_create_response_exposes_created_guard_fields(db_session, tmp_path):
@@ -1523,6 +1583,16 @@ def test_worktree_cleanup_blocks_unbound_session_and_records_error(db_session, t
     assert unchanged_session.last_workspace_error is not None
     assert "AgentSession workspace_path is required" in unchanged_session.last_workspace_error
 
+    audit_events = _workspace_audit_messages(db_session, session.id)
+    assert len(audit_events) == 1
+    assert audit_events[0].note_event_type == WORKSPACE_CLEANUP_BLOCKED_EVENT
+    detail = _workspace_audit_detail(audit_events[0])
+    assert detail["outcome"] == "blocked"
+    assert detail["blocked_reason"] == "workspace_cleanup_preflight_blocked"
+    assert detail["runs_write_git"] is False
+    assert detail["deletes_branch"] is False
+    assert detail["deletes_directory"] is False
+
 
 def test_worktree_cleanup_rejects_stale_plan_hash(db_session, tmp_path):
     """Cleanup preview requires the current dry-run plan hash."""
@@ -1693,6 +1763,19 @@ def test_worktree_cleanup_removes_clean_registered_tmp_worktree(
     assert updated_session.workspace_clean is None
     assert updated_session.last_workspace_error is None
 
+    audit_events = _workspace_audit_messages(db_session, session.id)
+    assert [event.note_event_type for event in audit_events] == [
+        WORKSPACE_CREATE_CREATED_EVENT,
+        WORKSPACE_CLEANUP_CLEANED_EVENT,
+    ]
+    detail = _workspace_audit_detail(audit_events[-1])
+    assert detail["outcome"] == "succeeded"
+    assert detail["workspace_path"] == original_workspace_path
+    assert detail["branch_name"] == original_branch_name
+    assert detail["removes_worktree"] is True
+    assert detail["deletes_branch"] is False
+    assert detail["deletes_directory"] is False
+
 
 def test_worktree_cleanup_read_only_preflight_blocks_dirty_bound_worktree(
     db_session, tmp_path
@@ -1738,6 +1821,14 @@ def test_worktree_cleanup_read_only_preflight_blocks_dirty_bound_worktree(
     assert unchanged_session.workspace_type == created_session.workspace_type
     assert unchanged_session.last_workspace_error is not None
     assert "AgentSession worktree has uncommitted changes" in unchanged_session.last_workspace_error
+
+    audit_events = _workspace_audit_messages(db_session, session.id)
+    assert audit_events[-1].note_event_type == WORKSPACE_CLEANUP_BLOCKED_EVENT
+    detail = _workspace_audit_detail(audit_events[-1])
+    assert detail["outcome"] == "blocked"
+    assert detail["blocked_reason"] == "workspace_cleanup_preflight_blocked"
+    assert "AgentSession worktree has uncommitted changes" in detail["blockers"]
+    assert detail["runs_write_git"] is False
 
 
 def test_worktree_cleanup_read_only_preflight_skips_status_for_missing_path(
@@ -1879,3 +1970,11 @@ def test_worktree_cleanup_write_failure_records_last_workspace_error(
     assert unchanged_session.workspace_type == created_session.workspace_type
     assert unchanged_session.last_workspace_error is not None
     assert unchanged_session.last_workspace_error.startswith("git worktree remove failed:")
+
+    audit_events = _workspace_audit_messages(db_session, session.id)
+    assert audit_events[-1].note_event_type == WORKSPACE_CLEANUP_FAILED_EVENT
+    detail = _workspace_audit_detail(audit_events[-1])
+    assert detail["outcome"] == "failed"
+    assert detail["blocked_reason"] == "workspace_cleanup_git_write_failed"
+    assert detail["runs_write_git"] is True
+    assert detail["removes_worktree"] is False

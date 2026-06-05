@@ -8,6 +8,10 @@ from uuid import UUID
 from app.domain.worktree_create import WorktreeCreateResult, WorktreeWriteCommandPreview
 from app.domain.worktree_prepare import WorktreeGitPreflight
 from app.domain.agent_session import WorkspaceType
+from app.repositories.agent_message_repository import AgentMessageRepository
+from app.services.workspace_lifecycle_audit_service import (
+    WorkspaceLifecycleAuditService,
+)
 from app.services.worktree_git_preflight_service import WorktreeGitPreflightService
 from app.services.worktree_plan_service import WorktreePlanService
 from app.services.worktree_write_command_runner import WorktreeWriteCommandRunner
@@ -112,7 +116,7 @@ class WorktreeCreateService:
                 session_id=request.agent_session_id,
                 message=self._format_workspace_error("preflight blocked", blockers),
             )
-            return WorktreeCreateResult.failed_from_plan(
+            result = WorktreeCreateResult.failed_from_plan(
                 plan=plan,
                 submitted_plan_hash=submitted_plan_hash,
                 blocked_reason="workspace_create_preflight_blocked",
@@ -123,6 +127,8 @@ class WorktreeCreateService:
                 attempted_write_git=False,
                 wrote_agent_session_error=True,
             )
+            self._record_audit_event(result)
+            return result
 
         if (
             repository_workspace is None
@@ -136,7 +142,7 @@ class WorktreeCreateService:
                 session_id=request.agent_session_id,
                 message=self._format_workspace_error("create setup failed", blockers),
             )
-            return WorktreeCreateResult.failed_from_plan(
+            result = WorktreeCreateResult.failed_from_plan(
                 plan=plan,
                 submitted_plan_hash=submitted_plan_hash,
                 blocked_reason="workspace_create_setup_failed",
@@ -147,6 +153,8 @@ class WorktreeCreateService:
                 attempted_write_git=False,
                 wrote_agent_session_error=True,
             )
+            self._record_audit_event(result)
+            return result
 
         write_result = self.write_command_runner.run(write_command_preview[0])
         if write_result.return_code != 0:
@@ -156,7 +164,7 @@ class WorktreeCreateService:
                 session_id=request.agent_session_id,
                 message=self._format_workspace_error("git worktree add failed", blockers),
             )
-            return WorktreeCreateResult.failed_from_plan(
+            result = WorktreeCreateResult.failed_from_plan(
                 plan=plan,
                 submitted_plan_hash=submitted_plan_hash,
                 blocked_reason="workspace_create_git_write_failed",
@@ -167,6 +175,8 @@ class WorktreeCreateService:
                 attempted_write_git=True,
                 wrote_agent_session_error=True,
             )
+            self._record_audit_event(result)
+            return result
 
         self.worktree_plan_service.agent_session_repository.update_status(
             request.agent_session_id,
@@ -177,13 +187,15 @@ class WorktreeCreateService:
             last_workspace_error=None,
         )
 
-        return WorktreeCreateResult.created_from_plan(
+        result = WorktreeCreateResult.created_from_plan(
             plan=plan,
             submitted_plan_hash=submitted_plan_hash,
             git_preflight=git_preflight,
             write_command_preview=write_command_preview,
             warnings=warnings,
         )
+        self._record_audit_event(result)
+        return result
 
     @staticmethod
     def _unsafe_preflight_blockers(
@@ -211,6 +223,20 @@ class WorktreeCreateService:
             session_id,
             last_workspace_error=message[:2_000],
         )
+
+    def _record_audit_event(self, result: WorktreeCreateResult) -> None:
+        """Persist the create lifecycle audit event."""
+
+        session = self.worktree_plan_service.agent_session_repository.get_by_id(
+            result.agent_session_id
+        )
+        if session is None:
+            return
+        WorkspaceLifecycleAuditService(
+            AgentMessageRepository(
+                self.worktree_plan_service.agent_session_repository.session
+            )
+        ).record_create_result(session=session, result=result)
 
     @staticmethod
     def _format_workspace_error(prefix: str, blockers: list[str]) -> str:
