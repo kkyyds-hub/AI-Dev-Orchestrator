@@ -137,6 +137,23 @@ class WorkerRunOnceResponse(BaseModel):
     runtime_launch_dry_run_runs_git: bool | None = None
     runtime_launch_dry_run_runs_write_git: bool | None = None
     runtime_launch_dry_run_launches_runtime: bool | None = None
+    worktree_safe_command_ready: bool | None = None
+    worktree_safe_command_source: str | None = None
+    worktree_safe_command_reason_code: str | None = None
+    worktree_safe_command_command: str | None = None
+    worktree_safe_command_cwd: str | None = None
+    worktree_safe_command_exit_code: int | None = None
+    worktree_safe_command_stdout: str | None = None
+    worktree_safe_command_stderr: str | None = None
+    worktree_safe_command_timed_out: bool | None = None
+    worktree_safe_command_read_only: bool | None = None
+    worktree_safe_command_allowlisted: bool | None = None
+    worktree_safe_command_uses_agent_workspace: bool | None = None
+    worktree_safe_command_changes_cwd: bool | None = None
+    worktree_safe_command_runs_command: bool | None = None
+    worktree_safe_command_runs_git: bool | None = None
+    worktree_safe_command_runs_write_git: bool | None = None
+    worktree_safe_command_launches_runtime: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -317,6 +334,37 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             runtime_launch_dry_run_launches_runtime=(
                 result.runtime_launch_dry_run_launches_runtime
+            ),
+            worktree_safe_command_ready=result.worktree_safe_command_ready,
+            worktree_safe_command_source=result.worktree_safe_command_source,
+            worktree_safe_command_reason_code=(
+                result.worktree_safe_command_reason_code
+            ),
+            worktree_safe_command_command=result.worktree_safe_command_command,
+            worktree_safe_command_cwd=result.worktree_safe_command_cwd,
+            worktree_safe_command_exit_code=result.worktree_safe_command_exit_code,
+            worktree_safe_command_stdout=result.worktree_safe_command_stdout,
+            worktree_safe_command_stderr=result.worktree_safe_command_stderr,
+            worktree_safe_command_timed_out=result.worktree_safe_command_timed_out,
+            worktree_safe_command_read_only=result.worktree_safe_command_read_only,
+            worktree_safe_command_allowlisted=(
+                result.worktree_safe_command_allowlisted
+            ),
+            worktree_safe_command_uses_agent_workspace=(
+                result.worktree_safe_command_uses_agent_workspace
+            ),
+            worktree_safe_command_changes_cwd=(
+                result.worktree_safe_command_changes_cwd
+            ),
+            worktree_safe_command_runs_command=(
+                result.worktree_safe_command_runs_command
+            ),
+            worktree_safe_command_runs_git=result.worktree_safe_command_runs_git,
+            worktree_safe_command_runs_write_git=(
+                result.worktree_safe_command_runs_write_git
+            ),
+            worktree_safe_command_launches_runtime=(
+                result.worktree_safe_command_launches_runtime
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
