@@ -1,10 +1,17 @@
 """Single-cycle task worker used by Day 6 to Day 9."""
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.domain.agent_session import (
+    AgentSession,
+    CodingSessionActivityState,
+    CodingSessionStatus,
+    WorkspaceType,
+)
 from app.domain.project_role import ProjectRoleCode
 from app.domain.prompt_contract import BuiltPromptEnvelope
 from app.domain.prompt_contract import TokenAccountingSnapshot
@@ -20,6 +27,7 @@ from app.domain.task import (
     Task,
     TaskBlockingReasonCategory,
     TaskBlockingReasonCode,
+    TaskEventReason,
     TaskStatus,
 )
 from app.repositories.failure_review_repository import FailureReviewRepository
@@ -128,6 +136,144 @@ class WorkerRunResult:
     last_workspace_error: str | None = None
     task: Task | None = None
     run: Run | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class WorkerWorkspaceValidationResult:
+    """Read-only worker preflight result for AgentSession workspace metadata."""
+
+    ready: bool
+    reason_code: str | None
+    summary: str
+    workspace_type: str | None
+    workspace_path: str | None
+    workspace_clean: bool | None
+    resolved_workspace_path: str | None = None
+
+
+def validate_worker_agent_workspace(
+    agent_session: AgentSession,
+) -> WorkerWorkspaceValidationResult:
+    """Validate a worktree-bound AgentSession without executing commands.
+
+    P2-B deliberately limits the worker-side check to persisted AgentSession
+    metadata and local filesystem reads. It does not run git status, does not
+    launch a runtime, and does not change the process cwd. Git safety commands
+    remain reserved for later phases.
+    """
+
+    workspace_type = (
+        agent_session.workspace_type.value
+        if agent_session.workspace_type is not None
+        else None
+    )
+    workspace_path = agent_session.workspace_path
+    workspace_clean = agent_session.workspace_clean
+
+    if agent_session.workspace_type != WorkspaceType.WORKTREE:
+        return WorkerWorkspaceValidationResult(
+            ready=True,
+            reason_code=None,
+            summary=(
+                "AgentSession is not bound to a worktree; worker workspace "
+                "preflight was skipped."
+            ),
+            workspace_type=workspace_type,
+            workspace_path=workspace_path,
+            workspace_clean=workspace_clean,
+        )
+
+    if workspace_path is None:
+        return WorkerWorkspaceValidationResult(
+            ready=False,
+            reason_code="workspace_path_missing",
+            summary="AgentSession workspace_type=worktree requires workspace_path.",
+            workspace_type=workspace_type,
+            workspace_path=None,
+            workspace_clean=workspace_clean,
+        )
+
+    path = Path(workspace_path)
+    if not path.is_absolute():
+        return WorkerWorkspaceValidationResult(
+            ready=False,
+            reason_code="workspace_path_not_absolute",
+            summary=(
+                "AgentSession worktree workspace_path must be an absolute path "
+                "before worker execution."
+            ),
+            workspace_type=workspace_type,
+            workspace_path=workspace_path,
+            workspace_clean=workspace_clean,
+        )
+
+    try:
+        resolved_path = path.resolve(strict=False)
+        path_exists = path.exists()
+        path_is_dir = path.is_dir()
+    except OSError as exc:
+        return WorkerWorkspaceValidationResult(
+            ready=False,
+            reason_code="workspace_path_inspection_failed",
+            summary=(
+                "AgentSession worktree workspace_path could not be inspected: "
+                f"{type(exc).__name__}: {exc}"
+            )[:2_000],
+            workspace_type=workspace_type,
+            workspace_path=workspace_path,
+            workspace_clean=workspace_clean,
+        )
+
+    if not path_exists:
+        return WorkerWorkspaceValidationResult(
+            ready=False,
+            reason_code="workspace_path_not_found",
+            summary="AgentSession worktree workspace_path does not exist.",
+            workspace_type=workspace_type,
+            workspace_path=workspace_path,
+            workspace_clean=workspace_clean,
+            resolved_workspace_path=str(resolved_path),
+        )
+
+    if not path_is_dir:
+        return WorkerWorkspaceValidationResult(
+            ready=False,
+            reason_code="workspace_path_not_directory",
+            summary="AgentSession worktree workspace_path is not a directory.",
+            workspace_type=workspace_type,
+            workspace_path=workspace_path,
+            workspace_clean=workspace_clean,
+            resolved_workspace_path=str(resolved_path),
+        )
+
+    if workspace_clean is not True:
+        reason_code = (
+            "workspace_clean_unknown"
+            if workspace_clean is None
+            else "workspace_dirty"
+        )
+        return WorkerWorkspaceValidationResult(
+            ready=False,
+            reason_code=reason_code,
+            summary=(
+                "AgentSession worktree must have workspace_clean=True before "
+                "worker execution; P2-B does not run git status safety commands."
+            ),
+            workspace_type=workspace_type,
+            workspace_path=workspace_path,
+            workspace_clean=workspace_clean,
+            resolved_workspace_path=str(resolved_path),
+        )
+
+    return WorkerWorkspaceValidationResult(
+        ready=True,
+        reason_code=None,
+        summary="AgentSession worktree path exists and is marked clean.",
+        workspace_type=workspace_type,
+        workspace_path=workspace_path,
+        workspace_clean=workspace_clean,
+        resolved_workspace_path=str(resolved_path),
+    )
 
 
 def _truncate_deliverable_text(value: str, max_length: int) -> str:
@@ -715,6 +861,153 @@ class TaskWorker:
                 workspace_path = agent_session.workspace_path
                 workspace_clean = agent_session.workspace_clean
                 last_workspace_error = agent_session.last_workspace_error
+                workspace_validation = validate_worker_agent_workspace(agent_session)
+                self._log_workspace_validation(
+                    run=run,
+                    validation=workspace_validation,
+                )
+                if not workspace_validation.ready:
+                    last_workspace_error = workspace_validation.summary
+                    agent_session = (
+                        self.agent_conversation_service.agent_session_repository.update_status(
+                            agent_session.id,
+                            summary="Worker workspace preflight blocked execution.",
+                            coding_status=CodingSessionStatus.STUCK,
+                            activity_state=CodingSessionActivityState.BLOCKED,
+                            last_workspace_error=last_workspace_error,
+                        )
+                    )
+                    task, run = self._finalize_workspace_validation_blocked_run(
+                        task=task,
+                        run=run,
+                        validation=workspace_validation,
+                    )
+                    agent_session = self.agent_conversation_service.finalize_session(
+                        session_id=agent_session.id,
+                        run_status=run.status,
+                        run_failure_category=run.failure_category,
+                        final_summary=run.result_summary or workspace_validation.summary,
+                    )
+                    agent_session_status = agent_session.status.value
+                    agent_review_status = agent_session.review_status.value
+                    agent_current_phase = agent_session.current_phase.value
+                    agent_type = (
+                        agent_session.agent_type.value
+                        if agent_session.agent_type is not None
+                        else None
+                    )
+                    runtime_type = (
+                        agent_session.runtime_type.value
+                        if agent_session.runtime_type is not None
+                        else None
+                    )
+                    runtime_handle_id = agent_session.runtime_handle_id
+                    coding_status = (
+                        agent_session.coding_status.value
+                        if agent_session.coding_status is not None
+                        else None
+                    )
+                    activity_state = (
+                        agent_session.activity_state.value
+                        if agent_session.activity_state is not None
+                        else None
+                    )
+                    branch_name = agent_session.branch_name
+                    workspace_type = (
+                        agent_session.workspace_type.value
+                        if agent_session.workspace_type is not None
+                        else None
+                    )
+                    workspace_path = agent_session.workspace_path
+                    workspace_clean = agent_session.workspace_clean
+                    last_workspace_error = agent_session.last_workspace_error
+                    self._log_finalization(
+                        task=task,
+                        run=run,
+                        final_summary=run.result_summary or workspace_validation.summary,
+                    )
+                    self.session.commit()
+                    self._record_failure_review_if_needed(task=task, run=run)
+
+                    return WorkerRunResult(
+                        claimed=True,
+                        message=workspace_validation.summary,
+                        execution_mode="workspace_preflight",
+                        failure_category=run.failure_category,
+                        quality_gate_passed=run.quality_gate_passed,
+                        route_reason=run.route_reason,
+                        routing_score=run.routing_score,
+                        routing_score_breakdown=run.routing_score_breakdown,
+                        budget_pressure_level=(
+                            routing_decision.budget_pressure_level
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_action=(
+                            routing_decision.budget_action
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_strategy_code=(
+                            routing_decision.budget_strategy_code
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_strategy_summary=(
+                            routing_decision.budget_strategy_summary
+                            if routing_decision is not None
+                            else None
+                        ),
+                        result_summary=run.result_summary,
+                        context_summary=context_package.context_summary,
+                        agent_session_id=agent_session_id,
+                        agent_session_status=agent_session_status,
+                        agent_review_status=agent_review_status,
+                        agent_current_phase=agent_current_phase,
+                        agent_type=agent_type,
+                        runtime_type=runtime_type,
+                        runtime_handle_id=runtime_handle_id,
+                        coding_status=coding_status,
+                        activity_state=activity_state,
+                        branch_name=branch_name,
+                        workspace_type=workspace_type,
+                        workspace_path=workspace_path,
+                        workspace_clean=workspace_clean,
+                        last_workspace_error=last_workspace_error,
+                        model_name=run.model_name,
+                        model_tier=(
+                            run.strategy_decision.model_tier
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        selected_skill_codes=(
+                            list(run.strategy_decision.selected_skill_codes)
+                            if run.strategy_decision is not None
+                            else []
+                        ),
+                        selected_skill_names=(
+                            list(run.strategy_decision.selected_skill_names)
+                            if run.strategy_decision is not None
+                            else []
+                        ),
+                        strategy_code=(
+                            run.strategy_decision.strategy_code
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        strategy_summary=(
+                            run.strategy_decision.summary
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        owner_role_code=run.owner_role_code,
+                        upstream_role_code=run.upstream_role_code,
+                        downstream_role_code=run.downstream_role_code,
+                        handoff_reason=run.handoff_reason,
+                        dispatch_status=run.dispatch_status,
+                        task=task,
+                        run=run,
+                    )
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -1133,6 +1426,41 @@ class TaskWorker:
         )
         return updated_task, updated_run
 
+    def _finalize_workspace_validation_blocked_run(
+        self,
+        *,
+        task: Task,
+        run: Run,
+        validation: WorkerWorkspaceValidationResult,
+    ) -> tuple[Task, Run]:
+        """Persist a blocked task/run pair when workspace preflight fails."""
+
+        transition = TaskStateTransition(
+            status=TaskStatus.BLOCKED,
+            event_reason=TaskEventReason.GUARD_BLOCKED,
+            message="Worker workspace preflight blocked execution.",
+        )
+        updated_task = self._apply_task_transition(
+            task_id=task.id,
+            transition=transition,
+        )
+        updated_run = self.run_repository.finish_run(
+            run.id,
+            status=RunStatus.CANCELLED,
+            result_summary=validation.summary,
+            verification_summary=(
+                "Verification skipped because worker workspace preflight failed."
+            ),
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            quality_gate_passed=False,
+        )
+        event_stream_service.publish_task_updated(
+            task=updated_task,
+            reason=transition.event_reason,
+            previous_status=task.status,
+        )
+        return updated_task, updated_run
+
     def _best_effort_finalize_crashed_run(
         self,
         *,
@@ -1344,6 +1672,39 @@ class TaskWorker:
                 "fallback_from": execution.fallback_from,
                 "fallback_to": execution.fallback_to,
                 "simulate_failure_mode": execution.simulate_failure_mode,
+            },
+        )
+
+    def _log_workspace_validation(
+        self,
+        *,
+        run: Run,
+        validation: WorkerWorkspaceValidationResult,
+    ) -> None:
+        """Write the P2-B workspace validation snapshot to the run log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event=(
+                "agent_workspace_preflight_ready"
+                if validation.ready
+                else "agent_workspace_preflight_blocked"
+            ),
+            level="info" if validation.ready else "error",
+            message=validation.summary,
+            data={
+                "workspace_type": validation.workspace_type,
+                "workspace_path": validation.workspace_path,
+                "workspace_clean": validation.workspace_clean,
+                "resolved_workspace_path": validation.resolved_workspace_path,
+                "reason_code": validation.reason_code,
+                "runs_git": False,
+                "runs_write_git": False,
+                "changes_cwd": False,
+                "launches_runtime": False,
             },
         )
 
