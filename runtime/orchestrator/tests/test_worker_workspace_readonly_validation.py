@@ -795,6 +795,137 @@ def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
     assert executor_service.execute_task_calls == 0
 
 
+def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
+    monkeypatch,
+    tmp_path,
+):
+    task = Task(
+        project_id=uuid4(),
+        title="Runtime gate blocks executor",
+        input_summary="simulate: should not reach executor",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+        runtime_type=None,
+    )
+    proof = WorkerWorktreeSafeCommandProof(
+        ready=True,
+        source="agent_session_worktree_safe_command",
+        reason_code=None,
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd=tmp_path.as_posix(),
+        pwd_matches_workspace_path=True,
+        exit_code=0,
+        stdout=tmp_path.as_posix(),
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+    adapter_calls = {"can_launch": 0, "launch": 0}
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return proof
+
+    class _LaunchExplodingAdapter:
+        def adapter_kind(self):
+            return "fake"
+
+        def can_launch(self, *, agent_type, runtime_type):
+            adapter_calls["can_launch"] += 1
+            return True
+
+        def launch(self, *, request):
+            adapter_calls["launch"] += 1
+            raise AssertionError("fake launch must not run when gate fails")
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.FakeRuntimeAdapter",
+        _LaunchExplodingAdapter,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+
+    executor_service = _ExplodingExecutorService()
+    worker = TaskWorker(
+        session=_NoopDbSession(),
+        task_repository=_FakeTaskRepository(task),
+        run_repository=_FakeRunRepository(),
+        executor_service=executor_service,
+        verifier_service=None,
+        budget_guard_service=_AllowingBudgetGuardService(),
+        run_logging_service=_NoopRunLoggingService(),
+        cost_estimator_service=None,
+        context_builder_service=_FakeContextBuilderService(),
+        task_router_service=_FakeTaskRouterService(task),
+        model_routing_service=None,
+        prompt_registry_service=None,
+        prompt_builder_service=None,
+        token_accounting_service=None,
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type(
+            "_NoopFailureReviewService",
+            (),
+            {"ensure_review": lambda self, *, task, run: None},
+        )(),
+        agent_conversation_service=_FakeAgentConversationService(agent_session),
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.execution_mode == "runtime_launch_gate"
+    assert "Runtime launch gate blocked executor dispatch" in result.message
+    assert result.runtime_launch_gate_ready is False
+    assert result.runtime_launch_gate_gates_failed == ["runtime_dry_run"]
+    assert result.runtime_launch_gate_blocking_reason_code == "runtime_type_missing"
+    assert result.runtime_launch_gate_execution_enabled is False
+    assert result.runtime_launch_gate_launches_ai_runtime is False
+    assert result.runtime_launch_dry_run_ready is False
+    assert result.runtime_launch_dry_run_reason_code == "runtime_type_missing"
+    assert result.worktree_safe_command_proof_ready is True
+    assert result.runtime_handle_id is None
+    assert result.task is not None
+    assert result.task.status == TaskStatus.BLOCKED
+    assert result.run is not None
+    assert result.run.status == RunStatus.CANCELLED
+    assert result.run.failure_category == RunFailureCategory.EXECUTION_FAILED
+    assert result.run.quality_gate_passed is False
+    assert result.run.verification_summary == (
+        "Verification skipped because runtime launch gate failed before "
+        "executor dispatch."
+    )
+    assert result.agent_session_status == "blocked"
+    assert result.agent_current_phase == "finalized"
+    assert result.coding_status == "terminated"
+    assert result.activity_state == "exited"
+    assert result.last_workspace_error is not None
+    assert "reason_code=runtime_type_missing" in result.last_workspace_error
+    assert "fake_launch_started=False" in result.last_workspace_error
+    assert "real_runtime_started=False" in result.last_workspace_error
+    assert adapter_calls == {"can_launch": 0, "launch": 0}
+    assert executor_service.build_execution_plan_calls == 0
+    assert executor_service.execute_task_calls == 0
+
+
 def test_runtime_launch_dry_run_blocks_non_worktree_without_execution():
     session = _session(workspace_type=WorkspaceType.IN_PLACE)
     validation = validate_worker_agent_workspace(session)

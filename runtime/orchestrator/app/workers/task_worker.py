@@ -70,7 +70,11 @@ from app.services.task_state_machine_service import (
 )
 from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult, VerifierService
-from app.workers.runtime_adapter import FakeRuntimeAdapter, check_runtime_launch_gates
+from app.workers.runtime_adapter import (
+    FakeRuntimeAdapter,
+    RuntimeLaunchGateResult,
+    check_runtime_launch_gates,
+)
 
 if TYPE_CHECKING:
     from app.workers.worktree_safe_command import WorkerWorktreeSafeCommandProof
@@ -582,6 +586,28 @@ def _build_worktree_safe_command_proof_block_summary(
         details.append("timed_out=True")
     if proof.stderr:
         details.append(f"stderr={proof.stderr}")
+
+    return "; ".join(details)[:_RUN_RESULT_SUMMARY_MAX_LENGTH]
+
+
+def _build_runtime_launch_gate_block_summary(
+    gate: RuntimeLaunchGateResult,
+) -> str:
+    """Build the stable failure summary when runtime launch gates block."""
+
+    reason_code = gate.blocking_reason_code or "runtime_launch_gate_not_ready"
+    details = [
+        "Runtime launch gate blocked executor dispatch.",
+        f"reason_code={reason_code}",
+    ]
+    if gate.gates_failed:
+        details.append(f"gates_failed={','.join(gate.gates_failed)}")
+    if gate.gates_passed:
+        details.append(f"gates_passed={','.join(gate.gates_passed)}")
+    if gate.blocking_summary:
+        details.append(f"summary={gate.blocking_summary}")
+    details.append("fake_launch_started=False")
+    details.append("real_runtime_started=False")
 
     return "; ".join(details)[:_RUN_RESULT_SUMMARY_MAX_LENGTH]
 
@@ -2020,6 +2046,307 @@ class TaskWorker:
                         task=task,
                         run=run,
                     )
+                self._log_runtime_launch_gate(
+                    run=run,
+                    gate=runtime_launch_gate,
+                )
+                if not runtime_launch_gate.ready:
+                    runtime_gate_block_summary = (
+                        _build_runtime_launch_gate_block_summary(runtime_launch_gate)
+                    )
+                    last_workspace_error = runtime_gate_block_summary
+                    agent_session = (
+                        self.agent_conversation_service.agent_session_repository.update_status(
+                            agent_session.id,
+                            summary="Runtime launch gate blocked execution.",
+                            coding_status=CodingSessionStatus.STUCK,
+                            activity_state=CodingSessionActivityState.BLOCKED,
+                            last_workspace_error=last_workspace_error,
+                        )
+                    )
+                    task, run = self._finalize_runtime_launch_gate_blocked_run(
+                        task=task,
+                        run=run,
+                        gate=runtime_launch_gate,
+                    )
+                    agent_session = self.agent_conversation_service.finalize_session(
+                        session_id=agent_session.id,
+                        run_status=run.status,
+                        run_failure_category=run.failure_category,
+                        final_summary=run.result_summary or runtime_gate_block_summary,
+                    )
+                    agent_session_status = agent_session.status.value
+                    agent_review_status = agent_session.review_status.value
+                    agent_current_phase = agent_session.current_phase.value
+                    agent_type = (
+                        agent_session.agent_type.value
+                        if agent_session.agent_type is not None
+                        else None
+                    )
+                    runtime_type = (
+                        agent_session.runtime_type.value
+                        if agent_session.runtime_type is not None
+                        else None
+                    )
+                    runtime_handle_id = agent_session.runtime_handle_id
+                    coding_status = (
+                        agent_session.coding_status.value
+                        if agent_session.coding_status is not None
+                        else None
+                    )
+                    activity_state = (
+                        agent_session.activity_state.value
+                        if agent_session.activity_state is not None
+                        else None
+                    )
+                    branch_name = agent_session.branch_name
+                    workspace_type = (
+                        agent_session.workspace_type.value
+                        if agent_session.workspace_type is not None
+                        else None
+                    )
+                    workspace_path = agent_session.workspace_path
+                    workspace_clean = agent_session.workspace_clean
+                    last_workspace_error = agent_session.last_workspace_error
+                    self._log_finalization(
+                        task=task,
+                        run=run,
+                        final_summary=run.result_summary or runtime_gate_block_summary,
+                    )
+                    self.session.commit()
+                    self._record_failure_review_if_needed(task=task, run=run)
+
+                    return WorkerRunResult(
+                        claimed=True,
+                        message=runtime_gate_block_summary,
+                        execution_mode="runtime_launch_gate",
+                        failure_category=run.failure_category,
+                        quality_gate_passed=run.quality_gate_passed,
+                        route_reason=run.route_reason,
+                        routing_score=run.routing_score,
+                        routing_score_breakdown=run.routing_score_breakdown,
+                        budget_pressure_level=(
+                            routing_decision.budget_pressure_level
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_action=(
+                            routing_decision.budget_action
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_strategy_code=(
+                            routing_decision.budget_strategy_code
+                            if routing_decision is not None
+                            else None
+                        ),
+                        budget_strategy_summary=(
+                            routing_decision.budget_strategy_summary
+                            if routing_decision is not None
+                            else None
+                        ),
+                        result_summary=run.result_summary,
+                        context_summary=context_package.context_summary,
+                        agent_session_id=agent_session_id,
+                        agent_session_status=agent_session_status,
+                        agent_review_status=agent_review_status,
+                        agent_current_phase=agent_current_phase,
+                        agent_type=agent_type,
+                        runtime_type=runtime_type,
+                        runtime_handle_id=runtime_handle_id,
+                        coding_status=coding_status,
+                        activity_state=activity_state,
+                        branch_name=branch_name,
+                        workspace_type=workspace_type,
+                        workspace_path=workspace_path,
+                        workspace_clean=workspace_clean,
+                        last_workspace_error=last_workspace_error,
+                        workspace_context_ready=workspace_context_ready,
+                        workspace_context_source=workspace_context_source,
+                        workspace_context_reason_code=workspace_context_reason_code,
+                        workspace_context_path=workspace_context_path,
+                        workspace_context_resolved_path=workspace_context_resolved_path,
+                        workspace_context_uses_agent_workspace=(
+                            workspace_context_uses_agent_workspace
+                        ),
+                        workspace_context_changes_cwd=workspace_context_changes_cwd,
+                        workspace_context_runs_git=workspace_context_runs_git,
+                        workspace_context_runs_write_git=workspace_context_runs_write_git,
+                        workspace_context_launches_runtime=(
+                            workspace_context_launches_runtime
+                        ),
+                        runtime_launch_dry_run_ready=runtime_launch_dry_run_ready,
+                        runtime_launch_dry_run_source=runtime_launch_dry_run_source,
+                        runtime_launch_dry_run_reason_code=(
+                            runtime_launch_dry_run_reason_code
+                        ),
+                        runtime_launch_dry_run_session_id=(
+                            runtime_launch_dry_run_session_id
+                        ),
+                        runtime_launch_dry_run_agent_type=(
+                            runtime_launch_dry_run_agent_type
+                        ),
+                        runtime_launch_dry_run_runtime_type=(
+                            runtime_launch_dry_run_runtime_type
+                        ),
+                        runtime_launch_dry_run_workspace_path=(
+                            runtime_launch_dry_run_workspace_path
+                        ),
+                        runtime_launch_dry_run_resolved_workspace_path=(
+                            runtime_launch_dry_run_resolved_workspace_path
+                        ),
+                        runtime_launch_dry_run_launch_cwd_preview=(
+                            runtime_launch_dry_run_launch_cwd_preview
+                        ),
+                        runtime_launch_dry_run_launch_command_preview=(
+                            runtime_launch_dry_run_launch_command_preview
+                        ),
+                        runtime_launch_dry_run_uses_agent_workspace=(
+                            runtime_launch_dry_run_uses_agent_workspace
+                        ),
+                        runtime_launch_dry_run_command_preview_uses_workspace=(
+                            runtime_launch_dry_run_command_preview_uses_workspace
+                        ),
+                        runtime_launch_dry_run_execution_enabled=(
+                            runtime_launch_dry_run_execution_enabled
+                        ),
+                        runtime_launch_dry_run_changes_cwd=(
+                            runtime_launch_dry_run_changes_cwd
+                        ),
+                        runtime_launch_dry_run_runs_command=(
+                            runtime_launch_dry_run_runs_command
+                        ),
+                        runtime_launch_dry_run_runs_git=runtime_launch_dry_run_runs_git,
+                        runtime_launch_dry_run_runs_write_git=(
+                            runtime_launch_dry_run_runs_write_git
+                        ),
+                        runtime_launch_dry_run_launches_runtime=(
+                            runtime_launch_dry_run_launches_runtime
+                        ),
+                        runtime_launch_gate_ready=runtime_launch_gate_ready,
+                        runtime_launch_gate_gates_passed=(
+                            runtime_launch_gate_gates_passed
+                        ),
+                        runtime_launch_gate_gates_failed=(
+                            runtime_launch_gate_gates_failed
+                        ),
+                        runtime_launch_gate_blocking_reason_code=(
+                            runtime_launch_gate_blocking_reason_code
+                        ),
+                        runtime_launch_gate_blocking_summary=(
+                            runtime_launch_gate_blocking_summary
+                        ),
+                        runtime_launch_gate_changes_process_cwd=(
+                            runtime_launch_gate_changes_process_cwd
+                        ),
+                        runtime_launch_gate_runs_real_command=(
+                            runtime_launch_gate_runs_real_command
+                        ),
+                        runtime_launch_gate_runs_git=runtime_launch_gate_runs_git,
+                        runtime_launch_gate_runs_write_git=(
+                            runtime_launch_gate_runs_write_git
+                        ),
+                        runtime_launch_gate_launches_ai_runtime=(
+                            runtime_launch_gate_launches_ai_runtime
+                        ),
+                        runtime_launch_gate_execution_enabled=(
+                            runtime_launch_gate_execution_enabled
+                        ),
+                        worktree_safe_command_proof_ready=(
+                            worktree_safe_command_proof_ready
+                        ),
+                        worktree_safe_command_proof_source=(
+                            worktree_safe_command_proof_source
+                        ),
+                        worktree_safe_command_proof_reason_code=(
+                            worktree_safe_command_proof_reason_code
+                        ),
+                        worktree_safe_command_proof_command=(
+                            worktree_safe_command_proof_command
+                        ),
+                        worktree_safe_command_proof_cwd=worktree_safe_command_proof_cwd,
+                        worktree_safe_command_proof_expected_workspace_path=(
+                            worktree_safe_command_proof_expected_workspace_path
+                        ),
+                        worktree_safe_command_proof_observed_pwd=(
+                            worktree_safe_command_proof_observed_pwd
+                        ),
+                        worktree_safe_command_proof_pwd_matches_workspace_path=(
+                            worktree_safe_command_proof_pwd_matches_workspace_path
+                        ),
+                        worktree_safe_command_proof_exit_code=(
+                            worktree_safe_command_proof_exit_code
+                        ),
+                        worktree_safe_command_proof_stdout=(
+                            worktree_safe_command_proof_stdout
+                        ),
+                        worktree_safe_command_proof_stderr=(
+                            worktree_safe_command_proof_stderr
+                        ),
+                        worktree_safe_command_proof_timed_out=(
+                            worktree_safe_command_proof_timed_out
+                        ),
+                        worktree_safe_command_proof_read_only=(
+                            worktree_safe_command_proof_read_only
+                        ),
+                        worktree_safe_command_proof_allowlisted=(
+                            worktree_safe_command_proof_allowlisted
+                        ),
+                        worktree_safe_command_proof_uses_agent_workspace=(
+                            worktree_safe_command_proof_uses_agent_workspace
+                        ),
+                        worktree_safe_command_proof_changes_process_cwd=(
+                            worktree_safe_command_proof_changes_process_cwd
+                        ),
+                        worktree_safe_command_proof_runs_command=(
+                            worktree_safe_command_proof_runs_command
+                        ),
+                        worktree_safe_command_proof_runs_git=(
+                            worktree_safe_command_proof_runs_git
+                        ),
+                        worktree_safe_command_proof_runs_write_git=(
+                            worktree_safe_command_proof_runs_write_git
+                        ),
+                        worktree_safe_command_proof_launches_worker_loop=(
+                            worktree_safe_command_proof_launches_worker_loop
+                        ),
+                        worktree_safe_command_proof_launches_ai_runtime=(
+                            worktree_safe_command_proof_launches_ai_runtime
+                        ),
+                        model_name=run.model_name,
+                        model_tier=(
+                            run.strategy_decision.model_tier
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        selected_skill_codes=(
+                            list(run.strategy_decision.selected_skill_codes)
+                            if run.strategy_decision is not None
+                            else []
+                        ),
+                        selected_skill_names=(
+                            list(run.strategy_decision.selected_skill_names)
+                            if run.strategy_decision is not None
+                            else []
+                        ),
+                        strategy_code=(
+                            run.strategy_decision.strategy_code
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        strategy_summary=(
+                            run.strategy_decision.summary
+                            if run.strategy_decision is not None
+                            else None
+                        ),
+                        owner_role_code=run.owner_role_code,
+                        upstream_role_code=run.upstream_role_code,
+                        downstream_role_code=run.downstream_role_code,
+                        handoff_reason=run.handoff_reason,
+                        dispatch_status=run.dispatch_status,
+                        task=task,
+                        run=run,
+                    )
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -2632,6 +2959,43 @@ class TaskWorker:
         )
         return updated_task, updated_run
 
+    def _finalize_runtime_launch_gate_blocked_run(
+        self,
+        *,
+        task: Task,
+        run: Run,
+        gate: RuntimeLaunchGateResult,
+    ) -> tuple[Task, Run]:
+        """Persist a blocked task/run pair when runtime launch gates fail."""
+
+        summary = _build_runtime_launch_gate_block_summary(gate)
+        transition = TaskStateTransition(
+            status=TaskStatus.BLOCKED,
+            event_reason=TaskEventReason.GUARD_BLOCKED,
+            message="Runtime launch gate blocked execution.",
+        )
+        updated_task = self._apply_task_transition(
+            task_id=task.id,
+            transition=transition,
+        )
+        updated_run = self.run_repository.finish_run(
+            run.id,
+            status=RunStatus.CANCELLED,
+            result_summary=summary,
+            verification_summary=(
+                "Verification skipped because runtime launch gate failed before "
+                "executor dispatch."
+            ),
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            quality_gate_passed=False,
+        )
+        event_stream_service.publish_task_updated(
+            task=updated_task,
+            reason=transition.event_reason,
+            previous_status=task.status,
+        )
+        return updated_task, updated_run
+
     def _best_effort_finalize_crashed_run(
         self,
         *,
@@ -2959,6 +3323,33 @@ class TaskWorker:
                 else "Worker worktree safe command proof is not ready."
             ),
             data=asdict(proof),
+        )
+
+    def _log_runtime_launch_gate(
+        self,
+        *,
+        run: Run,
+        gate: RuntimeLaunchGateResult,
+    ) -> None:
+        """Write the P3 runtime launch gate decision to the run log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event=(
+                "agent_runtime_launch_gate_ready"
+                if gate.ready
+                else "agent_runtime_launch_gate_blocked"
+            ),
+            level="info" if gate.ready else "error",
+            message=(
+                "Runtime launch gates passed; executor dispatch may continue."
+                if gate.ready
+                else _build_runtime_launch_gate_block_summary(gate)
+            ),
+            data=asdict(gate),
         )
 
     def _log_guard_blocked(
