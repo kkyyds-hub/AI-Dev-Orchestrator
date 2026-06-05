@@ -70,6 +70,7 @@ from app.services.task_state_machine_service import (
 )
 from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult, VerifierService
+from app.workers.runtime_adapter import FakeRuntimeAdapter, check_runtime_launch_gates
 
 if TYPE_CHECKING:
     from app.workers.worktree_safe_command import WorkerWorktreeSafeCommandProof
@@ -167,6 +168,17 @@ class WorkerRunResult:
     runtime_launch_dry_run_runs_git: bool | None = None
     runtime_launch_dry_run_runs_write_git: bool | None = None
     runtime_launch_dry_run_launches_runtime: bool | None = None
+    runtime_launch_gate_ready: bool | None = None
+    runtime_launch_gate_gates_passed: list[str] = field(default_factory=list)
+    runtime_launch_gate_gates_failed: list[str] = field(default_factory=list)
+    runtime_launch_gate_blocking_reason_code: str | None = None
+    runtime_launch_gate_blocking_summary: str | None = None
+    runtime_launch_gate_changes_process_cwd: bool | None = None
+    runtime_launch_gate_runs_real_command: bool | None = None
+    runtime_launch_gate_runs_git: bool | None = None
+    runtime_launch_gate_runs_write_git: bool | None = None
+    runtime_launch_gate_launches_ai_runtime: bool | None = None
+    runtime_launch_gate_execution_enabled: bool | None = None
     worktree_safe_command_proof_ready: bool | None = None
     worktree_safe_command_proof_source: str | None = None
     worktree_safe_command_proof_reason_code: str | None = None
@@ -921,6 +933,17 @@ class TaskWorker:
         runtime_launch_dry_run_runs_git: bool | None = None
         runtime_launch_dry_run_runs_write_git: bool | None = None
         runtime_launch_dry_run_launches_runtime: bool | None = None
+        runtime_launch_gate_ready: bool | None = None
+        runtime_launch_gate_gates_passed: list[str] = []
+        runtime_launch_gate_gates_failed: list[str] = []
+        runtime_launch_gate_blocking_reason_code: str | None = None
+        runtime_launch_gate_blocking_summary: str | None = None
+        runtime_launch_gate_changes_process_cwd: bool | None = None
+        runtime_launch_gate_runs_real_command: bool | None = None
+        runtime_launch_gate_runs_git: bool | None = None
+        runtime_launch_gate_runs_write_git: bool | None = None
+        runtime_launch_gate_launches_ai_runtime: bool | None = None
+        runtime_launch_gate_execution_enabled: bool | None = None
         worktree_safe_command_proof_ready: bool | None = None
         worktree_safe_command_proof_source: str | None = None
         worktree_safe_command_proof_reason_code: str | None = None
@@ -1336,6 +1359,39 @@ class TaskWorker:
                 worktree_safe_command_proof_launches_ai_runtime = (
                     worktree_safe_command_proof.launches_ai_runtime
                 )
+                runtime_launch_gate = check_runtime_launch_gates(
+                    workspace_context=workspace_context,
+                    runtime_dry_run=runtime_launch_dry_run,
+                    safe_command_proof=worktree_safe_command_proof,
+                    runtime_adapter=FakeRuntimeAdapter(),
+                    agent_type=agent_type,
+                    runtime_type=runtime_type,
+                )
+                runtime_launch_gate_ready = runtime_launch_gate.ready
+                runtime_launch_gate_gates_passed = list(runtime_launch_gate.gates_passed)
+                runtime_launch_gate_gates_failed = list(runtime_launch_gate.gates_failed)
+                runtime_launch_gate_blocking_reason_code = (
+                    runtime_launch_gate.blocking_reason_code
+                )
+                runtime_launch_gate_blocking_summary = (
+                    runtime_launch_gate.blocking_summary
+                )
+                runtime_launch_gate_changes_process_cwd = (
+                    runtime_launch_gate.changes_process_cwd
+                )
+                runtime_launch_gate_runs_real_command = (
+                    runtime_launch_gate.runs_real_command
+                )
+                runtime_launch_gate_runs_git = runtime_launch_gate.runs_git
+                runtime_launch_gate_runs_write_git = (
+                    runtime_launch_gate.runs_write_git
+                )
+                runtime_launch_gate_launches_ai_runtime = (
+                    runtime_launch_gate.launches_ai_runtime
+                )
+                runtime_launch_gate_execution_enabled = (
+                    runtime_launch_gate.execution_enabled
+                )
                 self._log_workspace_validation(
                     run=run,
                     validation=workspace_validation,
@@ -1528,6 +1584,35 @@ class TaskWorker:
                         ),
                         runtime_launch_dry_run_launches_runtime=(
                             runtime_launch_dry_run_launches_runtime
+                        ),
+                        runtime_launch_gate_ready=runtime_launch_gate_ready,
+                        runtime_launch_gate_gates_passed=(
+                            runtime_launch_gate_gates_passed
+                        ),
+                        runtime_launch_gate_gates_failed=(
+                            runtime_launch_gate_gates_failed
+                        ),
+                        runtime_launch_gate_blocking_reason_code=(
+                            runtime_launch_gate_blocking_reason_code
+                        ),
+                        runtime_launch_gate_blocking_summary=(
+                            runtime_launch_gate_blocking_summary
+                        ),
+                        runtime_launch_gate_changes_process_cwd=(
+                            runtime_launch_gate_changes_process_cwd
+                        ),
+                        runtime_launch_gate_runs_real_command=(
+                            runtime_launch_gate_runs_real_command
+                        ),
+                        runtime_launch_gate_runs_git=runtime_launch_gate_runs_git,
+                        runtime_launch_gate_runs_write_git=(
+                            runtime_launch_gate_runs_write_git
+                        ),
+                        runtime_launch_gate_launches_ai_runtime=(
+                            runtime_launch_gate_launches_ai_runtime
+                        ),
+                        runtime_launch_gate_execution_enabled=(
+                            runtime_launch_gate_execution_enabled
                         ),
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
@@ -1810,6 +1895,35 @@ class TaskWorker:
                         ),
                         runtime_launch_dry_run_launches_runtime=(
                             runtime_launch_dry_run_launches_runtime
+                        ),
+                        runtime_launch_gate_ready=runtime_launch_gate_ready,
+                        runtime_launch_gate_gates_passed=(
+                            runtime_launch_gate_gates_passed
+                        ),
+                        runtime_launch_gate_gates_failed=(
+                            runtime_launch_gate_gates_failed
+                        ),
+                        runtime_launch_gate_blocking_reason_code=(
+                            runtime_launch_gate_blocking_reason_code
+                        ),
+                        runtime_launch_gate_blocking_summary=(
+                            runtime_launch_gate_blocking_summary
+                        ),
+                        runtime_launch_gate_changes_process_cwd=(
+                            runtime_launch_gate_changes_process_cwd
+                        ),
+                        runtime_launch_gate_runs_real_command=(
+                            runtime_launch_gate_runs_real_command
+                        ),
+                        runtime_launch_gate_runs_git=runtime_launch_gate_runs_git,
+                        runtime_launch_gate_runs_write_git=(
+                            runtime_launch_gate_runs_write_git
+                        ),
+                        runtime_launch_gate_launches_ai_runtime=(
+                            runtime_launch_gate_launches_ai_runtime
+                        ),
+                        runtime_launch_gate_execution_enabled=(
+                            runtime_launch_gate_execution_enabled
                         ),
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
@@ -2255,6 +2369,29 @@ class TaskWorker:
                 ),
                 runtime_launch_dry_run_launches_runtime=(
                     runtime_launch_dry_run_launches_runtime
+                ),
+                runtime_launch_gate_ready=runtime_launch_gate_ready,
+                runtime_launch_gate_gates_passed=runtime_launch_gate_gates_passed,
+                runtime_launch_gate_gates_failed=runtime_launch_gate_gates_failed,
+                runtime_launch_gate_blocking_reason_code=(
+                    runtime_launch_gate_blocking_reason_code
+                ),
+                runtime_launch_gate_blocking_summary=(
+                    runtime_launch_gate_blocking_summary
+                ),
+                runtime_launch_gate_changes_process_cwd=(
+                    runtime_launch_gate_changes_process_cwd
+                ),
+                runtime_launch_gate_runs_real_command=(
+                    runtime_launch_gate_runs_real_command
+                ),
+                runtime_launch_gate_runs_git=runtime_launch_gate_runs_git,
+                runtime_launch_gate_runs_write_git=runtime_launch_gate_runs_write_git,
+                runtime_launch_gate_launches_ai_runtime=(
+                    runtime_launch_gate_launches_ai_runtime
+                ),
+                runtime_launch_gate_execution_enabled=(
+                    runtime_launch_gate_execution_enabled
                 ),
                 worktree_safe_command_proof_ready=worktree_safe_command_proof_ready,
                 worktree_safe_command_proof_source=worktree_safe_command_proof_source,

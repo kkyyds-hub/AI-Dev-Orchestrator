@@ -877,6 +877,23 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             runtime_launch_dry_run_runs_git=False,
             runtime_launch_dry_run_runs_write_git=False,
             runtime_launch_dry_run_launches_runtime=False,
+            runtime_launch_gate_ready=True,
+            runtime_launch_gate_gates_passed=[
+                "workspace_validation",
+                "workspace_context",
+                "runtime_dry_run",
+                "safe_command_proof",
+                "adapter_capability",
+            ],
+            runtime_launch_gate_gates_failed=[],
+            runtime_launch_gate_blocking_reason_code=None,
+            runtime_launch_gate_blocking_summary=None,
+            runtime_launch_gate_changes_process_cwd=False,
+            runtime_launch_gate_runs_real_command=False,
+            runtime_launch_gate_runs_git=False,
+            runtime_launch_gate_runs_write_git=False,
+            runtime_launch_gate_launches_ai_runtime=False,
+            runtime_launch_gate_execution_enabled=False,
             worktree_safe_command_proof_ready=True,
             worktree_safe_command_proof_source=(
                 "agent_session_worktree_safe_command"
@@ -947,6 +964,23 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["runtime_launch_dry_run_runs_git"] is False
     assert payload["runtime_launch_dry_run_runs_write_git"] is False
     assert payload["runtime_launch_dry_run_launches_runtime"] is False
+    assert payload["runtime_launch_gate_ready"] is True
+    assert payload["runtime_launch_gate_gates_passed"] == [
+        "workspace_validation",
+        "workspace_context",
+        "runtime_dry_run",
+        "safe_command_proof",
+        "adapter_capability",
+    ]
+    assert payload["runtime_launch_gate_gates_failed"] == []
+    assert payload["runtime_launch_gate_blocking_reason_code"] is None
+    assert payload["runtime_launch_gate_blocking_summary"] is None
+    assert payload["runtime_launch_gate_changes_process_cwd"] is False
+    assert payload["runtime_launch_gate_runs_real_command"] is False
+    assert payload["runtime_launch_gate_runs_git"] is False
+    assert payload["runtime_launch_gate_runs_write_git"] is False
+    assert payload["runtime_launch_gate_launches_ai_runtime"] is False
+    assert payload["runtime_launch_gate_execution_enabled"] is False
     assert payload["worktree_safe_command_proof_ready"] is True
     assert (
         payload["worktree_safe_command_proof_source"]

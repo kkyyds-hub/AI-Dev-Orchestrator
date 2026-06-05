@@ -137,6 +137,17 @@ class WorkerRunOnceResponse(BaseModel):
     runtime_launch_dry_run_runs_git: bool | None = None
     runtime_launch_dry_run_runs_write_git: bool | None = None
     runtime_launch_dry_run_launches_runtime: bool | None = None
+    runtime_launch_gate_ready: bool | None = None
+    runtime_launch_gate_gates_passed: list[str] = Field(default_factory=list)
+    runtime_launch_gate_gates_failed: list[str] = Field(default_factory=list)
+    runtime_launch_gate_blocking_reason_code: str | None = None
+    runtime_launch_gate_blocking_summary: str | None = None
+    runtime_launch_gate_changes_process_cwd: bool | None = None
+    runtime_launch_gate_runs_real_command: bool | None = None
+    runtime_launch_gate_runs_git: bool | None = None
+    runtime_launch_gate_runs_write_git: bool | None = None
+    runtime_launch_gate_launches_ai_runtime: bool | None = None
+    runtime_launch_gate_execution_enabled: bool | None = None
     worktree_safe_command_proof_ready: bool | None = None
     worktree_safe_command_proof_source: str | None = None
     worktree_safe_command_proof_reason_code: str | None = None
@@ -338,6 +349,35 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             runtime_launch_dry_run_launches_runtime=(
                 result.runtime_launch_dry_run_launches_runtime
+            ),
+            runtime_launch_gate_ready=result.runtime_launch_gate_ready,
+            runtime_launch_gate_gates_passed=(
+                result.runtime_launch_gate_gates_passed
+            ),
+            runtime_launch_gate_gates_failed=(
+                result.runtime_launch_gate_gates_failed
+            ),
+            runtime_launch_gate_blocking_reason_code=(
+                result.runtime_launch_gate_blocking_reason_code
+            ),
+            runtime_launch_gate_blocking_summary=(
+                result.runtime_launch_gate_blocking_summary
+            ),
+            runtime_launch_gate_changes_process_cwd=(
+                result.runtime_launch_gate_changes_process_cwd
+            ),
+            runtime_launch_gate_runs_real_command=(
+                result.runtime_launch_gate_runs_real_command
+            ),
+            runtime_launch_gate_runs_git=result.runtime_launch_gate_runs_git,
+            runtime_launch_gate_runs_write_git=(
+                result.runtime_launch_gate_runs_write_git
+            ),
+            runtime_launch_gate_launches_ai_runtime=(
+                result.runtime_launch_gate_launches_ai_runtime
+            ),
+            runtime_launch_gate_execution_enabled=(
+                result.runtime_launch_gate_execution_enabled
             ),
             worktree_safe_command_proof_ready=(
                 result.worktree_safe_command_proof_ready
