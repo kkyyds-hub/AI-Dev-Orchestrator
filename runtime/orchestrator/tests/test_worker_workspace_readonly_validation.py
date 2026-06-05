@@ -106,11 +106,14 @@ class _FakePwdCommandRunner:
 
 
 class _SpyRuntimeEventAuditService:
-    def __init__(self) -> None:
+    def __init__(self, *, raises: Exception | None = None) -> None:
         self.calls: list[dict[str, object]] = []
+        self.raises = raises
 
     def record_launch_gate_event(self, **kwargs):
         self.calls.append(kwargs)
+        if self.raises is not None:
+            raise self.raises
         return None
 
 
@@ -445,6 +448,10 @@ class _FakeTaskRepository:
     def __init__(self, task: Task) -> None:
         self.task = task
 
+    def get_by_id(self, task_id):
+        assert task_id == self.task.id
+        return self.task
+
     def claim_pending_task(self, task_id):
         assert task_id == self.task.id
         if self.task.status != TaskStatus.PENDING:
@@ -465,6 +472,11 @@ class _FakeTaskRepository:
 class _FakeRunRepository:
     def __init__(self) -> None:
         self.run: Run | None = None
+
+    def get_by_id(self, run_id):
+        assert self.run is not None
+        assert run_id == self.run.id
+        return self.run
 
     def create_running_run(self, *, task_id, **kwargs):
         self.run = Run(
@@ -955,6 +967,135 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
     assert call["workspace_path"] == tmp_path.as_posix()
     assert call["observed_pwd"] == tmp_path.as_posix()
     assert call["launch_cwd_preview"] is None
+
+
+def test_worker_run_once_stops_before_executor_when_runtime_gate_audit_fails(
+    monkeypatch,
+    tmp_path,
+):
+    task = Task(
+        project_id=uuid4(),
+        title="Runtime gate audit failure blocks executor",
+        input_summary="simulate: audit failure should not reach executor",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+    )
+    proof = WorkerWorktreeSafeCommandProof(
+        ready=True,
+        source="agent_session_worktree_safe_command",
+        reason_code=None,
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd=tmp_path.as_posix(),
+        pwd_matches_workspace_path=True,
+        exit_code=0,
+        stdout=tmp_path.as_posix(),
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+    adapter_calls = {"can_launch": 0, "launch": 0, "is_alive": 0}
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return proof
+
+    class _LaunchExplodingAdapter:
+        def adapter_kind(self):
+            return "fake"
+
+        def can_launch(self, *, agent_type, runtime_type):
+            adapter_calls["can_launch"] += 1
+            return True
+
+        def launch(self, *, request):
+            adapter_calls["launch"] += 1
+            raise AssertionError("fake launch must not run when audit fails")
+
+        def is_alive(self, *, handle):
+            adapter_calls["is_alive"] += 1
+            raise AssertionError("runtime probe must not run when audit fails")
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.FakeRuntimeAdapter",
+        _LaunchExplodingAdapter,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+
+    executor_service = _ExplodingExecutorService()
+    task_repository = _FakeTaskRepository(task)
+    run_repository = _FakeRunRepository()
+    runtime_event_audit_service = _SpyRuntimeEventAuditService(
+        raises=RuntimeError("simulated runtime gate audit write failure")
+    )
+    worker = TaskWorker(
+        session=_NoopDbSession(),
+        task_repository=task_repository,
+        run_repository=run_repository,
+        executor_service=executor_service,
+        verifier_service=None,
+        budget_guard_service=_AllowingBudgetGuardService(),
+        run_logging_service=_NoopRunLoggingService(),
+        cost_estimator_service=None,
+        context_builder_service=_FakeContextBuilderService(),
+        task_router_service=_FakeTaskRouterService(task),
+        model_routing_service=None,
+        prompt_registry_service=None,
+        prompt_builder_service=None,
+        token_accounting_service=None,
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type(
+            "_NoopFailureReviewService",
+            (),
+            {"ensure_review": lambda self, *, task, run: None},
+        )(),
+        agent_conversation_service=_FakeAgentConversationService(agent_session),
+        runtime_event_audit_service=runtime_event_audit_service,
+    )
+
+    try:
+        worker.run_once()
+    except RuntimeError as exc:
+        assert "simulated runtime gate audit write failure" in str(exc)
+    else:
+        raise AssertionError("runtime gate audit failure must propagate")
+
+    assert len(runtime_event_audit_service.calls) == 1
+    call = runtime_event_audit_service.calls[0]
+    assert call["gate_result"].ready is True
+    assert call["gate_result"].gates_failed == []
+    assert call["adapter_kind"] == "fake"
+    assert call["workspace_path"] == tmp_path.as_posix()
+    assert call["observed_pwd"] == tmp_path.as_posix()
+    assert call["launch_cwd_preview"] == tmp_path.as_posix()
+    assert adapter_calls == {"can_launch": 1, "launch": 0, "is_alive": 0}
+    assert executor_service.build_execution_plan_calls == 0
+    assert executor_service.execute_task_calls == 0
+    assert task_repository.task.status == TaskStatus.FAILED
+    assert run_repository.run is not None
+    assert run_repository.run.status == RunStatus.FAILED
+    assert run_repository.run.verification_summary == (
+        "Verification skipped because the worker crashed."
+    )
 
 
 def test_runtime_launch_dry_run_blocks_non_worktree_without_execution():
