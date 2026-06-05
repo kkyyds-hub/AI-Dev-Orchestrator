@@ -137,6 +137,27 @@ class WorkerRunOnceResponse(BaseModel):
     runtime_launch_dry_run_runs_git: bool | None = None
     runtime_launch_dry_run_runs_write_git: bool | None = None
     runtime_launch_dry_run_launches_runtime: bool | None = None
+    worktree_safe_command_proof_ready: bool | None = None
+    worktree_safe_command_proof_source: str | None = None
+    worktree_safe_command_proof_reason_code: str | None = None
+    worktree_safe_command_proof_command: str | None = None
+    worktree_safe_command_proof_cwd: str | None = None
+    worktree_safe_command_proof_expected_workspace_path: str | None = None
+    worktree_safe_command_proof_observed_pwd: str | None = None
+    worktree_safe_command_proof_pwd_matches_workspace_path: bool | None = None
+    worktree_safe_command_proof_exit_code: int | None = None
+    worktree_safe_command_proof_stdout: str | None = None
+    worktree_safe_command_proof_stderr: str | None = None
+    worktree_safe_command_proof_timed_out: bool | None = None
+    worktree_safe_command_proof_read_only: bool | None = None
+    worktree_safe_command_proof_allowlisted: bool | None = None
+    worktree_safe_command_proof_uses_agent_workspace: bool | None = None
+    worktree_safe_command_proof_changes_process_cwd: bool | None = None
+    worktree_safe_command_proof_runs_command: bool | None = None
+    worktree_safe_command_proof_runs_git: bool | None = None
+    worktree_safe_command_proof_runs_write_git: bool | None = None
+    worktree_safe_command_proof_launches_worker_loop: bool | None = None
+    worktree_safe_command_proof_launches_ai_runtime: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -317,6 +338,67 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             runtime_launch_dry_run_launches_runtime=(
                 result.runtime_launch_dry_run_launches_runtime
+            ),
+            worktree_safe_command_proof_ready=(
+                result.worktree_safe_command_proof_ready
+            ),
+            worktree_safe_command_proof_source=(
+                result.worktree_safe_command_proof_source
+            ),
+            worktree_safe_command_proof_reason_code=(
+                result.worktree_safe_command_proof_reason_code
+            ),
+            worktree_safe_command_proof_command=(
+                result.worktree_safe_command_proof_command
+            ),
+            worktree_safe_command_proof_cwd=result.worktree_safe_command_proof_cwd,
+            worktree_safe_command_proof_expected_workspace_path=(
+                result.worktree_safe_command_proof_expected_workspace_path
+            ),
+            worktree_safe_command_proof_observed_pwd=(
+                result.worktree_safe_command_proof_observed_pwd
+            ),
+            worktree_safe_command_proof_pwd_matches_workspace_path=(
+                result.worktree_safe_command_proof_pwd_matches_workspace_path
+            ),
+            worktree_safe_command_proof_exit_code=(
+                result.worktree_safe_command_proof_exit_code
+            ),
+            worktree_safe_command_proof_stdout=(
+                result.worktree_safe_command_proof_stdout
+            ),
+            worktree_safe_command_proof_stderr=(
+                result.worktree_safe_command_proof_stderr
+            ),
+            worktree_safe_command_proof_timed_out=(
+                result.worktree_safe_command_proof_timed_out
+            ),
+            worktree_safe_command_proof_read_only=(
+                result.worktree_safe_command_proof_read_only
+            ),
+            worktree_safe_command_proof_allowlisted=(
+                result.worktree_safe_command_proof_allowlisted
+            ),
+            worktree_safe_command_proof_uses_agent_workspace=(
+                result.worktree_safe_command_proof_uses_agent_workspace
+            ),
+            worktree_safe_command_proof_changes_process_cwd=(
+                result.worktree_safe_command_proof_changes_process_cwd
+            ),
+            worktree_safe_command_proof_runs_command=(
+                result.worktree_safe_command_proof_runs_command
+            ),
+            worktree_safe_command_proof_runs_git=(
+                result.worktree_safe_command_proof_runs_git
+            ),
+            worktree_safe_command_proof_runs_write_git=(
+                result.worktree_safe_command_proof_runs_write_git
+            ),
+            worktree_safe_command_proof_launches_worker_loop=(
+                result.worktree_safe_command_proof_launches_worker_loop
+            ),
+            worktree_safe_command_proof_launches_ai_runtime=(
+                result.worktree_safe_command_proof_launches_ai_runtime
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,

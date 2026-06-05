@@ -465,6 +465,31 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             runtime_launch_dry_run_runs_git=False,
             runtime_launch_dry_run_runs_write_git=False,
             runtime_launch_dry_run_launches_runtime=False,
+            worktree_safe_command_proof_ready=True,
+            worktree_safe_command_proof_source=(
+                "agent_session_worktree_safe_command"
+            ),
+            worktree_safe_command_proof_reason_code=None,
+            worktree_safe_command_proof_command="pwd",
+            worktree_safe_command_proof_cwd="/tmp/aido-worktree",
+            worktree_safe_command_proof_expected_workspace_path=(
+                "/tmp/aido-worktree"
+            ),
+            worktree_safe_command_proof_observed_pwd="/tmp/aido-worktree",
+            worktree_safe_command_proof_pwd_matches_workspace_path=True,
+            worktree_safe_command_proof_exit_code=0,
+            worktree_safe_command_proof_stdout="/tmp/aido-worktree",
+            worktree_safe_command_proof_stderr="",
+            worktree_safe_command_proof_timed_out=False,
+            worktree_safe_command_proof_read_only=True,
+            worktree_safe_command_proof_allowlisted=True,
+            worktree_safe_command_proof_uses_agent_workspace=True,
+            worktree_safe_command_proof_changes_process_cwd=False,
+            worktree_safe_command_proof_runs_command=True,
+            worktree_safe_command_proof_runs_git=False,
+            worktree_safe_command_proof_runs_write_git=False,
+            worktree_safe_command_proof_launches_worker_loop=False,
+            worktree_safe_command_proof_launches_ai_runtime=False,
         )
     ).model_dump(mode="json")
 
@@ -510,3 +535,33 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["runtime_launch_dry_run_runs_git"] is False
     assert payload["runtime_launch_dry_run_runs_write_git"] is False
     assert payload["runtime_launch_dry_run_launches_runtime"] is False
+    assert payload["worktree_safe_command_proof_ready"] is True
+    assert (
+        payload["worktree_safe_command_proof_source"]
+        == "agent_session_worktree_safe_command"
+    )
+    assert payload["worktree_safe_command_proof_reason_code"] is None
+    assert payload["worktree_safe_command_proof_command"] == "pwd"
+    assert payload["worktree_safe_command_proof_cwd"] == "/tmp/aido-worktree"
+    assert (
+        payload["worktree_safe_command_proof_expected_workspace_path"]
+        == "/tmp/aido-worktree"
+    )
+    assert (
+        payload["worktree_safe_command_proof_observed_pwd"]
+        == "/tmp/aido-worktree"
+    )
+    assert payload["worktree_safe_command_proof_pwd_matches_workspace_path"] is True
+    assert payload["worktree_safe_command_proof_exit_code"] == 0
+    assert payload["worktree_safe_command_proof_stdout"] == "/tmp/aido-worktree"
+    assert payload["worktree_safe_command_proof_stderr"] == ""
+    assert payload["worktree_safe_command_proof_timed_out"] is False
+    assert payload["worktree_safe_command_proof_read_only"] is True
+    assert payload["worktree_safe_command_proof_allowlisted"] is True
+    assert payload["worktree_safe_command_proof_uses_agent_workspace"] is True
+    assert payload["worktree_safe_command_proof_changes_process_cwd"] is False
+    assert payload["worktree_safe_command_proof_runs_command"] is True
+    assert payload["worktree_safe_command_proof_runs_git"] is False
+    assert payload["worktree_safe_command_proof_runs_write_git"] is False
+    assert payload["worktree_safe_command_proof_launches_worker_loop"] is False
+    assert payload["worktree_safe_command_proof_launches_ai_runtime"] is False
