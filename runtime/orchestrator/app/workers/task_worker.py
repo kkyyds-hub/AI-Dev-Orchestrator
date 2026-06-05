@@ -60,6 +60,7 @@ from app.services.prompt_registry_service import PromptRegistryService
 from app.services.project_memory_service import ProjectMemoryService
 from app.services.role_catalog_service import RoleCatalogService
 from app.services.run_logging_service import RunLoggingService
+from app.services.runtime_event_audit_service import RuntimeEventAuditService
 from app.services.skill_registry_service import SkillRegistryService
 from app.services.strategy_engine_service import StrategyEngineService
 from app.services.task_readiness_service import TaskReadinessService
@@ -886,6 +887,7 @@ class TaskWorker:
         agent_conversation_service: AgentConversationService,
         deliverable_service: DeliverableService | None = None,
         approval_service: ApprovalService | None = None,
+        runtime_event_audit_service: RuntimeEventAuditService | None = None,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -906,6 +908,7 @@ class TaskWorker:
         self.agent_conversation_service = agent_conversation_service
         self.deliverable_service = deliverable_service
         self.approval_service = approval_service
+        self.runtime_event_audit_service = runtime_event_audit_service
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -2063,6 +2066,15 @@ class TaskWorker:
                     run=run,
                     gate=runtime_launch_gate,
                 )
+                if self.runtime_event_audit_service is not None:
+                    self.runtime_event_audit_service.record_launch_gate_event(
+                        session=agent_session,
+                        gate_result=runtime_launch_gate,
+                        adapter_kind=runtime_adapter.adapter_kind(),
+                        workspace_path=runtime_launch_dry_run_workspace_path,
+                        observed_pwd=worktree_safe_command_proof_observed_pwd,
+                        launch_cwd_preview=runtime_launch_dry_run_launch_cwd_preview,
+                    )
                 if runtime_lifecycle_snapshot is not None:
                     self._log_runtime_lifecycle_snapshot(
                         run=run,
@@ -3894,6 +3906,9 @@ def build_task_worker(*, session: Session) -> TaskWorker:
     )
     agent_session_repository = AgentSessionRepository(session)
     agent_message_repository = AgentMessageRepository(session)
+    runtime_event_audit_service = RuntimeEventAuditService(
+        agent_message_repository=agent_message_repository,
+    )
     agent_conversation_service = AgentConversationService(
         agent_session_repository=agent_session_repository,
         agent_message_repository=agent_message_repository,
@@ -3971,4 +3986,5 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         agent_conversation_service=agent_conversation_service,
         deliverable_service=deliverable_service,
         approval_service=approval_service,
+        runtime_event_audit_service=runtime_event_audit_service,
     )

@@ -105,6 +105,15 @@ class _FakePwdCommandRunner:
         )
 
 
+class _SpyRuntimeEventAuditService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def record_launch_gate_event(self, **kwargs):
+        self.calls.append(kwargs)
+        return None
+
+
 def _session(
     *,
     workspace_type: WorkspaceType | None = WorkspaceType.WORKTREE,
@@ -870,6 +879,7 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
     )
 
     executor_service = _ExplodingExecutorService()
+    runtime_event_audit_service = _SpyRuntimeEventAuditService()
     worker = TaskWorker(
         session=_NoopDbSession(),
         task_repository=_FakeTaskRepository(task),
@@ -892,6 +902,7 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
             {"ensure_review": lambda self, *, task, run: None},
         )(),
         agent_conversation_service=_FakeAgentConversationService(agent_session),
+        runtime_event_audit_service=runtime_event_audit_service,
     )
 
     result = worker.run_once()
@@ -935,6 +946,15 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
     assert adapter_calls == {"can_launch": 0, "launch": 0}
     assert executor_service.build_execution_plan_calls == 0
     assert executor_service.execute_task_calls == 0
+    assert len(runtime_event_audit_service.calls) == 1
+    call = runtime_event_audit_service.calls[0]
+    assert call["session"].id == result.agent_session_id
+    assert call["gate_result"].ready is False
+    assert call["gate_result"].gates_failed == ["runtime_dry_run"]
+    assert call["adapter_kind"] == "fake"
+    assert call["workspace_path"] == tmp_path.as_posix()
+    assert call["observed_pwd"] == tmp_path.as_posix()
+    assert call["launch_cwd_preview"] is None
 
 
 def test_runtime_launch_dry_run_blocks_non_worktree_without_execution():
