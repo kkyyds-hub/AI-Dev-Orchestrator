@@ -419,7 +419,7 @@ class WorktreeCleanupService:
                 wrote_agent_session_error=True,
             )
 
-        self.worktree_plan_service.agent_session_repository.mark_workspace_removed(
+        self.worktree_plan_service.agent_session_repository.mark_workspace_cleaned(
             request.agent_session_id
         )
 

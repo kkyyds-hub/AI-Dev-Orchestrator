@@ -1645,7 +1645,7 @@ def test_worktree_cleanup_removes_clean_registered_tmp_worktree(
         )
     )
 
-    assert result.cleanup_status == "removed"
+    assert result.cleanup_status == "cleaned"
     assert result.blocked_reason is None
     assert result.cleanup_preflight is not None
     assert result.cleanup_preflight.read_only is True
@@ -1688,7 +1688,7 @@ def test_worktree_cleanup_removes_clean_registered_tmp_worktree(
     updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
     assert updated_session is not None
     assert updated_session.workspace_path is None
-    assert updated_session.branch_name == original_branch_name
+    assert updated_session.branch_name is None
     assert updated_session.workspace_type == WorkspaceType.IN_PLACE
     assert updated_session.workspace_clean is None
     assert updated_session.last_workspace_error is None
@@ -1807,7 +1807,7 @@ def test_worktree_cleanup_response_exposes_removed_execution_fields(
     )
     payload = WorktreeCleanupResponse.from_result(result).model_dump(mode="json")
 
-    assert payload["cleanup_status"] == "removed"
+    assert payload["cleanup_status"] == "cleaned"
     assert payload["blocked_reason"] is None
     assert payload["cleanup_preflight"]["read_only"] is True
     assert payload["cleanup_preflight"]["worktree_path_exists"] is True

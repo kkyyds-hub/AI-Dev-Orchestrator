@@ -207,14 +207,15 @@ class AgentSessionRepository:
         self.session.flush()
         return self._to_domain(row)
 
-    def mark_workspace_removed(self, session_id: UUID) -> AgentSession:
-        """Mark a worktree workspace as removed while preserving branch metadata."""
+    def mark_workspace_cleaned(self, session_id: UUID) -> AgentSession:
+        """Clear workspace and branch bindings after guarded worktree cleanup."""
 
         row = self.session.get(AgentSessionTable, session_id)
         if row is None:
             raise ValueError(f"Agent session not found: {session_id}")
 
         row.workspace_path = None
+        row.branch_name = None
         row.workspace_type = WorkspaceType.IN_PLACE
         row.workspace_clean = None
         row.last_workspace_error = None
