@@ -134,6 +134,16 @@ class WorkerRunResult:
     workspace_path: str | None = None
     workspace_clean: bool | None = None
     last_workspace_error: str | None = None
+    workspace_context_ready: bool | None = None
+    workspace_context_source: str | None = None
+    workspace_context_reason_code: str | None = None
+    workspace_context_path: str | None = None
+    workspace_context_resolved_path: str | None = None
+    workspace_context_uses_agent_workspace: bool | None = None
+    workspace_context_changes_cwd: bool | None = None
+    workspace_context_runs_git: bool | None = None
+    workspace_context_runs_write_git: bool | None = None
+    workspace_context_launches_runtime: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -149,6 +159,22 @@ class WorkerWorkspaceValidationResult:
     workspace_path: str | None
     workspace_clean: bool | None
     resolved_workspace_path: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class WorkerWorkspaceContextResolution:
+    """Evidence-only resolution of the worker workspace execution context."""
+
+    ready: bool
+    source: str
+    reason_code: str | None
+    workspace_path: str | None
+    resolved_workspace_path: str | None
+    uses_agent_workspace: bool
+    changes_cwd: bool = False
+    runs_git: bool = False
+    runs_write_git: bool = False
+    launches_runtime: bool = False
 
 
 def validate_worker_agent_workspace(
@@ -273,6 +299,39 @@ def validate_worker_agent_workspace(
         workspace_path=workspace_path,
         workspace_clean=workspace_clean,
         resolved_workspace_path=str(resolved_path),
+    )
+
+
+def resolve_worker_workspace_context(
+    validation: WorkerWorkspaceValidationResult,
+) -> WorkerWorkspaceContextResolution:
+    """Resolve evidence fields for the future worker execution context.
+
+    This resolver is intentionally conservative in P2-B-R1: it records whether
+    a clean AgentSession worktree is available, but it does not alter executor
+    cwd, run git commands, or launch any AI runtime. Later phases can consume
+    the evidence fields before enabling actual workspace execution.
+    """
+
+    uses_agent_workspace = validation.ready and validation.workspace_type == "worktree"
+    if uses_agent_workspace:
+        source = "agent_session_worktree"
+    elif validation.workspace_type == "worktree":
+        source = "agent_session_worktree_blocked"
+    else:
+        source = "agent_session_non_worktree"
+
+    return WorkerWorkspaceContextResolution(
+        ready=validation.ready,
+        source=source,
+        reason_code=validation.reason_code,
+        workspace_path=validation.workspace_path,
+        resolved_workspace_path=validation.resolved_workspace_path,
+        uses_agent_workspace=uses_agent_workspace,
+        changes_cwd=False,
+        runs_git=False,
+        runs_write_git=False,
+        launches_runtime=False,
     )
 
 
@@ -595,6 +654,16 @@ class TaskWorker:
         workspace_path: str | None = None
         workspace_clean: bool | None = None
         last_workspace_error: str | None = None
+        workspace_context_ready: bool | None = None
+        workspace_context_source: str | None = None
+        workspace_context_reason_code: str | None = None
+        workspace_context_path: str | None = None
+        workspace_context_resolved_path: str | None = None
+        workspace_context_uses_agent_workspace: bool | None = None
+        workspace_context_changes_cwd: bool | None = None
+        workspace_context_runs_git: bool | None = None
+        workspace_context_runs_write_git: bool | None = None
+        workspace_context_launches_runtime: bool | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -862,9 +931,27 @@ class TaskWorker:
                 workspace_clean = agent_session.workspace_clean
                 last_workspace_error = agent_session.last_workspace_error
                 workspace_validation = validate_worker_agent_workspace(agent_session)
+                workspace_context = resolve_worker_workspace_context(
+                    workspace_validation
+                )
+                workspace_context_ready = workspace_context.ready
+                workspace_context_source = workspace_context.source
+                workspace_context_reason_code = workspace_context.reason_code
+                workspace_context_path = workspace_context.workspace_path
+                workspace_context_resolved_path = (
+                    workspace_context.resolved_workspace_path
+                )
+                workspace_context_uses_agent_workspace = (
+                    workspace_context.uses_agent_workspace
+                )
+                workspace_context_changes_cwd = workspace_context.changes_cwd
+                workspace_context_runs_git = workspace_context.runs_git
+                workspace_context_runs_write_git = workspace_context.runs_write_git
+                workspace_context_launches_runtime = workspace_context.launches_runtime
                 self._log_workspace_validation(
                     run=run,
                     validation=workspace_validation,
+                    context=workspace_context,
                 )
                 if not workspace_validation.ready:
                     last_workspace_error = workspace_validation.summary
@@ -974,6 +1061,24 @@ class TaskWorker:
                         workspace_path=workspace_path,
                         workspace_clean=workspace_clean,
                         last_workspace_error=last_workspace_error,
+                        workspace_context_ready=workspace_context_ready,
+                        workspace_context_source=workspace_context_source,
+                        workspace_context_reason_code=workspace_context_reason_code,
+                        workspace_context_path=workspace_context_path,
+                        workspace_context_resolved_path=(
+                            workspace_context_resolved_path
+                        ),
+                        workspace_context_uses_agent_workspace=(
+                            workspace_context_uses_agent_workspace
+                        ),
+                        workspace_context_changes_cwd=workspace_context_changes_cwd,
+                        workspace_context_runs_git=workspace_context_runs_git,
+                        workspace_context_runs_write_git=(
+                            workspace_context_runs_write_git
+                        ),
+                        workspace_context_launches_runtime=(
+                            workspace_context_launches_runtime
+                        ),
                         model_name=run.model_name,
                         model_tier=(
                             run.strategy_decision.model_tier
@@ -1308,6 +1413,18 @@ class TaskWorker:
                 workspace_path=workspace_path,
                 workspace_clean=workspace_clean,
                 last_workspace_error=last_workspace_error,
+                workspace_context_ready=workspace_context_ready,
+                workspace_context_source=workspace_context_source,
+                workspace_context_reason_code=workspace_context_reason_code,
+                workspace_context_path=workspace_context_path,
+                workspace_context_resolved_path=workspace_context_resolved_path,
+                workspace_context_uses_agent_workspace=(
+                    workspace_context_uses_agent_workspace
+                ),
+                workspace_context_changes_cwd=workspace_context_changes_cwd,
+                workspace_context_runs_git=workspace_context_runs_git,
+                workspace_context_runs_write_git=workspace_context_runs_write_git,
+                workspace_context_launches_runtime=workspace_context_launches_runtime,
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier
@@ -1680,6 +1797,7 @@ class TaskWorker:
         *,
         run: Run,
         validation: WorkerWorkspaceValidationResult,
+        context: WorkerWorkspaceContextResolution,
     ) -> None:
         """Write the P2-B workspace validation snapshot to the run log."""
 
@@ -1701,10 +1819,16 @@ class TaskWorker:
                 "workspace_clean": validation.workspace_clean,
                 "resolved_workspace_path": validation.resolved_workspace_path,
                 "reason_code": validation.reason_code,
-                "runs_git": False,
-                "runs_write_git": False,
-                "changes_cwd": False,
-                "launches_runtime": False,
+                "context_ready": context.ready,
+                "context_source": context.source,
+                "context_reason_code": context.reason_code,
+                "context_workspace_path": context.workspace_path,
+                "context_resolved_workspace_path": context.resolved_workspace_path,
+                "context_uses_agent_workspace": context.uses_agent_workspace,
+                "changes_cwd": context.changes_cwd,
+                "runs_git": context.runs_git,
+                "runs_write_git": context.runs_write_git,
+                "launches_runtime": context.launches_runtime,
             },
         )
 

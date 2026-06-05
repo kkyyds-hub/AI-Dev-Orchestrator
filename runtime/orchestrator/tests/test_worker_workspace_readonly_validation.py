@@ -9,8 +9,13 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from app.api.routes.workers import WorkerRunOnceResponse
 from app.domain.agent_session import AgentSession, WorkspaceType
-from app.workers.task_worker import validate_worker_agent_workspace
+from app.workers.task_worker import (
+    WorkerRunResult,
+    resolve_worker_workspace_context,
+    validate_worker_agent_workspace,
+)
 
 
 def _session(
@@ -39,6 +44,16 @@ def test_validate_worker_agent_workspace_skips_non_worktree_sessions():
     assert result.workspace_type == "in_place"
     assert result.resolved_workspace_path is None
 
+    context = resolve_worker_workspace_context(result)
+
+    assert context.ready is True
+    assert context.source == "agent_session_non_worktree"
+    assert context.uses_agent_workspace is False
+    assert context.changes_cwd is False
+    assert context.runs_git is False
+    assert context.runs_write_git is False
+    assert context.launches_runtime is False
+
 
 def test_validate_worker_agent_workspace_blocks_missing_worktree_path():
     result = validate_worker_agent_workspace(_session(workspace_path=None))
@@ -46,6 +61,15 @@ def test_validate_worker_agent_workspace_blocks_missing_worktree_path():
     assert result.ready is False
     assert result.reason_code == "workspace_path_missing"
     assert "requires workspace_path" in result.summary
+
+    context = resolve_worker_workspace_context(result)
+
+    assert context.ready is False
+    assert context.source == "agent_session_worktree_blocked"
+    assert context.reason_code == "workspace_path_missing"
+    assert context.uses_agent_workspace is False
+    assert context.changes_cwd is False
+    assert context.runs_write_git is False
 
 
 def test_validate_worker_agent_workspace_blocks_relative_worktree_path():
@@ -112,3 +136,48 @@ def test_validate_worker_agent_workspace_accepts_existing_clean_worktree_metadat
     assert result.workspace_path == tmp_path.as_posix()
     assert result.workspace_clean is True
     assert result.resolved_workspace_path == tmp_path.as_posix()
+
+    context = resolve_worker_workspace_context(result)
+
+    assert context.ready is True
+    assert context.source == "agent_session_worktree"
+    assert context.workspace_path == tmp_path.as_posix()
+    assert context.resolved_workspace_path == tmp_path.as_posix()
+    assert context.uses_agent_workspace is True
+    assert context.changes_cwd is False
+    assert context.runs_git is False
+    assert context.runs_write_git is False
+    assert context.launches_runtime is False
+
+
+def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
+    payload = WorkerRunOnceResponse.from_result(
+        WorkerRunResult(
+            claimed=True,
+            message="resolver evidence only",
+            workspace_type="worktree",
+            workspace_path="/tmp/aido-worktree",
+            workspace_clean=True,
+            workspace_context_ready=True,
+            workspace_context_source="agent_session_worktree",
+            workspace_context_reason_code=None,
+            workspace_context_path="/tmp/aido-worktree",
+            workspace_context_resolved_path="/tmp/aido-worktree",
+            workspace_context_uses_agent_workspace=True,
+            workspace_context_changes_cwd=False,
+            workspace_context_runs_git=False,
+            workspace_context_runs_write_git=False,
+            workspace_context_launches_runtime=False,
+        )
+    ).model_dump(mode="json")
+
+    assert payload["workspace_context_ready"] is True
+    assert payload["workspace_context_source"] == "agent_session_worktree"
+    assert payload["workspace_context_reason_code"] is None
+    assert payload["workspace_context_path"] == "/tmp/aido-worktree"
+    assert payload["workspace_context_resolved_path"] == "/tmp/aido-worktree"
+    assert payload["workspace_context_uses_agent_workspace"] is True
+    assert payload["workspace_context_changes_cwd"] is False
+    assert payload["workspace_context_runs_git"] is False
+    assert payload["workspace_context_runs_write_git"] is False
+    assert payload["workspace_context_launches_runtime"] is False

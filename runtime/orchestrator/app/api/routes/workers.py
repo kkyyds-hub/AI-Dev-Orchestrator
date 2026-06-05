@@ -109,6 +109,16 @@ class WorkerRunOnceResponse(BaseModel):
     workspace_path: str | None = None
     workspace_clean: bool | None = None
     last_workspace_error: str | None = None
+    workspace_context_ready: bool | None = None
+    workspace_context_source: str | None = None
+    workspace_context_reason_code: str | None = None
+    workspace_context_path: str | None = None
+    workspace_context_resolved_path: str | None = None
+    workspace_context_uses_agent_workspace: bool | None = None
+    workspace_context_changes_cwd: bool | None = None
+    workspace_context_runs_git: bool | None = None
+    workspace_context_runs_write_git: bool | None = None
+    workspace_context_launches_runtime: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -226,6 +236,20 @@ class WorkerRunOnceResponse(BaseModel):
             workspace_path=result.workspace_path,
             workspace_clean=result.workspace_clean,
             last_workspace_error=result.last_workspace_error,
+            workspace_context_ready=result.workspace_context_ready,
+            workspace_context_source=result.workspace_context_source,
+            workspace_context_reason_code=result.workspace_context_reason_code,
+            workspace_context_path=result.workspace_context_path,
+            workspace_context_resolved_path=result.workspace_context_resolved_path,
+            workspace_context_uses_agent_workspace=(
+                result.workspace_context_uses_agent_workspace
+            ),
+            workspace_context_changes_cwd=result.workspace_context_changes_cwd,
+            workspace_context_runs_git=result.workspace_context_runs_git,
+            workspace_context_runs_write_git=result.workspace_context_runs_write_git,
+            workspace_context_launches_runtime=(
+                result.workspace_context_launches_runtime
+            ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
             task_status=result.task.status if result.task else None,
