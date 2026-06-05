@@ -10,6 +10,11 @@ type RuntimeEventTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 type RuntimeEventDetail = Record<string, unknown>;
 
+type RuntimeParseResult =
+  | { parseState: "ok"; detail: RuntimeEventDetail }
+  | { parseState: "empty"; detail: null }
+  | { parseState: "invalid"; detail: null };
+
 const RUNTIME_GATE_EVENT_LABELS: Record<string, string> = {
   runtime_launch_gate_evaluated: "运行时启动门禁已通过",
   runtime_launch_gate_blocked: "运行时启动门禁已阻断",
@@ -81,21 +86,21 @@ function isRuntimeGateEvent(message: AgentTimelineMessage) {
   );
 }
 
-function parseRuntimeDetail(contentDetail: string | null): RuntimeEventDetail | null {
+function parseRuntimeDetail(contentDetail: string | null): RuntimeParseResult {
   if (!contentDetail) {
-    return null;
+    return { parseState: "empty", detail: null };
   }
 
   try {
     const parsed = JSON.parse(contentDetail) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as RuntimeEventDetail;
+      return { parseState: "ok", detail: parsed as RuntimeEventDetail };
     }
   } catch {
-    return null;
+    return { parseState: "invalid", detail: null };
   }
 
-  return null;
+  return { parseState: "invalid", detail: null };
 }
 
 function stringField(
@@ -173,17 +178,35 @@ function localizeBlockingSummary(value: string | null) {
   return BLOCKING_SUMMARY_LABELS[value] ?? "门禁被阻断，详细原因已写入后端审计记录。";
 }
 
-function localizeRuntimeValue(value: string | null) {
+const RUNTIME_TYPE_LABELS: Record<string, string> = {
+  subprocess: "子进程运行方式",
+  codex_cli: "Codex 命令行",
+  claude_cli: "Claude 命令行",
+  opencode_cli: "OpenCode 命令行",
+  deepseek_provider: "DeepSeek 提供方",
+  openai_provider: "OpenAI 提供方",
+  fake: "模拟运行方式",
+};
+
+const ADAPTER_KIND_LABELS: Record<string, string> = {
+  fake: "模拟适配器",
+  subprocess: "子进程适配器",
+  tmux: "Tmux 适配器",
+  docker: "Docker 适配器",
+};
+
+function localizeRuntimeType(value: string | null) {
   if (!value) {
     return "未记录";
   }
-  if (value === "fake") {
-    return "模拟适配器";
+  return RUNTIME_TYPE_LABELS[value] ?? "未知运行方式";
+}
+
+function localizeAdapterKind(value: string | null) {
+  if (!value) {
+    return "未记录";
   }
-  if (value === "codex_cli") {
-    return "Codex 命令行";
-  }
-  return value.replace(/_/g, " ");
+  return ADAPTER_KIND_LABELS[value] ?? "未知适配器";
 }
 
 export function AgentRuntimeGateEventPanel(
@@ -223,7 +246,9 @@ export function AgentRuntimeGateEventPanel(
       ) : (
         <ul className="mt-4 space-y-3">
           {runtimeGateMessages.map((message) => {
-            const detail = parseRuntimeDetail(message.content_detail);
+            const parseResult = parseRuntimeDetail(message.content_detail);
+            const detail =
+              parseResult.parseState === "ok" ? parseResult.detail : null;
             const evidence = objectField(detail, "evidence");
             const safetyFlags = objectField(detail, "safety_flags");
             const passedGates = stringListField(evidence, "gates_passed");
@@ -233,6 +258,15 @@ export function AgentRuntimeGateEventPanel(
               stringField(detail, "reason_code") ??
               stringField(evidence, "blocking_reason_code");
             const blockingSummary = stringField(evidence, "blocking_summary");
+            const runtimeTypeValue = stringField(detail, "runtime_type");
+            const adapterKindValue = stringField(detail, "adapter_kind");
+
+            const detailMessage =
+              parseResult.parseState === "empty"
+                ? "事件详情未记录。"
+                : parseResult.parseState === "invalid"
+                  ? "事件详情无法解析。"
+                  : null;
 
             return (
               <li
@@ -255,6 +289,11 @@ export function AgentRuntimeGateEventPanel(
                     >
                       {summaryCn ?? message.content_summary}
                     </p>
+                    {detailMessage ? (
+                      <p className="mt-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-amber-200">
+                        {detailMessage}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-1.5">
                     <StatusBadge
@@ -278,11 +317,13 @@ export function AgentRuntimeGateEventPanel(
                   />
                   <RuntimeGateDetail
                     label="运行时类型"
-                    value={localizeRuntimeValue(stringField(detail, "runtime_type"))}
+                    value={localizeRuntimeType(runtimeTypeValue)}
+                    title={runtimeTypeValue ?? undefined}
                   />
                   <RuntimeGateDetail
                     label="适配器"
-                    value={localizeRuntimeValue(stringField(detail, "adapter_kind"))}
+                    value={localizeAdapterKind(adapterKindValue)}
+                    title={adapterKindValue ?? undefined}
                   />
                   <RuntimeGateDetail
                     label="工作区路径"
@@ -317,11 +358,18 @@ export function AgentRuntimeGateEventPanel(
   );
 }
 
-function RuntimeGateDetail(props: { label: string; value: string }) {
+function RuntimeGateDetail(props: {
+  label: string;
+  value: string;
+  title?: string;
+}) {
   return (
     <div className="min-w-0">
       <dt className="text-slate-600">{props.label}</dt>
-      <dd className="mt-0.5 truncate text-slate-300" title={props.value}>
+      <dd
+        className="mt-0.5 truncate text-slate-300"
+        title={props.title ?? props.value}
+      >
         {props.value}
       </dd>
     </div>
