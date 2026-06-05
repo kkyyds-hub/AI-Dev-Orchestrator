@@ -18,6 +18,10 @@ export type AgentSessionSnapshot = {
   coding_status: string | null;
   activity_state: string | null;
   branch_name: string | null;
+  workspace_type: string | null;
+  workspace_path: string | null;
+  workspace_clean: boolean | null;
+  last_workspace_error: string | null;
   started_at: string;
   updated_at: string;
   finished_at: string | null;

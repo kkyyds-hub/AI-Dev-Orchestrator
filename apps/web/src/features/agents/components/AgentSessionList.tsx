@@ -8,6 +8,9 @@ import {
   getCodingStatusLabel,
   getCodingStatusTone,
   getRuntimeTypeLabel,
+  getWorkspaceCleanLabel,
+  getWorkspaceCleanTone,
+  getWorkspaceTypeLabel,
 } from "./AgentCodingSessionSnapshot";
 
 type AgentSessionListProps = {
@@ -42,7 +45,7 @@ export function AgentSessionList(props: AgentSessionListProps) {
   if (!props.sessions.length) {
     return (
       <div className="border-y border-dashed border-[#333333] px-1 py-5 text-sm leading-6 text-slate-400">
-        当前项目暂无智能体会话。
+        当前项目暂无智能体会话。这里仅展示已有 AgentSession 与 timeline 数据，不会为了填充列表而创建 worktree、启动 worker 或进入 AI runtime。
       </div>
     );
   }
@@ -90,6 +93,10 @@ export function AgentSessionList(props: AgentSessionListProps) {
                 label={getActivityStateLabel(session.activity_state)}
                 tone={getActivityStateTone(session.activity_state)}
               />
+              <StatusBadge
+                label={getWorkspaceCleanLabel(session.workspace_clean)}
+                tone={getWorkspaceCleanTone(session.workspace_clean)}
+              />
             </div>
 
             <div className="mt-2 space-y-1 text-xs text-slate-500">
@@ -106,11 +113,29 @@ export function AgentSessionList(props: AgentSessionListProps) {
                 </span>
               </div>
               <div className="flex min-w-0 gap-1.5">
+                <span className="shrink-0">工作区：</span>
+                <span
+                  className="truncate"
+                  title={session.workspace_path ?? session.workspace_type ?? undefined}
+                >
+                  {getWorkspaceTypeLabel(session.workspace_type)}
+                  {session.workspace_path ? ` / ${session.workspace_path}` : ""}
+                </span>
+              </div>
+              <div className="flex min-w-0 gap-1.5">
                 <span className="shrink-0">分支：</span>
                 <span className="truncate" title={session.branch_name ?? undefined}>
                   {session.branch_name ?? "暂未分配独立分支"}
                 </span>
               </div>
+              {session.last_workspace_error ? (
+                <div
+                  className="line-clamp-2 text-rose-300"
+                  title={session.last_workspace_error}
+                >
+                  工作区错误：{session.last_workspace_error}
+                </div>
+              ) : null}
               <div>开始：{formatDateTime(session.started_at)}</div>
               <div>
                 上下文：{session.context_rehydrated ? "已恢复" : "未恢复"}

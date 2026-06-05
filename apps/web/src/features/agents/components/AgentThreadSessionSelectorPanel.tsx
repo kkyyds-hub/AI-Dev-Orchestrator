@@ -15,7 +15,7 @@ export function AgentThreadSessionSelectorPanel(props: {
             会话选择
           </h4>
           <p className="mt-2 text-xs leading-5 text-slate-400">
-            选择一个会话查看对应活动流和介入记录。
+            选择一个会话查看对应活动流、介入记录和工作区绑定；本页只读，不执行工作区生命周期动作。
           </p>
         </div>
         <span className="text-xs text-slate-500">

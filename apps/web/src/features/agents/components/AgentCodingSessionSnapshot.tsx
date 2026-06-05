@@ -19,6 +19,11 @@ const RUNTIME_TYPE_LABELS: Record<string, string> = {
   tmux: "终端会话",
 };
 
+const WORKSPACE_TYPE_LABELS: Record<string, string> = {
+  in_place: "项目原地工作区",
+  worktree: "独立 Git worktree",
+};
+
 const CODING_STATUS_LABELS: Record<string, string> = {
   completed: "任务已完成",
   failed: "任务失败",
@@ -59,6 +64,18 @@ const ACTIVITY_STATE_TONES: Record<string, CodingTone> = {
   waiting_input: "warning",
 };
 
+const WORKSPACE_CLEAN_LABELS: Record<string, string> = {
+  clean: "工作区干净",
+  dirty: "存在未清理变更",
+  unknown: "未检测清洁状态",
+};
+
+const WORKSPACE_CLEAN_TONES: Record<string, CodingTone> = {
+  clean: "success",
+  dirty: "warning",
+  unknown: "neutral",
+};
+
 function labelFromMap(
   value: string | null,
   labels: Record<string, string>,
@@ -97,12 +114,36 @@ function CompactField(props: {
   );
 }
 
+function resolveWorkspaceCleanState(value: boolean | null): "clean" | "dirty" | "unknown" {
+  if (value === true) {
+    return "clean";
+  }
+  if (value === false) {
+    return "dirty";
+  }
+  return "unknown";
+}
+
 export function getAgentTypeLabel(value: string | null) {
   return labelFromMap(value, AGENT_TYPE_LABELS);
 }
 
 export function getRuntimeTypeLabel(value: string | null) {
   return labelFromMap(value, RUNTIME_TYPE_LABELS);
+}
+
+export function getWorkspaceTypeLabel(value: string | null) {
+  return labelFromMap(value, WORKSPACE_TYPE_LABELS, "未绑定独立工作区");
+}
+
+export function getWorkspaceCleanLabel(value: boolean | null) {
+  const state = resolveWorkspaceCleanState(value);
+  return WORKSPACE_CLEAN_LABELS[state];
+}
+
+export function getWorkspaceCleanTone(value: boolean | null): CodingTone {
+  const state = resolveWorkspaceCleanState(value);
+  return WORKSPACE_CLEAN_TONES[state];
 }
 
 export function getCodingStatusLabel(value: string | null) {
@@ -129,13 +170,14 @@ export function AgentCodingSessionSnapshot(props: {
   if (!session) {
     return (
       <section className="rounded-3xl border border-dashed border-[#333333] bg-slate-950/20 p-4 text-sm leading-6 text-slate-400">
-        请选择一个会话查看运行状态。
+        请选择一个已有会话查看只读运行状态；本区域不会创建 worktree、启动 AI runtime 或触发自动编码。
       </section>
     );
   }
 
   const branchLabel = session.branch_name ?? "暂未分配独立分支";
   const handleLabel = session.runtime_handle_id ?? "暂无后台通道编号";
+  const workspacePathLabel = session.workspace_path ?? "暂未绑定独立工作区路径";
 
   return (
     <section
@@ -160,6 +202,10 @@ export function AgentCodingSessionSnapshot(props: {
             label={getActivityStateLabel(session.activity_state)}
             tone={getActivityStateTone(session.activity_state)}
           />
+          <StatusBadge
+            label={getWorkspaceCleanLabel(session.workspace_clean)}
+            tone={getWorkspaceCleanTone(session.workspace_clean)}
+          />
         </div>
       </div>
 
@@ -176,11 +222,30 @@ export function AgentCodingSessionSnapshot(props: {
         />
         <CompactField label="后台通道" value={handleLabel} title={session.runtime_handle_id} />
         <CompactField label="分支" value={branchLabel} title={session.branch_name} />
+        <CompactField
+          label="工作区类型"
+          value={getWorkspaceTypeLabel(session.workspace_type)}
+          title={session.workspace_type}
+        />
+        <CompactField
+          label="工作区路径"
+          value={workspacePathLabel}
+          title={session.workspace_path}
+        />
       </div>
 
+      {session.last_workspace_error ? (
+        <p
+          className="mt-3 rounded-2xl border border-rose-900/60 bg-rose-950/20 px-3 py-2 text-xs leading-5 text-rose-200"
+          title={session.last_workspace_error}
+        >
+          最近工作区错误：{session.last_workspace_error}
+        </p>
+      ) : null}
+
       <p className="mt-3 rounded-2xl border border-[#333333] bg-black/20 px-3 py-2 text-xs leading-5 text-slate-500">
-        当前阶段只做运行状态可视化：可看到处理者、后台通道、任务进度、活动情况和分支占位。
-        独立工作区、交付请求、自动检查和评审结果仍将在后续阶段接入。
+        当前阶段只读展示 AgentSession 与 timeline 已有数据：可看到处理者、后台通道、任务进度、活动情况、工作区绑定、分支名和工作区审计错误。
+        这里不会创建或清理 worktree，也不表示已经进入 AI runtime、自动编码、提交、推送或创建 PR。
       </p>
     </section>
   );
