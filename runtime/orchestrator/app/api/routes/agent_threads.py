@@ -13,6 +13,10 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.domain.agent_message import AgentMessage
 from app.domain.agent_session import AgentSession
+from app.domain.runtime_lifecycle import (
+    AgentSessionRuntimeLifecycleSnapshot,
+    build_agent_session_runtime_lifecycle_snapshot,
+)
 from app.domain.worktree_cleanup import (
     WorktreeCleanupCommandPreview,
     WorktreeCleanupPreflight,
@@ -56,6 +60,66 @@ from app.services.worktree_plan_service import WorktreePlanService
 class AgentSessionResponse(BaseModel):
     """Day12-consumable agent-thread session snapshot."""
 
+    class RuntimeLifecycleSnapshotResponse(BaseModel):
+        """P3-C1 runtime lifecycle snapshot for one AgentSession."""
+
+        session_id: UUID
+        project_id: UUID
+        task_id: UUID
+        run_id: UUID
+        state: str
+        reason: str
+        summary: str
+        agent_type: str | None = None
+        runtime_type: str | None = None
+        runtime_handle_id: str | None = None
+        coding_status: str | None = None
+        activity_state: str | None = None
+        runtime_observed: bool
+        runtime_handle_recorded: bool
+        runtime_probe_started: bool
+        fake_launch_started: bool
+        real_runtime_started: bool
+        execution_enabled: bool
+        launches_ai_runtime: bool
+        runs_real_command: bool
+        changes_process_cwd: bool
+        runs_git: bool
+        runs_write_git: bool
+
+        @classmethod
+        def from_snapshot(
+            cls,
+            snapshot: AgentSessionRuntimeLifecycleSnapshot,
+        ) -> "AgentSessionResponse.RuntimeLifecycleSnapshotResponse":
+            """Convert one domain runtime lifecycle snapshot into API DTO."""
+
+            return cls(
+                session_id=snapshot.session_id,
+                project_id=snapshot.project_id,
+                task_id=snapshot.task_id,
+                run_id=snapshot.run_id,
+                state=snapshot.state.value,
+                reason=snapshot.reason.value,
+                summary=snapshot.summary,
+                agent_type=snapshot.agent_type,
+                runtime_type=snapshot.runtime_type,
+                runtime_handle_id=snapshot.runtime_handle_id,
+                coding_status=snapshot.coding_status,
+                activity_state=snapshot.activity_state,
+                runtime_observed=snapshot.runtime_observed,
+                runtime_handle_recorded=snapshot.runtime_handle_recorded,
+                runtime_probe_started=snapshot.runtime_probe_started,
+                fake_launch_started=snapshot.fake_launch_started,
+                real_runtime_started=snapshot.real_runtime_started,
+                execution_enabled=snapshot.execution_enabled,
+                launches_ai_runtime=snapshot.launches_ai_runtime,
+                runs_real_command=snapshot.runs_real_command,
+                changes_process_cwd=snapshot.changes_process_cwd,
+                runs_git=snapshot.runs_git,
+                runs_write_git=snapshot.runs_write_git,
+            )
+
     session_id: UUID
     project_id: UUID
     task_id: UUID
@@ -79,6 +143,7 @@ class AgentSessionResponse(BaseModel):
     workspace_path: str | None = None
     workspace_clean: bool | None = None
     last_workspace_error: str | None = None
+    runtime_lifecycle_snapshot: RuntimeLifecycleSnapshotResponse
     started_at: datetime
     updated_at: datetime
     finished_at: datetime | None = None
@@ -87,6 +152,9 @@ class AgentSessionResponse(BaseModel):
     def from_session(cls, session: AgentSession) -> "AgentSessionResponse":
         """Convert one domain session into API DTO."""
 
+        runtime_lifecycle_snapshot = build_agent_session_runtime_lifecycle_snapshot(
+            session
+        )
         return cls(
             session_id=session.id,
             project_id=session.project_id,
@@ -121,6 +189,11 @@ class AgentSessionResponse(BaseModel):
             workspace_path=session.workspace_path,
             workspace_clean=session.workspace_clean,
             last_workspace_error=session.last_workspace_error,
+            runtime_lifecycle_snapshot=(
+                cls.RuntimeLifecycleSnapshotResponse.from_snapshot(
+                    runtime_lifecycle_snapshot
+                )
+            ),
             started_at=session.started_at,
             updated_at=session.updated_at,
             finished_at=session.finished_at,

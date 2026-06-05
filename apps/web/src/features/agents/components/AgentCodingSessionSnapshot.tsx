@@ -64,6 +64,15 @@ const ACTIVITY_STATE_TONES: Record<string, CodingTone> = {
   waiting_input: "warning",
 };
 
+const RUNTIME_LIFECYCLE_STATE_LABELS: Record<string, string> = {
+  blocked: "运行态阻塞",
+  exited: "运行态已结束",
+  not_started: "运行态未启动",
+  ready: "运行态可继续",
+  unknown: "运行态未知",
+  working: "运行态处理中",
+};
+
 const WORKSPACE_CLEAN_LABELS: Record<string, string> = {
   clean: "工作区干净",
   dirty: "存在未清理变更",
@@ -178,6 +187,7 @@ export function AgentCodingSessionSnapshot(props: {
   const branchLabel = session.branch_name ?? "暂未分配独立分支";
   const handleLabel = session.runtime_handle_id ?? "暂无后台通道编号";
   const workspacePathLabel = session.workspace_path ?? "暂未绑定独立工作区路径";
+  const runtimeSnapshot = session.runtime_lifecycle_snapshot;
 
   return (
     <section
@@ -220,6 +230,19 @@ export function AgentCodingSessionSnapshot(props: {
           value={getRuntimeTypeLabel(session.runtime_type)}
           title={session.runtime_type}
         />
+        <CompactField
+          label="P3-C1 Runtime Lifecycle"
+          value={labelFromMap(
+            runtimeSnapshot.state,
+            RUNTIME_LIFECYCLE_STATE_LABELS,
+          )}
+          title={`${runtimeSnapshot.state} / ${runtimeSnapshot.reason}`}
+        />
+        <CompactField
+          label="Runtime Snapshot Reason"
+          value={runtimeSnapshot.reason}
+          title={runtimeSnapshot.summary}
+        />
         <CompactField label="后台通道" value={handleLabel} title={session.runtime_handle_id} />
         <CompactField label="分支" value={branchLabel} title={session.branch_name} />
         <CompactField
@@ -247,6 +270,19 @@ export function AgentCodingSessionSnapshot(props: {
         当前阶段只读展示 AgentSession 与 timeline 已有数据：可看到处理者、后台通道、任务进度、活动情况、工作区绑定、分支名和工作区审计错误。
         这里不会创建或清理 worktree，也不表示已经进入 AI runtime、自动编码、提交、推送或创建 PR。
       </p>
+
+      <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs leading-5 text-emerald-100">
+        <div className="font-medium">P3-C1 AgentSession runtime lifecycle snapshot</div>
+        <div className="mt-1 text-emerald-100/80">
+          {runtimeSnapshot.summary}
+        </div>
+        <div className="mt-2 grid gap-1 sm:grid-cols-2">
+          <span>fake launch: {String(runtimeSnapshot.fake_launch_started)}</span>
+          <span>real runtime: {String(runtimeSnapshot.real_runtime_started)}</span>
+          <span>runtime probe: {String(runtimeSnapshot.runtime_probe_started)}</span>
+          <span>execution enabled: {String(runtimeSnapshot.execution_enabled)}</span>
+        </div>
+      </div>
     </section>
   );
 }

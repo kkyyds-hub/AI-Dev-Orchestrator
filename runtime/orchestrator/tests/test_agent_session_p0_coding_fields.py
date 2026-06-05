@@ -16,6 +16,7 @@ from app.api.routes.agent_threads import AgentSessionResponse
 from app.api.routes.workers import WorkerRunOnceResponse
 from app.core.db_tables import ORMBase
 from app.domain.agent_session import (
+    AgentSession,
     AgentSessionPhase,
     AgentSessionReviewStatus,
     AgentSessionStatus,
@@ -24,6 +25,11 @@ from app.domain.agent_session import (
     CodingSessionStatus,
     RuntimeType,
     WorkspaceType,
+)
+from app.domain.runtime_lifecycle import (
+    AgentSessionRuntimeLifecycleReason,
+    AgentSessionRuntimeLifecycleState,
+    build_agent_session_runtime_lifecycle_snapshot,
 )
 from app.domain.project import Project
 from app.domain.repository_workspace import RepositoryWorkspace
@@ -293,6 +299,47 @@ def test_agent_session_response_exposes_p0_coding_fields(db_session):
     assert payload["workspace_path"] == "/tmp/project"
     assert payload["workspace_clean"] is False
     assert payload["last_workspace_error"] == "worktree add failed: dry-run only"
+    assert payload["runtime_lifecycle_snapshot"]["session_id"] == str(session.id)
+    assert payload["runtime_lifecycle_snapshot"]["state"] == "working"
+    assert payload["runtime_lifecycle_snapshot"]["reason"] == "coding_working"
+    assert payload["runtime_lifecycle_snapshot"]["agent_type"] == "openai_provider"
+    assert payload["runtime_lifecycle_snapshot"]["runtime_type"] == "subprocess"
+    assert payload["runtime_lifecycle_snapshot"]["runtime_handle_id"] is None
+    assert payload["runtime_lifecycle_snapshot"]["runtime_observed"] is True
+    assert payload["runtime_lifecycle_snapshot"]["runtime_handle_recorded"] is False
+    assert payload["runtime_lifecycle_snapshot"]["fake_launch_started"] is False
+    assert payload["runtime_lifecycle_snapshot"]["real_runtime_started"] is False
+    assert payload["runtime_lifecycle_snapshot"]["runtime_probe_started"] is False
+    assert payload["runtime_lifecycle_snapshot"]["execution_enabled"] is False
+
+
+def test_agent_session_runtime_lifecycle_snapshot_is_derived_without_runtime_probe():
+    """P3-C1 snapshot is derived from AgentSession fields only."""
+
+    agent_session = AgentSession(
+        project_id=uuid4(),
+        task_id=uuid4(),
+        run_id=uuid4(),
+        agent_type=AgentType.OPENAI_PROVIDER,
+        runtime_type=RuntimeType.SUBPROCESS,
+        runtime_handle_id="subprocess:local-1",
+        coding_status=CodingSessionStatus.TERMINATED,
+        activity_state=CodingSessionActivityState.EXITED,
+    )
+
+    snapshot = build_agent_session_runtime_lifecycle_snapshot(agent_session)
+
+    assert snapshot.state == AgentSessionRuntimeLifecycleState.EXITED
+    assert snapshot.reason == AgentSessionRuntimeLifecycleReason.ACTIVITY_EXITED
+    assert snapshot.runtime_handle_recorded is True
+    assert snapshot.runtime_observed is True
+    assert snapshot.runtime_handle_id == "subprocess:local-1"
+    assert snapshot.fake_launch_started is False
+    assert snapshot.real_runtime_started is False
+    assert snapshot.runtime_probe_started is False
+    assert snapshot.execution_enabled is False
+    assert snapshot.launches_ai_runtime is False
+    assert "runtime_probe_started=False" in snapshot.summary
 
 
 def test_worker_run_once_response_exposes_p0_coding_fields_without_running_worker():
