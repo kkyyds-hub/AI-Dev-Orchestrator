@@ -7,6 +7,8 @@ import {
   getAgentTypeLabel,
   getCodingStatusLabel,
   getCodingStatusTone,
+  getRuntimeLifecycleStateLabel,
+  getRuntimeLifecycleStateTone,
   getRuntimeTypeLabel,
   getWorkspaceCleanLabel,
   getWorkspaceCleanTone,
@@ -96,6 +98,14 @@ export function AgentSessionList(props: AgentSessionListProps) {
               <StatusBadge
                 label={getWorkspaceCleanLabel(session.workspace_clean)}
                 tone={getWorkspaceCleanTone(session.workspace_clean)}
+              />
+              <StatusBadge
+                label={getRuntimeLifecycleStateLabel(
+                  session.runtime_lifecycle_snapshot.state,
+                )}
+                tone={getRuntimeLifecycleStateTone(
+                  session.runtime_lifecycle_snapshot.state,
+                )}
               />
             </div>
 

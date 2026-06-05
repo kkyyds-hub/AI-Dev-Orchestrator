@@ -300,8 +300,16 @@ def test_agent_session_response_exposes_p0_coding_fields(db_session):
     assert payload["workspace_clean"] is False
     assert payload["last_workspace_error"] == "worktree add failed: dry-run only"
     assert payload["runtime_lifecycle_snapshot"]["session_id"] == str(session.id)
-    assert payload["runtime_lifecycle_snapshot"]["state"] == "working"
-    assert payload["runtime_lifecycle_snapshot"]["reason"] == "coding_working"
+    assert payload["runtime_lifecycle_snapshot"]["state"] == "unknown"
+    assert (
+        payload["runtime_lifecycle_snapshot"]["reason"]
+        == "snapshot_only_no_runtime_probe"
+    )
+    assert payload["runtime_lifecycle_snapshot"]["session_lifecycle_state"] == "working"
+    assert (
+        payload["runtime_lifecycle_snapshot"]["session_lifecycle_reason"]
+        == "coding_working"
+    )
     assert payload["runtime_lifecycle_snapshot"]["agent_type"] == "openai_provider"
     assert payload["runtime_lifecycle_snapshot"]["runtime_type"] == "subprocess"
     assert payload["runtime_lifecycle_snapshot"]["runtime_handle_id"] is None
@@ -329,8 +337,10 @@ def test_agent_session_runtime_lifecycle_snapshot_is_derived_without_runtime_pro
 
     snapshot = build_agent_session_runtime_lifecycle_snapshot(agent_session)
 
-    assert snapshot.state == AgentSessionRuntimeLifecycleState.EXITED
-    assert snapshot.reason == AgentSessionRuntimeLifecycleReason.ACTIVITY_EXITED
+    assert snapshot.state == AgentSessionRuntimeLifecycleState.UNKNOWN
+    assert snapshot.reason == AgentSessionRuntimeLifecycleReason.HANDLE_RECORDED_NO_PROBE
+    assert snapshot.session_lifecycle_state.value == "terminated"
+    assert snapshot.session_lifecycle_reason.value == "activity_exited"
     assert snapshot.runtime_handle_recorded is True
     assert snapshot.runtime_observed is True
     assert snapshot.runtime_handle_id == "subprocess:local-1"
@@ -339,6 +349,8 @@ def test_agent_session_runtime_lifecycle_snapshot_is_derived_without_runtime_pro
     assert snapshot.runtime_probe_started is False
     assert snapshot.execution_enabled is False
     assert snapshot.launches_ai_runtime is False
+    assert "runtime_state=unknown" in snapshot.summary
+    assert "session_lifecycle_state=terminated" in snapshot.summary
     assert "runtime_probe_started=False" in snapshot.summary
 
 

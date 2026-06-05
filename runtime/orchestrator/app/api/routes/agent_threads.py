@@ -69,6 +69,8 @@ class AgentSessionResponse(BaseModel):
         run_id: UUID
         state: str
         reason: str
+        session_lifecycle_state: str
+        session_lifecycle_reason: str
         summary: str
         agent_type: str | None = None
         runtime_type: str | None = None
@@ -101,6 +103,8 @@ class AgentSessionResponse(BaseModel):
                 run_id=snapshot.run_id,
                 state=snapshot.state.value,
                 reason=snapshot.reason.value,
+                session_lifecycle_state=snapshot.session_lifecycle_state.value,
+                session_lifecycle_reason=snapshot.session_lifecycle_reason.value,
                 summary=snapshot.summary,
                 agent_type=snapshot.agent_type,
                 runtime_type=snapshot.runtime_type,

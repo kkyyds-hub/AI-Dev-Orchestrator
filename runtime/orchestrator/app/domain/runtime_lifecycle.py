@@ -21,22 +21,45 @@ from app.domain.agent_session import (
 
 
 class AgentSessionRuntimeLifecycleState(StrEnum):
-    """Runtime lifecycle states exposed on AgentSession snapshots."""
+    """Runtime-axis lifecycle states exposed on AgentSession snapshots.
+
+    Keep this naming aligned with the runtime-axis design and runtime adapter
+    contract.  P3-C1 is evidence-only, so persisted coding/activity fields are
+    not promoted to ``alive``/``exited`` without a launch/probe signal.
+    """
 
     UNKNOWN = "unknown"
-    NOT_STARTED = "not_started"
-    READY = "ready"
-    WORKING = "working"
-    BLOCKED = "blocked"
+    SPAWNING = "spawning"
+    ALIVE = "alive"
     EXITED = "exited"
+    MISSING = "missing"
+    PROBE_FAILED = "probe_failed"
 
 
 class AgentSessionRuntimeLifecycleReason(StrEnum):
-    """Reason codes for persisted AgentSession runtime lifecycle snapshots."""
+    """Runtime-axis reason codes for AgentSession lifecycle snapshots."""
 
-    SESSION_CREATED = "session_created"
     HANDLE_NOT_ASSIGNED = "handle_not_assigned"
     HANDLE_RECORDED_NO_PROBE = "handle_recorded_no_probe"
+    SNAPSHOT_ONLY_NO_RUNTIME_PROBE = "snapshot_only_no_runtime_probe"
+
+
+class AgentSessionDerivedLifecycleState(StrEnum):
+    """Session-axis state derived from persisted AgentSession fields."""
+
+    NOT_STARTED = "not_started"
+    WORKING = "working"
+    IDLE = "idle"
+    NEEDS_INPUT = "needs_input"
+    STUCK = "stuck"
+    DONE = "done"
+    TERMINATED = "terminated"
+
+
+class AgentSessionDerivedLifecycleReason(StrEnum):
+    """Reason codes for the session-axis derived lifecycle fields."""
+
+    SESSION_CREATED = "session_created"
     CODING_WORKING = "coding_working"
     CODING_IDLE = "coding_idle"
     CODING_NEEDS_INPUT = "coding_needs_input"
@@ -57,6 +80,8 @@ class AgentSessionRuntimeLifecycleSnapshot(DomainModel):
     run_id: UUID
     state: AgentSessionRuntimeLifecycleState
     reason: AgentSessionRuntimeLifecycleReason
+    session_lifecycle_state: AgentSessionDerivedLifecycleState
+    session_lifecycle_reason: AgentSessionDerivedLifecycleReason
     summary: str = Field(max_length=2_000)
     agent_type: str | None = None
     runtime_type: str | None = None
@@ -85,12 +110,17 @@ def build_agent_session_runtime_lifecycle_snapshot(
     adapters, does not call fake launch helpers, and does not run runtime probes.
     """
 
-    state, reason = _derive_state_and_reason(session)
+    state, reason = _derive_runtime_state_and_reason(session)
+    session_lifecycle_state, session_lifecycle_reason = (
+        _derive_session_lifecycle_state_and_reason(session)
+    )
     runtime_handle_recorded = session.runtime_handle_id is not None
     runtime_observed = runtime_handle_recorded or session.coding_status is not None
     summary = _build_summary(
         state=state,
         reason=reason,
+        session_lifecycle_state=session_lifecycle_state,
+        session_lifecycle_reason=session_lifecycle_reason,
         runtime_handle_recorded=runtime_handle_recorded,
     )
 
@@ -101,6 +131,8 @@ def build_agent_session_runtime_lifecycle_snapshot(
         run_id=session.run_id,
         state=state,
         reason=reason,
+        session_lifecycle_state=session_lifecycle_state,
+        session_lifecycle_reason=session_lifecycle_reason,
         summary=summary,
         agent_type=session.agent_type.value if session.agent_type is not None else None,
         runtime_type=(
@@ -127,75 +159,101 @@ def build_agent_session_runtime_lifecycle_snapshot(
     )
 
 
-def _derive_state_and_reason(
+def _derive_runtime_state_and_reason(
     session: AgentSession,
 ) -> tuple[
     AgentSessionRuntimeLifecycleState,
     AgentSessionRuntimeLifecycleReason,
 ]:
-    """Derive lifecycle state/reason from AgentSession coding/activity fields."""
+    """Derive runtime-axis state/reason without starting or probing runtime.
+
+    P3-C1 intentionally cannot prove ``alive``, ``exited``, ``missing`` or
+    ``probe_failed``.  It only reports whether a runtime handle has already
+    been recorded while keeping the runtime lifecycle state at ``unknown``.
+    The coding/activity lifecycle is exposed separately via
+    ``session_lifecycle_state`` and ``session_lifecycle_reason``.
+    """
+
+    if session.runtime_handle_id is not None:
+        return (
+            AgentSessionRuntimeLifecycleState.UNKNOWN,
+            AgentSessionRuntimeLifecycleReason.HANDLE_RECORDED_NO_PROBE,
+        )
+    if session.coding_status is not None or session.activity_state is not None:
+        return (
+            AgentSessionRuntimeLifecycleState.UNKNOWN,
+            AgentSessionRuntimeLifecycleReason.SNAPSHOT_ONLY_NO_RUNTIME_PROBE,
+        )
+    return (
+        AgentSessionRuntimeLifecycleState.UNKNOWN,
+        AgentSessionRuntimeLifecycleReason.HANDLE_NOT_ASSIGNED,
+    )
+
+
+def _derive_session_lifecycle_state_and_reason(
+    session: AgentSession,
+) -> tuple[
+    AgentSessionDerivedLifecycleState,
+    AgentSessionDerivedLifecycleReason,
+]:
+    """Derive session-axis lifecycle state/reason from coding/activity fields."""
 
     if session.activity_state == CodingSessionActivityState.BLOCKED:
         return (
-            AgentSessionRuntimeLifecycleState.BLOCKED,
-            AgentSessionRuntimeLifecycleReason.ACTIVITY_BLOCKED,
+            AgentSessionDerivedLifecycleState.STUCK,
+            AgentSessionDerivedLifecycleReason.ACTIVITY_BLOCKED,
         )
     if session.activity_state == CodingSessionActivityState.EXITED:
         return (
-            AgentSessionRuntimeLifecycleState.EXITED,
-            AgentSessionRuntimeLifecycleReason.ACTIVITY_EXITED,
+            AgentSessionDerivedLifecycleState.TERMINATED,
+            AgentSessionDerivedLifecycleReason.ACTIVITY_EXITED,
         )
 
     match session.coding_status:
         case CodingSessionStatus.SPAWNING:
             return (
-                AgentSessionRuntimeLifecycleState.NOT_STARTED,
-                AgentSessionRuntimeLifecycleReason.SESSION_CREATED,
+                AgentSessionDerivedLifecycleState.NOT_STARTED,
+                AgentSessionDerivedLifecycleReason.SESSION_CREATED,
             )
         case CodingSessionStatus.WORKING:
             return (
-                AgentSessionRuntimeLifecycleState.WORKING,
-                AgentSessionRuntimeLifecycleReason.CODING_WORKING,
+                AgentSessionDerivedLifecycleState.WORKING,
+                AgentSessionDerivedLifecycleReason.CODING_WORKING,
             )
         case CodingSessionStatus.IDLE:
             return (
-                AgentSessionRuntimeLifecycleState.READY,
-                AgentSessionRuntimeLifecycleReason.CODING_IDLE,
+                AgentSessionDerivedLifecycleState.IDLE,
+                AgentSessionDerivedLifecycleReason.CODING_IDLE,
             )
         case CodingSessionStatus.NEEDS_INPUT:
             return (
-                AgentSessionRuntimeLifecycleState.READY,
-                AgentSessionRuntimeLifecycleReason.CODING_NEEDS_INPUT,
+                AgentSessionDerivedLifecycleState.NEEDS_INPUT,
+                AgentSessionDerivedLifecycleReason.CODING_NEEDS_INPUT,
             )
         case CodingSessionStatus.STUCK:
             return (
-                AgentSessionRuntimeLifecycleState.BLOCKED,
-                AgentSessionRuntimeLifecycleReason.CODING_STUCK,
+                AgentSessionDerivedLifecycleState.STUCK,
+                AgentSessionDerivedLifecycleReason.CODING_STUCK,
             )
         case CodingSessionStatus.COMPLETED:
             return (
-                AgentSessionRuntimeLifecycleState.EXITED,
-                AgentSessionRuntimeLifecycleReason.CODING_COMPLETED,
+                AgentSessionDerivedLifecycleState.DONE,
+                AgentSessionDerivedLifecycleReason.CODING_COMPLETED,
             )
         case CodingSessionStatus.FAILED:
             return (
-                AgentSessionRuntimeLifecycleState.EXITED,
-                AgentSessionRuntimeLifecycleReason.CODING_FAILED,
+                AgentSessionDerivedLifecycleState.TERMINATED,
+                AgentSessionDerivedLifecycleReason.CODING_FAILED,
             )
         case CodingSessionStatus.TERMINATED:
             return (
-                AgentSessionRuntimeLifecycleState.EXITED,
-                AgentSessionRuntimeLifecycleReason.CODING_TERMINATED,
+                AgentSessionDerivedLifecycleState.TERMINATED,
+                AgentSessionDerivedLifecycleReason.CODING_TERMINATED,
             )
         case _:
-            if session.runtime_handle_id is not None:
-                return (
-                    AgentSessionRuntimeLifecycleState.UNKNOWN,
-                    AgentSessionRuntimeLifecycleReason.HANDLE_RECORDED_NO_PROBE,
-                )
             return (
-                AgentSessionRuntimeLifecycleState.NOT_STARTED,
-                AgentSessionRuntimeLifecycleReason.HANDLE_NOT_ASSIGNED,
+                AgentSessionDerivedLifecycleState.NOT_STARTED,
+                AgentSessionDerivedLifecycleReason.SESSION_CREATED,
             )
 
 
@@ -203,13 +261,18 @@ def _build_summary(
     *,
     state: AgentSessionRuntimeLifecycleState,
     reason: AgentSessionRuntimeLifecycleReason,
+    session_lifecycle_state: AgentSessionDerivedLifecycleState,
+    session_lifecycle_reason: AgentSessionDerivedLifecycleReason,
     runtime_handle_recorded: bool,
 ) -> str:
     """Build stable human-readable summary for API consumers."""
 
     return (
-        "AgentSession runtime lifecycle snapshot is derived from persisted "
-        f"session fields only; state={state.value}; reason={reason.value}; "
+        "AgentSession runtime lifecycle snapshot is evidence-only and keeps "
+        "runtime-axis state separate from coding/session state; "
+        f"runtime_state={state.value}; runtime_reason={reason.value}; "
+        f"session_lifecycle_state={session_lifecycle_state.value}; "
+        f"session_lifecycle_reason={session_lifecycle_reason.value}; "
         f"runtime_handle_recorded={runtime_handle_recorded}; "
         "fake_launch_started=False; real_runtime_started=False; "
         "runtime_probe_started=False."

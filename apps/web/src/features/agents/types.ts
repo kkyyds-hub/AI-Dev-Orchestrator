@@ -29,6 +29,8 @@ export type AgentSessionSnapshot = {
     run_id: string;
     state: string;
     reason: string;
+    session_lifecycle_state: string;
+    session_lifecycle_reason: string;
     summary: string;
     agent_type: string | null;
     runtime_type: string | null;

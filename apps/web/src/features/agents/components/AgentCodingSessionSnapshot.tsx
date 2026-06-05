@@ -65,12 +65,41 @@ const ACTIVITY_STATE_TONES: Record<string, CodingTone> = {
 };
 
 const RUNTIME_LIFECYCLE_STATE_LABELS: Record<string, string> = {
-  blocked: "运行态阻塞",
-  exited: "运行态已结束",
-  not_started: "运行态未启动",
-  ready: "运行态可继续",
-  unknown: "运行态未知",
-  working: "运行态处理中",
+  alive: "Runtime 已确认存活",
+  exited: "Runtime 已确认退出",
+  missing: "Runtime 句柄丢失",
+  probe_failed: "Runtime 探测失败",
+  spawning: "Runtime 启动中",
+  unknown: "Runtime 未探测",
+};
+
+const RUNTIME_LIFECYCLE_STATE_TONES: Record<string, CodingTone> = {
+  alive: "success",
+  exited: "neutral",
+  missing: "danger",
+  probe_failed: "warning",
+  spawning: "info",
+  unknown: "neutral",
+};
+
+const SESSION_LIFECYCLE_STATE_LABELS: Record<string, string> = {
+  done: "会话已完成",
+  idle: "会话空闲",
+  needs_input: "会话等待输入",
+  not_started: "会话未开始",
+  stuck: "会话卡住",
+  terminated: "会话已终止",
+  working: "会话处理中",
+};
+
+const SESSION_LIFECYCLE_STATE_TONES: Record<string, CodingTone> = {
+  done: "success",
+  idle: "neutral",
+  needs_input: "warning",
+  not_started: "neutral",
+  stuck: "danger",
+  terminated: "warning",
+  working: "info",
 };
 
 const WORKSPACE_CLEAN_LABELS: Record<string, string> = {
@@ -171,6 +200,22 @@ export function getActivityStateTone(value: string | null): CodingTone {
   return toneFromMap(value, ACTIVITY_STATE_TONES);
 }
 
+export function getRuntimeLifecycleStateLabel(value: string | null) {
+  return labelFromMap(value, RUNTIME_LIFECYCLE_STATE_LABELS);
+}
+
+export function getRuntimeLifecycleStateTone(value: string | null): CodingTone {
+  return toneFromMap(value, RUNTIME_LIFECYCLE_STATE_TONES);
+}
+
+export function getSessionLifecycleStateLabel(value: string | null) {
+  return labelFromMap(value, SESSION_LIFECYCLE_STATE_LABELS);
+}
+
+export function getSessionLifecycleStateTone(value: string | null): CodingTone {
+  return toneFromMap(value, SESSION_LIFECYCLE_STATE_TONES);
+}
+
 export function AgentCodingSessionSnapshot(props: {
   selectedSession: AgentSessionSnapshot | null;
 }) {
@@ -216,6 +261,10 @@ export function AgentCodingSessionSnapshot(props: {
             label={getWorkspaceCleanLabel(session.workspace_clean)}
             tone={getWorkspaceCleanTone(session.workspace_clean)}
           />
+          <StatusBadge
+            label={getRuntimeLifecycleStateLabel(runtimeSnapshot.state)}
+            tone={getRuntimeLifecycleStateTone(runtimeSnapshot.state)}
+          />
         </div>
       </div>
 
@@ -231,16 +280,25 @@ export function AgentCodingSessionSnapshot(props: {
           title={session.runtime_type}
         />
         <CompactField
-          label="P3-C1 Runtime Lifecycle"
-          value={labelFromMap(
-            runtimeSnapshot.state,
-            RUNTIME_LIFECYCLE_STATE_LABELS,
-          )}
+          label="P3-C1 Runtime 轴状态"
+          value={getRuntimeLifecycleStateLabel(runtimeSnapshot.state)}
           title={`${runtimeSnapshot.state} / ${runtimeSnapshot.reason}`}
         />
         <CompactField
-          label="Runtime Snapshot Reason"
+          label="Runtime 轴原因"
           value={runtimeSnapshot.reason}
+          title={runtimeSnapshot.summary}
+        />
+        <CompactField
+          label="会话派生状态"
+          value={getSessionLifecycleStateLabel(
+            runtimeSnapshot.session_lifecycle_state,
+          )}
+          title={`${runtimeSnapshot.session_lifecycle_state} / ${runtimeSnapshot.session_lifecycle_reason}`}
+        />
+        <CompactField
+          label="会话派生原因"
+          value={runtimeSnapshot.session_lifecycle_reason}
           title={runtimeSnapshot.summary}
         />
         <CompactField label="后台通道" value={handleLabel} title={session.runtime_handle_id} />
@@ -268,7 +326,7 @@ export function AgentCodingSessionSnapshot(props: {
 
       <p className="mt-3 rounded-2xl border border-[#333333] bg-black/20 px-3 py-2 text-xs leading-5 text-slate-500">
         当前阶段只读展示 AgentSession 与 timeline 已有数据：可看到处理者、后台通道、任务进度、活动情况、工作区绑定、分支名和工作区审计错误。
-        这里不会创建或清理 worktree，也不表示已经进入 AI runtime、自动编码、提交、推送或创建 PR。
+        P3-C1 的 Runtime 轴只展示已有证据；未启动或未探测时不会把会话处理状态误标为 Runtime 存活。这里不会创建或清理 worktree，也不表示已经进入 AI runtime、自动编码、提交、推送或创建 PR。
       </p>
 
       <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs leading-5 text-emerald-100">
@@ -277,6 +335,8 @@ export function AgentCodingSessionSnapshot(props: {
           {runtimeSnapshot.summary}
         </div>
         <div className="mt-2 grid gap-1 sm:grid-cols-2">
+          <span>runtime state: {runtimeSnapshot.state}</span>
+          <span>session state: {runtimeSnapshot.session_lifecycle_state}</span>
           <span>fake launch: {String(runtimeSnapshot.fake_launch_started)}</span>
           <span>real runtime: {String(runtimeSnapshot.real_runtime_started)}</span>
           <span>runtime probe: {String(runtimeSnapshot.runtime_probe_started)}</span>
