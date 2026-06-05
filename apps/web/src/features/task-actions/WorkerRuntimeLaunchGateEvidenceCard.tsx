@@ -63,10 +63,16 @@ export function WorkerRuntimeLaunchGateEvidenceCard(
         : "neutral";
   const gateStatusLabel =
     props.runtime_launch_gate_ready === false
-      ? "Blocked"
+      ? "Controlled Blocked"
       : props.runtime_launch_gate_ready === true
-        ? "Ready"
-        : "Not reported";
+        ? "Ready (gates only)"
+        : "Evidence not received";
+  const gateStatusCopy =
+    props.runtime_launch_gate_ready === false
+      ? "Runtime gate stopped executor dispatch by design. This is a controlled safety block, not a crash."
+      : props.runtime_launch_gate_ready === true
+        ? "All runtime launch gates passed. This means prerequisites are ready only; no fake launch or real runtime was started."
+        : "The worker response did not include runtime launch gate evidence for this run.";
 
   const contextFields: EvidenceField[] = [
     {
@@ -254,8 +260,11 @@ export function WorkerRuntimeLaunchGateEvidenceCard(
             P3-B3 Runtime Launch Gate Evidence
           </div>
           <p className="mt-2 text-sm leading-6 text-zinc-300">
-            Gate evidence is displayed from the worker response only. This panel
-            does not start fake launch or real runtime.
+            Read-only evidence from the worker response. It explains gate readiness
+            or controlled blocking; it does not imply a runtime was launched.
+          </p>
+          <p className="mt-2 text-sm leading-6 text-zinc-300">
+            {gateStatusCopy}
           </p>
         </div>
         <span
@@ -281,7 +290,7 @@ export function WorkerRuntimeLaunchGateEvidenceCard(
 
       <div className="mt-3 rounded-xl border border-[#333333] bg-[#1f1f1f] p-3">
         <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-          Gate Chain
+          Gate Chain Evidence
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <EvidenceInfo
@@ -298,13 +307,13 @@ export function WorkerRuntimeLaunchGateEvidenceCard(
           />
           <EvidenceInfo
             key="blocking_reason"
-            label="Blocking Reason"
+            label="Controlled Blocking Reason"
             value={formatNullableText(props.runtime_launch_gate_blocking_reason_code)}
             tone={props.runtime_launch_gate_blocking_reason_code ? "danger" : "neutral"}
           />
           <EvidenceInfo
             key="blocking_summary"
-            label="Blocking Summary"
+            label="Controlled Blocking Summary"
             value={formatNullableText(props.runtime_launch_gate_blocking_summary)}
             tone={props.runtime_launch_gate_blocking_summary ? "warning" : "neutral"}
           />
@@ -324,7 +333,7 @@ export function WorkerRuntimeLaunchGateEvidenceCard(
 
       <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
         <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">
-          Safety Flags
+          Safety Flags (all false means no launch)
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {safetyFields.map((field) => (
