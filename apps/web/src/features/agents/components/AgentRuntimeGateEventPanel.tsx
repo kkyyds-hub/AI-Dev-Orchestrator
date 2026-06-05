@@ -22,14 +22,56 @@ const RUNTIME_GATE_EVENT_TONES: Record<string, RuntimeEventTone> = {
 
 const SAFETY_FLAG_LABELS: Record<string, string> = {
   execution_enabled: "允许执行",
-  launches_ai_runtime: "启动 AI runtime",
+  launches_ai_runtime: "启动 AI 运行时",
   runs_real_command: "执行真实命令",
-  runs_git: "执行 git",
-  runs_write_git: "执行写 git",
-  changes_process_cwd: "改变进程 cwd",
-  fake_launch_started: "启动 fake launch",
-  real_runtime_started: "启动真实 runtime",
-  runtime_probe_started: "启动 runtime probe",
+  runs_git: "执行 Git 命令",
+  runs_write_git: "执行写入型 Git 命令",
+  changes_process_cwd: "改变进程工作目录",
+  fake_launch_started: "启动模拟运行",
+  real_runtime_started: "启动真实运行时",
+  runtime_probe_started: "启动运行时探测",
+};
+
+const GATE_LABELS: Record<string, string> = {
+  workspace_validation: "G1 工作区状态校验",
+  workspace_context: "G2 工作区上下文校验",
+  runtime_dry_run: "G3 运行时参数预览",
+  safe_command_proof: "G4 工作区路径安全证明",
+  adapter_capability: "G5 适配器能力检查",
+};
+
+const REASON_CODE_LABELS: Record<string, string> = {
+  launch_gate_evaluated: "启动门禁已评估通过",
+  launch_gate_blocked: "启动门禁已阻断",
+  runtime_launch_gate_not_ready: "运行时启动门禁未就绪",
+  workspace_context_not_ready: "工作区上下文未就绪",
+  workspace_path_not_found: "工作区路径不存在",
+  workspace_path_not_directory: "工作区路径不是目录",
+  workspace_path_outside_allowed_root: "工作区路径不在允许范围内",
+  agent_worktree_not_available: "智能体工作区不可用",
+  runtime_dry_run_not_ready: "运行时参数预览未就绪",
+  runtime_type_missing: "运行时类型缺失",
+  agent_type_missing: "智能体类型缺失",
+  workspace_path_missing: "工作区路径缺失",
+  worktree_safe_command_proof_not_ready: "工作区安全命令证明未就绪",
+  pwd_mismatch_workspace_path: "当前目录证明与工作区路径不一致",
+  safe_command_timed_out: "安全命令证明超时",
+  adapter_unavailable: "运行时适配器不可用",
+  adapter_launch_blocked: "适配器能力检查阻断",
+  snapshot_only: "仅记录快照，未启动运行时",
+};
+
+const BLOCKING_SUMMARY_LABELS: Record<string, string> = {
+  "Workspace context is not ready for runtime launch.":
+    "工作区上下文尚未满足运行时启动前置条件。",
+  "Agent session is not bound to a clean worktree; runtime launch requires an active agent workspace.":
+    "智能体会话未绑定干净的工作区；运行时启动需要可用的智能体工作区。",
+  "Runtime launch dry-run configuration is not ready; agent_type / runtime_type / workspace_path may be missing.":
+    "运行时参数预览未就绪；智能体类型、运行时类型或工作区路径可能缺失。",
+  "Worker worktree safe command proof (pwd) failed or is not ready; cwd proof is required before runtime launch.":
+    "工作区路径安全证明未通过或未就绪；启动前必须先确认当前工作目录。",
+  "No runtime adapter is configured; cannot launch runtime.":
+    "未配置运行时适配器，无法进入启动流程。",
 };
 
 function isRuntimeGateEvent(message: AgentTimelineMessage) {
@@ -107,7 +149,41 @@ function flagLabel(value: boolean | null) {
 }
 
 function formatList(values: string[]) {
-  return values.length ? values.join("、") : "未记录";
+  return values.length ? values.map(localizeGateName).join("、") : "未记录";
+}
+
+function localizeGateName(value: string) {
+  return GATE_LABELS[value] ?? "未识别门禁";
+}
+
+function localizeReasonCode(value: string | null) {
+  if (!value) {
+    return "无";
+  }
+  return REASON_CODE_LABELS[value] ?? "未识别原因";
+}
+
+function localizeBlockingSummary(value: string | null) {
+  if (!value) {
+    return "无";
+  }
+  if (value.startsWith("Runtime adapter") && value.includes("cannot launch")) {
+    return "运行时适配器能力检查未通过，未进入启动流程。";
+  }
+  return BLOCKING_SUMMARY_LABELS[value] ?? "门禁被阻断，详细原因已写入后端审计记录。";
+}
+
+function localizeRuntimeValue(value: string | null) {
+  if (!value) {
+    return "未记录";
+  }
+  if (value === "fake") {
+    return "模拟适配器";
+  }
+  if (value === "codex_cli") {
+    return "Codex 命令行";
+  }
+  return value.replace(/_/g, " ");
 }
 
 export function AgentRuntimeGateEventPanel(
@@ -132,7 +208,7 @@ export function AgentRuntimeGateEventPanel(
             最近运行时门禁事件
           </h4>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            从当前会话 timeline 只读筛选 runtime launch gate 事件；这里只展示门禁证据，不启动 fake launch、真实 runtime 或 runtime probe。
+            从当前会话时间线只读筛选运行时启动门禁事件；这里只展示门禁证据，不启动模拟运行、真实运行时或运行时探测。
           </p>
         </div>
         <span className="text-xs text-slate-500">
@@ -142,7 +218,7 @@ export function AgentRuntimeGateEventPanel(
 
       {!runtimeGateMessages.length ? (
         <p className="mt-4 rounded-2xl border border-dashed border-[#333333] px-3 py-3 text-sm leading-6 text-slate-400">
-          当前会话 timeline 暂无 runtime launch gate 事件。本页不会自动执行门禁、启动 runtime 或探测进程。
+          当前会话时间线暂无运行时启动门禁事件。本页不会自动执行门禁、启动运行时或探测进程。
         </p>
       ) : (
         <ul className="mt-4 space-y-3">
@@ -168,7 +244,10 @@ export function AgentRuntimeGateEventPanel(
                   <div className="min-w-0">
                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
                       <span>{formatDateTime(message.created_at)}</span>
-                      <span>{message.event_type}</span>
+                      <span>
+                        {RUNTIME_GATE_EVENT_LABELS[message.event_type] ??
+                          "运行时门禁事件"}
+                      </span>
                     </div>
                     <p
                       className="mt-2 line-clamp-3 break-words text-sm leading-6 text-slate-100"
@@ -185,32 +264,32 @@ export function AgentRuntimeGateEventPanel(
                       }
                       tone={RUNTIME_GATE_EVENT_TONES[message.event_type] ?? "neutral"}
                     />
-                    <StatusBadge label="证据只读，未启动 runtime" tone="info" />
+                    <StatusBadge label="证据只读，未启动运行时" tone="info" />
                   </div>
                 </div>
 
                 <dl className="mt-3 grid gap-x-4 gap-y-2 text-xs text-slate-500 sm:grid-cols-2">
                   <RuntimeGateDetail label="通过门禁" value={formatList(passedGates)} />
                   <RuntimeGateDetail label="失败门禁" value={formatList(failedGates)} />
-                  <RuntimeGateDetail label="原因代码" value={reasonCode ?? "无"} />
+                  <RuntimeGateDetail label="阻断原因" value={localizeReasonCode(reasonCode)} />
                   <RuntimeGateDetail
                     label="阻断摘要"
-                    value={blockingSummary ?? "无"}
+                    value={localizeBlockingSummary(blockingSummary)}
                   />
                   <RuntimeGateDetail
                     label="运行时类型"
-                    value={stringField(detail, "runtime_type") ?? "未记录"}
+                    value={localizeRuntimeValue(stringField(detail, "runtime_type"))}
                   />
                   <RuntimeGateDetail
                     label="适配器"
-                    value={stringField(detail, "adapter_kind") ?? "未记录"}
+                    value={localizeRuntimeValue(stringField(detail, "adapter_kind"))}
                   />
                   <RuntimeGateDetail
                     label="工作区路径"
                     value={stringField(evidence, "workspace_path") ?? "未记录"}
                   />
                   <RuntimeGateDetail
-                    label="启动 cwd 预览"
+                    label="启动工作目录预览"
                     value={stringField(evidence, "launch_cwd_preview") ?? "未记录"}
                   />
                 </dl>
