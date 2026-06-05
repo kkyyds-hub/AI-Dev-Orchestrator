@@ -1215,6 +1215,41 @@ def test_worktree_create_executes_real_worktree_and_writes_agent_session(
     assert detail["runs_write_git"] is True
 
 
+def test_worktree_create_success_ignores_audit_write_failure(
+    db_session, tmp_path, monkeypatch
+):
+    """AgentMessage audit failures must not change successful create results."""
+
+    _, session, _, plan_service, plan = _create_bound_git_session(db_session, tmp_path)
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("simulated audit write failure")
+
+    monkeypatch.setattr(
+        WorkspaceLifecycleAuditService,
+        "record_create_result",
+        fail_audit,
+    )
+
+    result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.create_status == "created"
+    assert result.blocked_reason is None
+    assert result.runs_write_git is True
+    assert Path(plan.worktree_path).is_dir()
+    updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert updated_session is not None
+    assert updated_session.workspace_path == plan.worktree_path
+    assert updated_session.branch_name == plan.branch_name
+    assert _workspace_audit_messages(db_session, session.id) == []
+
+
 def test_worktree_create_rejects_stale_plan_hash(db_session, tmp_path):
     """Create uses current-plan hash stale check before any write git command."""
 
@@ -1775,6 +1810,61 @@ def test_worktree_cleanup_removes_clean_registered_tmp_worktree(
     assert detail["removes_worktree"] is True
     assert detail["deletes_branch"] is False
     assert detail["deletes_directory"] is False
+
+
+def test_worktree_cleanup_success_ignores_audit_write_failure(
+    db_session, tmp_path, monkeypatch
+):
+    """AgentMessage audit failures must not turn successful cleanup into failure."""
+
+    _, session, repository_root, plan_service, plan = _create_bound_git_session(
+        db_session, tmp_path
+    )
+    create_result = WorktreeCreateService(worktree_plan_service=plan_service).create_workspace(
+        WorktreeCreateRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+    assert create_result.create_status == "created"
+    created_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert created_session is not None
+    assert created_session.workspace_path is not None
+    original_workspace_path = created_session.workspace_path
+    original_branch_name = created_session.branch_name
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("simulated audit write failure")
+
+    monkeypatch.setattr(
+        WorkspaceLifecycleAuditService,
+        "record_cleanup_result",
+        fail_audit,
+    )
+
+    result = WorktreeCleanupService(worktree_plan_service=plan_service).cleanup_workspace(
+        WorktreeCleanupRequest(
+            agent_session_id=session.id,
+            plan_hash=plan.plan_hash,
+            user_confirmed=True,
+        )
+    )
+
+    assert result.cleanup_status == "cleaned"
+    assert result.blocked_reason is None
+    assert result.runs_write_git is True
+    assert result.removes_worktree is True
+    assert not Path(original_workspace_path).exists()
+    assert _run_git(repository_root, "branch", "--list", original_branch_name).stdout.strip()
+    updated_session = AgentSessionRepository(db_session).get_by_id(session.id)
+    assert updated_session is not None
+    assert updated_session.workspace_path is None
+    assert updated_session.branch_name is None
+    audit_messages = _workspace_audit_messages(db_session, session.id)
+    assert [message.note_event_type for message in audit_messages] == [
+        WORKSPACE_CREATE_CREATED_EVENT
+    ]
 
 
 def test_worktree_cleanup_read_only_preflight_blocks_dirty_bound_worktree(

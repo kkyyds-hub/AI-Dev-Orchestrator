@@ -525,13 +525,16 @@ class WorktreeCleanupService:
         session,
         result: WorktreeCleanupResult,
     ) -> None:
-        """Persist the cleanup lifecycle audit event."""
+        """Best-effort persist the cleanup lifecycle audit event."""
 
-        WorkspaceLifecycleAuditService(
-            AgentMessageRepository(
-                self.worktree_plan_service.agent_session_repository.session
-            )
-        ).record_cleanup_result(session=session, result=result)
+        db_session = self.worktree_plan_service.agent_session_repository.session
+        try:
+            with db_session.begin_nested():
+                WorkspaceLifecycleAuditService(
+                    AgentMessageRepository(db_session)
+                ).record_cleanup_result(session=session, result=result)
+        except Exception:
+            return
 
     @staticmethod
     def _format_workspace_error(prefix: str, blockers: list[str]) -> str:

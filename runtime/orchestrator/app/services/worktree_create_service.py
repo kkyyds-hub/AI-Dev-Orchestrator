@@ -225,18 +225,21 @@ class WorktreeCreateService:
         )
 
     def _record_audit_event(self, result: WorktreeCreateResult) -> None:
-        """Persist the create lifecycle audit event."""
+        """Best-effort persist the create lifecycle audit event."""
 
-        session = self.worktree_plan_service.agent_session_repository.get_by_id(
-            result.agent_session_id
-        )
-        if session is None:
-            return
-        WorkspaceLifecycleAuditService(
-            AgentMessageRepository(
-                self.worktree_plan_service.agent_session_repository.session
+        db_session = self.worktree_plan_service.agent_session_repository.session
+        try:
+            session = self.worktree_plan_service.agent_session_repository.get_by_id(
+                result.agent_session_id
             )
-        ).record_create_result(session=session, result=result)
+            if session is None:
+                return
+            with db_session.begin_nested():
+                WorkspaceLifecycleAuditService(
+                    AgentMessageRepository(db_session)
+                ).record_create_result(session=session, result=result)
+        except Exception:
+            return
 
     @staticmethod
     def _format_workspace_error(prefix: str, blockers: list[str]) -> str:
