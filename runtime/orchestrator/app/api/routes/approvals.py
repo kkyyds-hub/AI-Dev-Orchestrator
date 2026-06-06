@@ -106,8 +106,8 @@ from app.services.task_service import TaskService
 from app.services.task_state_machine_service import TaskStateMachineService
 
 
-DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID = "delivery_human_approval_api_actor_seam"
-DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME = "Delivery Human Approval API"
+DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID = "local_user"
+DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME = "本地用户"
 
 
 class ApprovalDecisionSummaryResponse(BaseModel):

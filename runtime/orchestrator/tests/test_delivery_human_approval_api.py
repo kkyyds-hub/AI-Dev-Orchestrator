@@ -212,6 +212,11 @@ def _approval_request_payload(run_id, **overrides) -> dict:
     return payload
 
 
+def test_delivery_human_approval_api_actor_seam_constants_are_local_user():
+    assert DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID == "local_user"
+    assert DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME == "本地用户"
+
+
 def test_delivery_human_approval_api_evaluates_snapshot_without_persisting_confirmation(
     client,
     db_session,
