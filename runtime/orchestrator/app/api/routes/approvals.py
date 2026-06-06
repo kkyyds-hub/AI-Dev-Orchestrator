@@ -19,8 +19,15 @@ from app.domain.change_batch import (
     ChangeBatchPreflightStatus,
 )
 from app.domain.deliverable import DeliverableType
+from app.domain.human_approval_gate import (
+    HUMAN_APPROVAL_ACTION_APPROVE_GIT_ADD_COMMIT_PREVIEW,
+    HUMAN_APPROVAL_SCOPE_GIT_ADD_COMMIT_PREVIEW,
+    DeliveryHumanApprovalResult,
+    HumanApprovalGateBuilder,
+)
 from app.domain.project import ProjectStage
 from app.domain.project_role import ProjectRoleCode
+from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.approval_repository import ApprovalRepository
 from app.repositories.change_batch_repository import ChangeBatchRepository
 from app.repositories.change_plan_repository import ChangePlanRepository
@@ -88,7 +95,10 @@ from app.services.repository_release_gate_service import (
     RepositoryReleaseGateService,
     RepositoryReleaseGateStatus,
 )
-from app.services.run_logging_service import RunLoggingService
+from app.services.run_logging_service import (
+    DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+    RunLoggingService,
+)
 from app.services.role_catalog_service import RoleCatalogService
 from app.services.task_service import TaskService
 from app.services.task_state_machine_service import TaskStateMachineService
@@ -966,6 +976,140 @@ class ApprovalActionRequest(BaseModel):
     requested_changes: list[str] = Field(default_factory=list, max_length=10)
 
 
+class DeliveryHumanApprovalRequest(BaseModel):
+    """P4-F2-C minimal human approval gate request.
+
+    The raw confirmation text is accepted only as gate input. The endpoint does
+    not persist or echo it.
+    """
+
+    run_id: UUID
+    approval_requested_action: str = Field(
+        default=HUMAN_APPROVAL_ACTION_APPROVE_GIT_ADD_COMMIT_PREVIEW,
+        min_length=1,
+        max_length=120,
+    )
+    approval_scope: str = Field(
+        default=HUMAN_APPROVAL_SCOPE_GIT_ADD_COMMIT_PREVIEW,
+        min_length=1,
+        max_length=120,
+    )
+    approval_confirmation_text: str = Field(min_length=1, max_length=2_000)
+    approval_actor_id: str = Field(min_length=1, max_length=120)
+    approval_actor_display_name: str | None = Field(default=None, max_length=200)
+    approval_client_request_id: str = Field(min_length=1, max_length=200)
+    approval_expires_at: datetime
+    expected_changed_files: list[str] = Field(default_factory=list, max_length=500)
+    expected_proposed_commit_message: str = Field(min_length=1, max_length=200)
+
+
+class DeliveryHumanApprovalResponse(BaseModel):
+    """P4-F2-C minimal human approval gate response."""
+
+    ready: bool
+    reason_code: str | None = None
+    summary_cn: str
+    source: str
+
+    run_id: UUID
+    task_id: str
+    project_id: str
+    session_id: str
+
+    approval_required: bool
+    approval_granted: bool
+    approval_id: str | None = None
+    approved_by: str | None = None
+    approved_by_display_name: str | None = None
+    approval_scope: str | None = None
+    approval_requested_action: str | None = None
+    approval_client_request_id: str | None = None
+    approval_created_at: datetime | None = None
+    approval_expires_at: datetime | None = None
+    approval_applied: bool
+    approval_revoked: bool
+    approval_confirmation_fingerprint: str | None = None
+
+    operation_dry_run_ready: bool | None = None
+    delivery_gate_evidence_ready: bool | None = None
+    delivery_gate_allows_user_confirmation: bool | None = None
+    delivery_gate_allows_write: bool | None = None
+    proposed_operation: str | None = None
+    proposed_commit_message: str | None = None
+    changed_files_count: int | None = None
+    changed_files: list[str]
+    satisfied_conditions: list[str]
+    blocking_reasons: list[str]
+    safety_flags: dict[str, Any]
+
+    evidence_snapshot_event: str
+    evidence_snapshot_log_path: str
+    evidence_snapshot_schema_version: str | None = None
+    evidence_snapshot_source: str | None = None
+
+    @classmethod
+    def from_gate_result(
+        cls,
+        *,
+        run_id: UUID,
+        log_path: str,
+        snapshot_data: dict[str, Any],
+        result: DeliveryHumanApprovalResult,
+    ) -> "DeliveryHumanApprovalResponse":
+        """Convert the pure gate result into the minimal API DTO."""
+
+        return cls(
+            ready=result.ready,
+            reason_code=result.reason_code,
+            summary_cn=result.summary_cn,
+            source=result.source,
+            run_id=run_id,
+            task_id=result.task_id,
+            project_id=result.project_id,
+            session_id=result.session_id,
+            approval_required=result.approval_required,
+            approval_granted=result.approval_granted,
+            approval_id=result.approval_id,
+            approved_by=result.approved_by,
+            approved_by_display_name=result.approved_by_display_name,
+            approval_scope=(
+                result.approval_scope.value
+                if result.approval_scope is not None
+                else None
+            ),
+            approval_requested_action=(
+                result.approval_requested_action.value
+                if result.approval_requested_action is not None
+                else None
+            ),
+            approval_client_request_id=result.approval_client_request_id,
+            approval_created_at=result.approval_created_at,
+            approval_expires_at=result.approval_expires_at,
+            approval_applied=result.approval_applied,
+            approval_revoked=result.approval_revoked,
+            approval_confirmation_fingerprint=(
+                result.approval_confirmation_fingerprint
+            ),
+            operation_dry_run_ready=result.operation_dry_run_ready,
+            delivery_gate_evidence_ready=result.delivery_gate_evidence_ready,
+            delivery_gate_allows_user_confirmation=(
+                result.delivery_gate_allows_user_confirmation
+            ),
+            delivery_gate_allows_write=result.delivery_gate_allows_write,
+            proposed_operation=result.proposed_operation,
+            proposed_commit_message=result.proposed_commit_message,
+            changed_files_count=result.changed_files_count,
+            changed_files=list(result.changed_files),
+            satisfied_conditions=list(result.satisfied_conditions),
+            blocking_reasons=list(result.blocking_reasons),
+            safety_flags=result.safety_flags.model_dump(mode="json"),
+            evidence_snapshot_event=DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+            evidence_snapshot_log_path=log_path,
+            evidence_snapshot_schema_version=snapshot_data.get("schema_version"),
+            evidence_snapshot_source=snapshot_data.get("snapshot_source"),
+        )
+
+
 class RepositoryPreflightActionRequest(BaseModel):
     """Body accepted when one Day08 manual-confirmation decision is applied."""
 
@@ -1654,6 +1798,75 @@ def get_project_change_rework(
         )
 
     return ProjectChangeReworkResponse.from_snapshot(snapshot)
+
+
+@router.post(
+    "/delivery-human-approval",
+    response_model=DeliveryHumanApprovalResponse,
+    summary="Evaluate the P4-F2-C delivery human approval gate",
+)
+def evaluate_delivery_human_approval(
+    request: DeliveryHumanApprovalRequest,
+    session: Annotated[Session, Depends(get_db_session)],
+) -> DeliveryHumanApprovalResponse:
+    """Evaluate human approval from cached delivery evidence without Git writes."""
+
+    run_repository = RunRepository(session)
+    run = run_repository.get_by_id(request.run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run not found: {request.run_id}",
+        )
+    if run.log_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run log path missing for run: {request.run_id}",
+        )
+
+    run_logging_service = RunLoggingService()
+    snapshot = run_logging_service.read_latest_delivery_evidence_snapshot(
+        log_path=run.log_path
+    )
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Delivery evidence snapshot not found in run log for run: "
+                f"{request.run_id}"
+            ),
+        )
+
+    snapshot_data = snapshot.data
+    operation_dry_run = snapshot_data.get("operation_dry_run")
+    delivery_gate_evidence = snapshot_data.get("delivery_gate_evidence")
+
+    agent_session = AgentSessionRepository(session).get_by_run_id(request.run_id)
+    gate_result = HumanApprovalGateBuilder.evaluate(
+        agent_session=agent_session,
+        operation_dry_run=operation_dry_run,
+        delivery_gate_evidence=delivery_gate_evidence,
+        approval_requested_action=request.approval_requested_action,
+        approval_confirmation_text=request.approval_confirmation_text,
+        approval_actor_id=request.approval_actor_id,
+        approval_actor_display_name=request.approval_actor_display_name,
+        approval_client_request_id=request.approval_client_request_id,
+        approval_created_at=utc_now(),
+        approval_scope=request.approval_scope,
+        approval_expires_at=request.approval_expires_at,
+        expected_changed_files=request.expected_changed_files,
+        expected_proposed_commit_message=(
+            request.expected_proposed_commit_message
+        ),
+        delivery_git_write_enabled=False,
+    )
+
+    return DeliveryHumanApprovalResponse.from_gate_result(
+        run_id=request.run_id,
+        log_path=run.log_path,
+        snapshot_data=snapshot_data,
+        result=gate_result,
+    )
 
 
 @router.get(
