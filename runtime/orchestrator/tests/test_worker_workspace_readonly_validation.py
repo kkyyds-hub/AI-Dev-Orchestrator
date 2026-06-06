@@ -54,14 +54,16 @@ from app.services.context_builder_service import (
 )
 from app.services.executor_service import ExecutionPlan, ExecutionResult
 from app.services.git_diff_dry_run_runner import GitDiffDryRunResult
+from app.services.run_logging_service import (
+    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
+    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+)
 from app.services.task_router_service import TaskRoutingDecision
 from app.services.task_state_machine_service import TaskStateMachineService
 from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult
 from app.workers.task_worker import (
-    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
-    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
-    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
     TaskWorker,
     WorkerRunResult,
     _delivery_human_approval_result_kwargs,
@@ -835,6 +837,60 @@ class _NoopRunLoggingService:
                 "data": kwargs,
                 "level": "info",
             }
+        )
+
+    def append_delivery_evidence_snapshot_source_event(
+        self,
+        *,
+        log_path,
+        run_id,
+        operation_dry_run,
+        delivery_gate_evidence,
+    ):
+        self.append_event(
+            log_path=log_path,
+            event=DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+            message=(
+                "Run log JSONL is the source for delivery human approval "
+                "evidence snapshots."
+            ),
+            data={
+                "schema_version": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+                "snapshot_source": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
+                "purpose": "delivery_human_approval_evidence_source",
+                "run_id": str(run_id),
+                "operation_dry_run_available": operation_dry_run is not None,
+                "operation_dry_run_ready": (
+                    operation_dry_run.ready
+                    if operation_dry_run is not None
+                    else None
+                ),
+                "delivery_gate_evidence_available": delivery_gate_evidence is not None,
+                "delivery_gate_evidence_ready": (
+                    delivery_gate_evidence.ready
+                    if delivery_gate_evidence is not None
+                    else None
+                ),
+                "operation_dry_run": (
+                    operation_dry_run.model_dump(mode="json")
+                    if operation_dry_run is not None
+                    else None
+                ),
+                "delivery_gate_evidence": (
+                    delivery_gate_evidence.model_dump(mode="json")
+                    if delivery_gate_evidence is not None
+                    else None
+                ),
+                "human_approval_evaluated": False,
+                "approval_record_created": False,
+                "runs_write_git": False,
+                "git_add_triggered": False,
+                "git_commit_triggered": False,
+                "git_push_triggered": False,
+                "pr_opened": False,
+                "ci_triggered": False,
+                "gate_allows_write": False,
+            },
         )
 
 

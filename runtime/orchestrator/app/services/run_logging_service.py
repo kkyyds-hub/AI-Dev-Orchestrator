@@ -15,6 +15,11 @@ from app.domain.project_role import ProjectRoleCode
 from app.services.event_stream_service import event_stream_service
 
 
+DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT = "delivery_evidence_snapshot_source_recorded"
+DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION = "1.0"
+DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL = "run_log_jsonl"
+
+
 @dataclass(slots=True, frozen=True)
 class RunLogEvent:
     """Structured log event exposed to the Day 12 console."""
@@ -182,6 +187,59 @@ class RunLoggingService:
             message=message,
         )
 
+    def append_delivery_evidence_snapshot_source_event(
+        self,
+        *,
+        log_path: str | None,
+        run_id: UUID,
+        operation_dry_run: Any | None,
+        delivery_gate_evidence: Any | None,
+    ) -> None:
+        """Append the P4-F2-C0 source event for cached delivery evidence snapshots."""
+
+        if log_path is None:
+            return
+
+        self.append_event(
+            log_path=log_path,
+            event=DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+            message=(
+                "Run log JSONL is the source for delivery human approval "
+                "evidence snapshots."
+            ),
+            data={
+                "schema_version": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+                "snapshot_source": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
+                "purpose": "delivery_human_approval_evidence_source",
+                "run_id": str(run_id),
+                "operation_dry_run_available": operation_dry_run is not None,
+                "operation_dry_run_ready": (
+                    _value(operation_dry_run, "ready")
+                    if operation_dry_run is not None
+                    else None
+                ),
+                "delivery_gate_evidence_available": (
+                    delivery_gate_evidence is not None
+                ),
+                "delivery_gate_evidence_ready": (
+                    _value(delivery_gate_evidence, "ready")
+                    if delivery_gate_evidence is not None
+                    else None
+                ),
+                "operation_dry_run": _snapshot_payload(operation_dry_run),
+                "delivery_gate_evidence": _snapshot_payload(delivery_gate_evidence),
+                "human_approval_evaluated": False,
+                "approval_record_created": False,
+                "runs_write_git": False,
+                "git_add_triggered": False,
+                "git_commit_triggered": False,
+                "git_push_triggered": False,
+                "pr_opened": False,
+                "ci_triggered": False,
+                "gate_allows_write": False,
+            },
+        )
+
     @staticmethod
     def _resolve(log_path: str) -> Path:
         """Resolve a runtime-relative log path to an absolute filesystem path."""
@@ -214,3 +272,26 @@ class RunLoggingService:
         if isinstance(value, list):
             return [cls._normalize_data(item) for item in value]
         return value
+
+
+def _snapshot_payload(value: Any | None) -> Any | None:
+    """Return a JSON-compatible snapshot payload without importing domain models."""
+
+    if value is None:
+        return None
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return value
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return model_dump(mode="json")
+    return value
+
+
+def _value(value: Any, field_name: str) -> Any:
+    """Read a named field from a domain model, dict, or simple object."""
+
+    if isinstance(value, dict):
+        return value.get(field_name)
+    return getattr(value, field_name, None)
