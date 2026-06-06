@@ -123,6 +123,83 @@ def test_run_logging_service_writes_delivery_evidence_snapshot(
     assert event.data["delivery_gate_evidence"]["safety_flags"]["gate_allows_write"] is False
 
 
+def test_run_logging_service_skips_delivery_evidence_snapshot_when_evidence_missing(
+    tmp_path,
+):
+    original_runtime_data_dir = settings.runtime_data_dir
+    object.__setattr__(settings, "runtime_data_dir", tmp_path)
+    try:
+        service = RunLoggingService()
+        task_id = uuid4()
+        run_id = uuid4()
+        session = AgentSession(
+            id=uuid4(),
+            project_id=uuid4(),
+            task_id=task_id,
+            run_id=run_id,
+            branch_name="main",
+            workspace_type=WorkspaceType.WORKTREE,
+            workspace_path=tmp_path.as_posix(),
+            workspace_clean=True,
+        )
+        diff = GitDiffDryRunResult(
+            ready=True,
+            source="agent_session_worktree_diff",
+            reason_code=None,
+            worktree_path=tmp_path.as_posix(),
+            has_changes=True,
+            changed_files_count=1,
+            changed_files=["README.md"],
+            modified_files=["README.md"],
+            status_summary_cn="1 个文件修改",
+            branch_name="main",
+            runs_git=True,
+        )
+        operation = GitOperationDryRunBuilder.build_from_diff_evidence(
+            agent_session=session,
+            diff_evidence=diff,
+        )
+        delivery_gate = DeliveryGateEvidenceBuilder.evaluate(
+            agent_session=session,
+            diff_evidence=diff,
+            operation_dry_run=operation,
+            delivery_audit_event_present=True,
+            delivery_audit_event_type=DELIVERY_AUDIT_COLLECTED_EVENT_TYPE,
+            delivery_audit_event_ready=True,
+            delivery_git_write_enabled=False,
+        )
+
+        log_path = service.initialize_run_log(task_id=task_id, run_id=run_id)
+        service.append_delivery_evidence_snapshot(
+            log_path=None,
+            run_id=run_id,
+            operation_dry_run=operation,
+            delivery_gate_evidence=delivery_gate,
+        )
+        service.append_delivery_evidence_snapshot(
+            log_path=log_path,
+            run_id=run_id,
+            operation_dry_run=None,
+            delivery_gate_evidence=delivery_gate,
+        )
+        service.append_delivery_evidence_snapshot(
+            log_path=log_path,
+            run_id=run_id,
+            operation_dry_run=operation,
+            delivery_gate_evidence=None,
+        )
+
+        read_result = service.read_events(log_path=log_path)
+        latest_snapshot = service.read_latest_delivery_evidence_snapshot(
+            log_path=log_path
+        )
+    finally:
+        object.__setattr__(settings, "runtime_data_dir", original_runtime_data_dir)
+
+    assert read_result.events == []
+    assert latest_snapshot is None
+
+
 def test_run_logging_service_reads_latest_delivery_evidence_snapshot(
     tmp_path,
 ):

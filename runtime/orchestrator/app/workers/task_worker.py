@@ -2956,7 +2956,11 @@ class TaskWorker:
                     delivery_git_write_enabled=False,
                 )
 
-            if execution_quality_passed:
+            if (
+                execution_quality_passed
+                and git_operation_dry_run_result is not None
+                and delivery_gate_evidence_result is not None
+            ):
                 self.run_logging_service.append_delivery_evidence_snapshot(
                     log_path=run.log_path,
                     run_id=run.id,

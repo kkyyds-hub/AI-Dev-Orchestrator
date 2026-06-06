@@ -237,7 +237,11 @@ class RunLoggingService:
     ) -> None:
         """Append the P4-F2-C0 cached delivery evidence snapshot event."""
 
-        if log_path is None:
+        if (
+            log_path is None
+            or operation_dry_run is None
+            or delivery_gate_evidence is None
+        ):
             return
 
         self.append_event(
