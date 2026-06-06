@@ -581,7 +581,7 @@ def _build_status_summary_cn(
         parts.append(f"{deleted_count} 个文件删除")
     if renamed_count:
         parts.append(f"{renamed_count} 个文件重命名")
-    return "，".join(parts) if parts else "未发现文件改动"
+    return "，".join(parts) if parts else "本次执行未产生文件变更"
 
 
 def _truncate_text(value: str, max_length: int) -> str | None:

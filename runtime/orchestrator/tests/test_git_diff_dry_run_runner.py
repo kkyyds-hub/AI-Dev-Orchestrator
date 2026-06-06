@@ -208,12 +208,138 @@ def test_git_diff_dry_run_collects_clean_worktree_evidence(tmp_path):
     assert result.has_changes is False
     assert result.changed_files_count == 0
     assert result.changed_files == []
-    assert result.status_summary_cn == "未发现文件改动"
+    assert result.status_summary_cn == "本次执行未产生文件变更"
     assert result.diff_stat is None
     assert result.diff_shortstat is None
     assert result.runs_git is True
     assert result.runs_write_git is False
     assert result.execution_enabled is False
+
+
+def test_git_diff_dry_run_collects_deleted_file_evidence(tmp_path):
+    repository_root = _create_tmp_git_repository(tmp_path)
+    (repository_root / "README.md").unlink()
+
+    result = GitDiffDryRunRunner().collect(repository_path=str(repository_root))
+
+    assert result.ready is True
+    assert result.has_changes is True
+    assert result.changed_files == ["README.md"]
+    assert result.deleted_files == ["README.md"]
+    assert result.added_files == []
+    assert result.modified_files == []
+    assert result.renamed_files == []
+    assert result.status_summary_cn == "1 个文件删除"
+    assert result.runs_git is True
+    assert result.runs_write_git is False
+    assert result.git_add_triggered is False
+    assert result.git_commit_triggered is False
+    assert result.git_push_triggered is False
+    assert result.pr_opened is False
+
+
+def test_git_diff_dry_run_collects_renamed_file_evidence(tmp_path):
+    repository_root = _create_tmp_git_repository(tmp_path)
+    _run_git(repository_root, "mv", "README.md", "README_RENAMED.md")
+
+    result = GitDiffDryRunRunner().collect(repository_path=str(repository_root))
+
+    assert result.ready is True
+    assert result.has_changes is True
+    assert result.changed_files == ["README_RENAMED.md"]
+    assert result.renamed_files == ["README_RENAMED.md"]
+    assert result.added_files == []
+    assert result.modified_files == []
+    assert result.deleted_files == []
+    assert result.status_summary_cn == "1 个文件重命名"
+    assert result.runs_git is True
+    assert result.runs_write_git is False
+    assert result.execution_enabled is False
+
+
+def test_git_diff_dry_run_returns_timeout_result(tmp_path, monkeypatch):
+    repository_root = _create_tmp_git_repository(tmp_path)
+    runner = GitDiffDryRunRunner(default_timeout_seconds=1)
+    spec = runner.git_diff_stat(repository_path=str(repository_root))
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd=kwargs.get("args") or args[0],
+            timeout=kwargs["timeout"],
+            output="partial stdout",
+            stderr="partial stderr",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = runner.run(spec)
+
+    assert result.return_code == 124
+    assert result.stdout == "partial stdout"
+    assert result.stderr == "partial stderr"
+    assert result.timed_out is True
+    assert result.spec == spec
+
+
+def test_git_diff_dry_run_collect_maps_timeout_to_blocked_result(tmp_path, monkeypatch):
+    repository_root = _create_tmp_git_repository(tmp_path)
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd=kwargs.get("args") or args[0],
+            timeout=kwargs["timeout"],
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = GitDiffDryRunRunner(default_timeout_seconds=1).collect(
+        repository_path=str(repository_root)
+    )
+
+    assert result.ready is False
+    assert result.reason_code == "git_diff_dry_run_command_timed_out"
+    assert result.worktree_path == str(repository_root)
+    assert result.has_changes is None
+    assert result.changed_files_count is None
+    assert result.command == "git status --porcelain=v1 --untracked-files=all"
+    assert result.runs_git is True
+    assert result.runs_write_git is False
+    assert result.git_add_triggered is False
+    assert result.git_commit_triggered is False
+    assert result.git_push_triggered is False
+    assert result.pr_opened is False
+    assert result.execution_enabled is False
+
+
+def test_git_diff_dry_run_uses_subprocess_arg_list_without_shell(tmp_path, monkeypatch):
+    repository_root = _create_tmp_git_repository(tmp_path)
+    runner = GitDiffDryRunRunner(default_timeout_seconds=7)
+    spec = runner.git_status_porcelain(repository_path=str(repository_root))
+    calls: list[dict[str, object]] = []
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return Completed()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = runner.run(spec)
+
+    assert result.return_code == 0
+    assert len(calls) == 1
+    assert calls[0]["args"] == (spec.argv,)
+    kwargs = calls[0]["kwargs"]
+    assert kwargs["cwd"] == str(repository_root)
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    assert kwargs["timeout"] == 7
+    assert kwargs["check"] is False
+    assert "shell" not in kwargs
 
 
 def test_git_diff_dry_run_blocks_before_git_for_missing_worktree(tmp_path):
