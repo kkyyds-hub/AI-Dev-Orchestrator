@@ -119,6 +119,10 @@ class DeliveryGateEvidenceResult(DomainModel):
     user_confirmation_required: bool = False
     human_approval_required: bool = False
 
+    delivery_audit_event_present: bool | None = None
+    delivery_audit_event_type: str | None = Field(default=None, max_length=200)
+    delivery_audit_event_ready: bool | None = None
+
     summary_cn: str = Field(min_length=1, max_length=1_000)
     satisfied_conditions: list[str] = Field(default_factory=list, max_length=21)
     blocking_reasons: list[str] = Field(default_factory=list, max_length=21)
@@ -137,6 +141,7 @@ class DeliveryGateEvidenceResult(DomainModel):
         "worktree_path",
         "branch_name",
         "proposed_operation",
+        "delivery_audit_event_type",
         "summary_cn",
     )
     @classmethod
@@ -381,6 +386,9 @@ class DeliveryGateEvidenceBuilder:
                 ),
                 user_confirmation_required=True,
                 human_approval_required=True,
+                delivery_audit_event_present=delivery_audit_event_present,
+                delivery_audit_event_type=delivery_audit_event_type,
+                delivery_audit_event_ready=delivery_audit_event_ready,
                 summary_cn="交付前检查已通过，可以进入用户确认。仍未执行提交或推送。",
                 satisfied_conditions=satisfied_conditions,
                 blocking_reasons=[],
@@ -403,6 +411,9 @@ class DeliveryGateEvidenceBuilder:
             ),
             user_confirmation_required=False,
             human_approval_required=False,
+            delivery_audit_event_present=delivery_audit_event_present,
+            delivery_audit_event_type=delivery_audit_event_type,
+            delivery_audit_event_ready=delivery_audit_event_ready,
             summary_cn=P4D_REASON_SUMMARIES_CN.get(
                 primary_reason_code or "", "交付前检查未通过。"
             ),

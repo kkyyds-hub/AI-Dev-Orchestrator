@@ -138,6 +138,9 @@ def test_evaluate_ready_delivery_gate_evidence_covers_g1_to_g21():
     )
     assert result.user_confirmation_required is True
     assert result.human_approval_required is True
+    assert result.delivery_audit_event_present is True
+    assert result.delivery_audit_event_type == DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+    assert result.delivery_audit_event_ready is True
     assert result.summary_cn == "交付前检查已通过，可以进入用户确认。仍未执行提交或推送。"
     assert result.satisfied_conditions == [f"G{index}" for index in range(1, 22)]
     assert result.blocking_reasons == []
@@ -160,10 +163,49 @@ def test_evaluate_blocks_when_audit_evidence_missing():
         DeliveryGateNextRequiredAction.RESOLVE_BLOCKING_CONDITIONS
     )
     assert "G21:audit_evidence_missing" in result.blocking_reasons
+    assert result.delivery_audit_event_present is None
+    assert result.delivery_audit_event_type is None
+    assert result.delivery_audit_event_ready is None
     assert result.proposed_operation == "none"
     assert result.safety_flags.gate_allows_write is False
     assert result.safety_flags.gate_allows_user_confirmation is False
     assert not any(copy in result.summary_cn for copy in FORBIDDEN_USER_VISIBLE_COPY)
+
+
+def test_evaluate_blocks_when_audit_evidence_has_wrong_type():
+    result = _evaluate(
+        delivery_audit_event_present=True,
+        delivery_audit_event_type="delivery_diff_dry_run_failed",
+        delivery_audit_event_ready=True,
+    )
+
+    assert result.ready is False
+    assert result.reason_code == "audit_evidence_missing"
+    assert result.summary_cn == "缺少交付审计记录，无法进行交付前检查。"
+    assert "G21:audit_evidence_missing" in result.blocking_reasons
+    assert result.delivery_audit_event_present is True
+    assert result.delivery_audit_event_type == "delivery_diff_dry_run_failed"
+    assert result.delivery_audit_event_ready is True
+    assert result.safety_flags.gate_allows_write is False
+    assert result.safety_flags.gate_allows_user_confirmation is False
+
+
+def test_evaluate_blocks_when_audit_evidence_is_not_ready():
+    result = _evaluate(
+        delivery_audit_event_present=True,
+        delivery_audit_event_type=DELIVERY_AUDIT_COLLECTED_EVENT_TYPE,
+        delivery_audit_event_ready=False,
+    )
+
+    assert result.ready is False
+    assert result.reason_code == "audit_evidence_missing"
+    assert result.summary_cn == "缺少交付审计记录，无法进行交付前检查。"
+    assert "G21:audit_evidence_missing" in result.blocking_reasons
+    assert result.delivery_audit_event_present is True
+    assert result.delivery_audit_event_type == DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+    assert result.delivery_audit_event_ready is False
+    assert result.safety_flags.gate_allows_write is False
+    assert result.safety_flags.gate_allows_user_confirmation is False
 
 
 def test_evaluate_blocked_reason_code_coverage():
