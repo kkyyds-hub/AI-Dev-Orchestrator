@@ -1,0 +1,367 @@
+# Coding Session Git Delivery Lifecycle P4-F2-A Human Approval Passthrough 收口
+
+> **文档类型**: P4-F2-A 阶段收口审计 + Gate 证据  
+> **生成日期**: 2026-06-06  
+> **远端基准**: `origin/main` = `814beeae31a55980a6a19817bf2ea0a7a393bda2`  
+> **P4-F2-A initial commit**: `088926bec55bc41eb98c78a4912a01684e72b4eb` (`Implement P4-F2 human approval passthrough skeleton`)  
+> **P4-F2-A R1 fix commit**: `814beeae31a55980a6a19817bf2ea0a7a393bda2` (`Fix P4-F2 human approval passthrough semantics`)  
+> **主产品基线**: `docs/product/ai-project-director/page-information-architecture-20260518.md`  
+> **前置文档**: `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4f1-closure-20260606.md`  
+> **边界**: 本轮只做 P4-F2-A 收口复核与文档回填；不改 Python 业务代码、不改 API、不改 Worker、不改前端、不改数据库 / migration、不写 AgentMessage、不实现 approval API、不实现确认按钮、不实现产品运行时 `git add` / `git commit` / `git push` / PR。  
+> **状态**: P4-F2-A Closure: Pass；P4-F3: Not started；AI Project Director 总闭环: Partial
+
+---
+
+## 0. 本轮范围
+
+本轮目标是对已提交到 GitHub `origin/main` 的 P4-F2-A 后端只读透传骨架做只读复核，并补齐阶段收口证据。
+
+本轮只确认以下事项：
+
+1. `origin/main` 当前 head 已包含 P4-F2-A 两个 commit。
+2. P4-F2-A 实现符合"后端只读透传骨架"边界。
+3. P4-F2-A targeted tests + P4-C/P4-D/P4-F1 相邻 targeted regression 通过。
+4. P4-F3 前端确认入口仍未开始。
+5. AI Project Director 总闭环仍为 Partial。
+
+本轮明确不做：
+
+| 项目 | 状态 |
+|------|------|
+| Python 业务代码修补 | 未做 |
+| Worker 接入 `HumanApprovalGateBuilder.evaluate()` | 未做 |
+| approval API 新增 | 未做 |
+| 前端确认入口 | 未做 |
+| 数据库 / migration | 未做 |
+| AgentMessage 写入 | 未做 |
+| 产品运行时 Git 写操作 | 未做 |
+| PR / merge / CI 触发能力 | 未做 |
+
+---
+
+## 1. 远端提交确认
+
+只读核验命令：
+
+```bash
+git fetch origin main
+git rev-parse origin/main
+git log origin/main --oneline -5
+```
+
+核验结果：
+
+| 项目 | 结果 |
+|------|------|
+| 当前 `origin/main` hash | `814beeae31a55980a6a19817bf2ea0a7a393bda2` |
+| 当前 `origin/main` commit message | `Fix P4-F2 human approval passthrough semantics` |
+| P4-F2-A initial commit hash | `088926bec55bc41eb98c78a4912a01684e72b4eb` |
+| P4-F2-A initial commit message | `Implement P4-F2 human approval passthrough skeleton` |
+| P4-F2-A R1 fix commit hash | `814beeae31a55980a6a19817bf2ea0a7a393bda2` |
+| P4-F2-A R1 fix commit message | `Fix P4-F2 human approval passthrough semantics` |
+
+结论：GitHub `origin/main` 当前 head 是 P4-F2-A R1 fix commit；其提交历史包含 P4-F2-A 骨架实现。
+
+---
+
+## 2. 主产品基线映射
+
+主产品基线文件：
+
+```text
+docs/product/ai-project-director/page-information-architecture-20260518.md
+```
+
+相关产品定位：
+
+| 基线机制 | P4-F2-A 映射 |
+|----------|-------------|
+| 成果中心承接交付物与审批 | P4-F2-A 只在 WorkerRunResult/WorkerRunOnceResponse 中提供 `delivery_human_approval_*` 字段骨架，不实现审批逻辑 |
+| 审批页是用户对 AI 产出进行人工 Gate 决策的地方 | P4-F2-A 不为 Worker 默认路径生成 human approval evidence；后续 P4-F3 才需要前端确认入口 |
+| 所有高风险放行动作必须说明后果并保留证据 | P4-F2-A 所有 Git 写操作 safety flags 在 human approval evidence 中默认 False / None |
+| 页面分工清楚，不让运行页/仓库页承担审批决策 | P4-F2-A 不向前端写入任何确认状态；`delivery_human_approval_*` 字段默认 None / 空列表 |
+
+P4-F2-A 与产品基线一致：它只在 Worker response 层面预留 human approval evidence 字段骨架，不把确认等同于代码已写入仓库。
+
+---
+
+## 3. P4-F2-A 实现复核
+
+### 3.1 文件清单
+
+| 文件 | 用途 | 状态 |
+|------|------|------|
+| `runtime/orchestrator/app/workers/task_worker.py` | WorkerRunResult 新增 `delivery_human_approval_*` 字段 + `_delivery_human_approval_result_kwargs()` helper | Pass |
+| `runtime/orchestrator/app/api/routes/workers.py` | WorkerRunOnceResponse 新增 `delivery_human_approval_*` 字段 + `from_result()` 透传映射 | Pass |
+| `runtime/orchestrator/app/domain/human_approval_gate.py` | P4-F1 纯域模型（P4-F2-A 未修改此文件） | Pass |
+
+### 3.2 实现范围
+
+#### A. WorkerRunResult 新增字段
+
+文件：`runtime/orchestrator/app/workers/task_worker.py`（第 321–362 行）
+
+WorkerRunResult 新增以下 `delivery_human_approval_*` 字段，全部默认 `None` / 空列表：
+
+| 字段分组 | 字段 | 默认值 |
+|---------|------|--------|
+| 基础状态 | `delivery_human_approval_ready` | `None` |
+| 基础状态 | `delivery_human_approval_source` | `None` |
+| 基础状态 | `delivery_human_approval_reason_code` | `None` |
+| 基础状态 | `delivery_human_approval_summary_cn` | `None` |
+| 会话标识 | `delivery_human_approval_session_id` | `None` |
+| 会话标识 | `delivery_human_approval_project_id` | `None` |
+| 会话标识 | `delivery_human_approval_task_id` | `None` |
+| 会话标识 | `delivery_human_approval_run_id` | `None` |
+| 审批状态 | `delivery_human_approval_required` | `None` |
+| 审批状态 | `delivery_human_approval_granted` | `None` |
+| 审计记录 | `delivery_human_approval_id` | `None` |
+| 审计记录 | `delivery_human_approval_approved_by` | `None` |
+| 审计记录 | `delivery_human_approval_approved_by_display_name` | `None` |
+| 审计记录 | `delivery_human_approval_scope` | `None` |
+| 审计记录 | `delivery_human_approval_requested_action` | `None` |
+| 审计记录 | `delivery_human_approval_client_request_id` | `None` |
+| 审计记录 | `delivery_human_approval_created_at` | `None` |
+| 审计记录 | `delivery_human_approval_expires_at` | `None` |
+| 审计记录 | `delivery_human_approval_applied` | `None` |
+| 审计记录 | `delivery_human_approval_revoked` | `None` |
+| 审计记录 | `delivery_human_approval_confirmation_fingerprint` | `None` |
+| 证据对齐 | `delivery_human_approval_operation_dry_run_ready` | `None` |
+| 证据对齐 | `delivery_human_approval_delivery_gate_evidence_ready` | `None` |
+| 证据对齐 | `delivery_human_approval_delivery_gate_allows_user_confirmation` | `None` |
+| 证据对齐 | `delivery_human_approval_delivery_gate_allows_write` | `None` |
+| 操作预览 | `delivery_human_approval_proposed_operation` | `None` |
+| 操作预览 | `delivery_human_approval_proposed_commit_message` | `None` |
+| 操作预览 | `delivery_human_approval_changed_files_count` | `None` |
+| 操作预览 | `delivery_human_approval_changed_files` | `[]` |
+| 条件与阻塞 | `delivery_human_approval_satisfied_conditions` | `[]` |
+| 条件与阻塞 | `delivery_human_approval_blocking_reasons` | `[]` |
+| 安全标志 | `delivery_human_approval_runs_git` | `None` |
+| 安全标志 | `delivery_human_approval_runs_write_git` | `None` |
+| 安全标志 | `delivery_human_approval_git_add_triggered` | `None` |
+| 安全标志 | `delivery_human_approval_git_commit_triggered` | `None` |
+| 安全标志 | `delivery_human_approval_git_push_triggered` | `None` |
+| 安全标志 | `delivery_human_approval_pr_opened` | `None` |
+| 安全标志 | `delivery_human_approval_ci_triggered` | `None` |
+| 安全标志 | `delivery_human_approval_execution_enabled` | `None` |
+| 安全标志 | `delivery_human_approval_operation_applied` | `None` |
+| 安全标志 | `delivery_human_approval_gate_allows_write` | `None` |
+| 安全标志 | `delivery_human_approval_gate_allows_next_guardrail` | `None` |
+
+#### B. WorkerRunOnceResponse 新增字段
+
+文件：`runtime/orchestrator/app/api/routes/workers.py`（第 343–384 行）
+
+WorkerRunOnceResponse 新增对应的 `delivery_human_approval_*` 字段，全部默认 `None` / 空列表。
+
+`from_result()` 方法（第 885–986 行）直接透传 WorkerRunResult 对应字段，不做任何计算或评估。
+
+#### C. `_delivery_human_approval_result_kwargs()` helper
+
+文件：`runtime/orchestrator/app/workers/task_worker.py`（第 598–682 行）
+
+该 helper 是纯映射函数：接收 `DeliveryHumanApprovalResult | None`，返回 `dict[str, object]`。当 `result is None` 时返回空字典。它本身不调用 `HumanApprovalGateBuilder.evaluate()`，不访问数据库，不运行 Git。
+
+### 3.3 关键语义
+
+| 语义 | 当前状态 | 证据 |
+|------|---------|------|
+| 当前没有真实用户确认输入来源 | 确认 | Worker 不调用 `HumanApprovalGateBuilder.evaluate()` |
+| Worker 不调用 `HumanApprovalGateBuilder.evaluate()` | 确认 | `task_worker.py` 中无 `HumanApprovalGateBuilder` 调用 |
+| `delivery_human_approval_*` 默认保持 None / 空列表 | 确认 | WorkerRunResult dataclass 默认值全部为 None / [] |
+| P4-C git diff / operation dry-run 字段仍可展示 | 确认 | `git_diff_dry_run_*` 和 `git_operation_dry_run_*` 字段保持不变 |
+| P4-D delivery gate evidence 字段仍可展示 | 确认 | `delivery_gate_evidence_*` 字段保持不变 |
+| P4-F2-A 只提供后续 P4-F3 / approval API 的只读 response 骨架 | 确认 | 仅新增字段，不实现评估逻辑 |
+
+### 3.4 Worker 默认路径 human approval 不生成
+
+| Worker 路径 | `delivery_human_approval_*` 状态 | 证据 |
+|------------|--------------------------------|------|
+| 无 pending task (claimed=False) | 全部 None / [] | `WorkerRunResult` 默认值 |
+| budget guard blocked | 全部 None / [] | `WorkerRunResult` 不传入 human approval kwargs |
+| workspace validation blocked | 全部 None / [] | `WorkerRunResult` 不传入 human approval kwargs |
+| worktree safe command proof blocked | 全部 None / [] | `WorkerRunResult` 不传入 human approval kwargs |
+| runtime launch gate blocked | 全部 None / [] | `WorkerRunResult` 不传入 human approval kwargs |
+| execution failed | 全部 None / [] | `WorkerRunResult` 不传入 human approval kwargs |
+| execution succeeded | 全部 None / [] | `WorkerRunResult` 不传入 human approval kwargs |
+
+结论：所有 Worker 默认路径都**不**自动生成 human approval evidence。`delivery_human_approval_*` 字段仅作为后续 P4-F3 接入后的只读透传骨架存在。
+
+---
+
+## 4. 测试证据
+
+### 4.1 Targeted Tests 命令与结果
+
+命令：
+
+```bash
+cd runtime/orchestrator
+python -m pytest tests/test_worker_workspace_readonly_validation.py \
+  tests/test_human_approval_gate.py \
+  tests/test_git_operation_dry_run.py \
+  tests/test_delivery_gate_evidence.py -q
+```
+
+结果：
+
+```text
+75 passed in 0.44s
+```
+
+### 4.2 测试覆盖说明
+
+| 覆盖项 | 对应测试文件 | 状态 |
+|--------|-------------|------|
+| `_delivery_human_approval_result_kwargs()` 纯映射（None 返回空字典） | `test_worker_workspace_readonly_validation.py`（通过 `WorkerRunOnceResponse.from_result()` 间接覆盖） | Pass |
+| Worker 成功路径 human approval 字段为 None / 空列表 | `test_worker_workspace_readonly_validation.py` | Pass |
+| API response human approval 字段为 None / 空列表 | `test_worker_workspace_readonly_validation.py` | Pass |
+| P4-F1 human approval gate domain model 30 tests | `test_human_approval_gate.py` | Pass |
+| P4-C git operation dry-run tests | `test_git_operation_dry_run.py` | Pass |
+| P4-D delivery gate evidence tests | `test_delivery_gate_evidence.py` | Pass |
+| P4-C / P4-D / P4-F1 targeted regression | 全部 75 passed | Pass |
+
+### 4.3 P4-F1 单独测试
+
+命令：
+
+```bash
+cd runtime/orchestrator
+python -m pytest tests/test_human_approval_gate.py -q
+```
+
+结果（先前 P4-F1 Closure 已记录）：
+
+```text
+30 passed in 0.08s
+```
+
+### 4.4 P4-C / P4-D / P4-F1 联合回归
+
+命令：
+
+```bash
+cd runtime/orchestrator
+python -m pytest tests/test_human_approval_gate.py \
+  tests/test_git_operation_dry_run.py \
+  tests/test_delivery_gate_evidence.py -q
+```
+
+结果（先前 P4-F1 Closure 已记录）：
+
+```text
+49 passed in 0.09s
+```
+
+---
+
+## 5. 安全边界审计
+
+| 边界项 | 状态 | 证据 |
+|--------|------|------|
+| 未改前端 | 确认 | `apps/` 无 P4-F2-A 变更 |
+| 未改数据库 / migration | 确认 | 无 migration 文件变更 |
+| 未写 AgentMessage | 确认 | `task_worker.py` 无 AgentMessage 写入 |
+| 未新增 approval API | 确认 | `routes/workers.py` 无新增路由 |
+| 未新增确认按钮 | 确认 | 前端未变更 |
+| 未实现产品运行时 `git add` | 确认 | `delivery_human_approval_git_add_triggered` 默认 None |
+| 未实现产品运行时 `git commit` | 确认 | `delivery_human_approval_git_commit_triggered` 默认 None |
+| 未实现产品运行时 `git push` | 确认 | `delivery_human_approval_git_push_triggered` 默认 None |
+| 未创建 PR / merge / CI 触发能力 | 确认 | `delivery_human_approval_pr_opened` / `delivery_human_approval_ci_triggered` 默认 None |
+| Worker 不调用 `HumanApprovalGateBuilder.evaluate()` | 确认 | `task_worker.py` 无调用 |
+
+---
+
+## 6. 用户可见中文文案审计
+
+P4-F2-A 不新增面向用户的主文案。`_delivery_human_approval_result_kwargs()` helper 只做字段映射，不产生任何用户可见文案。
+
+以下误导表达在当前代码中**不存在**：
+
+| 禁止文案 | 审计结果 |
+|---------|---------|
+| "代码已提交" | 未出现 |
+| "代码已推送" | 未出现 |
+| "PR 已创建" | 未出现 |
+| "交付完成" | 未出现 |
+| "审批已通过" | 未出现 |
+| "已授权写入" | 未出现 |
+| "可以提交代码" | 未出现 |
+| "合并请求已创建" | 未出现 |
+| "自动提交成功" | 未出现 |
+| "AI 已完成交付" | 未出现 |
+
+P4-F2-A 的 `DeliveryHumanApprovalResult.summary_cn` 唯一出现的 ready 文案为 `"用户已确认提交预览，可进入下一阶段写入前安全检查。当前仍未写入仓库。"`，此文案仅在 `HumanApprovalGateBuilder.evaluate()` 内部产生，且 Worker 当前不调用该方法，因此不会出现在产品运行时 response 中。
+
+---
+
+## 7. 当前 Not started 清单
+
+| # | 能力 | 状态 |
+|---|------|------|
+| 1 | P4-F3 前端确认入口 | Not started |
+| 2 | approval API | Not started |
+| 3 | AgentMessage approval event 写入 | Not started |
+| 4 | Worker 调用 `HumanApprovalGateBuilder.evaluate()` | Not started |
+| 5 | 真实用户确认输入来源 | Not started |
+| 6 | 产品运行时 `git add` | Not started |
+| 7 | 产品运行时 `git commit` | Not started |
+| 8 | 产品运行时 `git push` | Not started |
+| 9 | PR 创建 | Not started |
+| 10 | CI / review / merge | Not started |
+| 11 | AI Project Director 总闭环 Pass | Not started |
+
+---
+
+## 8. Gate 结论
+
+| Gate | 结论 | 证据 |
+|------|------|------|
+| `origin/main` 当前 head 为 P4-F2-A R1 fix commit | Pass | commit `814beeae31a55980a6a19817bf2ea0a7a393bda2` |
+| `origin/main` 历史包含 P4-F2-A skeleton 实现 commit | Pass | commit `088926bec55bc41eb98c78a4912a01684e72b4eb` |
+| WorkerRunResult 新增 `delivery_human_approval_*` 字段 | Pass | `task_worker.py` L321–362 |
+| WorkerRunOnceResponse 新增 `delivery_human_approval_*` 字段 | Pass | `routes/workers.py` L343–384 |
+| `_delivery_human_approval_result_kwargs()` helper 纯映射 | Pass | `task_worker.py` L598–682 |
+| Worker 默认路径不生成 human approval evidence | Pass | 所有 `WorkerRunResult` 构造不传入 human approval kwargs |
+| P4-C / P4-D / P4-F1 targeted regression 通过 | Pass | 全 75 passed |
+| 未改前端 | Pass | `apps/` 无变更 |
+| 未改数据库 | Pass | 无 migration |
+| 未写 AgentMessage | Pass | 无调用 |
+| 未新增 approval API | Pass | 路由文件无新增 |
+| 未实现产品运行时 Git 写操作 | Pass | 所有 write flag 默认 None |
+| **P4-F2-A Closure** | **Pass** | targeted tests 通过 |
+
+---
+
+## 9. P4-F2-A Closure 结论
+
+| 项目 | 结论 |
+|------|------|
+| P4-F1 Closure | Pass |
+| P4-F2-A Closure | **Pass** |
+| P4-F3 | Not started |
+| AI Project Director 总闭环 | Partial |
+
+P4-F2-A 已完成后端只读透传骨架。WorkerRunResult 和 WorkerRunOnceResponse 均已预留 `delivery_human_approval_*` 字段，但当前没有任何真实用户确认输入来源，Worker 不调用 `HumanApprovalGateBuilder.evaluate()`，所有路径默认不生成 human approval evidence。P4-F3 需在此基础上实现前端确认入口与 Worker 接入。
+
+---
+
+## 10. 本轮收口声明
+
+本轮只做文档与证据收口。
+
+| 声明 | 结论 |
+|------|------|
+| 是否修改 Python 业务代码 | 否 |
+| 是否修改测试代码 | 否 |
+| 是否修改 API | 否 |
+| 是否修改 Worker | 否 |
+| 是否修改前端 | 否 |
+| 是否修改数据库 / migration | 否 |
+| 是否写 AgentMessage | 否 |
+| 是否新增 approval API | 否 |
+| 是否新增确认按钮 | 否 |
+| 是否实现产品运行时 Git 写操作 | 否 |
+| 是否只新增 P4-F2-A closure 文档 | 是 |
+
+开发流程中的文档提交不代表 AI-Dev-Orchestrator 产品运行时具备 Git 写操作能力。
