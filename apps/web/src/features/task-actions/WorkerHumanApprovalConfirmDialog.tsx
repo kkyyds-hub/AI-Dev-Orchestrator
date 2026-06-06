@@ -16,7 +16,7 @@ type WorkerHumanApprovalConfirmDialogProps = {
 };
 
 export const DELIVERY_HUMAN_APPROVAL_CONFIRMATION_TEXT =
-  "我确认当前提交预览内容，可进入下一阶段安全检查。";
+  "我确认提交预览内容，可进入下一阶段安全检查。";
 
 export function WorkerHumanApprovalConfirmDialog(
   props: WorkerHumanApprovalConfirmDialogProps,

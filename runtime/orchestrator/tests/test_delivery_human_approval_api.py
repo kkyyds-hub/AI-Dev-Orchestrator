@@ -257,6 +257,86 @@ def test_delivery_human_approval_api_audit_summary_uses_confirmation_semantics()
         assert phrase not in DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY
 
 
+def test_p4f4_minimal_e2e_records_frontend_confirmation_audit_without_git_writes(
+    client,
+    db_session,
+):
+    _, task, run, agent_session = _seed_run_with_session(db_session)
+    log_path = _write_delivery_evidence_snapshot(task_id=task.id, run_id=run.id)
+    RunRepository(db_session).set_log_path(run.id, log_path)
+    db_session.commit()
+
+    frontend_confirmation_text = (
+        "我确认提交预览内容，可进入下一阶段安全检查。"
+    )
+
+    response = client.post(
+        "/approvals/delivery-human-approval",
+        json=_approval_request_payload(
+            run.id,
+            approval_confirmation_text=frontend_confirmation_text,
+            approval_client_request_id="p4f4-frontend-confirmation-request",
+        ),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ready"] is True
+    assert payload["approval_granted"] is True
+    assert payload["approval_applied"] is False
+    assert payload["approval_revoked"] is False
+    assert payload["approved_by"] == DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID
+    assert (
+        payload["approved_by_display_name"]
+        == DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME
+    )
+    assert payload["approval_client_request_id"] == (
+        "p4f4-frontend-confirmation-request"
+    )
+    assert payload["approval_confirmation_fingerprint"]
+    assert frontend_confirmation_text not in response.text
+    assert payload["safety_flags"]["runs_write_git"] is False
+    assert payload["safety_flags"]["git_add_triggered"] is False
+    assert payload["safety_flags"]["git_commit_triggered"] is False
+    assert payload["safety_flags"]["git_push_triggered"] is False
+    assert payload["safety_flags"]["pr_opened"] is False
+    assert payload["safety_flags"]["ci_triggered"] is False
+    assert payload["safety_flags"]["execution_enabled"] is False
+    assert payload["safety_flags"]["operation_applied"] is False
+    assert payload["safety_flags"]["gate_allows_write"] is False
+    assert payload["safety_flags"]["gate_allows_next_guardrail"] is True
+
+    assert _count_rows(db_session, ApprovalRequestTable) == 0
+    assert _count_rows(db_session, ApprovalDecisionTable) == 0
+    messages = _agent_message_rows_for_session(db_session, agent_session.id)
+    assert len(messages) == 1
+    message = messages[0]
+    assert message.role == AgentMessageRole.SYSTEM
+    assert message.message_type == AgentMessageType.TIMELINE
+    assert message.event_type == DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE
+    assert message.content_summary == DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY
+    assert frontend_confirmation_text not in message.content_summary
+    assert frontend_confirmation_text not in (message.content_detail or "")
+    detail = json.loads(message.content_detail or "{}")
+    assert detail["approval_client_request_id"] == (
+        "p4f4-frontend-confirmation-request"
+    )
+    assert detail["approval_confirmation_fingerprint"] == (
+        payload["approval_confirmation_fingerprint"]
+    )
+    assert "approval_confirmation_text" not in detail
+    assert detail["runs_write_git"] is False
+    assert detail["git_add_triggered"] is False
+    assert detail["git_commit_triggered"] is False
+    assert detail["git_push_triggered"] is False
+    assert detail["pr_opened"] is False
+    assert detail["ci_triggered"] is False
+    assert detail["execution_enabled"] is False
+    assert detail["operation_applied"] is False
+    assert detail["gate_allows_write"] is False
+    assert detail["gate_allows_next_guardrail"] is True
+
+
 def test_delivery_human_approval_api_evaluates_snapshot_without_persisting_confirmation(
     client,
     db_session,
