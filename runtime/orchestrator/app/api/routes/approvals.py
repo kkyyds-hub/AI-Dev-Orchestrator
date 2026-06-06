@@ -97,11 +97,17 @@ from app.services.repository_release_gate_service import (
 )
 from app.services.run_logging_service import (
     DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+    DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION,
+    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
     RunLoggingService,
 )
 from app.services.role_catalog_service import RoleCatalogService
 from app.services.task_service import TaskService
 from app.services.task_state_machine_service import TaskStateMachineService
+
+
+DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID = "delivery_human_approval_api_actor_seam"
+DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME = "Delivery Human Approval API"
 
 
 class ApprovalDecisionSummaryResponse(BaseModel):
@@ -995,8 +1001,6 @@ class DeliveryHumanApprovalRequest(BaseModel):
         max_length=120,
     )
     approval_confirmation_text: str = Field(min_length=1, max_length=2_000)
-    approval_actor_id: str = Field(min_length=1, max_length=120)
-    approval_actor_display_name: str | None = Field(default=None, max_length=200)
     approval_client_request_id: str = Field(min_length=1, max_length=200)
     approval_expires_at: datetime
     expected_changed_files: list[str] = Field(default_factory=list, max_length=500)
@@ -1838,6 +1842,18 @@ def evaluate_delivery_human_approval(
         )
 
     snapshot_data = snapshot.data
+    snapshot_invalid_reason = _delivery_human_approval_snapshot_invalid_reason(
+        snapshot_data
+    )
+    if snapshot_invalid_reason is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Delivery evidence snapshot invalid for run "
+                f"{request.run_id}: {snapshot_invalid_reason}"
+            ),
+        )
+
     operation_dry_run = snapshot_data.get("operation_dry_run")
     delivery_gate_evidence = snapshot_data.get("delivery_gate_evidence")
 
@@ -1848,8 +1864,8 @@ def evaluate_delivery_human_approval(
         delivery_gate_evidence=delivery_gate_evidence,
         approval_requested_action=request.approval_requested_action,
         approval_confirmation_text=request.approval_confirmation_text,
-        approval_actor_id=request.approval_actor_id,
-        approval_actor_display_name=request.approval_actor_display_name,
+        approval_actor_id=DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID,
+        approval_actor_display_name=DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME,
         approval_client_request_id=request.approval_client_request_id,
         approval_created_at=utc_now(),
         approval_scope=request.approval_scope,
@@ -1867,6 +1883,29 @@ def evaluate_delivery_human_approval(
         snapshot_data=snapshot_data,
         result=gate_result,
     )
+
+
+def _delivery_human_approval_snapshot_invalid_reason(
+    snapshot_data: dict[str, Any],
+) -> str | None:
+    """Return a stable reason when cached P4-F2-C0 evidence is unusable."""
+
+    if snapshot_data.get("schema_version") != DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION:
+        return "schema_version_mismatch"
+    if (
+        snapshot_data.get("snapshot_source")
+        != DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL
+    ):
+        return "snapshot_source_mismatch"
+    if snapshot_data.get("operation_dry_run_available") is not True:
+        return "operation_dry_run_unavailable"
+    if snapshot_data.get("delivery_gate_evidence_available") is not True:
+        return "delivery_gate_evidence_unavailable"
+    if not isinstance(snapshot_data.get("operation_dry_run"), dict):
+        return "operation_dry_run_payload_invalid"
+    if not isinstance(snapshot_data.get("delivery_gate_evidence"), dict):
+        return "delivery_gate_evidence_payload_invalid"
+    return None
 
 
 @router.get(
