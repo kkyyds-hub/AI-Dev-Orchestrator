@@ -1,0 +1,369 @@
+# Coding Session Git Delivery Lifecycle P4-F2-D Approval Audit / AgentMessage 收口
+
+> **文档类型**: P4-F2-D 阶段收口审计 + Gate 证据  
+> **生成日期**: 2026-06-07  
+> **远端基准**: `origin/main` = `f01bec665276eda6851fd2647388167f004cc058`  
+> **P4-F2-D 实现 commits**:  
+> - `2ea4e9e7f14d7bb54af5cc888a785f1bda00d036` feat: record P4-F2D delivery approval audit  
+> - `f01bec665276eda6851fd2647388167f004cc058` fix: correct P4-F2-D approval audit event semantics  
+> **路线文档**: `docs/product/ai-project-director/p1-p7参考规划复用说明书.md`  
+> **前置 closure 文档**:  
+> - `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4f2c-closure-20260607.md`  
+> - `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4f2d-approval-audit-agentmessage-design-20260607.md`  
+> **边界**: 本轮只做 P4-F2-D 收口复核与文档回填；不改 Python 代码、不改前端、不改数据库 / migration、不实现确认按钮、不实现产品运行时 Git 写操作。  
+> **状态**: P4-F2-D Closure: Pass；P4-F3: Not started；AI Project Director 总闭环: Partial
+
+---
+
+## 0. 阶段定位
+
+P4-F2-D 实现 approval audit / AgentMessage 最小写入。当 P4-F2-C approval API 返回 `ready=True` 时，写入一条 `SYSTEM` + `TIMELINE` AgentMessage，记录"用户确认记录已生成"这一事实。
+
+此事件不表示审批通过、不表示授权写入、不表示代码已提交或 PR 已创建。它只是可审计的证据记录。
+
+### 0.1 本阶段范围
+
+| 项目 | 状态 |
+|------|------|
+| Event type 常量定义 | Pass |
+| AgentMessage 写入条件 | Pass |
+| AgentMessage 写入函数 | Pass |
+| 幂等检查（查询后写入） | Pass |
+| `content_detail` JSON 构造 | Pass |
+| Targeted tests | Pass |
+
+### 0.2 本阶段明确不做
+
+| 项目 | 状态 |
+|------|------|
+| 前端展示 audit event | 不做（P4-F3） |
+| 写入 blocked audit event | 不做（不在最小范围） |
+| DB migration | 不做 |
+| 产品运行时 Git 写操作 | 不做 |
+
+---
+
+## 1. 基准提交
+
+| 项目 | 值 |
+|------|-----|
+| 当前 `origin/main` hash | `f01bec665276eda6851fd2647388167f004cc058` |
+| 当前 `origin/main` commit message | `fix: correct P4-F2-D approval audit event semantics` |
+| P4-F2-D feat commit | `2ea4e9e7f14d7bb54af5cc888a785f1bda00d036` feat: record P4-F2D delivery approval audit |
+| P4-F2-D fix commit | `f01bec665276eda6851fd2647388167f004cc058` fix: correct P4-F2-D approval audit event semantics |
+
+---
+
+## 2. Event Contract
+
+### 2.1 常量定义
+
+文件：`runtime/orchestrator/app/api/routes/approvals.py`（第 114–117 行）
+
+```python
+DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE = "delivery_human_approval_recorded"
+DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY = (
+    "用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。"
+)
+```
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE` | `"delivery_human_approval_recorded"` | AgentMessage `event_type` 字段值 |
+| `DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY` | `"用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。"` | AgentMessage `content_summary` 字段值 |
+
+### 2.2 AgentMessage 域模型字段
+
+| 域模型字段 | 填充值 |
+|-----------|--------|
+| `role` | `AgentMessageRole.SYSTEM` |
+| `message_type` | `AgentMessageType.TIMELINE` |
+| `event_type` | `"delivery_human_approval_recorded"` |
+| `content_summary` | `"用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。"` |
+| `content_detail` | 结构化 JSON（见第 4 节） |
+| `phase` | `None` |
+| `state_from` | `None` |
+| `state_to` | `None` |
+| `intervention_type` | `None` |
+| `note_event_type` | `None` |
+| `context_checkpoint_id` | `None` |
+| `context_rehydrated` | `None` |
+
+---
+
+## 3. 写入条件
+
+### 3.1 外层 Guard
+
+文件：`runtime/orchestrator/app/api/routes/approvals.py`（第 1887–1898 行）
+
+```python
+if (
+    agent_session is not None
+    and _should_record_delivery_human_approval_agent_message(gate_result)
+):
+    _record_delivery_human_approval_agent_message(...)
+    session.commit()
+```
+
+| Guard | 含义 |
+|-------|------|
+| `agent_session is not None` | AgentSession 必须存在，否则跳过 |
+
+### 3.2 内层条件
+
+文件：`runtime/orchestrator/app/api/routes/approvals.py`（第 1931–1942 行）
+
+```python
+def _should_record_delivery_human_approval_agent_message(
+    gate_result: DeliveryHumanApprovalResult,
+) -> bool:
+    return (
+        gate_result.ready is True
+        and gate_result.approval_granted is True
+        and gate_result.safety_flags.gate_allows_next_guardrail is True
+        and gate_result.safety_flags.gate_allows_write is False
+        and gate_result.approval_applied is False
+    )
+```
+
+| # | 条件 | 含义 |
+|---|------|------|
+| 1 | `gate_result.ready is True` | Human approval gate 评估通过 |
+| 2 | `gate_result.approval_granted is True` | 用户确认已授予 |
+| 3 | `gate_result.safety_flags.gate_allows_next_guardrail is True` | 允许进入下一 guardrail |
+| 4 | `gate_result.safety_flags.gate_allows_write is False` | 未授权写仓库 |
+| 5 | `gate_result.approval_applied is False` | 确认未被消费 |
+
+**五个条件全部满足才写入。** 任何一个不满足都不写。
+
+### 3.3 不写入的场景
+
+| 场景 | AgentMessage 写入 |
+|------|------------------|
+| `ready=False`（任何阻断原因） | 否 |
+| HTTP 404（run 不存在） | 否 |
+| HTTP 409（snapshot 缺失/无效） | 否 |
+| `agent_session is None` | 否 |
+| `gate_allows_write=True` | 否（且实际永远不会出现） |
+
+---
+
+## 4. content_detail 字段
+
+### 4.1 完整字段清单
+
+文件：`runtime/orchestrator/app/api/routes/approvals.py`（第 2030–2085 行）
+
+`content_detail` 为 `json.dumps(detail, ensure_ascii=False, sort_keys=True)` 格式。detail 字典包含：
+
+| 字段 | 来源 | 类型 |
+|------|------|------|
+| `event_type` | 常量 `"delivery_human_approval_recorded"` | `str` |
+| `approval_id` | `gate_result.approval_id` | `str` |
+| `approval_client_request_id` | `gate_result.approval_client_request_id` | `str` |
+| `approval_confirmation_fingerprint` | `gate_result.approval_confirmation_fingerprint` | `str` |
+| `approved_by` | `gate_result.approved_by` | `str` |
+| `approved_by_display_name` | `gate_result.approved_by_display_name` | `str` |
+| `approval_scope` | `gate_result.approval_scope.value` | `str` |
+| `approval_requested_action` | `gate_result.approval_requested_action.value` | `str` |
+| `approval_created_at` | `gate_result.approval_created_at.isoformat()` | `str` |
+| `approval_expires_at` | `gate_result.approval_expires_at.isoformat()` | `str` |
+| `approval_applied` | `gate_result.approval_applied` | `bool`（`false`） |
+| `approval_revoked` | `gate_result.approval_revoked` | `bool`（`false`） |
+| `proposed_operation` | `gate_result.proposed_operation` | `str` |
+| `proposed_commit_message` | `gate_result.proposed_commit_message` | `str` |
+| `changed_files_count` | `gate_result.changed_files_count` | `int` |
+| `changed_files` | `list(gate_result.changed_files)` | `list[str]` |
+| `satisfied_conditions` | `list(gate_result.satisfied_conditions)` | `list[str]` |
+| `evidence_snapshot_event` | `DELIVERY_EVIDENCE_SNAPSHOT_EVENT` | `str` |
+| `evidence_snapshot_log_path` | `log_path` | `str` |
+| `evidence_snapshot_schema_version` | `snapshot_data.get("schema_version")` | `str` |
+| `evidence_snapshot_source` | `snapshot_data.get("snapshot_source")` | `str` |
+| `runs_write_git` | 固定 `false` | `bool` |
+| `git_add_triggered` | 固定 `false` | `bool` |
+| `git_commit_triggered` | 固定 `false` | `bool` |
+| `git_push_triggered` | 固定 `false` | `bool` |
+| `pr_opened` | 固定 `false` | `bool` |
+| `ci_triggered` | 固定 `false` | `bool` |
+| `execution_enabled` | 固定 `false` | `bool` |
+| `operation_applied` | 固定 `false` | `bool` |
+| `gate_allows_write` | 固定 `false` | `bool` |
+| `gate_allows_next_guardrail` | `gate_result.safety_flags.gate_allows_next_guardrail` | `bool`（`true`） |
+
+### 4.2 严禁保存
+
+| 禁止数据 | 证据 |
+|---------|------|
+| `approval_confirmation_text` 原文 | 测试断言 `"approval_confirmation_text" not in detail` |
+| token / secret / credential | 代码中无此类引用 |
+| 完整 diff | 代码中无此类引用 |
+
+### 4.3 严禁表达
+
+```text
+审批已通过
+已完成审批
+已授权写入
+可以提交代码
+代码已提交
+代码已推送
+提交成功
+推送成功
+交付完成
+```
+
+测试 `_misleading_audit_phrases()` 枚举了 10 个禁止短语，并在 `content_summary` 和 `content_detail` 中全部断言不存在。
+
+---
+
+## 5. 幂等策略
+
+### 5.1 实现方式
+
+文件：`runtime/orchestrator/app/api/routes/approvals.py`（第 1993–2021 行）
+
+```python
+def _delivery_human_approval_agent_message_exists(
+    *,
+    agent_message_repository: AgentMessageRepository,
+    session_id: UUID,
+    approval_client_request_id: str | None,
+    approval_confirmation_fingerprint: str | None,
+) -> bool:
+```
+
+按 `session_id` 下列出最多 500 条消息，过滤 `event_type == "delivery_human_approval_recorded"`，比较 `content_detail` 中反序列化的 `approval_client_request_id` 和 `approval_confirmation_fingerprint`。
+
+| 特性 | 说明 |
+|------|------|
+| 幂等键 | `session_id` + `event_type` + `approval_client_request_id` + `approval_confirmation_fingerprint` |
+| 策略 | 查询后写入（query-then-write） |
+| DB unique constraint | 无（不新增 migration） |
+| 重复请求行为 | 跳过写入，仍返回 200 |
+
+### 5.2 测试覆盖
+
+测试 `test_delivery_human_approval_api_agent_message_write_is_idempotent`：两次相同 request_payload 调用，第二次仍返回 200 + ready=True，但 `AgentMessageTable` 仅 1 条记录。
+
+---
+
+## 6. 测试证据
+
+### 6.1 测试文件
+
+`runtime/orchestrator/tests/test_delivery_human_approval_api.py`（从 P4-F2-C 的 7 个测试增加到 9 个测试）
+
+### 6.2 测试命令与结果
+
+```bash
+cd runtime/orchestrator
+python -m pytest tests/test_delivery_human_approval_api.py -q
+```
+
+结果：
+
+```text
+9 passed in <2s
+```
+
+### 6.3 相邻 targeted regression
+
+```bash
+cd runtime/orchestrator
+python -m pytest tests/test_human_approval_gate.py \
+  tests/test_delivery_human_approval_api.py -q
+```
+
+结果：
+
+```text
+39 passed in <2s
+```
+
+### 6.4 测试覆盖清单
+
+| # | 测试 | 覆盖 | 状态 |
+|---|------|------|------|
+| 1 | `test_delivery_human_approval_api_actor_seam_constants_are_local_user` | Actor 常量验证 | Pass |
+| 2 | `test_delivery_human_approval_api_audit_summary_uses_confirmation_semantics` | **新增**：`content_summary` 常量正确 + 10 个禁止短语全部不在其中 | Pass |
+| 3 | `test_delivery_human_approval_api_evaluates_snapshot_without_persisting_confirmation` | Happy path：AgentMessage 写入 1 条 + 34 个 `content_detail` 字段断言 + `confirmation_text` 不在 agent message 中 + `approval_confirmation_text` 不在 `content_detail` 中 + 10 个禁止短语全部不在 `content_summary` 和 `content_detail` 中 | Pass |
+| 4 | `test_delivery_human_approval_api_agent_message_write_is_idempotent` | **新增**：两次相同请求，AgentMessage 仅 1 条 | Pass |
+| 5 | `test_delivery_human_approval_api_blocks_when_snapshot_missing` | Snapshot 缺失：AgentMessage 0 条 | Pass |
+| 6 | `test_delivery_human_approval_api_rejects_invalid_snapshot_contract` | Snapshot 无效：AgentMessage 0 条 | Pass |
+| 7 | `test_delivery_human_approval_api_returns_blocked_when_agent_session_missing` | AgentSession 缺失：AgentMessage 0 条 | Pass |
+| 8 | `test_delivery_human_approval_api_returns_blocked_on_changed_files_mismatch` | Files 不一致：AgentMessage 0 条 | Pass |
+| 9 | `test_delivery_human_approval_api_returns_blocked_on_commit_message_mismatch` | Commit message 不一致：AgentMessage 0 条 | Pass |
+
+---
+
+## 7. 测试复用策略
+
+| 改动范围 | 最小测试命令 |
+|---------|------------|
+| 只改 approval API / AgentMessage 写入 | `pytest tests/test_delivery_human_approval_api.py -q` |
+| 改 `human_approval_gate.py` | `pytest tests/test_human_approval_gate.py tests/test_delivery_human_approval_api.py -q` |
+| 改 snapshot source | `pytest tests/test_run_logging_service_delivery_evidence_snapshot.py tests/test_delivery_human_approval_api.py -q` |
+| 改 Worker（task_worker.py） | `pytest tests/test_worker_workspace_readonly_validation.py tests/test_delivery_human_approval_api.py tests/test_run_logging_service_delivery_evidence_snapshot.py -q` |
+| 改 P4-C/P4-D builder | `pytest tests/test_git_operation_dry_run.py tests/test_delivery_gate_evidence.py tests/test_human_approval_gate.py -q` |
+
+**不要求每轮都跑全量 targeted regression。**
+
+---
+
+## 8. 当前 Not started 清单
+
+| # | 能力 | 状态 | 计划阶段 |
+|---|------|------|---------|
+| 1 | P4-F3 前端确认入口 | Not started | P4-F3 |
+| 2 | P4-F4 Human Approval E2E Closure | Not started | P4-F4 |
+| 3 | P5 Failure Recovery / 失败回流 | Not started | P5 |
+| 4 | P6 Agent Orchestration / AI 主管调度 | Not started | P6 |
+| 5 | P7 Project Director Conversation Hub + Governance | Not started | P7 |
+| 6 | 产品运行时 `git add` | Not started | 后续真实写入阶段 |
+| 7 | 产品运行时 `git commit` | Not started | 后续真实写入阶段 |
+| 8 | 产品运行时 `git push` | Not started | 后续真实写入阶段 |
+| 9 | PR 创建 / merge / CI | Not started | 后续真实写入阶段 |
+| 10 | AI Project Director 总闭环 Pass | Not started | P7 完成后 |
+
+---
+
+## 9. Gate 结论
+
+| Gate | 结论 | 证据 |
+|------|------|------|
+| `origin/main` HEAD 确认 | Pass | `f01bec665276eda6851fd2647388167f004cc058` |
+| Event contract 常量定义 | Pass | `event_type="delivery_human_approval_recorded"`, `content_summary` 正确 |
+| AgentMessage 写入条件（5 项 AND） | Pass | `_should_record_delivery_human_approval_agent_message()` |
+| 写入 guard（agent_session not None） | Pass | handler 外层条件 |
+| `content_detail` 字段完整 | Pass | 31 字段，测试全断言 |
+| `confirmation_text` 不落库 | Pass | `content_summary` + `content_detail` 均不含原文 |
+| 禁止文案 10 条全部不出现 | Pass | `_misleading_audit_phrases()` + 测试覆盖 |
+| 幂等策略 | Pass | 查询后写入，测试覆盖 |
+| 不新增 DB migration | Pass | 无 migration |
+| `gate_allows_write=False` | Pass | 全测试覆盖 |
+| Targeted tests 通过 | Pass | 9 passed (API)；39 passed (+ P4-F1) |
+| 未改前端 | Pass | 无前端变更 |
+| 未改数据库 | Pass | 无 migration |
+| 未实现产品运行时 Git 写操作 | Pass | 所有 write flag=False |
+| **P4-F2-D Closure** | **Pass** | — |
+| P4-F3 前端确认入口 | Not started | — |
+| **AI Project Director 总闭环** | **Partial** | P7 完成前不得写 Pass |
+
+---
+
+## 10. 本轮收口声明
+
+| 声明 | 结论 |
+|------|------|
+| 是否修改 Python 业务代码 | 否 |
+| 是否修改测试代码 | 否 |
+| 是否修改前端 | 否 |
+| 是否修改数据库 / migration | 否 |
+| 是否修改 API | 否 |
+| 是否写 AgentMessage | 否 |
+| 是否实现确认按钮 | 否 |
+| 是否实现产品运行时 Git 写操作 | 否 |
+| 是否只新增 P4-F2-D closure 文档 | 是 |
+
+开发流程中的文档提交不代表 AI-Dev-Orchestrator 产品运行时具备 Git 写操作能力。
