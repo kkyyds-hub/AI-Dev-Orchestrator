@@ -21,6 +21,15 @@ from app.domain._base import DomainModel, ensure_utc_datetime, utc_now
 
 DELIVERY_EVENT_SCHEMA_VERSION = "1.0"
 DELIVERY_EVENT_CONTENT_DETAIL_MAX_LENGTH = 4_000
+P4B3_FORBIDDEN_TRUE_SAFETY_FLAGS: tuple[str, ...] = (
+    "runs_write_git",
+    "git_add_triggered",
+    "git_commit_triggered",
+    "git_push_triggered",
+    "pr_opened",
+    "ci_triggered",
+    "execution_enabled",
+)
 
 
 class DeliveryEventType(StrEnum):
@@ -59,6 +68,23 @@ class DeliveryEventSafetyFlags(DomainModel):
     pr_opened: bool = False
     ci_triggered: bool = False
     execution_enabled: bool = False
+
+    @model_validator(mode="after")
+    def validate_p4b3_read_only_boundary(self) -> "DeliveryEventSafetyFlags":
+        """Reject every Git write, PR, CI, or execution-enabled flag in P4-B3."""
+
+        enabled_forbidden_flags = [
+            flag_name
+            for flag_name in P4B3_FORBIDDEN_TRUE_SAFETY_FLAGS
+            if bool(getattr(self, flag_name))
+        ]
+        if enabled_forbidden_flags:
+            raise ValueError(
+                "P4-B3 delivery diff dry-run events must not enable write or "
+                "delivery execution safety flags: "
+                + ", ".join(enabled_forbidden_flags)
+            )
+        return self
 
 
 class DeliveryEventSchema(DomainModel):

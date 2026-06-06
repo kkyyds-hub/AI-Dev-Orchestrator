@@ -11,9 +11,11 @@ from app.domain.delivery_event import (
     DELIVERY_EVENT_CONTENT_DETAIL_MAX_LENGTH,
     DELIVERY_EVENT_SCHEMA_VERSION,
     DeliveryEventBuilder,
+    DeliveryEventSafetyFlags,
     DeliveryEventSchema,
     DeliveryEventState,
     DeliveryEventType,
+    P4B3_FORBIDDEN_TRUE_SAFETY_FLAGS,
 )
 from app.services.git_diff_dry_run_runner import GitDiffDryRunResult
 
@@ -221,3 +223,47 @@ def test_delivery_event_schema_rejects_unknown_event_type_and_schema_version():
     payload["schema_version"] = "2.0"
     with pytest.raises(ValueError):
         DeliveryEventSchema(**payload)
+
+
+@pytest.mark.parametrize("flag_name", P4B3_FORBIDDEN_TRUE_SAFETY_FLAGS)
+def test_delivery_event_safety_flags_reject_write_or_execution_flags(flag_name):
+    with pytest.raises(ValueError) as exc_info:
+        DeliveryEventSafetyFlags(**{flag_name: True})
+
+    assert flag_name in str(exc_info.value)
+    assert "must not enable write or delivery execution safety flags" in str(
+        exc_info.value
+    )
+
+
+@pytest.mark.parametrize("runs_git", [False, True])
+def test_delivery_event_safety_flags_allow_read_only_runs_git_values(runs_git):
+    flags = DeliveryEventSafetyFlags(runs_git=runs_git)
+
+    assert flags.runs_git is runs_git
+    assert flags.runs_write_git is False
+    assert flags.git_add_triggered is False
+    assert flags.git_commit_triggered is False
+    assert flags.git_push_triggered is False
+    assert flags.pr_opened is False
+    assert flags.ci_triggered is False
+    assert flags.execution_enabled is False
+
+
+def test_delivery_event_schema_rejects_nested_illegal_safety_flags():
+    ids = _ids()
+
+    with pytest.raises(ValueError) as exc_info:
+        DeliveryEventSchema(
+            **ids,
+            event_type=DeliveryEventType.DIFF_DRY_RUN_COLLECTED,
+            previous_delivery_state=DeliveryEventState.NONE,
+            next_delivery_state=DeliveryEventState.DIFF_DIRTY,
+            summary_cn=(
+                "已完成代码改动预览。注意：改动只是预览结果，尚未被提交或推送。"
+            ),
+            safety_flags={"runs_git": True, "git_commit_triggered": True},
+            created_by="test",
+        )
+
+    assert "git_commit_triggered" in str(exc_info.value)
