@@ -15,9 +15,10 @@ from app.domain.project_role import ProjectRoleCode
 from app.services.event_stream_service import event_stream_service
 
 
-DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT = "delivery_evidence_snapshot_source_recorded"
-DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION = "1.0"
+DELIVERY_EVIDENCE_SNAPSHOT_EVENT = "delivery_evidence_snapshot_recorded"
+DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION = "1.0"
 DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL = "run_log_jsonl"
+DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE = "已记录交付审批证据快照来源：运行日志 JSONL。"
 
 
 @dataclass(slots=True, frozen=True)
@@ -162,14 +163,14 @@ class RunLoggingService:
 
             if not isinstance(raw_record, dict):
                 continue
-            if raw_record.get("event") != DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT:
+            if raw_record.get("event") != DELIVERY_EVIDENCE_SNAPSHOT_EVENT:
                 continue
 
             raw_data = raw_record.get("data")
             return RunLogEvent(
                 timestamp=str(raw_record.get("timestamp", "")),
                 level=str(raw_record.get("level", "info")),
-                event=DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+                event=DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
                 message=str(raw_record.get("message", "")),
                 data=raw_data if isinstance(raw_data, dict) else {},
             )
@@ -226,7 +227,7 @@ class RunLoggingService:
             message=message,
         )
 
-    def append_delivery_evidence_snapshot_source_event(
+    def append_delivery_evidence_snapshot(
         self,
         *,
         log_path: str | None,
@@ -234,20 +235,17 @@ class RunLoggingService:
         operation_dry_run: Any | None,
         delivery_gate_evidence: Any | None,
     ) -> None:
-        """Append the P4-F2-C0 source event for cached delivery evidence snapshots."""
+        """Append the P4-F2-C0 cached delivery evidence snapshot event."""
 
         if log_path is None:
             return
 
         self.append_event(
             log_path=log_path,
-            event=DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
-            message=(
-                "Run log JSONL is the source for delivery human approval "
-                "evidence snapshots."
-            ),
+            event=DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+            message=DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE,
             data={
-                "schema_version": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+                "schema_version": DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION,
                 "snapshot_source": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
                 "purpose": "delivery_human_approval_evidence_source",
                 "run_id": str(run_id),

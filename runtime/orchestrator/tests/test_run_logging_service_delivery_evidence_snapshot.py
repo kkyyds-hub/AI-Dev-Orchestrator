@@ -14,14 +14,15 @@ from app.domain.delivery_gate_evidence import (
 from app.domain.git_operation_dry_run import GitOperationDryRunBuilder
 from app.services.git_diff_dry_run_runner import GitDiffDryRunResult
 from app.services.run_logging_service import (
-    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+    DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+    DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE,
     DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
-    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+    DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION,
     RunLoggingService,
 )
 
 
-def test_run_logging_service_writes_delivery_evidence_snapshot_source_event(
+def test_run_logging_service_writes_delivery_evidence_snapshot(
     tmp_path,
 ):
     original_runtime_data_dir = settings.runtime_data_dir
@@ -68,7 +69,7 @@ def test_run_logging_service_writes_delivery_evidence_snapshot_source_event(
         )
 
         log_path = service.initialize_run_log(task_id=task_id, run_id=run_id)
-        service.append_delivery_evidence_snapshot_source_event(
+        service.append_delivery_evidence_snapshot(
             log_path=log_path,
             run_id=run_id,
             operation_dry_run=operation,
@@ -82,13 +83,11 @@ def test_run_logging_service_writes_delivery_evidence_snapshot_source_event(
     assert (Path(tmp_path) / log_path).exists()
     assert len(read_result.events) == 1
     event = read_result.events[0]
-    assert event.event == DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT
+    assert event.event == DELIVERY_EVIDENCE_SNAPSHOT_EVENT
     assert event.level == "info"
-    assert event.message == (
-        "Run log JSONL is the source for delivery human approval evidence snapshots."
-    )
+    assert event.message == DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE
     assert event.data["schema_version"] == (
-        DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION
+        DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION
     )
     assert event.data["snapshot_source"] == DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL
     assert event.data["purpose"] == "delivery_human_approval_evidence_source"
@@ -190,7 +189,7 @@ def test_run_logging_service_reads_latest_delivery_evidence_snapshot(
         )
 
         log_path = service.initialize_run_log(task_id=task_id, run_id=run_id)
-        service.append_delivery_evidence_snapshot_source_event(
+        service.append_delivery_evidence_snapshot(
             log_path=log_path,
             run_id=run_id,
             operation_dry_run=first_operation,
@@ -202,7 +201,7 @@ def test_run_logging_service_reads_latest_delivery_evidence_snapshot(
             message="Non-snapshot log event should be ignored.",
             data={"success": True},
         )
-        service.append_delivery_evidence_snapshot_source_event(
+        service.append_delivery_evidence_snapshot(
             log_path=log_path,
             run_id=run_id,
             operation_dry_run=latest_operation,
@@ -220,9 +219,9 @@ def test_run_logging_service_reads_latest_delivery_evidence_snapshot(
         object.__setattr__(settings, "runtime_data_dir", original_runtime_data_dir)
 
     assert latest_snapshot is not None
-    assert latest_snapshot.event == DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT
+    assert latest_snapshot.event == DELIVERY_EVIDENCE_SNAPSHOT_EVENT
     assert latest_snapshot.data["schema_version"] == (
-        DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION
+        DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION
     )
     assert latest_snapshot.data["snapshot_source"] == (
         DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL

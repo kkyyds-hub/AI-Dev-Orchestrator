@@ -2957,7 +2957,7 @@ class TaskWorker:
                 )
 
             if execution_quality_passed:
-                self.run_logging_service.append_delivery_evidence_snapshot_source_event(
+                self.run_logging_service.append_delivery_evidence_snapshot(
                     log_path=run.log_path,
                     run_id=run.id,
                     operation_dry_run=git_operation_dry_run_result,

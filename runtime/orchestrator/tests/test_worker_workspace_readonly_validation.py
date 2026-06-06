@@ -55,9 +55,10 @@ from app.services.context_builder_service import (
 from app.services.executor_service import ExecutionPlan, ExecutionResult
 from app.services.git_diff_dry_run_runner import GitDiffDryRunResult
 from app.services.run_logging_service import (
-    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+    DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+    DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE,
     DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
-    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+    DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION,
 )
 from app.services.task_router_service import TaskRoutingDecision
 from app.services.task_state_machine_service import TaskStateMachineService
@@ -839,7 +840,7 @@ class _NoopRunLoggingService:
             }
         )
 
-    def append_delivery_evidence_snapshot_source_event(
+    def append_delivery_evidence_snapshot(
         self,
         *,
         log_path,
@@ -849,13 +850,10 @@ class _NoopRunLoggingService:
     ):
         self.append_event(
             log_path=log_path,
-            event=DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
-            message=(
-                "Run log JSONL is the source for delivery human approval "
-                "evidence snapshots."
-            ),
+            event=DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+            message=DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE,
             data={
-                "schema_version": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+                "schema_version": DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION,
                 "snapshot_source": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
                 "purpose": "delivery_human_approval_evidence_source",
                 "run_id": str(run_id),
@@ -1408,7 +1406,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     snapshot_records = [
         record
         for record in run_logging_service.records
-        if record["event"] == DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT
+        if record["event"] == DELIVERY_EVIDENCE_SNAPSHOT_EVENT
     ]
     assert len(snapshot_records) == 1
     snapshot_record = snapshot_records[0]
@@ -1416,7 +1414,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert snapshot_record["log_path"] == result.run.log_path
     snapshot_data = snapshot_record["data"]
     assert snapshot_data["schema_version"] == (
-        DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION
+        DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION
     )
     assert snapshot_data["snapshot_source"] == (
         DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL
