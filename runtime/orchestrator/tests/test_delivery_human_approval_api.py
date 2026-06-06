@@ -26,6 +26,7 @@ from app.core.db_tables import (
     ApprovalRequestTable,
     ORMBase,
 )
+from app.domain.agent_message import AgentMessageRole, AgentMessageType
 from app.domain._base import utc_now
 from app.domain.agent_session import (
     AgentSessionPhase,
@@ -227,9 +228,33 @@ def _approval_request_payload(run_id, **overrides) -> dict:
     return payload
 
 
+def _misleading_audit_phrases() -> list[str]:
+    return [
+        "人工" "审批",
+        "审批" "已通过",
+        "已完成" "审批",
+        "已授权" "写入",
+        "可以" "提交代码",
+        "代码" "已提交",
+        "提交" "成功",
+        "代码" "已推送",
+        "推送" "成功",
+        "交付" "完成",
+    ]
+
+
 def test_delivery_human_approval_api_actor_seam_constants_are_local_user():
     assert DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID == "local_user"
     assert DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME == "本地用户"
+
+
+def test_delivery_human_approval_api_audit_summary_uses_confirmation_semantics():
+    assert (
+        DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY
+        == "用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。"
+    )
+    for phrase in _misleading_audit_phrases():
+        assert phrase not in DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY
 
 
 def test_delivery_human_approval_api_evaluates_snapshot_without_persisting_confirmation(
@@ -300,11 +325,20 @@ def test_delivery_human_approval_api_evaluates_snapshot_without_persisting_confi
     assert len(messages) == 1
     message = messages[0]
     assert message.event_type == DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE
-    assert message.note_event_type == DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE
+    assert message.note_event_type is None
+    assert message.role == AgentMessageRole.SYSTEM
+    assert message.message_type == AgentMessageType.TIMELINE
+    assert message.phase is None
+    assert message.context_checkpoint_id is None
+    assert message.context_rehydrated is None
     assert message.content_summary == DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY
     assert confirmation_text not in message.content_summary
     assert confirmation_text not in (message.content_detail or "")
+    for phrase in _misleading_audit_phrases():
+        assert phrase not in message.content_summary
+        assert phrase not in (message.content_detail or "")
     detail = json.loads(message.content_detail or "{}")
+    assert detail["event_type"] == DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE
     assert detail["approval_client_request_id"] == "client-request-1"
     assert detail["approval_confirmation_fingerprint"] == (
         payload["approval_confirmation_fingerprint"]
@@ -317,18 +351,56 @@ def test_delivery_human_approval_api_evaluates_snapshot_without_persisting_confi
     assert detail["approved_by_display_name"] == (
         DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME
     )
+    assert detail["approval_applied"] is False
+    assert detail["approval_revoked"] is False
     assert detail["proposed_operation"] == "git_add_commit"
     assert detail["proposed_commit_message"] == "fix: stabilize delivery evidence"
     assert detail["changed_files"] == [
         "runtime/orchestrator/app/api/routes/approvals.py"
     ]
+    assert detail["satisfied_conditions"] == [
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "H7",
+        "H8",
+        "H9",
+        "H10",
+        "H11",
+        "H12",
+        "H13",
+        "H14",
+        "H15",
+        "H16",
+        "H17",
+        "H18",
+        "H19",
+        "H20",
+        "H21",
+        "H22",
+    ]
     assert detail["evidence_snapshot_event"] == DELIVERY_EVIDENCE_SNAPSHOT_EVENT
     assert detail["evidence_snapshot_log_path"] == log_path
+    assert detail["evidence_snapshot_schema_version"] == (
+        DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION
+    )
+    assert detail["evidence_snapshot_source"] == (
+        DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL
+    )
     assert detail["runs_write_git"] is False
     assert detail["git_add_triggered"] is False
     assert detail["git_commit_triggered"] is False
     assert detail["git_push_triggered"] is False
+    assert detail["pr_opened"] is False
+    assert detail["ci_triggered"] is False
+    assert detail["execution_enabled"] is False
+    assert detail["operation_applied"] is False
     assert detail["gate_allows_write"] is False
+    assert detail["gate_allows_next_guardrail"] is True
+    assert "approval_confirmation_text" not in detail
 
 
 def test_delivery_human_approval_api_agent_message_write_is_idempotent(
@@ -485,6 +557,7 @@ def test_delivery_human_approval_api_returns_blocked_on_changed_files_mismatch(
     assert payload["approved_by"] == DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID
     assert "H20:changed_files_mismatch" in payload["blocking_reasons"]
     assert payload["safety_flags"]["gate_allows_next_guardrail"] is False
+    assert _count_rows(db_session, AgentMessageTable) == 0
 
 
 def test_delivery_human_approval_api_returns_blocked_on_commit_message_mismatch(
@@ -513,3 +586,4 @@ def test_delivery_human_approval_api_returns_blocked_on_commit_message_mismatch(
     assert payload["approved_by"] == DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID
     assert "H21:commit_message_mismatch" in payload["blocking_reasons"]
     assert payload["safety_flags"]["gate_allows_next_guardrail"] is False
+    assert _count_rows(db_session, AgentMessageTable) == 0

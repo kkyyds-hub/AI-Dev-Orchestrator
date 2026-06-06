@@ -113,7 +113,7 @@ DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID = "local_user"
 DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME = "本地用户"
 DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE = "delivery_human_approval_recorded"
 DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY = (
-    "已记录交付人工审批：提交预览已确认，尚未执行提交或推送。"
+    "用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。"
 )
 
 
@@ -1884,7 +1884,10 @@ def evaluate_delivery_human_approval(
         delivery_git_write_enabled=False,
     )
 
-    if gate_result.ready and agent_session is not None:
+    if (
+        agent_session is not None
+        and _should_record_delivery_human_approval_agent_message(gate_result)
+    ):
         _record_delivery_human_approval_agent_message(
             agent_message_repository=AgentMessageRepository(session),
             agent_session=agent_session,
@@ -1925,6 +1928,20 @@ def _delivery_human_approval_snapshot_invalid_reason(
     return None
 
 
+def _should_record_delivery_human_approval_agent_message(
+    gate_result: DeliveryHumanApprovalResult,
+) -> bool:
+    """Return whether the successful confirmation audit event should be written."""
+
+    return (
+        gate_result.ready is True
+        and gate_result.approval_granted is True
+        and gate_result.safety_flags.gate_allows_next_guardrail is True
+        and gate_result.safety_flags.gate_allows_write is False
+        and gate_result.approval_applied is False
+    )
+
+
 def _record_delivery_human_approval_agent_message(
     *,
     agent_message_repository: AgentMessageRepository,
@@ -1958,16 +1975,16 @@ def _record_delivery_human_approval_agent_message(
         sequence_no=agent_message_repository.get_next_sequence_no(
             session_id=agent_session.id
         ),
-        role=AgentMessageRole.BOSS,
-        message_type=AgentMessageType.NOTE_EVENT,
+        role=AgentMessageRole.SYSTEM,
+        message_type=AgentMessageType.TIMELINE,
         event_type=DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE,
-        phase=agent_session.current_phase.value,
+        phase=None,
         state_from=None,
         state_to=None,
         intervention_type=None,
-        note_event_type=DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE,
-        context_checkpoint_id=agent_session.context_checkpoint_id,
-        context_rehydrated=agent_session.context_rehydrated,
+        note_event_type=None,
+        context_checkpoint_id=None,
+        context_rehydrated=None,
         content_summary=DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY,
         content_detail=content_detail,
     )
@@ -2013,6 +2030,7 @@ def _delivery_human_approval_agent_message_detail(
     """Build JSON detail for approval audit without raw confirmation text."""
 
     detail = {
+        "event_type": DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE,
         "approval_id": gate_result.approval_id,
         "approval_client_request_id": gate_result.approval_client_request_id,
         "approval_confirmation_fingerprint": (
@@ -2040,10 +2058,13 @@ def _delivery_human_approval_agent_message_detail(
             if gate_result.approval_expires_at is not None
             else None
         ),
+        "approval_applied": gate_result.approval_applied,
+        "approval_revoked": gate_result.approval_revoked,
         "proposed_operation": gate_result.proposed_operation,
         "proposed_commit_message": gate_result.proposed_commit_message,
         "changed_files_count": gate_result.changed_files_count,
         "changed_files": list(gate_result.changed_files),
+        "satisfied_conditions": list(gate_result.satisfied_conditions),
         "evidence_snapshot_event": DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
         "evidence_snapshot_log_path": log_path,
         "evidence_snapshot_schema_version": snapshot_data.get("schema_version"),
@@ -2052,6 +2073,10 @@ def _delivery_human_approval_agent_message_detail(
         "git_add_triggered": False,
         "git_commit_triggered": False,
         "git_push_triggered": False,
+        "pr_opened": False,
+        "ci_triggered": False,
+        "execution_enabled": False,
+        "operation_applied": False,
         "gate_allows_write": False,
         "gate_allows_next_guardrail": (
             gate_result.safety_flags.gate_allows_next_guardrail
