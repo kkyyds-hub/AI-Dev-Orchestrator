@@ -15,8 +15,8 @@ from app.domain.project_role import ProjectRoleCode
 from app.services.event_stream_service import event_stream_service
 
 
-DELIVERY_EVIDENCE_SNAPSHOT_EVENT = "delivery_evidence_snapshot_recorded"
-DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION = "1.0"
+DELIVERY_EVIDENCE_SNAPSHOT_EVENT = "delivery_evidence_snapshot"
+DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION = "p4f2c0.v1"
 DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL = "run_log_jsonl"
 DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE = "已记录交付审批证据快照来源：运行日志 JSONL。"
 
