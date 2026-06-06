@@ -124,6 +124,18 @@ class _SpyRuntimeEventAuditService:
         return None
 
 
+class _SpyDeliveryEventAuditService:
+    def __init__(self, *, raises: Exception | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.raises = raises
+
+    def record_diff_dry_run_event(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.raises is not None:
+            raise self.raises
+        return None
+
+
 def _session(
     *,
     workspace_type: WorkspaceType | None = WorkspaceType.WORKTREE,
@@ -1030,6 +1042,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     )
 
     executor_service = _FakeExecutorService(success=True)
+    delivery_event_audit_service = _SpyDeliveryEventAuditService()
     worker = TaskWorker(
         session=_NoopDbSession(),
         task_repository=_FakeTaskRepository(task),
@@ -1052,6 +1065,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
             {"ensure_review": lambda self, *, task, run: None},
         )(),
         agent_conversation_service=_FakeAgentConversationService(agent_session),
+        delivery_event_audit_service=delivery_event_audit_service,
     )
 
     result = worker.run_once()
@@ -1075,6 +1089,13 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert result.git_diff_dry_run_changed_files == ["README.md"]
     assert result.git_diff_dry_run_runs_git is True
     assert result.git_diff_dry_run_runs_write_git is False
+    assert len(delivery_event_audit_service.calls) == 1
+    delivery_call = delivery_event_audit_service.calls[0]
+    assert delivery_call["session"].id == result.agent_session_id
+    assert delivery_call["result"].ready is True
+    assert delivery_call["result"].status_summary_cn == "1 个文件修改"
+    assert delivery_call["skipped_reason_code"] is None
+    assert delivery_call["workspace_path"] == tmp_path.as_posix()
     response_payload = WorkerRunOnceResponse.from_result(result).model_dump(
         mode="json"
     )
@@ -1143,6 +1164,7 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     )
 
     executor_service = _FakeExecutorService(success=False)
+    delivery_event_audit_service = _SpyDeliveryEventAuditService()
     worker = TaskWorker(
         session=_NoopDbSession(),
         task_repository=_FakeTaskRepository(task),
@@ -1165,6 +1187,7 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
             {"ensure_review": lambda self, *, task, run: None},
         )(),
         agent_conversation_service=_FakeAgentConversationService(agent_session),
+        delivery_event_audit_service=delivery_event_audit_service,
     )
 
     result = worker.run_once()
@@ -1179,6 +1202,7 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     assert result.git_diff_dry_run_status_summary_cn is None
     assert executor_service.build_execution_plan_calls == 1
     assert executor_service.execute_task_calls == 1
+    assert delivery_event_audit_service.calls == []
 
 
 def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(

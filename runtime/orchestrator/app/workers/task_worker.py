@@ -49,6 +49,7 @@ from app.services.context_budget_service import ContextBudgetService
 from app.services.context_builder_service import ContextBuilderService, TaskContextPackage
 from app.services.cost_estimator_service import CostEstimate, CostEstimatorService
 from app.services.deliverable_service import DeliverableService
+from app.services.delivery_event_audit_service import DeliveryEventAuditService
 from app.services.approval_service import ApprovalService
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionPlan, ExecutionResult, ExecutorService
@@ -960,6 +961,7 @@ class TaskWorker:
         deliverable_service: DeliverableService | None = None,
         approval_service: ApprovalService | None = None,
         runtime_event_audit_service: RuntimeEventAuditService | None = None,
+        delivery_event_audit_service: DeliveryEventAuditService | None = None,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -981,6 +983,7 @@ class TaskWorker:
         self.deliverable_service = deliverable_service
         self.approval_service = approval_service
         self.runtime_event_audit_service = runtime_event_audit_service
+        self.delivery_event_audit_service = delivery_event_audit_service
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -995,6 +998,7 @@ class TaskWorker:
         context_package: TaskContextPackage | None = None
         routing_decision: TaskRoutingDecision | None = None
         claim_transition: TaskStateTransition | None = None
+        agent_session: AgentSession | None = None
         agent_session_id: UUID | None = None
         agent_session_status: str | None = None
         agent_review_status: str | None = None
@@ -2529,6 +2533,21 @@ class TaskWorker:
                     repository_path=git_diff_repository_path,
                     compare_branch=branch_name,
                 )
+            if (
+                execution_quality_passed
+                and agent_session is not None
+                and self.delivery_event_audit_service is not None
+            ):
+                self.delivery_event_audit_service.record_diff_dry_run_event(
+                    session=agent_session,
+                    result=git_diff_dry_run_result,
+                    skipped_reason_code=(
+                        "worktree_path_unavailable"
+                        if git_diff_dry_run_result is None
+                        else None
+                    ),
+                    workspace_path=git_diff_repository_path,
+                )
 
             token_accounting = self.token_accounting_service.build_snapshot(
                 prompt_envelope=prompt_envelope,
@@ -3997,6 +4016,9 @@ def build_task_worker(*, session: Session) -> TaskWorker:
     runtime_event_audit_service = RuntimeEventAuditService(
         agent_message_repository=agent_message_repository,
     )
+    delivery_event_audit_service = DeliveryEventAuditService(
+        agent_message_repository=agent_message_repository,
+    )
     agent_conversation_service = AgentConversationService(
         agent_session_repository=agent_session_repository,
         agent_message_repository=agent_message_repository,
@@ -4075,4 +4097,5 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         deliverable_service=deliverable_service,
         approval_service=approval_service,
         runtime_event_audit_service=runtime_event_audit_service,
+        delivery_event_audit_service=delivery_event_audit_service,
     )
