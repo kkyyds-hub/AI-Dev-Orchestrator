@@ -101,6 +101,9 @@ if TYPE_CHECKING:
 
 _RUN_RESULT_SUMMARY_MAX_LENGTH = 2_000
 _CLAIM_RETRY_LIMIT = 3
+DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT = "delivery_evidence_snapshot_source_recorded"
+DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION = "1.0"
+DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL = "run_log_jsonl"
 
 
 @dataclass(slots=True)
@@ -2956,6 +2959,13 @@ class TaskWorker:
                     delivery_git_write_enabled=False,
                 )
 
+            if execution_quality_passed:
+                self._log_delivery_evidence_snapshot_source(
+                    run=run,
+                    operation_dry_run=git_operation_dry_run_result,
+                    delivery_gate_evidence=delivery_gate_evidence_result,
+                )
+
             token_accounting = self.token_accounting_service.build_snapshot(
                 prompt_envelope=prompt_envelope,
                 completion_text="\n".join(
@@ -3923,6 +3933,66 @@ class TaskWorker:
             level="info" if snapshot.ready else "warning",
             message=snapshot.summary,
             data=asdict(snapshot),
+        )
+
+    def _log_delivery_evidence_snapshot_source(
+        self,
+        *,
+        run: Run,
+        operation_dry_run: GitOperationDryRunResult | None,
+        delivery_gate_evidence: DeliveryGateEvidenceResult | None,
+    ) -> None:
+        """Write the P4-F2-C0 approval evidence snapshot source to the run log."""
+
+        if run.log_path is None:
+            return
+
+        self.run_logging_service.append_event(
+            log_path=run.log_path,
+            event=DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+            message=(
+                "Worker recorded the run-log source for delivery human approval "
+                "evidence snapshots."
+            ),
+            data={
+                "schema_version": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
+                "snapshot_source": DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
+                "purpose": "delivery_human_approval_evidence_source",
+                "run_id": str(run.id),
+                "operation_dry_run_available": operation_dry_run is not None,
+                "operation_dry_run_ready": (
+                    operation_dry_run.ready
+                    if operation_dry_run is not None
+                    else None
+                ),
+                "delivery_gate_evidence_available": (
+                    delivery_gate_evidence is not None
+                ),
+                "delivery_gate_evidence_ready": (
+                    delivery_gate_evidence.ready
+                    if delivery_gate_evidence is not None
+                    else None
+                ),
+                "operation_dry_run": (
+                    operation_dry_run.model_dump(mode="json")
+                    if operation_dry_run is not None
+                    else None
+                ),
+                "delivery_gate_evidence": (
+                    delivery_gate_evidence.model_dump(mode="json")
+                    if delivery_gate_evidence is not None
+                    else None
+                ),
+                "human_approval_evaluated": False,
+                "approval_record_created": False,
+                "runs_write_git": False,
+                "git_add_triggered": False,
+                "git_commit_triggered": False,
+                "git_push_triggered": False,
+                "pr_opened": False,
+                "ci_triggered": False,
+                "gate_allows_write": False,
+            },
         )
 
     def _log_guard_blocked(

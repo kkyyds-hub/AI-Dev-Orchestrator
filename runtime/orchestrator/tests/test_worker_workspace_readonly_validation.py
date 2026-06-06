@@ -59,6 +59,9 @@ from app.services.task_state_machine_service import TaskStateMachineService
 from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult
 from app.workers.task_worker import (
+    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL,
+    DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION,
     TaskWorker,
     WorkerRunResult,
     _delivery_human_approval_result_kwargs,
@@ -805,15 +808,34 @@ class _AllowingBudgetGuardService:
 class _NoopRunLoggingService:
     def __init__(self) -> None:
         self.events: list[str] = []
+        self.records: list[dict[str, object]] = []
 
     def initialize_run_log(self, *, task_id, run_id):
         return f"runs/{task_id}/{run_id}.jsonl"
 
     def append_event(self, *, log_path, event, message, data, level="info"):
         self.events.append(event)
+        self.records.append(
+            {
+                "log_path": log_path,
+                "event": event,
+                "message": message,
+                "data": data,
+                "level": level,
+            }
+        )
 
     def append_role_handoff_event(self, *, log_path, **kwargs):
         self.events.append("role_handoff")
+        self.records.append(
+            {
+                "log_path": log_path,
+                "event": "role_handoff",
+                "message": None,
+                "data": kwargs,
+                "level": "info",
+            }
+        )
 
 
 class _FakeContextBuilderService:
@@ -1208,6 +1230,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
 
     executor_service = _FakeExecutorService(success=True)
     delivery_event_audit_service = _SpyDeliveryEventAuditService()
+    run_logging_service = _NoopRunLoggingService()
     worker = TaskWorker(
         session=_NoopDbSession(),
         task_repository=_FakeTaskRepository(task),
@@ -1215,7 +1238,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
         executor_service=executor_service,
         verifier_service=_PassingVerifierService(),
         budget_guard_service=_AllowingBudgetGuardService(),
-        run_logging_service=_NoopRunLoggingService(),
+        run_logging_service=run_logging_service,
         cost_estimator_service=CostEstimatorService(),
         context_builder_service=_FakeContextBuilderService(),
         task_router_service=_FakeTaskRouterService(task),
@@ -1326,6 +1349,60 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert result.delivery_gate_evidence_gate_allows_write is False
     assert result.delivery_gate_evidence_gate_allows_user_confirmation is True
     _assert_delivery_human_approval_not_built(result)
+    snapshot_records = [
+        record
+        for record in run_logging_service.records
+        if record["event"] == DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT
+    ]
+    assert len(snapshot_records) == 1
+    snapshot_record = snapshot_records[0]
+    assert snapshot_record["level"] == "info"
+    assert snapshot_record["log_path"] == result.run.log_path
+    snapshot_data = snapshot_record["data"]
+    assert snapshot_data["schema_version"] == (
+        DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_SCHEMA_VERSION
+    )
+    assert snapshot_data["snapshot_source"] == (
+        DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL
+    )
+    assert snapshot_data["purpose"] == "delivery_human_approval_evidence_source"
+    assert snapshot_data["run_id"] == str(result.run.id)
+    assert snapshot_data["operation_dry_run_available"] is True
+    assert snapshot_data["operation_dry_run_ready"] is True
+    assert snapshot_data["delivery_gate_evidence_available"] is True
+    assert snapshot_data["delivery_gate_evidence_ready"] is True
+    assert snapshot_data["human_approval_evaluated"] is False
+    assert snapshot_data["approval_record_created"] is False
+    assert snapshot_data["runs_write_git"] is False
+    assert snapshot_data["git_add_triggered"] is False
+    assert snapshot_data["git_commit_triggered"] is False
+    assert snapshot_data["git_push_triggered"] is False
+    assert snapshot_data["pr_opened"] is False
+    assert snapshot_data["ci_triggered"] is False
+    assert snapshot_data["gate_allows_write"] is False
+    assert snapshot_data["operation_dry_run"]["source"] == "git_operation_dry_run"
+    assert snapshot_data["operation_dry_run"]["ready"] is True
+    assert snapshot_data["operation_dry_run"]["changed_files"] == ["README.md"]
+    assert snapshot_data["operation_dry_run"]["proposed_operation"] == (
+        "git_add_commit"
+    )
+    assert snapshot_data["operation_dry_run"]["safety_flags"][
+        "git_commit_triggered"
+    ] is False
+    assert snapshot_data["delivery_gate_evidence"]["source"] == (
+        "delivery_gate_evidence"
+    )
+    assert snapshot_data["delivery_gate_evidence"]["ready"] is True
+    assert snapshot_data["delivery_gate_evidence"]["changed_files"] == ["README.md"]
+    assert snapshot_data["delivery_gate_evidence"]["next_required_action"] == (
+        "await_user_confirmation"
+    )
+    assert snapshot_data["delivery_gate_evidence"]["safety_flags"][
+        "gate_allows_user_confirmation"
+    ] is True
+    assert snapshot_data["delivery_gate_evidence"]["safety_flags"][
+        "gate_allows_write"
+    ] is False
     assert len(delivery_event_audit_service.calls) == 1
     delivery_call = delivery_event_audit_service.calls[0]
     assert delivery_call["session"].id == result.agent_session_id
