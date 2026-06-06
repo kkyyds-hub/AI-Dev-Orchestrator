@@ -223,7 +223,7 @@ class WorkerRunResult:
     git_diff_dry_run_modified_files: list[str] = field(default_factory=list)
     git_diff_dry_run_deleted_files: list[str] = field(default_factory=list)
     git_diff_dry_run_renamed_files: list[str] = field(default_factory=list)
-    git_diff_dry_run_status_summary: str | None = None
+    git_diff_dry_run_status_summary_cn: str | None = None
     git_diff_dry_run_diff_stat: str | None = None
     git_diff_dry_run_diff_shortstat: str | None = None
     git_diff_dry_run_branch_name: str | None = None
@@ -323,7 +323,7 @@ def _git_diff_dry_run_result_kwargs(
         "git_diff_dry_run_modified_files": list(result.modified_files),
         "git_diff_dry_run_deleted_files": list(result.deleted_files),
         "git_diff_dry_run_renamed_files": list(result.renamed_files),
-        "git_diff_dry_run_status_summary": result.status_summary_cn,
+        "git_diff_dry_run_status_summary_cn": result.status_summary_cn,
         "git_diff_dry_run_diff_stat": result.diff_stat,
         "git_diff_dry_run_diff_shortstat": result.diff_shortstat,
         "git_diff_dry_run_branch_name": result.branch_name,
@@ -2516,12 +2516,15 @@ class TaskWorker:
                 verification=verification,
             )
 
+            execution_quality_passed = execution.success and (
+                verification is None or verification.success
+            )
             git_diff_repository_path = (
                 workspace_context_resolved_path
                 or workspace_context_path
                 or workspace_path
             )
-            if git_diff_repository_path is not None:
+            if execution_quality_passed and git_diff_repository_path is not None:
                 git_diff_dry_run_result = GitDiffDryRunRunner().collect(
                     repository_path=git_diff_repository_path,
                     compare_branch=branch_name,

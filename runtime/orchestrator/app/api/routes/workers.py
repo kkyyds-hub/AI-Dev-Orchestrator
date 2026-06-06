@@ -257,7 +257,7 @@ class WorkerRunOnceResponse(BaseModel):
     git_diff_dry_run_modified_files: list[str] = Field(default_factory=list)
     git_diff_dry_run_deleted_files: list[str] = Field(default_factory=list)
     git_diff_dry_run_renamed_files: list[str] = Field(default_factory=list)
-    git_diff_dry_run_status_summary: str | None = None
+    git_diff_dry_run_status_summary_cn: str | None = None
     git_diff_dry_run_diff_stat: str | None = None
     git_diff_dry_run_diff_shortstat: str | None = None
     git_diff_dry_run_branch_name: str | None = None
@@ -568,8 +568,8 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             git_diff_dry_run_deleted_files=result.git_diff_dry_run_deleted_files,
             git_diff_dry_run_renamed_files=result.git_diff_dry_run_renamed_files,
-            git_diff_dry_run_status_summary=(
-                result.git_diff_dry_run_status_summary
+            git_diff_dry_run_status_summary_cn=(
+                result.git_diff_dry_run_status_summary_cn
             ),
             git_diff_dry_run_diff_stat=result.git_diff_dry_run_diff_stat,
             git_diff_dry_run_diff_shortstat=(

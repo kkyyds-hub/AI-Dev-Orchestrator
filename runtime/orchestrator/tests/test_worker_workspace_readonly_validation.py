@@ -14,6 +14,7 @@ from app.domain._base import utc_now
 from app.domain.agent_session import (
     AgentSession,
     AgentSessionPhase,
+    AgentSessionReviewStatus,
     AgentSessionStatus,
     AgentType,
     CodingSessionActivityState,
@@ -21,6 +22,7 @@ from app.domain.agent_session import (
     RuntimeType,
     WorkspaceType,
 )
+from app.domain.prompt_contract import BuiltPromptEnvelope, PromptTemplateRef
 from app.domain.run import (
     Run,
     RunBudgetPressureLevel,
@@ -40,12 +42,17 @@ from app.services.budget_guard_service import (
     BudgetSnapshot,
     RetryStatus,
 )
+from app.services.cost_estimator_service import CostEstimatorService
 from app.services.context_builder_service import (
     AgentThreadContextSeed,
     TaskContextPackage,
 )
+from app.services.executor_service import ExecutionPlan, ExecutionResult
+from app.services.git_diff_dry_run_runner import GitDiffDryRunResult
 from app.services.task_router_service import TaskRoutingDecision
 from app.services.task_state_machine_service import TaskStateMachineService
+from app.services.token_accounting_service import TokenAccountingService
+from app.services.verifier_service import VerificationResult
 from app.workers.task_worker import (
     TaskWorker,
     WorkerRunResult,
@@ -516,6 +523,79 @@ class _ExplodingExecutorService:
         raise AssertionError("executor must not run when proof fails")
 
 
+class _FakeExecutorService:
+    def __init__(self, *, success: bool = True) -> None:
+        self.success = success
+        self.build_execution_plan_calls = 0
+        self.execute_task_calls = 0
+
+    def build_execution_plan(self, *, task, routing_contract):
+        self.build_execution_plan_calls += 1
+        return ExecutionPlan(
+            mode="simulate",
+            payload=task.input_summary,
+            routing_contract=routing_contract,
+        )
+
+    def execute_task(
+        self,
+        task,
+        *,
+        context_package,
+        routing_contract,
+        prompt_envelope,
+    ):
+        self.execute_task_calls += 1
+        return ExecutionResult(
+            success=self.success,
+            mode="simulate",
+            summary=(
+                "Fake execution succeeded."
+                if self.success
+                else "Fake execution failed."
+            ),
+            prompt_key=prompt_envelope.template_ref.prompt_key,
+            prompt_char_count=prompt_envelope.prompt_char_count,
+            actual_execution_mode="simulate",
+        )
+
+
+class _FakeModelRoutingService:
+    def build_contract_from_strategy_decision(self, strategy_decision):
+        return None
+
+
+class _FakePromptBuilderService:
+    def build_execution_prompt(
+        self,
+        *,
+        task,
+        context_package,
+        execution_plan,
+        routing_contract,
+    ):
+        prompt_text = f"{task.title}\n{task.input_summary}"
+        return BuiltPromptEnvelope(
+            template_ref=PromptTemplateRef(
+                prompt_key="test.worker.diff_dry_run",
+                version="p4-b2-r1",
+                description="Test prompt envelope for worker diff dry-run evidence.",
+            ),
+            prompt_text=prompt_text,
+            prompt_char_count=len(prompt_text),
+        )
+
+
+class _PassingVerifierService:
+    def verify_task(self, *, task, execution_result):
+        return VerificationResult(
+            success=True,
+            mode="test",
+            summary="Fake verification passed.",
+            quality_gate_passed=True,
+        )
+
+
 class _AllowingBudgetGuardService:
     def evaluate_before_execution(self, task_id, *, project_id=None):
         budget = BudgetSnapshot(
@@ -694,6 +774,28 @@ class _FakeAgentConversationService:
             summary="Execution has started in the worker chain.",
         )
 
+    def record_execution_outcome(
+        self,
+        *,
+        session_id,
+        execution_success,
+        execution_summary,
+        verification_present,
+        verification_success,
+        verification_summary,
+        run_failure_category,
+    ):
+        review_status = (
+            AgentSessionReviewStatus.REVIEW_PASSED
+            if execution_success and (not verification_present or verification_success)
+            else AgentSessionReviewStatus.REWORK_REQUIRED
+        )
+        return self.agent_session_repository.update_status(
+            session_id,
+            review_status=review_status,
+            summary=execution_summary,
+        )
+
     def finalize_session(
         self,
         *,
@@ -702,14 +804,26 @@ class _FakeAgentConversationService:
         run_failure_category,
         final_summary,
     ):
-        assert run_status == RunStatus.CANCELLED
+        if run_status == RunStatus.CANCELLED:
+            status = AgentSessionStatus.BLOCKED
+            coding_status = CodingSessionStatus.TERMINATED
+            activity_state = CodingSessionActivityState.EXITED
+        elif run_status == RunStatus.FAILED:
+            status = AgentSessionStatus.FAILED
+            coding_status = CodingSessionStatus.FAILED
+            activity_state = CodingSessionActivityState.EXITED
+        else:
+            assert run_status == RunStatus.SUCCEEDED
+            status = AgentSessionStatus.COMPLETED
+            coding_status = CodingSessionStatus.COMPLETED
+            activity_state = CodingSessionActivityState.IDLE
         return self.agent_session_repository.update_status(
             session_id,
-            status=AgentSessionStatus.BLOCKED,
+            status=status,
             current_phase=AgentSessionPhase.FINALIZED,
             summary=final_summary,
-            coding_status=CodingSessionStatus.TERMINATED,
-            activity_state=CodingSessionActivityState.EXITED,
+            coding_status=coding_status,
+            activity_state=activity_state,
             finished=True,
         )
 
@@ -756,9 +870,17 @@ def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
             assert workspace_context.uses_agent_workspace is True
             return proof
 
+    class _ExplodingGitDiffDryRunRunner:
+        def __init__(self):
+            raise AssertionError("git diff dry-run must not run on proof-blocked path")
+
     monkeypatch.setattr(
         "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
         lambda: _FailingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.GitDiffDryRunRunner",
+        _ExplodingGitDiffDryRunRunner,
     )
     monkeypatch.setattr(
         "app.workers.task_worker.event_stream_service.publish_task_updated",
@@ -819,6 +941,244 @@ def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
     assert "reason_code=pwd_mismatch_workspace_path" in result.last_workspace_error
     assert executor_service.build_execution_plan_calls == 0
     assert executor_service.execute_task_calls == 0
+
+
+def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
+    monkeypatch,
+    tmp_path,
+):
+    task = Task(
+        project_id=uuid4(),
+        title="Successful run collects diff evidence",
+        input_summary="simulate: collect diff preview",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+    )
+    proof = WorkerWorktreeSafeCommandProof(
+        ready=True,
+        source="agent_session_worktree_safe_command",
+        reason_code=None,
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd=tmp_path.as_posix(),
+        pwd_matches_workspace_path=True,
+        exit_code=0,
+        stdout=tmp_path.as_posix(),
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+    collect_calls: list[dict[str, str | None]] = []
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return proof
+
+    class _SpyGitDiffDryRunRunner:
+        def collect(self, *, repository_path, compare_branch=None):
+            collect_calls.append(
+                {
+                    "repository_path": repository_path,
+                    "compare_branch": compare_branch,
+                }
+            )
+            return GitDiffDryRunResult(
+                ready=True,
+                source="agent_session_worktree_diff",
+                reason_code=None,
+                worktree_path=repository_path,
+                has_changes=True,
+                changed_files_count=1,
+                changed_files=["README.md"],
+                added_files=[],
+                modified_files=["README.md"],
+                deleted_files=[],
+                renamed_files=[],
+                status_summary_cn="1 个文件修改",
+                diff_stat=" README.md | 1 +",
+                diff_shortstat="1 file changed, 1 insertion(+)",
+                branch_name="main",
+                compare_branch=compare_branch,
+                command="git status --porcelain=v1 --untracked-files=all",
+                peek_command="git diff --name-status",
+                danger_commands_applied=False,
+            )
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.GitDiffDryRunRunner",
+        _SpyGitDiffDryRunRunner,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+
+    executor_service = _FakeExecutorService(success=True)
+    worker = TaskWorker(
+        session=_NoopDbSession(),
+        task_repository=_FakeTaskRepository(task),
+        run_repository=_FakeRunRepository(),
+        executor_service=executor_service,
+        verifier_service=_PassingVerifierService(),
+        budget_guard_service=_AllowingBudgetGuardService(),
+        run_logging_service=_NoopRunLoggingService(),
+        cost_estimator_service=CostEstimatorService(),
+        context_builder_service=_FakeContextBuilderService(),
+        task_router_service=_FakeTaskRouterService(task),
+        model_routing_service=_FakeModelRoutingService(),
+        prompt_registry_service=None,
+        prompt_builder_service=_FakePromptBuilderService(),
+        token_accounting_service=TokenAccountingService(),
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type(
+            "_NoopFailureReviewService",
+            (),
+            {"ensure_review": lambda self, *, task, run: None},
+        )(),
+        agent_conversation_service=_FakeAgentConversationService(agent_session),
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.execution_mode == "simulate"
+    assert result.task is not None
+    assert result.task.status == TaskStatus.COMPLETED
+    assert result.run is not None
+    assert result.run.status == RunStatus.SUCCEEDED
+    assert executor_service.build_execution_plan_calls == 1
+    assert executor_service.execute_task_calls == 1
+    assert collect_calls == [
+        {
+            "repository_path": tmp_path.as_posix(),
+            "compare_branch": None,
+        }
+    ]
+    assert result.git_diff_dry_run_ready is True
+    assert result.git_diff_dry_run_status_summary_cn == "1 个文件修改"
+    assert result.git_diff_dry_run_changed_files == ["README.md"]
+    assert result.git_diff_dry_run_runs_git is True
+    assert result.git_diff_dry_run_runs_write_git is False
+    response_payload = WorkerRunOnceResponse.from_result(result).model_dump(
+        mode="json"
+    )
+    assert response_payload["git_diff_dry_run_status_summary_cn"] == "1 个文件修改"
+    old_status_summary_key = "git_diff_dry_run_status_" + "summary"
+    assert old_status_summary_key not in response_payload
+
+
+def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
+    monkeypatch,
+    tmp_path,
+):
+    task = Task(
+        project_id=uuid4(),
+        title="Failed run skips diff evidence",
+        input_summary="simulate: fail before diff preview",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+    )
+    proof = WorkerWorktreeSafeCommandProof(
+        ready=True,
+        source="agent_session_worktree_safe_command",
+        reason_code=None,
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd=tmp_path.as_posix(),
+        pwd_matches_workspace_path=True,
+        exit_code=0,
+        stdout=tmp_path.as_posix(),
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return proof
+
+    class _ExplodingGitDiffDryRunRunner:
+        def __init__(self):
+            raise AssertionError("git diff dry-run must not run on failed execution")
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.GitDiffDryRunRunner",
+        _ExplodingGitDiffDryRunRunner,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+
+    executor_service = _FakeExecutorService(success=False)
+    worker = TaskWorker(
+        session=_NoopDbSession(),
+        task_repository=_FakeTaskRepository(task),
+        run_repository=_FakeRunRepository(),
+        executor_service=executor_service,
+        verifier_service=_PassingVerifierService(),
+        budget_guard_service=_AllowingBudgetGuardService(),
+        run_logging_service=_NoopRunLoggingService(),
+        cost_estimator_service=CostEstimatorService(),
+        context_builder_service=_FakeContextBuilderService(),
+        task_router_service=_FakeTaskRouterService(task),
+        model_routing_service=_FakeModelRoutingService(),
+        prompt_registry_service=None,
+        prompt_builder_service=_FakePromptBuilderService(),
+        token_accounting_service=TokenAccountingService(),
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type(
+            "_NoopFailureReviewService",
+            (),
+            {"ensure_review": lambda self, *, task, run: None},
+        )(),
+        agent_conversation_service=_FakeAgentConversationService(agent_session),
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.execution_mode == "simulate"
+    assert result.task is not None
+    assert result.task.status == TaskStatus.FAILED
+    assert result.run is not None
+    assert result.run.status == RunStatus.FAILED
+    assert result.git_diff_dry_run_ready is None
+    assert result.git_diff_dry_run_status_summary_cn is None
+    assert executor_service.build_execution_plan_calls == 1
+    assert executor_service.execute_task_calls == 1
 
 
 def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
@@ -1274,7 +1634,7 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             git_diff_dry_run_modified_files=["README.md"],
             git_diff_dry_run_deleted_files=[],
             git_diff_dry_run_renamed_files=["src/old_name.py"],
-            git_diff_dry_run_status_summary=(
+            git_diff_dry_run_status_summary_cn=(
                 "1 个文件修改，1 个文件新增，1 个文件重命名"
             ),
             git_diff_dry_run_diff_stat=(
@@ -1449,7 +1809,7 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["git_diff_dry_run_deleted_files"] == []
     assert payload["git_diff_dry_run_renamed_files"] == ["src/old_name.py"]
     assert (
-        payload["git_diff_dry_run_status_summary"]
+        payload["git_diff_dry_run_status_summary_cn"]
         == "1 个文件修改，1 个文件新增，1 个文件重命名"
     )
     assert "README.md" in payload["git_diff_dry_run_diff_stat"]
