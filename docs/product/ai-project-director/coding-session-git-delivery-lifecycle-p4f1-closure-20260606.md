@@ -2,7 +2,10 @@
 
 > **文档类型**: P4-F1 阶段收口审计 + Gate 证据  
 > **生成日期**: 2026-06-06  
-> **远端基准**: `origin/main` = `07a32a3ec32819b6fdccba61c844c76d0f1abe07`  
+> **远端基准**: `origin/main` = `bf527d7c18aaae074cb0aa2b9055fb542889cc11`  
+> **P4-F1 实现提交**: `07a32a3ec32819b6fdccba61c844c76d0f1abe07` (`Implement P4-F1 human approval gate domain model`)  
+> **P4-F1 closure 文档提交**: `bf527d7c18aaae074cb0aa2b9055fb542889cc11` (`Document P4-F1 human approval gate closure`)  
+> **参考项目**: ComposioHQ Agent Orchestrator (`c3eeecb`)，仅机制映射参考  
 > **主产品基线**: `docs/product/ai-project-director/page-information-architecture-20260518.md`  
 > **前置文档**: `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4e2-closure-and-p4f-human-approval-gate-design-20260606.md`  
 > **边界**: 本轮只做 P4-F1 收口复核与文档回填；不改 Python 业务代码、不改 API、不改 Worker、不改前端、不改数据库 / migration、不写 AgentMessage、不实现 approval API、不实现确认按钮、不实现产品运行时 `git add` / `git commit` / `git push` / PR。  
@@ -16,7 +19,7 @@
 
 本轮只确认以下事项：
 
-1. `origin/main` 已包含 P4-F1 两个文件。
+1. `origin/main` 当前 head 已包含 P4-F1 closure 文档，且提交历史包含 P4-F1 两个实现文件。
 2. P4-F1 实现符合“纯域模型”边界。
 3. P4-F1 targeted tests 通过。
 4. P4-C / P4-D / P4-F1 相邻 targeted regression 通过。
@@ -53,12 +56,15 @@ git show --name-only --format='%H%n%s' origin/main --
 
 | 项目 | 结果 |
 |------|------|
-| `origin/main` hash | `07a32a3ec32819b6fdccba61c844c76d0f1abe07` |
-| commit message | `Implement P4-F1 human approval gate domain model` |
-| commit 文件 1 | `runtime/orchestrator/app/domain/human_approval_gate.py` |
-| commit 文件 2 | `runtime/orchestrator/tests/test_human_approval_gate.py` |
+| 当前 `origin/main` hash | `bf527d7c18aaae074cb0aa2b9055fb542889cc11` |
+| 当前 `origin/main` commit message | `Document P4-F1 human approval gate closure` |
+| 当前 head 文件 | `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4f1-closure-20260606.md` |
+| P4-F1 实现 commit hash | `07a32a3ec32819b6fdccba61c844c76d0f1abe07` |
+| P4-F1 实现 commit message | `Implement P4-F1 human approval gate domain model` |
+| P4-F1 实现文件 1 | `runtime/orchestrator/app/domain/human_approval_gate.py` |
+| P4-F1 实现文件 2 | `runtime/orchestrator/tests/test_human_approval_gate.py` |
 
-结论：GitHub `origin/main` 已包含 P4-F1 纯域模型与 targeted tests。
+结论：GitHub `origin/main` 当前 head 是 P4-F1 closure 文档提交；其提交历史已包含 P4-F1 纯域模型与 targeted tests。
 
 ---
 
@@ -80,6 +86,44 @@ docs/product/ai-project-director/page-information-architecture-20260518.md
 | 页面分工清楚，不让运行页/仓库页承担审批决策 | P4-F1 未接 Worker、API、前端；后续 P4-F2/P4-F3 仍需单独设计和实现 |
 
 P4-F1 与产品基线一致：它只建立人工确认 Gate 的域层证据，不把确认等同于代码已写入仓库。
+
+
+---
+
+## 2.1 Agent Orchestrator 参考机制映射
+
+P4-F1 closure R1 补充说明：本阶段参考 ComposioHQ Agent Orchestrator (`c3eeecb`) 的机制级设计，而不是复制代码或引入其技术栈。参考范围来自既有 P4 系列设计文档中已归纳的 Agent Orchestrator 机制：session/runtime/PR 分轴、结构化 activity event、CanonicalSessionLifecycle 联合推导、SCM/PR 状态独立建模、CleanupStack rollback 边界。
+
+### 2.1.1 被参考的机制
+
+| Agent Orchestrator 机制 | 机制含义 | P4-F1 采用方式 |
+|-------------------------|----------|----------------|
+| session / runtime / PR 分轴建模 | 将 session、runtime、PR/delivery 等状态拆成独立轴，避免一个状态字段混淆多个生命周期 | P4-F1 把 human approval evidence 建成独立 domain contract，不修改 P4-C operation preview、不修改 P4-D delivery gate、不写 session/runtime 状态 |
+| CanonicalSessionLifecycle 联合推导 | 多个独立轴通过只读推导形成整体状态判断 | `DeliveryHumanApprovalResult` 只读消费 `operation_dry_run` 与 `delivery_gate_evidence`，再叠加显式用户确认事实得出 ready / blocked |
+| structured activity / audit event | 用结构化字段表达事件、原因、风险和审计线索 | `HumanApprovalRecord` 保留 `approval_id`、确认人、scope、request id、created/expires、fingerprint；但 P4-F1 不写 AgentMessage |
+| SCM / PR 状态独立建模 | PR、CI、review 不与 session/runtime 混在一起，也不提前声明未发生的交付事实 | `HumanApprovalGateSafetyFlags` 明确 `pr_opened=False`、`ci_triggered=False`、`gate_allows_write=False`，用户确认不等于 PR/CI/写仓库 |
+| CleanupStack / rollback 边界 | 对有副作用的操作才需要 rollback；纯推导阶段不引入清理副作用 | P4-F1 不执行 Git 写操作，因此不实现 CleanupStack，只保留 `approval_applied=False`、`operation_applied=False` 作为后续 guardrail 的前置约束 |
+
+### 2.1.2 到 P4-F1 三个核心模型的映射
+
+| P4-F1 模型 | 参考机制映射 | 具体字段 / 规则 |
+|------------|--------------|-----------------|
+| `HumanApprovalRecord` | 对应 Agent Orchestrator 的结构化 activity / audit event 思路，但落到本项目的 Python domain record | `approval_id`、`approved_by`、`approval_scope`、`approval_requested_action`、`approval_client_request_id`、`approval_created_at`、`approval_expires_at`、`approval_confirmation_fingerprint` |
+| `DeliveryHumanApprovalResult` | 对应 CanonicalSessionLifecycle 的“多轴只读联合推导”思路 | 消费 P4-C `operation_dry_run_ready`、P4-D `delivery_gate_evidence_ready`、`delivery_gate_allows_user_confirmation`、`delivery_gate_allows_write`，输出 `ready`、`reason_code`、`blocking_reasons`、`satisfied_conditions` |
+| `HumanApprovalGateSafetyFlags` | 对应 PR/SCM 状态独立和副作用边界 | 强制 `runs_git=False`、`runs_write_git=False`、`git_add_triggered=False`、`git_commit_triggered=False`、`git_push_triggered=False`、`pr_opened=False`、`ci_triggered=False`、`gate_allows_write=False`；ready 时只允许 `approval_granted=True` 与 `gate_allows_next_guardrail=True` |
+
+### 2.1.3 独立性声明
+
+| 项目 | 结论 |
+|------|------|
+| 是否照搬 Agent Orchestrator 代码 | 否 |
+| 是否引入 Agent Orchestrator TypeScript / Node / plugin 技术栈 | 否 |
+| 是否实现 Agent Orchestrator 的 workspace/runtime/PR 流程 | 否 |
+| 是否实现 CleanupStack rollback | 否，P4-F1 无副作用，不需要 rollback |
+| 是否实现产品运行时 Git 写操作 | 否 |
+| 是否创建 PR / 触发 CI / merge | 否 |
+
+P4-F1 对参考项目的使用仅限机制级映射：用“独立 evidence contract + 结构化审计字段 + 明确安全 flag”的方式表达人工确认 Gate。它没有复制参考项目实现，也没有把参考项目技术栈引入 AI-Dev-Orchestrator。
 
 ---
 
@@ -227,7 +271,8 @@ python -m pytest tests/test_human_approval_gate.py tests/test_git_operation_dry_
 
 | Gate | 结论 | 证据 |
 |------|------|------|
-| `origin/main` 包含 P4-F1 两个文件 | Pass | commit `07a32a3ec32819b6fdccba61c844c76d0f1abe07` |
+| `origin/main` 当前 head 为 closure 文档提交 | Pass | commit `bf527d7c18aaae074cb0aa2b9055fb542889cc11` |
+| `origin/main` 历史包含 P4-F1 两个实现文件 | Pass | implementation commit `07a32a3ec32819b6fdccba61c844c76d0f1abe07` |
 | P4-F1 纯域模型存在 | Pass | `human_approval_gate.py` |
 | P4-F1 targeted tests 存在 | Pass | `test_human_approval_gate.py` |
 | ready=True 可形成审计型 `HumanApprovalRecord` | Pass | `test_evaluate_ready_human_approval_gate_outputs_auditable_record` |
