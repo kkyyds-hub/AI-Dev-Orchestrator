@@ -1,6 +1,7 @@
 """Single-cycle task worker used by Day 6 to Day 9."""
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 import shlex
 from typing import TYPE_CHECKING
 from pathlib import Path
@@ -25,6 +26,10 @@ from app.domain.delivery_gate_evidence import (
     DELIVERY_AUDIT_COLLECTED_EVENT_TYPE,
     DeliveryGateEvidenceBuilder,
     DeliveryGateEvidenceResult,
+)
+from app.domain.human_approval_gate import (
+    DeliveryHumanApprovalResult,
+    HumanApprovalGateBuilder,
 )
 from app.domain.run import (
     Run,
@@ -316,6 +321,48 @@ class WorkerRunResult:
     delivery_gate_evidence_approval_granted: bool | None = None
     delivery_gate_evidence_gate_allows_write: bool | None = None
     delivery_gate_evidence_gate_allows_user_confirmation: bool | None = None
+    delivery_human_approval_ready: bool | None = None
+    delivery_human_approval_source: str | None = None
+    delivery_human_approval_reason_code: str | None = None
+    delivery_human_approval_summary_cn: str | None = None
+    delivery_human_approval_session_id: str | None = None
+    delivery_human_approval_project_id: str | None = None
+    delivery_human_approval_task_id: str | None = None
+    delivery_human_approval_run_id: str | None = None
+    delivery_human_approval_required: bool | None = None
+    delivery_human_approval_granted: bool | None = None
+    delivery_human_approval_id: str | None = None
+    delivery_human_approval_approved_by: str | None = None
+    delivery_human_approval_approved_by_display_name: str | None = None
+    delivery_human_approval_scope: str | None = None
+    delivery_human_approval_requested_action: str | None = None
+    delivery_human_approval_client_request_id: str | None = None
+    delivery_human_approval_created_at: datetime | None = None
+    delivery_human_approval_expires_at: datetime | None = None
+    delivery_human_approval_applied: bool | None = None
+    delivery_human_approval_revoked: bool | None = None
+    delivery_human_approval_confirmation_fingerprint: str | None = None
+    delivery_human_approval_operation_dry_run_ready: bool | None = None
+    delivery_human_approval_delivery_gate_evidence_ready: bool | None = None
+    delivery_human_approval_delivery_gate_allows_user_confirmation: bool | None = None
+    delivery_human_approval_delivery_gate_allows_write: bool | None = None
+    delivery_human_approval_proposed_operation: str | None = None
+    delivery_human_approval_proposed_commit_message: str | None = None
+    delivery_human_approval_changed_files_count: int | None = None
+    delivery_human_approval_changed_files: list[str] = field(default_factory=list)
+    delivery_human_approval_satisfied_conditions: list[str] = field(default_factory=list)
+    delivery_human_approval_blocking_reasons: list[str] = field(default_factory=list)
+    delivery_human_approval_runs_git: bool | None = None
+    delivery_human_approval_runs_write_git: bool | None = None
+    delivery_human_approval_git_add_triggered: bool | None = None
+    delivery_human_approval_git_commit_triggered: bool | None = None
+    delivery_human_approval_git_push_triggered: bool | None = None
+    delivery_human_approval_pr_opened: bool | None = None
+    delivery_human_approval_ci_triggered: bool | None = None
+    delivery_human_approval_execution_enabled: bool | None = None
+    delivery_human_approval_operation_applied: bool | None = None
+    delivery_human_approval_gate_allows_write: bool | None = None
+    delivery_human_approval_gate_allows_next_guardrail: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -547,6 +594,93 @@ def _delivery_gate_evidence_result_kwargs(
         "delivery_gate_evidence_gate_allows_write": safety_flags.gate_allows_write,
         "delivery_gate_evidence_gate_allows_user_confirmation": (
             safety_flags.gate_allows_user_confirmation
+        ),
+    }
+
+
+def _delivery_human_approval_result_kwargs(
+    result: DeliveryHumanApprovalResult | None,
+) -> dict[str, object]:
+    """Map P4-F human approval evidence into WorkerRunResult fields."""
+
+    if result is None:
+        return {}
+
+    safety_flags = result.safety_flags
+    return {
+        "delivery_human_approval_ready": result.ready,
+        "delivery_human_approval_source": result.source,
+        "delivery_human_approval_reason_code": result.reason_code,
+        "delivery_human_approval_summary_cn": result.summary_cn,
+        "delivery_human_approval_session_id": result.session_id,
+        "delivery_human_approval_project_id": result.project_id,
+        "delivery_human_approval_task_id": result.task_id,
+        "delivery_human_approval_run_id": result.run_id,
+        "delivery_human_approval_required": result.approval_required,
+        "delivery_human_approval_granted": result.approval_granted,
+        "delivery_human_approval_id": result.approval_id,
+        "delivery_human_approval_approved_by": result.approved_by,
+        "delivery_human_approval_approved_by_display_name": (
+            result.approved_by_display_name
+        ),
+        "delivery_human_approval_scope": (
+            result.approval_scope.value if result.approval_scope is not None else None
+        ),
+        "delivery_human_approval_requested_action": (
+            result.approval_requested_action.value
+            if result.approval_requested_action is not None
+            else None
+        ),
+        "delivery_human_approval_client_request_id": (
+            result.approval_client_request_id
+        ),
+        "delivery_human_approval_created_at": result.approval_created_at,
+        "delivery_human_approval_expires_at": result.approval_expires_at,
+        "delivery_human_approval_applied": result.approval_applied,
+        "delivery_human_approval_revoked": result.approval_revoked,
+        "delivery_human_approval_confirmation_fingerprint": (
+            result.approval_confirmation_fingerprint
+        ),
+        "delivery_human_approval_operation_dry_run_ready": (
+            result.operation_dry_run_ready
+        ),
+        "delivery_human_approval_delivery_gate_evidence_ready": (
+            result.delivery_gate_evidence_ready
+        ),
+        "delivery_human_approval_delivery_gate_allows_user_confirmation": (
+            result.delivery_gate_allows_user_confirmation
+        ),
+        "delivery_human_approval_delivery_gate_allows_write": (
+            result.delivery_gate_allows_write
+        ),
+        "delivery_human_approval_proposed_operation": result.proposed_operation,
+        "delivery_human_approval_proposed_commit_message": (
+            result.proposed_commit_message
+        ),
+        "delivery_human_approval_changed_files_count": result.changed_files_count,
+        "delivery_human_approval_changed_files": list(result.changed_files),
+        "delivery_human_approval_satisfied_conditions": (
+            list(result.satisfied_conditions)
+        ),
+        "delivery_human_approval_blocking_reasons": list(result.blocking_reasons),
+        "delivery_human_approval_runs_git": safety_flags.runs_git,
+        "delivery_human_approval_runs_write_git": safety_flags.runs_write_git,
+        "delivery_human_approval_git_add_triggered": (
+            safety_flags.git_add_triggered
+        ),
+        "delivery_human_approval_git_commit_triggered": (
+            safety_flags.git_commit_triggered
+        ),
+        "delivery_human_approval_git_push_triggered": (
+            safety_flags.git_push_triggered
+        ),
+        "delivery_human_approval_pr_opened": safety_flags.pr_opened,
+        "delivery_human_approval_ci_triggered": safety_flags.ci_triggered,
+        "delivery_human_approval_execution_enabled": safety_flags.execution_enabled,
+        "delivery_human_approval_operation_applied": safety_flags.operation_applied,
+        "delivery_human_approval_gate_allows_write": safety_flags.gate_allows_write,
+        "delivery_human_approval_gate_allows_next_guardrail": (
+            safety_flags.gate_allows_next_guardrail
         ),
     }
 
@@ -1316,6 +1450,7 @@ class TaskWorker:
         git_diff_dry_run_result: GitDiffDryRunResult | None = None
         git_operation_dry_run_result: GitOperationDryRunResult | None = None
         delivery_gate_evidence_result: DeliveryGateEvidenceResult | None = None
+        delivery_human_approval_result: DeliveryHumanApprovalResult | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -2825,6 +2960,24 @@ class TaskWorker:
                     delivery_git_write_enabled=False,
                 )
 
+            if execution_quality_passed:
+                delivery_human_approval_result = HumanApprovalGateBuilder.evaluate(
+                    agent_session=agent_session,
+                    operation_dry_run=git_operation_dry_run_result,
+                    delivery_gate_evidence=delivery_gate_evidence_result,
+                    delivery_git_write_enabled=False,
+                    expected_changed_files=(
+                        list(git_operation_dry_run_result.changed_files)
+                        if git_operation_dry_run_result is not None
+                        else None
+                    ),
+                    expected_proposed_commit_message=(
+                        git_operation_dry_run_result.proposed_commit_message
+                        if git_operation_dry_run_result is not None
+                        else None
+                    ),
+                )
+
             token_accounting = self.token_accounting_service.build_snapshot(
                 prompt_envelope=prompt_envelope,
                 completion_text="\n".join(
@@ -3187,6 +3340,9 @@ class TaskWorker:
                 **_git_operation_dry_run_result_kwargs(git_operation_dry_run_result),
                 **_delivery_gate_evidence_result_kwargs(
                     delivery_gate_evidence_result
+                ),
+                **_delivery_human_approval_result_kwargs(
+                    delivery_human_approval_result
                 ),
                 model_name=run.model_name if run else None,
                 model_tier=(

@@ -340,6 +340,48 @@ class WorkerRunOnceResponse(BaseModel):
     delivery_gate_evidence_approval_granted: bool | None = None
     delivery_gate_evidence_gate_allows_write: bool | None = None
     delivery_gate_evidence_gate_allows_user_confirmation: bool | None = None
+    delivery_human_approval_ready: bool | None = None
+    delivery_human_approval_source: str | None = None
+    delivery_human_approval_reason_code: str | None = None
+    delivery_human_approval_summary_cn: str | None = None
+    delivery_human_approval_session_id: str | None = None
+    delivery_human_approval_project_id: str | None = None
+    delivery_human_approval_task_id: str | None = None
+    delivery_human_approval_run_id: str | None = None
+    delivery_human_approval_required: bool | None = None
+    delivery_human_approval_granted: bool | None = None
+    delivery_human_approval_id: str | None = None
+    delivery_human_approval_approved_by: str | None = None
+    delivery_human_approval_approved_by_display_name: str | None = None
+    delivery_human_approval_scope: str | None = None
+    delivery_human_approval_requested_action: str | None = None
+    delivery_human_approval_client_request_id: str | None = None
+    delivery_human_approval_created_at: datetime | None = None
+    delivery_human_approval_expires_at: datetime | None = None
+    delivery_human_approval_applied: bool | None = None
+    delivery_human_approval_revoked: bool | None = None
+    delivery_human_approval_confirmation_fingerprint: str | None = None
+    delivery_human_approval_operation_dry_run_ready: bool | None = None
+    delivery_human_approval_delivery_gate_evidence_ready: bool | None = None
+    delivery_human_approval_delivery_gate_allows_user_confirmation: bool | None = None
+    delivery_human_approval_delivery_gate_allows_write: bool | None = None
+    delivery_human_approval_proposed_operation: str | None = None
+    delivery_human_approval_proposed_commit_message: str | None = None
+    delivery_human_approval_changed_files_count: int | None = None
+    delivery_human_approval_changed_files: list[str] = Field(default_factory=list)
+    delivery_human_approval_satisfied_conditions: list[str] = Field(default_factory=list)
+    delivery_human_approval_blocking_reasons: list[str] = Field(default_factory=list)
+    delivery_human_approval_runs_git: bool | None = None
+    delivery_human_approval_runs_write_git: bool | None = None
+    delivery_human_approval_git_add_triggered: bool | None = None
+    delivery_human_approval_git_commit_triggered: bool | None = None
+    delivery_human_approval_git_push_triggered: bool | None = None
+    delivery_human_approval_pr_opened: bool | None = None
+    delivery_human_approval_ci_triggered: bool | None = None
+    delivery_human_approval_execution_enabled: bool | None = None
+    delivery_human_approval_operation_applied: bool | None = None
+    delivery_human_approval_gate_allows_write: bool | None = None
+    delivery_human_approval_gate_allows_next_guardrail: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -839,6 +881,108 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             delivery_gate_evidence_gate_allows_user_confirmation=(
                 result.delivery_gate_evidence_gate_allows_user_confirmation
+            ),
+            delivery_human_approval_ready=result.delivery_human_approval_ready,
+            delivery_human_approval_source=result.delivery_human_approval_source,
+            delivery_human_approval_reason_code=(
+                result.delivery_human_approval_reason_code
+            ),
+            delivery_human_approval_summary_cn=(
+                result.delivery_human_approval_summary_cn
+            ),
+            delivery_human_approval_session_id=(
+                result.delivery_human_approval_session_id
+            ),
+            delivery_human_approval_project_id=(
+                result.delivery_human_approval_project_id
+            ),
+            delivery_human_approval_task_id=result.delivery_human_approval_task_id,
+            delivery_human_approval_run_id=result.delivery_human_approval_run_id,
+            delivery_human_approval_required=(
+                result.delivery_human_approval_required
+            ),
+            delivery_human_approval_granted=result.delivery_human_approval_granted,
+            delivery_human_approval_id=result.delivery_human_approval_id,
+            delivery_human_approval_approved_by=(
+                result.delivery_human_approval_approved_by
+            ),
+            delivery_human_approval_approved_by_display_name=(
+                result.delivery_human_approval_approved_by_display_name
+            ),
+            delivery_human_approval_scope=result.delivery_human_approval_scope,
+            delivery_human_approval_requested_action=(
+                result.delivery_human_approval_requested_action
+            ),
+            delivery_human_approval_client_request_id=(
+                result.delivery_human_approval_client_request_id
+            ),
+            delivery_human_approval_created_at=(
+                result.delivery_human_approval_created_at
+            ),
+            delivery_human_approval_expires_at=(
+                result.delivery_human_approval_expires_at
+            ),
+            delivery_human_approval_applied=result.delivery_human_approval_applied,
+            delivery_human_approval_revoked=result.delivery_human_approval_revoked,
+            delivery_human_approval_confirmation_fingerprint=(
+                result.delivery_human_approval_confirmation_fingerprint
+            ),
+            delivery_human_approval_operation_dry_run_ready=(
+                result.delivery_human_approval_operation_dry_run_ready
+            ),
+            delivery_human_approval_delivery_gate_evidence_ready=(
+                result.delivery_human_approval_delivery_gate_evidence_ready
+            ),
+            delivery_human_approval_delivery_gate_allows_user_confirmation=(
+                result.delivery_human_approval_delivery_gate_allows_user_confirmation
+            ),
+            delivery_human_approval_delivery_gate_allows_write=(
+                result.delivery_human_approval_delivery_gate_allows_write
+            ),
+            delivery_human_approval_proposed_operation=(
+                result.delivery_human_approval_proposed_operation
+            ),
+            delivery_human_approval_proposed_commit_message=(
+                result.delivery_human_approval_proposed_commit_message
+            ),
+            delivery_human_approval_changed_files_count=(
+                result.delivery_human_approval_changed_files_count
+            ),
+            delivery_human_approval_changed_files=(
+                result.delivery_human_approval_changed_files
+            ),
+            delivery_human_approval_satisfied_conditions=(
+                result.delivery_human_approval_satisfied_conditions
+            ),
+            delivery_human_approval_blocking_reasons=(
+                result.delivery_human_approval_blocking_reasons
+            ),
+            delivery_human_approval_runs_git=result.delivery_human_approval_runs_git,
+            delivery_human_approval_runs_write_git=(
+                result.delivery_human_approval_runs_write_git
+            ),
+            delivery_human_approval_git_add_triggered=(
+                result.delivery_human_approval_git_add_triggered
+            ),
+            delivery_human_approval_git_commit_triggered=(
+                result.delivery_human_approval_git_commit_triggered
+            ),
+            delivery_human_approval_git_push_triggered=(
+                result.delivery_human_approval_git_push_triggered
+            ),
+            delivery_human_approval_pr_opened=result.delivery_human_approval_pr_opened,
+            delivery_human_approval_ci_triggered=result.delivery_human_approval_ci_triggered,
+            delivery_human_approval_execution_enabled=(
+                result.delivery_human_approval_execution_enabled
+            ),
+            delivery_human_approval_operation_applied=(
+                result.delivery_human_approval_operation_applied
+            ),
+            delivery_human_approval_gate_allows_write=(
+                result.delivery_human_approval_gate_allows_write
+            ),
+            delivery_human_approval_gate_allows_next_guardrail=(
+                result.delivery_human_approval_gate_allows_next_guardrail
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
