@@ -1,8 +1,9 @@
 # Coding Session Git Delivery Lifecycle P4-A 设计
 
-> **文档类型**: P4-A 设计文档（只做设计收口，不改业务代码）
+> **文档类型**: P4-A 设计文档（R1 修订，只做设计收口，不改业务代码）
 > **生成日期**: 2026-06-06
-> **基准 commit**: `c9e6a02151d8b49550e711dbf7a63df0b24be33a`
+> **R1 修订日期**: 2026-06-06
+> **基准 commit**: `ed7e41b963640bcc52c439786c0c70904196daa4`
 > **参考项目**: ComposioHQ Agent Orchestrator (`c3eeecb`)
 > **前置文档**:
 > - `.kkr/skills/ai-project-director-command-governance/SKILL.md`
@@ -17,8 +18,9 @@
 > - `docs/product/ai-project-director/coding-session-runtime-lifecycle-p3-closure-20260606.md`
 > - `docs/product/ai-project-director/coding-session-runtime-lifecycle-p3d-event-audit-design-20260606.md`
 > - `docs/product/ai-project-director/coding-session-runtime-lifecycle-p3d-closure-20260606.md`
-> **边界**: 纯设计文档，不改 Python 代码、不改前端、不启动服务、不执行任何 Git 写操作
-> **状态**: P4-A Design Complete；Git add / commit / push / PR: Not started；AI Project Director 总闭环 Partial
+> **边界**: 纯设计文档，不改 Python 代码、不改前端、不启动服务、不执行任何 Git 写操作（只允许受控 allowlist 的只读 Git 检查命令）
+> **安全边界 (R1 修订)**: 只读 Git 命令（如 `git diff` / `git status` / `git log`）在 allowlist 内可以执行，`runs_git = true` 是预期行为；安全的核心是 `runs_write_git = false`
+> **状态**: P4-A Design Complete (R1)；Git add / commit / push / PR: Not started；AI Project Director 总闭环 Partial
 
 ---
 
@@ -213,7 +215,7 @@ none (当前)
 
 ### D.1 核心原则
 
-P4-A 参考 P2-C（Runtime Launch Dry-run）的思路：定义 "Git Operation Dry-run" 的证据字段，但**不执行任何真实 Git 操作**。字段的目的是向用户展示 "这次 Agent run 产生了哪些代码改动" 的信息，但不对任何仓库做写操作。
+PP4-A 参考 P2-C（Runtime Launch Dry-run）的思路：定义 Git diff/status 的 evidence 字段。P4-B 阶段会执行受控 allowlist 的只读 Git 命令（`git diff`、`git status`、`git log`），但**不执行任何 Git 写操作**（`git add`、`git commit`、`git push` 等）。字段的目的是向用户展示 "这次 Agent run 产生了哪些代码改动" 的只读信息。安全的核心是 `runs_write_git = false`，不表示 `runs_git = false`。
 
 ### D.2 Diff Evidence 字段定义
 
@@ -241,20 +243,22 @@ P4-A 参考 P2-C（Runtime Launch Dry-run）的思路：定义 "Git Operation Dr
 | `git_diff_dry_run_peek_command` | `str \| None` | 项目录中哪个命令产生了可审查的差异 |
 | `git_diff_dry_run_danger_commands_applied` | `bool \| None` | 项目录中是否有风险命令被执行 |
 
-### D.3 安全标志
+### D.3 安全标志（R1 修订）
 
-与 P3 runtime evidence 保持相同的模式，所有真实 Git 写操作标志默认 `false`：
+与 P3 runtime evidence 保持相同的模式。**P4-B 阶段执行 allowlisted 的只读 Git 命令时 `runs_git = true` 是预期行为，不代表有风险**。安全的核心是所有 Git 写操作标志保持 `false`：
 
-| 安全开关 | 默认值 | 含义 |
+| 安全开关 | P4-B 预期值 | 含义 |
 |---------|--------|------|
-| `git_diff_dry_run_runs_git` | **false** | dry-run 本身只运行只读 git 命令 (diff/status) |
-| `git_diff_dry_run_runs_write_git` | **false** | dry-run 不执行 git add/commit/push 等写操作 |
+| `git_diff_dry_run_runs_git` | **true** | `git diff` / `git status` 等只读命令会实际执行 git，`true` 是安全的（只读） |
+| `git_diff_dry_run_runs_write_git` | **false** | **不执行** git add/commit/push 等写操作——这是安全核心 |
 | `git_diff_dry_run_git_add_triggered` | **false** | git add 未触发 |
 | `git_diff_dry_run_git_commit_triggered` | **false** | git commit 未触发 |
 | `git_diff_dry_run_git_push_triggered` | **false** | git push 未触发 |
 | `git_diff_dry_run_pr_opened` | **false** | PR 未创建 |
 | `git_diff_dry_run_ci_triggered` | **false** | CI 未触发 |
-| `git_diff_dry_run_execution_enabled` | **false** | 真实执行未开启 |
+| `git_diff_dry_run_execution_enabled` | **false** | 真实 Git 写入执行未开启 |
+
+**关键声明**: 不要用 `runs_git = false` 来表示安全。安全由 `runs_write_git = false` + 其余写标志全部 `false` 来保证。把只读 git 命令误标为 `runs_git = false` 会让字段失去可信度——因为 `git diff` 确实在执行 git。
 
 ### D.4 与 P2 safe command proof 的 deny-by-default 一致
 
@@ -310,9 +314,11 @@ class GitDiffDryRunResult:
     peek_command: str | None        # 项目录中哪个命令产生了可审查的差异
     danger_commands_applied: bool | None  # 项目录中是否有风险命令被执行
 
-    # Safety — all False in P4-A/B
-    runs_git: bool = False
-    runs_write_git: bool = False
+    # Safety (R1 修订)
+    # runs_git=True is EXPECTED in P4-B: git diff/status ARE git commands (read-only).
+    # Safety is guaranteed by runs_write_git=False plus all other write flags below.
+    runs_git: bool = True            # 只读 git 命令会实际执行 git（安全）
+    runs_write_git: bool = False     # **不执行** git add/commit/push（安全核心）
     git_add_triggered: bool = False
     git_commit_triggered: bool = False
     git_push_triggered: bool = False
@@ -391,21 +397,32 @@ P4-A 遵循 closure-flow 的原则：**高风险动作必须用户确认**：
 
 Git 写操作（add/commit/push/PR）属于高风险动作，必须经过 human approval gate。与 P1 worktree create/cleanup 的 `requires_user_confirmation` 模式保持一致。
 
-### G.2 审批流程
+### G.2 审批流程（R1 修订：分步双审批）
+
+P4-A-R1 明确：**human approval 必须分步执行，一次审批不能覆盖全部 Git 写动作**。
 
 ```
 delivery gate passed (D1–D5)
     │
     ▼
-human_approval_pending
+human_approval_pending（第一步）
     │
-    ├─ user approves → git add (P4-D)
+    ├─ user approves add+commit → git add (P4-D)
     │   └─ git commit (P4-D)
-    │       └─ git push + PR (P4-E)
+    │       │
+    │       ├─ 第二步审批: user approves push+PR → git push + PR (P4-E)
+    │       │
+    │       └─ user does NOT approve push → 代码保留在本地（合法终态）
     │
-    └─ user rejects  → human_approval_rejected
+    └─ user rejects add+commit → human_approval_rejected
         └─ delivery blocked (终态，可重新评估)
 ```
+
+**关键规则**：
+- "同意生成本地提交" 只能覆盖 `git add` + `git commit`
+- "同意推送并创建代码合并请求" 必须是另一个独立审批或明确的二次确认
+- **不允许**一次模糊的 "同意提交" 自动覆盖 add、commit、push、PR 全部动作
+- 用户可以在提交后选择不推送——代码保留在本地是合法终态
 
 ### G.3 Approval request 结构建议
 
@@ -564,25 +581,88 @@ class DeliveryHandle:
 - 风险等级
 - [同意提交] / [驳回] 按钮（均调用真实后端 API）
 
-### I.3 中文文案规范
+### I.3 用户可见中文文案规范（R1 补强）
 
-| 英文原始值 | 中文展示 |
-|-----------|---------|
-| `diff_dirty` | 存在未提交的代码改动 |
-| `diff_clean` | 没有代码改动 |
-| `delivery_gate_evaluated` | 交付门禁已通过 |
-| `delivery_gate_blocked` | 交付门禁已阻断 |
-| `human_approval_pending` | 等待用户审批可否提交 |
-| `human_approval_rejected` | 用户已选择不提交 |
-| `git_add_completed` | git add 已完成 |
-| `git_commit_completed` | git commit 已完成 |
-| `pr_opened` | PR 已创建 |
-| `true` / `false` | 是 / 否 |
+**核心原则**：所有展示给用户看的主文案必须是简单易懂的中文。技术词（如 git add / commit / PR / delivery gate / diff dry-run）不能直接作为主文案，只能放在括号里作为辅助说明。
 
-禁止误导文案：
-- "代码已推送"（未实现时不可展示）
-- "PR 已准备"（需要经过 human approval）
-- "自动提交成功"（git commit 不是自动的）
+#### 技术词 → 用户可见中文映射
+
+| 技术词 | 中文主文案 | 辅助说明（可选） |
+|--------|-----------|----------------|
+| git diff dry-run | 代码改动预览 | （基于 git diff 只读检查） |
+| delivery gate | 交付前检查 | （共 5 项前置条件） |
+| human approval | 用户确认 | （需要你来审批） |
+| git add | 加入待提交区 | （git add 操作） |
+| git commit | 生成本地提交 | （git commit 操作） |
+| git push | 推送到远程仓库 | （git push 操作） |
+| PR（Pull Request） | 代码合并请求 | （Pull Request） |
+| CI（Continuous Integration） | 自动检查 | （CI 流水线） |
+| code review | 代码审查 | （人工审查） |
+| merge | 合并代码 | （merge 操作） |
+| diff_dirty | 存在代码改动 | — |
+| diff_clean | 没有代码改动 | — |
+| branch_created | 分支已存在 | — |
+| true / false | 是 / 否 | — |
+
+#### 按钮中文规范
+
+所有按钮必须是用户能理解的中文：
+
+| 按钮功能 | 中文文案 | 禁止使用的文案 |
+|---------|---------|--------------|
+| 查看 diff | 查看代码改动 | Diff / Show Diff |
+| 发起交付前检查 | 检查是否可以提交 | 运行 Delivery Gate |
+| 请求用户审批 | 发起提交确认 | Request Human Approval |
+| 同意提交（只到 add+commit） | 同意生成本地提交 | Approve / OK |
+| 同意推送并创建合并请求 | 同意推送并创建代码合并请求 | Approve Push+PR |
+| 驳回本次提交 | 驳回本次提交 | Reject / Deny |
+| 查看交付前检查结果 | 查看交付前检查结果 | View Delivery Gate Result |
+| 查看提交历史 | 查看提交历史 | View Commit Log |
+
+#### 审批分步说明（R1 新增）
+
+一次审批只能绑定一个具体动作范围：
+
+| 审批步骤 | 审批覆盖的动作 | 按钮中文 |
+|---------|-------------|---------|
+| 第一步审批 | `git add` + `git commit` | **同意生成本地提交** / **驳回本次提交** |
+| 第二步审批 | `git push` + PR 创建 | **同意推送并创建代码合并请求** / **驳回本次推送** |
+
+**不允许**：
+- 一次模糊的 "同意提交" 自动覆盖 add、commit、push、PR 全部动作
+- "同意推送" 必须是一个独立的审批或明确的二次确认
+
+#### 禁止在功能未实现时使用的误导文案
+
+以下文案在对应能力未实现前**严禁**出现在任何前端页面：
+
+| 禁止文案 | 原因 |
+|---------|------|
+| 代码已提交 | git commit 尚未实现 |
+| 代码已推送 | git push 尚未实现 |
+| 合并请求已创建 | PR 尚未实现 |
+| 自动提交成功 | git commit 不是自动的，且尚未实现 |
+| AI 已完成交付 | Delivery Axis 未闭环 |
+| 交付完成 | 同上 |
+| PR 已准备 | PR 尚未实现 |
+| 提交成功 | 无 git commit 能力 |
+| 推送成功 | 无 git push 能力 |
+| CI 检查通过 | CI 集成尚未实现 |
+| 代码审查已通过 | Code review 尚未实现 |
+
+#### 正确的状态展示文案
+
+在能力未实现时，前端应展示如实的中文状态：
+
+| 场景 | 正确中文 |
+|------|---------|
+| 代码改动预览已完成 | 检测到 3 个文件变更。注意：改动只是预览结果，尚未被提交或推送。 |
+| 代码改动预览无改动 | 本次执行未产生代码改动。 |
+| 交付前检查通过 | 交付前检查已全部通过（共 5 项）。这仅表示前置条件满足，代码尚未被提交。 |
+| 交付前检查阻断 | 交付前检查已阻断：代码改动预览未就绪。阻断是受控安全行为。 |
+| 等待用户确认 | 等待你确认是否生成本地提交。提交后可在下一步选择是否推送到远程仓库。 |
+| 用户已驳回 | 你已选择不提交本次改动。可随时重新发起提交确认。 |
+| 安全标志面板（通用） | 是否已推送到远程仓库：否；是否已创建代码合并请求：否
 
 ---
 
@@ -677,18 +757,20 @@ class DeliveryHandle:
 
 | Gate | 结论 |
 |------|------|
-| P4-A Git Delivery Lifecycle Design | **Design Complete** |
+| P4-A Git Delivery Lifecycle Design (R1) | **Design Complete (R1)** |
 | P4-A 代码实现 | **Not started** |
-| Git diff dry-run | **Not started** |
-| Delivery gate | **Not started** |
-| Human approval | **Not started** |
-| git add / commit / push | **Not started** |
-| PR 创建 | **Not started** |
+| Git diff dry-run（只读 diff） | **Not started** |
+| Delivery gate（交付前检查） | **Not started** |
+| Human approval（分步双审批） | **Not started** |
+| git add / git commit | **Not started** |
+| git push / PR 创建 | **Not started** |
 | CI / review / merge | **Not started** |
 | 前端只读展示 | **Not started** |
 | AI 自动编码 | **Not started** |
 | **AI Project Director 总闭环** | **Partial** |
 
-P4-A 完成了 Git Delivery Lifecycle 的完整设计收口：DeliveryAxis 状态机精化（从 11 个状态扩展到 20 个状态）、Git diff evidence 字段设计、Git operation dry-run API 合同、delivery gate chain (D1–D5)、human approval gate、delivery event/audit 15 种事件类型、前端只读展示字段建议、feature flag 三层设计。
+P4-A-R1 完成了 Git Delivery Lifecycle 的完整设计收口，并修正了两个关键设计问题：
+- **安全标志修正**: `runs_git = true`（只读 Git 命令会实际执行 git，这是安全的），`runs_write_git = false`（所有 Git 写操作保持关闭）
+- **用户可见中文规范补强**: 所有技术词必须映射为简单中文，按钮必须用户可理解，禁止在功能未实现时使用误导文案
 
-但所有真实 Git 写操作（git add / commit / push / PR / merge）仍然是 **Not started**。P4-A 只是设计的里程碑，不代表代码已开始推进、不代表任何 Git 写操作已执行、不代表 AI 自动编码已启动。AI Project Director 总闭环仍为 **Partial**。
+但所有真实 Git 写操作（git add / commit / push / PR / merge）仍然是 **Not started**。P4-A-R1 只是设计的里程碑，不代表代码已开始推进、不代表任何 Git 写操作已执行、不代表 AI 自动编码已启动。AI Project Director 总闭环仍为 **Partial**。
