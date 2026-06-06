@@ -1,4 +1,5 @@
 import { AgentCodingSessionSnapshot } from "./AgentCodingSessionSnapshot";
+import { AgentDeliveryDiffEventPanel } from "./AgentDeliveryDiffEventPanel";
 import { AgentRuntimeGateEventPanel } from "./AgentRuntimeGateEventPanel";
 import { AgentTimelineList } from "./AgentTimelineList";
 import { AgentWorkspaceLifecycleAuditPanel } from "./AgentWorkspaceLifecycleAuditPanel";
@@ -36,6 +37,8 @@ export function AgentThreadControlGrid(props: {
         <AgentWorkspaceLifecycleAuditPanel messages={props.timelineMessages} />
 
         <AgentRuntimeGateEventPanel messages={props.timelineMessages} />
+
+        <AgentDeliveryDiffEventPanel messages={props.timelineMessages} />
 
         <BossInterventionForm
           projectId={props.projectId}

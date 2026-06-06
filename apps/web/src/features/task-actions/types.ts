@@ -146,6 +146,33 @@ export type WorkerRunOnceResponse = {
   worktree_safe_command_proof_reason_code: string | null;
   worktree_safe_command_proof_observed_pwd: string | null;
   worktree_safe_command_proof_pwd_matches_workspace_path: boolean | null;
+  git_diff_dry_run_ready: boolean | null;
+  git_diff_dry_run_source: string | null;
+  git_diff_dry_run_reason_code: string | null;
+  git_diff_dry_run_worktree_path: string | null;
+  git_diff_dry_run_has_changes: boolean | null;
+  git_diff_dry_run_changed_files_count: number | null;
+  git_diff_dry_run_changed_files: string[];
+  git_diff_dry_run_added_files: string[];
+  git_diff_dry_run_modified_files: string[];
+  git_diff_dry_run_deleted_files: string[];
+  git_diff_dry_run_renamed_files: string[];
+  git_diff_dry_run_status_summary_cn: string | null;
+  git_diff_dry_run_diff_stat: string | null;
+  git_diff_dry_run_diff_shortstat: string | null;
+  git_diff_dry_run_branch_name: string | null;
+  git_diff_dry_run_compare_branch: string | null;
+  git_diff_dry_run_command: string | null;
+  git_diff_dry_run_peek_command: string | null;
+  git_diff_dry_run_danger_commands_applied: boolean | null;
+  git_diff_dry_run_runs_git: boolean | null;
+  git_diff_dry_run_runs_write_git: boolean | null;
+  git_diff_dry_run_git_add_triggered: boolean | null;
+  git_diff_dry_run_git_commit_triggered: boolean | null;
+  git_diff_dry_run_git_push_triggered: boolean | null;
+  git_diff_dry_run_pr_opened: boolean | null;
+  git_diff_dry_run_ci_triggered: boolean | null;
+  git_diff_dry_run_execution_enabled: boolean | null;
 };
 
 export type WorkerSlot = {
