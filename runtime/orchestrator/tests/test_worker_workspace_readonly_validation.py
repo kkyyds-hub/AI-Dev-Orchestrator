@@ -1089,6 +1089,41 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert result.git_diff_dry_run_changed_files == ["README.md"]
     assert result.git_diff_dry_run_runs_git is True
     assert result.git_diff_dry_run_runs_write_git is False
+    assert result.git_operation_dry_run_ready is True
+    assert result.git_operation_dry_run_source == "git_operation_dry_run"
+    assert result.git_operation_dry_run_reason_code is None
+    assert result.git_operation_dry_run_worktree_path == tmp_path.as_posix()
+    assert result.git_operation_dry_run_branch_name == "main"
+    assert result.git_operation_dry_run_changed_files_count == 1
+    assert result.git_operation_dry_run_changed_files == ["README.md"]
+    assert result.git_operation_dry_run_modified_files == ["README.md"]
+    assert result.git_operation_dry_run_proposed_operation == "git_add_commit"
+    assert result.git_operation_dry_run_proposed_commit_message == (
+        "chore: update 1 files from agent work"
+    )
+    assert result.git_operation_dry_run_proposed_steps == [
+        "准备加入待提交区（git add，预览不执行）",
+        "准备生成本地提交（git commit，预览不执行）："
+        "chore: update 1 files from agent work",
+    ]
+    assert result.git_operation_dry_run_summary_cn == (
+        "已生成提交预览：检测到 1 个文件变更。"
+        "如果确认，将把这些文件提交到分支 main。"
+        "尚未加入待提交区、尚未生成本地提交、尚未推送。"
+    )
+    assert result.git_operation_dry_run_user_confirmation_required is True
+    assert result.git_operation_dry_run_human_approval_required is True
+    assert result.git_operation_dry_run_feature_flag_required is True
+    assert result.git_operation_dry_run_runs_git is False
+    assert result.git_operation_dry_run_runs_write_git is False
+    assert result.git_operation_dry_run_git_add_triggered is False
+    assert result.git_operation_dry_run_git_commit_triggered is False
+    assert result.git_operation_dry_run_git_push_triggered is False
+    assert result.git_operation_dry_run_pr_opened is False
+    assert result.git_operation_dry_run_ci_triggered is False
+    assert result.git_operation_dry_run_execution_enabled is False
+    assert result.git_operation_dry_run_operation_applied is False
+    assert result.git_operation_dry_run_approval_granted is False
     assert len(delivery_event_audit_service.calls) == 1
     delivery_call = delivery_event_audit_service.calls[0]
     assert delivery_call["session"].id == result.agent_session_id
@@ -1100,6 +1135,19 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
         mode="json"
     )
     assert response_payload["git_diff_dry_run_status_summary_cn"] == "1 个文件修改"
+    assert response_payload["git_operation_dry_run_ready"] is True
+    assert response_payload["git_operation_dry_run_source"] == "git_operation_dry_run"
+    assert response_payload["git_operation_dry_run_changed_files"] == ["README.md"]
+    assert response_payload["git_operation_dry_run_proposed_operation"] == (
+        "git_add_commit"
+    )
+    assert response_payload["git_operation_dry_run_runs_git"] is False
+    assert response_payload["git_operation_dry_run_runs_write_git"] is False
+    assert response_payload["git_operation_dry_run_git_add_triggered"] is False
+    assert response_payload["git_operation_dry_run_git_commit_triggered"] is False
+    assert response_payload["git_operation_dry_run_git_push_triggered"] is False
+    assert response_payload["git_operation_dry_run_pr_opened"] is False
+    assert response_payload["git_operation_dry_run_operation_applied"] is False
     old_status_summary_key = "git_diff_dry_run_status_" + "summary"
     assert old_status_summary_key not in response_payload
 
@@ -1682,6 +1730,54 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             git_diff_dry_run_pr_opened=False,
             git_diff_dry_run_ci_triggered=False,
             git_diff_dry_run_execution_enabled=False,
+            git_operation_dry_run_ready=True,
+            git_operation_dry_run_source="git_operation_dry_run",
+            git_operation_dry_run_reason_code=None,
+            git_operation_dry_run_session_id="session-123",
+            git_operation_dry_run_project_id="project-123",
+            git_operation_dry_run_task_id="task-123",
+            git_operation_dry_run_run_id="run-123",
+            git_operation_dry_run_worktree_path="/tmp/aido-worktree",
+            git_operation_dry_run_branch_name="feature/p4-b2",
+            git_operation_dry_run_changed_files_count=3,
+            git_operation_dry_run_changed_files=[
+                "README.md",
+                "src/app.py",
+                "src/old_name.py",
+            ],
+            git_operation_dry_run_added_files=["src/app.py"],
+            git_operation_dry_run_modified_files=["README.md"],
+            git_operation_dry_run_deleted_files=[],
+            git_operation_dry_run_renamed_files=["src/old_name.py"],
+            git_operation_dry_run_proposed_operation="git_add_commit",
+            git_operation_dry_run_proposed_steps=[
+                "准备加入待提交区（git add，预览不执行）",
+                "准备生成本地提交（git commit，预览不执行）："
+                "chore: update 3 files from agent work",
+            ],
+            git_operation_dry_run_proposed_commit_message=(
+                "chore: update 3 files from agent work"
+            ),
+            git_operation_dry_run_proposed_pr_title=None,
+            git_operation_dry_run_proposed_pr_body=None,
+            git_operation_dry_run_user_confirmation_required=True,
+            git_operation_dry_run_human_approval_required=True,
+            git_operation_dry_run_feature_flag_required=True,
+            git_operation_dry_run_summary_cn=(
+                "已生成提交预览：检测到 3 个文件变更。"
+                "如果确认，将把这些文件提交到分支 feature/p4-b2。"
+                "尚未加入待提交区、尚未生成本地提交、尚未推送。"
+            ),
+            git_operation_dry_run_runs_git=False,
+            git_operation_dry_run_runs_write_git=False,
+            git_operation_dry_run_git_add_triggered=False,
+            git_operation_dry_run_git_commit_triggered=False,
+            git_operation_dry_run_git_push_triggered=False,
+            git_operation_dry_run_pr_opened=False,
+            git_operation_dry_run_ci_triggered=False,
+            git_operation_dry_run_execution_enabled=False,
+            git_operation_dry_run_operation_applied=False,
+            git_operation_dry_run_approval_granted=False,
         )
     ).model_dump(mode="json")
 
@@ -1854,3 +1950,51 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["git_diff_dry_run_pr_opened"] is False
     assert payload["git_diff_dry_run_ci_triggered"] is False
     assert payload["git_diff_dry_run_execution_enabled"] is False
+    assert payload["git_operation_dry_run_ready"] is True
+    assert payload["git_operation_dry_run_source"] == "git_operation_dry_run"
+    assert payload["git_operation_dry_run_reason_code"] is None
+    assert payload["git_operation_dry_run_session_id"] == "session-123"
+    assert payload["git_operation_dry_run_project_id"] == "project-123"
+    assert payload["git_operation_dry_run_task_id"] == "task-123"
+    assert payload["git_operation_dry_run_run_id"] == "run-123"
+    assert payload["git_operation_dry_run_worktree_path"] == "/tmp/aido-worktree"
+    assert payload["git_operation_dry_run_branch_name"] == "feature/p4-b2"
+    assert payload["git_operation_dry_run_changed_files_count"] == 3
+    assert payload["git_operation_dry_run_changed_files"] == [
+        "README.md",
+        "src/app.py",
+        "src/old_name.py",
+    ]
+    assert payload["git_operation_dry_run_added_files"] == ["src/app.py"]
+    assert payload["git_operation_dry_run_modified_files"] == ["README.md"]
+    assert payload["git_operation_dry_run_deleted_files"] == []
+    assert payload["git_operation_dry_run_renamed_files"] == ["src/old_name.py"]
+    assert payload["git_operation_dry_run_proposed_operation"] == "git_add_commit"
+    assert payload["git_operation_dry_run_proposed_steps"] == [
+        "准备加入待提交区（git add，预览不执行）",
+        "准备生成本地提交（git commit，预览不执行）："
+        "chore: update 3 files from agent work",
+    ]
+    assert payload["git_operation_dry_run_proposed_commit_message"] == (
+        "chore: update 3 files from agent work"
+    )
+    assert payload["git_operation_dry_run_proposed_pr_title"] is None
+    assert payload["git_operation_dry_run_proposed_pr_body"] is None
+    assert payload["git_operation_dry_run_user_confirmation_required"] is True
+    assert payload["git_operation_dry_run_human_approval_required"] is True
+    assert payload["git_operation_dry_run_feature_flag_required"] is True
+    assert payload["git_operation_dry_run_summary_cn"] == (
+        "已生成提交预览：检测到 3 个文件变更。"
+        "如果确认，将把这些文件提交到分支 feature/p4-b2。"
+        "尚未加入待提交区、尚未生成本地提交、尚未推送。"
+    )
+    assert payload["git_operation_dry_run_runs_git"] is False
+    assert payload["git_operation_dry_run_runs_write_git"] is False
+    assert payload["git_operation_dry_run_git_add_triggered"] is False
+    assert payload["git_operation_dry_run_git_commit_triggered"] is False
+    assert payload["git_operation_dry_run_git_push_triggered"] is False
+    assert payload["git_operation_dry_run_pr_opened"] is False
+    assert payload["git_operation_dry_run_ci_triggered"] is False
+    assert payload["git_operation_dry_run_execution_enabled"] is False
+    assert payload["git_operation_dry_run_operation_applied"] is False
+    assert payload["git_operation_dry_run_approval_granted"] is False

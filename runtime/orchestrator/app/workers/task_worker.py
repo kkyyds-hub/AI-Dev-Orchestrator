@@ -17,6 +17,10 @@ from app.domain.agent_session import (
 from app.domain.project_role import ProjectRoleCode
 from app.domain.prompt_contract import BuiltPromptEnvelope
 from app.domain.prompt_contract import TokenAccountingSnapshot
+from app.domain.git_operation_dry_run import (
+    GitOperationDryRunResult,
+    GitOperationDryRunBuilder,
+)
 from app.domain.run import (
     Run,
     RunBudgetPressureLevel,
@@ -240,6 +244,40 @@ class WorkerRunResult:
     git_diff_dry_run_pr_opened: bool | None = None
     git_diff_dry_run_ci_triggered: bool | None = None
     git_diff_dry_run_execution_enabled: bool | None = None
+    git_operation_dry_run_ready: bool | None = None
+    git_operation_dry_run_source: str | None = None
+    git_operation_dry_run_reason_code: str | None = None
+    git_operation_dry_run_session_id: str | None = None
+    git_operation_dry_run_project_id: str | None = None
+    git_operation_dry_run_task_id: str | None = None
+    git_operation_dry_run_run_id: str | None = None
+    git_operation_dry_run_worktree_path: str | None = None
+    git_operation_dry_run_branch_name: str | None = None
+    git_operation_dry_run_changed_files_count: int | None = None
+    git_operation_dry_run_changed_files: list[str] = field(default_factory=list)
+    git_operation_dry_run_added_files: list[str] = field(default_factory=list)
+    git_operation_dry_run_modified_files: list[str] = field(default_factory=list)
+    git_operation_dry_run_deleted_files: list[str] = field(default_factory=list)
+    git_operation_dry_run_renamed_files: list[str] = field(default_factory=list)
+    git_operation_dry_run_proposed_operation: str | None = None
+    git_operation_dry_run_proposed_steps: list[str] = field(default_factory=list)
+    git_operation_dry_run_proposed_commit_message: str | None = None
+    git_operation_dry_run_proposed_pr_title: str | None = None
+    git_operation_dry_run_proposed_pr_body: str | None = None
+    git_operation_dry_run_user_confirmation_required: bool | None = None
+    git_operation_dry_run_human_approval_required: bool | None = None
+    git_operation_dry_run_feature_flag_required: bool | None = None
+    git_operation_dry_run_summary_cn: str | None = None
+    git_operation_dry_run_runs_git: bool | None = None
+    git_operation_dry_run_runs_write_git: bool | None = None
+    git_operation_dry_run_git_add_triggered: bool | None = None
+    git_operation_dry_run_git_commit_triggered: bool | None = None
+    git_operation_dry_run_git_push_triggered: bool | None = None
+    git_operation_dry_run_pr_opened: bool | None = None
+    git_operation_dry_run_ci_triggered: bool | None = None
+    git_operation_dry_run_execution_enabled: bool | None = None
+    git_operation_dry_run_operation_applied: bool | None = None
+    git_operation_dry_run_approval_granted: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -342,6 +380,68 @@ def _git_diff_dry_run_result_kwargs(
         "git_diff_dry_run_pr_opened": result.pr_opened,
         "git_diff_dry_run_ci_triggered": result.ci_triggered,
         "git_diff_dry_run_execution_enabled": result.execution_enabled,
+    }
+
+
+
+def _git_operation_dry_run_result_kwargs(
+    result: GitOperationDryRunResult | None,
+) -> dict[str, object]:
+    """Map P4-C Git operation dry-run evidence into WorkerRunResult fields."""
+
+    if result is None:
+        return {}
+
+    safety_flags = result.safety_flags
+    return {
+        "git_operation_dry_run_ready": result.ready,
+        "git_operation_dry_run_source": result.source,
+        "git_operation_dry_run_reason_code": result.reason_code,
+        "git_operation_dry_run_session_id": result.session_id,
+        "git_operation_dry_run_project_id": result.project_id,
+        "git_operation_dry_run_task_id": result.task_id,
+        "git_operation_dry_run_run_id": result.run_id,
+        "git_operation_dry_run_worktree_path": result.worktree_path,
+        "git_operation_dry_run_branch_name": result.branch_name,
+        "git_operation_dry_run_changed_files_count": result.changed_files_count,
+        "git_operation_dry_run_changed_files": list(result.changed_files),
+        "git_operation_dry_run_added_files": list(result.added_files),
+        "git_operation_dry_run_modified_files": list(result.modified_files),
+        "git_operation_dry_run_deleted_files": list(result.deleted_files),
+        "git_operation_dry_run_renamed_files": list(result.renamed_files),
+        "git_operation_dry_run_proposed_operation": result.proposed_operation.value,
+        "git_operation_dry_run_proposed_steps": list(result.proposed_steps),
+        "git_operation_dry_run_proposed_commit_message": (
+            result.proposed_commit_message
+        ),
+        "git_operation_dry_run_proposed_pr_title": result.proposed_pr_title,
+        "git_operation_dry_run_proposed_pr_body": result.proposed_pr_body,
+        "git_operation_dry_run_user_confirmation_required": (
+            result.user_confirmation_required
+        ),
+        "git_operation_dry_run_human_approval_required": (
+            result.human_approval_required
+        ),
+        "git_operation_dry_run_feature_flag_required": (
+            result.feature_flag_required
+        ),
+        "git_operation_dry_run_summary_cn": result.summary_cn,
+        "git_operation_dry_run_runs_git": safety_flags.runs_git,
+        "git_operation_dry_run_runs_write_git": safety_flags.runs_write_git,
+        "git_operation_dry_run_git_add_triggered": (
+            safety_flags.git_add_triggered
+        ),
+        "git_operation_dry_run_git_commit_triggered": (
+            safety_flags.git_commit_triggered
+        ),
+        "git_operation_dry_run_git_push_triggered": (
+            safety_flags.git_push_triggered
+        ),
+        "git_operation_dry_run_pr_opened": safety_flags.pr_opened,
+        "git_operation_dry_run_ci_triggered": safety_flags.ci_triggered,
+        "git_operation_dry_run_execution_enabled": safety_flags.execution_enabled,
+        "git_operation_dry_run_operation_applied": safety_flags.operation_applied,
+        "git_operation_dry_run_approval_granted": safety_flags.approval_granted,
     }
 
 
@@ -1075,6 +1175,7 @@ class TaskWorker:
         worktree_safe_command_proof_launches_worker_loop: bool | None = None
         worktree_safe_command_proof_launches_ai_runtime: bool | None = None
         git_diff_dry_run_result: GitDiffDryRunResult | None = None
+        git_operation_dry_run_result: GitOperationDryRunResult | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -2533,6 +2634,14 @@ class TaskWorker:
                     repository_path=git_diff_repository_path,
                     compare_branch=branch_name,
                 )
+            if execution_quality_passed:
+                git_operation_dry_run_result = (
+                    GitOperationDryRunBuilder.build_from_diff_evidence(
+                        agent_session=agent_session,
+                        diff_evidence=git_diff_dry_run_result,
+                    )
+                )
+
             if (
                 execution_quality_passed
                 and agent_session is not None
@@ -2908,6 +3017,7 @@ class TaskWorker:
                     worktree_safe_command_proof_launches_ai_runtime
                 ),
                 **_git_diff_dry_run_result_kwargs(git_diff_dry_run_result),
+                **_git_operation_dry_run_result_kwargs(git_operation_dry_run_result),
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier

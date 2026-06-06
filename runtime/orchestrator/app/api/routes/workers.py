@@ -273,6 +273,40 @@ class WorkerRunOnceResponse(BaseModel):
     git_diff_dry_run_pr_opened: bool | None = None
     git_diff_dry_run_ci_triggered: bool | None = None
     git_diff_dry_run_execution_enabled: bool | None = None
+    git_operation_dry_run_ready: bool | None = None
+    git_operation_dry_run_source: str | None = None
+    git_operation_dry_run_reason_code: str | None = None
+    git_operation_dry_run_session_id: str | None = None
+    git_operation_dry_run_project_id: str | None = None
+    git_operation_dry_run_task_id: str | None = None
+    git_operation_dry_run_run_id: str | None = None
+    git_operation_dry_run_worktree_path: str | None = None
+    git_operation_dry_run_branch_name: str | None = None
+    git_operation_dry_run_changed_files_count: int | None = None
+    git_operation_dry_run_changed_files: list[str] = Field(default_factory=list)
+    git_operation_dry_run_added_files: list[str] = Field(default_factory=list)
+    git_operation_dry_run_modified_files: list[str] = Field(default_factory=list)
+    git_operation_dry_run_deleted_files: list[str] = Field(default_factory=list)
+    git_operation_dry_run_renamed_files: list[str] = Field(default_factory=list)
+    git_operation_dry_run_proposed_operation: str | None = None
+    git_operation_dry_run_proposed_steps: list[str] = Field(default_factory=list)
+    git_operation_dry_run_proposed_commit_message: str | None = None
+    git_operation_dry_run_proposed_pr_title: str | None = None
+    git_operation_dry_run_proposed_pr_body: str | None = None
+    git_operation_dry_run_user_confirmation_required: bool | None = None
+    git_operation_dry_run_human_approval_required: bool | None = None
+    git_operation_dry_run_feature_flag_required: bool | None = None
+    git_operation_dry_run_summary_cn: str | None = None
+    git_operation_dry_run_runs_git: bool | None = None
+    git_operation_dry_run_runs_write_git: bool | None = None
+    git_operation_dry_run_git_add_triggered: bool | None = None
+    git_operation_dry_run_git_commit_triggered: bool | None = None
+    git_operation_dry_run_git_push_triggered: bool | None = None
+    git_operation_dry_run_pr_opened: bool | None = None
+    git_operation_dry_run_ci_triggered: bool | None = None
+    git_operation_dry_run_execution_enabled: bool | None = None
+    git_operation_dry_run_operation_applied: bool | None = None
+    git_operation_dry_run_approval_granted: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -599,6 +633,94 @@ class WorkerRunOnceResponse(BaseModel):
             git_diff_dry_run_ci_triggered=result.git_diff_dry_run_ci_triggered,
             git_diff_dry_run_execution_enabled=(
                 result.git_diff_dry_run_execution_enabled
+            ),
+            git_operation_dry_run_ready=result.git_operation_dry_run_ready,
+            git_operation_dry_run_source=result.git_operation_dry_run_source,
+            git_operation_dry_run_reason_code=(
+                result.git_operation_dry_run_reason_code
+            ),
+            git_operation_dry_run_session_id=(
+                result.git_operation_dry_run_session_id
+            ),
+            git_operation_dry_run_project_id=(
+                result.git_operation_dry_run_project_id
+            ),
+            git_operation_dry_run_task_id=result.git_operation_dry_run_task_id,
+            git_operation_dry_run_run_id=result.git_operation_dry_run_run_id,
+            git_operation_dry_run_worktree_path=(
+                result.git_operation_dry_run_worktree_path
+            ),
+            git_operation_dry_run_branch_name=(
+                result.git_operation_dry_run_branch_name
+            ),
+            git_operation_dry_run_changed_files_count=(
+                result.git_operation_dry_run_changed_files_count
+            ),
+            git_operation_dry_run_changed_files=(
+                result.git_operation_dry_run_changed_files
+            ),
+            git_operation_dry_run_added_files=(
+                result.git_operation_dry_run_added_files
+            ),
+            git_operation_dry_run_modified_files=(
+                result.git_operation_dry_run_modified_files
+            ),
+            git_operation_dry_run_deleted_files=(
+                result.git_operation_dry_run_deleted_files
+            ),
+            git_operation_dry_run_renamed_files=(
+                result.git_operation_dry_run_renamed_files
+            ),
+            git_operation_dry_run_proposed_operation=(
+                result.git_operation_dry_run_proposed_operation
+            ),
+            git_operation_dry_run_proposed_steps=(
+                result.git_operation_dry_run_proposed_steps
+            ),
+            git_operation_dry_run_proposed_commit_message=(
+                result.git_operation_dry_run_proposed_commit_message
+            ),
+            git_operation_dry_run_proposed_pr_title=(
+                result.git_operation_dry_run_proposed_pr_title
+            ),
+            git_operation_dry_run_proposed_pr_body=(
+                result.git_operation_dry_run_proposed_pr_body
+            ),
+            git_operation_dry_run_user_confirmation_required=(
+                result.git_operation_dry_run_user_confirmation_required
+            ),
+            git_operation_dry_run_human_approval_required=(
+                result.git_operation_dry_run_human_approval_required
+            ),
+            git_operation_dry_run_feature_flag_required=(
+                result.git_operation_dry_run_feature_flag_required
+            ),
+            git_operation_dry_run_summary_cn=(
+                result.git_operation_dry_run_summary_cn
+            ),
+            git_operation_dry_run_runs_git=result.git_operation_dry_run_runs_git,
+            git_operation_dry_run_runs_write_git=(
+                result.git_operation_dry_run_runs_write_git
+            ),
+            git_operation_dry_run_git_add_triggered=(
+                result.git_operation_dry_run_git_add_triggered
+            ),
+            git_operation_dry_run_git_commit_triggered=(
+                result.git_operation_dry_run_git_commit_triggered
+            ),
+            git_operation_dry_run_git_push_triggered=(
+                result.git_operation_dry_run_git_push_triggered
+            ),
+            git_operation_dry_run_pr_opened=result.git_operation_dry_run_pr_opened,
+            git_operation_dry_run_ci_triggered=result.git_operation_dry_run_ci_triggered,
+            git_operation_dry_run_execution_enabled=(
+                result.git_operation_dry_run_execution_enabled
+            ),
+            git_operation_dry_run_operation_applied=(
+                result.git_operation_dry_run_operation_applied
+            ),
+            git_operation_dry_run_approval_granted=(
+                result.git_operation_dry_run_approval_granted
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
