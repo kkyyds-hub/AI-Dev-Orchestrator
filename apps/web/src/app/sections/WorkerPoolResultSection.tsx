@@ -1,4 +1,5 @@
 import { StatusBadge } from "../../components/StatusBadge";
+import { WorkerGitDiffDryRunEvidenceCard } from "../../features/task-actions/WorkerGitDiffDryRunEvidenceCard";
 import { WorkerRuntimeLaunchGateEvidenceCard } from "../../features/task-actions/WorkerRuntimeLaunchGateEvidenceCard";
 import type { WorkerPoolRunResponse } from "../../features/task-actions/types";
 
@@ -48,6 +49,7 @@ export function WorkerPoolResultSection(props: WorkerPoolResultSectionProps) {
                 </span>
               </div>
               <WorkerRuntimeLaunchGateEvidenceCard {...result} />
+              <WorkerGitDiffDryRunEvidenceCard {...result} />
             </div>
           ))}
         </div>

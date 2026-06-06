@@ -78,6 +78,10 @@ export function AgentDeliveryDiffEventPanel(
     )
     .slice(0, 3);
 
+  if (!deliveryDiffMessages.length) {
+    return null;
+  }
+
   return (
     <section
       className="rounded-3xl border border-[#333333] bg-slate-950/25 p-4"
@@ -97,17 +101,11 @@ export function AgentDeliveryDiffEventPanel(
         </span>
       </div>
 
-      {!deliveryDiffMessages.length ? (
-        <p className="mt-4 rounded-2xl border border-dashed border-[#333333] px-3 py-3 text-sm leading-6 text-slate-400">
-          当前会话时间线暂无代码改动预览事件。本页不会自动执行提交、推送或创建代码合并请求。
-        </p>
-      ) : (
-        <ul className="mt-4 space-y-3">
-          {deliveryDiffMessages.map((message) => (
-            <DeliveryDiffEventItem key={message.message_id} message={message} />
-          ))}
-        </ul>
-      )}
+      <ul className="mt-4 space-y-3">
+        {deliveryDiffMessages.map((message) => (
+          <DeliveryDiffEventItem key={message.message_id} message={message} />
+        ))}
+      </ul>
     </section>
   );
 }
