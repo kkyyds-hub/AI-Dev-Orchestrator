@@ -1259,6 +1259,45 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
             worktree_safe_command_proof_runs_write_git=False,
             worktree_safe_command_proof_launches_worker_loop=False,
             worktree_safe_command_proof_launches_ai_runtime=False,
+            git_diff_dry_run_ready=True,
+            git_diff_dry_run_source="agent_session_worktree_diff",
+            git_diff_dry_run_reason_code=None,
+            git_diff_dry_run_worktree_path="/tmp/aido-worktree",
+            git_diff_dry_run_has_changes=True,
+            git_diff_dry_run_changed_files_count=3,
+            git_diff_dry_run_changed_files=[
+                "README.md",
+                "src/app.py",
+                "src/old_name.py",
+            ],
+            git_diff_dry_run_added_files=["src/app.py"],
+            git_diff_dry_run_modified_files=["README.md"],
+            git_diff_dry_run_deleted_files=[],
+            git_diff_dry_run_renamed_files=["src/old_name.py"],
+            git_diff_dry_run_status_summary=(
+                "1 个文件修改，1 个文件新增，1 个文件重命名"
+            ),
+            git_diff_dry_run_diff_stat=(
+                " README.md | 2 +-\n src/app.py | 1 +"
+            ),
+            git_diff_dry_run_diff_shortstat=(
+                "2 files changed, 2 insertions(+), 1 deletion(-)"
+            ),
+            git_diff_dry_run_branch_name="feature/p4-b2",
+            git_diff_dry_run_compare_branch="main",
+            git_diff_dry_run_command=(
+                "git status --porcelain=v1 --untracked-files=all"
+            ),
+            git_diff_dry_run_peek_command="git diff --name-status",
+            git_diff_dry_run_danger_commands_applied=False,
+            git_diff_dry_run_runs_git=True,
+            git_diff_dry_run_runs_write_git=False,
+            git_diff_dry_run_git_add_triggered=False,
+            git_diff_dry_run_git_commit_triggered=False,
+            git_diff_dry_run_git_push_triggered=False,
+            git_diff_dry_run_pr_opened=False,
+            git_diff_dry_run_ci_triggered=False,
+            git_diff_dry_run_execution_enabled=False,
         )
     ).model_dump(mode="json")
 
@@ -1394,3 +1433,40 @@ def test_worker_run_once_response_exposes_workspace_context_evidence_fields():
     assert payload["worktree_safe_command_proof_runs_write_git"] is False
     assert payload["worktree_safe_command_proof_launches_worker_loop"] is False
     assert payload["worktree_safe_command_proof_launches_ai_runtime"] is False
+    assert payload["git_diff_dry_run_ready"] is True
+    assert payload["git_diff_dry_run_source"] == "agent_session_worktree_diff"
+    assert payload["git_diff_dry_run_reason_code"] is None
+    assert payload["git_diff_dry_run_worktree_path"] == "/tmp/aido-worktree"
+    assert payload["git_diff_dry_run_has_changes"] is True
+    assert payload["git_diff_dry_run_changed_files_count"] == 3
+    assert payload["git_diff_dry_run_changed_files"] == [
+        "README.md",
+        "src/app.py",
+        "src/old_name.py",
+    ]
+    assert payload["git_diff_dry_run_added_files"] == ["src/app.py"]
+    assert payload["git_diff_dry_run_modified_files"] == ["README.md"]
+    assert payload["git_diff_dry_run_deleted_files"] == []
+    assert payload["git_diff_dry_run_renamed_files"] == ["src/old_name.py"]
+    assert (
+        payload["git_diff_dry_run_status_summary"]
+        == "1 个文件修改，1 个文件新增，1 个文件重命名"
+    )
+    assert "README.md" in payload["git_diff_dry_run_diff_stat"]
+    assert "2 files changed" in payload["git_diff_dry_run_diff_shortstat"]
+    assert payload["git_diff_dry_run_branch_name"] == "feature/p4-b2"
+    assert payload["git_diff_dry_run_compare_branch"] == "main"
+    assert (
+        payload["git_diff_dry_run_command"]
+        == "git status --porcelain=v1 --untracked-files=all"
+    )
+    assert payload["git_diff_dry_run_peek_command"] == "git diff --name-status"
+    assert payload["git_diff_dry_run_danger_commands_applied"] is False
+    assert payload["git_diff_dry_run_runs_git"] is True
+    assert payload["git_diff_dry_run_runs_write_git"] is False
+    assert payload["git_diff_dry_run_git_add_triggered"] is False
+    assert payload["git_diff_dry_run_git_commit_triggered"] is False
+    assert payload["git_diff_dry_run_git_push_triggered"] is False
+    assert payload["git_diff_dry_run_pr_opened"] is False
+    assert payload["git_diff_dry_run_ci_triggered"] is False
+    assert payload["git_diff_dry_run_execution_enabled"] is False

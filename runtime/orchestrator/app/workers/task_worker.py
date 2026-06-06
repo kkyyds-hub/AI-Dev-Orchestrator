@@ -53,6 +53,10 @@ from app.services.approval_service import ApprovalService
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionPlan, ExecutionResult, ExecutorService
 from app.services.failure_review_service import FailureReviewService
+from app.services.git_diff_dry_run_runner import (
+    GitDiffDryRunResult,
+    GitDiffDryRunRunner,
+)
 from app.services.model_routing_service import ModelRoutingService
 from app.services.memory_compaction_service import MemoryCompactionService
 from app.services.prompt_builder_service import PromptBuilderService
@@ -208,6 +212,33 @@ class WorkerRunResult:
     worktree_safe_command_proof_runs_write_git: bool | None = None
     worktree_safe_command_proof_launches_worker_loop: bool | None = None
     worktree_safe_command_proof_launches_ai_runtime: bool | None = None
+    git_diff_dry_run_ready: bool | None = None
+    git_diff_dry_run_source: str | None = None
+    git_diff_dry_run_reason_code: str | None = None
+    git_diff_dry_run_worktree_path: str | None = None
+    git_diff_dry_run_has_changes: bool | None = None
+    git_diff_dry_run_changed_files_count: int | None = None
+    git_diff_dry_run_changed_files: list[str] = field(default_factory=list)
+    git_diff_dry_run_added_files: list[str] = field(default_factory=list)
+    git_diff_dry_run_modified_files: list[str] = field(default_factory=list)
+    git_diff_dry_run_deleted_files: list[str] = field(default_factory=list)
+    git_diff_dry_run_renamed_files: list[str] = field(default_factory=list)
+    git_diff_dry_run_status_summary: str | None = None
+    git_diff_dry_run_diff_stat: str | None = None
+    git_diff_dry_run_diff_shortstat: str | None = None
+    git_diff_dry_run_branch_name: str | None = None
+    git_diff_dry_run_compare_branch: str | None = None
+    git_diff_dry_run_command: str | None = None
+    git_diff_dry_run_peek_command: str | None = None
+    git_diff_dry_run_danger_commands_applied: bool | None = None
+    git_diff_dry_run_runs_git: bool | None = None
+    git_diff_dry_run_runs_write_git: bool | None = None
+    git_diff_dry_run_git_add_triggered: bool | None = None
+    git_diff_dry_run_git_commit_triggered: bool | None = None
+    git_diff_dry_run_git_push_triggered: bool | None = None
+    git_diff_dry_run_pr_opened: bool | None = None
+    git_diff_dry_run_ci_triggered: bool | None = None
+    git_diff_dry_run_execution_enabled: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -270,6 +301,47 @@ class WorkerRuntimeLaunchDryRun:
     runs_git: bool = False
     runs_write_git: bool = False
     launches_runtime: bool = False
+
+
+def _git_diff_dry_run_result_kwargs(
+    result: GitDiffDryRunResult | None,
+) -> dict[str, object]:
+    """Map P4-B Git diff dry-run evidence into WorkerRunResult fields."""
+
+    if result is None:
+        return {}
+
+    return {
+        "git_diff_dry_run_ready": result.ready,
+        "git_diff_dry_run_source": result.source,
+        "git_diff_dry_run_reason_code": result.reason_code,
+        "git_diff_dry_run_worktree_path": result.worktree_path,
+        "git_diff_dry_run_has_changes": result.has_changes,
+        "git_diff_dry_run_changed_files_count": result.changed_files_count,
+        "git_diff_dry_run_changed_files": list(result.changed_files),
+        "git_diff_dry_run_added_files": list(result.added_files),
+        "git_diff_dry_run_modified_files": list(result.modified_files),
+        "git_diff_dry_run_deleted_files": list(result.deleted_files),
+        "git_diff_dry_run_renamed_files": list(result.renamed_files),
+        "git_diff_dry_run_status_summary": result.status_summary_cn,
+        "git_diff_dry_run_diff_stat": result.diff_stat,
+        "git_diff_dry_run_diff_shortstat": result.diff_shortstat,
+        "git_diff_dry_run_branch_name": result.branch_name,
+        "git_diff_dry_run_compare_branch": result.compare_branch,
+        "git_diff_dry_run_command": result.command,
+        "git_diff_dry_run_peek_command": result.peek_command,
+        "git_diff_dry_run_danger_commands_applied": (
+            result.danger_commands_applied
+        ),
+        "git_diff_dry_run_runs_git": result.runs_git,
+        "git_diff_dry_run_runs_write_git": result.runs_write_git,
+        "git_diff_dry_run_git_add_triggered": result.git_add_triggered,
+        "git_diff_dry_run_git_commit_triggered": result.git_commit_triggered,
+        "git_diff_dry_run_git_push_triggered": result.git_push_triggered,
+        "git_diff_dry_run_pr_opened": result.pr_opened,
+        "git_diff_dry_run_ci_triggered": result.ci_triggered,
+        "git_diff_dry_run_execution_enabled": result.execution_enabled,
+    }
 
 
 def validate_worker_agent_workspace(
@@ -998,6 +1070,7 @@ class TaskWorker:
         worktree_safe_command_proof_runs_write_git: bool | None = None
         worktree_safe_command_proof_launches_worker_loop: bool | None = None
         worktree_safe_command_proof_launches_ai_runtime: bool | None = None
+        git_diff_dry_run_result: GitDiffDryRunResult | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -2443,6 +2516,17 @@ class TaskWorker:
                 verification=verification,
             )
 
+            git_diff_repository_path = (
+                workspace_context_resolved_path
+                or workspace_context_path
+                or workspace_path
+            )
+            if git_diff_repository_path is not None:
+                git_diff_dry_run_result = GitDiffDryRunRunner().collect(
+                    repository_path=git_diff_repository_path,
+                    compare_branch=branch_name,
+                )
+
             token_accounting = self.token_accounting_service.build_snapshot(
                 prompt_envelope=prompt_envelope,
                 completion_text="\n".join(
@@ -2801,6 +2885,7 @@ class TaskWorker:
                 worktree_safe_command_proof_launches_ai_runtime=(
                     worktree_safe_command_proof_launches_ai_runtime
                 ),
+                **_git_diff_dry_run_result_kwargs(git_diff_dry_run_result),
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier

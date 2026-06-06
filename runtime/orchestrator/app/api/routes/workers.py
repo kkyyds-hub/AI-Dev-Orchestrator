@@ -246,6 +246,33 @@ class WorkerRunOnceResponse(BaseModel):
     worktree_safe_command_proof_runs_write_git: bool | None = None
     worktree_safe_command_proof_launches_worker_loop: bool | None = None
     worktree_safe_command_proof_launches_ai_runtime: bool | None = None
+    git_diff_dry_run_ready: bool | None = None
+    git_diff_dry_run_source: str | None = None
+    git_diff_dry_run_reason_code: str | None = None
+    git_diff_dry_run_worktree_path: str | None = None
+    git_diff_dry_run_has_changes: bool | None = None
+    git_diff_dry_run_changed_files_count: int | None = None
+    git_diff_dry_run_changed_files: list[str] = Field(default_factory=list)
+    git_diff_dry_run_added_files: list[str] = Field(default_factory=list)
+    git_diff_dry_run_modified_files: list[str] = Field(default_factory=list)
+    git_diff_dry_run_deleted_files: list[str] = Field(default_factory=list)
+    git_diff_dry_run_renamed_files: list[str] = Field(default_factory=list)
+    git_diff_dry_run_status_summary: str | None = None
+    git_diff_dry_run_diff_stat: str | None = None
+    git_diff_dry_run_diff_shortstat: str | None = None
+    git_diff_dry_run_branch_name: str | None = None
+    git_diff_dry_run_compare_branch: str | None = None
+    git_diff_dry_run_command: str | None = None
+    git_diff_dry_run_peek_command: str | None = None
+    git_diff_dry_run_danger_commands_applied: bool | None = None
+    git_diff_dry_run_runs_git: bool | None = None
+    git_diff_dry_run_runs_write_git: bool | None = None
+    git_diff_dry_run_git_add_triggered: bool | None = None
+    git_diff_dry_run_git_commit_triggered: bool | None = None
+    git_diff_dry_run_git_push_triggered: bool | None = None
+    git_diff_dry_run_pr_opened: bool | None = None
+    git_diff_dry_run_ci_triggered: bool | None = None
+    git_diff_dry_run_execution_enabled: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -523,6 +550,55 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             worktree_safe_command_proof_launches_ai_runtime=(
                 result.worktree_safe_command_proof_launches_ai_runtime
+            ),
+            git_diff_dry_run_ready=result.git_diff_dry_run_ready,
+            git_diff_dry_run_source=result.git_diff_dry_run_source,
+            git_diff_dry_run_reason_code=result.git_diff_dry_run_reason_code,
+            git_diff_dry_run_worktree_path=result.git_diff_dry_run_worktree_path,
+            git_diff_dry_run_has_changes=result.git_diff_dry_run_has_changes,
+            git_diff_dry_run_changed_files_count=(
+                result.git_diff_dry_run_changed_files_count
+            ),
+            git_diff_dry_run_changed_files=(
+                result.git_diff_dry_run_changed_files
+            ),
+            git_diff_dry_run_added_files=result.git_diff_dry_run_added_files,
+            git_diff_dry_run_modified_files=(
+                result.git_diff_dry_run_modified_files
+            ),
+            git_diff_dry_run_deleted_files=result.git_diff_dry_run_deleted_files,
+            git_diff_dry_run_renamed_files=result.git_diff_dry_run_renamed_files,
+            git_diff_dry_run_status_summary=(
+                result.git_diff_dry_run_status_summary
+            ),
+            git_diff_dry_run_diff_stat=result.git_diff_dry_run_diff_stat,
+            git_diff_dry_run_diff_shortstat=(
+                result.git_diff_dry_run_diff_shortstat
+            ),
+            git_diff_dry_run_branch_name=result.git_diff_dry_run_branch_name,
+            git_diff_dry_run_compare_branch=result.git_diff_dry_run_compare_branch,
+            git_diff_dry_run_command=result.git_diff_dry_run_command,
+            git_diff_dry_run_peek_command=result.git_diff_dry_run_peek_command,
+            git_diff_dry_run_danger_commands_applied=(
+                result.git_diff_dry_run_danger_commands_applied
+            ),
+            git_diff_dry_run_runs_git=result.git_diff_dry_run_runs_git,
+            git_diff_dry_run_runs_write_git=(
+                result.git_diff_dry_run_runs_write_git
+            ),
+            git_diff_dry_run_git_add_triggered=(
+                result.git_diff_dry_run_git_add_triggered
+            ),
+            git_diff_dry_run_git_commit_triggered=(
+                result.git_diff_dry_run_git_commit_triggered
+            ),
+            git_diff_dry_run_git_push_triggered=(
+                result.git_diff_dry_run_git_push_triggered
+            ),
+            git_diff_dry_run_pr_opened=result.git_diff_dry_run_pr_opened,
+            git_diff_dry_run_ci_triggered=result.git_diff_dry_run_ci_triggered,
+            git_diff_dry_run_execution_enabled=(
+                result.git_diff_dry_run_execution_enabled
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
