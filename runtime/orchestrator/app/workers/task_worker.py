@@ -27,10 +27,7 @@ from app.domain.delivery_gate_evidence import (
     DeliveryGateEvidenceBuilder,
     DeliveryGateEvidenceResult,
 )
-from app.domain.human_approval_gate import (
-    DeliveryHumanApprovalResult,
-    HumanApprovalGateBuilder,
-)
+from app.domain.human_approval_gate import DeliveryHumanApprovalResult
 from app.domain.run import (
     Run,
     RunBudgetPressureLevel,
@@ -1450,7 +1447,6 @@ class TaskWorker:
         git_diff_dry_run_result: GitDiffDryRunResult | None = None
         git_operation_dry_run_result: GitOperationDryRunResult | None = None
         delivery_gate_evidence_result: DeliveryGateEvidenceResult | None = None
-        delivery_human_approval_result: DeliveryHumanApprovalResult | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -2960,24 +2956,6 @@ class TaskWorker:
                     delivery_git_write_enabled=False,
                 )
 
-            if execution_quality_passed:
-                delivery_human_approval_result = HumanApprovalGateBuilder.evaluate(
-                    agent_session=agent_session,
-                    operation_dry_run=git_operation_dry_run_result,
-                    delivery_gate_evidence=delivery_gate_evidence_result,
-                    delivery_git_write_enabled=False,
-                    expected_changed_files=(
-                        list(git_operation_dry_run_result.changed_files)
-                        if git_operation_dry_run_result is not None
-                        else None
-                    ),
-                    expected_proposed_commit_message=(
-                        git_operation_dry_run_result.proposed_commit_message
-                        if git_operation_dry_run_result is not None
-                        else None
-                    ),
-                )
-
             token_accounting = self.token_accounting_service.build_snapshot(
                 prompt_envelope=prompt_envelope,
                 completion_text="\n".join(
@@ -3340,9 +3318,6 @@ class TaskWorker:
                 **_git_operation_dry_run_result_kwargs(git_operation_dry_run_result),
                 **_delivery_gate_evidence_result_kwargs(
                     delivery_gate_evidence_result
-                ),
-                **_delivery_human_approval_result_kwargs(
-                    delivery_human_approval_result
                 ),
                 model_name=run.model_name if run else None,
                 model_tier=(

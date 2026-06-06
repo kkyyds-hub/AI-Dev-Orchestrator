@@ -26,6 +26,7 @@ from app.domain.agent_session import (
     WorkspaceType,
 )
 from app.domain.delivery_gate_evidence import DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+from app.domain.human_approval_gate import DeliveryHumanApprovalResult
 from app.domain.prompt_contract import BuiltPromptEnvelope, PromptTemplateRef
 from app.domain.run import (
     Run,
@@ -60,6 +61,7 @@ from app.services.verifier_service import VerificationResult
 from app.workers.task_worker import (
     TaskWorker,
     WorkerRunResult,
+    _delivery_human_approval_result_kwargs,
     build_worker_runtime_launch_dry_run,
     resolve_worker_workspace_context,
     validate_worker_agent_workspace,
@@ -230,6 +232,56 @@ def _assert_delivery_human_approval_not_built(result: WorkerRunResult) -> None:
     assert result.delivery_human_approval_operation_applied is None
     assert result.delivery_human_approval_gate_allows_write is None
     assert result.delivery_human_approval_gate_allows_next_guardrail is None
+
+
+def test_delivery_human_approval_helper_preserves_pure_mapping_capability():
+    result = DeliveryHumanApprovalResult(
+        ready=False,
+        reason_code="approval_confirmation_missing",
+        summary_cn="缺少明确确认内容，无法记录用户确认。",
+        session_id="session-123",
+        project_id="project-123",
+        task_id="task-123",
+        run_id="run-123",
+        approval_required=True,
+        approval_granted=False,
+        operation_dry_run_ready=True,
+        delivery_gate_evidence_ready=True,
+        delivery_gate_allows_user_confirmation=True,
+        delivery_gate_allows_write=False,
+        proposed_operation="git_add_commit",
+        proposed_commit_message="chore: update 1 files from agent work",
+        changed_files_count=1,
+        changed_files=["README.md"],
+        satisfied_conditions=["H1", "H2"],
+        blocking_reasons=["H19:approval_confirmation_missing"],
+    )
+
+    mapped = _delivery_human_approval_result_kwargs(result)
+
+    assert mapped["delivery_human_approval_ready"] is False
+    assert mapped["delivery_human_approval_source"] == "delivery_human_approval"
+    assert (
+        mapped["delivery_human_approval_reason_code"]
+        == "approval_confirmation_missing"
+    )
+    assert mapped["delivery_human_approval_session_id"] == "session-123"
+    assert mapped["delivery_human_approval_required"] is True
+    assert mapped["delivery_human_approval_granted"] is False
+    assert mapped["delivery_human_approval_proposed_operation"] == "git_add_commit"
+    assert mapped["delivery_human_approval_changed_files"] == ["README.md"]
+    assert mapped["delivery_human_approval_blocking_reasons"] == [
+        "H19:approval_confirmation_missing"
+    ]
+    assert mapped["delivery_human_approval_runs_git"] is False
+    assert mapped["delivery_human_approval_runs_write_git"] is False
+    assert mapped["delivery_human_approval_git_add_triggered"] is False
+    assert mapped["delivery_human_approval_git_commit_triggered"] is False
+    assert mapped["delivery_human_approval_git_push_triggered"] is False
+    assert mapped["delivery_human_approval_pr_opened"] is False
+    assert mapped["delivery_human_approval_operation_applied"] is False
+    assert mapped["delivery_human_approval_gate_allows_write"] is False
+    assert mapped["delivery_human_approval_gate_allows_next_guardrail"] is False
 
 
 def _session(
@@ -1273,53 +1325,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert result.delivery_gate_evidence_approval_granted is False
     assert result.delivery_gate_evidence_gate_allows_write is False
     assert result.delivery_gate_evidence_gate_allows_user_confirmation is True
-    assert result.delivery_human_approval_ready is False
-    assert result.delivery_human_approval_source == "delivery_human_approval"
-    assert (
-        result.delivery_human_approval_reason_code
-        == "unsupported_approval_action"
-    )
-    assert result.delivery_human_approval_session_id == str(result.agent_session_id)
-    assert result.delivery_human_approval_project_id == str(task.project_id)
-    assert result.delivery_human_approval_task_id == str(task.id)
-    assert result.delivery_human_approval_run_id == str(result.run.id)
-    assert result.delivery_human_approval_required is True
-    assert result.delivery_human_approval_granted is False
-    assert result.delivery_human_approval_id is None
-    assert result.delivery_human_approval_approved_by is None
-    assert result.delivery_human_approval_scope is None
-    assert result.delivery_human_approval_expires_at is None
-    assert result.delivery_human_approval_applied is False
-    assert result.delivery_human_approval_revoked is False
-    assert result.delivery_human_approval_operation_dry_run_ready is True
-    assert result.delivery_human_approval_delivery_gate_evidence_ready is True
-    assert (
-        result.delivery_human_approval_delivery_gate_allows_user_confirmation
-        is True
-    )
-    assert result.delivery_human_approval_delivery_gate_allows_write is False
-    assert result.delivery_human_approval_proposed_operation == "git_add_commit"
-    assert result.delivery_human_approval_proposed_commit_message == (
-        "chore: update 1 files from agent work"
-    )
-    assert result.delivery_human_approval_changed_files_count == 1
-    assert result.delivery_human_approval_changed_files == ["README.md"]
-    assert "H1" in result.delivery_human_approval_satisfied_conditions
-    assert (
-        "H8:unsupported_approval_action"
-        in result.delivery_human_approval_blocking_reasons
-    )
-    assert result.delivery_human_approval_runs_git is False
-    assert result.delivery_human_approval_runs_write_git is False
-    assert result.delivery_human_approval_git_add_triggered is False
-    assert result.delivery_human_approval_git_commit_triggered is False
-    assert result.delivery_human_approval_git_push_triggered is False
-    assert result.delivery_human_approval_pr_opened is False
-    assert result.delivery_human_approval_ci_triggered is False
-    assert result.delivery_human_approval_execution_enabled is False
-    assert result.delivery_human_approval_operation_applied is False
-    assert result.delivery_human_approval_gate_allows_write is False
-    assert result.delivery_human_approval_gate_allows_next_guardrail is False
+    _assert_delivery_human_approval_not_built(result)
     assert len(delivery_event_audit_service.calls) == 1
     delivery_call = delivery_event_audit_service.calls[0]
     assert delivery_call["session"].id == result.agent_session_id
@@ -1369,48 +1375,40 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert response_payload[
         "delivery_gate_evidence_gate_allows_user_confirmation"
     ] is True
-    assert response_payload["delivery_human_approval_ready"] is False
-    assert response_payload["delivery_human_approval_source"] == (
-        "delivery_human_approval"
-    )
-    assert response_payload["delivery_human_approval_reason_code"] == (
-        "unsupported_approval_action"
-    )
-    assert response_payload["delivery_human_approval_required"] is True
-    assert response_payload["delivery_human_approval_granted"] is False
+    assert response_payload["delivery_human_approval_ready"] is None
+    assert response_payload["delivery_human_approval_source"] is None
+    assert response_payload["delivery_human_approval_reason_code"] is None
+    assert response_payload["delivery_human_approval_required"] is None
+    assert response_payload["delivery_human_approval_granted"] is None
     assert response_payload["delivery_human_approval_id"] is None
     assert response_payload["delivery_human_approval_approved_by"] is None
     assert response_payload["delivery_human_approval_scope"] is None
     assert response_payload["delivery_human_approval_expires_at"] is None
     assert (
         response_payload["delivery_human_approval_operation_dry_run_ready"]
-        is True
+        is None
     )
     assert response_payload[
         "delivery_human_approval_delivery_gate_evidence_ready"
-    ] is True
+    ] is None
     assert response_payload[
         "delivery_human_approval_delivery_gate_allows_user_confirmation"
-    ] is True
+    ] is None
     assert response_payload[
         "delivery_human_approval_delivery_gate_allows_write"
-    ] is False
-    assert response_payload["delivery_human_approval_proposed_operation"] == (
-        "git_add_commit"
-    )
-    assert response_payload["delivery_human_approval_changed_files"] == [
-        "README.md"
-    ]
-    assert response_payload["delivery_human_approval_runs_write_git"] is False
-    assert response_payload["delivery_human_approval_git_add_triggered"] is False
-    assert response_payload["delivery_human_approval_git_commit_triggered"] is False
-    assert response_payload["delivery_human_approval_git_push_triggered"] is False
-    assert response_payload["delivery_human_approval_pr_opened"] is False
-    assert response_payload["delivery_human_approval_operation_applied"] is False
-    assert response_payload["delivery_human_approval_gate_allows_write"] is False
+    ] is None
+    assert response_payload["delivery_human_approval_proposed_operation"] is None
+    assert response_payload["delivery_human_approval_changed_files"] == []
+    assert response_payload["delivery_human_approval_runs_write_git"] is None
+    assert response_payload["delivery_human_approval_git_add_triggered"] is None
+    assert response_payload["delivery_human_approval_git_commit_triggered"] is None
+    assert response_payload["delivery_human_approval_git_push_triggered"] is None
+    assert response_payload["delivery_human_approval_pr_opened"] is None
+    assert response_payload["delivery_human_approval_operation_applied"] is None
+    assert response_payload["delivery_human_approval_gate_allows_write"] is None
     assert (
         response_payload["delivery_human_approval_gate_allows_next_guardrail"]
-        is False
+        is None
     )
     old_status_summary_key = "git_diff_dry_run_status_" + "summary"
     assert old_status_summary_key not in response_payload
@@ -1822,13 +1820,6 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
                 "delivery gate evidence builder must not run on failed execution"
             )
 
-    class _ExplodingHumanApprovalGateBuilder:
-        @staticmethod
-        def evaluate(**kwargs):
-            raise AssertionError(
-                "human approval gate builder must not run on failed execution"
-            )
-
     monkeypatch.setattr(
         "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
         lambda: _PassingProofRunner(),
@@ -1844,10 +1835,6 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     monkeypatch.setattr(
         "app.workers.task_worker.DeliveryGateEvidenceBuilder",
         _ExplodingDeliveryGateEvidenceBuilder,
-    )
-    monkeypatch.setattr(
-        "app.workers.task_worker.HumanApprovalGateBuilder",
-        _ExplodingHumanApprovalGateBuilder,
     )
     monkeypatch.setattr(
         "app.workers.task_worker.event_stream_service.publish_task_updated",
