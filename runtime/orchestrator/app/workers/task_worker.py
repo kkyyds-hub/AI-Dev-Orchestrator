@@ -21,6 +21,11 @@ from app.domain.git_operation_dry_run import (
     GitOperationDryRunResult,
     GitOperationDryRunBuilder,
 )
+from app.domain.delivery_gate_evidence import (
+    DELIVERY_AUDIT_COLLECTED_EVENT_TYPE,
+    DeliveryGateEvidenceBuilder,
+    DeliveryGateEvidenceResult,
+)
 from app.domain.run import (
     Run,
     RunBudgetPressureLevel,
@@ -278,6 +283,39 @@ class WorkerRunResult:
     git_operation_dry_run_execution_enabled: bool | None = None
     git_operation_dry_run_operation_applied: bool | None = None
     git_operation_dry_run_approval_granted: bool | None = None
+    delivery_gate_evidence_ready: bool | None = None
+    delivery_gate_evidence_source: str | None = None
+    delivery_gate_evidence_reason_code: str | None = None
+    delivery_gate_evidence_session_id: str | None = None
+    delivery_gate_evidence_project_id: str | None = None
+    delivery_gate_evidence_task_id: str | None = None
+    delivery_gate_evidence_run_id: str | None = None
+    delivery_gate_evidence_worktree_path: str | None = None
+    delivery_gate_evidence_branch_name: str | None = None
+    delivery_gate_evidence_proposed_operation: str | None = None
+    delivery_gate_evidence_changed_files_count: int | None = None
+    delivery_gate_evidence_changed_files: list[str] = field(default_factory=list)
+    delivery_gate_evidence_next_required_action: str | None = None
+    delivery_gate_evidence_user_confirmation_required: bool | None = None
+    delivery_gate_evidence_human_approval_required: bool | None = None
+    delivery_gate_evidence_delivery_audit_event_present: bool | None = None
+    delivery_gate_evidence_delivery_audit_event_type: str | None = None
+    delivery_gate_evidence_delivery_audit_event_ready: bool | None = None
+    delivery_gate_evidence_summary_cn: str | None = None
+    delivery_gate_evidence_satisfied_conditions: list[str] = field(default_factory=list)
+    delivery_gate_evidence_blocking_reasons: list[str] = field(default_factory=list)
+    delivery_gate_evidence_runs_git: bool | None = None
+    delivery_gate_evidence_runs_write_git: bool | None = None
+    delivery_gate_evidence_git_add_triggered: bool | None = None
+    delivery_gate_evidence_git_commit_triggered: bool | None = None
+    delivery_gate_evidence_git_push_triggered: bool | None = None
+    delivery_gate_evidence_pr_opened: bool | None = None
+    delivery_gate_evidence_ci_triggered: bool | None = None
+    delivery_gate_evidence_execution_enabled: bool | None = None
+    delivery_gate_evidence_operation_applied: bool | None = None
+    delivery_gate_evidence_approval_granted: bool | None = None
+    delivery_gate_evidence_gate_allows_write: bool | None = None
+    delivery_gate_evidence_gate_allows_user_confirmation: bool | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -443,6 +481,89 @@ def _git_operation_dry_run_result_kwargs(
         "git_operation_dry_run_operation_applied": safety_flags.operation_applied,
         "git_operation_dry_run_approval_granted": safety_flags.approval_granted,
     }
+
+
+def _delivery_gate_evidence_result_kwargs(
+    result: DeliveryGateEvidenceResult | None,
+) -> dict[str, object]:
+    """Map P4-D delivery gate evidence into WorkerRunResult fields."""
+
+    if result is None:
+        return {}
+
+    safety_flags = result.safety_flags
+    return {
+        "delivery_gate_evidence_ready": result.ready,
+        "delivery_gate_evidence_source": result.source,
+        "delivery_gate_evidence_reason_code": result.reason_code,
+        "delivery_gate_evidence_session_id": result.session_id,
+        "delivery_gate_evidence_project_id": result.project_id,
+        "delivery_gate_evidence_task_id": result.task_id,
+        "delivery_gate_evidence_run_id": result.run_id,
+        "delivery_gate_evidence_worktree_path": result.worktree_path,
+        "delivery_gate_evidence_branch_name": result.branch_name,
+        "delivery_gate_evidence_proposed_operation": result.proposed_operation,
+        "delivery_gate_evidence_changed_files_count": result.changed_files_count,
+        "delivery_gate_evidence_changed_files": list(result.changed_files),
+        "delivery_gate_evidence_next_required_action": (
+            result.next_required_action.value
+        ),
+        "delivery_gate_evidence_user_confirmation_required": (
+            result.user_confirmation_required
+        ),
+        "delivery_gate_evidence_human_approval_required": (
+            result.human_approval_required
+        ),
+        "delivery_gate_evidence_delivery_audit_event_present": (
+            result.delivery_audit_event_present
+        ),
+        "delivery_gate_evidence_delivery_audit_event_type": (
+            result.delivery_audit_event_type
+        ),
+        "delivery_gate_evidence_delivery_audit_event_ready": (
+            result.delivery_audit_event_ready
+        ),
+        "delivery_gate_evidence_summary_cn": result.summary_cn,
+        "delivery_gate_evidence_satisfied_conditions": (
+            list(result.satisfied_conditions)
+        ),
+        "delivery_gate_evidence_blocking_reasons": list(result.blocking_reasons),
+        "delivery_gate_evidence_runs_git": safety_flags.runs_git,
+        "delivery_gate_evidence_runs_write_git": safety_flags.runs_write_git,
+        "delivery_gate_evidence_git_add_triggered": (
+            safety_flags.git_add_triggered
+        ),
+        "delivery_gate_evidence_git_commit_triggered": (
+            safety_flags.git_commit_triggered
+        ),
+        "delivery_gate_evidence_git_push_triggered": (
+            safety_flags.git_push_triggered
+        ),
+        "delivery_gate_evidence_pr_opened": safety_flags.pr_opened,
+        "delivery_gate_evidence_ci_triggered": safety_flags.ci_triggered,
+        "delivery_gate_evidence_execution_enabled": safety_flags.execution_enabled,
+        "delivery_gate_evidence_operation_applied": safety_flags.operation_applied,
+        "delivery_gate_evidence_approval_granted": safety_flags.approval_granted,
+        "delivery_gate_evidence_gate_allows_write": safety_flags.gate_allows_write,
+        "delivery_gate_evidence_gate_allows_user_confirmation": (
+            safety_flags.gate_allows_user_confirmation
+        ),
+    }
+
+
+def _delivery_audit_event_type(delivery_audit_message: object | None) -> str | None:
+    """Extract the delivery diff audit event_type from a returned message object."""
+
+    if delivery_audit_message is None:
+        return None
+    if isinstance(delivery_audit_message, dict):
+        value = delivery_audit_message.get("event_type")
+    else:
+        value = getattr(delivery_audit_message, "event_type", None)
+    if value is None:
+        return None
+    normalized_value = str(value).strip()
+    return normalized_value or None
 
 
 def validate_worker_agent_workspace(
@@ -1176,6 +1297,7 @@ class TaskWorker:
         worktree_safe_command_proof_launches_ai_runtime: bool | None = None
         git_diff_dry_run_result: GitDiffDryRunResult | None = None
         git_operation_dry_run_result: GitOperationDryRunResult | None = None
+        delivery_gate_evidence_result: DeliveryGateEvidenceResult | None = None
 
         try:
             for _ in range(_CLAIM_RETRY_LIMIT):
@@ -2647,15 +2769,41 @@ class TaskWorker:
                 and agent_session is not None
                 and self.delivery_event_audit_service is not None
             ):
-                self.delivery_event_audit_service.record_diff_dry_run_event(
-                    session=agent_session,
-                    result=git_diff_dry_run_result,
-                    skipped_reason_code=(
-                        "worktree_path_unavailable"
-                        if git_diff_dry_run_result is None
-                        else None
+                delivery_audit_message = (
+                    self.delivery_event_audit_service.record_diff_dry_run_event(
+                        session=agent_session,
+                        result=git_diff_dry_run_result,
+                        skipped_reason_code=(
+                            "worktree_path_unavailable"
+                            if git_diff_dry_run_result is None
+                            else None
+                        ),
+                        workspace_path=git_diff_repository_path,
+                    )
+                )
+                delivery_audit_event_type = _delivery_audit_event_type(
+                    delivery_audit_message
+                )
+                delivery_gate_evidence_result = DeliveryGateEvidenceBuilder.evaluate(
+                    agent_session=agent_session,
+                    diff_evidence=git_diff_dry_run_result,
+                    operation_dry_run=git_operation_dry_run_result,
+                    delivery_audit_event_present=delivery_audit_message is not None,
+                    delivery_audit_event_type=delivery_audit_event_type,
+                    delivery_audit_event_ready=(
+                        delivery_audit_event_type == DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
                     ),
-                    workspace_path=git_diff_repository_path,
+                    delivery_git_write_enabled=False,
+                )
+            elif execution_quality_passed:
+                delivery_gate_evidence_result = DeliveryGateEvidenceBuilder.evaluate(
+                    agent_session=agent_session,
+                    diff_evidence=git_diff_dry_run_result,
+                    operation_dry_run=git_operation_dry_run_result,
+                    delivery_audit_event_present=None,
+                    delivery_audit_event_type=None,
+                    delivery_audit_event_ready=None,
+                    delivery_git_write_enabled=False,
                 )
 
             token_accounting = self.token_accounting_service.build_snapshot(
@@ -3018,6 +3166,9 @@ class TaskWorker:
                 ),
                 **_git_diff_dry_run_result_kwargs(git_diff_dry_run_result),
                 **_git_operation_dry_run_result_kwargs(git_operation_dry_run_result),
+                **_delivery_gate_evidence_result_kwargs(
+                    delivery_gate_evidence_result
+                ),
                 model_name=run.model_name if run else None,
                 model_tier=(
                     run.strategy_decision.model_tier

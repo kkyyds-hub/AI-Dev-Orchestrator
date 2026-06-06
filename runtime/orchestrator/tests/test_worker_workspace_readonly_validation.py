@@ -7,6 +7,7 @@ clean real git worktrees.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from uuid import uuid4
 
 from app.api.routes.workers import WorkerRunOnceResponse
@@ -22,6 +23,7 @@ from app.domain.agent_session import (
     RuntimeType,
     WorkspaceType,
 )
+from app.domain.delivery_gate_evidence import DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
 from app.domain.prompt_contract import BuiltPromptEnvelope, PromptTemplateRef
 from app.domain.run import (
     Run,
@@ -133,7 +135,7 @@ class _SpyDeliveryEventAuditService:
         self.calls.append(kwargs)
         if self.raises is not None:
             raise self.raises
-        return None
+        return SimpleNamespace(event_type=DELIVERY_AUDIT_COLLECTED_EVENT_TYPE)
 
 
 def _session(
@@ -141,6 +143,7 @@ def _session(
     workspace_type: WorkspaceType | None = WorkspaceType.WORKTREE,
     workspace_path: str | None = None,
     workspace_clean: bool | None = None,
+    branch_name: str | None = None,
     agent_type: AgentType | None = AgentType.OPENAI_PROVIDER,
     runtime_type: RuntimeType | None = RuntimeType.SUBPROCESS,
 ) -> AgentSession:
@@ -150,6 +153,7 @@ def _session(
         run_id=uuid4(),
         agent_type=agent_type,
         runtime_type=runtime_type,
+        branch_name=branch_name,
         workspace_type=workspace_type,
         workspace_path=workspace_path,
         workspace_clean=workspace_clean,
@@ -856,6 +860,7 @@ def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
     agent_session = _session(
         workspace_path=tmp_path.as_posix(),
         workspace_clean=True,
+        branch_name="main",
     )
     proof = WorkerWorktreeSafeCommandProof(
         ready=False,
@@ -984,6 +989,7 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     agent_session = _session(
         workspace_path=tmp_path.as_posix(),
         workspace_clean=True,
+        branch_name="main",
     )
     proof = WorkerWorktreeSafeCommandProof(
         ready=True,
@@ -1092,11 +1098,11 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert executor_service.build_execution_plan_calls == 1
     assert executor_service.execute_task_calls == 1
     assert collect_calls == [
-        {
-            "repository_path": tmp_path.as_posix(),
-            "compare_branch": None,
-        }
-    ]
+            {
+                "repository_path": tmp_path.as_posix(),
+                "compare_branch": "main",
+            }
+        ]
     assert result.git_diff_dry_run_ready is True
     assert result.git_diff_dry_run_status_summary_cn == "1 个文件修改"
     assert result.git_diff_dry_run_changed_files == ["README.md"]
@@ -1137,6 +1143,42 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert result.git_operation_dry_run_execution_enabled is False
     assert result.git_operation_dry_run_operation_applied is False
     assert result.git_operation_dry_run_approval_granted is False
+    assert result.delivery_gate_evidence_ready is True
+    assert result.delivery_gate_evidence_source == "delivery_gate_evidence"
+    assert result.delivery_gate_evidence_reason_code is None
+    assert result.delivery_gate_evidence_worktree_path == tmp_path.as_posix()
+    assert result.delivery_gate_evidence_branch_name == "main"
+    assert result.delivery_gate_evidence_proposed_operation == "git_add_commit"
+    assert result.delivery_gate_evidence_changed_files_count == 1
+    assert result.delivery_gate_evidence_changed_files == ["README.md"]
+    assert result.delivery_gate_evidence_next_required_action == (
+        "await_user_confirmation"
+    )
+    assert result.delivery_gate_evidence_user_confirmation_required is True
+    assert result.delivery_gate_evidence_human_approval_required is True
+    assert (
+        result.delivery_gate_evidence_delivery_audit_event_present is True
+    )
+    assert result.delivery_gate_evidence_delivery_audit_event_type == (
+        DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+    )
+    assert result.delivery_gate_evidence_delivery_audit_event_ready is True
+    assert result.delivery_gate_evidence_satisfied_conditions == [
+        f"G{index}" for index in range(1, 22)
+    ]
+    assert result.delivery_gate_evidence_blocking_reasons == []
+    assert result.delivery_gate_evidence_runs_git is False
+    assert result.delivery_gate_evidence_runs_write_git is False
+    assert result.delivery_gate_evidence_git_add_triggered is False
+    assert result.delivery_gate_evidence_git_commit_triggered is False
+    assert result.delivery_gate_evidence_git_push_triggered is False
+    assert result.delivery_gate_evidence_pr_opened is False
+    assert result.delivery_gate_evidence_ci_triggered is False
+    assert result.delivery_gate_evidence_execution_enabled is False
+    assert result.delivery_gate_evidence_operation_applied is False
+    assert result.delivery_gate_evidence_approval_granted is False
+    assert result.delivery_gate_evidence_gate_allows_write is False
+    assert result.delivery_gate_evidence_gate_allows_user_confirmation is True
     assert len(delivery_event_audit_service.calls) == 1
     delivery_call = delivery_event_audit_service.calls[0]
     assert delivery_call["session"].id == result.agent_session_id
@@ -1161,6 +1203,31 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert response_payload["git_operation_dry_run_git_push_triggered"] is False
     assert response_payload["git_operation_dry_run_pr_opened"] is False
     assert response_payload["git_operation_dry_run_operation_applied"] is False
+    assert response_payload["delivery_gate_evidence_ready"] is True
+    assert response_payload["delivery_gate_evidence_source"] == (
+        "delivery_gate_evidence"
+    )
+    assert response_payload["delivery_gate_evidence_reason_code"] is None
+    assert response_payload["delivery_gate_evidence_changed_files"] == ["README.md"]
+    assert response_payload["delivery_gate_evidence_proposed_operation"] == (
+        "git_add_commit"
+    )
+    assert response_payload["delivery_gate_evidence_next_required_action"] == (
+        "await_user_confirmation"
+    )
+    assert response_payload[
+        "delivery_gate_evidence_delivery_audit_event_present"
+    ] is True
+    assert response_payload["delivery_gate_evidence_delivery_audit_event_type"] == (
+        DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+    )
+    assert response_payload[
+        "delivery_gate_evidence_delivery_audit_event_ready"
+    ] is True
+    assert response_payload["delivery_gate_evidence_gate_allows_write"] is False
+    assert response_payload[
+        "delivery_gate_evidence_gate_allows_user_confirmation"
+    ] is True
     old_status_summary_key = "git_diff_dry_run_status_" + "summary"
     assert old_status_summary_key not in response_payload
 
@@ -1181,6 +1248,7 @@ def test_worker_run_once_success_path_builds_blocked_operation_dry_run_for_no_ch
     agent_session = _session(
         workspace_path=tmp_path.as_posix(),
         workspace_clean=True,
+        branch_name="main",
     )
     proof = WorkerWorktreeSafeCommandProof(
         ready=True,
@@ -1289,11 +1357,11 @@ def test_worker_run_once_success_path_builds_blocked_operation_dry_run_for_no_ch
     assert executor_service.build_execution_plan_calls == 1
     assert executor_service.execute_task_calls == 1
     assert collect_calls == [
-        {
-            "repository_path": tmp_path.as_posix(),
-            "compare_branch": None,
-        }
-    ]
+            {
+                "repository_path": tmp_path.as_posix(),
+                "compare_branch": "main",
+            }
+        ]
     assert result.git_diff_dry_run_ready is True
     assert result.git_diff_dry_run_has_changes is False
     assert result.git_diff_dry_run_changed_files_count == 0
@@ -1319,6 +1387,28 @@ def test_worker_run_once_success_path_builds_blocked_operation_dry_run_for_no_ch
     assert result.git_operation_dry_run_execution_enabled is False
     assert result.git_operation_dry_run_operation_applied is False
     assert result.git_operation_dry_run_approval_granted is False
+    assert result.delivery_gate_evidence_ready is False
+    assert result.delivery_gate_evidence_source == "delivery_gate_evidence"
+    assert result.delivery_gate_evidence_reason_code == "no_changes"
+    assert result.delivery_gate_evidence_proposed_operation == "none"
+    assert result.delivery_gate_evidence_changed_files_count == 0
+    assert result.delivery_gate_evidence_changed_files == []
+    assert result.delivery_gate_evidence_next_required_action == (
+        "resolve_blocking_conditions"
+    )
+    assert result.delivery_gate_evidence_user_confirmation_required is False
+    assert result.delivery_gate_evidence_human_approval_required is False
+    assert (
+        result.delivery_gate_evidence_delivery_audit_event_present is True
+    )
+    assert result.delivery_gate_evidence_delivery_audit_event_type == (
+        DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+    )
+    assert result.delivery_gate_evidence_delivery_audit_event_ready is True
+    assert "G8:no_changes" in result.delivery_gate_evidence_blocking_reasons
+    assert "G9:no_changes" in result.delivery_gate_evidence_blocking_reasons
+    assert result.delivery_gate_evidence_gate_allows_write is False
+    assert result.delivery_gate_evidence_gate_allows_user_confirmation is False
     assert len(delivery_event_audit_service.calls) == 1
 
     response_payload = WorkerRunOnceResponse.from_result(result).model_dump(
@@ -1330,6 +1420,23 @@ def test_worker_run_once_success_path_builds_blocked_operation_dry_run_for_no_ch
     assert response_payload["git_operation_dry_run_proposed_steps"] == []
     assert response_payload["git_operation_dry_run_runs_git"] is False
     assert response_payload["git_operation_dry_run_git_add_triggered"] is False
+    assert response_payload["delivery_gate_evidence_ready"] is False
+    assert response_payload["delivery_gate_evidence_reason_code"] == "no_changes"
+    assert response_payload["delivery_gate_evidence_proposed_operation"] == "none"
+    assert response_payload["delivery_gate_evidence_changed_files"] == []
+    assert response_payload[
+        "delivery_gate_evidence_delivery_audit_event_present"
+    ] is True
+    assert response_payload["delivery_gate_evidence_delivery_audit_event_type"] == (
+        DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+    )
+    assert response_payload[
+        "delivery_gate_evidence_delivery_audit_event_ready"
+    ] is True
+    assert response_payload["delivery_gate_evidence_gate_allows_write"] is False
+    assert response_payload[
+        "delivery_gate_evidence_gate_allows_user_confirmation"
+    ] is False
 
 
 def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(

@@ -307,6 +307,39 @@ class WorkerRunOnceResponse(BaseModel):
     git_operation_dry_run_execution_enabled: bool | None = None
     git_operation_dry_run_operation_applied: bool | None = None
     git_operation_dry_run_approval_granted: bool | None = None
+    delivery_gate_evidence_ready: bool | None = None
+    delivery_gate_evidence_source: str | None = None
+    delivery_gate_evidence_reason_code: str | None = None
+    delivery_gate_evidence_session_id: str | None = None
+    delivery_gate_evidence_project_id: str | None = None
+    delivery_gate_evidence_task_id: str | None = None
+    delivery_gate_evidence_run_id: str | None = None
+    delivery_gate_evidence_worktree_path: str | None = None
+    delivery_gate_evidence_branch_name: str | None = None
+    delivery_gate_evidence_proposed_operation: str | None = None
+    delivery_gate_evidence_changed_files_count: int | None = None
+    delivery_gate_evidence_changed_files: list[str] = Field(default_factory=list)
+    delivery_gate_evidence_next_required_action: str | None = None
+    delivery_gate_evidence_user_confirmation_required: bool | None = None
+    delivery_gate_evidence_human_approval_required: bool | None = None
+    delivery_gate_evidence_delivery_audit_event_present: bool | None = None
+    delivery_gate_evidence_delivery_audit_event_type: str | None = None
+    delivery_gate_evidence_delivery_audit_event_ready: bool | None = None
+    delivery_gate_evidence_summary_cn: str | None = None
+    delivery_gate_evidence_satisfied_conditions: list[str] = Field(default_factory=list)
+    delivery_gate_evidence_blocking_reasons: list[str] = Field(default_factory=list)
+    delivery_gate_evidence_runs_git: bool | None = None
+    delivery_gate_evidence_runs_write_git: bool | None = None
+    delivery_gate_evidence_git_add_triggered: bool | None = None
+    delivery_gate_evidence_git_commit_triggered: bool | None = None
+    delivery_gate_evidence_git_push_triggered: bool | None = None
+    delivery_gate_evidence_pr_opened: bool | None = None
+    delivery_gate_evidence_ci_triggered: bool | None = None
+    delivery_gate_evidence_execution_enabled: bool | None = None
+    delivery_gate_evidence_operation_applied: bool | None = None
+    delivery_gate_evidence_approval_granted: bool | None = None
+    delivery_gate_evidence_gate_allows_write: bool | None = None
+    delivery_gate_evidence_gate_allows_user_confirmation: bool | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -721,6 +754,91 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             git_operation_dry_run_approval_granted=(
                 result.git_operation_dry_run_approval_granted
+            ),
+            delivery_gate_evidence_ready=result.delivery_gate_evidence_ready,
+            delivery_gate_evidence_source=result.delivery_gate_evidence_source,
+            delivery_gate_evidence_reason_code=(
+                result.delivery_gate_evidence_reason_code
+            ),
+            delivery_gate_evidence_session_id=(
+                result.delivery_gate_evidence_session_id
+            ),
+            delivery_gate_evidence_project_id=(
+                result.delivery_gate_evidence_project_id
+            ),
+            delivery_gate_evidence_task_id=result.delivery_gate_evidence_task_id,
+            delivery_gate_evidence_run_id=result.delivery_gate_evidence_run_id,
+            delivery_gate_evidence_worktree_path=(
+                result.delivery_gate_evidence_worktree_path
+            ),
+            delivery_gate_evidence_branch_name=(
+                result.delivery_gate_evidence_branch_name
+            ),
+            delivery_gate_evidence_proposed_operation=(
+                result.delivery_gate_evidence_proposed_operation
+            ),
+            delivery_gate_evidence_changed_files_count=(
+                result.delivery_gate_evidence_changed_files_count
+            ),
+            delivery_gate_evidence_changed_files=(
+                result.delivery_gate_evidence_changed_files
+            ),
+            delivery_gate_evidence_next_required_action=(
+                result.delivery_gate_evidence_next_required_action
+            ),
+            delivery_gate_evidence_user_confirmation_required=(
+                result.delivery_gate_evidence_user_confirmation_required
+            ),
+            delivery_gate_evidence_human_approval_required=(
+                result.delivery_gate_evidence_human_approval_required
+            ),
+            delivery_gate_evidence_delivery_audit_event_present=(
+                result.delivery_gate_evidence_delivery_audit_event_present
+            ),
+            delivery_gate_evidence_delivery_audit_event_type=(
+                result.delivery_gate_evidence_delivery_audit_event_type
+            ),
+            delivery_gate_evidence_delivery_audit_event_ready=(
+                result.delivery_gate_evidence_delivery_audit_event_ready
+            ),
+            delivery_gate_evidence_summary_cn=(
+                result.delivery_gate_evidence_summary_cn
+            ),
+            delivery_gate_evidence_satisfied_conditions=(
+                result.delivery_gate_evidence_satisfied_conditions
+            ),
+            delivery_gate_evidence_blocking_reasons=(
+                result.delivery_gate_evidence_blocking_reasons
+            ),
+            delivery_gate_evidence_runs_git=result.delivery_gate_evidence_runs_git,
+            delivery_gate_evidence_runs_write_git=(
+                result.delivery_gate_evidence_runs_write_git
+            ),
+            delivery_gate_evidence_git_add_triggered=(
+                result.delivery_gate_evidence_git_add_triggered
+            ),
+            delivery_gate_evidence_git_commit_triggered=(
+                result.delivery_gate_evidence_git_commit_triggered
+            ),
+            delivery_gate_evidence_git_push_triggered=(
+                result.delivery_gate_evidence_git_push_triggered
+            ),
+            delivery_gate_evidence_pr_opened=result.delivery_gate_evidence_pr_opened,
+            delivery_gate_evidence_ci_triggered=result.delivery_gate_evidence_ci_triggered,
+            delivery_gate_evidence_execution_enabled=(
+                result.delivery_gate_evidence_execution_enabled
+            ),
+            delivery_gate_evidence_operation_applied=(
+                result.delivery_gate_evidence_operation_applied
+            ),
+            delivery_gate_evidence_approval_granted=(
+                result.delivery_gate_evidence_approval_granted
+            ),
+            delivery_gate_evidence_gate_allows_write=(
+                result.delivery_gate_evidence_gate_allows_write
+            ),
+            delivery_gate_evidence_gate_allows_user_confirmation=(
+                result.delivery_gate_evidence_gate_allows_user_confirmation
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,
