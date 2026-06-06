@@ -886,6 +886,13 @@ def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
         def __init__(self):
             raise AssertionError("git diff dry-run must not run on proof-blocked path")
 
+    class _ExplodingGitOperationDryRunBuilder:
+        @staticmethod
+        def build_from_diff_evidence(**kwargs):
+            raise AssertionError(
+                "git operation dry-run builder must not run on proof-blocked path"
+            )
+
     monkeypatch.setattr(
         "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
         lambda: _FailingProofRunner(),
@@ -893,6 +900,10 @@ def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
     monkeypatch.setattr(
         "app.workers.task_worker.GitDiffDryRunRunner",
         _ExplodingGitDiffDryRunRunner,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.GitOperationDryRunBuilder",
+        _ExplodingGitOperationDryRunBuilder,
     )
     monkeypatch.setattr(
         "app.workers.task_worker.event_stream_service.publish_task_updated",
@@ -951,6 +962,8 @@ def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(
     assert result.activity_state == "exited"
     assert result.last_workspace_error is not None
     assert "reason_code=pwd_mismatch_workspace_path" in result.last_workspace_error
+    assert result.git_operation_dry_run_ready is None
+    assert result.git_operation_dry_run_reason_code is None
     assert executor_service.build_execution_plan_calls == 0
     assert executor_service.execute_task_calls == 0
 
@@ -1152,6 +1165,173 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert old_status_summary_key not in response_payload
 
 
+def test_worker_run_once_success_path_builds_blocked_operation_dry_run_for_no_changes(
+    monkeypatch,
+    tmp_path,
+):
+    task = Task(
+        project_id=uuid4(),
+        title="Successful run with no git changes",
+        input_summary="simulate: collect no-change preview",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+    )
+    proof = WorkerWorktreeSafeCommandProof(
+        ready=True,
+        source="agent_session_worktree_safe_command",
+        reason_code=None,
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd=tmp_path.as_posix(),
+        pwd_matches_workspace_path=True,
+        exit_code=0,
+        stdout=tmp_path.as_posix(),
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+    collect_calls: list[dict[str, str | None]] = []
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return proof
+
+    class _NoChangesGitDiffDryRunRunner:
+        def collect(self, *, repository_path, compare_branch=None):
+            collect_calls.append(
+                {
+                    "repository_path": repository_path,
+                    "compare_branch": compare_branch,
+                }
+            )
+            return GitDiffDryRunResult(
+                ready=True,
+                source="agent_session_worktree_diff",
+                reason_code=None,
+                worktree_path=repository_path,
+                has_changes=False,
+                changed_files_count=0,
+                changed_files=[],
+                added_files=[],
+                modified_files=[],
+                deleted_files=[],
+                renamed_files=[],
+                status_summary_cn="当前没有代码改动",
+                diff_stat="",
+                diff_shortstat="",
+                branch_name="main",
+                compare_branch=compare_branch,
+                command="git status --porcelain=v1 --untracked-files=all",
+                peek_command="git diff --name-status",
+                danger_commands_applied=False,
+            )
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.GitDiffDryRunRunner",
+        _NoChangesGitDiffDryRunRunner,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+
+    executor_service = _FakeExecutorService(success=True)
+    delivery_event_audit_service = _SpyDeliveryEventAuditService()
+    worker = TaskWorker(
+        session=_NoopDbSession(),
+        task_repository=_FakeTaskRepository(task),
+        run_repository=_FakeRunRepository(),
+        executor_service=executor_service,
+        verifier_service=_PassingVerifierService(),
+        budget_guard_service=_AllowingBudgetGuardService(),
+        run_logging_service=_NoopRunLoggingService(),
+        cost_estimator_service=CostEstimatorService(),
+        context_builder_service=_FakeContextBuilderService(),
+        task_router_service=_FakeTaskRouterService(task),
+        model_routing_service=_FakeModelRoutingService(),
+        prompt_registry_service=None,
+        prompt_builder_service=_FakePromptBuilderService(),
+        token_accounting_service=TokenAccountingService(),
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type(
+            "_NoopFailureReviewService",
+            (),
+            {"ensure_review": lambda self, *, task, run: None},
+        )(),
+        agent_conversation_service=_FakeAgentConversationService(agent_session),
+        delivery_event_audit_service=delivery_event_audit_service,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.execution_mode == "simulate"
+    assert result.task is not None
+    assert result.task.status == TaskStatus.COMPLETED
+    assert result.run is not None
+    assert result.run.status == RunStatus.SUCCEEDED
+    assert executor_service.build_execution_plan_calls == 1
+    assert executor_service.execute_task_calls == 1
+    assert collect_calls == [
+        {
+            "repository_path": tmp_path.as_posix(),
+            "compare_branch": None,
+        }
+    ]
+    assert result.git_diff_dry_run_ready is True
+    assert result.git_diff_dry_run_has_changes is False
+    assert result.git_diff_dry_run_changed_files_count == 0
+    assert result.git_diff_dry_run_changed_files == []
+    assert result.git_operation_dry_run_ready is False
+    assert result.git_operation_dry_run_source == "git_operation_dry_run"
+    assert result.git_operation_dry_run_reason_code == "no_changes"
+    assert result.git_operation_dry_run_worktree_path == tmp_path.as_posix()
+    assert result.git_operation_dry_run_branch_name == "main"
+    assert result.git_operation_dry_run_changed_files_count == 0
+    assert result.git_operation_dry_run_changed_files == []
+    assert result.git_operation_dry_run_proposed_operation == "none"
+    assert result.git_operation_dry_run_proposed_steps == []
+    assert result.git_operation_dry_run_proposed_commit_message is None
+    assert result.git_operation_dry_run_summary_cn == "当前没有可提交的代码改动。"
+    assert result.git_operation_dry_run_runs_git is False
+    assert result.git_operation_dry_run_runs_write_git is False
+    assert result.git_operation_dry_run_git_add_triggered is False
+    assert result.git_operation_dry_run_git_commit_triggered is False
+    assert result.git_operation_dry_run_git_push_triggered is False
+    assert result.git_operation_dry_run_pr_opened is False
+    assert result.git_operation_dry_run_ci_triggered is False
+    assert result.git_operation_dry_run_execution_enabled is False
+    assert result.git_operation_dry_run_operation_applied is False
+    assert result.git_operation_dry_run_approval_granted is False
+    assert len(delivery_event_audit_service.calls) == 1
+
+    response_payload = WorkerRunOnceResponse.from_result(result).model_dump(
+        mode="json"
+    )
+    assert response_payload["git_operation_dry_run_ready"] is False
+    assert response_payload["git_operation_dry_run_reason_code"] == "no_changes"
+    assert response_payload["git_operation_dry_run_proposed_operation"] == "none"
+    assert response_payload["git_operation_dry_run_proposed_steps"] == []
+    assert response_payload["git_operation_dry_run_runs_git"] is False
+    assert response_payload["git_operation_dry_run_git_add_triggered"] is False
+
+
 def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     monkeypatch,
     tmp_path,
@@ -1198,6 +1378,13 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
         def __init__(self):
             raise AssertionError("git diff dry-run must not run on failed execution")
 
+    class _ExplodingGitOperationDryRunBuilder:
+        @staticmethod
+        def build_from_diff_evidence(**kwargs):
+            raise AssertionError(
+                "git operation dry-run builder must not run on failed execution"
+            )
+
     monkeypatch.setattr(
         "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
         lambda: _PassingProofRunner(),
@@ -1205,6 +1392,10 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     monkeypatch.setattr(
         "app.workers.task_worker.GitDiffDryRunRunner",
         _ExplodingGitDiffDryRunRunner,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.GitOperationDryRunBuilder",
+        _ExplodingGitOperationDryRunBuilder,
     )
     monkeypatch.setattr(
         "app.workers.task_worker.event_stream_service.publish_task_updated",
@@ -1248,6 +1439,8 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     assert result.run.status == RunStatus.FAILED
     assert result.git_diff_dry_run_ready is None
     assert result.git_diff_dry_run_status_summary_cn is None
+    assert result.git_operation_dry_run_ready is None
+    assert result.git_operation_dry_run_reason_code is None
     assert executor_service.build_execution_plan_calls == 1
     assert executor_service.execute_task_calls == 1
     assert delivery_event_audit_service.calls == []
