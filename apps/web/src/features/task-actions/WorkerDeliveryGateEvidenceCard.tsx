@@ -53,7 +53,7 @@ const REASON_LABELS: Record<string, string> = {
   unsupported_operation: "当前操作类型不支持交付前检查",
   operation_write_flag_triggered: "提交预览安全标记异常",
   operation_already_applied: "预览动作已被标记为应用",
-  approval_already_granted: "审批已被标记为授予",
+  approval_already_granted: "用户确认状态异常",
   feature_flag_enabled: "真实写入开关已开启",
   evidence_mismatch: "代码改动预览与提交预览不一致",
   audit_evidence_missing: "缺少交付审计记录",
@@ -158,7 +158,7 @@ export function WorkerDeliveryGateEvidenceCard(
   ];
 
   const safetyFields: GateField[] = [
-    safeFlag("runs_git", "执行代码命令", props.delivery_gate_evidence_runs_git, "未执行代码命令"),
+    safeFlag("runs_git", "Git 检查", props.delivery_gate_evidence_runs_git, "未执行 Git 检查"),
     safeFlag(
       "runs_write_git",
       "提交或推送等写操作",
@@ -204,9 +204,9 @@ export function WorkerDeliveryGateEvidenceCard(
     ),
     safeFlag(
       "approval_granted",
-      "授予审批",
+      "用户确认",
       props.delivery_gate_evidence_approval_granted,
-      "未授予审批",
+      "用户尚未确认",
     ),
     safeFlag(
       "gate_allows_write",

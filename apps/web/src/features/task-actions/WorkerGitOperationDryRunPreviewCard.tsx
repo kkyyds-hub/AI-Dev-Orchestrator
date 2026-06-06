@@ -131,7 +131,7 @@ export function WorkerGitOperationDryRunPreviewCard(
   ];
 
   const safetyFields: PreviewField[] = [
-    safeFlag("runs_git", "执行代码命令", props.git_operation_dry_run_runs_git, "未执行代码命令"),
+    safeFlag("runs_git", "Git 检查", props.git_operation_dry_run_runs_git, "未执行 Git 检查"),
     safeFlag(
       "runs_write_git",
       "提交或推送等写操作",
@@ -177,9 +177,9 @@ export function WorkerGitOperationDryRunPreviewCard(
     ),
     safeFlag(
       "approval_granted",
-      "授予审批",
+      "用户确认",
       props.git_operation_dry_run_approval_granted,
-      "未授予审批",
+      "用户尚未确认",
     ),
   ];
 
