@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -14,6 +15,8 @@ from app.api.router import api_router
 from app.api.routes.approvals import (
     DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME,
     DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID,
+    DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE,
+    DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY,
 )
 from app.core.config import settings
 from app.core.db import get_db_session
@@ -94,6 +97,18 @@ def db_session(sqlite_session_factory):
 
 def _count_rows(db_session, table) -> int:
     return int(db_session.execute(select(func.count()).select_from(table)).scalar_one())
+
+
+def _agent_message_rows_for_session(db_session, session_id):
+    return (
+        db_session.execute(
+            select(AgentMessageTable)
+            .where(AgentMessageTable.session_id == session_id)
+            .order_by(AgentMessageTable.sequence_no.asc())
+        )
+        .scalars()
+        .all()
+    )
 
 
 def _seed_run_with_session(
@@ -281,7 +296,72 @@ def test_delivery_human_approval_api_evaluates_snapshot_without_persisting_confi
 
     assert _count_rows(db_session, ApprovalRequestTable) == 0
     assert _count_rows(db_session, ApprovalDecisionTable) == 0
-    assert _count_rows(db_session, AgentMessageTable) == 0
+    messages = _agent_message_rows_for_session(db_session, agent_session.id)
+    assert len(messages) == 1
+    message = messages[0]
+    assert message.event_type == DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE
+    assert message.note_event_type == DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE
+    assert message.content_summary == DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY
+    assert confirmation_text not in message.content_summary
+    assert confirmation_text not in (message.content_detail or "")
+    detail = json.loads(message.content_detail or "{}")
+    assert detail["approval_client_request_id"] == "client-request-1"
+    assert detail["approval_confirmation_fingerprint"] == (
+        payload["approval_confirmation_fingerprint"]
+    )
+    assert detail["approval_scope"] == HUMAN_APPROVAL_SCOPE_GIT_ADD_COMMIT_PREVIEW
+    assert detail["approval_requested_action"] == (
+        HUMAN_APPROVAL_ACTION_APPROVE_GIT_ADD_COMMIT_PREVIEW
+    )
+    assert detail["approved_by"] == DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID
+    assert detail["approved_by_display_name"] == (
+        DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME
+    )
+    assert detail["proposed_operation"] == "git_add_commit"
+    assert detail["proposed_commit_message"] == "fix: stabilize delivery evidence"
+    assert detail["changed_files"] == [
+        "runtime/orchestrator/app/api/routes/approvals.py"
+    ]
+    assert detail["evidence_snapshot_event"] == DELIVERY_EVIDENCE_SNAPSHOT_EVENT
+    assert detail["evidence_snapshot_log_path"] == log_path
+    assert detail["runs_write_git"] is False
+    assert detail["git_add_triggered"] is False
+    assert detail["git_commit_triggered"] is False
+    assert detail["git_push_triggered"] is False
+    assert detail["gate_allows_write"] is False
+
+
+def test_delivery_human_approval_api_agent_message_write_is_idempotent(
+    client,
+    db_session,
+):
+    _, task, run, agent_session = _seed_run_with_session(db_session)
+    log_path = _write_delivery_evidence_snapshot(task_id=task.id, run_id=run.id)
+    RunRepository(db_session).set_log_path(run.id, log_path)
+    db_session.commit()
+
+    request_payload = _approval_request_payload(
+        run.id,
+        approval_client_request_id="client-request-idempotent",
+    )
+
+    first_response = client.post(
+        "/approvals/delivery-human-approval",
+        json=request_payload,
+    )
+    second_response = client.post(
+        "/approvals/delivery-human-approval",
+        json=request_payload,
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["ready"] is True
+    assert second_response.json()["ready"] is True
+    messages = _agent_message_rows_for_session(db_session, agent_session.id)
+    assert len(messages) == 1
+    detail = json.loads(messages[0].content_detail or "{}")
+    assert detail["approval_client_request_id"] == "client-request-idempotent"
 
 
 def test_delivery_human_approval_api_blocks_when_snapshot_missing(

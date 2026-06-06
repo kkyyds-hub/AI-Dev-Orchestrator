@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -25,8 +26,10 @@ from app.domain.human_approval_gate import (
     DeliveryHumanApprovalResult,
     HumanApprovalGateBuilder,
 )
+from app.domain.agent_message import AgentMessageRole, AgentMessageType
 from app.domain.project import ProjectStage
 from app.domain.project_role import ProjectRoleCode
+from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.approval_repository import ApprovalRepository
 from app.repositories.change_batch_repository import ChangeBatchRepository
@@ -108,6 +111,10 @@ from app.services.task_state_machine_service import TaskStateMachineService
 
 DELIVERY_HUMAN_APPROVAL_API_ACTOR_ID = "local_user"
 DELIVERY_HUMAN_APPROVAL_API_ACTOR_DISPLAY_NAME = "本地用户"
+DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE = "delivery_human_approval_recorded"
+DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY = (
+    "已记录交付人工审批：提交预览已确认，尚未执行提交或推送。"
+)
 
 
 class ApprovalDecisionSummaryResponse(BaseModel):
@@ -1877,6 +1884,16 @@ def evaluate_delivery_human_approval(
         delivery_git_write_enabled=False,
     )
 
+    if gate_result.ready and agent_session is not None:
+        _record_delivery_human_approval_agent_message(
+            agent_message_repository=AgentMessageRepository(session),
+            agent_session=agent_session,
+            gate_result=gate_result,
+            log_path=run.log_path,
+            snapshot_data=snapshot_data,
+        )
+        session.commit()
+
     return DeliveryHumanApprovalResponse.from_gate_result(
         run_id=request.run_id,
         log_path=run.log_path,
@@ -1906,6 +1923,141 @@ def _delivery_human_approval_snapshot_invalid_reason(
     if not isinstance(snapshot_data.get("delivery_gate_evidence"), dict):
         return "delivery_gate_evidence_payload_invalid"
     return None
+
+
+def _record_delivery_human_approval_agent_message(
+    *,
+    agent_message_repository: AgentMessageRepository,
+    agent_session: Any,
+    gate_result: DeliveryHumanApprovalResult,
+    log_path: str,
+    snapshot_data: dict[str, Any],
+) -> None:
+    """Persist one idempotent P4-F2-D approval audit AgentMessage."""
+
+    content_detail = _delivery_human_approval_agent_message_detail(
+        gate_result=gate_result,
+        log_path=log_path,
+        snapshot_data=snapshot_data,
+    )
+    if _delivery_human_approval_agent_message_exists(
+        agent_message_repository=agent_message_repository,
+        session_id=agent_session.id,
+        approval_client_request_id=gate_result.approval_client_request_id,
+        approval_confirmation_fingerprint=(
+            gate_result.approval_confirmation_fingerprint
+        ),
+    ):
+        return
+
+    agent_message_repository.create(
+        session_id=agent_session.id,
+        project_id=agent_session.project_id,
+        task_id=agent_session.task_id,
+        run_id=agent_session.run_id,
+        sequence_no=agent_message_repository.get_next_sequence_no(
+            session_id=agent_session.id
+        ),
+        role=AgentMessageRole.BOSS,
+        message_type=AgentMessageType.NOTE_EVENT,
+        event_type=DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE,
+        phase=agent_session.current_phase.value,
+        state_from=None,
+        state_to=None,
+        intervention_type=None,
+        note_event_type=DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE,
+        context_checkpoint_id=agent_session.context_checkpoint_id,
+        context_rehydrated=agent_session.context_rehydrated,
+        content_summary=DELIVERY_HUMAN_APPROVAL_RECORDED_SUMMARY,
+        content_detail=content_detail,
+    )
+
+
+def _delivery_human_approval_agent_message_exists(
+    *,
+    agent_message_repository: AgentMessageRepository,
+    session_id: UUID,
+    approval_client_request_id: str | None,
+    approval_confirmation_fingerprint: str | None,
+) -> bool:
+    """Return whether the same approval audit message was already recorded."""
+
+    for message in agent_message_repository.list_by_session_id(
+        session_id=session_id,
+        limit=500,
+    ):
+        if message.event_type != DELIVERY_HUMAN_APPROVAL_RECORDED_EVENT_TYPE:
+            continue
+        try:
+            detail = json.loads(message.content_detail or "{}")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(detail, dict):
+            continue
+        if (
+            detail.get("approval_client_request_id")
+            == approval_client_request_id
+            and detail.get("approval_confirmation_fingerprint")
+            == approval_confirmation_fingerprint
+        ):
+            return True
+    return False
+
+
+def _delivery_human_approval_agent_message_detail(
+    *,
+    gate_result: DeliveryHumanApprovalResult,
+    log_path: str,
+    snapshot_data: dict[str, Any],
+) -> str:
+    """Build JSON detail for approval audit without raw confirmation text."""
+
+    detail = {
+        "approval_id": gate_result.approval_id,
+        "approval_client_request_id": gate_result.approval_client_request_id,
+        "approval_confirmation_fingerprint": (
+            gate_result.approval_confirmation_fingerprint
+        ),
+        "approved_by": gate_result.approved_by,
+        "approved_by_display_name": gate_result.approved_by_display_name,
+        "approval_scope": (
+            gate_result.approval_scope.value
+            if gate_result.approval_scope is not None
+            else None
+        ),
+        "approval_requested_action": (
+            gate_result.approval_requested_action.value
+            if gate_result.approval_requested_action is not None
+            else None
+        ),
+        "approval_created_at": (
+            gate_result.approval_created_at.isoformat()
+            if gate_result.approval_created_at is not None
+            else None
+        ),
+        "approval_expires_at": (
+            gate_result.approval_expires_at.isoformat()
+            if gate_result.approval_expires_at is not None
+            else None
+        ),
+        "proposed_operation": gate_result.proposed_operation,
+        "proposed_commit_message": gate_result.proposed_commit_message,
+        "changed_files_count": gate_result.changed_files_count,
+        "changed_files": list(gate_result.changed_files),
+        "evidence_snapshot_event": DELIVERY_EVIDENCE_SNAPSHOT_EVENT,
+        "evidence_snapshot_log_path": log_path,
+        "evidence_snapshot_schema_version": snapshot_data.get("schema_version"),
+        "evidence_snapshot_source": snapshot_data.get("snapshot_source"),
+        "runs_write_git": False,
+        "git_add_triggered": False,
+        "git_commit_triggered": False,
+        "git_push_triggered": False,
+        "gate_allows_write": False,
+        "gate_allows_next_guardrail": (
+            gate_result.safety_flags.gate_allows_next_guardrail
+        ),
+    }
+    return json.dumps(detail, ensure_ascii=False, sort_keys=True)
 
 
 @router.get(
