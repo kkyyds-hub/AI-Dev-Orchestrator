@@ -137,6 +137,45 @@ class RunLoggingService:
             truncated=truncated,
         )
 
+    def read_latest_delivery_evidence_snapshot(
+        self,
+        *,
+        log_path: str | None,
+    ) -> RunLogEvent | None:
+        """Return the latest cached P4-F2-C0 delivery evidence snapshot event."""
+
+        if log_path is None:
+            return None
+
+        absolute_path = self._resolve(log_path)
+        if not absolute_path.exists():
+            return None
+
+        with absolute_path.open("r", encoding="utf-8") as file:
+            lines = [line.strip() for line in file if line.strip()]
+
+        for line in reversed(lines):
+            try:
+                raw_record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if not isinstance(raw_record, dict):
+                continue
+            if raw_record.get("event") != DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT:
+                continue
+
+            raw_data = raw_record.get("data")
+            return RunLogEvent(
+                timestamp=str(raw_record.get("timestamp", "")),
+                level=str(raw_record.get("level", "info")),
+                event=DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_EVENT,
+                message=str(raw_record.get("message", "")),
+                data=raw_data if isinstance(raw_data, dict) else {},
+            )
+
+        return None
+
     def append_role_handoff_event(
         self,
         *,
