@@ -84,8 +84,8 @@ def test_build_ready_operation_preview_from_dirty_diff_evidence():
     assert result.modified_files == ["README.md"]
     assert result.proposed_operation == GitOperationDryRunOperation.GIT_ADD_COMMIT
     assert result.proposed_steps == [
-        "加入待提交区（git add）",
-        "生成本地提交（git commit）：chore: update 2 files from agent work",
+        "准备加入待提交区（git add，预览不执行）",
+        "准备生成本地提交（git commit，预览不执行）：chore: update 2 files from agent work",
     ]
     assert result.proposed_commit_message == "chore: update 2 files from agent work"
     assert result.proposed_pr_title is None
@@ -94,7 +94,9 @@ def test_build_ready_operation_preview_from_dirty_diff_evidence():
     assert result.human_approval_required is True
     assert result.feature_flag_required is True
     assert "已生成提交预览" in result.summary_cn
-    assert "尚未" not in result.summary_cn
+    assert "尚未加入待提交区" in result.summary_cn
+    assert "尚未生成本地提交" in result.summary_cn
+    assert "尚未推送" in result.summary_cn
     assert result.safety_flags.model_dump() == {
         "runs_git": False,
         "runs_write_git": False,
@@ -190,7 +192,24 @@ def test_build_blocked_when_operation_preview_feature_flag_disabled():
     assert result.proposed_operation == GitOperationDryRunOperation.NONE
 
 
-def test_build_blocks_if_delivery_git_write_flag_is_already_enabled():
+def test_build_blocked_when_session_missing():
+    result = GitOperationDryRunBuilder.build_from_diff_evidence(
+        agent_session=None,
+        diff_evidence=_dirty_diff(),
+    )
+
+    assert result.ready is False
+    assert result.reason_code == "session_missing"
+    assert result.summary_cn == "会话信息缺失，无法生成提交预览。"
+    assert result.session_id == "missing"
+    assert result.project_id == "missing"
+    assert result.task_id == "missing"
+    assert result.run_id == "missing"
+    assert result.proposed_operation == GitOperationDryRunOperation.NONE
+    assert result.proposed_steps == []
+
+
+def test_build_blocks_if_delivery_git_write_feature_flag_is_enabled():
     result = GitOperationDryRunBuilder.build_from_diff_evidence(
         agent_session=_session(),
         diff_evidence=_dirty_diff(),
@@ -198,9 +217,17 @@ def test_build_blocks_if_delivery_git_write_flag_is_already_enabled():
     )
 
     assert result.ready is False
-    assert result.reason_code == "write_already_triggered"
+    assert result.reason_code == "feature_flag_enabled"
+    assert result.summary_cn == "真实写入开关已开启，无法生成提交预览。"
     assert result.safety_flags.execution_enabled is False
     assert result.safety_flags.operation_applied is False
+
+
+def test_git_operation_dry_run_operation_does_not_include_push_or_pr_preview():
+    operation_values = {operation.value for operation in GitOperationDryRunOperation}
+
+    assert "git_" + "push_pr" not in operation_values
+    assert operation_values == {"git_add_commit", "none"}
 
 
 def test_git_operation_dry_run_safety_flags_reject_any_true_flag():
@@ -222,7 +249,7 @@ def test_git_operation_dry_run_result_rejects_inconsistent_ready_contract():
             task_id=str(uuid4()),
             run_id=str(uuid4()),
             proposed_operation=GitOperationDryRunOperation.GIT_ADD_COMMIT,
-            proposed_steps=["加入待提交区（git add）"],
+            proposed_steps=["准备加入待提交区（git add，预览不执行）"],
             summary_cn="已生成提交预览。",
         )
 

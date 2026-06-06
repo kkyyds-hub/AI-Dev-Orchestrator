@@ -37,7 +37,6 @@ class GitOperationDryRunOperation(StrEnum):
     """Stable operation proposal kinds for P4-C."""
 
     GIT_ADD_COMMIT = "git_add_commit"
-    GIT_PUSH_PR = "git_push_pr"
     NONE = "none"
 
 
@@ -184,6 +183,13 @@ class GitOperationDryRunBuilder:
         delivery_git_write_enabled: bool = False,
         human_approval_status: str | None = None,
     ) -> GitOperationDryRunResult:
+        if agent_session is None:
+            return _blocked_result(
+                **_missing_session_ids(),
+                reason_code="session_missing",
+                summary_cn="会话信息缺失，无法生成提交预览。",
+            )
+
         session_ids = _session_ids(agent_session)
         worktree_path = _string_value(agent_session, "workspace_path")
         branch_name = _string_value(agent_session, "branch_name") or _string_value(
@@ -211,8 +217,8 @@ class GitOperationDryRunBuilder:
         if delivery_git_write_enabled:
             return _blocked_result(
                 **session_ids,
-                reason_code="write_already_triggered",
-                summary_cn="检测到写操作已触发，无法再次生成提交预览。",
+                reason_code="feature_flag_enabled",
+                summary_cn="真实写入开关已开启，无法生成提交预览。",
                 worktree_path=worktree_path,
                 branch_name=branch_name,
             )
@@ -258,12 +264,13 @@ class GitOperationDryRunBuilder:
 
         proposed_commit_message = _build_commit_message(changed_files_count)
         proposed_steps = [
-            "加入待提交区（git add）",
-            f"生成本地提交（git commit）：{proposed_commit_message}",
+            "准备加入待提交区（git add，预览不执行）",
+            f"准备生成本地提交（git commit，预览不执行）：{proposed_commit_message}",
         ]
         summary_cn = (
             f"已生成提交预览：检测到 {changed_files_count} 个文件变更。"
             f"如果确认，将把这些文件提交到分支 {branch_name or '当前分支'}。"
+            "尚未加入待提交区、尚未生成本地提交、尚未推送。"
         )
 
         return GitOperationDryRunResult(
@@ -320,6 +327,15 @@ def _session_ids(agent_session: Any) -> dict[str, str]:
         "project_id": str(_value(agent_session, "project_id", "")),
         "task_id": str(_value(agent_session, "task_id", "")),
         "run_id": str(_value(agent_session, "run_id", "")),
+    }
+
+
+def _missing_session_ids() -> dict[str, str]:
+    return {
+        "session_id": "missing",
+        "project_id": "missing",
+        "task_id": "missing",
+        "run_id": "missing",
     }
 
 
