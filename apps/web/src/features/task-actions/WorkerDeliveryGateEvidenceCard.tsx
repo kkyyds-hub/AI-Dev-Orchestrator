@@ -1,8 +1,30 @@
+import { useState } from "react";
+
 import { StatusBadge } from "../../components/StatusBadge";
-import type { WorkerRunOnceResponse } from "./types";
+import {
+  DeliveryHumanApprovalHttpError,
+  evaluateDeliveryHumanApproval,
+} from "./api";
+import type {
+  DeliveryHumanApprovalResponse,
+  WorkerRunOnceResponse,
+} from "./types";
+import {
+  DELIVERY_HUMAN_APPROVAL_CONFIRMATION_TEXT,
+  WorkerHumanApprovalConfirmDialog,
+} from "./WorkerHumanApprovalConfirmDialog";
 
 type WorkerDeliveryGateEvidenceCardProps = Pick<
   WorkerRunOnceResponse,
+  | "run_id"
+  | "git_operation_dry_run_ready"
+  | "git_operation_dry_run_source"
+  | "git_operation_dry_run_worktree_path"
+  | "git_operation_dry_run_branch_name"
+  | "git_operation_dry_run_changed_files_count"
+  | "git_operation_dry_run_changed_files"
+  | "git_operation_dry_run_proposed_operation"
+  | "git_operation_dry_run_proposed_commit_message"
   | "delivery_gate_evidence_ready"
   | "delivery_gate_evidence_source"
   | "delivery_gate_evidence_reason_code"
@@ -59,9 +81,39 @@ const REASON_LABELS: Record<string, string> = {
   audit_evidence_missing: "缺少交付审计记录",
 };
 
+const DELIVERY_HUMAN_APPROVAL_REQUESTED_ACTION =
+  "approve_git_add_commit_preview" as const;
+const DELIVERY_HUMAN_APPROVAL_SCOPE = "git_add_commit_preview" as const;
+const DELIVERY_HUMAN_APPROVAL_SUCCESS_SUMMARY =
+  "用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。";
+
+const HUMAN_APPROVAL_REASON_LABELS: Record<string, string> = {
+  agent_session_missing: "会话信息缺失，无法记录用户确认",
+  operation_dry_run_missing: "提交预览缺失，无法记录用户确认",
+  operation_dry_run_not_ready: "提交预览未就绪，无法记录用户确认",
+  delivery_gate_evidence_missing: "交付前检查缺失，无法记录用户确认",
+  delivery_gate_not_ready: "交付前检查未通过，无法记录用户确认",
+  user_confirmation_not_allowed: "当前不能进入用户确认",
+  write_gate_unexpectedly_enabled: "检测到写入授权异常，无法记录用户确认",
+  unsupported_approval_action: "用户确认动作不受支持",
+  approval_scope_unsupported: "确认范围不受支持",
+  approval_scope_mismatch: "确认范围与提交预览不一致",
+  approval_expired: "用户确认已过期，无法进入下一阶段检查",
+  approval_already_applied: "用户确认已被使用，无法重复进入",
+  approval_revoked: "用户确认已撤销，无法进入下一阶段检查",
+  changed_files_mismatch: "确认内容与当前提交预览不一致，请刷新后重新确认",
+  commit_message_mismatch: "确认内容与当前提交预览不一致，请刷新后重新确认",
+};
+
 export function WorkerDeliveryGateEvidenceCard(
   props: WorkerDeliveryGateEvidenceCardProps,
 ) {
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [isSubmittingConfirmation, setIsSubmittingConfirmation] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
+  const [approvalResult, setApprovalResult] =
+    useState<DeliveryHumanApprovalResponse | null>(null);
+
   if (!hasDeliveryGateEvidence(props)) {
     return null;
   }
@@ -151,7 +203,7 @@ export function WorkerDeliveryGateEvidenceCard(
     },
     {
       key: "human_approval",
-      label: "需要人工审批",
+      label: "需要用户确认记录",
       value: formatBoolean(props.delivery_gate_evidence_human_approval_required),
       tone: booleanTone(props.delivery_gate_evidence_human_approval_required),
     },
@@ -227,6 +279,45 @@ export function WorkerDeliveryGateEvidenceCard(
     },
   ];
 
+  const confirmationPreview = buildConfirmationPreview(props);
+  const showConfirmationEntry =
+    confirmationPreview !== null && approvalResult === null;
+
+  async function handleConfirmDeliveryPreview() {
+    if (!confirmationPreview) {
+      return;
+    }
+
+    setIsSubmittingConfirmation(true);
+    setConfirmationError(null);
+
+    try {
+      const result = await evaluateDeliveryHumanApproval({
+        run_id: confirmationPreview.runId,
+        approval_requested_action: DELIVERY_HUMAN_APPROVAL_REQUESTED_ACTION,
+        approval_scope: DELIVERY_HUMAN_APPROVAL_SCOPE,
+        approval_confirmation_text: DELIVERY_HUMAN_APPROVAL_CONFIRMATION_TEXT,
+        approval_client_request_id: createClientRequestId(),
+        approval_expires_at: createApprovalExpiresAt(),
+        expected_changed_files: [...confirmationPreview.changedFiles].sort(),
+        expected_proposed_commit_message:
+          confirmationPreview.proposedCommitMessage.trim(),
+      });
+
+      if (result.ready) {
+        setApprovalResult(result);
+        setConfirmDialogOpen(false);
+        return;
+      }
+
+      setConfirmationError(buildReadyFalseMessage(result));
+    } catch (error) {
+      setConfirmationError(buildHttpErrorMessage(error));
+    } finally {
+      setIsSubmittingConfirmation(false);
+    }
+  }
+
   return (
     <div
       data-testid="worker-delivery-gate-evidence-card"
@@ -291,6 +382,55 @@ export function WorkerDeliveryGateEvidenceCard(
           ))}
         </div>
       </div>
+
+      {approvalResult ? (
+        <DeliveryHumanApprovalRecordedCard approval={approvalResult} />
+      ) : showConfirmationEntry ? (
+        <div className="mt-3 rounded-xl border border-[#8ea2ff]/30 bg-[#8ea2ff]/10 p-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-xs tracking-[0.2em] text-[#b5c2ff]">
+                用户确认入口
+              </div>
+              <p className="mt-2 text-sm leading-6 text-zinc-200">
+                这只是确认进入下一阶段，尚未执行提交或推送。
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="delivery-human-approval-open-dialog"
+              onClick={() => {
+                setConfirmationError(null);
+                setConfirmDialogOpen(true);
+              }}
+              className="rounded-lg border border-[#8ea2ff] bg-transparent px-4 py-2 text-sm font-medium text-[#dce3ff] transition hover:bg-[#8ea2ff]/10"
+            >
+              确认进入下一阶段安全检查
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmationPreview ? (
+        <WorkerHumanApprovalConfirmDialog
+          open={confirmDialogOpen}
+          isSubmitting={isSubmittingConfirmation}
+          errorMessage={confirmationError}
+          proposedCommitMessage={confirmationPreview.proposedCommitMessage}
+          changedFiles={confirmationPreview.changedFiles}
+          changedFilesCount={confirmationPreview.changedFilesCount}
+          worktreePath={confirmationPreview.worktreePath}
+          branchName={confirmationPreview.branchName}
+          operationSource={confirmationPreview.operationSource}
+          gateSource={confirmationPreview.gateSource}
+          onCancel={() => {
+            if (!isSubmittingConfirmation) {
+              setConfirmDialogOpen(false);
+            }
+          }}
+          onConfirm={handleConfirmDeliveryPreview}
+        />
+      ) : null}
     </div>
   );
 }
@@ -358,6 +498,143 @@ function GateInfo(field: Omit<GateField, "key">) {
       <div className="mt-2 break-all text-sm font-medium">{field.value}</div>
     </div>
   );
+}
+
+function DeliveryHumanApprovalRecordedCard(props: {
+  approval: DeliveryHumanApprovalResponse;
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="text-xs tracking-[0.2em] text-emerald-200">
+            用户确认状态
+          </div>
+          <p className="mt-2 text-sm leading-6 text-emerald-50">
+            {DELIVERY_HUMAN_APPROVAL_SUCCESS_SUMMARY}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-emerald-100/80">
+            尚未执行提交或推送。
+          </p>
+        </div>
+        <StatusBadge label="用户确认记录已生成" tone="success" />
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <GateInfo
+          label="确认编号"
+          value={formatText(props.approval.approval_id)}
+          tone="safe"
+        />
+        <GateInfo
+          label="确认人"
+          value={formatText(props.approval.approved_by_display_name)}
+          tone="safe"
+        />
+        <GateInfo
+          label="确认时间"
+          value={formatText(props.approval.approval_created_at)}
+          tone="safe"
+        />
+        <GateInfo
+          label="有效期至"
+          value={formatText(props.approval.approval_expires_at)}
+          tone="safe"
+        />
+      </div>
+    </div>
+  );
+}
+
+type ConfirmationPreview = {
+  runId: string;
+  proposedCommitMessage: string;
+  changedFiles: string[];
+  changedFilesCount: number;
+  worktreePath: string | null;
+  branchName: string | null;
+  operationSource: string | null;
+  gateSource: string | null;
+};
+
+function buildConfirmationPreview(
+  props: WorkerDeliveryGateEvidenceCardProps,
+): ConfirmationPreview | null {
+  const proposedCommitMessage =
+    props.git_operation_dry_run_proposed_commit_message?.trim() ?? "";
+  const changedFiles = [...props.git_operation_dry_run_changed_files]
+    .map((file) => file.trim())
+    .filter(Boolean)
+    .sort();
+  const changedFilesCount =
+    props.git_operation_dry_run_changed_files_count ?? changedFiles.length;
+
+  if (
+    !props.run_id ||
+    props.git_operation_dry_run_ready !== true ||
+    props.delivery_gate_evidence_ready !== true ||
+    props.delivery_gate_evidence_gate_allows_user_confirmation !== true ||
+    props.delivery_gate_evidence_gate_allows_write !== false ||
+    props.git_operation_dry_run_proposed_operation !== "git_add_commit" ||
+    changedFilesCount <= 0 ||
+    changedFiles.length <= 0 ||
+    proposedCommitMessage.length <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    runId: props.run_id,
+    proposedCommitMessage,
+    changedFiles,
+    changedFilesCount,
+    worktreePath:
+      props.git_operation_dry_run_worktree_path ??
+      props.delivery_gate_evidence_worktree_path,
+    branchName:
+      props.git_operation_dry_run_branch_name ??
+      props.delivery_gate_evidence_branch_name,
+    operationSource: props.git_operation_dry_run_source,
+    gateSource: props.delivery_gate_evidence_source,
+  };
+}
+
+function createClientRequestId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `delivery-human-approval-${Date.now()}-${Math.random()
+    .toString(16)
+    .slice(2)}`;
+}
+
+function createApprovalExpiresAt(): string {
+  return new Date(Date.now() + 30 * 60 * 1000).toISOString();
+}
+
+function buildReadyFalseMessage(result: DeliveryHumanApprovalResponse): string {
+  const reason = result.reason_code
+    ? HUMAN_APPROVAL_REASON_LABELS[result.reason_code] ?? result.reason_code
+    : "未知原因";
+  const blockingReasons = result.blocking_reasons.length
+    ? ` 阻断原因：${result.blocking_reasons.join("、")}`
+    : "";
+  return `当前不满足用户确认条件。${reason}。${blockingReasons}`;
+}
+
+function buildHttpErrorMessage(error: unknown): string {
+  if (error instanceof DeliveryHumanApprovalHttpError) {
+    if (error.status === 409) {
+      return "交付前证据缺失或已失效，请重新运行交付前检查。";
+    }
+    if (error.status === 404) {
+      return "运行记录不存在，请确认当前运行是否有效。";
+    }
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "用户确认请求失败。";
 }
 
 function formatBoolean(value: boolean | null | undefined): string {

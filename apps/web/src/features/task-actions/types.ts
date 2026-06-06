@@ -242,6 +242,56 @@ export type WorkerRunOnceResponse = {
   delivery_gate_evidence_gate_allows_user_confirmation: boolean | null;
 };
 
+export type DeliveryHumanApprovalRequest = {
+  run_id: string;
+  approval_requested_action: "approve_git_add_commit_preview";
+  approval_scope: "git_add_commit_preview";
+  approval_confirmation_text: string;
+  approval_client_request_id: string;
+  approval_expires_at: string;
+  expected_changed_files: string[];
+  expected_proposed_commit_message: string;
+};
+
+export type DeliveryHumanApprovalResponse = {
+  ready: boolean;
+  reason_code: string | null;
+  summary_cn: string;
+  source: string;
+  run_id: string;
+  task_id: string;
+  project_id: string;
+  session_id: string;
+  approval_required: boolean;
+  approval_granted: boolean;
+  approval_id: string | null;
+  approved_by: string | null;
+  approved_by_display_name: string | null;
+  approval_scope: string | null;
+  approval_requested_action: string | null;
+  approval_client_request_id: string | null;
+  approval_created_at: string | null;
+  approval_expires_at: string | null;
+  approval_applied: boolean;
+  approval_revoked: boolean;
+  approval_confirmation_fingerprint: string | null;
+  operation_dry_run_ready: boolean | null;
+  delivery_gate_evidence_ready: boolean | null;
+  delivery_gate_allows_user_confirmation: boolean | null;
+  delivery_gate_allows_write: boolean | null;
+  proposed_operation: string | null;
+  proposed_commit_message: string | null;
+  changed_files_count: number | null;
+  changed_files: string[];
+  satisfied_conditions: string[];
+  blocking_reasons: string[];
+  safety_flags: Record<string, unknown>;
+  evidence_snapshot_event: string;
+  evidence_snapshot_log_path: string;
+  evidence_snapshot_schema_version: string | null;
+  evidence_snapshot_source: string | null;
+};
+
 export type WorkerSlot = {
   slot_id: number;
   state: string;
