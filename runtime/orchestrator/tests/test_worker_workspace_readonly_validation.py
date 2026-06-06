@@ -10,6 +10,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
 from app.api.routes.workers import WorkerRunOnceResponse
 from app.domain._base import utc_now
 from app.domain.agent_session import (
@@ -127,15 +129,59 @@ class _SpyRuntimeEventAuditService:
 
 
 class _SpyDeliveryEventAuditService:
-    def __init__(self, *, raises: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        raises: Exception | None = None,
+        event_type: str = DELIVERY_AUDIT_COLLECTED_EVENT_TYPE,
+        event_ready: bool | None = None,
+    ) -> None:
         self.calls: list[dict[str, object]] = []
         self.raises = raises
+        self.event_type = event_type
+        self.event_ready = event_ready
 
     def record_diff_dry_run_event(self, **kwargs):
         self.calls.append(kwargs)
         if self.raises is not None:
             raise self.raises
-        return SimpleNamespace(event_type=DELIVERY_AUDIT_COLLECTED_EVENT_TYPE)
+        return SimpleNamespace(event_type=self.event_type, ready=self.event_ready)
+
+
+def _assert_delivery_gate_evidence_not_built(result: WorkerRunResult) -> None:
+    assert result.delivery_gate_evidence_ready is None
+    assert result.delivery_gate_evidence_source is None
+    assert result.delivery_gate_evidence_reason_code is None
+    assert result.delivery_gate_evidence_session_id is None
+    assert result.delivery_gate_evidence_project_id is None
+    assert result.delivery_gate_evidence_task_id is None
+    assert result.delivery_gate_evidence_run_id is None
+    assert result.delivery_gate_evidence_worktree_path is None
+    assert result.delivery_gate_evidence_branch_name is None
+    assert result.delivery_gate_evidence_proposed_operation is None
+    assert result.delivery_gate_evidence_changed_files_count is None
+    assert result.delivery_gate_evidence_changed_files == []
+    assert result.delivery_gate_evidence_next_required_action is None
+    assert result.delivery_gate_evidence_user_confirmation_required is None
+    assert result.delivery_gate_evidence_human_approval_required is None
+    assert result.delivery_gate_evidence_delivery_audit_event_present is None
+    assert result.delivery_gate_evidence_delivery_audit_event_type is None
+    assert result.delivery_gate_evidence_delivery_audit_event_ready is None
+    assert result.delivery_gate_evidence_summary_cn is None
+    assert result.delivery_gate_evidence_satisfied_conditions == []
+    assert result.delivery_gate_evidence_blocking_reasons == []
+    assert result.delivery_gate_evidence_runs_git is None
+    assert result.delivery_gate_evidence_runs_write_git is None
+    assert result.delivery_gate_evidence_git_add_triggered is None
+    assert result.delivery_gate_evidence_git_commit_triggered is None
+    assert result.delivery_gate_evidence_git_push_triggered is None
+    assert result.delivery_gate_evidence_pr_opened is None
+    assert result.delivery_gate_evidence_ci_triggered is None
+    assert result.delivery_gate_evidence_execution_enabled is None
+    assert result.delivery_gate_evidence_operation_applied is None
+    assert result.delivery_gate_evidence_approval_granted is None
+    assert result.delivery_gate_evidence_gate_allows_write is None
+    assert result.delivery_gate_evidence_gate_allows_user_confirmation is None
 
 
 def _session(
@@ -1232,6 +1278,145 @@ def test_worker_run_once_success_path_collects_git_diff_dry_run_evidence(
     assert old_status_summary_key not in response_payload
 
 
+@pytest.mark.parametrize(
+    ("event_type", "event_ready", "expected_audit_ready"),
+    [
+        ("delivery_diff_dry_run_failed", True, True),
+        (DELIVERY_AUDIT_COLLECTED_EVENT_TYPE, False, False),
+    ],
+)
+def test_worker_run_once_delivery_gate_blocks_on_bad_audit_evidence(
+    monkeypatch,
+    tmp_path,
+    event_type,
+    event_ready,
+    expected_audit_ready,
+):
+    task = Task(
+        project_id=uuid4(),
+        title="Successful run with bad delivery audit evidence",
+        input_summary="simulate: collect diff preview with bad audit evidence",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+        branch_name="main",
+    )
+    proof = WorkerWorktreeSafeCommandProof(
+        ready=True,
+        source="agent_session_worktree_safe_command",
+        reason_code=None,
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd=tmp_path.as_posix(),
+        pwd_matches_workspace_path=True,
+        exit_code=0,
+        stdout=tmp_path.as_posix(),
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return proof
+
+    class _SpyGitDiffDryRunRunner:
+        def collect(self, *, repository_path, compare_branch=None):
+            return GitDiffDryRunResult(
+                ready=True,
+                source="agent_session_worktree_diff",
+                reason_code=None,
+                worktree_path=repository_path,
+                has_changes=True,
+                changed_files_count=1,
+                changed_files=["README.md"],
+                added_files=[],
+                modified_files=["README.md"],
+                deleted_files=[],
+                renamed_files=[],
+                status_summary_cn="1 个文件修改",
+                branch_name="main",
+                compare_branch=compare_branch,
+                danger_commands_applied=False,
+            )
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.GitDiffDryRunRunner",
+        _SpyGitDiffDryRunRunner,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+
+    delivery_event_audit_service = _SpyDeliveryEventAuditService(
+        event_type=event_type,
+        event_ready=event_ready,
+    )
+    worker = TaskWorker(
+        session=_NoopDbSession(),
+        task_repository=_FakeTaskRepository(task),
+        run_repository=_FakeRunRepository(),
+        executor_service=_FakeExecutorService(success=True),
+        verifier_service=_PassingVerifierService(),
+        budget_guard_service=_AllowingBudgetGuardService(),
+        run_logging_service=_NoopRunLoggingService(),
+        cost_estimator_service=CostEstimatorService(),
+        context_builder_service=_FakeContextBuilderService(),
+        task_router_service=_FakeTaskRouterService(task),
+        model_routing_service=_FakeModelRoutingService(),
+        prompt_registry_service=None,
+        prompt_builder_service=_FakePromptBuilderService(),
+        token_accounting_service=TokenAccountingService(),
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type(
+            "_NoopFailureReviewService",
+            (),
+            {"ensure_review": lambda self, *, task, run: None},
+        )(),
+        agent_conversation_service=_FakeAgentConversationService(agent_session),
+        delivery_event_audit_service=delivery_event_audit_service,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.task is not None
+    assert result.task.status == TaskStatus.COMPLETED
+    assert result.run is not None
+    assert result.run.status == RunStatus.SUCCEEDED
+    assert result.git_operation_dry_run_ready is True
+    assert len(delivery_event_audit_service.calls) == 1
+    assert result.delivery_gate_evidence_ready is False
+    assert result.delivery_gate_evidence_reason_code == "audit_evidence_missing"
+    assert "G21:audit_evidence_missing" in (
+        result.delivery_gate_evidence_blocking_reasons
+    )
+    assert result.delivery_gate_evidence_delivery_audit_event_present is True
+    assert result.delivery_gate_evidence_delivery_audit_event_type == event_type
+    assert (
+        result.delivery_gate_evidence_delivery_audit_event_ready
+        is expected_audit_ready
+    )
+    assert result.delivery_gate_evidence_gate_allows_write is False
+    assert result.delivery_gate_evidence_gate_allows_user_confirmation is False
+
+
 def test_worker_run_once_success_path_builds_blocked_operation_dry_run_for_no_changes(
     monkeypatch,
     tmp_path,
@@ -1492,6 +1677,13 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
                 "git operation dry-run builder must not run on failed execution"
             )
 
+    class _ExplodingDeliveryGateEvidenceBuilder:
+        @staticmethod
+        def evaluate(**kwargs):
+            raise AssertionError(
+                "delivery gate evidence builder must not run on failed execution"
+            )
+
     monkeypatch.setattr(
         "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
         lambda: _PassingProofRunner(),
@@ -1503,6 +1695,10 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     monkeypatch.setattr(
         "app.workers.task_worker.GitOperationDryRunBuilder",
         _ExplodingGitOperationDryRunBuilder,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.DeliveryGateEvidenceBuilder",
+        _ExplodingDeliveryGateEvidenceBuilder,
     )
     monkeypatch.setattr(
         "app.workers.task_worker.event_stream_service.publish_task_updated",
@@ -1548,6 +1744,7 @@ def test_worker_run_once_execution_failure_does_not_collect_git_diff_dry_run(
     assert result.git_diff_dry_run_status_summary_cn is None
     assert result.git_operation_dry_run_ready is None
     assert result.git_operation_dry_run_reason_code is None
+    _assert_delivery_gate_evidence_not_built(result)
     assert executor_service.build_execution_plan_calls == 1
     assert executor_service.execute_task_calls == 1
     assert delivery_event_audit_service.calls == []
@@ -1609,6 +1806,13 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
             adapter_calls["launch"] += 1
             raise AssertionError("fake launch must not run when gate fails")
 
+    class _ExplodingDeliveryGateEvidenceBuilder:
+        @staticmethod
+        def evaluate(**kwargs):
+            raise AssertionError(
+                "delivery gate evidence builder must not run when runtime gate blocks"
+            )
+
     monkeypatch.setattr(
         "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
         lambda: _PassingProofRunner(),
@@ -1616,6 +1820,10 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
     monkeypatch.setattr(
         "app.workers.task_worker.FakeRuntimeAdapter",
         _LaunchExplodingAdapter,
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.DeliveryGateEvidenceBuilder",
+        _ExplodingDeliveryGateEvidenceBuilder,
     )
     monkeypatch.setattr(
         "app.workers.task_worker.event_stream_service.publish_task_updated",
@@ -1669,6 +1877,7 @@ def test_worker_run_once_blocks_executor_when_runtime_launch_gate_fails(
     assert result.runtime_lifecycle_snapshot.real_runtime_started is False
     assert result.runtime_lifecycle_snapshot.runtime_probe_started is False
     assert result.runtime_handle_id is None
+    _assert_delivery_gate_evidence_not_built(result)
     assert result.task is not None
     assert result.task.status == TaskStatus.BLOCKED
     assert result.run is not None

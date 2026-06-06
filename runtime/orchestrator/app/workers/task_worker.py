@@ -566,6 +566,24 @@ def _delivery_audit_event_type(delivery_audit_message: object | None) -> str | N
     return normalized_value or None
 
 
+def _delivery_audit_event_ready(
+    delivery_audit_message: object | None,
+    *,
+    event_type: str | None,
+) -> bool | None:
+    """Extract caller-visible delivery audit readiness without doing I/O."""
+
+    if delivery_audit_message is None:
+        return None
+    if isinstance(delivery_audit_message, dict):
+        value = delivery_audit_message.get("ready")
+    else:
+        value = getattr(delivery_audit_message, "ready", None)
+    if value is not None:
+        return bool(value)
+    return event_type == DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+
+
 def validate_worker_agent_workspace(
     agent_session: AgentSession,
 ) -> WorkerWorkspaceValidationResult:
@@ -2790,8 +2808,9 @@ class TaskWorker:
                     operation_dry_run=git_operation_dry_run_result,
                     delivery_audit_event_present=delivery_audit_message is not None,
                     delivery_audit_event_type=delivery_audit_event_type,
-                    delivery_audit_event_ready=(
-                        delivery_audit_event_type == DELIVERY_AUDIT_COLLECTED_EVENT_TYPE
+                    delivery_audit_event_ready=_delivery_audit_event_ready(
+                        delivery_audit_message,
+                        event_type=delivery_audit_event_type,
                     ),
                     delivery_git_write_enabled=False,
                 )
