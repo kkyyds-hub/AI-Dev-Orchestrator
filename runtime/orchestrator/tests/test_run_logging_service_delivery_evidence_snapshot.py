@@ -26,7 +26,7 @@ def test_delivery_evidence_snapshot_contract_constants_are_stable():
     assert DELIVERY_EVIDENCE_SNAPSHOT_EVENT == "delivery_evidence_snapshot"
     assert DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION == "p4f2c0.v1"
     assert DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE == (
-        "已记录交付审批证据快照来源：运行日志 JSONL。"
+        "记录交付前只读证据快照：提交预览与交付前检查已生成，尚未执行提交或推送。"
     )
 
 

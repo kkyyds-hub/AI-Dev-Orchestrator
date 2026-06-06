@@ -18,7 +18,7 @@ from app.services.event_stream_service import event_stream_service
 DELIVERY_EVIDENCE_SNAPSHOT_EVENT = "delivery_evidence_snapshot"
 DELIVERY_EVIDENCE_SNAPSHOT_SCHEMA_VERSION = "p4f2c0.v1"
 DELIVERY_EVIDENCE_SNAPSHOT_SOURCE_RUN_LOG_JSONL = "run_log_jsonl"
-DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE = "已记录交付审批证据快照来源：运行日志 JSONL。"
+DELIVERY_EVIDENCE_SNAPSHOT_MESSAGE = "记录交付前只读证据快照：提交预览与交付前检查已生成，尚未执行提交或推送。"
 
 
 @dataclass(slots=True, frozen=True)
