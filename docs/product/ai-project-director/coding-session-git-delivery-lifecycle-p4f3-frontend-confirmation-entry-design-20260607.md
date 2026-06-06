@@ -1,0 +1,518 @@
+# Coding Session Git Delivery Lifecycle P4-F3 Frontend Confirmation Entry 设计
+
+> **文档类型**: P4-F3 前端确认入口设计文档（仅设计，不实现）  
+> **生成日期**: 2026-06-07  
+> **远端基准**: `origin/main` = `31c2e3ee76ce180bfd3c1d913ab243b1b9fff8db`  
+> **主产品基线**: `docs/product/ai-project-director/page-information-architecture-20260518.md`  
+> **路线文档**: `docs/product/ai-project-director/p1-p7参考规划复用说明书.md`  
+> **前置 closure 文档**:  
+> - `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4f2d-closure-20260607.md`  
+> - `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4f2c-closure-20260607.md`  
+> - `docs/product/ai-project-director/coding-session-git-delivery-lifecycle-p4f2c0-closure-20260607.md`  
+> **参考项目**: ComposioHQ Agent Orchestrator — 仅参考 activity/audit event 与 UI 可观测分离、lifecycle state 只表达真实状态  
+> **边界**: 本轮只做前端确认入口设计；不改前端代码、不改后端代码、不改测试。  
+> **状态**: P4-F3 Design: Complete；P4-F3 Implementation: Not started；P4-F4: Not started；AI Project Director 总闭环: Partial
+
+---
+
+## 0. 阶段定位
+
+P4-F3 负责前端确认入口——在正确的 UI 位置展示"确认进入下一阶段安全检查"按钮、二次确认弹窗、调用 P4-F2-C API、展示结果。
+
+### 0.1 核心语义
+
+```text
+用户确认只表示"进入下一阶段写入前安全检查"。
+不表示审批通过。不表示授权写入。
+不表示代码提交、推送、PR 创建或交付完成。
+```
+
+### 0.2 本阶段范围
+
+| 项目 | 状态 |
+|------|------|
+| UI 展示前置条件设计 | 本轮完成 |
+| 确认入口文案设计 | 本轮完成 |
+| 确认弹窗/面板设计 | 本轮完成 |
+| API 调用设计 | 本轮完成 |
+| Response 处理设计 | 本轮完成 |
+| AgentMessage 展示设计 | 本轮完成 |
+| 组件落点建议 | 本轮完成 |
+| P4-F3 实现任务摘要 | 本轮完成 |
+
+### 0.3 本阶段明确不做
+
+| 项目 | 状态 |
+|------|------|
+| 实现前端确认按钮 | 不做（P4-F3 Implementation） |
+| 修改后端代码 | 不做 |
+| 修改数据库 | 不做 |
+| 产品运行时 Git 写操作 | 不做 |
+
+---
+
+## 1. UI 展示前置条件
+
+### 1.1 确认入口显示条件（全部满足才显示）
+
+前端确认入口只有在以下条件**全部满足**时才渲染：
+
+| # | 条件 | 来源字段 | 说明 |
+|---|------|---------|------|
+| 1 | P4-C operation_dry_run ready | `git_operation_dry_run_ready === true` | 提交预览已就绪 |
+| 2 | P4-D delivery_gate_evidence ready | `delivery_gate_evidence_ready === true` | 交付前检查已通过 |
+| 3 | 允许进入用户确认界面 | `delivery_gate_evidence_gate_allows_user_confirmation === true` | 后端 gate 允许 |
+| 4 | 未授权写操作 | `delivery_gate_evidence_gate_allows_write === false` | 安全检查 |
+| 5 | 预览动作为 git_add_commit | `git_operation_dry_run_proposed_operation === "git_add_commit"` | 必须是提交预览 |
+| 6 | 存在变更文件 | `git_operation_dry_run_changed_files_count > 0` | 有文件变更 |
+| 7 | 存在提交说明 | `git_operation_dry_run_proposed_commit_message` 非空 | 有提交说明 |
+| 8 | P4-F2-C API 可用 | 运行时判断 | API endpoint 可连接 |
+
+其中，条件 1-7 的数据来源是 `WorkerRunOnceResponse`（通过 `POST /workers/run-once` 获得，已在 `ManualRunResultSection` 和 `WorkerPoolResultSection` 中展示）。
+
+### 1.2 不显示确认入口的场景
+
+| 场景 | 行为 |
+|------|------|
+| P4-C / P4-D evidence 缺失（never run） | 不显示 |
+| `delivery_gate_evidence_ready === false` | 不显示 |
+| `gate_allows_user_confirmation === false` | 不显示 |
+| `gate_allows_write === true` | 不显示（且实际永不为 True） |
+| `changed_files` 为空 | 不显示 |
+| `proposed_commit_message` 为空 | 不显示 |
+| run failed / blocked / budget blocked | 不显示（P4-C/P4-D 未生成） |
+| 当前已有确认记录且未过期（已有 `delivery_human_approval_recorded` AgentMessage） | 显示已有确认状态，而非新确认按钮 |
+
+---
+
+## 2. 确认入口文案设计
+
+### 2.1 允许的按钮文案
+
+| 场景 | 建议按钮文案 |
+|------|------------|
+| 首次确认（无已有确认记录） | **确认进入下一阶段安全检查** |
+| 首次确认（备选简洁文案） | **确认提交预览** |
+
+### 2.2 允许的说明文案
+
+| 位置 | 建议文案 |
+|------|---------|
+| 按钮旁说明 | 这只是确认进入下一阶段，尚未执行提交或推送。 |
+| 弹窗顶部说明 | 确认后不会立即提交代码。系统只会记录你的确认，并进入下一阶段写入前安全检查。当前不会执行 git add、git commit、git push 或创建 PR。 |
+| 确认后成功文案 | 用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。 |
+| 确认后已有记录 | 用户确认记录已生成。尚未执行提交或推送。 |
+
+### 2.3 禁止文案（按钮、卡片、toast、状态、弹窗）
+
+以下文案在任何 UI 元素中绝对不得出现：
+
+```text
+审批已通过
+已完成审批
+已授权写入
+可以提交代码
+代码已提交
+代码已推送
+提交成功
+推送成功
+PR 已创建
+交付完成
+AI 已完成交付
+合并请求已创建
+自动提交成功
+可合并
+已执行提交
+```
+
+### 2.4 已有确认状态展示（非按钮）
+
+当用户已在此 run 上完成确认（存在 `delivery_human_approval_recorded` AgentMessage / `delivery_human_approval_ready === true`），应展示当前确认状态而非"确认"按钮：
+
+| 字段 | 展示值 |
+|------|--------|
+| 确认状态 | 用户确认记录已生成 |
+| 确认编号 | `approval_id` |
+| 确认范围 | 提交预览（`git_add_commit_preview`） |
+| 确认人 | `approved_by_display_name`（当前为"本地用户"） |
+| 确认时间 | `approval_created_at` |
+| 有效期至 | `approval_expires_at` |
+| 当前阶段 | 等待进入下一阶段写入前安全检查 |
+| 写入状态 | 尚未执行提交或推送 |
+
+---
+
+## 3. 用户确认弹窗/面板设计
+
+### 3.1 触发位置
+
+在 `WorkerDeliveryGateEvidenceCard` 下方或内部，当展示条件满足时，渲染一个"确认进入下一阶段安全检查"按钮。点击按钮打开确认弹窗。
+
+### 3.2 弹窗内容结构
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│ 确认提交预览                                             │
+│                                                         │
+│ 确认后不会立即提交代码。系统只会记录你的确认，            │
+│ 并进入下一阶段写入前安全检查。                            │
+│ 当前不会执行 git add、git commit、git push 或创建 PR。   │
+│                                                         │
+│ ── 提交预览内容 ─────────────────────────────────────── │
+│                                                         │
+│ 提交说明：                                               │
+│ fix: stabilize delivery evidence                        │
+│                                                         │
+│ 涉及文件（1 个）：                                       │
+│ runtime/orchestrator/app/api/routes/approvals.py         │
+│                                                         │
+│ 预览动作：提交预览                                       │
+│                                                         │
+│ ── 确认声明 ─────────────────────────────────────────── │
+│                                                         │
+│ [✓] 我确认当前提交预览内容，可进入下一阶段安全检查。     │
+│                                                         │
+│ ── 状态 ─────────────────────────────────────────────── │
+│                                                         │
+│ 工作区：/tmp/aido-worktree                               │
+│ 目标分支：main                                           │
+│ 证据来源：提交预览证据 / 交付前检查证据                  │
+│                                                         │
+│                                 [取消] [确认提交预览]     │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 3.3 弹窗必须包含的元素
+
+| 元素 | 来源 | 必填 |
+|------|------|------|
+| 提交说明 (`proposed_commit_message`) | `git_operation_dry_run_proposed_commit_message` | 是 |
+| 变更文件列表 (`changed_files`) | `git_operation_dry_run_changed_files` | 是 |
+| 文件数量 (`changed_files_count`) | `git_operation_dry_run_changed_files_count` | 是 |
+| 预览动作中文解释 | 固定："提交预览" | 是 |
+| 确认声明复选框 | 用户必须勾选 | 是 |
+| 确认声明文案 | "我确认当前提交预览内容，可进入下一阶段安全检查。" | 是 |
+| 工作区路径 | `git_operation_dry_run_worktree_path` | 可选（技术细节区） |
+| 目标分支 | `git_operation_dry_run_branch_name` | 可选（技术细节区） |
+| 证据来源标记 | `git_operation_dry_run_source` + `delivery_gate_evidence_source` | 可选（技术细节区） |
+
+### 3.4 前端生成的数据
+
+| 数据 | 生成方式 | 说明 |
+|------|---------|------|
+| `approval_client_request_id` | `crypto.randomUUID()` 或 `nanoid()` | 每次确认生成新的唯一 ID |
+| `expected_changed_files` | 从当前展示的 `git_operation_dry_run_changed_files` 取值 | 需排序以消除顺序差异 |
+| `expected_proposed_commit_message` | 从当前展示的 `git_operation_dry_run_proposed_commit_message` 取值 | 需 trim |
+| `approval_expires_at` | `new Date(Date.now() + 30 * 60 * 1000).toISOString()` | 默认 30 分钟有效期 |
+
+### 3.5 前端禁止生成/传递的数据
+
+| 禁止数据 | 原因 |
+|---------|------|
+| `approval_actor_id` | 后端决定 actor，前端不可伪造 |
+| `approval_actor_display_name` | 同上 |
+| Git credentials | 不在此阶段范围 |
+| 完整 diff 内容 | 不作为 API 参数 |
+| `confirmation_text` 到 localStorage / sessionStorage | 敏感用户输入不可持久化到前端存储 |
+
+---
+
+## 4. API 调用设计
+
+### 4.1 Endpoint
+
+```text
+POST /approvals/delivery-human-approval
+```
+
+### 4.2 Request Body
+
+| 字段 | 值来源 | 类型 |
+|------|--------|------|
+| `run_id` | 当前 run 的 ID（从 `WorkerRunOnceResponse.run_id` 或页面路由参数获取） | `UUID` |
+| `approval_requested_action` | 固定 `"approve_git_add_commit_preview"` | `str` |
+| `approval_scope` | 固定 `"git_add_commit_preview"` | `str` |
+| `approval_confirmation_text` | 用户勾选的确认声明："我确认当前提交预览内容，可进入下一阶段安全检查。" | `str` |
+| `approval_client_request_id` | 前端 `crypto.randomUUID()` | `str` |
+| `approval_expires_at` | `new Date(Date.now() + 30min).toISOString()` | `str`（ISO 8601 UTC） |
+| `expected_changed_files` | 排序后的 `git_operation_dry_run_changed_files` | `list[str]` |
+| `expected_proposed_commit_message` | trim 后的 `git_operation_dry_run_proposed_commit_message` | `str` |
+
+### 4.3 不传递的字段
+
+| 字段 | 原因 |
+|------|------|
+| `approval_actor_id` | 不允许前端传入；后端使用 `"local_user"` |
+| `approval_actor_display_name` | 同上 |
+| 任何 Git credential | 不在本阶段范围 |
+| 完整 diff 内容 | 不传 |
+
+### 4.4 API Client 建议位置
+
+新建或复用 `apps/web/src/features/task-actions/api.ts`，新增函数：
+
+```typescript
+// 建议函数签名
+async function evaluateDeliveryHumanApproval(
+  request: DeliveryHumanApprovalRequest
+): Promise<DeliveryHumanApprovalResponse>
+```
+
+`DeliveryHumanApprovalRequest` 和 `DeliveryHumanApprovalResponse` 类型定义在 `apps/web/src/features/task-actions/types.ts` 中新增，与后端 `approvals.py` 的 Pydantic schema 对齐。
+
+---
+
+## 5. Response 处理设计
+
+### 5.1 ready=True（HTTP 200）
+
+| UI 元素 | 行为 |
+|---------|------|
+| 弹窗关闭 | 关闭确认弹窗 |
+| 成功提示（toast/横幅） | "用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。" |
+| 确认状态卡片 | 展示 approval_id / approved_by_display_name / approval_created_at / approval_expires_at |
+| 安全状态说明 | "尚未执行提交或推送" |
+| 确认按钮 | 替换为确认状态展示（不再显示"确认"按钮，或显示为禁用状态） |
+| 禁止展示 | "提交成功"、"审批通过"、"授权写入" |
+
+### 5.2 ready=False（HTTP 200）
+
+| UI 元素 | 行为 |
+|---------|------|
+| 错误提示 | "当前不满足用户确认条件。" + reason_code 的中文解释 |
+| 阻断原因列表 | 展示 `blocking_reasons` 列表 |
+| 弹窗 | 保持打开，让用户查看阻断原因 |
+| 禁止行为 | 不显示确认成功 toast、不把状态写成成功 |
+
+建议的 `reason_code` 中文映射（前端展示用）：
+
+| reason_code | 中文展示 |
+|-------------|---------|
+| `agent_session_missing` | 会话信息缺失，无法记录用户确认 |
+| `operation_dry_run_missing` | 提交预览缺失，无法记录用户确认 |
+| `operation_dry_run_not_ready` | 提交预览未就绪，无法记录用户确认 |
+| `delivery_gate_evidence_missing` | 交付前检查缺失，无法记录用户确认 |
+| `delivery_gate_not_ready` | 交付前检查未通过，无法记录用户确认 |
+| `user_confirmation_not_allowed` | 当前不能进入用户确认 |
+| `write_gate_unexpectedly_enabled` | 检测到写入授权异常，无法记录用户确认 |
+| `unsupported_approval_action` | 用户确认动作不受支持 |
+| `approval_scope_unsupported` | 确认范围不受支持 |
+| `approval_scope_mismatch` | 确认范围与提交预览不一致 |
+| `approval_expired` | 用户确认已过期，无法进入下一阶段检查 |
+| `approval_already_applied` | 用户确认已被使用，无法重复进入 |
+| `approval_revoked` | 用户确认已撤销，无法进入下一阶段检查 |
+| `changed_files_mismatch` | 确认内容与当前提交预览不一致，请刷新后重新确认 |
+| `commit_message_mismatch` | 确认内容与当前提交预览不一致，请刷新后重新确认 |
+
+### 5.3 HTTP 409 (snapshot 缺失/无效)
+
+| UI 元素 | 行为 |
+|---------|------|
+| 错误提示 | "交付前证据缺失或已失效，请重新运行交付前检查。" |
+| 禁止行为 | 不自动重试、不重新扫描 Git、不自动调用 worker |
+
+### 5.4 HTTP 404 (run 不存在)
+
+| UI 元素 | 行为 |
+|---------|------|
+| 错误提示 | "运行记录不存在，请确认当前运行是否有效。" |
+
+---
+
+## 6. AgentMessage 展示设计
+
+### 6.1 展示来源
+
+P4-F2-D 生成的 `delivery_human_approval_recorded` AgentMessage 可作为 agent thread timeline 中的一条事件展示。
+
+### 6.2 展示内容映射
+
+| AgentMessage 字段 | 前端展示 |
+|-------------------|---------|
+| `content_summary` | 作为事件摘要展示："用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。" |
+| `created_at` | 事件时间 |
+| `role` | 系统（SYSTEM） |
+| `message_type` | 时间线（TIMELINE） |
+
+### 6.3 前端展示约束
+
+| 约束 | 说明 |
+|------|------|
+| 保持原始语义 | "用户确认记录已生成" |
+| 不重写为"审批已通过" | 前端不得改变 `content_summary` 的语义 |
+| 不重写为"已授权写入" | 永不为 True |
+| 不重写为"代码已提交" | git_commit_triggered=False |
+
+### 6.4 已有确认记录的展示逻辑
+
+如果当前 run 的 session 下已存在 `delivery_human_approval_recorded` AgentMessage：
+
+1. 从 `content_detail` JSON 中读取 `approval_id`, `approved_by_display_name`, `approval_created_at`, `approval_expires_at`。
+2. 展示"用户确认记录已生成"状态卡片（代替确认按钮）。
+3. 展示确认有效期和是否过期。
+4. 如果确认已过期，展示"用户确认已过期，可重新确认"并显示新确认按钮。
+
+---
+
+## 7. 组件落点建议
+
+### 7.1 当前前端架构审计
+
+| 文件 | 职责 |
+|------|------|
+| `ManualRunResultSection.tsx` | 首页手动执行结果区，渲染 Worker 运行结果 + 所有 evidence 卡片 |
+| `WorkerPoolResultSection.tsx` | Worker Pool 结果区，同样渲染 evidence 卡片 |
+| `WorkerDeliveryGateEvidenceCard.tsx` | 交付前检查卡片，展示 `delivery_gate_evidence_*` 字段 |
+| `WorkerGitOperationDryRunPreviewCard.tsx` | 提交预览卡片，展示 `git_operation_dry_run_*` 字段 |
+| `task-actions/types.ts` | WorkerRunOnceResponse 类型定义 |
+| `task-actions/api.ts` | API client（已有机型：`triggerWorkerRunOnce`） |
+
+当前 `WorkerDeliveryGateEvidenceCard.tsx` **已经展示** `gate_allows_user_confirmation` 字段（第 219-227 行），使用 `safe`/`warning` tone。这为确认入口提供了自然的挂载位置。
+
+### 7.2 建议组件落点
+
+**推荐方案**：在 `WorkerDeliveryGateEvidenceCard` 内部（"操作安全标记"区域下方）或作为该卡片的兄弟组件，新增确认按钮区域。
+
+具体建议：
+
+| 选项 | 位置 | 优缺点 |
+|------|------|--------|
+| **A（推荐）** | `WorkerDeliveryGateEvidenceCard` 内部，安全标记区域下方 | 信息上下文连续；gate_allows_user_confirmation 已在此展示；改动最小 |
+| B | `ManualRunResultSection` / `WorkerPoolResultSection` 中，在 `WorkerDeliveryGateEvidenceCard` 之后插入独立确认区域 | 组件解耦；但与 gate 卡片信息分离 |
+| C | 独立 `WorkerHumanApprovalConfirmationCard` 组件，与 `WorkerDeliveryGateEvidenceCard` 同级渲染 | 职责清晰；但文件数量增加 |
+
+**推荐选项 A**：在 `WorkerDeliveryGateEvidenceCard` 的 `safetyFields` 网格下方（第 293 行之后），根据前置条件渲染确认按钮。这样可以复用已经获得的所有 P4-C/P4-D 数据。
+
+### 7.3 建议组件结构
+
+```
+WorkerDeliveryGateEvidenceCard
+├── 头部（标题 + 摘要 + StatusBadge）
+├── 摘要字段网格（ready / next_action / reason / ...）
+├── 条件与文件列表
+├── 审计证据与确认要求
+├── 操作安全标记
+└── [新增] 用户确认操作区 ← P4-F3 入口
+    ├── 条件满足 → [确认进入下一阶段安全检查] 按钮
+    ├── 已有确认 → 确认状态卡片（approval_id / 确认人 / 时间）
+    └── 条件不满足 → 不渲染
+```
+
+### 7.4 弹窗组件
+
+确认弹窗作为独立组件 `WorkerHumanApprovalConfirmDialog.tsx`，放在 `apps/web/src/features/task-actions/` 目录下。
+
+### 7.5 最小实现范围
+
+| 改动 | 文件 |
+|------|------|
+| 新增类型 | `task-actions/types.ts`（`DeliveryHumanApprovalRequest` / `DeliveryHumanApprovalResponse`） |
+| 新增 API client 函数 | `task-actions/api.ts`（`evaluateDeliveryHumanApproval`） |
+| 新增确认弹窗 | `task-actions/WorkerHumanApprovalConfirmDialog.tsx` |
+| 修改 gate 卡片 | `WorkerDeliveryGateEvidenceCard.tsx`（新增确认按钮区域 + 确认状态展示） |
+| **不修改** | `ManualRunResultSection.tsx`、`WorkerPoolResultSection.tsx`、`WorkerGitOperationDryRunPreviewCard.tsx` |
+
+### 7.6 不做什么
+
+| 禁止 | 原因 |
+|------|------|
+| 不创建新页面 | P4-F3 不引入新路由 |
+| 不大改页面结构 | 在现有卡片内最小扩展 |
+| 不引入新状态管理库 | 使用现有 React hooks |
+| 不重构 execution 页面 | 不在此阶段范围 |
+
+---
+
+## 8. 与产品基线对齐检查
+
+根据 `page-information-architecture-20260518.md` 第 1.1 节"页面按钮必须有真实闭环"原则：
+
+| 检查项 | P4-F3 设计 |
+|--------|-----------|
+| 按钮调用真实后端 | ✅ 调用 `POST /approvals/delivery-human-approval` |
+| 按钮不制造能力错觉 | ✅ 明确说明"尚未执行提交或推送" |
+| 按钮不禁用无理由 | ✅ 条件不满足时显示具体原因 |
+| 按钮文案中文化 | ✅ "确认进入下一阶段安全检查" |
+| 不伪装成已提交 | ✅ 所有展示均明确否定 Git 写操作已发生 |
+
+---
+
+## 9. P4-F3 Implementation 阶段建议
+
+以下摘要供下一阶段 Codex 实施。
+
+### 9.1 允许实现
+
+| # | 任务 | 文件 |
+|---|------|------|
+| 1 | 在 `task-actions/types.ts` 新增 `DeliveryHumanApprovalRequest` 和 `DeliveryHumanApprovalResponse` 类型 | `types.ts` |
+| 2 | 在 `task-actions/api.ts` 新增 `evaluateDeliveryHumanApproval()` API client | `api.ts` |
+| 3 | 新增 `WorkerHumanApprovalConfirmDialog.tsx` 确认弹窗组件 | `task-actions/` |
+| 4 | 在 `WorkerDeliveryGateEvidenceCard.tsx` 新增确认按钮区域 + 已有确认状态展示 | `WorkerDeliveryGateEvidenceCard.tsx` |
+| 5 | 实现 3 类 response 处理：ready=True / ready=False / HTTP 409 | — |
+| 6 | 前端 lint / typecheck / build 验证 | `apps/web` |
+
+### 9.2 禁止实现
+
+| # | 禁止 | 原因 |
+|---|------|------|
+| 1 | 修改后端 API | 后端 P4-F2-C/P4-F2-D 已完成 |
+| 2 | 修改数据库 | 不在前端范围 |
+| 3 | 引入新路由/页面 | 在现有组件内最小扩展 |
+| 4 | 产品运行时 Git 写操作 | 全线禁止 |
+| 5 | 把确认按钮叫"审批通过 / 提交代码 / 授权写入" | 文案安全 |
+
+---
+
+## 10. 测试复用策略
+
+| 改动范围 | 最小测试/验证命令 |
+|---------|-----------------|
+| 只改前端确认入口（组件 + API client） | `cd apps/web && npm run typecheck && npm run build`（或等价 lint） |
+| 只改 `task-actions/types.ts` 类型 | `cd apps/web && npm run typecheck` |
+| 改后端 approval API | `cd runtime/orchestrator && python -m pytest tests/test_delivery_human_approval_api.py -q` |
+| 改 snapshot source | 加 `tests/test_run_logging_service_delivery_evidence_snapshot.py` |
+| 改 Worker | 加 `tests/test_worker_workspace_readonly_validation.py` |
+
+**不需要跑后端 P4-C/P4-D/Worker 测试，除非改到对应模块。**
+
+---
+
+## 11. Gate 结论
+
+| Gate | 结论 | 证据 |
+|------|------|------|
+| `origin/main` HEAD 确认 | Pass | `31c2e3ee76ce180bfd3c1d913ab243b1b9fff8db` |
+| UI 展示前置条件设计 | Pass | 8 项 AND 条件 + 6 种不显示场景 |
+| 禁止文案设计 | Pass | 按钮/说明/成功/状态文案全部安全，15 条禁止文案 |
+| 确认弹窗设计 | Pass | 弹窗线框图 + 5 项必含元素 + 前端生成/禁止数据 |
+| API 调用设计 | Pass | 8 字段 request body + 不传 actor 字段 |
+| Response 处理设计 | Pass | ready=True / ready=False / 409 / 404 四种场景 + reason_code 中文映射 |
+| AgentMessage 展示设计 | Pass | content_summary 直接展示 + 不重写语义 |
+| 组件落点建议 | Pass | 3 选项对比 + 推荐选项 A + 组件结构图 + 5 文件最小改动 |
+| 产品基线对齐 | Pass | 按钮真实闭环检查 5 项全通过 |
+| 是否改代码 | Pass | 否 |
+| 是否改后端 | Pass | 否 |
+| 是否改数据库 | Pass | 否 |
+| **P4-F3 Design** | **Complete** | — |
+| P4-F3 Implementation | Not started | — |
+| P4-F4 Human Approval E2E Closure | Not started | — |
+| 产品运行时 git add / commit / push / PR | Not started | — |
+| **AI Project Director 总闭环** | **Partial** | P7 完成前不得写 Pass |
+
+---
+
+## 12. 本轮收口声明
+
+| 声明 | 结论 |
+|------|------|
+| 是否修改前端代码 | 否 |
+| 是否修改后端代码 | 否 |
+| 是否修改测试代码 | 否 |
+| 是否修改数据库 / migration | 否 |
+| 是否写 AgentMessage | 否 |
+| 是否实现确认按钮 | 否 |
+| 是否实现产品运行时 Git 写操作 | 否 |
+| 是否只新增 P4-F3 design 文档 | 是 |
+
+开发流程中的文档提交不代表 AI-Dev-Orchestrator 产品运行时具备 Git 写操作能力。
