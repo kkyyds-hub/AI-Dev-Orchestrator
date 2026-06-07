@@ -14,6 +14,9 @@ import {
   fetchProjectDirectorVerificationConfig,
   fetchProjectDirectorWorkbenchResume,
   fetchProjectDirectorWorkbenchResumableSessions,
+  getProjectDirectorConversation,
+  getProjectDirectorConversationTimeline,
+  listProjectDirectorConversations,
   postProjectDirectorSessionMessage,
   reviewProjectDirectorAgentTeamConfig,
   reviewProjectDirectorRepositoryBindingConfig,
@@ -23,7 +26,78 @@ import {
   submitProjectDirectorAnswers,
 } from "./api";
 
-import type { FetchProjectDirectorWorkbenchResumeInput } from "./types";
+import type {
+  FetchProjectDirectorWorkbenchResumeInput,
+  GetProjectDirectorConversationParams,
+  GetProjectDirectorConversationTimelineParams,
+  ListProjectDirectorConversationsParams,
+} from "./types";
+
+interface ProjectDirectorConversationQueryOptions {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+}
+
+export function useProjectDirectorConversations(
+  params: ListProjectDirectorConversationsParams = {},
+  options?: ProjectDirectorConversationQueryOptions,
+) {
+  return useQuery({
+    queryKey: [
+      "project-director",
+      "conversations",
+      params.project_id ?? null,
+      params.status ?? null,
+      params.kind ?? null,
+      params.limit ?? null,
+      params.before ?? null,
+    ],
+    queryFn: () => listProjectDirectorConversations(params),
+    enabled: options?.enabled,
+    refetchInterval: options?.refetchInterval,
+    retry: false,
+  });
+}
+
+export function useProjectDirectorConversation(
+  conversationId: string | null | undefined,
+  params: GetProjectDirectorConversationParams = {},
+  options?: ProjectDirectorConversationQueryOptions,
+) {
+  return useQuery({
+    queryKey: [
+      "project-director",
+      "conversation",
+      conversationId ?? null,
+      params.project_id ?? null,
+      params.recent_message_limit ?? null,
+    ],
+    queryFn: () => getProjectDirectorConversation(conversationId as string, params),
+    enabled: Boolean(conversationId) && options?.enabled !== false,
+    refetchInterval: options?.refetchInterval,
+    retry: false,
+  });
+}
+
+export function useProjectDirectorConversationTimeline(
+  conversationId: string | null | undefined,
+  params: GetProjectDirectorConversationTimelineParams = {},
+  options?: ProjectDirectorConversationQueryOptions,
+) {
+  return useQuery({
+    queryKey: [
+      "project-director",
+      "conversation-timeline",
+      conversationId ?? null,
+      params.project_id ?? null,
+    ],
+    queryFn: () =>
+      getProjectDirectorConversationTimeline(conversationId as string, params),
+    enabled: Boolean(conversationId) && options?.enabled !== false,
+    refetchInterval: options?.refetchInterval,
+    retry: false,
+  });
+}
 
 export function useCreateProjectDirectorSession() {
   return useMutation({

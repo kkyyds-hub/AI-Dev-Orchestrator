@@ -380,6 +380,110 @@ export interface PostProjectDirectorMessageResponse {
   forbidden_actions: string[];
 }
 
+export type ProjectDirectorConversationStatus =
+  | "active"
+  | "idle"
+  | "awaiting_user"
+  | "archived"
+  | "completed";
+
+export type ProjectDirectorConversationKind =
+  | "project_onboarding"
+  | "general_discussion"
+  | "plan_review"
+  | "follow_up";
+
+export type ProjectDirectorConversationTimelineItemKind =
+  | "message"
+  | "plan_draft"
+  | "plan_confirmed"
+  | "task_created"
+  | string;
+
+export interface ProjectDirectorConversationListItem {
+  conversation_id: string;
+  /**
+   * P7-C1-R1 backend does not expose an independent session_id on the
+   * ConversationListItem response. Per P7-C contract, session.id is reused as
+   * conversation_id, so consumers may derive session_id = conversation_id.
+   */
+  session_id?: string;
+  project_id: string | null;
+  title: string;
+  kind: ProjectDirectorConversationKind;
+  status: ProjectDirectorConversationStatus;
+  session_status: ProjectDirectorSessionStatus | string;
+  last_message_preview: string;
+  last_message_at: string | null;
+  message_count: number;
+  pending_challenge_count: number;
+  pending_proposal_count: number;
+  requires_user_action: boolean;
+  owner_scope: "project" | "user" | string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectDirectorConversationListResponse {
+  conversations: ProjectDirectorConversationListItem[];
+  has_more: boolean;
+  source: string;
+}
+
+export interface ProjectDirectorConversationTaskCreation {
+  id: string;
+  plan_version_id: string;
+  session_id: string;
+  project_id: string;
+  version_no: number;
+  source_type: string;
+  created_task_ids: string[];
+  task_count: number;
+  created_at: string;
+}
+
+export interface ProjectDirectorConversationDetailResponse {
+  conversation: ProjectDirectorConversationListItem;
+  session: ProjectDirectorSession;
+  recent_messages: ProjectDirectorMessage[];
+  latest_plan_version: ProjectDirectorPlanVersion | null;
+  task_creation: ProjectDirectorConversationTaskCreation | null;
+  source: string;
+}
+
+export interface ProjectDirectorConversationTimelineItem {
+  timestamp: string;
+  kind: ProjectDirectorConversationTimelineItemKind;
+  summary_cn: string;
+  related_message_id: string | null;
+  related_plan_version_id: string | null;
+  related_task_id: string | null;
+  related_proposal_id: string | null;
+}
+
+export interface ProjectDirectorConversationTimelineResponse {
+  conversation_id: string;
+  items: ProjectDirectorConversationTimelineItem[];
+  source: string;
+}
+
+export interface ListProjectDirectorConversationsParams {
+  project_id?: string | null;
+  status?: ProjectDirectorConversationStatus | null;
+  kind?: ProjectDirectorConversationKind | null;
+  limit?: number | null;
+  before?: string | null;
+}
+
+export interface GetProjectDirectorConversationParams {
+  project_id?: string | null;
+  recent_message_limit?: number | null;
+}
+
+export interface GetProjectDirectorConversationTimelineParams {
+  project_id?: string | null;
+}
+
 export interface ProjectDirectorWorkbenchResume {
   session: ProjectDirectorSession | null;
   plan_version: ProjectDirectorPlanVersion | null;

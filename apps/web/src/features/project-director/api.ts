@@ -1,4 +1,4 @@
-﻿import { requestJson } from "../../lib/http";
+import { requestJson } from "../../lib/http";
 
 import type {
   ConfirmProjectDirectorGoalInput,
@@ -7,9 +7,15 @@ import type {
   CreateProjectDirectorSessionInput,
   CreateProjectDirectorTaskQueueInput,
   FetchProjectDirectorWorkbenchResumeInput,
+  GetProjectDirectorConversationParams,
+  GetProjectDirectorConversationTimelineParams,
+  ListProjectDirectorConversationsParams,
   PostProjectDirectorMessageInput,
   PostProjectDirectorMessageResponse,
   ProjectDirectorAgentTeamConfigResponse,
+  ProjectDirectorConversationDetailResponse,
+  ProjectDirectorConversationListResponse,
+  ProjectDirectorConversationTimelineResponse,
   ProjectDirectorMessageListResponse,
   ProjectDirectorPlanReviewResponse,
   ProjectDirectorPlanVersion,
@@ -28,6 +34,44 @@ import type {
   ReviewProjectDirectorPlanVersionInput,
   SubmitProjectDirectorAnswersInput,
 } from "./types";
+
+function buildProjectDirectorConversationParams(params?: object): string {
+  const searchParams = new URLSearchParams();
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
+
+  const queryString = searchParams.toString();
+  return queryString ? `?${queryString}` : "";
+}
+
+export function listProjectDirectorConversations(
+  params: ListProjectDirectorConversationsParams = {},
+): Promise<ProjectDirectorConversationListResponse> {
+  return requestJson<ProjectDirectorConversationListResponse>(
+    `/project-director/conversations${buildProjectDirectorConversationParams(params)}`,
+  );
+}
+
+export function getProjectDirectorConversation(
+  conversationId: string,
+  params: GetProjectDirectorConversationParams = {},
+): Promise<ProjectDirectorConversationDetailResponse> {
+  return requestJson<ProjectDirectorConversationDetailResponse>(
+    `/project-director/conversations/${conversationId}${buildProjectDirectorConversationParams(params)}`,
+  );
+}
+
+export function getProjectDirectorConversationTimeline(
+  conversationId: string,
+  params: GetProjectDirectorConversationTimelineParams = {},
+): Promise<ProjectDirectorConversationTimelineResponse> {
+  return requestJson<ProjectDirectorConversationTimelineResponse>(
+    `/project-director/conversations/${conversationId}/timeline${buildProjectDirectorConversationParams(params)}`,
+  );
+}
 
 export function createProjectDirectorSession(
   input: CreateProjectDirectorSessionInput,
