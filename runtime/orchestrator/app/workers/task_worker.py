@@ -15,6 +15,7 @@ from app.domain.agent_session import (
     CodingSessionStatus,
     WorkspaceType,
 )
+from app.domain.agent_dispatch_decision import AgentDispatchDecisionBuilder
 from app.domain.project_role import ProjectRoleCode
 from app.domain.prompt_contract import BuiltPromptEnvelope
 from app.domain.prompt_contract import TokenAccountingSnapshot
@@ -59,6 +60,7 @@ from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.deliverable_repository import DeliverableRepository
 from app.services.agent_conversation_service import AgentConversationService
+from app.services.agent_dispatch_audit_service import AgentDispatchAuditService
 from app.services.budget_guard_service import BudgetGuardDecision, BudgetGuardService
 from app.services.context_budget_service import ContextBudgetService
 from app.services.context_builder_service import ContextBuilderService, TaskContextPackage
@@ -1388,6 +1390,7 @@ class TaskWorker:
         runtime_event_audit_service: RuntimeEventAuditService | None = None,
         delivery_event_audit_service: DeliveryEventAuditService | None = None,
         failure_recovery_audit_service: FailureRecoveryAuditService | None = None,
+        agent_dispatch_audit_service: AgentDispatchAuditService | None = None,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -1411,6 +1414,7 @@ class TaskWorker:
         self.runtime_event_audit_service = runtime_event_audit_service
         self.delivery_event_audit_service = delivery_event_audit_service
         self.failure_recovery_audit_service = failure_recovery_audit_service
+        self.agent_dispatch_audit_service = agent_dispatch_audit_service
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -3741,6 +3745,24 @@ class TaskWorker:
                 task_status=result.task.status if result.task is not None else None,
                 result_summary=result.run.result_summary or result.result_summary,
             )
+            if self.agent_dispatch_audit_service is not None:
+                self.agent_dispatch_audit_service.record_decision(
+                    session=agent_session,
+                    decision=(
+                        AgentDispatchDecisionBuilder
+                        .build_from_failure_recovery_decision(
+                            failure_recovery_decision=result.failure_recovery_decision,
+                            source_run_id=result.run.id,
+                            source_task_id=(
+                                result.task.id if result.task is not None else None
+                            ),
+                            created_by="TaskWorker.run_once",
+                        )
+                    ),
+                    run_status=result.run.status,
+                    task_status=result.task.status if result.task is not None else None,
+                    result_summary=result.run.result_summary or result.result_summary,
+                )
             self.session.commit()
         except Exception:
             self.session.rollback()
@@ -4558,6 +4580,9 @@ def build_task_worker(*, session: Session) -> TaskWorker:
     failure_recovery_audit_service = FailureRecoveryAuditService(
         agent_message_repository=agent_message_repository,
     )
+    agent_dispatch_audit_service = AgentDispatchAuditService(
+        agent_message_repository=agent_message_repository,
+    )
     agent_conversation_service = AgentConversationService(
         agent_session_repository=agent_session_repository,
         agent_message_repository=agent_message_repository,
@@ -4638,4 +4663,5 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         runtime_event_audit_service=runtime_event_audit_service,
         delivery_event_audit_service=delivery_event_audit_service,
         failure_recovery_audit_service=failure_recovery_audit_service,
+        agent_dispatch_audit_service=agent_dispatch_audit_service,
     )

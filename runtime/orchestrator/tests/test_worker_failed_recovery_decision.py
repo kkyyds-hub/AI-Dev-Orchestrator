@@ -11,6 +11,9 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes.workers import WorkerRunOnceResponse
 from app.core.config import settings
 from app.core.db_tables import ORMBase
+from app.domain.agent_dispatch_decision import (
+    P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE,
+)
 from app.domain.agent_message import AgentMessageType
 from app.domain.failure_recovery_decision import (
     P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE,
@@ -513,6 +516,11 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
             for message in messages
             if message.event_type == P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
         ]
+        dispatch_messages = [
+            message
+            for message in messages
+            if message.event_type == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE
+        ]
         response_payload = WorkerRunOnceResponse.from_result(result).model_dump(
             mode="json"
         )
@@ -537,6 +545,7 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert result.run.status == RunStatus.CANCELLED
     assert result.failure_recovery_decision is not None
     assert len(recovery_messages) == 1
+    assert len(dispatch_messages) == 1
     assert first_message.id == recovery_messages[0].id
     assert second_message.id == recovery_messages[0].id
 
@@ -578,6 +587,49 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert detail["p5_d_safety"]["git_push_triggered"] is False
     assert detail["p5_d_safety"]["pr_opened"] is False
 
+    dispatch_message = dispatch_messages[0]
+    assert dispatch_message.message_type == AgentMessageType.TIMELINE
+    assert dispatch_message.role == "system"
+    assert dispatch_message.run_id == result.run.id
+    assert dispatch_message.task_id == task.id
+    assert dispatch_message.session_id == result.agent_session_id
+    assert dispatch_message.state_from == "cancelled"
+    assert dispatch_message.state_to == "suggested"
+    assert "P6 调度建议" in dispatch_message.content_summary
+    assert "Codex 继续处理" in dispatch_message.content_summary
+    assert "不会自动派发、重试或创建任务" in dispatch_message.content_summary
+    assert "p5_owner_codex" not in dispatch_message.content_summary
+    assert "suggested" not in dispatch_message.content_summary
+
+    assert dispatch_message.content_detail is not None
+    dispatch_detail = json.loads(dispatch_message.content_detail)
+    assert dispatch_detail["p6_stage"] == "P6-D"
+    assert dispatch_detail["run_status"] == "cancelled"
+    assert dispatch_detail["task_status"] == "blocked"
+    assert dispatch_detail["decision"]["audit_event_type"] == (
+        P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE
+    )
+    assert dispatch_detail["decision"]["recommended_agent"] == "codex"
+    assert dispatch_detail["decision"]["dispatch_status"] == "suggested"
+    assert dispatch_detail["decision"]["instruction_kind"] == "code_fix"
+    assert dispatch_detail["decision"]["instruction_draft"] is not None
+    assert dispatch_detail["decision"]["safety_flags"]["agent_message_written"] is False
+    assert dispatch_detail["decision"]["safety_flags"]["worker_dispatch_triggered"] is False
+    assert dispatch_detail["decision"]["safety_flags"]["retry_triggered"] is False
+    assert dispatch_detail["decision"]["safety_flags"]["auto_dispatch_triggered"] is False
+    assert dispatch_detail["p6_d_audit"]["agent_message_recorded"] is True
+    assert dispatch_detail["p6_d_audit"]["api_response_exposed"] is False
+    assert dispatch_detail["p6_d_audit"]["retry_triggered"] is False
+    assert dispatch_detail["p6_d_audit"]["worker_dispatch_triggered"] is False
+    assert dispatch_detail["p6_d_audit"]["task_created"] is False
+    assert dispatch_detail["p6_d_audit"]["auto_dispatch_triggered"] is False
+    assert dispatch_detail["p6_d_audit"]["runs_git"] is False
+    assert dispatch_detail["p6_d_audit"]["runs_write_git"] is False
+    assert dispatch_detail["p6_d_audit"]["git_add_triggered"] is False
+    assert dispatch_detail["p6_d_audit"]["git_commit_triggered"] is False
+    assert dispatch_detail["p6_d_audit"]["git_push_triggered"] is False
+    assert dispatch_detail["p6_d_audit"]["pr_opened"] is False
+
     _assert_p5e_response_decision_payload(
         response_payload=response_payload,
         failure_category=RunFailureCategory.EXECUTION_FAILED,
@@ -591,6 +643,8 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
         expected_requires_human=False,
     )
     assert "failure_recovery_reason_code" not in response_payload
+    assert "agent_dispatch_decision" not in response_payload
+    assert "dispatch_decision" not in response_payload
 
 
 def test_worker_recovery_audit_helper_skips_empty_session_or_decision():
