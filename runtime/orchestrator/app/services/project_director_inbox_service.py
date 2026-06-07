@@ -7,15 +7,21 @@ This service intentionally has no create/update/delete methods.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID, NAMESPACE_URL, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.db_tables import ProjectDirectorMessageTable
+from app.core.db_tables import AgentMessageTable, ProjectDirectorMessageTable
+from app.domain.agent_dispatch_decision import (
+    P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE,
+)
+from app.domain.agent_message import AgentMessageType
 from app.domain._base import ensure_utc_datetime, utc_now
 from app.domain.project_director_message import ProjectDirectorMessageRole
 from app.domain.project_director_plan_version import PlanVersionStatus
@@ -117,6 +123,7 @@ class ProjectDirectorInboxService:
             *self._conversation_requires_user_action_items(project_id=project_id),
             *self._pending_plan_items(project_id=project_id),
             *self._task_and_run_attention_items(project_id=project_id),
+            *self._dispatch_question_items(project_id=project_id),
         ]
 
         if kind is not None:
@@ -228,6 +235,79 @@ class ProjectDirectorInboxService:
 
         return items
 
+    def _dispatch_question_items(
+        self, *, project_id: UUID | None
+    ) -> list[DirectorInboxItem]:
+        """Build read-only inbox items from P6 dispatch audit timeline messages."""
+
+        statement = select(AgentMessageTable).where(
+            AgentMessageTable.message_type == AgentMessageType.TIMELINE
+        )
+        if project_id is not None:
+            statement = statement.where(AgentMessageTable.project_id == project_id)
+        statement = statement.order_by(
+            AgentMessageTable.created_at.desc(),
+            AgentMessageTable.sequence_no.desc(),
+        )
+
+        rows = self._db_session.execute(statement).scalars().all()
+        items: list[DirectorInboxItem] = []
+        seen_message_ids: set[UUID] = set()
+
+        for message in rows:
+            if message.id in seen_message_ids:
+                continue
+            detail = self._parse_json_object(message.content_detail)
+            if not self._is_dispatch_decision_message(message, detail):
+                continue
+
+            decision = detail.get("decision")
+            if not isinstance(decision, dict):
+                decision = {}
+            recommended_agent = self._normalized_detail_text(
+                decision.get("recommended_agent")
+                or detail.get("recommended_agent")
+            ).lower()
+            dispatch_status = self._normalized_detail_text(
+                decision.get("dispatch_status")
+                or detail.get("dispatch_status")
+                or message.state_to
+            ).lower()
+            priority = self._dispatch_priority(
+                recommended_agent=recommended_agent,
+                dispatch_status=dispatch_status,
+            )
+            requires_user_action = recommended_agent in {"user", "blocked"}
+            summary = self._dispatch_summary(message, decision)
+            timestamp = ensure_utc_datetime(message.created_at) or utc_now()
+
+            items.append(
+                DirectorInboxItem(
+                    id=self._synthetic_id(
+                        "agent_message", message.id, InboxItemKind.DISPATCH_QUESTION
+                    ),
+                    conversation_id=None,
+                    session_id=None,
+                    project_id=message.project_id,
+                    source_page="worker_timeline",
+                    source_entity_type="agent_message",
+                    source_entity_id=message.id,
+                    kind=InboxItemKind.DISPATCH_QUESTION,
+                    title="P6 调度建议需要主管关注",
+                    summary=self._truncate(summary, 500),
+                    status=InboxItemStatus.NEEDS_RESPONSE,
+                    priority=priority,
+                    requires_user_action=requires_user_action,
+                    related_task_id=message.task_id,
+                    related_run_id=message.run_id,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+            )
+            seen_message_ids.add(message.id)
+
+        return items
+
     def _task_attention_item(self, task: Task) -> DirectorInboxItem | None:
         if task.status not in {
             TaskStatus.FAILED,
@@ -333,6 +413,68 @@ class ProjectDirectorInboxService:
             NAMESPACE_URL,
             f"project-director-inbox:{source_entity_type}:{source_entity_id}:{kind.value}",
         )
+
+    @staticmethod
+    def _parse_json_object(value: str | None) -> dict[str, Any]:
+        if not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @staticmethod
+    def _is_dispatch_decision_message(
+        message: AgentMessageTable, detail: dict[str, Any]
+    ) -> bool:
+        if detail.get("p6_stage") == "P6-D":
+            return True
+        if detail.get("event_type") == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE:
+            return True
+        if message.event_type == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE:
+            return True
+        return "P6 调度建议" in (message.content_summary or "")
+
+    @classmethod
+    def _dispatch_priority(
+        cls, *, recommended_agent: str, dispatch_status: str
+    ) -> InboxItemPriority:
+        if recommended_agent == "blocked" or dispatch_status in {
+            "blocked",
+            "not_applicable",
+        }:
+            return InboxItemPriority.CRITICAL
+        if recommended_agent == "user" or dispatch_status in {
+            "needs_user_decision",
+            "needs_human",
+            "waiting_human",
+        }:
+            return InboxItemPriority.HIGH
+        return InboxItemPriority.NORMAL
+
+    @classmethod
+    def _dispatch_summary(
+        cls, message: AgentMessageTable, decision: dict[str, Any]
+    ) -> str:
+        summary = cls._normalized_detail_text(message.content_summary)
+        if summary:
+            return summary
+        instruction_draft = cls._normalized_detail_text(decision.get("instruction_draft"))
+        if instruction_draft:
+            return instruction_draft
+        reason = cls._normalized_detail_text(decision.get("dispatch_reason_cn"))
+        if reason:
+            return reason
+        return "P6 调度建议需要主管关注；当前仅为只读 readback，未派发、未重试。"
+
+    @staticmethod
+    def _normalized_detail_text(value: Any) -> str:
+        if not isinstance(value, str):
+            return ""
+        return " ".join(value.split())
 
     @staticmethod
     def _sort_key(item: DirectorInboxItem) -> tuple[int, datetime, str]:
