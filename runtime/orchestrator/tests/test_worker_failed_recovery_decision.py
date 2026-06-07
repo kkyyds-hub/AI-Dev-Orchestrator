@@ -73,6 +73,32 @@ def _assert_p5e_response_decision_payload(
 ) -> dict:
     """Assert P5-E exposes only a read-only recovery decision DTO."""
 
+    owner_labels = {
+        "codex": "Codex 修复",
+        "deepseek": "DeepSeek 配置修复",
+        "user": "用户决策",
+        "blocked": "阻塞等待",
+    }
+    action_labels = {
+        "retry": "重试",
+        "fix_and_retry": "修复后重试",
+        "pause_and_wait": "暂停等待",
+        "replan": "重新规划",
+        "escalate_to_human": "升级人工决策",
+        "block_permanently": "永久阻塞",
+        "archive": "归档",
+    }
+    instruction_kind_labels = {
+        "code_fix": "代码修复",
+        "test_fix": "测试修复",
+        "config_fix": "配置修复",
+        "evidence_fix": "证据修复",
+        "replay": "重新执行",
+        "pause": "暂停等待",
+        "replan": "重新规划",
+        "human_question": "人工问题",
+    }
+
     assert "failure_recovery_reason_code" not in response_payload
 
     decision = response_payload["failure_recovery_decision"]
@@ -88,24 +114,35 @@ def _assert_p5e_response_decision_payload(
     assert decision["recoverable"] is expected_recoverable
     assert decision["retry_allowed"] is expected_retry_allowed
     assert decision["recommended_owner"] == expected_owner
+    assert decision["recommended_owner_label_cn"] == owner_labels[expected_owner]
     assert decision["next_action"] == expected_action
+    assert decision["next_action_label_cn"] == action_labels[expected_action]
     assert decision["next_instruction_kind"] == expected_instruction_kind
+    assert decision["next_instruction_kind_label_cn"] == (
+        instruction_kind_labels[expected_instruction_kind]
+    )
     assert decision["next_instruction_draft_required"] is expected_draft_required
     assert bool(decision["next_instruction_draft"]) is expected_draft_required
     assert decision["requires_human_decision"] is expected_requires_human
     assert decision["user_visible_summary_cn"]
     assert isinstance(decision["rule_codes"], list)
-    assert decision["safety_flags"]["runs_git"] is False
-    assert decision["safety_flags"]["runs_write_git"] is False
-    assert decision["safety_flags"]["git_add_triggered"] is False
-    assert decision["safety_flags"]["git_commit_triggered"] is False
-    assert decision["safety_flags"]["git_push_triggered"] is False
-    assert decision["safety_flags"]["pr_opened"] is False
-    assert decision["safety_flags"]["worker_dispatch_triggered"] is False
-    assert decision["safety_flags"]["agent_message_written"] is False
-    assert decision["safety_flags"]["task_created"] is False
-    assert decision["safety_flags"]["retry_triggered"] is False
-    assert all(flag_value is False for flag_value in decision["safety_flags"].values())
+    assert "safety_flags" not in decision
+    assert decision["safety"]["api_response_exposed"] is True
+    assert decision["safety"]["runs_git"] is False
+    assert decision["safety"]["runs_write_git"] is False
+    assert decision["safety"]["git_add_triggered"] is False
+    assert decision["safety"]["git_commit_triggered"] is False
+    assert decision["safety"]["git_push_triggered"] is False
+    assert decision["safety"]["pr_opened"] is False
+    assert decision["safety"]["worker_dispatch_triggered"] is False
+    assert decision["safety"]["agent_message_written"] is False
+    assert decision["safety"]["task_created"] is False
+    assert decision["safety"]["retry_triggered"] is False
+    assert all(
+        flag_value is False
+        for flag_name, flag_value in decision["safety"].items()
+        if flag_name != "api_response_exposed"
+    )
 
     return decision
 
@@ -148,6 +185,7 @@ def _assert_worker_result_decision(
         flag_value is False
         for flag_value in decision.safety_flags.model_dump().values()
     )
+    assert decision.safety_flags.api_response_exposed is False
 
     response_payload = WorkerRunOnceResponse.from_result(result).model_dump(mode="json")
     _assert_p5e_response_decision_payload(

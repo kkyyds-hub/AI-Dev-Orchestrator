@@ -1,7 +1,7 @@
 """Worker endpoints."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, ClassVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -128,7 +128,33 @@ class WorkerRunOnceResponse(BaseModel):
     class FailureRecoveryDecisionResponse(BaseModel):
         """P5-E read-only recovery decision returned to API callers."""
 
-        class SafetyFlagsResponse(BaseModel):
+        OWNER_LABELS_CN: ClassVar[dict[str, str]] = {
+            "codex": "Codex 修复",
+            "deepseek": "DeepSeek 配置修复",
+            "user": "用户决策",
+            "blocked": "阻塞等待",
+        }
+        ACTION_LABELS_CN: ClassVar[dict[str, str]] = {
+            "retry": "重试",
+            "fix_and_retry": "修复后重试",
+            "pause_and_wait": "暂停等待",
+            "replan": "重新规划",
+            "escalate_to_human": "升级人工决策",
+            "block_permanently": "永久阻塞",
+            "archive": "归档",
+        }
+        INSTRUCTION_KIND_LABELS_CN: ClassVar[dict[str, str]] = {
+            "code_fix": "代码修复",
+            "test_fix": "测试修复",
+            "config_fix": "配置修复",
+            "evidence_fix": "证据修复",
+            "replay": "重新执行",
+            "pause": "暂停等待",
+            "replan": "重新规划",
+            "human_question": "人工问题",
+        }
+
+        class SafetyResponse(BaseModel):
             """Read-only P5-E safety flags nested under a recovery decision."""
 
             runs_git: bool = False
@@ -148,7 +174,7 @@ class WorkerRunOnceResponse(BaseModel):
             ci_triggered: bool = False
             execution_enabled: bool = False
             worker_dispatch_triggered: bool = False
-            api_response_exposed: bool = False
+            api_response_exposed: bool = True
             agent_message_written: bool = False
             task_created: bool = False
             retry_triggered: bool = False
@@ -157,8 +183,8 @@ class WorkerRunOnceResponse(BaseModel):
             def from_decision(
                 cls,
                 decision: FailureRecoveryDecision,
-            ) -> "WorkerRunOnceResponse.FailureRecoveryDecisionResponse.SafetyFlagsResponse":
-                """Copy side-effect flags from the internal decision."""
+            ) -> "WorkerRunOnceResponse.FailureRecoveryDecisionResponse.SafetyResponse":
+                """Copy internal side-effect flags and mark P5-E API exposure."""
 
                 flags = decision.safety_flags
                 return cls(
@@ -179,7 +205,7 @@ class WorkerRunOnceResponse(BaseModel):
                     ci_triggered=flags.ci_triggered,
                     execution_enabled=flags.execution_enabled,
                     worker_dispatch_triggered=flags.worker_dispatch_triggered,
-                    api_response_exposed=flags.api_response_exposed,
+                    api_response_exposed=True,
                     agent_message_written=flags.agent_message_written,
                     task_created=flags.task_created,
                     retry_triggered=flags.retry_triggered,
@@ -192,8 +218,11 @@ class WorkerRunOnceResponse(BaseModel):
         recoverable: bool
         retry_allowed: bool
         recommended_owner: str
+        recommended_owner_label_cn: str
         next_action: str
+        next_action_label_cn: str
         next_instruction_kind: str
+        next_instruction_kind_label_cn: str
         next_instruction_draft_required: bool
         next_instruction_draft: str | None = None
         requires_human_decision: bool
@@ -201,7 +230,7 @@ class WorkerRunOnceResponse(BaseModel):
         user_visible_summary_cn: str
         audit_event_type: str
         rule_codes: list[str] = Field(default_factory=list)
-        safety_flags: SafetyFlagsResponse
+        safety: SafetyResponse
 
         @classmethod
         def from_decision(
@@ -226,8 +255,17 @@ class WorkerRunOnceResponse(BaseModel):
                 recoverable=decision.recoverable,
                 retry_allowed=decision.retry_allowed,
                 recommended_owner=decision.recommended_owner.value,
+                recommended_owner_label_cn=cls.OWNER_LABELS_CN[
+                    decision.recommended_owner.value
+                ],
                 next_action=decision.next_action.value,
+                next_action_label_cn=cls.ACTION_LABELS_CN[
+                    decision.next_action.value
+                ],
                 next_instruction_kind=decision.next_instruction_kind.value,
+                next_instruction_kind_label_cn=cls.INSTRUCTION_KIND_LABELS_CN[
+                    decision.next_instruction_kind.value
+                ],
                 next_instruction_draft_required=decision.next_instruction_draft_required,
                 next_instruction_draft=decision.next_instruction_draft,
                 requires_human_decision=decision.requires_human_decision,
@@ -235,7 +273,7 @@ class WorkerRunOnceResponse(BaseModel):
                 user_visible_summary_cn=decision.user_visible_summary_cn,
                 audit_event_type=decision.audit_event_type,
                 rule_codes=list(decision.rule_codes),
-                safety_flags=cls.SafetyFlagsResponse.from_decision(decision),
+                safety=cls.SafetyResponse.from_decision(decision),
             )
 
     claimed: bool
