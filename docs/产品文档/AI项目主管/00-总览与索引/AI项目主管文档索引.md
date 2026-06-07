@@ -63,7 +63,10 @@ P4 Git Delivery Preview + Human Approval Gate 的完整链路文档。
 
 ### 05-P5失败回流
 
-尚未开始。P5 Failure Recovery / 失败回流。
+P5 Failure Recovery / 失败回流。**设计阶段已启动。**
+
+**关键入口**：
+- [P5失败回流总账与阶段设计-20260607](../05-P5失败回流/P5失败回流总账与阶段设计-20260607.md) — P5 阶段唯一总账，所有 P5 证据统一追加至此
 
 ### 06-P6智能体调度
 
@@ -108,7 +111,8 @@ P4 Git Delivery Preview + Human Approval Gate 的完整链路文档。
 | P4-F3 | Frontend Confirmation Entry | Pass |
 | P4-F4 | Human Approval E2E Closure / Minimal Verification | Pass |
 | **P4 Final Gate** | **Pass** | — |
-| P5 | Failure Recovery | **Not started** |
+| P5-A | Failure Recovery Ledger + Design | **Pass** |
+| P5-B/C/D/E/F | Failure Recovery Implementation | **Not started** |
 | P6 | Agent Orchestration | **Not started** |
 | P7 | Project Director Conversation Hub + Governance | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
