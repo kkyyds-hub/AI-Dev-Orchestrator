@@ -25,23 +25,19 @@ export function WorkerFailureRecoveryDecisionCard(
     {
       key: "owner",
       label: "建议负责人",
-      value: `${decision.recommended_owner_label_cn} (${decision.recommended_owner})`,
-      tone:
-        decision.recommended_owner === "user" ||
-        decision.recommended_owner === "blocked"
-          ? "warning"
-          : "safe",
+      value: decision.recommended_owner_label_cn,
+      tone: decision.requires_human_decision ? "warning" : "safe",
     },
     {
       key: "action",
       label: "建议动作",
-      value: `${decision.next_action_label_cn} (${decision.next_action})`,
+      value: decision.next_action_label_cn,
       tone: decision.retry_allowed ? "safe" : "warning",
     },
     {
       key: "instruction_kind",
       label: "指令类型",
-      value: `${decision.next_instruction_kind_label_cn} (${decision.next_instruction_kind})`,
+      value: decision.next_instruction_kind_label_cn,
     },
     {
       key: "recoverable",
@@ -60,16 +56,6 @@ export function WorkerFailureRecoveryDecisionCard(
       label: "需要用户决策",
       value: formatBoolean(decision.requires_human_decision),
       tone: decision.requires_human_decision ? "warning" : "safe",
-    },
-    {
-      key: "failure_category",
-      label: "失败类型",
-      value: decision.failure_category,
-    },
-    {
-      key: "reason_code",
-      label: "原因代码",
-      value: formatText(decision.reason_code),
     },
   ];
 
@@ -182,19 +168,6 @@ export function WorkerFailureRecoveryDecisionCard(
         </div>
       ) : null}
 
-      {decision.rule_codes.length ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {decision.rule_codes.map((ruleCode) => (
-            <span
-              key={ruleCode}
-              className="rounded-full border border-[#333333] bg-[#1f1f1f] px-3 py-1 text-xs text-zinc-400"
-            >
-              {ruleCode}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
       <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
         <div className="text-xs tracking-[0.2em] text-emerald-200">
           只读安全标记
@@ -243,14 +216,6 @@ function RecoveryInfo(field: Omit<RecoveryField, "key">) {
 
 function formatBoolean(value: boolean): string {
   return value ? "是" : "否";
-}
-
-function formatText(value: string | null | undefined): string {
-  if (!value) {
-    return "未记录";
-  }
-  const normalized = value.trim();
-  return normalized.length ? normalized : "未记录";
 }
 
 function fieldToneClass(fieldTone: RecoveryField["tone"]): string {
