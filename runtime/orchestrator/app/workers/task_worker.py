@@ -27,6 +27,10 @@ from app.domain.delivery_gate_evidence import (
     DeliveryGateEvidenceBuilder,
     DeliveryGateEvidenceResult,
 )
+from app.domain.failure_recovery_decision import (
+    FailureRecoveryDecision,
+    FailureRecoveryDecisionBuilder,
+)
 from app.domain.human_approval_gate import DeliveryHumanApprovalResult
 from app.domain.run import (
     Run,
@@ -360,8 +364,26 @@ class WorkerRunResult:
     delivery_human_approval_operation_applied: bool | None = None
     delivery_human_approval_gate_allows_write: bool | None = None
     delivery_human_approval_gate_allows_next_guardrail: bool | None = None
+    failure_recovery_decision: FailureRecoveryDecision | None = None
     task: Task | None = None
     run: Run | None = None
+
+    def __post_init__(self) -> None:
+        """Attach the internal P5-C recovery decision for failed worker results.
+
+        This is deliberately an internal worker contract field. The API response
+        mapper does not expose it, and building it does not dispatch workers,
+        create tasks, write AgentMessage rows, or run any Git command.
+        """
+
+        if self.failure_recovery_decision is not None:
+            return
+        if self.failure_category is None:
+            return
+
+        self.failure_recovery_decision = FailureRecoveryDecisionBuilder.build(
+            failure_category=self.failure_category,
+        )
 
 
 @dataclass(slots=True, frozen=True)

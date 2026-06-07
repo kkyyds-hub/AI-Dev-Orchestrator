@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.api.routes.workers import WorkerRunOnceResponse
 from app.core.config import settings
 from app.core.db_tables import ORMBase
 from app.domain.failure_recovery_decision import (
@@ -23,7 +24,7 @@ from app.services.failure_review_service import (
     FailureReviewService,
 )
 from app.services.run_logging_service import RunLoggingService
-from app.workers.task_worker import build_task_worker
+from app.workers.task_worker import WorkerRunResult, build_task_worker
 
 
 def _assert_p5c_internal_decision_payload(payload: dict) -> dict:
@@ -48,6 +49,156 @@ def _assert_p5c_internal_decision_payload(payload: dict) -> dict:
     assert all(flag_value is False for flag_value in decision["safety_flags"].values())
 
     return decision
+
+
+def _assert_worker_result_decision(
+    *,
+    failure_category: RunFailureCategory,
+    expected_owner: str,
+    expected_action: str,
+    expected_instruction_kind: str,
+    expected_recoverable: bool,
+    expected_retry_allowed: bool,
+    expected_draft_required: bool,
+    expected_requires_human: bool,
+) -> None:
+    result = WorkerRunResult(
+        claimed=True,
+        message="internal failed worker result",
+        failure_category=failure_category,
+        quality_gate_passed=False,
+    )
+
+    assert result.failure_recovery_decision is not None
+    decision = result.failure_recovery_decision
+    assert decision.source == P5_FAILURE_RECOVERY_DECISION_SOURCE
+    assert decision.version == P5_FAILURE_RECOVERY_DECISION_VERSION
+    assert decision.audit_event_type == P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
+    assert decision.failure_category == failure_category
+    assert decision.recommended_owner.value == expected_owner
+    assert decision.next_action.value == expected_action
+    assert decision.next_instruction_kind.value == expected_instruction_kind
+    assert decision.recoverable is expected_recoverable
+    assert decision.retry_allowed is expected_retry_allowed
+    assert decision.next_instruction_draft_required is expected_draft_required
+    assert decision.requires_human_decision is expected_requires_human
+    assert all(
+        flag_value is False
+        for flag_value in decision.safety_flags.model_dump().values()
+    )
+
+    response_payload = WorkerRunOnceResponse.from_result(result).model_dump(mode="json")
+    assert P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY not in response_payload
+    assert "failure_recovery_decision" not in response_payload
+
+
+def test_worker_result_without_failure_category_has_no_recovery_decision():
+    result = WorkerRunResult(
+        claimed=True,
+        message="successful worker result",
+        failure_category=None,
+        quality_gate_passed=True,
+    )
+
+    assert result.failure_recovery_decision is None
+
+
+def test_worker_result_preserves_explicit_recovery_decision():
+    explicit_result = WorkerRunResult(
+        claimed=True,
+        message="explicit failed worker result",
+        failure_category=RunFailureCategory.VERIFICATION_FAILED,
+        quality_gate_passed=False,
+    )
+    assert explicit_result.failure_recovery_decision is not None
+
+    result = WorkerRunResult(
+        claimed=True,
+        message="reused failed worker result",
+        failure_category=RunFailureCategory.VERIFICATION_FAILED,
+        quality_gate_passed=False,
+        failure_recovery_decision=explicit_result.failure_recovery_decision,
+    )
+
+    assert result.failure_recovery_decision is explicit_result.failure_recovery_decision
+
+
+def test_worker_result_carries_execution_failure_recovery_decision():
+    _assert_worker_result_decision(
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        expected_owner="codex",
+        expected_action="fix_and_retry",
+        expected_instruction_kind="code_fix",
+        expected_recoverable=True,
+        expected_retry_allowed=True,
+        expected_draft_required=True,
+        expected_requires_human=False,
+    )
+
+
+def test_worker_result_carries_verification_failure_recovery_decision():
+    _assert_worker_result_decision(
+        failure_category=RunFailureCategory.VERIFICATION_FAILED,
+        expected_owner="codex",
+        expected_action="fix_and_retry",
+        expected_instruction_kind="test_fix",
+        expected_recoverable=True,
+        expected_retry_allowed=True,
+        expected_draft_required=True,
+        expected_requires_human=False,
+    )
+
+
+def test_worker_result_carries_verification_config_recovery_decision():
+    _assert_worker_result_decision(
+        failure_category=RunFailureCategory.VERIFICATION_CONFIGURATION_FAILED,
+        expected_owner="deepseek",
+        expected_action="fix_and_retry",
+        expected_instruction_kind="config_fix",
+        expected_recoverable=True,
+        expected_retry_allowed=False,
+        expected_draft_required=True,
+        expected_requires_human=False,
+    )
+
+
+def test_worker_result_carries_daily_budget_recovery_decision():
+    _assert_worker_result_decision(
+        failure_category=RunFailureCategory.DAILY_BUDGET_EXCEEDED,
+        expected_owner="user",
+        expected_action="escalate_to_human",
+        expected_instruction_kind="human_question",
+        expected_recoverable=False,
+        expected_retry_allowed=False,
+        expected_draft_required=False,
+        expected_requires_human=True,
+    )
+
+
+def test_worker_result_carries_session_budget_recovery_decision():
+    _assert_worker_result_decision(
+        failure_category=RunFailureCategory.SESSION_BUDGET_EXCEEDED,
+        expected_owner="user",
+        expected_action="escalate_to_human",
+        expected_instruction_kind="human_question",
+        expected_recoverable=False,
+        expected_retry_allowed=False,
+        expected_draft_required=False,
+        expected_requires_human=True,
+    )
+
+
+def test_worker_result_carries_retry_limit_recovery_decision():
+    _assert_worker_result_decision(
+        failure_category=RunFailureCategory.RETRY_LIMIT_EXCEEDED,
+        expected_owner="user",
+        expected_action="escalate_to_human",
+        expected_instruction_kind="human_question",
+        expected_recoverable=False,
+        expected_retry_allowed=False,
+        expected_draft_required=False,
+        expected_requires_human=True,
+    )
 
 
 def test_failure_review_persists_internal_recovery_decision_payload(tmp_path):
