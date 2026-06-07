@@ -132,7 +132,7 @@ def _assert_p5e_response_decision_payload(
     assert decision["user_visible_summary_cn"]
     assert isinstance(decision["rule_codes"], list)
     assert "safety_flags" not in decision
-    assert decision["safety"]["api_response_exposed"] is True
+    assert "api_response_exposed" in decision["safety"]
     assert decision["safety"]["runs_git"] is False
     assert decision["safety"]["runs_write_git"] is False
     assert decision["safety"]["git_add_triggered"] is False
@@ -169,7 +169,7 @@ def _assert_p6e_response_decision_payload(
         "blocked": "阻塞等待",
     }
     status_labels = {
-        "suggested": "建议调度",
+        "suggested": "仅建议，未派发",
         "needs_user_decision": "需要用户决策",
         "blocked": "阻塞",
         "not_applicable": "不适用",
@@ -206,9 +206,9 @@ def _assert_p6e_response_decision_payload(
     assert decision["audit_event_type"] == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE
     assert decision["created_at"]
     assert decision["created_by"] == "TaskWorker.run_once"
-    assert decision["api_response_exposed"] is True
+    assert decision["api_response_exposed"] is False
     assert "safety_flags" not in decision
-    assert decision["safety"]["api_response_exposed"] is True
+    assert decision["safety"]["api_response_exposed"] is False
     assert decision["safety"]["runs_git"] is False
     assert decision["safety"]["runs_write_git"] is False
     assert decision["safety"]["git_add_triggered"] is False
@@ -222,8 +222,7 @@ def _assert_p6e_response_decision_payload(
     assert decision["safety"]["auto_dispatch_triggered"] is False
     assert all(
         flag_value is False
-        for flag_name, flag_value in decision["safety"].items()
-        if flag_name != "api_response_exposed"
+        for flag_value in decision["safety"].values()
     )
 
     return decision
@@ -714,6 +713,7 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert dispatch_message.state_to == "suggested"
     assert "P6 调度建议" in dispatch_message.content_summary
     assert "Codex 继续处理" in dispatch_message.content_summary
+    assert "仅建议，未派发" in dispatch_message.content_summary
     assert "不会自动派发、重试或创建任务" in dispatch_message.content_summary
     assert "p5_owner_codex" not in dispatch_message.content_summary
     assert "suggested" not in dispatch_message.content_summary
@@ -734,18 +734,18 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert dispatch_detail["decision"]["safety_flags"]["worker_dispatch_triggered"] is False
     assert dispatch_detail["decision"]["safety_flags"]["retry_triggered"] is False
     assert dispatch_detail["decision"]["safety_flags"]["auto_dispatch_triggered"] is False
-    assert dispatch_detail["p6_d_audit"]["agent_message_recorded"] is True
-    assert dispatch_detail["p6_d_audit"]["api_response_exposed"] is False
-    assert dispatch_detail["p6_d_audit"]["retry_triggered"] is False
-    assert dispatch_detail["p6_d_audit"]["worker_dispatch_triggered"] is False
-    assert dispatch_detail["p6_d_audit"]["task_created"] is False
-    assert dispatch_detail["p6_d_audit"]["auto_dispatch_triggered"] is False
-    assert dispatch_detail["p6_d_audit"]["runs_git"] is False
-    assert dispatch_detail["p6_d_audit"]["runs_write_git"] is False
-    assert dispatch_detail["p6_d_audit"]["git_add_triggered"] is False
-    assert dispatch_detail["p6_d_audit"]["git_commit_triggered"] is False
-    assert dispatch_detail["p6_d_audit"]["git_push_triggered"] is False
-    assert dispatch_detail["p6_d_audit"]["pr_opened"] is False
+    assert dispatch_detail["p6_d_safety"]["agent_message_recorded"] is True
+    assert dispatch_detail["p6_d_safety"]["api_response_exposed"] is False
+    assert dispatch_detail["p6_d_safety"]["retry_triggered"] is False
+    assert dispatch_detail["p6_d_safety"]["worker_dispatch_triggered"] is False
+    assert dispatch_detail["p6_d_safety"]["task_created"] is False
+    assert dispatch_detail["p6_d_safety"]["auto_dispatch_triggered"] is False
+    assert dispatch_detail["p6_d_safety"]["runs_git"] is False
+    assert dispatch_detail["p6_d_safety"]["runs_write_git"] is False
+    assert dispatch_detail["p6_d_safety"]["git_add_triggered"] is False
+    assert dispatch_detail["p6_d_safety"]["git_commit_triggered"] is False
+    assert dispatch_detail["p6_d_safety"]["git_push_triggered"] is False
+    assert dispatch_detail["p6_d_safety"]["pr_opened"] is False
 
     _assert_p5e_response_decision_payload(
         response_payload=response_payload,

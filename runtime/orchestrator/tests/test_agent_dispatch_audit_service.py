@@ -125,6 +125,7 @@ def test_agent_dispatch_audit_service_records_dispatch_timeline_message(db_sessi
     assert message.state_to == "suggested"
     assert "P6 调度建议" in message.content_summary
     assert "Codex 继续处理" in message.content_summary
+    assert "仅建议，未派发" in message.content_summary
     assert "不会自动派发、重试或创建任务" in message.content_summary
     assert "p5_owner_codex" not in message.content_summary
     assert "suggested" not in message.content_summary
@@ -143,21 +144,21 @@ def test_agent_dispatch_audit_service_records_dispatch_timeline_message(db_sessi
     assert payload["decision"]["safety_flags"]["worker_dispatch_triggered"] is False
     assert payload["decision"]["safety_flags"]["retry_triggered"] is False
     assert payload["decision"]["safety_flags"]["auto_dispatch_triggered"] is False
-    assert payload["p6_d_audit"]["agent_message_recorded"] is True
-    assert payload["p6_d_audit"]["api_response_exposed"] is False
-    assert payload["p6_d_audit"]["retry_triggered"] is False
-    assert payload["p6_d_audit"]["worker_dispatch_triggered"] is False
-    assert payload["p6_d_audit"]["task_created"] is False
-    assert payload["p6_d_audit"]["auto_dispatch_triggered"] is False
-    assert payload["p6_d_audit"]["runs_git"] is False
-    assert payload["p6_d_audit"]["runs_write_git"] is False
-    assert payload["p6_d_audit"]["git_add_triggered"] is False
-    assert payload["p6_d_audit"]["git_commit_triggered"] is False
-    assert payload["p6_d_audit"]["git_push_triggered"] is False
-    assert payload["p6_d_audit"]["pr_opened"] is False
-    assert payload["p6_d_audit"]["merge_triggered"] is False
-    assert payload["p6_d_audit"]["ci_triggered"] is False
-    assert payload["p6_d_audit"]["execution_enabled"] is False
+    assert payload["p6_d_safety"]["agent_message_recorded"] is True
+    assert payload["p6_d_safety"]["api_response_exposed"] is False
+    assert payload["p6_d_safety"]["retry_triggered"] is False
+    assert payload["p6_d_safety"]["worker_dispatch_triggered"] is False
+    assert payload["p6_d_safety"]["task_created"] is False
+    assert payload["p6_d_safety"]["auto_dispatch_triggered"] is False
+    assert payload["p6_d_safety"]["runs_git"] is False
+    assert payload["p6_d_safety"]["runs_write_git"] is False
+    assert payload["p6_d_safety"]["git_add_triggered"] is False
+    assert payload["p6_d_safety"]["git_commit_triggered"] is False
+    assert payload["p6_d_safety"]["git_push_triggered"] is False
+    assert payload["p6_d_safety"]["pr_opened"] is False
+    assert payload["p6_d_safety"]["merge_triggered"] is False
+    assert payload["p6_d_safety"]["ci_triggered"] is False
+    assert payload["p6_d_safety"]["execution_enabled"] is False
 
 
 def test_agent_dispatch_audit_service_records_user_decision_without_draft(db_session):
@@ -187,4 +188,4 @@ def test_agent_dispatch_audit_service_records_user_decision_without_draft(db_ses
     assert payload["decision"]["recommended_agent"] == "user"
     assert payload["decision"]["dispatch_status"] == "needs_user_decision"
     assert payload["decision"]["instruction_draft"] is None
-    assert payload["p6_d_audit"]["worker_dispatch_triggered"] is False
+    assert payload["p6_d_safety"]["worker_dispatch_triggered"] is False

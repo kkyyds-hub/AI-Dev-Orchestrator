@@ -99,6 +99,7 @@ class AgentDispatchAuditService:
             "P6 调度建议：系统已基于失败回流决策生成只读调度建议。"
             f"建议：{agent_label}。"
             f"{draft_clause}"
+            "当前状态仅建议，未派发。"
             "不会自动派发、重试或创建任务。"
         )[:2_000]
 
@@ -119,7 +120,7 @@ class AgentDispatchAuditService:
             "task_status": task_status.value if task_status is not None else None,
             "result_summary": result_summary,
             "decision": decision.model_dump(mode="json"),
-            "p6_d_audit": {
+            "p6_d_safety": {
                 "agent_message_recorded": True,
                 "api_response_exposed": False,
                 "retry_triggered": False,

@@ -287,7 +287,7 @@ class WorkerRunOnceResponse(BaseModel):
             "blocked": "阻塞等待",
         }
         STATUS_LABELS_CN: ClassVar[dict[str, str]] = {
-            "suggested": "建议调度",
+            "suggested": "仅建议，未派发",
             "needs_user_decision": "需要用户决策",
             "blocked": "阻塞",
             "not_applicable": "不适用",
@@ -323,7 +323,7 @@ class WorkerRunOnceResponse(BaseModel):
             ci_triggered: bool = False
             execution_enabled: bool = False
             worker_dispatch_triggered: bool = False
-            api_response_exposed: bool = True
+            api_response_exposed: bool = False
             agent_message_written: bool = False
             task_created: bool = False
             retry_triggered: bool = False
@@ -334,7 +334,13 @@ class WorkerRunOnceResponse(BaseModel):
                 cls,
                 decision: AgentDispatchDecision,
             ) -> "WorkerRunOnceResponse.AgentDispatchDecisionResponse.SafetyResponse":
-                """Copy internal side-effect flags and mark P6-E API exposure."""
+                """Copy internal side-effect flags without marking API serialization.
+
+                P6-E returns a read-only DTO, but response serialization is not a
+                runtime side effect that should flip the P6 safety flag. The
+                domain decision and nested safety contract therefore both remain
+                false for ``api_response_exposed``.
+                """
 
                 flags = decision.safety_flags
                 return cls(
@@ -355,7 +361,7 @@ class WorkerRunOnceResponse(BaseModel):
                     ci_triggered=flags.ci_triggered,
                     execution_enabled=flags.execution_enabled,
                     worker_dispatch_triggered=flags.worker_dispatch_triggered,
-                    api_response_exposed=True,
+                    api_response_exposed=flags.api_response_exposed,
                     agent_message_written=flags.agent_message_written,
                     task_created=flags.task_created,
                     retry_triggered=flags.retry_triggered,
@@ -381,7 +387,7 @@ class WorkerRunOnceResponse(BaseModel):
         audit_event_type: str
         created_at: datetime
         created_by: str
-        api_response_exposed: bool = True
+        api_response_exposed: bool = False
         safety: SafetyResponse
 
         @classmethod
@@ -424,7 +430,7 @@ class WorkerRunOnceResponse(BaseModel):
                 audit_event_type=decision.audit_event_type,
                 created_at=decision.created_at,
                 created_by=decision.created_by,
-                api_response_exposed=True,
+                api_response_exposed=decision.api_response_exposed,
                 safety=cls.SafetyResponse.from_decision(decision),
             )
 
