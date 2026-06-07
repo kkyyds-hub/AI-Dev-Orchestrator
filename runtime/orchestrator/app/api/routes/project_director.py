@@ -109,6 +109,13 @@ from app.services.project_director_conversation_service import (
     ConversationTimelineItem,
     ProjectDirectorConversationService,
 )
+from app.services.project_director_inbox_service import (
+    DirectorInboxItem,
+    InboxItemKind,
+    InboxItemPriority,
+    InboxItemStatus,
+    ProjectDirectorInboxService,
+)
 from app.services.project_director_task_creation_service import (
     ProjectDirectorTaskCreationService,
 )
@@ -2363,6 +2370,62 @@ class ConversationTimelineResponse(BaseModel):
     source: str = Field(default="project_director_conversation_timeline_read_model")
 
 
+class DirectorInboxItemResponse(BaseModel):
+    id: UUID
+    conversation_id: UUID | None = None
+    session_id: UUID | None = None
+    project_id: UUID | None = None
+    source_page: str
+    source_entity_type: str
+    source_entity_id: UUID | None = None
+    kind: InboxItemKind
+    title: str
+    summary: str
+    status: InboxItemStatus
+    priority: InboxItemPriority
+    requires_user_action: bool
+    related_message_id: UUID | None = None
+    related_plan_version_id: UUID | None = None
+    related_task_id: UUID | None = None
+    related_run_id: UUID | None = None
+    related_approval_id: UUID | None = None
+    related_dispatch_decision_id: UUID | None = None
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_domain(cls, item: DirectorInboxItem) -> "DirectorInboxItemResponse":
+        return cls(
+            id=item.id,
+            conversation_id=item.conversation_id,
+            session_id=item.session_id,
+            project_id=item.project_id,
+            source_page=item.source_page,
+            source_entity_type=item.source_entity_type,
+            source_entity_id=item.source_entity_id,
+            kind=item.kind,
+            title=item.title,
+            summary=item.summary,
+            status=item.status,
+            priority=item.priority,
+            requires_user_action=item.requires_user_action,
+            related_message_id=item.related_message_id,
+            related_plan_version_id=item.related_plan_version_id,
+            related_task_id=item.related_task_id,
+            related_run_id=item.related_run_id,
+            related_approval_id=item.related_approval_id,
+            related_dispatch_decision_id=item.related_dispatch_decision_id,
+            created_at=item.created_at.isoformat(),
+            updated_at=item.updated_at.isoformat(),
+        )
+
+
+class DirectorInboxResponse(BaseModel):
+    items: list[DirectorInboxItemResponse] = Field(default_factory=list)
+    has_more: bool = False
+    source: str = Field(default="synthetic_project_director_inbox_read_model")
+
+
 class WorkbenchResumeResponse(BaseModel):
     session: SessionResponse | None = None
     plan_version: PlanVersionResponse | None = None
@@ -2711,6 +2774,39 @@ def get_workbench_resume(
 
 
 # ── Project Director Conversation Read-Only Routes ──────────────────
+
+
+@router.get(
+    "/inbox",
+    response_model=DirectorInboxResponse,
+    summary="List synthetic Project Director inbox items",
+)
+def list_project_director_inbox(
+    db_session: Annotated[Session, Depends(get_db_session)],
+    project_id: UUID | None = None,
+    kind: InboxItemKind | None = None,
+    status_filter: InboxItemStatus | None = Query(default=None, alias="status"),
+    priority: InboxItemPriority | None = None,
+    limit: int = 50,
+) -> DirectorInboxResponse:
+    """Return the P7-D1 synthetic DirectorInbox read model.
+
+    This endpoint is read-only. It never creates inbox items, conversations,
+    sessions, messages, tasks, runs, workers, provider calls, approvals,
+    retries, executor launches, or Git state.
+    """
+
+    result = ProjectDirectorInboxService(db_session).list_inbox_items(
+        project_id=project_id,
+        kind=kind,
+        status=status_filter,
+        priority=priority,
+        limit=limit,
+    )
+    return DirectorInboxResponse(
+        items=[DirectorInboxItemResponse.from_domain(item) for item in result.items],
+        has_more=result.has_more,
+    )
 
 
 @router.get(
