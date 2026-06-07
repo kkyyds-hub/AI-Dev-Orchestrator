@@ -145,6 +145,7 @@ def test_agent_dispatch_audit_service_records_dispatch_timeline_message(db_sessi
     assert payload["decision"]["safety_flags"]["retry_triggered"] is False
     assert payload["decision"]["safety_flags"]["auto_dispatch_triggered"] is False
     assert payload["p6_d_safety"]["agent_message_recorded"] is True
+    assert payload["p6_d_safety"]["agent_message_written"] is True
     assert payload["p6_d_safety"]["api_response_exposed"] is False
     assert payload["p6_d_safety"]["retry_triggered"] is False
     assert payload["p6_d_safety"]["worker_dispatch_triggered"] is False
@@ -188,4 +189,5 @@ def test_agent_dispatch_audit_service_records_user_decision_without_draft(db_ses
     assert payload["decision"]["recommended_agent"] == "user"
     assert payload["decision"]["dispatch_status"] == "needs_user_decision"
     assert payload["decision"]["instruction_draft"] is None
+    assert payload["p6_d_safety"]["agent_message_written"] is True
     assert payload["p6_d_safety"]["worker_dispatch_triggered"] is False

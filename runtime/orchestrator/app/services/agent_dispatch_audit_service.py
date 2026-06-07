@@ -122,6 +122,7 @@ class AgentDispatchAuditService:
             "decision": decision.model_dump(mode="json"),
             "p6_d_safety": {
                 "agent_message_recorded": True,
+                "agent_message_written": True,
                 "api_response_exposed": False,
                 "retry_triggered": False,
                 "worker_dispatch_triggered": False,

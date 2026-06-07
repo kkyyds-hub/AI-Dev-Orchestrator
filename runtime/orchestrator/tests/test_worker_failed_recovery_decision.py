@@ -735,6 +735,7 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert dispatch_detail["decision"]["safety_flags"]["retry_triggered"] is False
     assert dispatch_detail["decision"]["safety_flags"]["auto_dispatch_triggered"] is False
     assert dispatch_detail["p6_d_safety"]["agent_message_recorded"] is True
+    assert dispatch_detail["p6_d_safety"]["agent_message_written"] is True
     assert dispatch_detail["p6_d_safety"]["api_response_exposed"] is False
     assert dispatch_detail["p6_d_safety"]["retry_triggered"] is False
     assert dispatch_detail["p6_d_safety"]["worker_dispatch_triggered"] is False
