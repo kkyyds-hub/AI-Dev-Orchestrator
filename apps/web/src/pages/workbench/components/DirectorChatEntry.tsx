@@ -25,6 +25,7 @@ import type {
   ProjectDirectorSuggestedAction,
   ProjectDirectorTaskCreationResponse,
 } from "../../../features/project-director/types";
+import { WorkerFailureRecoveryDecisionCard } from "../../../features/task-actions/WorkerFailureRecoveryDecisionCard";
 import { useRunWorkerOnce } from "../../../features/task-actions/hooks";
 import {
   formatNullableCurrencyUsd,
@@ -1058,6 +1059,9 @@ export function DirectorChatEntry({
                               </Link>
                             ) : null}
                           </div>
+                          <WorkerFailureRecoveryDecisionCard
+                            decision={workerRunOnceResult.failure_recovery_decision}
+                          />
                         </div>
                       ) : null}
                       {runWorkerOnceMutation.isError ? (

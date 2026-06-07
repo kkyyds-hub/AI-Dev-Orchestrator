@@ -1,5 +1,6 @@
 import { StatusBadge } from "../../components/StatusBadge";
 import { WorkerDeliveryGateEvidenceCard } from "../../features/task-actions/WorkerDeliveryGateEvidenceCard";
+import { WorkerFailureRecoveryDecisionCard } from "../../features/task-actions/WorkerFailureRecoveryDecisionCard";
 import { WorkerGitDiffDryRunEvidenceCard } from "../../features/task-actions/WorkerGitDiffDryRunEvidenceCard";
 import { WorkerGitOperationDryRunPreviewCard } from "../../features/task-actions/WorkerGitOperationDryRunPreviewCard";
 import { WorkerMemoryRecallCard } from "../../features/task-actions/WorkerMemoryRecallCard";
@@ -123,6 +124,11 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
       ) : null}
       {!props.isError && props.data ? (
         <WorkerDeliveryGateEvidenceCard {...props.data} />
+      ) : null}
+      {!props.isError && props.data ? (
+        <WorkerFailureRecoveryDecisionCard
+          decision={props.data.failure_recovery_decision}
+        />
       ) : null}
 
       {!props.isError && props.data ? <div className="mt-3 text-xs tracking-[0.16em] text-zinc-500">模型调用信息</div> : null}

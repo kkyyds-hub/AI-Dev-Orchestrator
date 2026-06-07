@@ -1,5 +1,7 @@
 ﻿import { useState } from "react";
 import type { ConsoleOverview } from "../../../features/console/types";
+import { WorkerFailureRecoveryDecisionCard } from "../../../features/task-actions/WorkerFailureRecoveryDecisionCard";
+import type { WorkerRunOnceResponse } from "../../../features/task-actions/types";
 import { EntryModals, type EntryModalKind } from "./QuickEntryCards";
 
 type WorkbenchRightRailProps = {
@@ -15,7 +17,7 @@ type WorkbenchRightRailProps = {
   isRunWorkerOncePending: boolean;
   runWorkerOnceDisabledReason?: string | null;
   onRunWorkerOnce: () => void;
-  workerOnceData: unknown;
+  workerOnceData: WorkerRunOnceResponse | null | undefined;
   workerOnceIsError: boolean;
   workerOnceErrorMessage: string | null;
 };
@@ -186,9 +188,20 @@ export function WorkbenchRightRail({
             ) : null}
 
             {workerOnceData != null && !workerOnceIsError && (
-              <p className="text-xs text-zinc-500">
-                已启动一次执行，请查看任务页或运行页了解进展。
-              </p>
+              <div
+                data-testid="right-rail-worker-run-once-result"
+                className="rounded border border-[#333333] bg-[#111111] p-2"
+              >
+                <p className="text-xs text-zinc-500">
+                  {workerOnceData.claimed
+                    ? "已启动一次执行，请查看任务页或运行页了解进展。"
+                    : "当前没有可执行任务。"}
+                </p>
+                <WorkerFailureRecoveryDecisionCard
+                  compact
+                  decision={workerOnceData.failure_recovery_decision}
+                />
+              </div>
             )}
             {workerOnceIsError && workerOnceErrorMessage != null && (
               <p className="text-xs text-zinc-500">启动失败：{workerOnceErrorMessage}</p>

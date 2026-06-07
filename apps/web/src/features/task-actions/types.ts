@@ -240,6 +240,54 @@ export type WorkerRunOnceResponse = {
   delivery_gate_evidence_approval_granted: boolean | null;
   delivery_gate_evidence_gate_allows_write: boolean | null;
   delivery_gate_evidence_gate_allows_user_confirmation: boolean | null;
+  failure_recovery_decision: WorkerFailureRecoveryDecision | null;
+};
+
+export type WorkerFailureRecoveryDecision = {
+  source: string;
+  version: string;
+  failure_category: string;
+  reason_code: string | null;
+  recoverable: boolean;
+  retry_allowed: boolean;
+  recommended_owner: string;
+  recommended_owner_label_cn: string;
+  next_action: string;
+  next_action_label_cn: string;
+  next_instruction_kind: string;
+  next_instruction_kind_label_cn: string;
+  next_instruction_draft_required: boolean;
+  next_instruction_draft: string | null;
+  requires_human_decision: boolean;
+  human_decision_reason: string | null;
+  user_visible_summary_cn: string;
+  audit_event_type: string;
+  rule_codes: string[];
+  safety: WorkerFailureRecoveryDecisionSafety;
+};
+
+export type WorkerFailureRecoveryDecisionSafety = {
+  runs_git: boolean;
+  runs_write_git: boolean;
+  git_add_triggered: boolean;
+  git_commit_triggered: boolean;
+  git_push_triggered: boolean;
+  pr_opened: boolean;
+  merge_triggered: boolean;
+  branch_deleted: boolean;
+  git_reset_triggered: boolean;
+  git_checkout_triggered: boolean;
+  git_switch_triggered: boolean;
+  git_stash_triggered: boolean;
+  git_rebase_triggered: boolean;
+  git_tag_triggered: boolean;
+  ci_triggered: boolean;
+  execution_enabled: boolean;
+  worker_dispatch_triggered: boolean;
+  api_response_exposed: boolean;
+  agent_message_written: boolean;
+  task_created: boolean;
+  retry_triggered: boolean;
 };
 
 export type DeliveryHumanApprovalRequest = {
