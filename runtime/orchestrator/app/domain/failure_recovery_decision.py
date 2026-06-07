@@ -19,7 +19,7 @@ from app.domain.task import TaskBlockingReasonCode
 
 
 P5_FAILURE_RECOVERY_DECISION_SOURCE = "failure_recovery_decision"
-P5_FAILURE_RECOVERY_DECISION_VERSION = "p5_b.r1"
+P5_FAILURE_RECOVERY_DECISION_VERSION = "p5_b.r2"
 P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE = "failure_recovery_decision"
 P5_CONSECUTIVE_FAILURE_HUMAN_THRESHOLD = 3
 
@@ -83,7 +83,7 @@ class InstructionKind(StrEnum):
 
 
 class FailureRecoveryDecisionSafetyFlags(DomainModel):
-    """P5-B R1 safety flags; every flag must remain false in pure domain code."""
+    """P5-B safety flags; every flag must remain false in pure domain code."""
 
     runs_git: bool = False
     runs_write_git: bool = False
@@ -151,6 +151,7 @@ class FailureRecoveryDecision(DomainModel):
     recommended_owner: RecoveryOwner
     next_action: RecoveryNextAction
     next_instruction_kind: InstructionKind
+    next_instruction_draft_required: bool = False
     next_instruction_draft: str | None = Field(default=None, max_length=2_000)
     requires_human_decision: bool
     human_decision_reason: str | None = Field(default=None, max_length=500)
@@ -200,7 +201,7 @@ class FailureRecoveryDecision(DomainModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "FailureRecoveryDecision":
-        """Validate P5-B R1 decision contract invariants."""
+        """Validate P5-B R2 decision contract invariants."""
 
         if self.source != P5_FAILURE_RECOVERY_DECISION_SOURCE:
             raise ValueError(
@@ -215,23 +216,43 @@ class FailureRecoveryDecision(DomainModel):
                 "audit_event_type must be "
                 f"{P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE!r}"
             )
+        if not _contains_cjk(self.user_visible_summary_cn):
+            raise ValueError("user_visible_summary_cn must contain Chinese text")
+        if self.human_decision_reason is not None and not _contains_cjk(
+            self.human_decision_reason
+        ):
+            raise ValueError("human_decision_reason must contain Chinese text")
+        if self.next_instruction_draft is not None and not _contains_cjk(
+            self.next_instruction_draft
+        ):
+            raise ValueError("next_instruction_draft must contain Chinese text")
         if self.retry_allowed and not self.recoverable:
             raise ValueError("retry_allowed requires recoverable")
+        if self.next_instruction_draft_required and self.next_instruction_draft is None:
+            raise ValueError(
+                "next_instruction_draft is required when "
+                "next_instruction_draft_required is true"
+            )
+        if not self.next_instruction_draft_required and self.next_instruction_draft is not None:
+            raise ValueError(
+                "next_instruction_draft must be empty when "
+                "next_instruction_draft_required is false"
+            )
         if self.recommended_owner in {RecoveryOwner.USER, RecoveryOwner.BLOCKED}:
             if self.retry_allowed:
                 raise ValueError("user or blocked decisions must not allow retry")
-            if self.next_instruction_draft is not None:
+            if self.next_instruction_draft_required:
                 raise ValueError(
-                    "user or blocked decisions must not include executable drafts"
+                    "user or blocked decisions must not require executable drafts"
                 )
         if self.recommended_owner in {RecoveryOwner.CODEX, RecoveryOwner.DEEPSEEK}:
             if self.requires_human_decision:
                 raise ValueError(
                     "codex/deepseek decisions must not require human decision"
                 )
-            if self.next_instruction_draft is None:
+            if not self.next_instruction_draft_required:
                 raise ValueError(
-                    "codex/deepseek decisions must include next_instruction_draft"
+                    "codex/deepseek decisions must require next_instruction_draft"
                 )
         if self.requires_human_decision:
             if self.recommended_owner != RecoveryOwner.USER:
@@ -304,6 +325,7 @@ class FailureRecoveryDecisionBuilder:
                 recommended_owner=RecoveryOwner.CODEX,
                 next_action=RecoveryNextAction.FIX_AND_RETRY,
                 next_instruction_kind=InstructionKind.CODE_FIX,
+                next_instruction_draft_required=True,
                 next_instruction_draft=(
                     "建议交给 Codex：请根据失败日志定位执行层或代码实现问题，"
                     "修复后仅运行必要的 targeted tests，并回报失败原因与修复证据。"
@@ -324,6 +346,7 @@ class FailureRecoveryDecisionBuilder:
                 recommended_owner=RecoveryOwner.CODEX,
                 next_action=RecoveryNextAction.FIX_AND_RETRY,
                 next_instruction_kind=InstructionKind.TEST_FIX,
+                next_instruction_draft_required=True,
                 next_instruction_draft=(
                     "建议交给 Codex：请根据验证失败证据修复实现或测试期望，"
                     "只运行对应验证命令，并保留质量门失败到修复通过的证据。"
@@ -344,6 +367,7 @@ class FailureRecoveryDecisionBuilder:
                 recommended_owner=RecoveryOwner.DEEPSEEK,
                 next_action=RecoveryNextAction.FIX_AND_RETRY,
                 next_instruction_kind=InstructionKind.CONFIG_FIX,
+                next_instruction_draft_required=True,
                 next_instruction_draft=(
                     "建议交给 DeepSeek：请审查验证配置、证据口径或 ledger/Gate "
                     "规则是否不一致，先修正配置与证据说明，再允许重试。"
@@ -371,6 +395,7 @@ class FailureRecoveryDecisionBuilder:
                 recommended_owner=RecoveryOwner.USER,
                 next_action=RecoveryNextAction.ESCALATE_TO_HUMAN,
                 next_instruction_kind=InstructionKind.HUMAN_QUESTION,
+                next_instruction_draft_required=False,
                 next_instruction_draft=None,
                 requires_human_decision=True,
                 human_decision_reason="任务已达到重试上限，需要用户判断是否继续投入。",
@@ -388,6 +413,7 @@ class FailureRecoveryDecisionBuilder:
             recommended_owner=RecoveryOwner.BLOCKED,
             next_action=RecoveryNextAction.ARCHIVE,
             next_instruction_kind=InstructionKind.PAUSE,
+            next_instruction_draft_required=False,
             next_instruction_draft=None,
             requires_human_decision=False,
             user_visible_summary_cn="失败类型暂不可自动恢复，建议归档为已知不可修复状态。",
@@ -409,6 +435,7 @@ class FailureRecoveryDecisionBuilder:
             recommended_owner=RecoveryOwner.USER,
             next_action=RecoveryNextAction.ESCALATE_TO_HUMAN,
             next_instruction_kind=InstructionKind.HUMAN_QUESTION,
+            next_instruction_draft_required=False,
             next_instruction_draft=None,
             requires_human_decision=True,
             human_decision_reason="涉及预算限制，需要用户确认是否增加预算或调整策略。",
@@ -429,6 +456,7 @@ class FailureRecoveryDecisionBuilder:
             recommended_owner=RecoveryOwner.USER,
             next_action=RecoveryNextAction.ESCALATE_TO_HUMAN,
             next_instruction_kind=InstructionKind.HUMAN_QUESTION,
+            next_instruction_draft_required=False,
             next_instruction_draft=None,
             requires_human_decision=True,
             human_decision_reason="当前任务正在等待用户或人工审核结果。",
@@ -449,6 +477,7 @@ class FailureRecoveryDecisionBuilder:
             recommended_owner=RecoveryOwner.BLOCKED,
             next_action=RecoveryNextAction.PAUSE_AND_WAIT,
             next_instruction_kind=InstructionKind.PAUSE,
+            next_instruction_draft_required=False,
             next_instruction_draft=None,
             requires_human_decision=False,
             user_visible_summary_cn="存在未满足依赖，任务应暂停等待依赖完成后再恢复。",
@@ -468,6 +497,7 @@ class FailureRecoveryDecisionBuilder:
             recommended_owner=RecoveryOwner.BLOCKED,
             next_action=RecoveryNextAction.PAUSE_AND_WAIT,
             next_instruction_kind=InstructionKind.PAUSE,
+            next_instruction_draft_required=False,
             next_instruction_draft=None,
             requires_human_decision=False,
             user_visible_summary_cn="任务已暂停，需等待暂停条件解除后再继续。",
@@ -487,6 +517,7 @@ class FailureRecoveryDecisionBuilder:
             recommended_owner=RecoveryOwner.BLOCKED,
             next_action=RecoveryNextAction.BLOCK_PERMANENTLY,
             next_instruction_kind=InstructionKind.PAUSE,
+            next_instruction_draft_required=False,
             next_instruction_draft=None,
             requires_human_decision=False,
             user_visible_summary_cn="任务当前状态不允许继续执行，应阻塞而不是重试。",
@@ -508,6 +539,7 @@ class FailureRecoveryDecisionBuilder:
             recommended_owner=RecoveryOwner.USER,
             next_action=RecoveryNextAction.ESCALATE_TO_HUMAN,
             next_instruction_kind=InstructionKind.HUMAN_QUESTION,
+            next_instruction_draft_required=False,
             next_instruction_draft=None,
             requires_human_decision=True,
             human_decision_reason=(
@@ -518,6 +550,17 @@ class FailureRecoveryDecisionBuilder:
             ),
             rule_codes=["consecutive_failure_user_decision"],
         )
+
+
+def _contains_cjk(value: str) -> bool:
+    """Return True when text contains at least one CJK character."""
+
+    return any(
+        "\u4e00" <= char <= "\u9fff"
+        or "\u3400" <= char <= "\u4dbf"
+        or "\uf900" <= char <= "\ufaff"
+        for char in value
+    )
 
 
 _BUDGET_FAILURE_CATEGORIES = {

@@ -45,6 +45,21 @@ EXPECTED_FALSE_SAFETY_FLAGS = {
     "retry_triggered": False,
 }
 
+FORBIDDEN_USER_VISIBLE_GIT_WRITE_COPY = (
+    "git add",
+    "git commit",
+    "git push",
+    "PR",
+    "merge",
+    "删除 branch",
+    "reset",
+    "checkout",
+    "switch",
+    "stash",
+    "rebase",
+    "tag",
+)
+
 
 def _assert_pure_contract(decision: FailureRecoveryDecision) -> None:
     assert decision.source == P5_FAILURE_RECOVERY_DECISION_SOURCE
@@ -52,12 +67,44 @@ def _assert_pure_contract(decision: FailureRecoveryDecision) -> None:
     assert decision.audit_event_type == P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
     assert decision.rule_codes
     assert decision.safety_flags.model_dump() == EXPECTED_FALSE_SAFETY_FLAGS
+    assert decision.next_instruction_draft_required == (
+        decision.next_instruction_draft is not None
+    )
+    assert _contains_cjk(decision.user_visible_summary_cn)
+    assert not any(
+        copy in decision.user_visible_summary_cn
+        for copy in FORBIDDEN_USER_VISIBLE_GIT_WRITE_COPY
+    )
+    if decision.human_decision_reason is not None:
+        assert _contains_cjk(decision.human_decision_reason)
+        assert not any(
+            copy in decision.human_decision_reason
+            for copy in FORBIDDEN_USER_VISIBLE_GIT_WRITE_COPY
+        )
+    if decision.next_instruction_draft is not None:
+        assert _contains_cjk(decision.next_instruction_draft)
+        assert not any(
+            copy in decision.next_instruction_draft
+            for copy in FORBIDDEN_USER_VISIBLE_GIT_WRITE_COPY
+        )
 
     payload = decision.model_dump(mode="json")
     assert payload["source"] == P5_FAILURE_RECOVERY_DECISION_SOURCE
     assert payload["version"] == P5_FAILURE_RECOVERY_DECISION_VERSION
     assert payload["audit_event_type"] == P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
     assert payload["safety_flags"] == EXPECTED_FALSE_SAFETY_FLAGS
+    assert payload["next_instruction_draft_required"] == (
+        payload["next_instruction_draft"] is not None
+    )
+
+
+def _contains_cjk(value: str) -> bool:
+    return any(
+        "\u4e00" <= char <= "\u9fff"
+        or "\u3400" <= char <= "\u4dbf"
+        or "\uf900" <= char <= "\ufaff"
+        for char in value
+    )
 
 
 def test_execution_failure_routes_to_codex_fix_and_retry_without_human_decision():
@@ -73,6 +120,7 @@ def test_execution_failure_routes_to_codex_fix_and_retry_without_human_decision(
     assert decision.recommended_owner == RecoveryOwner.CODEX
     assert decision.next_action == RecoveryNextAction.FIX_AND_RETRY
     assert decision.next_instruction_kind == InstructionKind.CODE_FIX
+    assert decision.next_instruction_draft_required is True
     assert decision.next_instruction_draft is not None
     assert "Codex" in decision.next_instruction_draft
     assert decision.requires_human_decision is False
@@ -92,6 +140,7 @@ def test_verification_failure_routes_to_codex_test_fix():
     assert decision.recommended_owner == RecoveryOwner.CODEX
     assert decision.next_action == RecoveryNextAction.FIX_AND_RETRY
     assert decision.next_instruction_kind == InstructionKind.TEST_FIX
+    assert decision.next_instruction_draft_required is True
     assert decision.requires_human_decision is False
     assert "验证失败" in decision.user_visible_summary_cn
     assert decision.rule_codes == ["failure_verification_codex_test_fix"]
@@ -108,6 +157,7 @@ def test_verification_configuration_failure_routes_to_deepseek_config_fix():
     assert decision.recommended_owner == RecoveryOwner.DEEPSEEK
     assert decision.next_action == RecoveryNextAction.FIX_AND_RETRY
     assert decision.next_instruction_kind == InstructionKind.CONFIG_FIX
+    assert decision.next_instruction_draft_required is True
     assert decision.next_instruction_draft is not None
     assert "DeepSeek" in decision.next_instruction_draft
     assert decision.requires_human_decision is False
@@ -133,6 +183,7 @@ def test_budget_failure_requires_user_decision_and_blocks_retry(failure_category
     assert decision.recommended_owner == RecoveryOwner.USER
     assert decision.next_action == RecoveryNextAction.ESCALATE_TO_HUMAN
     assert decision.next_instruction_kind == InstructionKind.HUMAN_QUESTION
+    assert decision.next_instruction_draft_required is False
     assert decision.next_instruction_draft is None
     assert decision.requires_human_decision is True
     assert decision.human_decision_reason == (
@@ -153,6 +204,8 @@ def test_budget_reason_code_overrides_execution_failure_to_user_decision():
     assert decision.reason_code == TaskBlockingReasonCode.BUDGET_GUARD_BLOCKED
     assert decision.recommended_owner == RecoveryOwner.USER
     assert decision.retry_allowed is False
+    assert decision.next_instruction_draft_required is False
+    assert decision.next_instruction_draft is None
     assert decision.requires_human_decision is True
     assert "预算" in decision.human_decision_reason
     assert decision.rule_codes == ["reason_budget_guard_blocked"]
@@ -169,6 +222,8 @@ def test_retry_limit_exceeded_requires_user_decision():
     assert decision.recommended_owner == RecoveryOwner.USER
     assert decision.next_action == RecoveryNextAction.ESCALATE_TO_HUMAN
     assert decision.next_instruction_kind == InstructionKind.HUMAN_QUESTION
+    assert decision.next_instruction_draft_required is False
+    assert decision.next_instruction_draft is None
     assert decision.requires_human_decision is True
     assert "重试上限" in decision.human_decision_reason
     assert decision.rule_codes == ["failure_retry_limit_user_decision"]
@@ -193,6 +248,8 @@ def test_human_reason_codes_require_user_decision(reason_code):
     assert decision.recommended_owner == RecoveryOwner.USER
     assert decision.next_action == RecoveryNextAction.ESCALATE_TO_HUMAN
     assert decision.retry_allowed is False
+    assert decision.next_instruction_draft_required is False
+    assert decision.next_instruction_draft is None
     assert decision.requires_human_decision is True
     assert "等待用户" in decision.user_visible_summary_cn
     assert decision.rule_codes == ["reason_human_waiting_user_decision"]
@@ -218,6 +275,8 @@ def test_dependency_reason_codes_block_and_pause_without_human_decision(reason_c
     assert decision.recommended_owner == RecoveryOwner.BLOCKED
     assert decision.next_action == RecoveryNextAction.PAUSE_AND_WAIT
     assert decision.next_instruction_kind == InstructionKind.PAUSE
+    assert decision.next_instruction_draft_required is False
+    assert decision.next_instruction_draft is None
     assert decision.requires_human_decision is False
     assert decision.human_decision_reason is None
     assert "依赖" in decision.user_visible_summary_cn
@@ -242,6 +301,8 @@ def test_pause_reason_codes_pause_and_wait(reason_code):
     assert decision.recommended_owner == RecoveryOwner.BLOCKED
     assert decision.next_action == RecoveryNextAction.PAUSE_AND_WAIT
     assert decision.next_instruction_kind == InstructionKind.PAUSE
+    assert decision.next_instruction_draft_required is False
+    assert decision.next_instruction_draft is None
     assert decision.retry_allowed is False
     assert decision.requires_human_decision is False
     assert decision.rule_codes == ["reason_task_paused_wait"]
@@ -257,6 +318,8 @@ def test_task_not_pending_blocks_permanently_without_retry():
     assert decision.recommended_owner == RecoveryOwner.BLOCKED
     assert decision.next_action == RecoveryNextAction.BLOCK_PERMANENTLY
     assert decision.retry_allowed is False
+    assert decision.next_instruction_draft_required is False
+    assert decision.next_instruction_draft is None
     assert decision.requires_human_decision is False
     assert "不允许继续执行" in decision.user_visible_summary_cn
     assert decision.rule_codes == ["reason_status_blocked_permanently"]
@@ -274,6 +337,8 @@ def test_consecutive_failure_threshold_escalates_to_user():
     assert decision.recommended_owner == RecoveryOwner.USER
     assert decision.next_action == RecoveryNextAction.ESCALATE_TO_HUMAN
     assert decision.next_instruction_kind == InstructionKind.HUMAN_QUESTION
+    assert decision.next_instruction_draft_required is False
+    assert decision.next_instruction_draft is None
     assert decision.requires_human_decision is True
     assert decision.human_decision_reason == (
         "任务已连续失败 3 次，需要人工判断是否继续。"
@@ -314,6 +379,7 @@ def test_decision_rejects_human_reason_when_human_decision_is_false():
             recommended_owner=RecoveryOwner.CODEX,
             next_action=RecoveryNextAction.FIX_AND_RETRY,
             next_instruction_kind=InstructionKind.CODE_FIX,
+            next_instruction_draft_required=True,
             next_instruction_draft="建议交给 Codex 修复。",
             human_decision_reason="不应出现。",
             requires_human_decision=False,
@@ -367,13 +433,14 @@ def test_decision_normalizes_blank_optional_text_and_rule_codes():
         recoverable=True,
         retry_allowed=True,
         recommended_owner=RecoveryOwner.CODEX,
-        next_action=RecoveryNextAction.FIX_AND_RETRY,
-        next_instruction_kind=InstructionKind.CODE_FIX,
-        next_instruction_draft=" 建议交给 Codex 修复。 ",
-        human_decision_reason="   ",
-        requires_human_decision=False,
-        user_visible_summary_cn=" 可修复。 ",
-        rule_codes=[" rule_a ", "", "rule_a", "rule_b"],
+            next_action=RecoveryNextAction.FIX_AND_RETRY,
+            next_instruction_kind=InstructionKind.CODE_FIX,
+            next_instruction_draft_required=True,
+            next_instruction_draft=" 建议交给 Codex 修复。 ",
+            human_decision_reason="   ",
+            requires_human_decision=False,
+            user_visible_summary_cn=" 可修复。 ",
+            rule_codes=[" rule_a ", "", "rule_a", "rule_b"],
     )
 
     _assert_pure_contract(decision)
@@ -381,3 +448,116 @@ def test_decision_normalizes_blank_optional_text_and_rule_codes():
     assert decision.human_decision_reason is None
     assert decision.user_visible_summary_cn == "可修复。"
     assert decision.rule_codes == ["rule_a", "rule_b"]
+
+
+def test_decision_rejects_required_draft_when_missing():
+    with pytest.raises(ValidationError, match="next_instruction_draft is required"):
+        FailureRecoveryDecision(
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            recoverable=True,
+            retry_allowed=True,
+            recommended_owner=RecoveryOwner.CODEX,
+            next_action=RecoveryNextAction.FIX_AND_RETRY,
+            next_instruction_kind=InstructionKind.CODE_FIX,
+            next_instruction_draft_required=True,
+            next_instruction_draft=None,
+            requires_human_decision=False,
+            user_visible_summary_cn="可修复。",
+            rule_codes=["manual_invalid"],
+        )
+
+
+def test_decision_rejects_unrequired_draft_when_present():
+    with pytest.raises(ValidationError, match="next_instruction_draft must be empty"):
+        FailureRecoveryDecision(
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            recoverable=True,
+            retry_allowed=True,
+            recommended_owner=RecoveryOwner.CODEX,
+            next_action=RecoveryNextAction.FIX_AND_RETRY,
+            next_instruction_kind=InstructionKind.CODE_FIX,
+            next_instruction_draft_required=False,
+            next_instruction_draft="建议交给 Codex 修复。",
+            requires_human_decision=False,
+            user_visible_summary_cn="可修复。",
+            rule_codes=["manual_invalid"],
+        )
+
+
+def test_decision_rejects_user_visible_summary_without_chinese():
+    with pytest.raises(ValidationError, match="user_visible_summary_cn"):
+        FailureRecoveryDecision(
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            recoverable=True,
+            retry_allowed=True,
+            recommended_owner=RecoveryOwner.CODEX,
+            next_action=RecoveryNextAction.FIX_AND_RETRY,
+            next_instruction_kind=InstructionKind.CODE_FIX,
+            next_instruction_draft_required=True,
+            next_instruction_draft="建议交给 Codex 修复。",
+            requires_human_decision=False,
+            user_visible_summary_cn="fix and retry",
+            rule_codes=["manual_invalid"],
+        )
+
+
+def test_decision_rejects_human_decision_reason_without_chinese():
+    with pytest.raises(ValidationError, match="human_decision_reason"):
+        FailureRecoveryDecision(
+            failure_category=RunFailureCategory.RETRY_LIMIT_EXCEEDED,
+            recoverable=False,
+            retry_allowed=False,
+            recommended_owner=RecoveryOwner.USER,
+            next_action=RecoveryNextAction.ESCALATE_TO_HUMAN,
+            next_instruction_kind=InstructionKind.HUMAN_QUESTION,
+            next_instruction_draft_required=False,
+            next_instruction_draft=None,
+            requires_human_decision=True,
+            human_decision_reason="need user decision",
+            user_visible_summary_cn="需要用户判断是否继续。",
+            rule_codes=["manual_invalid"],
+        )
+
+
+def test_decision_rejects_next_instruction_draft_without_chinese():
+    with pytest.raises(ValidationError, match="next_instruction_draft"):
+        FailureRecoveryDecision(
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            recoverable=True,
+            retry_allowed=True,
+            recommended_owner=RecoveryOwner.CODEX,
+            next_action=RecoveryNextAction.FIX_AND_RETRY,
+            next_instruction_kind=InstructionKind.CODE_FIX,
+            next_instruction_draft_required=True,
+            next_instruction_draft="fix with targeted tests",
+            requires_human_decision=False,
+            user_visible_summary_cn="可修复。",
+            rule_codes=["manual_invalid"],
+        )
+
+
+def test_builder_outputs_chinese_user_visible_fields_without_git_write_suggestions():
+    decisions = [
+        FailureRecoveryDecisionBuilder.build(
+            failure_category=RunFailureCategory.EXECUTION_FAILED
+        ),
+        FailureRecoveryDecisionBuilder.build(
+            failure_category=RunFailureCategory.VERIFICATION_CONFIGURATION_FAILED
+        ),
+        FailureRecoveryDecisionBuilder.build(
+            failure_category=RunFailureCategory.RETRY_LIMIT_EXCEEDED
+        ),
+        FailureRecoveryDecisionBuilder.build(
+            failure_category=RunFailureCategory.EXECUTION_FAILED,
+            reason_code=TaskBlockingReasonCode.DEPENDENCY_MISSING,
+        ),
+    ]
+
+    assert [decision.recommended_owner for decision in decisions] == [
+        RecoveryOwner.CODEX,
+        RecoveryOwner.DEEPSEEK,
+        RecoveryOwner.USER,
+        RecoveryOwner.BLOCKED,
+    ]
+    for decision in decisions:
+        _assert_pure_contract(decision)
