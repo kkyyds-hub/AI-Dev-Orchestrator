@@ -8,10 +8,14 @@ from typing import Any
 from uuid import UUID
 
 from app.domain._base import ensure_utc_datetime, utc_now
+from app.domain.failure_recovery_decision import FailureRecoveryDecisionBuilder
 from app.domain.run import Run, RunFailureCategory, RunStatus
 from app.domain.task import Task, TaskStatus
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.services.run_logging_service import RunLoggingService
+
+
+P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY = "failure_recovery_decision"
 
 
 @dataclass(slots=True, frozen=True)
@@ -266,6 +270,11 @@ class FailureReviewService:
         payload["failure_category"] = (
             review.failure_category.value if review.failure_category is not None else None
         )
+        recovery_decision_payload = _build_recovery_decision_payload(review=review)
+        if recovery_decision_payload is not None:
+            payload[P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY] = (
+                recovery_decision_payload
+            )
         return payload
 
     @staticmethod
@@ -336,3 +345,25 @@ def _parse_datetime(value: Any) -> datetime:
             return utc_now()
 
     return utc_now()
+
+
+def _build_recovery_decision_payload(
+    *,
+    review: FailureReviewRecord,
+) -> dict[str, Any] | None:
+    """Build the P5-C internal recovery decision snapshot for a failed worker run.
+
+    The returned payload is intentionally file-internal. It is not part of
+    ``FailureReviewRecord`` and is therefore not exposed by existing API DTOs,
+    Project Memory items, AgentMessage rows, or frontend contracts.
+    """
+
+    if review.failure_category is None:
+        return None
+    if review.run_status not in {RunStatus.FAILED, RunStatus.CANCELLED}:
+        return None
+
+    decision = FailureRecoveryDecisionBuilder.build(
+        failure_category=review.failure_category,
+    )
+    return decision.model_dump(mode="json")
