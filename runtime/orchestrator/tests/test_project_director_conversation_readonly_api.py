@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -27,8 +27,21 @@ from app.domain.project_director_session import (
     ProjectDirectorSession,
     ProjectDirectorSessionStatus,
 )
+from app.domain.project_director_plan_version import (
+    PlanVersionStatus,
+    ProjectDirectorPlanVersion,
+)
+from app.domain.project_director_task_creation import (
+    ProjectDirectorTaskCreationRecord,
+)
+from app.repositories.project_director_plan_version_repository import (
+    ProjectDirectorPlanVersionRepository,
+)
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
+)
+from app.repositories.project_director_task_creation_repository import (
+    ProjectDirectorTaskCreationRecordRepository,
 )
 from app.repositories.project_repository import ProjectRepository
 
@@ -122,6 +135,48 @@ def _seed_message(
     db_session.commit()
 
 
+def _seed_plan_version(
+    db_session: Session,
+    *,
+    session_id: UUID,
+    project_id: UUID | None = None,
+    version_no: int = 1,
+    status: PlanVersionStatus = PlanVersionStatus.PENDING_CONFIRMATION,
+    created_at: datetime,
+) -> ProjectDirectorPlanVersion:
+    return ProjectDirectorPlanVersionRepository(db_session).create(
+        ProjectDirectorPlanVersion(
+            session_id=session_id,
+            project_id=project_id,
+            version_no=version_no,
+            status=status,
+            plan_summary="测试计划草案",
+            created_at=created_at,
+            updated_at=created_at,
+        )
+    )
+
+
+def _seed_task_creation(
+    db_session: Session,
+    *,
+    plan_version: ProjectDirectorPlanVersion,
+    project_id: UUID,
+    created_at: datetime,
+) -> ProjectDirectorTaskCreationRecord:
+    return ProjectDirectorTaskCreationRecordRepository(db_session).create(
+        ProjectDirectorTaskCreationRecord(
+            plan_version_id=plan_version.id,
+            session_id=plan_version.session_id,
+            project_id=project_id,
+            version_no=plan_version.version_no,
+            task_ids=[uuid4()],
+            task_count=1,
+            created_at=created_at,
+        )
+    )
+
+
 def test_conversation_list_default_sort_by_last_message_desc(
     client: TestClient,
     db_session: Session,
@@ -166,6 +221,211 @@ def test_conversation_list_default_sort_by_last_message_desc(
     assert data["conversations"][0]["last_message_preview"] == "新消息"
     assert data["conversations"][0]["message_count"] == 1
     assert data["conversations"][0]["kind"] == "project_onboarding"
+
+
+def test_conversation_list_sort_uses_last_message_before_session_update(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    now = datetime.now(timezone.utc)
+    recently_updated_session = _seed_session(
+        db_session,
+        goal_text="session 更新较新但消息较旧",
+        updated_at=now,
+    )
+    recently_messaged_session = _seed_session(
+        db_session,
+        goal_text="session 更新较旧但消息较新",
+        updated_at=now - timedelta(hours=6),
+    )
+    _seed_message(
+        db_session,
+        session_id=recently_updated_session.id,
+        role=ProjectDirectorMessageRole.USER,
+        content="较旧消息",
+        sequence_no=1,
+        created_at=now - timedelta(hours=2),
+    )
+    _seed_message(
+        db_session,
+        session_id=recently_messaged_session.id,
+        role=ProjectDirectorMessageRole.USER,
+        content="较新消息",
+        sequence_no=1,
+        created_at=now - timedelta(minutes=5),
+    )
+
+    resp = client.get("/project-director/conversations")
+
+    assert resp.status_code == 200
+    assert resp.json()["conversations"][0]["conversation_id"] == str(
+        recently_messaged_session.id
+    )
+
+
+def test_conversation_list_before_cursor_paginates_without_writes(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    now = datetime.now(timezone.utc)
+    newest = _seed_session(
+        db_session,
+        goal_text="最新会话",
+        updated_at=now - timedelta(hours=4),
+    )
+    middle = _seed_session(
+        db_session,
+        goal_text="中间会话",
+        updated_at=now - timedelta(hours=4),
+    )
+    oldest = _seed_session(
+        db_session,
+        goal_text="最旧会话",
+        updated_at=now - timedelta(hours=4),
+    )
+    for session_obj, minutes_ago in (
+        (newest, 5),
+        (middle, 15),
+        (oldest, 30),
+    ):
+        _seed_message(
+            db_session,
+            session_id=session_obj.id,
+            role=ProjectDirectorMessageRole.USER,
+            content=session_obj.goal_text,
+            sequence_no=1,
+            created_at=now - timedelta(minutes=minutes_ago),
+        )
+    session_count_before = _count_rows(db_session, ProjectDirectorSessionTable)
+    message_count_before = _count_rows(db_session, ProjectDirectorMessageTable)
+
+    first_page = client.get("/project-director/conversations?limit=2")
+    cursor = first_page.json()["conversations"][1]["conversation_id"]
+    second_page = client.get(f"/project-director/conversations?limit=2&before={cursor}")
+
+    assert first_page.status_code == 200
+    assert first_page.json()["has_more"] is True
+    assert [item["conversation_id"] for item in first_page.json()["conversations"]] == [
+        str(newest.id),
+        str(middle.id),
+    ]
+    assert second_page.status_code == 200
+    assert second_page.json()["has_more"] is False
+    assert [item["conversation_id"] for item in second_page.json()["conversations"]] == [
+        str(oldest.id),
+    ]
+    assert _count_rows(db_session, ProjectDirectorSessionTable) == session_count_before
+    assert _count_rows(db_session, ProjectDirectorMessageTable) == message_count_before
+
+
+def test_conversation_list_unknown_before_cursor_rejected(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    now = datetime.now(timezone.utc)
+    _seed_session(
+        db_session,
+        goal_text="已有会话",
+        updated_at=now,
+    )
+
+    resp = client.get(
+        "/project-director/conversations?before=00000000-0000-0000-0000-000000000000"
+    )
+
+    assert resp.status_code == 422
+    assert "cursor" in resp.json()["detail"]
+
+
+def test_conversation_list_limit_is_capped_at_100(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    now = datetime.now(timezone.utc)
+    for index in range(105):
+        session_obj = _seed_session(
+            db_session,
+            goal_text=f"批量会话 {index:03d}",
+            updated_at=now - timedelta(hours=8),
+        )
+        _seed_message(
+            db_session,
+            session_id=session_obj.id,
+            role=ProjectDirectorMessageRole.USER,
+            content=f"消息 {index:03d}",
+            sequence_no=1,
+            created_at=now - timedelta(minutes=index),
+        )
+
+    resp = client.get("/project-director/conversations?limit=500")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["conversations"]) == 100
+    assert data["has_more"] is True
+
+
+def test_conversation_list_kind_is_plan_review_when_latest_plan_exists(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    now = datetime.now(timezone.utc)
+    session_obj = _seed_session(
+        db_session,
+        goal_text="计划审核会话",
+        updated_at=now - timedelta(hours=1),
+    )
+    _seed_plan_version(
+        db_session,
+        session_id=session_obj.id,
+        created_at=now - timedelta(minutes=20),
+    )
+
+    resp = client.get("/project-director/conversations?kind=plan_review")
+
+    assert resp.status_code == 200
+    conversations = resp.json()["conversations"]
+    assert len(conversations) == 1
+    assert conversations[0]["conversation_id"] == str(session_obj.id)
+    assert conversations[0]["kind"] == "plan_review"
+
+
+def test_conversation_list_kind_is_follow_up_when_task_creation_exists(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    now = datetime.now(timezone.utc)
+    project = ProjectRepository(db_session).create(
+        Project(name="Follow-up 项目", summary="kind inference")
+    )
+    session_obj = _seed_session(
+        db_session,
+        goal_text="任务创建后的跟进会话",
+        project_id=project.id,
+        updated_at=now - timedelta(hours=1),
+        status=ProjectDirectorSessionStatus.CONFIRMED,
+    )
+    plan_version = _seed_plan_version(
+        db_session,
+        session_id=session_obj.id,
+        project_id=project.id,
+        status=PlanVersionStatus.CONFIRMED,
+        created_at=now - timedelta(minutes=20),
+    )
+    _seed_task_creation(
+        db_session,
+        plan_version=plan_version,
+        project_id=project.id,
+        created_at=now - timedelta(minutes=10),
+    )
+
+    resp = client.get("/project-director/conversations?kind=follow_up")
+
+    assert resp.status_code == 200
+    conversations = resp.json()["conversations"]
+    assert len(conversations) == 1
+    assert conversations[0]["conversation_id"] == str(session_obj.id)
+    assert conversations[0]["kind"] == "follow_up"
 
 
 def test_conversation_list_project_and_awaiting_user_filters(

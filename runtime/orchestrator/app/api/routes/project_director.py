@@ -2724,6 +2724,7 @@ def list_project_director_conversations(
     status_filter: ConversationStatus | None = Query(default=None, alias="status"),
     kind: ConversationKind | None = None,
     limit: int = 20,
+    before: UUID | None = None,
 ) -> ConversationListResponse:
     """Return the P7 ConversationList read model.
 
@@ -2731,12 +2732,19 @@ def list_project_director_conversations(
     replies, creates tasks/runs/workers, launches executors, or writes Git state.
     """
 
-    result = ProjectDirectorConversationService(db_session).list_conversations(
-        project_id=project_id,
-        status=status_filter,
-        kind=kind,
-        limit=limit,
-    )
+    try:
+        result = ProjectDirectorConversationService(db_session).list_conversations(
+            project_id=project_id,
+            status=status_filter,
+            kind=kind,
+            limit=limit,
+            before=before,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     return ConversationListResponse(
         conversations=[
             ConversationListItemResponse.from_domain(item)

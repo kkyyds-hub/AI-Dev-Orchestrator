@@ -149,10 +149,11 @@ class ProjectDirectorConversationService:
         status: ConversationStatus | None = None,
         kind: ConversationKind | None = None,
         limit: int = 20,
+        before: UUID | None = None,
     ) -> ConversationListResult:
         """Return conversations ordered by latest activity descending."""
 
-        safe_limit = max(1, min(limit, 50))
+        safe_limit = max(1, min(limit, 100))
         session_objects = self._session_repo.list_all(project_id=project_id)
         session_ids = [session_obj.id for session_obj in session_objects]
         message_stats = self._message_stats_by_session_id(session_ids)
@@ -172,7 +173,22 @@ class ProjectDirectorConversationService:
         if status is not None:
             candidates = [item for item in candidates if item.status == status]
 
-        candidates.sort(key=lambda item: item.updated_at, reverse=True)
+        candidates.sort(key=self._list_sort_key, reverse=True)
+        if before is not None:
+            cursor_index = next(
+                (
+                    index
+                    for index, item in enumerate(candidates)
+                    if item.conversation_id == before
+                ),
+                None,
+            )
+            if cursor_index is None:
+                raise ValueError(
+                    f"Project Director conversation cursor {before} not found"
+                )
+            candidates = candidates[cursor_index + 1 :]
+
         return ConversationListResult(
             conversations=candidates[:safe_limit],
             has_more=len(candidates) > safe_limit,
@@ -314,7 +330,10 @@ class ProjectDirectorConversationService:
             conversation_id=session_obj.id,
             project_id=session_obj.project_id,
             title=self._truncate(session_obj.goal_text.strip() or "未命名主管会话", 80),
-            kind=ConversationKind.PROJECT_ONBOARDING,
+            kind=self._conversation_kind(
+                latest_plan_version=latest_plan_version,
+                task_creation=task_creation,
+            ),
             status=conversation_status,
             session_status=session_obj.status.value,
             last_message_preview=self._truncate(stats.last_message_content, 120),
@@ -328,6 +347,18 @@ class ProjectDirectorConversationService:
             created_at=ensure_utc_datetime(session_obj.created_at) or utc_now(),
             updated_at=updated_at,
         )
+
+    @staticmethod
+    def _conversation_kind(
+        *,
+        latest_plan_version: ProjectDirectorPlanVersion | None,
+        task_creation: object | None,
+    ) -> ConversationKind:
+        if task_creation is not None:
+            return ConversationKind.FOLLOW_UP
+        if latest_plan_version is not None:
+            return ConversationKind.PLAN_REVIEW
+        return ConversationKind.PROJECT_ONBOARDING
 
     @staticmethod
     def _conversation_status(
@@ -430,3 +461,15 @@ class ProjectDirectorConversationService:
         if len(normalized) <= limit:
             return normalized
         return normalized[:limit]
+
+    @staticmethod
+    def _list_sort_key(item: ConversationListItem) -> tuple[datetime, datetime, str]:
+        """Stable ConversationList cursor order.
+
+        P7-C freezes the default ConversationList order as latest message activity
+        descending. Sessions without messages still remain visible by falling back
+        to the session-derived updated_at value.
+        """
+
+        activity_at = item.last_message_at or item.updated_at
+        return (activity_at, item.created_at, item.conversation_id.hex)
