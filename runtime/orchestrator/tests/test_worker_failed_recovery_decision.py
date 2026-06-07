@@ -13,6 +13,8 @@ from app.core.config import settings
 from app.core.db_tables import ORMBase
 from app.domain.agent_dispatch_decision import (
     P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE,
+    P6_AGENT_DISPATCH_DECISION_SOURCE,
+    P6_AGENT_DISPATCH_DECISION_VERSION,
 )
 from app.domain.agent_message import AgentMessageType
 from app.domain.failure_recovery_decision import (
@@ -150,6 +152,83 @@ def _assert_p5e_response_decision_payload(
     return decision
 
 
+def _assert_p6e_response_decision_payload(
+    *,
+    response_payload: dict,
+    expected_agent: str,
+    expected_status: str,
+    expected_instruction_kind: str,
+    expected_draft_required: bool,
+) -> dict:
+    """Assert P6-E exposes only a read-only dispatch decision DTO."""
+
+    agent_labels = {
+        "codex": "Codex 继续处理",
+        "deepseek": "DeepSeek 继续处理",
+        "user": "用户决策",
+        "blocked": "阻塞等待",
+    }
+    status_labels = {
+        "suggested": "建议调度",
+        "needs_user_decision": "需要用户决策",
+        "blocked": "阻塞",
+        "not_applicable": "不适用",
+    }
+    instruction_kind_labels = {
+        "code_fix": "代码修复",
+        "test_fix": "测试修复",
+        "config_fix": "配置修复",
+        "evidence_fix": "证据修复",
+        "replay": "重新执行",
+        "pause": "暂停等待",
+        "replan": "重新规划",
+        "human_question": "人工问题",
+    }
+
+    assert "dispatch_decision" not in response_payload
+
+    decision = response_payload["agent_dispatch_decision"]
+    assert decision["source"] == P6_AGENT_DISPATCH_DECISION_SOURCE
+    assert decision["version"] == P6_AGENT_DISPATCH_DECISION_VERSION
+    assert decision["dispatch_decision_id"]
+    assert decision["recommended_agent"] == expected_agent
+    assert decision["recommended_agent_label_cn"] == agent_labels[expected_agent]
+    assert decision["dispatch_status"] == expected_status
+    assert decision["dispatch_status_label_cn"] == status_labels[expected_status]
+    assert decision["dispatch_reason_code"]
+    assert decision["dispatch_reason_cn"]
+    assert decision["instruction_kind"] == expected_instruction_kind
+    assert decision["instruction_kind_label_cn"] == (
+        instruction_kind_labels[expected_instruction_kind]
+    )
+    assert bool(decision["instruction_draft"]) is expected_draft_required
+    assert decision["evidence_refs"]
+    assert decision["audit_event_type"] == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE
+    assert decision["created_at"]
+    assert decision["created_by"] == "TaskWorker.run_once"
+    assert decision["api_response_exposed"] is True
+    assert "safety_flags" not in decision
+    assert decision["safety"]["api_response_exposed"] is True
+    assert decision["safety"]["runs_git"] is False
+    assert decision["safety"]["runs_write_git"] is False
+    assert decision["safety"]["git_add_triggered"] is False
+    assert decision["safety"]["git_commit_triggered"] is False
+    assert decision["safety"]["git_push_triggered"] is False
+    assert decision["safety"]["pr_opened"] is False
+    assert decision["safety"]["worker_dispatch_triggered"] is False
+    assert decision["safety"]["agent_message_written"] is False
+    assert decision["safety"]["task_created"] is False
+    assert decision["safety"]["retry_triggered"] is False
+    assert decision["safety"]["auto_dispatch_triggered"] is False
+    assert all(
+        flag_value is False
+        for flag_name, flag_value in decision["safety"].items()
+        if flag_name != "api_response_exposed"
+    )
+
+    return decision
+
+
 def _assert_worker_result_decision(
     *,
     failure_category: RunFailureCategory,
@@ -161,6 +240,8 @@ def _assert_worker_result_decision(
     expected_retry_allowed: bool,
     expected_draft_required: bool,
     expected_requires_human: bool,
+    expected_dispatch_agent: str,
+    expected_dispatch_status: str,
 ) -> None:
     result = WorkerRunResult(
         claimed=True,
@@ -189,6 +270,17 @@ def _assert_worker_result_decision(
         for flag_value in decision.safety_flags.model_dump().values()
     )
     assert decision.safety_flags.api_response_exposed is False
+    assert result.agent_dispatch_decision is not None
+    dispatch_decision = result.agent_dispatch_decision
+    assert dispatch_decision.recommended_agent.value == expected_dispatch_agent
+    assert dispatch_decision.dispatch_status.value == expected_dispatch_status
+    assert dispatch_decision.instruction_kind.value == expected_instruction_kind
+    assert bool(dispatch_decision.instruction_draft) is expected_draft_required
+    assert dispatch_decision.api_response_exposed is False
+    assert dispatch_decision.safety_flags.api_response_exposed is False
+    assert dispatch_decision.safety_flags.worker_dispatch_triggered is False
+    assert dispatch_decision.safety_flags.retry_triggered is False
+    assert dispatch_decision.safety_flags.auto_dispatch_triggered is False
 
     response_payload = WorkerRunOnceResponse.from_result(result).model_dump(mode="json")
     _assert_p5e_response_decision_payload(
@@ -203,6 +295,13 @@ def _assert_worker_result_decision(
         expected_draft_required=expected_draft_required,
         expected_requires_human=expected_requires_human,
     )
+    _assert_p6e_response_decision_payload(
+        response_payload=response_payload,
+        expected_agent=expected_dispatch_agent,
+        expected_status=expected_dispatch_status,
+        expected_instruction_kind=expected_instruction_kind,
+        expected_draft_required=expected_draft_required,
+    )
 
 
 def test_worker_result_without_failure_category_has_no_recovery_decision():
@@ -214,8 +313,10 @@ def test_worker_result_without_failure_category_has_no_recovery_decision():
     )
 
     assert result.failure_recovery_decision is None
+    assert result.agent_dispatch_decision is None
     response_payload = WorkerRunOnceResponse.from_result(result).model_dump(mode="json")
     assert response_payload["failure_recovery_decision"] is None
+    assert response_payload["agent_dispatch_decision"] is None
     assert "failure_recovery_reason_code" not in response_payload
 
 
@@ -237,6 +338,8 @@ def test_worker_result_preserves_explicit_recovery_decision():
     )
 
     assert result.failure_recovery_decision is explicit_result.failure_recovery_decision
+    assert result.agent_dispatch_decision is not None
+    assert result.agent_dispatch_decision.recommended_agent == "codex"
 
 
 def test_worker_result_carries_execution_failure_recovery_decision():
@@ -249,6 +352,8 @@ def test_worker_result_carries_execution_failure_recovery_decision():
         expected_retry_allowed=True,
         expected_draft_required=True,
         expected_requires_human=False,
+        expected_dispatch_agent="codex",
+        expected_dispatch_status="suggested",
     )
 
 
@@ -262,6 +367,8 @@ def test_worker_result_carries_verification_failure_recovery_decision():
         expected_retry_allowed=True,
         expected_draft_required=True,
         expected_requires_human=False,
+        expected_dispatch_agent="codex",
+        expected_dispatch_status="suggested",
     )
 
 
@@ -275,6 +382,8 @@ def test_worker_result_carries_verification_config_recovery_decision():
         expected_retry_allowed=False,
         expected_draft_required=True,
         expected_requires_human=False,
+        expected_dispatch_agent="deepseek",
+        expected_dispatch_status="suggested",
     )
 
 
@@ -288,6 +397,8 @@ def test_worker_result_carries_daily_budget_recovery_decision():
         expected_retry_allowed=False,
         expected_draft_required=False,
         expected_requires_human=True,
+        expected_dispatch_agent="user",
+        expected_dispatch_status="needs_user_decision",
     )
 
 
@@ -301,6 +412,8 @@ def test_worker_result_carries_session_budget_recovery_decision():
         expected_retry_allowed=False,
         expected_draft_required=False,
         expected_requires_human=True,
+        expected_dispatch_agent="user",
+        expected_dispatch_status="needs_user_decision",
     )
 
 
@@ -314,6 +427,8 @@ def test_worker_result_carries_retry_limit_recovery_decision():
         expected_retry_allowed=False,
         expected_draft_required=False,
         expected_requires_human=True,
+        expected_dispatch_agent="user",
+        expected_dispatch_status="needs_user_decision",
     )
 
 
@@ -328,6 +443,8 @@ def test_worker_result_routes_dependency_missing_reason_to_blocked_pause_decisio
         expected_retry_allowed=False,
         expected_draft_required=False,
         expected_requires_human=False,
+        expected_dispatch_agent="blocked",
+        expected_dispatch_status="blocked",
     )
 
 
@@ -642,8 +759,14 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
         expected_draft_required=True,
         expected_requires_human=False,
     )
+    _assert_p6e_response_decision_payload(
+        response_payload=response_payload,
+        expected_agent="codex",
+        expected_status="suggested",
+        expected_instruction_kind="code_fix",
+        expected_draft_required=True,
+    )
     assert "failure_recovery_reason_code" not in response_payload
-    assert "agent_dispatch_decision" not in response_payload
     assert "dispatch_decision" not in response_payload
 
 
@@ -781,6 +904,7 @@ def test_worker_dispatch_audit_helper_does_not_require_p5_audit_service():
     )
 
     assert result.failure_recovery_decision is not None
+    assert result.agent_dispatch_decision is not None
     assert dispatch_audit_service.call_count == 1
     assert dispatch_audit_service.last_kwargs is not None
     assert dispatch_audit_service.last_kwargs["session"] is agent_session
@@ -790,6 +914,7 @@ def test_worker_dispatch_audit_helper_does_not_require_p5_audit_service():
         "Failed run needs dispatch audit."
     )
     decision = dispatch_audit_service.last_kwargs["decision"]
+    assert decision is result.agent_dispatch_decision
     assert decision.recommended_agent == "codex"
     assert decision.dispatch_status == "suggested"
     assert decision.source_run_id == failed_run.id

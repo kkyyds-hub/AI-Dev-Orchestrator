@@ -15,7 +15,10 @@ from app.domain.agent_session import (
     CodingSessionStatus,
     WorkspaceType,
 )
-from app.domain.agent_dispatch_decision import AgentDispatchDecisionBuilder
+from app.domain.agent_dispatch_decision import (
+    AgentDispatchDecision,
+    AgentDispatchDecisionBuilder,
+)
 from app.domain.project_role import ProjectRoleCode
 from app.domain.prompt_contract import BuiltPromptEnvelope
 from app.domain.prompt_contract import TokenAccountingSnapshot
@@ -369,23 +372,30 @@ class WorkerRunResult:
     delivery_human_approval_gate_allows_next_guardrail: bool | None = None
     failure_recovery_reason_code: TaskBlockingReasonCode | None = None
     failure_recovery_decision: FailureRecoveryDecision | None = None
+    agent_dispatch_decision: AgentDispatchDecision | None = None
     task: Task | None = None
     run: Run | None = None
 
     def __post_init__(self) -> None:
-        """Attach the internal P5-C recovery decision for failed worker results.
+        """Attach internal read-only decisions for failed worker results.
 
-        This is deliberately an internal worker contract field. P5-E may expose
-        it through a read-only API DTO, but building it does not dispatch
-        workers, create tasks, write AgentMessage rows, or run any Git command.
+        These are deliberately internal worker contract fields. P5-E/P6-E may
+        expose them through read-only API DTOs, but building them does not
+        dispatch workers, create tasks, write AgentMessage rows, or run any Git
+        command.
         """
 
-        if self.failure_recovery_decision is not None:
-            return
-        self.failure_recovery_decision = _build_worker_failure_recovery_decision(
-            failure_category=self.failure_category,
-            reason_code=self.failure_recovery_reason_code,
-        )
+        if self.failure_recovery_decision is None:
+            self.failure_recovery_decision = _build_worker_failure_recovery_decision(
+                failure_category=self.failure_category,
+                reason_code=self.failure_recovery_reason_code,
+            )
+        if self.agent_dispatch_decision is None:
+            self.agent_dispatch_decision = _build_worker_agent_dispatch_decision(
+                failure_recovery_decision=self.failure_recovery_decision,
+                task=self.task,
+                run=self.run,
+            )
 
 
 def _build_worker_failure_recovery_decision(
@@ -402,6 +412,25 @@ def _build_worker_failure_recovery_decision(
     return FailureRecoveryDecisionBuilder.build(
         failure_category=failure_category,
         reason_code=normalized_reason_code,
+    )
+
+
+def _build_worker_agent_dispatch_decision(
+    *,
+    failure_recovery_decision: FailureRecoveryDecision | None,
+    task: Task | None = None,
+    run: Run | None = None,
+) -> AgentDispatchDecision | None:
+    """Build the internal P6-C dispatch decision for one worker result."""
+
+    if failure_recovery_decision is None:
+        return None
+
+    return AgentDispatchDecisionBuilder.build_from_failure_recovery_decision(
+        failure_recovery_decision=failure_recovery_decision,
+        source_run_id=run.id if run is not None else None,
+        source_task_id=task.id if task is not None else None,
+        created_by="TaskWorker.run_once",
     )
 
 
@@ -3750,19 +3779,17 @@ class TaskWorker:
                     result_summary=result.run.result_summary or result.result_summary,
                 )
             if self.agent_dispatch_audit_service is not None:
+                if result.agent_dispatch_decision is None:
+                    result.agent_dispatch_decision = _build_worker_agent_dispatch_decision(
+                        failure_recovery_decision=result.failure_recovery_decision,
+                        task=result.task,
+                        run=result.run,
+                    )
+                if result.agent_dispatch_decision is None:
+                    return
                 self.agent_dispatch_audit_service.record_decision(
                     session=agent_session,
-                    decision=(
-                        AgentDispatchDecisionBuilder
-                        .build_from_failure_recovery_decision(
-                            failure_recovery_decision=result.failure_recovery_decision,
-                            source_run_id=result.run.id,
-                            source_task_id=(
-                                result.task.id if result.task is not None else None
-                            ),
-                            created_by="TaskWorker.run_once",
-                        )
-                    ),
+                    decision=result.agent_dispatch_decision,
                     run_status=result.run.status,
                     task_status=result.task.status if result.task is not None else None,
                     result_summary=result.run.result_summary or result.result_summary,

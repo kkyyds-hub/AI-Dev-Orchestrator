@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.agent_dispatch_decision import AgentDispatchDecision
 from app.domain.failure_recovery_decision import FailureRecoveryDecision
 from app.domain.project_role import ProjectRoleCode
 from app.domain.run import (
@@ -276,6 +277,157 @@ class WorkerRunOnceResponse(BaseModel):
                 safety=cls.SafetyResponse.from_decision(decision),
             )
 
+    class AgentDispatchDecisionResponse(BaseModel):
+        """P6-E read-only dispatch decision returned to API callers."""
+
+        AGENT_LABELS_CN: ClassVar[dict[str, str]] = {
+            "codex": "Codex 继续处理",
+            "deepseek": "DeepSeek 继续处理",
+            "user": "用户决策",
+            "blocked": "阻塞等待",
+        }
+        STATUS_LABELS_CN: ClassVar[dict[str, str]] = {
+            "suggested": "建议调度",
+            "needs_user_decision": "需要用户决策",
+            "blocked": "阻塞",
+            "not_applicable": "不适用",
+        }
+        INSTRUCTION_KIND_LABELS_CN: ClassVar[dict[str, str]] = {
+            "code_fix": "代码修复",
+            "test_fix": "测试修复",
+            "config_fix": "配置修复",
+            "evidence_fix": "证据修复",
+            "replay": "重新执行",
+            "pause": "暂停等待",
+            "replan": "重新规划",
+            "human_question": "人工问题",
+        }
+
+        class SafetyResponse(BaseModel):
+            """Read-only P6-E safety flags nested under a dispatch decision."""
+
+            runs_git: bool = False
+            runs_write_git: bool = False
+            git_add_triggered: bool = False
+            git_commit_triggered: bool = False
+            git_push_triggered: bool = False
+            pr_opened: bool = False
+            merge_triggered: bool = False
+            branch_deleted: bool = False
+            git_reset_triggered: bool = False
+            git_checkout_triggered: bool = False
+            git_switch_triggered: bool = False
+            git_stash_triggered: bool = False
+            git_rebase_triggered: bool = False
+            git_tag_triggered: bool = False
+            ci_triggered: bool = False
+            execution_enabled: bool = False
+            worker_dispatch_triggered: bool = False
+            api_response_exposed: bool = True
+            agent_message_written: bool = False
+            task_created: bool = False
+            retry_triggered: bool = False
+            auto_dispatch_triggered: bool = False
+
+            @classmethod
+            def from_decision(
+                cls,
+                decision: AgentDispatchDecision,
+            ) -> "WorkerRunOnceResponse.AgentDispatchDecisionResponse.SafetyResponse":
+                """Copy internal side-effect flags and mark P6-E API exposure."""
+
+                flags = decision.safety_flags
+                return cls(
+                    runs_git=flags.runs_git,
+                    runs_write_git=flags.runs_write_git,
+                    git_add_triggered=flags.git_add_triggered,
+                    git_commit_triggered=flags.git_commit_triggered,
+                    git_push_triggered=flags.git_push_triggered,
+                    pr_opened=flags.pr_opened,
+                    merge_triggered=flags.merge_triggered,
+                    branch_deleted=flags.branch_deleted,
+                    git_reset_triggered=flags.git_reset_triggered,
+                    git_checkout_triggered=flags.git_checkout_triggered,
+                    git_switch_triggered=flags.git_switch_triggered,
+                    git_stash_triggered=flags.git_stash_triggered,
+                    git_rebase_triggered=flags.git_rebase_triggered,
+                    git_tag_triggered=flags.git_tag_triggered,
+                    ci_triggered=flags.ci_triggered,
+                    execution_enabled=flags.execution_enabled,
+                    worker_dispatch_triggered=flags.worker_dispatch_triggered,
+                    api_response_exposed=True,
+                    agent_message_written=flags.agent_message_written,
+                    task_created=flags.task_created,
+                    retry_triggered=flags.retry_triggered,
+                    auto_dispatch_triggered=flags.auto_dispatch_triggered,
+                )
+
+        source: str
+        version: str
+        dispatch_decision_id: str
+        source_failure_recovery_decision_id: str | None = None
+        source_run_id: UUID | None = None
+        source_task_id: UUID | None = None
+        recommended_agent: str
+        recommended_agent_label_cn: str
+        dispatch_status: str
+        dispatch_status_label_cn: str
+        dispatch_reason_code: str
+        dispatch_reason_cn: str
+        instruction_kind: str
+        instruction_kind_label_cn: str
+        instruction_draft: str | None = None
+        evidence_refs: list[str] = Field(default_factory=list)
+        audit_event_type: str
+        created_at: datetime
+        created_by: str
+        api_response_exposed: bool = True
+        safety: SafetyResponse
+
+        @classmethod
+        def from_decision(
+            cls,
+            decision: AgentDispatchDecision,
+        ) -> "WorkerRunOnceResponse.AgentDispatchDecisionResponse":
+            """Copy the internal P6 decision into a read-only API DTO.
+
+            This mapper only serializes existing values. It does not dispatch
+            workers, create tasks, retry runs, write AgentMessage rows, trigger
+            CI, or run Git.
+            """
+
+            return cls(
+                source=decision.source,
+                version=decision.version,
+                dispatch_decision_id=decision.dispatch_decision_id,
+                source_failure_recovery_decision_id=(
+                    decision.source_failure_recovery_decision_id
+                ),
+                source_run_id=decision.source_run_id,
+                source_task_id=decision.source_task_id,
+                recommended_agent=decision.recommended_agent.value,
+                recommended_agent_label_cn=cls.AGENT_LABELS_CN[
+                    decision.recommended_agent.value
+                ],
+                dispatch_status=decision.dispatch_status.value,
+                dispatch_status_label_cn=cls.STATUS_LABELS_CN[
+                    decision.dispatch_status.value
+                ],
+                dispatch_reason_code=decision.dispatch_reason_code,
+                dispatch_reason_cn=decision.dispatch_reason_cn,
+                instruction_kind=decision.instruction_kind.value,
+                instruction_kind_label_cn=cls.INSTRUCTION_KIND_LABELS_CN[
+                    decision.instruction_kind.value
+                ],
+                instruction_draft=decision.instruction_draft,
+                evidence_refs=list(decision.evidence_refs),
+                audit_event_type=decision.audit_event_type,
+                created_at=decision.created_at,
+                created_by=decision.created_by,
+                api_response_exposed=True,
+                safety=cls.SafetyResponse.from_decision(decision),
+            )
+
     claimed: bool
     message: str
     execution_mode: str | None = None
@@ -535,6 +687,7 @@ class WorkerRunOnceResponse(BaseModel):
     delivery_human_approval_gate_allows_write: bool | None = None
     delivery_human_approval_gate_allows_next_guardrail: bool | None = None
     failure_recovery_decision: FailureRecoveryDecisionResponse | None = None
+    agent_dispatch_decision: AgentDispatchDecisionResponse | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -1142,6 +1295,13 @@ class WorkerRunOnceResponse(BaseModel):
                     result.failure_recovery_decision
                 )
                 if result.failure_recovery_decision is not None
+                else None
+            ),
+            agent_dispatch_decision=(
+                cls.AgentDispatchDecisionResponse.from_decision(
+                    result.agent_dispatch_decision
+                )
+                if result.agent_dispatch_decision is not None
                 else None
             ),
             task_id=result.task.id if result.task else None,
