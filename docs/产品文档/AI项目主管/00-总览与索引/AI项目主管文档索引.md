@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Not started；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6-A: Pass（P6 总 Gate Not started）；AI Project Director 总闭环: Partial
 
 ---
 
@@ -18,8 +18,8 @@ docs/产品文档/AI项目主管/
   02-页面与产品基线/       ← 页面信息架构、闭环流程、验收清单
   03-P1-P3运行生命周期/    ← P1 工作树、P2 工作区上下文、P3 运行生命周期
   04-P4交付预览与人工确认/  ← P4 Git Delivery + Human Approval Gate 全链路
-  05-P5失败回流/           ← 尚未开始
-  06-P6智能体调度/         ← 尚未开始
+  05-P5失败回流/           ← P5 已完成（Pass）
+  06-P6智能体调度/         ← P6-A 已启动（P6 总 Gate Not started）
   07-P7主管对话与治理/     ← 尚未开始（对话中枢设计文档已迁移至此）
   08-历史验证与证据/       ← 历史阶段验证文档（工作台/Worker/失败/治理/工作树）
   09-历史归档/            ← 已冻结的历史文档（审计/freeze/gap）
@@ -63,14 +63,17 @@ P4 Git Delivery Preview + Human Approval Gate 的完整链路文档。
 
 ### 05-P5失败回流
 
-P5 Failure Recovery / 失败回流。**设计阶段已启动。**
+P5 Failure Recovery / 失败回流。**已完成（Pass）。**
 
 **关键入口**：
 - [P5失败回流总账与阶段设计-20260607](../05-P5失败回流/P5失败回流总账与阶段设计-20260607.md) — P5 阶段唯一总账，所有 P5 证据统一追加至此
 
 ### 06-P6智能体调度
 
-尚未开始。P6 Agent Orchestration / AI 主管调度。
+P6-A Ledger + Stage Design 已启动。P6 Agent Orchestration / AI 主管调度。**总 Gate Not started。**
+
+**关键入口**：
+- [P6智能体调度总账与阶段设计-20260607](../06-P6智能体调度/P6智能体调度总账与阶段设计-20260607.md) — P6 阶段唯一总账，所有 P6 证据统一追加至此
 
 ### 07-P7主管对话与治理
 
@@ -111,9 +114,10 @@ P5 Failure Recovery / 失败回流。**设计阶段已启动。**
 | P4-F3 | Frontend Confirmation Entry | Pass |
 | P4-F4 | Human Approval E2E Closure / Minimal Verification | Pass |
 | **P4 Final Gate** | **Pass** | — |
-| P5-A | Failure Recovery Ledger + Design | **Pass** |
-| P5-B/C/D/E/F | Failure Recovery Implementation | **Not started** |
-| P6 | Agent Orchestration | **Not started** |
+| P5 | Failure Recovery | **Pass** |
+| P6-A | Agent Orchestration Ledger + Stage Design | **Pass** |
+| P6-B/C/D/E/F/G | Agent Orchestration Implementation | **Not started** |
+| P6 | Agent Orchestration 总 Gate | **Not started** |
 | P7 | Project Director Conversation Hub + Governance | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
 
