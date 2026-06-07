@@ -21,15 +21,17 @@ from app.domain.project import Project
 from app.domain.run import Run, RunFailureCategory, RunStatus
 from app.domain.task import Task, TaskBlockingReasonCode, TaskStatus
 from app.repositories.agent_message_repository import AgentMessageRepository
+from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
+from app.services.failure_recovery_audit_service import FailureRecoveryAuditService
 from app.services.failure_review_service import (
     P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY,
     FailureReviewService,
 )
 from app.services.run_logging_service import RunLoggingService
-from app.workers.task_worker import WorkerRunResult, build_task_worker
+from app.workers.task_worker import TaskWorker, WorkerRunResult, build_task_worker
 
 
 def _assert_p5c_internal_decision_payload(payload: dict) -> dict:
@@ -376,6 +378,29 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
         result = worker.run_once()
         assert result.run is not None
         assert result.agent_session_id is not None
+        assert result.failure_recovery_decision is not None
+
+        agent_session = AgentSessionRepository(session).get_by_id(
+            result.agent_session_id
+        )
+        assert agent_session is not None
+        audit_service = FailureRecoveryAuditService(
+            agent_message_repository=AgentMessageRepository(session)
+        )
+        first_message = audit_service.record_decision(
+            session=agent_session,
+            decision=result.failure_recovery_decision,
+            run_status=result.run.status,
+            task_status=result.task.status if result.task is not None else None,
+            result_summary=result.run.result_summary,
+        )
+        second_message = audit_service.record_decision(
+            session=agent_session,
+            decision=result.failure_recovery_decision,
+            run_status=result.run.status,
+            task_status=result.task.status if result.task is not None else None,
+            result_summary=result.run.result_summary,
+        )
 
         messages = AgentMessageRepository(session).list_by_project_id(
             project_id=project.id,
@@ -410,6 +435,8 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert result.run.status == RunStatus.CANCELLED
     assert result.failure_recovery_decision is not None
     assert len(recovery_messages) == 1
+    assert first_message.id == recovery_messages[0].id
+    assert second_message.id == recovery_messages[0].id
 
     message = recovery_messages[0]
     assert message.message_type == AgentMessageType.TIMELINE
@@ -418,8 +445,13 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert message.task_id == task.id
     assert message.session_id == result.agent_session_id
     assert "P5 失败回流建议" in message.content_summary
-    assert "owner=codex" in message.content_summary
-    assert "action=fix_and_retry" in message.content_summary
+    assert "系统已准备下一步修复指令草案" in message.content_summary
+    assert "暂不需要用户决策" in message.content_summary
+    assert "owner=" not in message.content_summary
+    assert "action=" not in message.content_summary
+    assert "draft_required=" not in message.content_summary
+    assert "codex" not in message.content_summary
+    assert "fix_and_retry" not in message.content_summary
 
     assert message.content_detail is not None
     detail = json.loads(message.content_detail)
@@ -447,3 +479,67 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY not in response_payload
     assert "failure_recovery_decision" not in response_payload
     assert "failure_recovery_reason_code" not in response_payload
+
+
+def test_worker_recovery_audit_helper_skips_empty_session_or_decision():
+    class _CountingFailureRecoveryAuditService:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def record_decision(self, **kwargs):
+            self.call_count += 1
+            raise AssertionError("audit service must not be called for skipped paths")
+
+    class _NoopDbSession:
+        def commit(self) -> None:
+            raise AssertionError("commit must not be called for skipped paths")
+
+        def rollback(self) -> None:
+            raise AssertionError("rollback must not be called for skipped paths")
+
+    audit_service = _CountingFailureRecoveryAuditService()
+    worker = type(
+        "_Worker",
+        (),
+        {
+            "failure_recovery_audit_service": audit_service,
+            "session": _NoopDbSession(),
+        },
+    )()
+
+    failed_run = Run(
+        task_id=Task(title="P5-D helper task", input_summary="skip audit").id,
+        status=RunStatus.FAILED,
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        quality_gate_passed=False,
+    )
+    decision_result = WorkerRunResult(
+        claimed=True,
+        message="failed result with decision",
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        quality_gate_passed=False,
+        run=failed_run,
+    )
+    no_decision_result = WorkerRunResult(
+        claimed=True,
+        message="failed result without decision",
+        failure_category=None,
+        quality_gate_passed=False,
+        run=failed_run,
+    )
+
+    assert decision_result.failure_recovery_decision is not None
+    assert no_decision_result.failure_recovery_decision is None
+
+    TaskWorker._record_failure_recovery_audit_if_needed(
+        worker,
+        agent_session=None,
+        result=decision_result,
+    )
+    TaskWorker._record_failure_recovery_audit_if_needed(
+        worker,
+        agent_session=object(),
+        result=no_decision_result,
+    )
+
+    assert audit_service.call_count == 0

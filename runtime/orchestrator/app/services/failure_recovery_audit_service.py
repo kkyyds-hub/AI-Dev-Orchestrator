@@ -35,6 +35,22 @@ class FailureRecoveryAuditService:
     ) -> AgentMessage:
         """Record one P5 failure recovery decision as a timeline message."""
 
+        existing_message = next(
+            (
+                message
+                for message in self.agent_message_repository.list_by_project_id(
+                    project_id=session.project_id,
+                    limit=1_000,
+                    message_types=[AgentMessageType.TIMELINE],
+                )
+                if message.run_id == session.run_id
+                and message.event_type == decision.audit_event_type
+            ),
+            None,
+        )
+        if existing_message is not None:
+            return existing_message
+
         sequence_no = self.agent_message_repository.get_next_sequence_no(
             session_id=session.id
         )
@@ -67,12 +83,20 @@ class FailureRecoveryAuditService:
     def _summary(decision: FailureRecoveryDecision) -> str:
         """Build a compact Director-visible timeline summary."""
 
+        draft_clause = (
+            "系统已准备下一步修复指令草案。"
+            if decision.next_instruction_draft_required
+            else "当前不需要生成自动修复指令草案。"
+        )
+        human_clause = (
+            "需要用户决策后再继续。"
+            if decision.requires_human_decision
+            else "暂不需要用户决策。"
+        )
         return (
-            "P5 失败回流建议："
-            f"{decision.user_visible_summary_cn} "
-            f"owner={decision.recommended_owner.value} "
-            f"action={decision.next_action.value} "
-            f"draft_required={str(decision.next_instruction_draft_required).lower()}"
+            "P5 失败回流建议：系统已识别该失败并生成下一步处理建议。"
+            f"{draft_clause}"
+            f"{human_clause}"
         )[:2_000]
 
     @staticmethod
