@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7: Not started；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A: Pass（P7 总 Gate Not started）；AI Project Director 总闭环: Partial
 
 ---
 
@@ -20,7 +20,7 @@ docs/产品文档/AI项目主管/
   04-P4交付预览与人工确认/  ← P4 Git Delivery + Human Approval Gate 全链路
   05-P5失败回流/           ← P5 已完成（Pass）
   06-P6智能体调度/         ← P6 已完成（Pass）
-  07-P7主管对话与治理/     ← 尚未开始（对话中枢设计文档已迁移至此）
+  07-P7主管对话与治理/     ← P7-A 已启动（P7 总 Gate Not started）
   08-历史验证与证据/       ← 历史阶段验证文档（工作台/Worker/失败/治理/工作树）
   09-历史归档/            ← 已冻结的历史文档（审计/freeze/gap）
 ```
@@ -78,7 +78,12 @@ P6 Agent Orchestration / AI 主管调度。**已完成（Pass）。**（P6 scope
 
 ### 07-P7主管对话与治理
 
-尚未开始。P7 Project Director Conversation Hub + Governance。对话中枢设计文档已迁移至此目录。
+P7-A Ledger + Stage Design 已启动。P7 Project Director Conversation Hub + Governance。**总 Gate Not started。**
+
+**关键入口**：
+- [P7主管对话与治理总账与阶段设计-20260607](../07-P7主管对话与治理/P7主管对话与治理总账与阶段设计-20260607.md) — P7 阶段唯一总账，所有 P7 证据统一追加至此
+- [P7对话中枢设计-20260603](../07-P7主管对话与治理/P7对话中枢设计-20260603.md) — 历史 Stage 7-B0 设计基线（不删除）
+- [P7对话中枢审计-20260603](../07-P7主管对话与治理/P7对话中枢审计-20260603.md) — 历史 Stage 7-B 审计基线（不删除）
 
 ### 08-历史验证与证据
 
@@ -117,7 +122,9 @@ P6 Agent Orchestration / AI 主管调度。**已完成（Pass）。**（P6 scope
 | **P4 Final Gate** | **Pass** | — |
 | P5 | Failure Recovery | **Pass** |
 | P6 | Agent Orchestration | **Pass**（scoped：调度建议/audit/只读透传/前端展示，不含自动派发/retry/Git 写） |
-| P7 | Project Director Conversation Hub + Governance | **Not started** |
+| P7-A | Conversation Hub + Governance Ledger + Stage Design | **Pass** |
+| P7-B/C/D/E/F/G/H/I/J | Conversation Hub + Governance Implementation | **Not started** |
+| P7 | Conversation Hub + Governance 总 Gate | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
 
 ---
