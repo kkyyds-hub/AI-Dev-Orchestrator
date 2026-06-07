@@ -55,32 +55,32 @@ function resolveProviderStatus(query: {
 }): { label: string; tone: "info" | "success" | "warning" | "danger"; detail: string } {
   if (query.isLoading) {
     return {
-      label: "检查 Provider 配置中",
+      label: "检查 AI 设置中",
       tone: "info",
-      detail: "正在读取 /provider-settings/openai，确认首次真实运行前的 Provider 状态。",
+      detail: "正在确认是否可以启动真实执行。",
     };
   }
 
   if (query.isError) {
     return {
-      label: "Provider 状态未知",
+      label: "AI 设置状态未知",
       tone: "danger",
-      detail: "无法读取 Provider 配置，已禁止启动一次执行。",
+      detail: "暂时不能启动真实执行。",
     };
   }
 
   if (query.data?.configured) {
     return {
-      label: "Provider 已配置",
+      label: "AI 设置已完成",
       tone: "success",
-      detail: `Provider 已配置（${query.data.detected_provider_type} / ${query.data.source}）。启动后可能调用真实 AI provider。`,
+      detail: "启动后可能产生 AI 调用费用。",
     };
   }
 
   return {
-    label: "未配置 Provider",
+    label: "AI 设置未完成",
     tone: "warning",
-    detail: "请先到设置页配置并测试 Provider，再由你本人启动首次真实运行。",
+    detail: "请先到设置页完成配置，再由你本人启动真实执行。",
   };
 }
 
@@ -246,10 +246,10 @@ export function DirectorChatEntry({
       return "AI 项目主管正在记录驳回结论。";
     }
     if (!session && resumeQuery.isLoading && (mode !== "new-project" || resumeSessionId)) {
-      return "正在检查是否有未完成的 Project Director 流程。";
+      return "正在检查是否有未完成的主管流程。";
     }
     if (!session && resumeQuery.isError && (mode !== "new-project" || resumeSessionId)) {
-      return "暂时无法检查未完成流程，你仍可以发起新的 Project Director 会话。";
+      return "暂时无法检查未完成流程，你仍可以发起新的主管会话。";
     }
     if (!session && resumeSessionId && !resumeCandidate && !resumeQuery.isLoading) {
       return "正在按下拉选择恢复指定的未完成 AI 主管会话。";
@@ -445,7 +445,7 @@ export function DirectorChatEntry({
     setNewSessionMode(true);
     setNullSessionInputMessage(null);
     setResumeMessage(
-      "已进入新建主管会话模式。请在输入框描述新目标；这只会创建 Project Director session，不会创建正式项目或任务队列。",
+      "已进入新建主管会话模式。请在输入框描述新目标；这只会开始一段主管对话，不会创建正式项目或任务。",
     );
   };
 
@@ -574,25 +574,25 @@ export function DirectorChatEntry({
   const handleSuggestedRequestChanges = async () => {
     if (!planVersion || planVersion.status !== "pending_confirmation") {
       setPlanReviewMessage(
-        "当前没有待审核的项目草案，不能从 suggested_actions 发起 request_changes。",
+        "当前没有待审核的项目草案，不能要求修改。",
       );
       return;
     }
 
     const feedback = window.prompt(
-      "请输入整改意见。确认后将调用现有 Project Director 草案审核接口 request_changes；不会启动 Worker、创建 Run 或写仓库。",
+      "请输入整改意见。确认后只会更新项目草案，不会自动执行任务或修改仓库。",
     );
     const normalizedFeedback = feedback?.trim() ?? "";
     if (!normalizedFeedback) {
-      setPlanReviewMessage("已取消：request_changes 需要先填写非空整改意见。");
+      setPlanReviewMessage("已取消：请先填写整改意见。");
       return;
     }
 
     const confirmed = window.confirm(
-      "确认要求修改当前项目草案？系统将调用 POST /project-director/plan-versions/{id}/review，action=request_changes，并基于你的整改意见生成替代草案版本。",
+      "确认要求修改当前项目草案？系统会根据你的整改意见生成新的草案版本。",
     );
     if (!confirmed) {
-      setPlanReviewMessage("已取消 suggested_actions 的 request_changes 调用。");
+      setPlanReviewMessage("已取消要求修改。");
       return;
     }
 
@@ -603,21 +603,21 @@ export function DirectorChatEntry({
   const handleSuggestedCreateFormalProject = async () => {
     if (!planVersion || planVersion.status !== "confirmed") {
       setPlanReviewMessage(
-        "当前草案尚未通过人工审核，不能从 suggested_actions 创建正式项目。",
+        "当前草案尚未通过人工审核，不能创建正式项目。",
       );
       return;
     }
 
     if (taskCreation) {
-      setPlanReviewMessage("正式项目与任务队列已创建，无需重复执行 suggested_actions。");
+      setPlanReviewMessage("正式项目与任务已创建，无需重复创建。");
       return;
     }
 
     const confirmed = window.confirm(
-      "确认创建正式项目与任务队列？系统将调用现有 create-formal-project 后端接口；本操作不会启动 Worker、创建 Run、调用 Provider 或写仓库。",
+      "确认创建正式项目与任务？本操作不会自动执行任务，也不会修改仓库。",
     );
     if (!confirmed) {
-      setPlanReviewMessage("已取消 suggested_actions 的 create_formal_project 调用。");
+      setPlanReviewMessage("已取消创建正式项目。");
       return;
     }
 
@@ -630,7 +630,7 @@ export function DirectorChatEntry({
     }
 
     const confirmed = window.confirm(
-      "即将启动一次执行：Provider 已配置，启动后可能调用真实 AI provider 并产生费用。本次仅产生 Run / 日志 / 摘要 / 交付物 / 审批，不会执行 git commit / git push / apply-local。是否继续？",
+      "即将启动一次真实执行：可能产生 AI 调用费用。本次只会产生运行记录、日志、摘要、交付物和审批记录，不会修改仓库。是否继续？",
     );
 
     if (!confirmed) {
@@ -669,7 +669,7 @@ export function DirectorChatEntry({
               {scopedProjectId
                 ? `项目上下文：${selectedProjectName}`
                 : mode === "new-project"
-                  ? "新项目会话：project_id=null"
+                  ? "新项目会话"
                   : "请选择一个正式项目上下文"}
             </span>
           </div>
@@ -685,13 +685,13 @@ export function DirectorChatEntry({
             <div className="space-y-4">
               <div className="rounded-lg border border-[#333333] bg-[#111111] p-4">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                  <span>会话 {session.id.slice(0, 8)}</span>
+                  <span>会话编号：{session.id.slice(0, 8)}</span>
                   <StatusBadge
-                    label={session.status}
+                    label={formatSessionStatus(session.status)}
                     tone={mapSessionTone(session.status)}
                   />
                   <span className="rounded border border-[#333333] px-2 py-0.5 text-zinc-400">
-                    Gate: {session.gate_conclusion}
+                    {formatGateConclusion(session.gate_conclusion)}
                   </span>
                 </div>
                 <p className="whitespace-pre-wrap text-sm text-zinc-300">
@@ -706,7 +706,7 @@ export function DirectorChatEntry({
                       AI 项目主管对话
                     </h3>
                     <p className="mt-1 text-xs text-zinc-500">
-                      已有 session 下的输入会追加到消息时间线，不再新建会话。
+                      继续输入会追加到当前对话，不会新建会话。
                     </p>
                   </div>
                   <span className="rounded border border-[#333333] px-2 py-1 text-[10px] text-zinc-500">
@@ -736,7 +736,7 @@ export function DirectorChatEntry({
                   </div>
                 ) : (
                   <div className="rounded border border-dashed border-[#333333] bg-[#171717] px-3 py-4 text-sm text-zinc-500">
-                    暂无对话消息。你可以继续输入“总结这个草案 / 为什么这么拆 / 有什么风险”，后端会基于当前 session 上下文回复。
+                    暂无对话消息。你可以继续输入“总结这个草案 / 为什么这么拆 / 有什么风险”，系统会基于当前对话回复。
                   </div>
                 )}
               </div>
@@ -899,7 +899,7 @@ export function DirectorChatEntry({
                           label={PROJECT_DIRECTOR_PLAN_STATUS_LABELS[planVersion.status]}
                           tone={mapPlanTone(planVersion.status)}
                         />
-                        <span>Gate: {planVersion.gate_conclusion}</span>
+                        <span>{formatGateConclusion(planVersion.gate_conclusion)}</span>
                       </div>
                       <h3 className="mt-3 text-sm font-medium text-violet-200">
                         AI 项目主管项目草案
@@ -942,7 +942,7 @@ export function DirectorChatEntry({
                   ) : null}
                   {planVersion.forbidden_actions.length > 0 ? (
                     <p className="mt-3 text-xs text-zinc-500">
-                      边界：{planVersion.forbidden_actions.join(" / ")}
+                      安全边界：不会自动执行任务，也不会修改仓库。
                     </p>
                   ) : null}
 
@@ -955,8 +955,8 @@ export function DirectorChatEntry({
                           </h3>
                           <p className="mt-1 text-xs text-zinc-500">
                             项目 {taskCreation.project_name ?? taskCreation.project_id.slice(0, 8)}
-                            {" · "}任务数 {taskCreation.task_count} · 队列状态 {taskCreation.status}
-                            {" · "}Gate: {taskCreation.gate_conclusion}
+                            {" · "}任务数 {taskCreation.task_count}
+                            {" · "}当前结论：{formatGateConclusion(taskCreation.gate_conclusion)}
                           </p>
                         </div>
                         <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
@@ -996,7 +996,7 @@ export function DirectorChatEntry({
                       </div>
                       <div className="mt-3 space-y-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100/90">
                         <p data-testid="director-chat-real-run-confirmation-copy">
-                          运行前确认：点击“启动一次执行”后会再次确认；Provider 已配置时，启动后可能调用真实 AI provider 并产生费用。
+                          运行前确认：点击“启动一次执行”后会再次确认；启动后可能产生 AI 调用费用。
                         </p>
                         {providerConfigured ? (
                           <p data-testid="director-chat-real-run-budget-copy">
@@ -1006,7 +1006,7 @@ export function DirectorChatEntry({
                           </p>
                         ) : null}
                         <p data-testid="director-chat-real-run-safety-copy">
-                          安全声明：本次仅产生 Run / 日志 / 摘要 / 交付物 / 审批，不会执行 git commit / git push / apply-local。
+                          安全声明：本次只会产生运行记录、日志、摘要、交付物和审批记录，不会修改仓库。
                         </p>
                       </div>
                       <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-300">
@@ -1119,7 +1119,7 @@ export function DirectorChatEntry({
                       ) : null}
                       {taskCreation.forbidden_actions.length > 0 ? (
                         <p className="mt-3 text-xs text-zinc-500">
-                          创建边界：{taskCreation.forbidden_actions.join(" / ")}
+                          创建边界：这里只创建项目与任务，不会自动执行，也不会修改仓库。
                         </p>
                       ) : null}
                     </div>
@@ -1144,7 +1144,7 @@ export function DirectorChatEntry({
                 <p>下一步：{session.next_action}</p>
                 {session.forbidden_actions.length > 0 ? (
                   <p className="mt-1">
-                    R1 边界：{session.forbidden_actions.join(" / ")}
+                    安全边界：不会自动执行任务，也不会修改仓库。
                   </p>
                 ) : null}
               </div>
@@ -1165,7 +1165,7 @@ export function DirectorChatEntry({
                 <p className="mb-4 mt-2 text-sm leading-6 text-zinc-500">
                   {newSessionMode
                     ? mode === "new-project"
-                      ? "已进入新建主管会话模式：输入目标后会创建 AI 项目主管会话，payload 中 project_id=null。确认草案前不会创建任务或启动 Worker。"
+                      ? "已进入新建主管会话模式：输入目标后会开始一段主管对话。确认草案前不会创建任务或自动执行。"
                       : "已进入新建主管会话模式：输入目标后会创建绑定当前正式项目的 AI 项目主管会话。"
                     : mode === "new-project"
                     ? "请先从上方主管会话列表选择已有会话，或点击“新建主管会话 / 开始新目标”后再输入目标。"
@@ -1233,7 +1233,7 @@ export function DirectorChatEntry({
                 session
                   ? "继续和 AI 项目主管讨论：总结草案、追问风险、询问下一步..."
                   : newSessionMode
-                    ? "描述你的新目标。提交后会创建 Project Director session，不会创建任务或启动 Worker。"
+                    ? "描述你的新目标。提交后会开始主管对话，不会创建任务或自动执行。"
                     : "请先选择一个主管会话，或点击“新建主管会话 / 开始新目标”。"
               }
               rows={3}
@@ -1262,15 +1262,15 @@ export function DirectorChatEntry({
             <p>
               Ctrl/⌘ + Enter 发送；
               {session
-                ? "已有会话会调用 POST /sessions/{id}/messages 并追加消息。"
+                ? "会把消息追加到当前主管对话。"
                 : newSessionMode
-                  ? "显式新建模式才会创建 Project Director session。"
-                  : "无当前会话时，普通输入不会默默创建 session。"}
+                  ? "只有点击开始新目标后，才会新建主管对话。"
+                  : "未选择或新建对话时，不会自动创建对话。"}
             </p>
             {scopedProjectId ? (
               <p>当前项目范围：{selectedProjectName}</p>
             ) : mode === "new-project" ? (
-              <p>新项目模式：project_id=null</p>
+              <p>新项目模式</p>
             ) : (
               <p>全局项目范围</p>
             )}
@@ -1365,7 +1365,7 @@ function MessageBubble({
           ) : null}
           {message.intent ? (
             <span className="rounded border border-[#333333] px-1.5 py-0.5 text-zinc-500">
-              intent: {message.intent}
+              意图：{formatMessageIntent(message.intent)}
             </span>
           ) : null}
         </div>
@@ -1386,7 +1386,7 @@ function MessageBubble({
         ) : null}
         {!isUser && message.forbidden_actions_detected.length > 0 ? (
           <p className="mt-2 text-[10px] leading-4 text-zinc-600">
-            安全边界：{message.forbidden_actions_detected.join(" / ")}
+            安全边界：不会自动执行任务，也不会修改仓库。
           </p>
         ) : null}
       </div>
@@ -1403,7 +1403,7 @@ function SourceBadge({
     source === "ai"
       ? "AI 生成"
       : source === "rule_fallback"
-        ? "规则 fallback"
+        ? "系统规则"
         : "系统";
   const toneClass =
     source === "ai"
@@ -1459,11 +1459,11 @@ function SuggestedActions({
         <div>
           <p className="text-xs font-medium text-violet-100">AI 主管建议</p>
           <p className="mt-1 text-[10px] leading-4 text-violet-100/70">
-            仅 request_changes / create_formal_project 可在你确认后调用既有后端闭环；其它 suggested_actions 仍为只读或禁用。
+            只有“要求修改”和“创建正式项目”会在你确认后继续；其它建议只展示，不会执行。
           </p>
         </div>
         <span className="w-fit rounded border border-[#333333] bg-[#111111] px-2 py-0.5 text-[10px] text-zinc-500">
-          confirmation bridge
+          需要你确认
         </span>
       </div>
       <ol className="mt-3 space-y-2">
@@ -1486,11 +1486,11 @@ function SuggestedActions({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-zinc-100">
-                    {action.label || action.type || "下一步建议"}
+                    {formatSuggestedActionLabel(action)}
                   </p>
                   {action.type ? (
                     <p className="mt-1 text-[10px] text-zinc-600">
-                      类型：{action.type}
+                      类型：{formatSuggestedActionType(action.type)}
                     </p>
                   ) : null}
                 </div>
@@ -1564,7 +1564,7 @@ function resolveSuggestedActionBridge({
       return {
         kind: "request_changes",
         buttonLabel: "整改提交中...",
-        description: "正在调用既有草案审核接口，请等待完成。",
+        description: "正在提交修改意见，请等待完成。",
         disabled: true,
       };
     }
@@ -1572,7 +1572,7 @@ function resolveSuggestedActionBridge({
       return {
         kind: "request_changes",
         buttonLabel: "要求修改",
-        description: "仅待审核的项目草案可执行 request_changes；当前状态不满足。",
+        description: "只有待审核的项目草案才能要求修改；当前状态不满足。",
         disabled: true,
       };
     }
@@ -1580,7 +1580,7 @@ function resolveSuggestedActionBridge({
       kind: "request_changes",
       buttonLabel: "填写意见并确认要求修改",
       description:
-        "确认后调用现有 plan review 接口 action=request_changes；需要你输入非空整改意见。",
+        "确认后会按你的意见生成新的草案；需要你输入整改意见。",
       disabled: false,
     };
   }
@@ -1590,7 +1590,7 @@ function resolveSuggestedActionBridge({
       return {
         kind: "create_formal_project",
         buttonLabel: "创建中...",
-        description: "正在调用既有 create-formal-project 接口，请等待完成。",
+        description: "正在创建正式项目，请等待完成。",
         disabled: true,
       };
     }
@@ -1598,7 +1598,7 @@ function resolveSuggestedActionBridge({
       return {
         kind: "create_formal_project",
         buttonLabel: "已创建",
-        description: "正式项目与任务队列已创建，不能从 suggested_actions 重复执行。",
+        description: "正式项目与任务已创建，不能重复创建。",
         disabled: true,
       };
     }
@@ -1614,7 +1614,7 @@ function resolveSuggestedActionBridge({
       kind: "create_formal_project",
       buttonLabel: "确认创建正式项目",
       description:
-        "确认后调用既有 create-formal-project 接口，只创建正式项目与任务队列，不启动 Worker。",
+        "确认后只创建正式项目与任务，不会自动执行任务。",
       disabled: false,
     };
   }
@@ -1624,7 +1624,7 @@ function resolveSuggestedActionBridge({
       kind: "disabled",
       buttonLabel: "不可从建议启动",
       description:
-        "run_worker_once 属于高风险执行入口，本阶段禁止从 suggested_actions 触发；如需运行，请使用正式项目卡片中的受控按钮并再次确认。",
+        "执行任务需要额外确认，不能从这条建议直接启动。",
       disabled: true,
     };
   }
@@ -1633,7 +1633,7 @@ function resolveSuggestedActionBridge({
     kind: "disabled",
     buttonLabel: "只读建议",
     description:
-      "该 suggested_action 当前没有桥接后端动作，仅展示建议内容，不会执行。",
+      "这条建议只用于查看，不会执行任何操作。",
     disabled: true,
   };
 }
@@ -1682,15 +1682,74 @@ function PlanGenerationErrorPanel({ message }: { message: string }) {
     >
       <p className="text-sm font-medium text-red-200">AI 计划草案生成失败</p>
       <p className="mt-1 text-xs leading-5 text-red-100/90">
-        Provider 已配置/已尝试生成时，系统不会自动展示 rule_fallback 模板草案，
-        以免把系统规则模板误认为 AI 项目主管输出。请根据下方原因调整目标/约束、
-        检查 Provider 输出后重试。
+        系统不会自动展示模板草案，以免把规则模板误认为 AI 项目主管输出。
+        请根据下方原因调整目标或约束后重试。
       </p>
       <p className="mt-2 whitespace-pre-wrap rounded border border-red-500/20 bg-[#111111] px-3 py-2 text-xs text-red-100">
         {message}
       </p>
     </div>
   );
+}
+
+function formatSessionStatus(status: ProjectDirectorSession["status"]) {
+  switch (status) {
+    case "draft":
+      return "草稿";
+    case "clarifying":
+      return "澄清中";
+    case "ready_to_confirm":
+      return "待确认";
+    case "confirmed":
+      return "已确认";
+    default:
+      return "未知状态";
+  }
+}
+
+function formatGateConclusion(value: string) {
+  if (!value) {
+    return "当前结论：待确认";
+  }
+  if (value.toLowerCase().includes("pass")) {
+    return "当前结论：通过";
+  }
+  if (value.toLowerCase().includes("partial")) {
+    return "当前结论：部分完成";
+  }
+  return `当前结论：${value}`;
+}
+
+function formatMessageIntent(value: string) {
+  const labels: Record<string, string> = {
+    ask_clarifying_question: "澄清问题",
+    answer_question: "回答问题",
+    plan_review: "草案审核",
+    follow_up: "继续讨论",
+  };
+  return labels[value] ?? "继续讨论";
+}
+
+function formatSuggestedActionLabel(action: ProjectDirectorSuggestedAction) {
+  if (action.type === "request_changes") {
+    return "要求修改项目草案";
+  }
+  if (action.type === "create_formal_project") {
+    return "创建正式项目";
+  }
+  if (action.type === "run_worker_once") {
+    return "启动一次执行";
+  }
+  return action.label || "下一步建议";
+}
+
+function formatSuggestedActionType(value: string) {
+  const labels: Record<string, string> = {
+    request_changes: "要求修改",
+    create_formal_project: "创建正式项目",
+    run_worker_once: "启动执行",
+  };
+  return labels[value] ?? "建议";
 }
 
 function mapSessionTone(status: ProjectDirectorSession["status"]) {

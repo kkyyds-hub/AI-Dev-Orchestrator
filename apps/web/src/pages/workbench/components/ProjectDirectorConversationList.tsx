@@ -48,12 +48,13 @@ export function ProjectDirectorConversationList({
         <div>
           <h2 className="text-sm font-semibold text-zinc-100">主管会话列表</h2>
           <p className="mt-1 text-xs text-zinc-500">
-            只读读取 ConversationList；点击会话仅恢复消息，不创建 session、不触发
-            Provider。
+            这里列出已有主管对话。点击只会查看历史内容，不会自动执行任务。
           </p>
         </div>
         <span className="w-fit rounded border border-[#333333] px-2 py-1 text-[10px] text-zinc-500">
-          {projectId ? `project ${projectId.slice(0, 8)}` : "全部 / 新项目会话"}
+          {projectId
+            ? `当前项目：${projectId.slice(0, 8)}`
+            : "全部项目 / 新项目会话"}
         </span>
       </div>
 
@@ -147,10 +148,10 @@ export function ProjectDirectorConversationList({
                     <span>{formatDateTime(activityAt)}</span>
                     <span>{conversation.message_count} 条消息</span>
                     <span>
-                      {conversation.owner_scope}
+                      {formatOwnerScope(conversation.owner_scope)}
                       {conversation.project_id
-                        ? ` · ${conversation.project_id.slice(0, 8)}`
-                        : " · project_id=null"}
+                        ? ` · 项目编号：${conversation.project_id.slice(0, 8)}`
+                        : " · 新项目会话"}
                     </span>
                     {conversation.pending_challenge_count > 0 ? (
                       <span>{conversation.pending_challenge_count} 个待处理质疑</span>
@@ -167,6 +168,16 @@ export function ProjectDirectorConversationList({
       ) : null}
     </section>
   );
+}
+
+function formatOwnerScope(value: string) {
+  if (value === "project") {
+    return "项目对话";
+  }
+  if (value === "user") {
+    return "个人对话";
+  }
+  return "主管对话";
 }
 
 function mapConversationStatusTone(
