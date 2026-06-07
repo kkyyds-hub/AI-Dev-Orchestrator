@@ -16,7 +16,7 @@ from app.domain.failure_recovery_decision import (
     P5_FAILURE_RECOVERY_DECISION_VERSION,
 )
 from app.domain.run import Run, RunFailureCategory, RunStatus
-from app.domain.task import Task, TaskStatus
+from app.domain.task import Task, TaskBlockingReasonCode, TaskStatus
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.failure_review_service import (
@@ -54,6 +54,7 @@ def _assert_p5c_internal_decision_payload(payload: dict) -> dict:
 def _assert_worker_result_decision(
     *,
     failure_category: RunFailureCategory,
+    reason_code: TaskBlockingReasonCode | None = None,
     expected_owner: str,
     expected_action: str,
     expected_instruction_kind: str,
@@ -66,6 +67,7 @@ def _assert_worker_result_decision(
         claimed=True,
         message="internal failed worker result",
         failure_category=failure_category,
+        failure_recovery_reason_code=reason_code,
         quality_gate_passed=False,
     )
 
@@ -75,6 +77,7 @@ def _assert_worker_result_decision(
     assert decision.version == P5_FAILURE_RECOVERY_DECISION_VERSION
     assert decision.audit_event_type == P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
     assert decision.failure_category == failure_category
+    assert decision.reason_code == reason_code
     assert decision.recommended_owner.value == expected_owner
     assert decision.next_action.value == expected_action
     assert decision.next_instruction_kind.value == expected_instruction_kind
@@ -89,6 +92,7 @@ def _assert_worker_result_decision(
 
     response_payload = WorkerRunOnceResponse.from_result(result).model_dump(mode="json")
     assert P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY not in response_payload
+    assert "failure_recovery_reason_code" not in response_payload
     assert "failure_recovery_decision" not in response_payload
 
 
@@ -198,6 +202,20 @@ def test_worker_result_carries_retry_limit_recovery_decision():
         expected_retry_allowed=False,
         expected_draft_required=False,
         expected_requires_human=True,
+    )
+
+
+def test_worker_result_routes_dependency_missing_reason_to_blocked_pause_decision():
+    _assert_worker_result_decision(
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        reason_code=TaskBlockingReasonCode.DEPENDENCY_MISSING,
+        expected_owner="blocked",
+        expected_action="pause_and_wait",
+        expected_instruction_kind="pause",
+        expected_recoverable=False,
+        expected_retry_allowed=False,
+        expected_draft_required=False,
+        expected_requires_human=False,
     )
 
 

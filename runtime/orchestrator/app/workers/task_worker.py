@@ -364,6 +364,7 @@ class WorkerRunResult:
     delivery_human_approval_operation_applied: bool | None = None
     delivery_human_approval_gate_allows_write: bool | None = None
     delivery_human_approval_gate_allows_next_guardrail: bool | None = None
+    failure_recovery_reason_code: TaskBlockingReasonCode | None = None
     failure_recovery_decision: FailureRecoveryDecision | None = None
     task: Task | None = None
     run: Run | None = None
@@ -378,12 +379,43 @@ class WorkerRunResult:
 
         if self.failure_recovery_decision is not None:
             return
-        if self.failure_category is None:
-            return
-
-        self.failure_recovery_decision = FailureRecoveryDecisionBuilder.build(
+        self.failure_recovery_decision = _build_worker_failure_recovery_decision(
             failure_category=self.failure_category,
+            reason_code=self.failure_recovery_reason_code,
         )
+
+
+def _build_worker_failure_recovery_decision(
+    *,
+    failure_category: RunFailureCategory | None,
+    reason_code: TaskBlockingReasonCode | str | None = None,
+) -> FailureRecoveryDecision | None:
+    """Build the internal P5-C recovery decision for one worker result."""
+
+    if failure_category is None:
+        return None
+
+    normalized_reason_code = _normalize_worker_recovery_reason_code(reason_code)
+    return FailureRecoveryDecisionBuilder.build(
+        failure_category=failure_category,
+        reason_code=normalized_reason_code,
+    )
+
+
+def _normalize_worker_recovery_reason_code(
+    reason_code: TaskBlockingReasonCode | str | None,
+) -> TaskBlockingReasonCode | None:
+    """Normalize worker-side recovery reason codes before decision routing."""
+
+    if reason_code is None:
+        return None
+    if isinstance(reason_code, TaskBlockingReasonCode):
+        return reason_code
+
+    try:
+        return TaskBlockingReasonCode(str(reason_code))
+    except ValueError:
+        return None
 
 
 @dataclass(slots=True, frozen=True)
