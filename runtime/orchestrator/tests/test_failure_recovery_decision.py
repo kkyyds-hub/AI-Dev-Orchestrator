@@ -536,6 +536,116 @@ def test_decision_rejects_next_instruction_draft_without_chinese():
         )
 
 
+@pytest.mark.parametrize(
+    ("failure_category", "overrides", "expected_error"),
+    [
+        (
+            RunFailureCategory.EXECUTION_FAILED,
+            {
+                "recommended_owner": RecoveryOwner.DEEPSEEK,
+                "next_instruction_kind": InstructionKind.CONFIG_FIX,
+            },
+            "execution failure_category invariant",
+        ),
+        (
+            RunFailureCategory.VERIFICATION_FAILED,
+            {"next_instruction_kind": InstructionKind.CODE_FIX},
+            "verification failure_category invariant",
+        ),
+        (
+            RunFailureCategory.VERIFICATION_CONFIGURATION_FAILED,
+            {
+                "retry_allowed": True,
+                "recommended_owner": RecoveryOwner.CODEX,
+                "next_instruction_kind": InstructionKind.CODE_FIX,
+            },
+            "verification-configuration failure_category invariant",
+        ),
+    ],
+)
+def test_decision_rejects_invalid_fixable_failure_category_contracts(
+    failure_category,
+    overrides,
+    expected_error,
+):
+    values = {
+        "failure_category": failure_category,
+        "recoverable": True,
+        "retry_allowed": True,
+        "recommended_owner": RecoveryOwner.CODEX,
+        "next_action": RecoveryNextAction.FIX_AND_RETRY,
+        "next_instruction_kind": InstructionKind.CODE_FIX,
+        "next_instruction_draft_required": True,
+        "next_instruction_draft": "建议交给 Codex 修复。",
+        "requires_human_decision": False,
+        "user_visible_summary_cn": "可修复。",
+        "rule_codes": ["manual_invalid"],
+    }
+    if failure_category == RunFailureCategory.VERIFICATION_FAILED:
+        values["next_instruction_kind"] = InstructionKind.TEST_FIX
+    if failure_category == RunFailureCategory.VERIFICATION_CONFIGURATION_FAILED:
+        values.update(
+            {
+                "retry_allowed": False,
+                "recommended_owner": RecoveryOwner.DEEPSEEK,
+                "next_instruction_kind": InstructionKind.CONFIG_FIX,
+                "next_instruction_draft": "建议交给 DeepSeek 修正配置。",
+            }
+        )
+    values.update(overrides)
+
+    with pytest.raises(ValidationError, match=expected_error):
+        FailureRecoveryDecision(**values)
+
+
+@pytest.mark.parametrize(
+    "failure_category",
+    [
+        RunFailureCategory.DAILY_BUDGET_EXCEEDED,
+        RunFailureCategory.SESSION_BUDGET_EXCEEDED,
+        RunFailureCategory.RETRY_LIMIT_EXCEEDED,
+    ],
+)
+def test_decision_rejects_budget_or_retry_limit_category_without_user_decision(
+    failure_category,
+):
+    with pytest.raises(ValidationError, match="failure_category invariant"):
+        FailureRecoveryDecision(
+            failure_category=failure_category,
+            recoverable=False,
+            retry_allowed=False,
+            recommended_owner=RecoveryOwner.BLOCKED,
+            next_action=RecoveryNextAction.PAUSE_AND_WAIT,
+            next_instruction_kind=InstructionKind.PAUSE,
+            next_instruction_draft_required=False,
+            next_instruction_draft=None,
+            requires_human_decision=False,
+            user_visible_summary_cn="暂不继续。",
+            rule_codes=["manual_invalid"],
+        )
+
+
+def test_reason_code_override_allows_execution_failure_to_be_blocked():
+    decision = FailureRecoveryDecision(
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        reason_code=TaskBlockingReasonCode.DEPENDENCY_MISSING,
+        recoverable=False,
+        retry_allowed=False,
+        recommended_owner=RecoveryOwner.BLOCKED,
+        next_action=RecoveryNextAction.PAUSE_AND_WAIT,
+        next_instruction_kind=InstructionKind.PAUSE,
+        next_instruction_draft_required=False,
+        next_instruction_draft=None,
+        requires_human_decision=False,
+        user_visible_summary_cn="存在依赖缺失，暂停等待。",
+        rule_codes=["manual_dependency_override"],
+    )
+
+    _assert_pure_contract(decision)
+    assert decision.reason_code == TaskBlockingReasonCode.DEPENDENCY_MISSING
+    assert decision.recommended_owner == RecoveryOwner.BLOCKED
+
+
 def test_builder_outputs_chinese_user_visible_fields_without_git_write_suggestions():
     decisions = [
         FailureRecoveryDecisionBuilder.build(

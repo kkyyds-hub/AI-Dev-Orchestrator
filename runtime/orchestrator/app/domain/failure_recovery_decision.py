@@ -19,7 +19,7 @@ from app.domain.task import TaskBlockingReasonCode
 
 
 P5_FAILURE_RECOVERY_DECISION_SOURCE = "failure_recovery_decision"
-P5_FAILURE_RECOVERY_DECISION_VERSION = "p5_b.r2"
+P5_FAILURE_RECOVERY_DECISION_VERSION = "p5_b.r3"
 P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE = "failure_recovery_decision"
 P5_CONSECUTIVE_FAILURE_HUMAN_THRESHOLD = 3
 
@@ -201,7 +201,7 @@ class FailureRecoveryDecision(DomainModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "FailureRecoveryDecision":
-        """Validate P5-B R2 decision contract invariants."""
+        """Validate P5-B R3 decision contract invariants."""
 
         if self.source != P5_FAILURE_RECOVERY_DECISION_SOURCE:
             raise ValueError(
@@ -271,7 +271,93 @@ class FailureRecoveryDecision(DomainModel):
                 "human_decision_reason must be empty when "
                 "requires_human_decision is false."
             )
+        self._validate_failure_category_invariants()
         return self
+
+    def _validate_failure_category_invariants(self) -> None:
+        """Validate failure-category-level P5 recovery invariants."""
+
+        if self.failure_category in _BUDGET_FAILURE_CATEGORIES:
+            _require_category_contract(
+                category_name="budget failure_category",
+                condition=(
+                    not self.recoverable
+                    and not self.retry_allowed
+                    and self.recommended_owner == RecoveryOwner.USER
+                    and self.next_action == RecoveryNextAction.ESCALATE_TO_HUMAN
+                    and self.next_instruction_kind == InstructionKind.HUMAN_QUESTION
+                    and not self.next_instruction_draft_required
+                    and self.requires_human_decision
+                    and self.human_decision_reason is not None
+                ),
+            )
+            return
+
+        if self.failure_category == RunFailureCategory.RETRY_LIMIT_EXCEEDED:
+            _require_category_contract(
+                category_name="retry-limit failure_category",
+                condition=(
+                    not self.recoverable
+                    and not self.retry_allowed
+                    and self.recommended_owner == RecoveryOwner.USER
+                    and self.next_action == RecoveryNextAction.ESCALATE_TO_HUMAN
+                    and self.next_instruction_kind == InstructionKind.HUMAN_QUESTION
+                    and not self.next_instruction_draft_required
+                    and self.requires_human_decision
+                    and self.human_decision_reason is not None
+                ),
+            )
+            return
+
+        if _CATEGORY_ESCALATION_RULE_CODES.intersection(self.rule_codes):
+            return
+
+        if self.reason_code in _REASON_OVERRIDE_CODES:
+            return
+
+        if self.failure_category == RunFailureCategory.EXECUTION_FAILED:
+            _require_category_contract(
+                category_name="execution failure_category",
+                condition=(
+                    self.recoverable
+                    and self.retry_allowed
+                    and self.recommended_owner == RecoveryOwner.CODEX
+                    and self.next_action == RecoveryNextAction.FIX_AND_RETRY
+                    and self.next_instruction_kind == InstructionKind.CODE_FIX
+                    and self.next_instruction_draft_required
+                    and not self.requires_human_decision
+                ),
+            )
+            return
+
+        if self.failure_category == RunFailureCategory.VERIFICATION_FAILED:
+            _require_category_contract(
+                category_name="verification failure_category",
+                condition=(
+                    self.recoverable
+                    and self.retry_allowed
+                    and self.recommended_owner == RecoveryOwner.CODEX
+                    and self.next_action == RecoveryNextAction.FIX_AND_RETRY
+                    and self.next_instruction_kind == InstructionKind.TEST_FIX
+                    and self.next_instruction_draft_required
+                    and not self.requires_human_decision
+                ),
+            )
+            return
+
+        if self.failure_category == RunFailureCategory.VERIFICATION_CONFIGURATION_FAILED:
+            _require_category_contract(
+                category_name="verification-configuration failure_category",
+                condition=(
+                    self.recoverable
+                    and not self.retry_allowed
+                    and self.recommended_owner == RecoveryOwner.DEEPSEEK
+                    and self.next_action == RecoveryNextAction.FIX_AND_RETRY
+                    and self.next_instruction_kind == InstructionKind.CONFIG_FIX
+                    and self.next_instruction_draft_required
+                    and not self.requires_human_decision
+                ),
+            )
 
 
 class FailureRecoveryDecisionBuilder:
@@ -563,6 +649,13 @@ def _contains_cjk(value: str) -> bool:
     )
 
 
+def _require_category_contract(*, category_name: str, condition: bool) -> None:
+    """Raise when a decision violates a failure-category-level contract."""
+
+    if not condition:
+        raise ValueError(f"{category_name} invariant violated")
+
+
 _BUDGET_FAILURE_CATEGORIES = {
     RunFailureCategory.DAILY_BUDGET_EXCEEDED,
     RunFailureCategory.SESSION_BUDGET_EXCEEDED,
@@ -590,4 +683,16 @@ _PAUSE_REASON_CODES = {
 
 _STATUS_BLOCKED_REASON_CODES = {
     TaskBlockingReasonCode.TASK_NOT_PENDING,
+}
+
+_REASON_OVERRIDE_CODES = (
+    _BUDGET_REASON_CODES
+    | _HUMAN_REASON_CODES
+    | _DEPENDENCY_REASON_CODES
+    | _PAUSE_REASON_CODES
+    | _STATUS_BLOCKED_REASON_CODES
+)
+
+_CATEGORY_ESCALATION_RULE_CODES = {
+    "consecutive_failure_user_decision",
 }
