@@ -7,10 +7,12 @@ import { useConsoleEventStream } from "../../features/events/hooks";
 import { useRunWorkerOnce } from "../../features/task-actions/hooks";
 import { useProjectDirectorWorkbenchResumableSessions } from "../../features/project-director/hooks";
 import { formatDateTime } from "../../lib/format";
+import { buildRunRoute } from "../../lib/run-route";
 import { buildTaskRoute } from "../../lib/task-route";
 import { useProjectScope } from "../shared/useProjectScope";
 import { DirectorChatEntry } from "./components/DirectorChatEntry";
 import { ProjectDirectorConversationList } from "./components/ProjectDirectorConversationList";
+import { ProjectDirectorInboxPanel } from "./components/ProjectDirectorInboxPanel";
 import {
   parseDirectorSessionOptionValue,
   WorkbenchHeader,
@@ -203,6 +205,26 @@ export function WorkbenchPage() {
     );
   };
 
+  const handleNavigateToRun = (
+    runId: string,
+    taskId: string,
+    projectId?: string | null,
+  ) => {
+    const fallbackProjectId =
+      activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all"
+        ? activeProjectId
+        : null;
+
+    navigate(
+      buildRunRoute({
+        runId,
+        taskId,
+        from: "workbench",
+        projectId: projectId ?? fallbackProjectId,
+      }),
+    );
+  };
+
   const handleNavigateToTasks = () => {
     if (activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all") {
       navigate(`/tasks?projectId=${activeProjectId}`);
@@ -357,6 +379,18 @@ export function WorkbenchPage() {
             }
             selectedConversationId={selectedDirectorSessionId}
             onSelectConversation={handleSelectDirectorConversation}
+          />
+          <ProjectDirectorInboxPanel
+            projectId={
+              activeWorkbenchMode === "project" &&
+              activeProjectId &&
+              activeProjectId !== "all"
+                ? activeProjectId
+                : null
+            }
+            onSelectConversation={handleSelectDirectorConversation}
+            onNavigateToTask={handleNavigateToTask}
+            onNavigateToRun={handleNavigateToRun}
           />
           <div className="min-h-0 flex-1">
             <DirectorChatEntry
