@@ -1,7 +1,8 @@
-"""Targeted P5-C tests for failed worker run recovery decisions."""
+"""Targeted P5-C/P5-D tests for failed worker run recovery decisions."""
 
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 from sqlalchemy import create_engine
@@ -10,14 +11,18 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes.workers import WorkerRunOnceResponse
 from app.core.config import settings
 from app.core.db_tables import ORMBase
+from app.domain.agent_message import AgentMessageType
 from app.domain.failure_recovery_decision import (
     P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE,
     P5_FAILURE_RECOVERY_DECISION_SOURCE,
     P5_FAILURE_RECOVERY_DECISION_VERSION,
 )
+from app.domain.project import Project
 from app.domain.run import Run, RunFailureCategory, RunStatus
 from app.domain.task import Task, TaskBlockingReasonCode, TaskStatus
+from app.repositories.agent_message_repository import AgentMessageRepository
 from app.repositories.failure_review_repository import FailureReviewRepository
+from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.failure_review_service import (
     P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY,
@@ -325,3 +330,120 @@ def test_worker_failed_run_generates_internal_recovery_decision_payload(tmp_path
     assert persisted_task.status == TaskStatus.FAILED
     assert payload is not None
     _assert_p5c_internal_decision_payload(payload)
+
+
+def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
+    original_runtime_data_dir = settings.runtime_data_dir
+    original_simulate_override = settings.worker_simulate_execution_override
+    original_simulate_failure_mode = settings.worker_simulate_failure_mode
+    original_daily_budget = settings.daily_budget_usd
+    original_session_budget = settings.session_budget_usd
+    original_max_task_retries = settings.max_task_retries
+
+    object.__setattr__(settings, "runtime_data_dir", tmp_path / "runtime-data")
+    object.__setattr__(settings, "worker_simulate_execution_override", True)
+    object.__setattr__(settings, "worker_simulate_failure_mode", "failed")
+    object.__setattr__(settings, "daily_budget_usd", 100.0)
+    object.__setattr__(settings, "session_budget_usd", 100.0)
+    object.__setattr__(settings, "max_task_retries", 3)
+
+    db_path = tmp_path / "orchestrator-test.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    ORMBase.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    session = session_factory()
+    try:
+        project = ProjectRepository(session).create(
+            Project(
+                name="P5-D project",
+                summary="Project-bound worker run creates an AgentSession timeline.",
+            )
+        )
+        task = TaskRepository(session).create(
+            Task(
+                project_id=project.id,
+                title="P5-D worker failed run",
+                input_summary="simulate: failed worker recovery audit",
+            )
+        )
+        worker = build_task_worker(session=session)
+
+        result = worker.run_once()
+        assert result.run is not None
+        assert result.agent_session_id is not None
+
+        messages = AgentMessageRepository(session).list_by_project_id(
+            project_id=project.id,
+            message_types=[AgentMessageType.TIMELINE],
+        )
+        recovery_messages = [
+            message
+            for message in messages
+            if message.event_type == P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
+        ]
+        response_payload = WorkerRunOnceResponse.from_result(result).model_dump(
+            mode="json"
+        )
+    finally:
+        session.close()
+        object.__setattr__(settings, "runtime_data_dir", original_runtime_data_dir)
+        object.__setattr__(
+            settings,
+            "worker_simulate_execution_override",
+            original_simulate_override,
+        )
+        object.__setattr__(
+            settings,
+            "worker_simulate_failure_mode",
+            original_simulate_failure_mode,
+        )
+        object.__setattr__(settings, "daily_budget_usd", original_daily_budget)
+        object.__setattr__(settings, "session_budget_usd", original_session_budget)
+        object.__setattr__(settings, "max_task_retries", original_max_task_retries)
+
+    assert result.claimed is True
+    assert result.run.status == RunStatus.CANCELLED
+    assert result.failure_recovery_decision is not None
+    assert len(recovery_messages) == 1
+
+    message = recovery_messages[0]
+    assert message.message_type == AgentMessageType.TIMELINE
+    assert message.role == "system"
+    assert message.run_id == result.run.id
+    assert message.task_id == task.id
+    assert message.session_id == result.agent_session_id
+    assert "P5 失败回流建议" in message.content_summary
+    assert "owner=codex" in message.content_summary
+    assert "action=fix_and_retry" in message.content_summary
+
+    assert message.content_detail is not None
+    detail = json.loads(message.content_detail)
+    assert detail["p5_stage"] == "P5-D"
+    assert detail["run_status"] == "cancelled"
+    assert detail["task_status"] == "blocked"
+    assert detail["decision"]["audit_event_type"] == (
+        P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
+    )
+    assert detail["decision"]["recommended_owner"] == "codex"
+    assert detail["decision"]["next_action"] == "fix_and_retry"
+    assert detail["decision"]["next_instruction_draft_required"] is True
+    assert detail["decision"]["safety_flags"]["agent_message_written"] is False
+    assert detail["p5_d_safety"]["api_response_exposed"] is False
+    assert detail["p5_d_safety"]["retry_triggered"] is False
+    assert detail["p5_d_safety"]["worker_dispatch_triggered"] is False
+    assert detail["p5_d_safety"]["task_created"] is False
+    assert detail["p5_d_safety"]["runs_git"] is False
+    assert detail["p5_d_safety"]["runs_write_git"] is False
+    assert detail["p5_d_safety"]["git_add_triggered"] is False
+    assert detail["p5_d_safety"]["git_commit_triggered"] is False
+    assert detail["p5_d_safety"]["git_push_triggered"] is False
+    assert detail["p5_d_safety"]["pr_opened"] is False
+
+    assert P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY not in response_payload
+    assert "failure_recovery_decision" not in response_payload
+    assert "failure_recovery_reason_code" not in response_payload

@@ -69,6 +69,7 @@ from app.services.approval_service import ApprovalService
 from app.services.event_stream_service import event_stream_service
 from app.services.executor_service import ExecutionPlan, ExecutionResult, ExecutorService
 from app.services.failure_review_service import FailureReviewService
+from app.services.failure_recovery_audit_service import FailureRecoveryAuditService
 from app.services.git_diff_dry_run_runner import (
     GitDiffDryRunResult,
     GitDiffDryRunRunner,
@@ -1386,6 +1387,7 @@ class TaskWorker:
         approval_service: ApprovalService | None = None,
         runtime_event_audit_service: RuntimeEventAuditService | None = None,
         delivery_event_audit_service: DeliveryEventAuditService | None = None,
+        failure_recovery_audit_service: FailureRecoveryAuditService | None = None,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -1408,6 +1410,7 @@ class TaskWorker:
         self.approval_service = approval_service
         self.runtime_event_audit_service = runtime_event_audit_service
         self.delivery_event_audit_service = delivery_event_audit_service
+        self.failure_recovery_audit_service = failure_recovery_audit_service
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -2011,7 +2014,7 @@ class TaskWorker:
                     self.session.commit()
                     self._record_failure_review_if_needed(task=task, run=run)
 
-                    return WorkerRunResult(
+                    result = WorkerRunResult(
                         claimed=True,
                         message=workspace_validation.summary,
                         execution_mode="workspace_preflight",
@@ -2253,6 +2256,12 @@ class TaskWorker:
                         task=task,
                         run=run,
                     )
+
+                    self._record_failure_recovery_audit_if_needed(
+                        agent_session=agent_session,
+                        result=result,
+                    )
+                    return result
                 if not worktree_safe_command_proof.ready:
                     proof_block_summary = (
                         _build_worktree_safe_command_proof_block_summary(
@@ -2323,7 +2332,7 @@ class TaskWorker:
                     self.session.commit()
                     self._record_failure_review_if_needed(task=task, run=run)
 
-                    return WorkerRunResult(
+                    result = WorkerRunResult(
                         claimed=True,
                         message=proof_block_summary,
                         execution_mode="worktree_safe_command_proof",
@@ -2565,6 +2574,12 @@ class TaskWorker:
                         task=task,
                         run=run,
                     )
+
+                    self._record_failure_recovery_audit_if_needed(
+                        agent_session=agent_session,
+                        result=result,
+                    )
+                    return result
                 self._log_runtime_launch_gate(
                     run=run,
                     gate=runtime_launch_gate,
@@ -2649,7 +2664,7 @@ class TaskWorker:
                     self.session.commit()
                     self._record_failure_review_if_needed(task=task, run=run)
 
-                    return WorkerRunResult(
+                    result = WorkerRunResult(
                         claimed=True,
                         message=runtime_gate_block_summary,
                         execution_mode="runtime_launch_gate",
@@ -2881,6 +2896,12 @@ class TaskWorker:
                         task=task,
                         run=run,
                     )
+
+                    self._record_failure_recovery_audit_if_needed(
+                        agent_session=agent_session,
+                        result=result,
+                    )
+                    return result
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -3135,7 +3156,7 @@ class TaskWorker:
                     run=run,
                 )
 
-            return WorkerRunResult(
+            result = WorkerRunResult(
                 claimed=True,
                 message=self._build_result_message(execution, verification),
                 execution_mode=execution.mode,
@@ -3419,6 +3440,12 @@ class TaskWorker:
                 task=task,
                 run=run,
             )
+
+            self._record_failure_recovery_audit_if_needed(
+                agent_session=agent_session,
+                result=result,
+            )
+            return result
         except Exception as exc:
             if log_path is not None:
                 self.run_logging_service.append_event(
@@ -3685,6 +3712,38 @@ class TaskWorker:
         """Persist one failure review for failed, cancelled or guard-blocked runs."""
 
         self.failure_review_service.ensure_review(task=task, run=run)
+
+    def _record_failure_recovery_audit_if_needed(
+        self,
+        *,
+        agent_session: AgentSession | None,
+        result: WorkerRunResult,
+    ) -> None:
+        """Best-effort record one P5-D recovery decision timeline message."""
+
+        if self.failure_recovery_audit_service is None:
+            return
+        if agent_session is None:
+            return
+        if result.failure_recovery_decision is None:
+            return
+        if result.run is None or result.run.status not in {
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }:
+            return
+
+        try:
+            self.failure_recovery_audit_service.record_decision(
+                session=agent_session,
+                decision=result.failure_recovery_decision,
+                run_status=result.run.status,
+                task_status=result.task.status if result.task is not None else None,
+                result_summary=result.run.result_summary or result.result_summary,
+            )
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
 
     def _verify_if_needed(
         self,
@@ -4496,6 +4555,9 @@ def build_task_worker(*, session: Session) -> TaskWorker:
     delivery_event_audit_service = DeliveryEventAuditService(
         agent_message_repository=agent_message_repository,
     )
+    failure_recovery_audit_service = FailureRecoveryAuditService(
+        agent_message_repository=agent_message_repository,
+    )
     agent_conversation_service = AgentConversationService(
         agent_session_repository=agent_session_repository,
         agent_message_repository=agent_message_repository,
@@ -4575,4 +4637,5 @@ def build_task_worker(*, session: Session) -> TaskWorker:
         approval_service=approval_service,
         runtime_event_audit_service=runtime_event_audit_service,
         delivery_event_audit_service=delivery_event_audit_service,
+        failure_recovery_audit_service=failure_recovery_audit_service,
     )
