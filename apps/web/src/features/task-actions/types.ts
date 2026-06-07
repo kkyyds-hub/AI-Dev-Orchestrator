@@ -241,6 +241,7 @@ export type WorkerRunOnceResponse = {
   delivery_gate_evidence_gate_allows_write: boolean | null;
   delivery_gate_evidence_gate_allows_user_confirmation: boolean | null;
   failure_recovery_decision: WorkerFailureRecoveryDecision | null;
+  agent_dispatch_decision: WorkerAgentDispatchDecision | null;
 };
 
 export type WorkerFailureRecoveryDecision = {
@@ -288,6 +289,34 @@ export type WorkerFailureRecoveryDecisionSafety = {
   agent_message_written: boolean;
   task_created: boolean;
   retry_triggered: boolean;
+};
+
+export type WorkerAgentDispatchDecision = {
+  source: string;
+  version: string;
+  dispatch_decision_id: string;
+  source_failure_recovery_decision_id: string | null;
+  source_run_id: string | null;
+  source_task_id: string | null;
+  recommended_agent: string;
+  recommended_agent_label_cn: string;
+  dispatch_status: string;
+  dispatch_status_label_cn: string;
+  dispatch_reason_code: string;
+  dispatch_reason_cn: string;
+  instruction_kind: string;
+  instruction_kind_label_cn: string;
+  instruction_draft: string | null;
+  evidence_refs: string[];
+  audit_event_type: string;
+  created_at: string;
+  created_by: string;
+  api_response_exposed: boolean;
+  safety: WorkerAgentDispatchDecisionSafety;
+};
+
+export type WorkerAgentDispatchDecisionSafety = WorkerFailureRecoveryDecisionSafety & {
+  auto_dispatch_triggered: boolean;
 };
 
 export type DeliveryHumanApprovalRequest = {

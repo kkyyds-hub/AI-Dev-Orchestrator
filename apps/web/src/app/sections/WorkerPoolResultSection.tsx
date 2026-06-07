@@ -1,4 +1,5 @@
 import { StatusBadge } from "../../components/StatusBadge";
+import { WorkerAgentDispatchDecisionCard } from "../../features/task-actions/WorkerAgentDispatchDecisionCard";
 import { WorkerDeliveryGateEvidenceCard } from "../../features/task-actions/WorkerDeliveryGateEvidenceCard";
 import { WorkerFailureRecoveryDecisionCard } from "../../features/task-actions/WorkerFailureRecoveryDecisionCard";
 import { WorkerGitDiffDryRunEvidenceCard } from "../../features/task-actions/WorkerGitDiffDryRunEvidenceCard";
@@ -57,6 +58,9 @@ export function WorkerPoolResultSection(props: WorkerPoolResultSectionProps) {
               <WorkerDeliveryGateEvidenceCard {...result} />
               <WorkerFailureRecoveryDecisionCard
                 decision={result.failure_recovery_decision}
+              />
+              <WorkerAgentDispatchDecisionCard
+                decision={result.agent_dispatch_decision}
               />
             </div>
           ))}

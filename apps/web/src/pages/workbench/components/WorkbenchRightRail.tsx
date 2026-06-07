@@ -1,5 +1,6 @@
 ﻿import { useState } from "react";
 import type { ConsoleOverview } from "../../../features/console/types";
+import { WorkerAgentDispatchDecisionCard } from "../../../features/task-actions/WorkerAgentDispatchDecisionCard";
 import { WorkerFailureRecoveryDecisionCard } from "../../../features/task-actions/WorkerFailureRecoveryDecisionCard";
 import type { WorkerRunOnceResponse } from "../../../features/task-actions/types";
 import { EntryModals, type EntryModalKind } from "./QuickEntryCards";
@@ -200,6 +201,10 @@ export function WorkbenchRightRail({
                 <WorkerFailureRecoveryDecisionCard
                   compact
                   decision={workerOnceData.failure_recovery_decision}
+                />
+                <WorkerAgentDispatchDecisionCard
+                  compact
+                  decision={workerOnceData.agent_dispatch_decision}
                 />
               </div>
             )}

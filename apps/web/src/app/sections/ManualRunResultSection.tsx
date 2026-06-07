@@ -1,4 +1,5 @@
 import { StatusBadge } from "../../components/StatusBadge";
+import { WorkerAgentDispatchDecisionCard } from "../../features/task-actions/WorkerAgentDispatchDecisionCard";
 import { WorkerDeliveryGateEvidenceCard } from "../../features/task-actions/WorkerDeliveryGateEvidenceCard";
 import { WorkerFailureRecoveryDecisionCard } from "../../features/task-actions/WorkerFailureRecoveryDecisionCard";
 import { WorkerGitDiffDryRunEvidenceCard } from "../../features/task-actions/WorkerGitDiffDryRunEvidenceCard";
@@ -128,6 +129,11 @@ export function ManualRunResultSection(props: ManualRunResultSectionProps) {
       {!props.isError && props.data ? (
         <WorkerFailureRecoveryDecisionCard
           decision={props.data.failure_recovery_decision}
+        />
+      ) : null}
+      {!props.isError && props.data ? (
+        <WorkerAgentDispatchDecisionCard
+          decision={props.data.agent_dispatch_decision}
         />
       ) : null}
 
