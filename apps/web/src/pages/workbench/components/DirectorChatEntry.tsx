@@ -131,6 +131,10 @@ export function DirectorChatEntry({
   const [planReviewMessage, setPlanReviewMessage] = useState<string | null>(null);
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
   const [manualResumeRequested, setManualResumeRequested] = useState(false);
+  const [newSessionMode, setNewSessionMode] = useState(false);
+  const [nullSessionInputMessage, setNullSessionInputMessage] = useState<
+    string | null
+  >(null);
 
   const createSessionMutation = useCreateProjectDirectorSession();
   const postMessageMutation = usePostProjectDirectorSessionMessage();
@@ -300,6 +304,8 @@ export function DirectorChatEntry({
     setPlanReviewMessage(null);
     setResumeMessage(null);
     setManualResumeRequested(false);
+    setNewSessionMode(false);
+    setNullSessionInputMessage(null);
   }, [mode, resumeSessionId, scopedProjectId]);
 
   useEffect(() => {
@@ -329,6 +335,8 @@ export function DirectorChatEntry({
     setIsPlanReviewOpen(false);
     setPlanReviewMessage(null);
     setResumeMessage(resume.next_action);
+    setNewSessionMode(false);
+    setNullSessionInputMessage(null);
   }, [
     manualResumeRequested,
     mode,
@@ -404,6 +412,13 @@ export function DirectorChatEntry({
         return;
       }
 
+      if (!newSessionMode) {
+        setNullSessionInputMessage(
+          "请先选择一个主管会话，或点击新建主管会话开始新目标。",
+        );
+        return;
+      }
+
       const createdSession = await createSessionMutation.mutateAsync({
         goal_text: trimmedDraft,
         project_id: scopedProjectId,
@@ -419,9 +434,19 @@ export function DirectorChatEntry({
       setPlanReviewMessage(null);
       setIsPlanReviewOpen(false);
       setResumeMessage(null);
+      setNewSessionMode(false);
+      setNullSessionInputMessage(null);
     } catch {
       // Error details are rendered from the mutation state below.
     }
+  };
+
+  const handleStartNewSession = () => {
+    setNewSessionMode(true);
+    setNullSessionInputMessage(null);
+    setResumeMessage(
+      "已进入新建主管会话模式。请在输入框描述新目标；这只会创建 Project Director session，不会创建正式项目或任务队列。",
+    );
   };
 
   const handleAnswerChange = (questionId: string, answer: string) => {
@@ -1138,10 +1163,14 @@ export function DirectorChatEntry({
                       : "请先选择新项目会话或一个正式项目"}
                 </h3>
                 <p className="mb-4 mt-2 text-sm leading-6 text-zinc-500">
-                  {mode === "new-project"
-                    ? "输入目标后会创建 AI 项目主管会话，payload 中 project_id=null；系统优先生成贴合目标的澄清问题，必要时自动使用安全规则兜底。确认草案前不会创建任务或启动 Worker。"
+                  {newSessionMode
+                    ? mode === "new-project"
+                      ? "已进入新建主管会话模式：输入目标后会创建 AI 项目主管会话，payload 中 project_id=null。确认草案前不会创建任务或启动 Worker。"
+                      : "已进入新建主管会话模式：输入目标后会创建绑定当前正式项目的 AI 项目主管会话。"
+                    : mode === "new-project"
+                    ? "请先从上方主管会话列表选择已有会话，或点击“新建主管会话 / 开始新目标”后再输入目标。"
                     : scopedProjectId
-                      ? "输入目标或调度问题后会创建绑定该正式项目的 AI 项目主管会话。"
+                      ? "请先从上方主管会话列表选择已有会话，或点击“新建主管会话 / 开始新目标”后再输入目标。"
                       : "为避免上下文污染，项目模式必须先选择一个正式项目；无正式项目时请切换到“新项目会话”。"}
                 </p>
                 {mode === "new-project" && resumeCandidate ? (
@@ -1180,6 +1209,15 @@ export function DirectorChatEntry({
                     </button>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  data-testid="project-director-start-new-session"
+                  onClick={handleStartNewSession}
+                  disabled={hasAmbiguousProjectScope}
+                  className="mt-4 rounded border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-[#333333] disabled:bg-[#171717] disabled:text-zinc-600"
+                >
+                  新建主管会话 / 开始新目标
+                </button>
               </div>
             </div>
           )}
@@ -1194,7 +1232,9 @@ export function DirectorChatEntry({
               placeholder={
                 session
                   ? "继续和 AI 项目主管讨论：总结草案、追问风险、询问下一步..."
-                  : "描述你的项目目标或当前遇到的问题..."
+                  : newSessionMode
+                    ? "描述你的新目标。提交后会创建 Project Director session，不会创建任务或启动 Worker。"
+                    : "请先选择一个主管会话，或点击“新建主管会话 / 开始新目标”。"
               }
               rows={3}
               className="w-full resize-none bg-transparent px-4 py-3 pr-24 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
@@ -1210,7 +1250,11 @@ export function DirectorChatEntry({
               >
                 {createSessionMutation.isPending || postMessageMutation.isPending
                   ? "发送中..."
-                  : "发送"}
+                  : session
+                    ? "发送"
+                    : newSessionMode
+                      ? "开始新目标"
+                      : "选择或新建"}
               </button>
             </div>
           </div>
@@ -1219,7 +1263,9 @@ export function DirectorChatEntry({
               Ctrl/⌘ + Enter 发送；
               {session
                 ? "已有会话会调用 POST /sessions/{id}/messages 并追加消息。"
-                : "首次发送会创建 Project Director session。"}
+                : newSessionMode
+                  ? "显式新建模式才会创建 Project Director session。"
+                  : "无当前会话时，普通输入不会默默创建 session。"}
             </p>
             {scopedProjectId ? (
               <p>当前项目范围：{selectedProjectName}</p>
@@ -1232,6 +1278,11 @@ export function DirectorChatEntry({
           {createSessionMutation.isError ? (
             <p className="mt-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
               {createSessionMutation.error.message}
+            </p>
+          ) : null}
+          {nullSessionInputMessage ? (
+            <p className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              {nullSessionInputMessage}
             </p>
           ) : null}
           {postMessageMutation.isError ? (

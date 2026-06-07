@@ -10,6 +10,7 @@ import { formatDateTime } from "../../lib/format";
 import { buildTaskRoute } from "../../lib/task-route";
 import { useProjectScope } from "../shared/useProjectScope";
 import { DirectorChatEntry } from "./components/DirectorChatEntry";
+import { ProjectDirectorConversationList } from "./components/ProjectDirectorConversationList";
 import {
   parseDirectorSessionOptionValue,
   WorkbenchHeader,
@@ -283,6 +284,32 @@ export function WorkbenchPage() {
     navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
   };
 
+  const handleSelectDirectorConversation = (conversation: {
+    conversation_id: string;
+    project_id: string | null;
+  }) => {
+    const nextMode: WorkbenchContextMode = conversation.project_id
+      ? "project"
+      : "new-project";
+    setSelectedDirectorSessionId(conversation.conversation_id);
+    setWorkbenchMode(nextMode);
+    writeStoredWorkbenchMode(nextMode);
+    setSelectedProjectId(conversation.project_id ?? "all");
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("directorSessionId", conversation.conversation_id);
+    if (nextMode === "new-project") {
+      nextParams.set("mode", "new-project");
+      nextParams.delete("projectId");
+    } else {
+      nextParams.delete("mode");
+      if (conversation.project_id) {
+        nextParams.set("projectId", conversation.project_id);
+      }
+    }
+    navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
+  };
+
   const handleRightRailRunWorkerOnce = () => {
     if (activeWorkbenchMode === "new-project") {
       return;
@@ -319,13 +346,26 @@ export function WorkbenchPage() {
       />
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden lg:flex-row lg:items-stretch">
-        <div className="min-h-0 flex-1 lg:min-w-0">
-          <DirectorChatEntry
-            selectedProjectId={activeProjectId}
-            selectedProjectName={activeProjectName}
-            mode={activeWorkbenchMode}
-            resumeSessionId={selectedDirectorSessionId}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 lg:min-w-0">
+          <ProjectDirectorConversationList
+            projectId={
+              activeWorkbenchMode === "project" &&
+              activeProjectId &&
+              activeProjectId !== "all"
+                ? activeProjectId
+                : null
+            }
+            selectedConversationId={selectedDirectorSessionId}
+            onSelectConversation={handleSelectDirectorConversation}
           />
+          <div className="min-h-0 flex-1">
+            <DirectorChatEntry
+              selectedProjectId={activeProjectId}
+              selectedProjectName={activeProjectName}
+              mode={activeWorkbenchMode}
+              resumeSessionId={selectedDirectorSessionId}
+            />
+          </div>
         </div>
 
         <div className="min-h-0 w-full shrink-0 lg:w-72 xl:w-80">
