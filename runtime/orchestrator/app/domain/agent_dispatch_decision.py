@@ -1,11 +1,11 @@
-"""P6-B agent dispatch decision pure domain model.
+"""P6 agent dispatch decision pure domain model and builder.
 
 This module is deliberately side-effect free. It does not build decisions from
-P5 recovery decisions, call Worker/API code, write AgentMessage records, mutate
-database tables, dispatch agents, create tasks, trigger retries, expose API
-schemas, or perform git add/commit/push/PR/merge/delete branch/reset/checkout/
-switch/stash/rebase/tag operations. It only defines the structured dispatch
-decision contract for later P6 stages to consume.
+runtime state, call Worker/API code, write AgentMessage records, mutate database
+tables, dispatch agents, create tasks, trigger retries, expose API schemas, or
+perform git add/commit/push/PR/merge/delete branch/reset/checkout/switch/stash/
+rebase/tag operations. It only defines the structured dispatch decision
+contract and the pure P6-C conversion from P5 recovery decisions.
 """
 
 from __future__ import annotations
@@ -17,7 +17,11 @@ from uuid import UUID, uuid4
 from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel, ensure_utc_datetime, utc_now
-from app.domain.failure_recovery_decision import InstructionKind
+from app.domain.failure_recovery_decision import (
+    FailureRecoveryDecision,
+    InstructionKind,
+    RecoveryOwner,
+)
 
 
 P6_AGENT_DISPATCH_DECISION_SOURCE = "agent_dispatch_decision"
@@ -295,6 +299,160 @@ class AgentDispatchDecision(DomainModel):
                 raise ValueError(
                     "not_applicable decisions must not include executable drafts"
                 )
+
+
+class AgentDispatchDecisionBuilder:
+    """Pure P6-C builder from P5 recovery decisions to dispatch decisions.
+
+    The builder is a deterministic mapper. It only reads the supplied
+    ``FailureRecoveryDecision`` and optional source identifiers, then returns an
+    ``AgentDispatchDecision``. It does not dispatch workers, retry work, create
+    tasks, write AgentMessage rows, expose API DTOs, mutate persistence, or run
+    Git/CI operations.
+    """
+
+    @classmethod
+    def build_from_failure_recovery_decision(
+        cls,
+        *,
+        failure_recovery_decision: FailureRecoveryDecision,
+        source_failure_recovery_decision_id: str | None = None,
+        source_run_id: UUID | None = None,
+        source_task_id: UUID | None = None,
+        created_by: str = "system",
+    ) -> AgentDispatchDecision:
+        """Build a read-only dispatch recommendation from a P5 decision."""
+
+        dispatch_status = cls._dispatch_status_for(failure_recovery_decision)
+        recommended_agent = cls._recommended_agent_for(
+            failure_recovery_decision,
+            dispatch_status=dispatch_status,
+        )
+        dispatch_reason_code = cls._dispatch_reason_code_for(
+            failure_recovery_decision,
+            dispatch_status=dispatch_status,
+        )
+        dispatch_reason_cn = cls._dispatch_reason_cn_for(
+            failure_recovery_decision,
+            dispatch_status=dispatch_status,
+        )
+        instruction_draft = cls._instruction_draft_for(
+            failure_recovery_decision,
+            dispatch_status=dispatch_status,
+        )
+
+        return AgentDispatchDecision(
+            source_failure_recovery_decision_id=source_failure_recovery_decision_id,
+            source_run_id=source_run_id,
+            source_task_id=source_task_id,
+            recommended_agent=recommended_agent,
+            dispatch_status=dispatch_status,
+            dispatch_reason_code=dispatch_reason_code,
+            dispatch_reason_cn=dispatch_reason_cn,
+            instruction_kind=failure_recovery_decision.next_instruction_kind,
+            instruction_draft=instruction_draft,
+            evidence_refs=cls._evidence_refs_for(failure_recovery_decision),
+            safety_flags=AgentDispatchDecisionSafetyFlags(),
+            created_by=created_by,
+            api_response_exposed=False,
+        )
+
+    @staticmethod
+    def _dispatch_status_for(
+        failure_recovery_decision: FailureRecoveryDecision,
+    ) -> DispatchStatus:
+        if failure_recovery_decision.requires_human_decision:
+            return DispatchStatus.NEEDS_USER_DECISION
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.BLOCKED:
+            return DispatchStatus.BLOCKED
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.USER:
+            return DispatchStatus.NEEDS_USER_DECISION
+        if failure_recovery_decision.recommended_owner in {
+            RecoveryOwner.CODEX,
+            RecoveryOwner.DEEPSEEK,
+        }:
+            return DispatchStatus.SUGGESTED
+        return DispatchStatus.BLOCKED
+
+    @staticmethod
+    def _recommended_agent_for(
+        failure_recovery_decision: FailureRecoveryDecision,
+        *,
+        dispatch_status: DispatchStatus,
+    ) -> DispatchAgent:
+        if dispatch_status == DispatchStatus.NEEDS_USER_DECISION:
+            return DispatchAgent.USER
+        if dispatch_status == DispatchStatus.BLOCKED:
+            return DispatchAgent.BLOCKED
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.CODEX:
+            return DispatchAgent.CODEX
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.DEEPSEEK:
+            return DispatchAgent.DEEPSEEK
+        return DispatchAgent.BLOCKED
+
+    @staticmethod
+    def _dispatch_reason_code_for(
+        failure_recovery_decision: FailureRecoveryDecision,
+        *,
+        dispatch_status: DispatchStatus,
+    ) -> str:
+        if dispatch_status == DispatchStatus.NEEDS_USER_DECISION:
+            return "p5_requires_human_decision"
+        if dispatch_status == DispatchStatus.BLOCKED:
+            return "p5_blocks_agent_dispatch"
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.CODEX:
+            return "p5_owner_codex"
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.DEEPSEEK:
+            return "p5_owner_deepseek"
+        return "p5_blocks_agent_dispatch"
+
+    @staticmethod
+    def _dispatch_reason_cn_for(
+        failure_recovery_decision: FailureRecoveryDecision,
+        *,
+        dispatch_status: DispatchStatus,
+    ) -> str:
+        if dispatch_status == DispatchStatus.NEEDS_USER_DECISION:
+            return (
+                "P5 恢复决策要求用户先做人工判断，P6 只生成只读调度建议。"
+            )
+        if dispatch_status == DispatchStatus.BLOCKED:
+            return "P5 恢复决策显示当前不满足调度条件，P6 阻塞自动派发。"
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.CODEX:
+            return (
+                "P5 恢复决策建议由 Codex 处理代码、测试或实现修复，"
+                "P6 生成只读调度建议。"
+            )
+        if failure_recovery_decision.recommended_owner == RecoveryOwner.DEEPSEEK:
+            return (
+                "P5 恢复决策建议由 DeepSeek 处理配置、文档或证据口径修正，"
+                "P6 生成只读调度建议。"
+            )
+        return "P5 恢复决策未给出可执行代理，P6 阻塞自动派发。"
+
+    @staticmethod
+    def _instruction_draft_for(
+        failure_recovery_decision: FailureRecoveryDecision,
+        *,
+        dispatch_status: DispatchStatus,
+    ) -> str | None:
+        if dispatch_status != DispatchStatus.SUGGESTED:
+            return None
+        return failure_recovery_decision.next_instruction_draft
+
+    @staticmethod
+    def _evidence_refs_for(
+        failure_recovery_decision: FailureRecoveryDecision,
+    ) -> list[str]:
+        refs: list[str] = [
+            f"p5:{rule_code}" for rule_code in failure_recovery_decision.rule_codes
+        ]
+        refs.append(
+            f"p5:failure_category:{failure_recovery_decision.failure_category.value}"
+        )
+        if failure_recovery_decision.reason_code is not None:
+            refs.append(f"p5:reason_code:{failure_recovery_decision.reason_code.value}")
+        return refs
 
 
 def _contains_cjk(value: str) -> bool:
