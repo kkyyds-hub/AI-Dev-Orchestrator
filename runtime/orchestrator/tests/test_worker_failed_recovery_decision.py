@@ -656,6 +656,16 @@ def test_worker_recovery_audit_helper_skips_empty_session_or_decision():
             self.call_count += 1
             raise AssertionError("audit service must not be called for skipped paths")
 
+    class _CountingAgentDispatchAuditService:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def record_decision(self, **kwargs):
+            self.call_count += 1
+            raise AssertionError(
+                "dispatch audit service must not be called for skipped paths"
+            )
+
     class _NoopDbSession:
         def commit(self) -> None:
             raise AssertionError("commit must not be called for skipped paths")
@@ -663,12 +673,14 @@ def test_worker_recovery_audit_helper_skips_empty_session_or_decision():
         def rollback(self) -> None:
             raise AssertionError("rollback must not be called for skipped paths")
 
-    audit_service = _CountingFailureRecoveryAuditService()
+    recovery_audit_service = _CountingFailureRecoveryAuditService()
+    dispatch_audit_service = _CountingAgentDispatchAuditService()
     worker = type(
         "_Worker",
         (),
         {
-            "failure_recovery_audit_service": audit_service,
+            "failure_recovery_audit_service": recovery_audit_service,
+            "agent_dispatch_audit_service": dispatch_audit_service,
             "session": _NoopDbSession(),
         },
     )()
@@ -708,4 +720,82 @@ def test_worker_recovery_audit_helper_skips_empty_session_or_decision():
         result=no_decision_result,
     )
 
-    assert audit_service.call_count == 0
+    assert recovery_audit_service.call_count == 0
+    assert dispatch_audit_service.call_count == 0
+
+
+def test_worker_dispatch_audit_helper_does_not_require_p5_audit_service():
+    class _CountingAgentDispatchAuditService:
+        def __init__(self) -> None:
+            self.call_count = 0
+            self.last_kwargs = None
+
+        def record_decision(self, **kwargs):
+            self.call_count += 1
+            self.last_kwargs = kwargs
+
+    class _CountingDbSession:
+        def __init__(self) -> None:
+            self.commit_count = 0
+            self.rollback_count = 0
+
+        def commit(self) -> None:
+            self.commit_count += 1
+
+        def rollback(self) -> None:
+            self.rollback_count += 1
+
+    task = Task(title="P6-D helper task", input_summary="dispatch audit")
+    failed_run = Run(
+        task_id=task.id,
+        status=RunStatus.FAILED,
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        quality_gate_passed=False,
+        result_summary="Failed run needs dispatch audit.",
+    )
+    result = WorkerRunResult(
+        claimed=True,
+        message="failed result with P6-D dispatch audit",
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        quality_gate_passed=False,
+        task=task,
+        run=failed_run,
+    )
+    dispatch_audit_service = _CountingAgentDispatchAuditService()
+    db_session = _CountingDbSession()
+    worker = type(
+        "_Worker",
+        (),
+        {
+            "failure_recovery_audit_service": None,
+            "agent_dispatch_audit_service": dispatch_audit_service,
+            "session": db_session,
+        },
+    )()
+    agent_session = object()
+
+    TaskWorker._record_failure_recovery_audit_if_needed(
+        worker,
+        agent_session=agent_session,
+        result=result,
+    )
+
+    assert result.failure_recovery_decision is not None
+    assert dispatch_audit_service.call_count == 1
+    assert dispatch_audit_service.last_kwargs is not None
+    assert dispatch_audit_service.last_kwargs["session"] is agent_session
+    assert dispatch_audit_service.last_kwargs["run_status"] == RunStatus.FAILED
+    assert dispatch_audit_service.last_kwargs["task_status"] == TaskStatus.PENDING
+    assert dispatch_audit_service.last_kwargs["result_summary"] == (
+        "Failed run needs dispatch audit."
+    )
+    decision = dispatch_audit_service.last_kwargs["decision"]
+    assert decision.recommended_agent == "codex"
+    assert decision.dispatch_status == "suggested"
+    assert decision.source_run_id == failed_run.id
+    assert decision.source_task_id == task.id
+    assert decision.safety_flags.worker_dispatch_triggered is False
+    assert decision.safety_flags.retry_triggered is False
+    assert decision.safety_flags.auto_dispatch_triggered is False
+    assert db_session.commit_count == 1
+    assert db_session.rollback_count == 0

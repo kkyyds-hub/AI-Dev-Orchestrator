@@ -3723,9 +3723,12 @@ class TaskWorker:
         agent_session: AgentSession | None,
         result: WorkerRunResult,
     ) -> None:
-        """Best-effort record one P5-D recovery decision timeline message."""
+        """Best-effort record P5-D recovery and P6-D dispatch timeline messages."""
 
-        if self.failure_recovery_audit_service is None:
+        if (
+            self.failure_recovery_audit_service is None
+            and self.agent_dispatch_audit_service is None
+        ):
             return
         if agent_session is None:
             return
@@ -3738,13 +3741,14 @@ class TaskWorker:
             return
 
         try:
-            self.failure_recovery_audit_service.record_decision(
-                session=agent_session,
-                decision=result.failure_recovery_decision,
-                run_status=result.run.status,
-                task_status=result.task.status if result.task is not None else None,
-                result_summary=result.run.result_summary or result.result_summary,
-            )
+            if self.failure_recovery_audit_service is not None:
+                self.failure_recovery_audit_service.record_decision(
+                    session=agent_session,
+                    decision=result.failure_recovery_decision,
+                    run_status=result.run.status,
+                    task_status=result.task.status if result.task is not None else None,
+                    result_summary=result.run.result_summary or result.result_summary,
+                )
             if self.agent_dispatch_audit_service is not None:
                 self.agent_dispatch_audit_service.record_decision(
                     session=agent_session,
