@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 import app.domain.agent_dispatch_decision as agent_dispatch_decision_module
 from app.domain.agent_dispatch_decision import (
+    P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE,
     P6_AGENT_DISPATCH_DECISION_SOURCE,
     P6_AGENT_DISPATCH_DECISION_VERSION,
     P6B_FORBIDDEN_TRUE_SAFETY_FLAGS,
@@ -100,6 +101,7 @@ def _assert_pure_contract(decision: AgentDispatchDecision) -> None:
     assert decision.created_at.tzinfo is not None
     assert decision.created_at.utcoffset() == timezone.utc.utcoffset(decision.created_at)
     assert _contains_cjk(decision.dispatch_reason_cn)
+    assert decision.audit_event_type == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE
     assert not any(
         copy in decision.dispatch_reason_cn
         for copy in FORBIDDEN_USER_VISIBLE_GIT_WRITE_COPY
@@ -120,6 +122,7 @@ def _assert_pure_contract(decision: AgentDispatchDecision) -> None:
     assert payload["recommended_agent"] == decision.recommended_agent.value
     assert payload["dispatch_status"] == decision.dispatch_status.value
     assert payload["instruction_kind"] == decision.instruction_kind.value
+    assert payload["audit_event_type"] == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE
     assert payload["safety_flags"] == EXPECTED_FALSE_SAFETY_FLAGS
 
 
@@ -150,6 +153,7 @@ def test_suggested_codex_dispatch_decision_is_pure_and_serializable():
     assert decision.dispatch_status == DispatchStatus.SUGGESTED
     assert decision.dispatch_reason_code == "p5_owner_codex"
     assert decision.instruction_kind == InstructionKind.CODE_FIX
+    assert decision.audit_event_type == P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE
     assert decision.instruction_draft is not None
     assert "Codex" in decision.instruction_draft
     assert decision.evidence_refs == ["p5:failure_execution_codex_fix_and_retry"]
@@ -329,6 +333,7 @@ def test_not_applicable_dispatch_rejects_draft():
     [
         ("source", "wrong", "source must be"),
         ("version", "wrong", "version must be"),
+        ("audit_event_type", "wrong", "audit_event_type must be"),
         ("dispatch_reason_cn", "plain english", "must contain Chinese text"),
         ("instruction_draft", "plain english", "must contain Chinese text"),
     ],
@@ -350,6 +355,7 @@ def test_dispatch_decision_rejects_invalid_contract_text(
         "dispatch_decision_id",
         "dispatch_reason_code",
         "dispatch_reason_cn",
+        "audit_event_type",
         "created_by",
     ],
 )

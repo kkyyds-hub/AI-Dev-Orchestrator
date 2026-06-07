@@ -21,7 +21,8 @@ from app.domain.failure_recovery_decision import InstructionKind
 
 
 P6_AGENT_DISPATCH_DECISION_SOURCE = "agent_dispatch_decision"
-P6_AGENT_DISPATCH_DECISION_VERSION = "p6_b.r2"
+P6_AGENT_DISPATCH_DECISION_VERSION = "p6_b.r3"
+P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE = "agent_dispatch_decision"
 
 P6B_FORBIDDEN_TRUE_SAFETY_FLAGS: tuple[str, ...] = (
     "runs_git",
@@ -152,6 +153,11 @@ class AgentDispatchDecision(DomainModel):
     instruction_kind: InstructionKind
     instruction_draft: str | None = Field(default=None, max_length=2_000)
     evidence_refs: list[str] = Field(default_factory=list, max_length=50)
+    audit_event_type: str = Field(
+        default=P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE,
+        min_length=1,
+        max_length=100,
+    )
     safety_flags: AgentDispatchDecisionSafetyFlags = Field(
         default_factory=AgentDispatchDecisionSafetyFlags
     )
@@ -167,6 +173,7 @@ class AgentDispatchDecision(DomainModel):
         "dispatch_reason_code",
         "dispatch_reason_cn",
         "instruction_draft",
+        "audit_event_type",
         "created_by",
     )
     @classmethod
@@ -214,6 +221,7 @@ class AgentDispatchDecision(DomainModel):
             "dispatch_decision_id": self.dispatch_decision_id,
             "dispatch_reason_code": self.dispatch_reason_code,
             "dispatch_reason_cn": self.dispatch_reason_cn,
+            "audit_event_type": self.audit_event_type,
             "created_by": self.created_by,
         }
         blank_required_fields = [
@@ -233,6 +241,11 @@ class AgentDispatchDecision(DomainModel):
         if self.version != P6_AGENT_DISPATCH_DECISION_VERSION:
             raise ValueError(
                 f"version must be {P6_AGENT_DISPATCH_DECISION_VERSION!r}"
+            )
+        if self.audit_event_type != P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE:
+            raise ValueError(
+                "audit_event_type must be "
+                f"{P6_AGENT_DISPATCH_DECISION_AUDIT_EVENT_TYPE!r}"
             )
         if not _contains_cjk(self.dispatch_reason_cn):
             raise ValueError("dispatch_reason_cn must contain Chinese text")
