@@ -17,6 +17,7 @@ import {
   getProjectDirectorConversation,
   getProjectDirectorConversationTimeline,
   listProjectDirectorConversations,
+  listProjectDirectorInbox,
   postProjectDirectorSessionMessage,
   reviewProjectDirectorAgentTeamConfig,
   reviewProjectDirectorRepositoryBindingConfig,
@@ -31,6 +32,7 @@ import type {
   GetProjectDirectorConversationParams,
   GetProjectDirectorConversationTimelineParams,
   ListProjectDirectorConversationsParams,
+  ListProjectDirectorInboxParams,
 } from "./types";
 
 interface ProjectDirectorConversationQueryOptions {
@@ -94,6 +96,27 @@ export function useProjectDirectorConversationTimeline(
     queryFn: () =>
       getProjectDirectorConversationTimeline(conversationId as string, params),
     enabled: Boolean(conversationId) && options?.enabled !== false,
+    refetchInterval: options?.refetchInterval,
+    retry: false,
+  });
+}
+
+export function useProjectDirectorInbox(
+  params: ListProjectDirectorInboxParams = {},
+  options?: ProjectDirectorConversationQueryOptions,
+) {
+  return useQuery({
+    queryKey: [
+      "project-director",
+      "inbox",
+      params.project_id ?? null,
+      params.kind ?? null,
+      params.status ?? null,
+      params.priority ?? null,
+      params.limit ?? null,
+    ],
+    queryFn: () => listProjectDirectorInbox(params),
+    enabled: options?.enabled,
     refetchInterval: options?.refetchInterval,
     retry: false,
   });

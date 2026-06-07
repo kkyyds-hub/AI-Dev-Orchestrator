@@ -10,12 +10,14 @@ import type {
   GetProjectDirectorConversationParams,
   GetProjectDirectorConversationTimelineParams,
   ListProjectDirectorConversationsParams,
+  ListProjectDirectorInboxParams,
   PostProjectDirectorMessageInput,
   PostProjectDirectorMessageResponse,
   ProjectDirectorAgentTeamConfigResponse,
   ProjectDirectorConversationDetailResponse,
   ProjectDirectorConversationListResponse,
   ProjectDirectorConversationTimelineResponse,
+  ProjectDirectorInboxResponse,
   ProjectDirectorMessageListResponse,
   ProjectDirectorPlanReviewResponse,
   ProjectDirectorPlanVersion,
@@ -70,6 +72,14 @@ export function getProjectDirectorConversationTimeline(
 ): Promise<ProjectDirectorConversationTimelineResponse> {
   return requestJson<ProjectDirectorConversationTimelineResponse>(
     `/project-director/conversations/${conversationId}/timeline${buildProjectDirectorConversationParams(params)}`,
+  );
+}
+
+export function listProjectDirectorInbox(
+  params: ListProjectDirectorInboxParams = {},
+): Promise<ProjectDirectorInboxResponse> {
+  return requestJson<ProjectDirectorInboxResponse>(
+    `/project-director/inbox${buildProjectDirectorConversationParams(params)}`,
   );
 }
 

@@ -467,12 +467,78 @@ export interface ProjectDirectorConversationTimelineResponse {
   source: string;
 }
 
+export type ProjectDirectorInboxItemKind =
+  | "note"
+  | "user_challenge_seed"
+  | "plan_question"
+  | "dispatch_question"
+  | "approval_attention"
+  | "run_blocker"
+  | "failure_recovery_attention"
+  | "proposal_attention"
+  | "governance_warning"
+  | "system_notice";
+
+export type ProjectDirectorInboxItemStatus =
+  | "unread"
+  | "read"
+  | "needs_response"
+  | "linked_to_conversation"
+  | "converted_to_challenge"
+  | "converted_to_proposal"
+  | "resolved"
+  | "archived";
+
+export type ProjectDirectorInboxItemPriority =
+  | "low"
+  | "normal"
+  | "high"
+  | "critical";
+
+export interface ProjectDirectorInboxItem {
+  id: string;
+  conversation_id: string | null;
+  session_id: string | null;
+  project_id: string | null;
+  source_page: string;
+  source_entity_type: string;
+  source_entity_id: string | null;
+  kind: ProjectDirectorInboxItemKind;
+  title: string;
+  summary: string;
+  status: ProjectDirectorInboxItemStatus;
+  priority: ProjectDirectorInboxItemPriority;
+  requires_user_action: boolean;
+  related_message_id: string | null;
+  related_plan_version_id: string | null;
+  related_task_id: string | null;
+  related_run_id: string | null;
+  related_approval_id: string | null;
+  related_dispatch_decision_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectDirectorInboxResponse {
+  items: ProjectDirectorInboxItem[];
+  has_more: boolean;
+  source: string;
+}
+
 export interface ListProjectDirectorConversationsParams {
   project_id?: string | null;
   status?: ProjectDirectorConversationStatus | null;
   kind?: ProjectDirectorConversationKind | null;
   limit?: number | null;
   before?: string | null;
+}
+
+export interface ListProjectDirectorInboxParams {
+  project_id?: string | null;
+  kind?: ProjectDirectorInboxItemKind | null;
+  status?: ProjectDirectorInboxItemStatus | null;
+  priority?: ProjectDirectorInboxItemPriority | null;
+  limit?: number | null;
 }
 
 export interface GetProjectDirectorConversationParams {
