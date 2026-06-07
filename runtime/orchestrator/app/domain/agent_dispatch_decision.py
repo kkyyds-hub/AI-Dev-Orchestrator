@@ -21,7 +21,7 @@ from app.domain.failure_recovery_decision import InstructionKind
 
 
 P6_AGENT_DISPATCH_DECISION_SOURCE = "agent_dispatch_decision"
-P6_AGENT_DISPATCH_DECISION_VERSION = "p6_b.r1"
+P6_AGENT_DISPATCH_DECISION_VERSION = "p6_b.r2"
 
 P6B_FORBIDDEN_TRUE_SAFETY_FLAGS: tuple[str, ...] = (
     "runs_git",
@@ -41,6 +41,8 @@ P6B_FORBIDDEN_TRUE_SAFETY_FLAGS: tuple[str, ...] = (
     "ci_triggered",
     "execution_enabled",
     "worker_dispatch_triggered",
+    "api_response_exposed",
+    "agent_message_written",
     "task_created",
     "retry_triggered",
     "auto_dispatch_triggered",
@@ -69,10 +71,8 @@ class AgentDispatchDecisionSafetyFlags(DomainModel):
     """P6 dispatch safety flags.
 
     All flags default to false. P6-B pure domain code rejects runtime side
-    effects, Git writes, worker dispatch, task creation, retry, and auto
-    dispatch markers. Later read-only stages may explicitly mark
-    `api_response_exposed` or `agent_message_written` without enabling
-    execution.
+    effects, Git writes, API exposure, AgentMessage writes, worker dispatch,
+    task creation, retry, and auto dispatch markers.
     """
 
     runs_git: bool = False
@@ -110,7 +110,8 @@ class AgentDispatchDecisionSafetyFlags(DomainModel):
         if enabled_forbidden_flags:
             raise ValueError(
                 "P6-B agent dispatch decision must not execute Git, trigger CI, "
-                "dispatch workers, create tasks, retry, or auto-dispatch agents: "
+                "expose API responses, write AgentMessage rows, dispatch workers, "
+                "create tasks, retry, or auto-dispatch agents: "
                 + ", ".join(enabled_forbidden_flags)
             )
         return self
@@ -207,6 +208,24 @@ class AgentDispatchDecision(DomainModel):
     def validate_contract(self) -> "AgentDispatchDecision":
         """Validate P6-B pure dispatch decision invariants."""
 
+        required_text_fields = {
+            "source": self.source,
+            "version": self.version,
+            "dispatch_decision_id": self.dispatch_decision_id,
+            "dispatch_reason_code": self.dispatch_reason_code,
+            "dispatch_reason_cn": self.dispatch_reason_cn,
+            "created_by": self.created_by,
+        }
+        blank_required_fields = [
+            field_name
+            for field_name, field_value in required_text_fields.items()
+            if field_value is None
+        ]
+        if blank_required_fields:
+            raise ValueError(
+                "required text fields must not be blank: "
+                + ", ".join(blank_required_fields)
+            )
         if self.source != P6_AGENT_DISPATCH_DECISION_SOURCE:
             raise ValueError(
                 f"source must be {P6_AGENT_DISPATCH_DECISION_SOURCE!r}"

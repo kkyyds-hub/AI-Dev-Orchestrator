@@ -231,28 +231,22 @@ def test_safety_flags_reject_runtime_side_effect_flags(flag_name):
     assert "must not execute Git" in str(exc_info.value)
 
 
-def test_read_only_future_stage_flags_can_be_marked_without_execution():
-    flags = AgentDispatchDecisionSafetyFlags(
-        api_response_exposed=True,
-        agent_message_written=True,
-    )
-    decision = _suggested_decision(
-        safety_flags=flags,
-        api_response_exposed=True,
-    )
+@pytest.mark.parametrize("flag_name", ("api_response_exposed", "agent_message_written"))
+def test_p6_b_rejects_future_stage_read_only_flags(flag_name):
+    with pytest.raises(ValidationError) as exc_info:
+        _suggested_decision(
+            safety_flags=AgentDispatchDecisionSafetyFlags(**{flag_name: True}),
+            api_response_exposed=(flag_name == "api_response_exposed"),
+        )
 
-    assert decision.safety_flags.api_response_exposed is True
-    assert decision.safety_flags.agent_message_written is True
-    assert decision.safety_flags.execution_enabled is False
-    assert decision.safety_flags.worker_dispatch_triggered is False
-    assert decision.safety_flags.auto_dispatch_triggered is False
+    assert flag_name in str(exc_info.value)
+    assert "must not execute Git" in str(exc_info.value)
 
 
 def test_api_response_exposed_must_match_safety_flag():
     with pytest.raises(ValidationError) as exc_info:
         _suggested_decision(
-            safety_flags=AgentDispatchDecisionSafetyFlags(api_response_exposed=True),
-            api_response_exposed=False,
+            api_response_exposed=True,
         )
 
     assert "api_response_exposed must match" in str(exc_info.value)
@@ -348,6 +342,23 @@ def test_dispatch_decision_rejects_invalid_contract_text(
         _suggested_decision(**{field_name: field_value})
 
     assert expected_error in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "dispatch_decision_id",
+        "dispatch_reason_code",
+        "dispatch_reason_cn",
+        "created_by",
+    ],
+)
+def test_required_text_fields_reject_blank_values_after_trim(field_name):
+    with pytest.raises(ValidationError) as exc_info:
+        _suggested_decision(**{field_name: "   "})
+
+    assert "required text fields must not be blank" in str(exc_info.value)
+    assert field_name in str(exc_info.value)
 
 
 def test_text_and_evidence_refs_are_normalized_and_deduplicated():
