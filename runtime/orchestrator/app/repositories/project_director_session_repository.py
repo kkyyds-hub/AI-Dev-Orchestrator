@@ -94,6 +94,22 @@ class ProjectDirectorSessionRepository:
         rows = self._session.execute(stmt).scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    def list_all(
+        self,
+        *,
+        project_id: UUID | None = None,
+    ) -> list[ProjectDirectorSession]:
+        """Return all Project Director sessions ordered by recent updates."""
+
+        stmt = select(ProjectDirectorSessionTable).order_by(
+            ProjectDirectorSessionTable.updated_at.desc()
+        )
+        if project_id is not None:
+            stmt = stmt.where(ProjectDirectorSessionTable.project_id == project_id)
+
+        rows = self._session.execute(stmt).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     def update(self, session_obj: ProjectDirectorSession) -> ProjectDirectorSession:
         row = self._session.get(ProjectDirectorSessionTable, session_obj.id)
         if row is None:

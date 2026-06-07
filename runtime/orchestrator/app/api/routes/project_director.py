@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -101,6 +101,14 @@ from app.services.project_director_plan_service import (
 )
 from app.services.project_director_service import ProjectDirectorService
 from app.services.project_director_message_service import ProjectDirectorMessageService
+from app.services.project_director_conversation_service import (
+    ConversationDetail,
+    ConversationKind,
+    ConversationListItem,
+    ConversationStatus,
+    ConversationTimelineItem,
+    ProjectDirectorConversationService,
+)
 from app.services.project_director_task_creation_service import (
     ProjectDirectorTaskCreationService,
 )
@@ -2219,6 +2227,142 @@ class TaskCreationResponse(BaseModel):
     gate_conclusion: str
 
 
+class ConversationListItemResponse(BaseModel):
+    conversation_id: UUID
+    project_id: UUID | None = None
+    title: str
+    kind: ConversationKind
+    status: ConversationStatus
+    session_status: str
+    last_message_preview: str
+    last_message_at: str | None = None
+    message_count: int
+    pending_challenge_count: int
+    pending_proposal_count: int
+    requires_user_action: bool
+    owner_scope: str
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_domain(
+        cls, item: ConversationListItem
+    ) -> "ConversationListItemResponse":
+        return cls(
+            conversation_id=item.conversation_id,
+            project_id=item.project_id,
+            title=item.title,
+            kind=item.kind,
+            status=item.status,
+            session_status=item.session_status,
+            last_message_preview=item.last_message_preview,
+            last_message_at=(
+                item.last_message_at.isoformat()
+                if item.last_message_at is not None
+                else None
+            ),
+            message_count=item.message_count,
+            pending_challenge_count=item.pending_challenge_count,
+            pending_proposal_count=item.pending_proposal_count,
+            requires_user_action=item.requires_user_action,
+            owner_scope=item.owner_scope,
+            created_at=item.created_at.isoformat(),
+            updated_at=item.updated_at.isoformat(),
+        )
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationListItemResponse] = Field(default_factory=list)
+    has_more: bool = False
+    source: str = Field(default="project_director_sessions_read_model")
+
+
+class ConversationTaskCreationResponse(BaseModel):
+    id: UUID
+    plan_version_id: UUID
+    session_id: UUID
+    project_id: UUID
+    version_no: int
+    source_type: str
+    created_task_ids: list[UUID] = Field(default_factory=list)
+    task_count: int
+    created_at: str
+
+    @classmethod
+    def from_record(cls, record) -> "ConversationTaskCreationResponse":
+        return cls(
+            id=record.id,
+            plan_version_id=record.plan_version_id,
+            session_id=record.session_id,
+            project_id=record.project_id,
+            version_no=record.version_no,
+            source_type=record.source_type,
+            created_task_ids=record.task_ids,
+            task_count=record.task_count,
+            created_at=record.created_at.isoformat(),
+        )
+
+
+class ConversationDetailResponse(BaseModel):
+    conversation: ConversationListItemResponse
+    session: SessionResponse
+    recent_messages: list[ProjectDirectorMessageResponse] = Field(default_factory=list)
+    latest_plan_version: PlanVersionResponse | None = None
+    task_creation: ConversationTaskCreationResponse | None = None
+    source: str = Field(default="project_director_conversation_read_model")
+
+    @classmethod
+    def from_domain(cls, detail: ConversationDetail) -> "ConversationDetailResponse":
+        return cls(
+            conversation=ConversationListItemResponse.from_domain(detail.conversation),
+            session=SessionResponse.from_domain(detail.session),
+            recent_messages=[
+                ProjectDirectorMessageResponse.from_domain(message)
+                for message in detail.recent_messages
+            ],
+            latest_plan_version=(
+                PlanVersionResponse.from_domain(detail.latest_plan_version)
+                if detail.latest_plan_version is not None
+                else None
+            ),
+            task_creation=(
+                ConversationTaskCreationResponse.from_record(detail.task_creation)
+                if detail.task_creation is not None
+                else None
+            ),
+        )
+
+
+class ConversationTimelineItemResponse(BaseModel):
+    timestamp: str
+    kind: str
+    summary_cn: str
+    related_message_id: UUID | None = None
+    related_plan_version_id: UUID | None = None
+    related_task_id: UUID | None = None
+    related_proposal_id: UUID | None = None
+
+    @classmethod
+    def from_domain(
+        cls, item: ConversationTimelineItem
+    ) -> "ConversationTimelineItemResponse":
+        return cls(
+            timestamp=item.timestamp.isoformat(),
+            kind=item.kind.value,
+            summary_cn=item.summary_cn,
+            related_message_id=item.related_message_id,
+            related_plan_version_id=item.related_plan_version_id,
+            related_task_id=item.related_task_id,
+            related_proposal_id=item.related_proposal_id,
+        )
+
+
+class ConversationTimelineResponse(BaseModel):
+    conversation_id: UUID
+    items: list[ConversationTimelineItemResponse] = Field(default_factory=list)
+    source: str = Field(default="project_director_conversation_timeline_read_model")
+
+
 class WorkbenchResumeResponse(BaseModel):
     session: SessionResponse | None = None
     plan_version: PlanVersionResponse | None = None
@@ -2564,6 +2708,109 @@ def get_workbench_resume(
         return resume
 
     return WorkbenchResumeResponse()
+
+
+# ── Project Director Conversation Read-Only Routes ──────────────────
+
+
+@router.get(
+    "/conversations",
+    response_model=ConversationListResponse,
+    summary="List Project Director conversations",
+)
+def list_project_director_conversations(
+    db_session: Annotated[Session, Depends(get_db_session)],
+    project_id: UUID | None = None,
+    status_filter: ConversationStatus | None = Query(default=None, alias="status"),
+    kind: ConversationKind | None = None,
+    limit: int = 20,
+) -> ConversationListResponse:
+    """Return the P7 ConversationList read model.
+
+    This endpoint is read-only. It never creates sessions, generates provider
+    replies, creates tasks/runs/workers, launches executors, or writes Git state.
+    """
+
+    result = ProjectDirectorConversationService(db_session).list_conversations(
+        project_id=project_id,
+        status=status_filter,
+        kind=kind,
+        limit=limit,
+    )
+    return ConversationListResponse(
+        conversations=[
+            ConversationListItemResponse.from_domain(item)
+            for item in result.conversations
+        ],
+        has_more=result.has_more,
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationDetailResponse,
+    summary="Get one Project Director conversation",
+)
+def get_project_director_conversation(
+    conversation_id: UUID,
+    db_session: Annotated[Session, Depends(get_db_session)],
+    project_id: UUID | None = None,
+    recent_message_limit: int = 20,
+) -> ConversationDetailResponse:
+    """Read one conversation detail without triggering provider or execution."""
+
+    try:
+        detail = ProjectDirectorConversationService(db_session).get_conversation(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            recent_message_limit=recent_message_limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project Director conversation {conversation_id} not found",
+        )
+    return ConversationDetailResponse.from_domain(detail)
+
+
+@router.get(
+    "/conversations/{conversation_id}/timeline",
+    response_model=ConversationTimelineResponse,
+    summary="Get one Project Director conversation timeline",
+)
+def get_project_director_conversation_timeline(
+    conversation_id: UUID,
+    db_session: Annotated[Session, Depends(get_db_session)],
+    project_id: UUID | None = None,
+) -> ConversationTimelineResponse:
+    """Read message/plan/task timeline items for one conversation."""
+
+    try:
+        items = ProjectDirectorConversationService(db_session).get_timeline(
+            conversation_id=conversation_id,
+            project_id=project_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    if items is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project Director conversation {conversation_id} not found",
+        )
+    return ConversationTimelineResponse(
+        conversation_id=conversation_id,
+        items=[ConversationTimelineItemResponse.from_domain(item) for item in items],
+    )
 
 
 # ── Task Creation Routes ─────────────────────────────────────────────
