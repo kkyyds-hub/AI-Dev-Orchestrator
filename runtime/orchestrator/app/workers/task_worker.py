@@ -373,9 +373,9 @@ class WorkerRunResult:
     def __post_init__(self) -> None:
         """Attach the internal P5-C recovery decision for failed worker results.
 
-        This is deliberately an internal worker contract field. The API response
-        mapper does not expose it, and building it does not dispatch workers,
-        create tasks, write AgentMessage rows, or run any Git command.
+        This is deliberately an internal worker contract field. P5-E may expose
+        it through a read-only API DTO, but building it does not dispatch
+        workers, create tasks, write AgentMessage rows, or run any Git command.
         """
 
         if self.failure_recovery_decision is not None:

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.domain.failure_recovery_decision import FailureRecoveryDecision
 from app.domain.project_role import ProjectRoleCode
 from app.domain.run import (
     RunBudgetPressureLevel,
@@ -122,6 +123,119 @@ class WorkerRunOnceResponse(BaseModel):
                 runs_git=snapshot.runs_git,
                 runs_write_git=snapshot.runs_write_git,
                 launches_ai_runtime=snapshot.launches_ai_runtime,
+            )
+
+    class FailureRecoveryDecisionResponse(BaseModel):
+        """P5-E read-only recovery decision returned to API callers."""
+
+        class SafetyFlagsResponse(BaseModel):
+            """Read-only P5-E safety flags nested under a recovery decision."""
+
+            runs_git: bool = False
+            runs_write_git: bool = False
+            git_add_triggered: bool = False
+            git_commit_triggered: bool = False
+            git_push_triggered: bool = False
+            pr_opened: bool = False
+            merge_triggered: bool = False
+            branch_deleted: bool = False
+            git_reset_triggered: bool = False
+            git_checkout_triggered: bool = False
+            git_switch_triggered: bool = False
+            git_stash_triggered: bool = False
+            git_rebase_triggered: bool = False
+            git_tag_triggered: bool = False
+            ci_triggered: bool = False
+            execution_enabled: bool = False
+            worker_dispatch_triggered: bool = False
+            api_response_exposed: bool = False
+            agent_message_written: bool = False
+            task_created: bool = False
+            retry_triggered: bool = False
+
+            @classmethod
+            def from_decision(
+                cls,
+                decision: FailureRecoveryDecision,
+            ) -> "WorkerRunOnceResponse.FailureRecoveryDecisionResponse.SafetyFlagsResponse":
+                """Copy side-effect flags from the internal decision."""
+
+                flags = decision.safety_flags
+                return cls(
+                    runs_git=flags.runs_git,
+                    runs_write_git=flags.runs_write_git,
+                    git_add_triggered=flags.git_add_triggered,
+                    git_commit_triggered=flags.git_commit_triggered,
+                    git_push_triggered=flags.git_push_triggered,
+                    pr_opened=flags.pr_opened,
+                    merge_triggered=flags.merge_triggered,
+                    branch_deleted=flags.branch_deleted,
+                    git_reset_triggered=flags.git_reset_triggered,
+                    git_checkout_triggered=flags.git_checkout_triggered,
+                    git_switch_triggered=flags.git_switch_triggered,
+                    git_stash_triggered=flags.git_stash_triggered,
+                    git_rebase_triggered=flags.git_rebase_triggered,
+                    git_tag_triggered=flags.git_tag_triggered,
+                    ci_triggered=flags.ci_triggered,
+                    execution_enabled=flags.execution_enabled,
+                    worker_dispatch_triggered=flags.worker_dispatch_triggered,
+                    api_response_exposed=flags.api_response_exposed,
+                    agent_message_written=flags.agent_message_written,
+                    task_created=flags.task_created,
+                    retry_triggered=flags.retry_triggered,
+                )
+
+        source: str
+        version: str
+        failure_category: str
+        reason_code: str | None = None
+        recoverable: bool
+        retry_allowed: bool
+        recommended_owner: str
+        next_action: str
+        next_instruction_kind: str
+        next_instruction_draft_required: bool
+        next_instruction_draft: str | None = None
+        requires_human_decision: bool
+        human_decision_reason: str | None = None
+        user_visible_summary_cn: str
+        audit_event_type: str
+        rule_codes: list[str] = Field(default_factory=list)
+        safety_flags: SafetyFlagsResponse
+
+        @classmethod
+        def from_decision(
+            cls,
+            decision: FailureRecoveryDecision,
+        ) -> "WorkerRunOnceResponse.FailureRecoveryDecisionResponse":
+            """Copy the internal P5 decision into a read-only API DTO.
+
+            This mapper only serializes existing values. It does not retry,
+            dispatch workers, create tasks, write AgentMessage rows, or run Git.
+            """
+
+            return cls(
+                source=decision.source,
+                version=decision.version,
+                failure_category=decision.failure_category.value,
+                reason_code=(
+                    decision.reason_code.value
+                    if decision.reason_code is not None
+                    else None
+                ),
+                recoverable=decision.recoverable,
+                retry_allowed=decision.retry_allowed,
+                recommended_owner=decision.recommended_owner.value,
+                next_action=decision.next_action.value,
+                next_instruction_kind=decision.next_instruction_kind.value,
+                next_instruction_draft_required=decision.next_instruction_draft_required,
+                next_instruction_draft=decision.next_instruction_draft,
+                requires_human_decision=decision.requires_human_decision,
+                human_decision_reason=decision.human_decision_reason,
+                user_visible_summary_cn=decision.user_visible_summary_cn,
+                audit_event_type=decision.audit_event_type,
+                rule_codes=list(decision.rule_codes),
+                safety_flags=cls.SafetyFlagsResponse.from_decision(decision),
             )
 
     claimed: bool
@@ -382,6 +496,7 @@ class WorkerRunOnceResponse(BaseModel):
     delivery_human_approval_operation_applied: bool | None = None
     delivery_human_approval_gate_allows_write: bool | None = None
     delivery_human_approval_gate_allows_next_guardrail: bool | None = None
+    failure_recovery_decision: FailureRecoveryDecisionResponse | None = None
     task_id: UUID | None = None
     task_title: str | None = None
     task_status: TaskStatus | None = None
@@ -983,6 +1098,13 @@ class WorkerRunOnceResponse(BaseModel):
             ),
             delivery_human_approval_gate_allows_next_guardrail=(
                 result.delivery_human_approval_gate_allows_next_guardrail
+            ),
+            failure_recovery_decision=(
+                cls.FailureRecoveryDecisionResponse.from_decision(
+                    result.failure_recovery_decision
+                )
+                if result.failure_recovery_decision is not None
+                else None
             ),
             task_id=result.task.id if result.task else None,
             task_title=result.task.title if result.task else None,

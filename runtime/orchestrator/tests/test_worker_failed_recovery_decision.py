@@ -1,4 +1,4 @@
-"""Targeted P5-C/P5-D tests for failed worker run recovery decisions."""
+"""Targeted P5-C/P5-D/P5-E tests for failed worker run recovery decisions."""
 
 from __future__ import annotations
 
@@ -58,6 +58,58 @@ def _assert_p5c_internal_decision_payload(payload: dict) -> dict:
     return decision
 
 
+def _assert_p5e_response_decision_payload(
+    *,
+    response_payload: dict,
+    failure_category: RunFailureCategory,
+    reason_code: TaskBlockingReasonCode | None,
+    expected_owner: str,
+    expected_action: str,
+    expected_instruction_kind: str,
+    expected_recoverable: bool,
+    expected_retry_allowed: bool,
+    expected_draft_required: bool,
+    expected_requires_human: bool,
+) -> dict:
+    """Assert P5-E exposes only a read-only recovery decision DTO."""
+
+    assert "failure_recovery_reason_code" not in response_payload
+
+    decision = response_payload["failure_recovery_decision"]
+    assert decision["source"] == P5_FAILURE_RECOVERY_DECISION_SOURCE
+    assert decision["version"] == P5_FAILURE_RECOVERY_DECISION_VERSION
+    assert decision["audit_event_type"] == (
+        P5_FAILURE_RECOVERY_DECISION_AUDIT_EVENT_TYPE
+    )
+    assert decision["failure_category"] == failure_category.value
+    assert decision["reason_code"] == (
+        reason_code.value if reason_code is not None else None
+    )
+    assert decision["recoverable"] is expected_recoverable
+    assert decision["retry_allowed"] is expected_retry_allowed
+    assert decision["recommended_owner"] == expected_owner
+    assert decision["next_action"] == expected_action
+    assert decision["next_instruction_kind"] == expected_instruction_kind
+    assert decision["next_instruction_draft_required"] is expected_draft_required
+    assert bool(decision["next_instruction_draft"]) is expected_draft_required
+    assert decision["requires_human_decision"] is expected_requires_human
+    assert decision["user_visible_summary_cn"]
+    assert isinstance(decision["rule_codes"], list)
+    assert decision["safety_flags"]["runs_git"] is False
+    assert decision["safety_flags"]["runs_write_git"] is False
+    assert decision["safety_flags"]["git_add_triggered"] is False
+    assert decision["safety_flags"]["git_commit_triggered"] is False
+    assert decision["safety_flags"]["git_push_triggered"] is False
+    assert decision["safety_flags"]["pr_opened"] is False
+    assert decision["safety_flags"]["worker_dispatch_triggered"] is False
+    assert decision["safety_flags"]["agent_message_written"] is False
+    assert decision["safety_flags"]["task_created"] is False
+    assert decision["safety_flags"]["retry_triggered"] is False
+    assert all(flag_value is False for flag_value in decision["safety_flags"].values())
+
+    return decision
+
+
 def _assert_worker_result_decision(
     *,
     failure_category: RunFailureCategory,
@@ -98,9 +150,18 @@ def _assert_worker_result_decision(
     )
 
     response_payload = WorkerRunOnceResponse.from_result(result).model_dump(mode="json")
-    assert P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY not in response_payload
-    assert "failure_recovery_reason_code" not in response_payload
-    assert "failure_recovery_decision" not in response_payload
+    _assert_p5e_response_decision_payload(
+        response_payload=response_payload,
+        failure_category=failure_category,
+        reason_code=reason_code,
+        expected_owner=expected_owner,
+        expected_action=expected_action,
+        expected_instruction_kind=expected_instruction_kind,
+        expected_recoverable=expected_recoverable,
+        expected_retry_allowed=expected_retry_allowed,
+        expected_draft_required=expected_draft_required,
+        expected_requires_human=expected_requires_human,
+    )
 
 
 def test_worker_result_without_failure_category_has_no_recovery_decision():
@@ -112,6 +173,9 @@ def test_worker_result_without_failure_category_has_no_recovery_decision():
     )
 
     assert result.failure_recovery_decision is None
+    response_payload = WorkerRunOnceResponse.from_result(result).model_dump(mode="json")
+    assert response_payload["failure_recovery_decision"] is None
+    assert "failure_recovery_reason_code" not in response_payload
 
 
 def test_worker_result_preserves_explicit_recovery_decision():
@@ -476,8 +540,18 @@ def test_worker_failed_run_records_recovery_decision_agent_timeline(tmp_path):
     assert detail["p5_d_safety"]["git_push_triggered"] is False
     assert detail["p5_d_safety"]["pr_opened"] is False
 
-    assert P5C_FAILURE_RECOVERY_DECISION_PAYLOAD_KEY not in response_payload
-    assert "failure_recovery_decision" not in response_payload
+    _assert_p5e_response_decision_payload(
+        response_payload=response_payload,
+        failure_category=RunFailureCategory.EXECUTION_FAILED,
+        reason_code=None,
+        expected_owner="codex",
+        expected_action="fix_and_retry",
+        expected_instruction_kind="code_fix",
+        expected_recoverable=True,
+        expected_retry_allowed=True,
+        expected_draft_required=True,
+        expected_requires_human=False,
+    )
     assert "failure_recovery_reason_code" not in response_payload
 
 
