@@ -1,5 +1,4 @@
 import { StatusBadge } from "../../components/StatusBadge";
-import { formatDateTime } from "../../lib/format";
 import type {
   WorkerAgentDispatchDecision,
   WorkerAgentDispatchDecisionSafety,
@@ -31,7 +30,7 @@ const AGENT_LABELS_CN: Record<string, string> = {
 };
 
 const STATUS_LABELS_CN: Record<string, string> = {
-  suggested: "已生成调度建议",
+  suggested: "仅建议，未派发",
   needs_user_decision: "需要用户决策",
   blocked: "安全阻断",
   not_applicable: "不适用调度",
@@ -106,62 +105,6 @@ export function WorkerAgentDispatchDecisionCard(
       label: "指令类型",
       value: instructionKindLabel,
     },
-    {
-      key: "api_exposed",
-      label: "API 只读透传",
-      value: decision.api_response_exposed ? "已只读透传" : "未透传",
-      tone: decision.api_response_exposed ? "safe" : "warning",
-    },
-    {
-      key: "audit_message",
-      label: "审计消息记录",
-      value: decision.safety.agent_message_written ? "已记录" : "未记录",
-      tone: "neutral",
-    },
-    {
-      key: "created_at",
-      label: "生成时间",
-      value: formatDateTime(decision.created_at),
-    },
-  ];
-
-  const safetyFields: DispatchField[] = [
-    {
-      key: "dangerous_flags",
-      label: "危险安全标记",
-      value: hasDangerousFlags ? dangerousFlags.join("、") : "未检测到危险安全标记",
-      tone: hasDangerousFlags ? "danger" : "safe",
-    },
-    {
-      key: "auto_dispatch",
-      label: "自动调度",
-      value: decision.safety.auto_dispatch_triggered ? "安全标记异常" : "未自动调度",
-      tone: decision.safety.auto_dispatch_triggered ? "danger" : "safe",
-    },
-    {
-      key: "worker_dispatch",
-      label: "自动派发 Worker",
-      value: decision.safety.worker_dispatch_triggered ? "安全标记异常" : "未自动派发",
-      tone: decision.safety.worker_dispatch_triggered ? "danger" : "safe",
-    },
-    {
-      key: "retry",
-      label: "自动重试",
-      value: decision.safety.retry_triggered ? "安全标记异常" : "未自动重试",
-      tone: decision.safety.retry_triggered ? "danger" : "safe",
-    },
-    {
-      key: "task_created",
-      label: "创建任务",
-      value: decision.safety.task_created ? "安全标记异常" : "未创建任务",
-      tone: decision.safety.task_created ? "danger" : "safe",
-    },
-    {
-      key: "git_write",
-      label: "产品运行时 Git 写操作",
-      value: decision.safety.runs_write_git ? "安全标记异常" : "未执行 Git 写操作",
-      tone: decision.safety.runs_write_git ? "danger" : "safe",
-    },
   ];
 
   return (
@@ -209,20 +152,23 @@ export function WorkerAgentDispatchDecisionCard(
         <div className="text-xs tracking-[0.2em] text-emerald-200">
           只读安全检查
         </div>
-        <div
-          className={`mt-3 grid gap-3 ${
-            props.compact ? "sm:grid-cols-1" : "sm:grid-cols-2 xl:grid-cols-3"
-          }`}
-        >
-          {safetyFields.map((field) => (
+        {hasDangerousFlags ? (
+          <div
+            className={`mt-3 grid gap-3 ${
+              props.compact ? "sm:grid-cols-1" : "sm:grid-cols-2 xl:grid-cols-3"
+            }`}
+          >
             <DispatchInfo
-              key={field.key}
-              label={field.label}
-              value={field.value}
-              tone={field.tone}
+              label="危险安全标记"
+              value={dangerousFlags.join("、")}
+              tone="danger"
             />
-          ))}
-        </div>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm leading-6 text-emerald-100">
+            未检测到自动派发、自动重试、创建任务、CI 触发或产品运行时 Git 写操作。
+          </p>
+        )}
       </div>
     </div>
   );
@@ -238,8 +184,8 @@ function formatAgentLabel(decision: WorkerAgentDispatchDecision): string {
 
 function formatStatusLabel(decision: WorkerAgentDispatchDecision): string {
   return (
-    normalizeLabel(decision.dispatch_status_label_cn) ??
     STATUS_LABELS_CN[decision.dispatch_status] ??
+    normalizeLabel(decision.dispatch_status_label_cn) ??
     "未知状态"
   );
 }
