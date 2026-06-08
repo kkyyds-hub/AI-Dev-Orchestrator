@@ -98,6 +98,9 @@ export function ProjectDirectorInboxPanel({
             这里汇总需要 AI 项目主管关注的事项。这里只能查看和跳转，
             不会修改任务、运行记录或项目。
           </p>
+          <p className="mt-1 text-xs leading-5 text-cyan-100/70">
+            P9 fake runtime readback 已接入：仅观察 fake session，不代表真实执行器已启动。
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded border border-[#333333] px-2 py-1 text-[10px] text-zinc-500">

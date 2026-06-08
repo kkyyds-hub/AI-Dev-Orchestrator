@@ -13,6 +13,7 @@ import { useProjectScope } from "../shared/useProjectScope";
 import { DirectorChatEntry } from "./components/DirectorChatEntry";
 import { ProjectDirectorConversationList } from "./components/ProjectDirectorConversationList";
 import { ProjectDirectorInboxPanel } from "./components/ProjectDirectorInboxPanel";
+import { RuntimeReadbackPanel } from "./components/RuntimeReadbackPanel";
 import {
   parseDirectorSessionOptionValue,
   WorkbenchHeader,
@@ -403,7 +404,8 @@ export function WorkbenchPage() {
           />
         </div>
 
-        <div className="min-h-0 w-full shrink-0 xl:w-72 2xl:w-80">
+        <div className="flex min-h-0 w-full shrink-0 flex-col gap-4 overflow-y-auto pr-1 xl:w-80 2xl:w-96">
+          <RuntimeReadbackPanel />
           <WorkbenchRightRail
             overviewData={visibleOverviewData}
             overviewIsInitialLoading={overviewIsInitialLoading}

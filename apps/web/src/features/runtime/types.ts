@@ -1,0 +1,70 @@
+export interface RuntimeWorkspaceReadback {
+  workspace_id: string | null;
+  workspace_path_hint: string | null;
+  repository_id: string | null;
+  branch_name: string | null;
+  worktree_id: string | null;
+  workspace_bound: boolean;
+}
+
+export interface RuntimeProcessReadback {
+  process_id: number | null;
+  exit_code: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  last_activity_at: string | null;
+  heartbeat_at: string | null;
+}
+
+export interface RuntimeUsageReadback {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost: string | number | null;
+  cost_currency: string | null;
+}
+
+export interface RuntimeSessionReadback {
+  session_id: string;
+  executor_id: string;
+  launch_preview_id: string | null;
+  project_id: string | null;
+  task_id: string | null;
+  run_id: string | null;
+  state: string;
+  source: string;
+  workspace: RuntimeWorkspaceReadback;
+  process: RuntimeProcessReadback;
+  usage: RuntimeUsageReadback;
+  exit_reason: string | null;
+  result_summary: string | null;
+  error_summary: string | null;
+  blocking_reasons: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface RuntimeEventPayloadReadback {
+  message: string | null;
+  reason_code: string | null;
+  state: string | null;
+  metadata_count: number;
+}
+
+export interface RuntimeEventReadback {
+  event_id: string;
+  session_id: string;
+  event_type: string;
+  timestamp: string;
+  payload: RuntimeEventPayloadReadback;
+  append_only: boolean;
+}
+
+export interface RuntimeEventStreamReadback {
+  session_id: string;
+  events: RuntimeEventReadback[];
+  total: number;
+}
