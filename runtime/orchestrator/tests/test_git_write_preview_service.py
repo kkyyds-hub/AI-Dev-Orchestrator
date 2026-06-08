@@ -6,10 +6,11 @@ from pathlib import Path
 from app.domain.git_write import (
     GitWriteBlockReason,
     GitWriteIntent,
-    GitWritePreviewStatus,
     GitWritePreview,
+    GitWritePreviewStatus,
     GitWriteRollbackPlan,
     GitWriteSafetyGateName,
+    GitWriteSafetyGateStatus,
 )
 from app.services.git_write_preview_service import (
     GitWriteChangedFileInput,
@@ -166,7 +167,14 @@ def test_all_gate_inputs_pass_create_ready_preview_only() -> None:
     preview = build_preview()
 
     assert preview.status == GitWritePreviewStatus.READY
-    assert preview.safety_snapshot.all_passed is True
+    assert preview.safety_snapshot.preview_gates_passed() is True
+    assert preview.safety_snapshot.all_passed is False
+    assert preview.safety_snapshot.get_gate(GitWriteSafetyGateName.HUMAN_APPROVAL).status == (
+        GitWriteSafetyGateStatus.PENDING
+    )
+    assert preview.safety_snapshot.get_gate(GitWriteSafetyGateName.ONE_SHOT_TOKEN).status == (
+        GitWriteSafetyGateStatus.PENDING
+    )
     assert preview.rollback_plan is not None
     assert preview.rollback_plan.summary
 

@@ -302,15 +302,11 @@ class GitWritePreviewService:
                 not request.ci_trigger_requested,
                 GitWriteBlockReason.CI_TRIGGER_NOT_CONFIRMED,
             ),
-            _gate(
+            _pending_gate(
                 GitWriteSafetyGateName.HUMAN_APPROVAL,
-                True,
-                GitWriteBlockReason.HUMAN_APPROVAL_REQUIRED,
             ),
-            _gate(
+            _pending_gate(
                 GitWriteSafetyGateName.ONE_SHOT_TOKEN,
-                True,
-                GitWriteBlockReason.ONE_SHOT_TOKEN_MISSING,
             ),
             _gate(
                 GitWriteSafetyGateName.ROLLBACK_PLAN,
@@ -339,7 +335,7 @@ class GitWritePreviewService:
         )
         preview_status = (
             GitWritePreviewStatus.READY
-            if safety_snapshot.all_passed
+            if safety_snapshot.preview_gates_passed()
             else GitWritePreviewStatus.BLOCKED
         )
 
@@ -386,6 +382,16 @@ def _gate(
         status=GitWriteSafetyGateStatus.BLOCKED,
         passed=False,
         block_reason=block_reason,
+    )
+
+
+def _pending_gate(
+    gate_name: GitWriteSafetyGateName,
+) -> GitWriteSafetyGateCheck:
+    return GitWriteSafetyGateCheck(
+        gate_name=gate_name,
+        status=GitWriteSafetyGateStatus.PENDING,
+        passed=False,
     )
 
 

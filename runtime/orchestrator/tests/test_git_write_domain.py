@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.domain.git_write import (
+    PREVIEW_GIT_WRITE_SAFETY_GATES,
     REQUIRED_GIT_WRITE_SAFETY_GATES,
     GitWriteApproval,
     GitWriteApprovalDecision,
@@ -79,6 +80,33 @@ def blocked_snapshot(
         all_passed=True,
         evaluated_at=NOW,
     )
+
+
+def preview_ready_snapshot() -> GitWriteSafetyGateSnapshot:
+    checks = []
+    for gate_name in REQUIRED_GIT_WRITE_SAFETY_GATES:
+        if gate_name in {
+            GitWriteSafetyGateName.HUMAN_APPROVAL,
+            GitWriteSafetyGateName.ONE_SHOT_TOKEN,
+        }:
+            checks.append(
+                GitWriteSafetyGateCheck(
+                    gate_name=gate_name,
+                    status=GitWriteSafetyGateStatus.PENDING,
+                    passed=False,
+                    checked_at=NOW,
+                )
+            )
+        else:
+            checks.append(
+                GitWriteSafetyGateCheck(
+                    gate_name=gate_name,
+                    status=GitWriteSafetyGateStatus.PASSED,
+                    passed=True,
+                    checked_at=NOW,
+                )
+            )
+    return GitWriteSafetyGateSnapshot(gate_checks=checks, evaluated_at=NOW)
 
 
 def make_intent(**overrides: object) -> GitWriteIntent:
@@ -285,6 +313,21 @@ def test_safety_gate_snapshot_derives_all_passed_and_blocking_reasons() -> None:
     assert snapshot.get_gate(GitWriteSafetyGateName.FEATURE_FLAG).passed is True
 
 
+def test_safety_gate_snapshot_separates_preview_ready_from_write_ready() -> None:
+    snapshot = preview_ready_snapshot()
+
+    assert GitWriteSafetyGateName.HUMAN_APPROVAL not in PREVIEW_GIT_WRITE_SAFETY_GATES
+    assert GitWriteSafetyGateName.ONE_SHOT_TOKEN not in PREVIEW_GIT_WRITE_SAFETY_GATES
+    assert snapshot.preview_gates_passed() is True
+    assert snapshot.all_passed is False
+    assert snapshot.get_gate(GitWriteSafetyGateName.HUMAN_APPROVAL).status == (
+        GitWriteSafetyGateStatus.PENDING
+    )
+    assert snapshot.get_gate(GitWriteSafetyGateName.ONE_SHOT_TOKEN).status == (
+        GitWriteSafetyGateStatus.PENDING
+    )
+
+
 def test_approved_intent_requires_passing_safety_snapshot() -> None:
     with pytest.raises(ValidationError):
         make_intent(status=GitWriteIntentStatus.APPROVED)
@@ -293,6 +336,11 @@ def test_approved_intent_requires_passing_safety_snapshot() -> None:
         make_intent(
             status=GitWriteIntentStatus.APPROVED,
             safety_snapshot=blocked_snapshot(),
+        )
+    with pytest.raises(ValidationError):
+        make_intent(
+            status=GitWriteIntentStatus.APPROVED,
+            safety_snapshot=preview_ready_snapshot(),
         )
 
     intent = make_intent(
@@ -335,7 +383,7 @@ def test_preview_with_secret_flagged_file_must_be_blocked() -> None:
     assert preview.status == GitWritePreviewStatus.BLOCKED
 
 
-def test_ready_preview_requires_reviewed_files_and_passing_snapshot() -> None:
+def test_ready_preview_requires_reviewed_files_and_preview_passing_snapshot() -> None:
     with pytest.raises(ValidationError):
         GitWritePreview(
             preview_id="preview-1",
@@ -364,9 +412,11 @@ def test_ready_preview_requires_reviewed_files_and_passing_snapshot() -> None:
         status=GitWritePreviewStatus.READY,
         target_branch="feature/git-write",
         files=[make_preview_file()],
-        safety_snapshot=passed_snapshot(),
+        safety_snapshot=preview_ready_snapshot(),
         created_at=NOW,
     )
+    assert preview.safety_snapshot.preview_gates_passed() is True
+    assert preview.safety_snapshot.all_passed is False
     assert preview.ready_file_paths() == ["runtime/orchestrator/app/domain/git_write.py"]
 
 
@@ -455,6 +505,17 @@ def test_approved_decision_requires_actor_time_token_and_passing_snapshot() -> N
             decided_at=NOW,
             one_shot_token=make_token(status=GitWriteTokenStatus.ACTIVE),
             safety_snapshot=blocked_snapshot(),
+        )
+    with pytest.raises(ValidationError):
+        GitWriteApproval(
+            approval_id="approval-1",
+            intent_id="intent-1",
+            preview_id="preview-1",
+            decision=GitWriteApprovalDecision.APPROVED,
+            decided_by="user-1",
+            decided_at=NOW,
+            one_shot_token=make_token(status=GitWriteTokenStatus.ACTIVE),
+            safety_snapshot=preview_ready_snapshot(),
         )
 
     approval = GitWriteApproval(

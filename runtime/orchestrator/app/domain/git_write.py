@@ -117,6 +117,21 @@ class GitWritePreviewStatus(StrEnum):
 REQUIRED_GIT_WRITE_SAFETY_GATES: tuple[GitWriteSafetyGateName, ...] = tuple(
     GitWriteSafetyGateName
 )
+PREVIEW_GIT_WRITE_SAFETY_GATES: tuple[GitWriteSafetyGateName, ...] = (
+    GitWriteSafetyGateName.FEATURE_FLAG,
+    GitWriteSafetyGateName.WORKSPACE_BOUND,
+    GitWriteSafetyGateName.TARGET_BRANCH_ALLOWLIST,
+    GitWriteSafetyGateName.DIFF_PREVIEW,
+    GitWriteSafetyGateName.SECRET_SCAN,
+    GitWriteSafetyGateName.REVIEWED_FILES,
+    GitWriteSafetyGateName.FORCE_PUSH_DETECTION,
+    GitWriteSafetyGateName.DESTRUCTIVE_OPERATION_BLOCK,
+    GitWriteSafetyGateName.CI_TRIGGER_CONTROL,
+    GitWriteSafetyGateName.ROLLBACK_PLAN,
+    GitWriteSafetyGateName.DRY_RUN,
+    GitWriteSafetyGateName.AUDIT_EVENT,
+    GitWriteSafetyGateName.NO_PRODUCT_RUNTIME_GIT_WRITE,
+)
 
 _SUSPICIOUS_TEXT_PATTERN = re.compile(
     r"(api\s*[_-]?\s*key|token|secret|password|bearer|sk-|begin\s+private\s+key)",
@@ -340,6 +355,13 @@ class GitWriteSafetyGateSnapshot(DomainModel):
             for check in self.gate_checks
             if check.status == GitWriteSafetyGateStatus.BLOCKED
         ]
+
+    def preview_gates_passed(self) -> bool:
+        return all(
+            self.get_gate(gate).status == GitWriteSafetyGateStatus.PASSED
+            and self.get_gate(gate).passed is True
+            for gate in PREVIEW_GIT_WRITE_SAFETY_GATES
+        )
 
     def get_gate(
         self,
@@ -573,8 +595,8 @@ class GitWritePreview(DomainModel):
         if self.status == GitWritePreviewStatus.READY:
             if any(not file.reviewed for file in self.files):
                 raise ValueError("ready preview requires all files reviewed")
-            if self.safety_snapshot.all_passed is not True:
-                raise ValueError("ready preview requires all safety gates passed")
+            if self.safety_snapshot.preview_gates_passed() is not True:
+                raise ValueError("ready preview requires preview safety gates passed")
         if (
             self.status == GitWritePreviewStatus.BLOCKED
             and self.safety_snapshot.all_passed is True
