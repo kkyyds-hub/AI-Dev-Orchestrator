@@ -34,6 +34,7 @@ import { requestJson } from "../../../lib/http";
 import { buildRunRoute } from "../../../lib/run-route";
 import { buildTaskRoute } from "../../../lib/task-route";
 import { ProjectDirectorChallengeReadbackPanel } from "./ProjectDirectorChallengeReadbackPanel";
+import { ProjectDirectorConversionReadbackPanel } from "./ProjectDirectorConversionReadbackPanel";
 import { ProjectDirectorMessageSafetyPanel } from "./ProjectDirectorMessageSafetyPanel";
 import { ProjectDirectorPlanReviewModal } from "./ProjectDirectorPlanReviewModal";
 import { ProjectDirectorProposalReadbackPanel } from "./ProjectDirectorProposalReadbackPanel";
@@ -1305,6 +1306,7 @@ function MessageBubble({
           <>
             <ProjectDirectorChallengeReadbackPanel message={message} />
             <ProjectDirectorProposalReadbackPanel message={message} />
+            <ProjectDirectorConversionReadbackPanel message={message} />
             <ProjectDirectorMessageSafetyPanel message={message} />
           </>
         ) : null}
