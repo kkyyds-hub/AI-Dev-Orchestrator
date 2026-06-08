@@ -33,6 +33,7 @@ import {
 import { requestJson } from "../../../lib/http";
 import { buildRunRoute } from "../../../lib/run-route";
 import { buildTaskRoute } from "../../../lib/task-route";
+import { ProjectDirectorChallengeReadbackPanel } from "./ProjectDirectorChallengeReadbackPanel";
 import { ProjectDirectorMessageSafetyPanel } from "./ProjectDirectorMessageSafetyPanel";
 import { ProjectDirectorPlanReviewModal } from "./ProjectDirectorPlanReviewModal";
 
@@ -1300,7 +1301,10 @@ function MessageBubble({
         </div>
         <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
         {!isUser ? (
-          <ProjectDirectorMessageSafetyPanel message={message} />
+          <>
+            <ProjectDirectorChallengeReadbackPanel message={message} />
+            <ProjectDirectorMessageSafetyPanel message={message} />
+          </>
         ) : null}
       </div>
     </div>
