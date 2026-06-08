@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from app.domain.executor_config import (
     ExecutorBinaryDiscoveryStrategy,
     ExecutorConfigSource,
+    ExecutorLaunchPreview,
+    ExecutorLaunchSafetyFlags,
     ExecutorLoginStatus,
     ExecutorPermissionModel,
     ExecutorProvider,
@@ -23,6 +25,10 @@ from app.domain.executor_config import (
 )
 from app.services.executor_config_discovery_service import (
     ExecutorConfigDiscoveryService,
+)
+from app.services.executor_launch_preview_service import (
+    ExecutorLaunchPreviewRequest,
+    ExecutorLaunchPreviewService,
 )
 
 
@@ -135,6 +141,90 @@ class ExecutorProfileResponse(BaseModel):
         )
 
 
+
+
+class ExecutorLaunchPreviewRequestBody(BaseModel):
+    operation_intent: str | None = None
+    project_id: str | None = None
+    task_id: str | None = None
+    model_name: str | None = None
+    workspace_bound: bool = False
+    launch_cwd_hint: str | None = None
+    require_human_confirmation: bool = True
+
+    def to_domain(self) -> ExecutorLaunchPreviewRequest:
+        return ExecutorLaunchPreviewRequest(
+            operation_intent=self.operation_intent,
+            project_id=self.project_id,
+            task_id=self.task_id,
+            model_name=self.model_name,
+            workspace_bound=self.workspace_bound,
+            launch_cwd_hint=self.launch_cwd_hint,
+            require_human_confirmation=self.require_human_confirmation,
+        )
+
+
+class ExecutorLaunchSafetyFlagsResponse(BaseModel):
+    no_secret_exposure: bool
+    launch_preview_only: bool
+    no_external_process_launch: bool
+    no_product_runtime_git_write: bool
+    requires_human_confirmation_before_p9: bool
+
+    @classmethod
+    def from_domain(
+        cls,
+        safety_flags: ExecutorLaunchSafetyFlags,
+    ) -> "ExecutorLaunchSafetyFlagsResponse":
+        return cls(
+            no_secret_exposure=safety_flags.no_secret_exposure,
+            launch_preview_only=safety_flags.launch_preview_only,
+            no_external_process_launch=safety_flags.no_external_process_launch,
+            no_product_runtime_git_write=safety_flags.no_product_runtime_git_write,
+            requires_human_confirmation_before_p9=(
+                safety_flags.requires_human_confirmation_before_p9
+            ),
+        )
+
+
+class ExecutorLaunchPreviewResponse(BaseModel):
+    ready: bool
+    reason_code: str | None
+    executor_id: str
+    launch_command_preview: str
+    launch_cwd_hint: str | None
+    workspace_bound: bool
+    env_var_count: int
+    token_configured: bool
+    permission_mode: ExecutorPermissionModel | None
+    model_name: str | None
+    estimated_cost_warning: str | None
+    blocking_reasons: list[str]
+    safety_flags: ExecutorLaunchSafetyFlagsResponse
+    contract_kind: str
+
+    @classmethod
+    def from_domain(cls, preview: ExecutorLaunchPreview) -> "ExecutorLaunchPreviewResponse":
+        return cls(
+            ready=preview.ready,
+            reason_code=preview.reason_code,
+            executor_id=preview.executor_id,
+            launch_command_preview=preview.launch_command_preview,
+            launch_cwd_hint=preview.launch_cwd_hint,
+            workspace_bound=preview.workspace_bound,
+            env_var_count=preview.env_var_count,
+            token_configured=preview.token_configured,
+            permission_mode=preview.permission_mode,
+            model_name=preview.model_name,
+            estimated_cost_warning=preview.estimated_cost_warning,
+            blocking_reasons=preview.blocking_reasons,
+            safety_flags=ExecutorLaunchSafetyFlagsResponse.from_domain(
+                preview.safety_flags,
+            ),
+            contract_kind=preview.contract_kind,
+        )
+
+
 class ExecutorRegistryResponse(BaseModel):
     profiles: list[ExecutorProfileResponse]
     total: int
@@ -183,6 +273,19 @@ def get_executor_config_discovery_service() -> ExecutorConfigDiscoveryService:
     """Create the read-only executor discovery service dependency."""
 
     return ExecutorConfigDiscoveryService()
+
+
+
+
+def get_executor_launch_preview_service(
+    discovery_service: Annotated[
+        ExecutorConfigDiscoveryService,
+        Depends(get_executor_config_discovery_service),
+    ],
+) -> ExecutorLaunchPreviewService:
+    """Create the preview-only executor launch service dependency."""
+
+    return ExecutorLaunchPreviewService(discovery_service=discovery_service)
 
 
 router = APIRouter(prefix="/executors", tags=["executors"])
@@ -257,6 +360,31 @@ def get_executor_readiness(
             detail="Executor profile not found",
         )
     return ExecutorReadinessResponse.from_profile(profile)
+
+
+@router.post(
+    "/{executor_id}/launch-preview",
+    response_model=ExecutorLaunchPreviewResponse,
+    summary="Build a preview-only executor launch contract",
+)
+def build_executor_launch_preview(
+    executor_id: str,
+    service: Annotated[
+        ExecutorLaunchPreviewService,
+        Depends(get_executor_launch_preview_service),
+    ],
+    request: ExecutorLaunchPreviewRequestBody | None = None,
+) -> ExecutorLaunchPreviewResponse:
+    preview = service.build_preview(
+        executor_id,
+        request.to_domain() if request is not None else None,
+    )
+    if preview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Executor profile not found",
+        )
+    return ExecutorLaunchPreviewResponse.from_domain(preview)
 
 
 def build_blocking_reasons(status_value: ExecutorStatus) -> list[str]:

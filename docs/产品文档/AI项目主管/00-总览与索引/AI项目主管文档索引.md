@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8-A: Pass（Executor Config Discovery ledger + current-state audit）；P8-B: Pass（ExecutorProfile / DiscoveryResult contract freeze）；P8-C: Pass（safe discovery service 最小实现）；P8-D: Pass（read-only API + backend readback）；P8-E/P8-Final: Not started；P9 Controlled Runtime: Not started；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8-A: Pass（Executor Config Discovery ledger + current-state audit）；P8-B: Pass（ExecutorProfile / DiscoveryResult contract freeze）；P8-C: Pass（safe discovery service 最小实现）；P8-D: Pass（read-only API + backend readback）；P8-E: Pass（launch preview contract + preview-only API）；P8-Final: Not started；P9 Controlled Runtime: Not started；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
 
 ---
 
@@ -23,7 +23,7 @@ docs/产品文档/AI项目主管/
   07-P7主管对话与治理/     ← P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）
   08-历史验证与证据/       ← 历史阶段验证文档（工作台/Worker/失败/治理/工作树）
   09-历史归档/            ← 已冻结的历史文档（审计/freeze/gap）
-  10-P8执行器配置发现/     ← P8-A: Pass（ledger + current-state audit）；P8-B: Pass；P8-C: Pass；P8-D: Pass；P8-E 至 P8-Final: Not started
+  10-P8执行器配置发现/     ← P8-A: Pass（ledger + current-state audit）；P8-B: Pass；P8-C: Pass；P8-D: Pass；P8-E: Pass；P8-Final: Not started
 ```
 
 ---
@@ -88,7 +88,7 @@ P7 Final Gate: Pass。Project Director Conversation Hub + Governance total closu
 
 ### 10-P8执行器配置发现
 
-P8-A Ledger + Current-State Audit 已完成（Pass）；P8-B ExecutorProfile / DiscoveryResult contract freeze 已完成（Pass）；P8-C safe discovery service 最小实现已完成（Pass）；P8-D read-only API + backend readback 已完成（Pass）。P8 Executor Config Discovery / Registry / Readback / Launch Preview。**P8-E 至 P8-Final Not started。**
+P8-A Ledger + Current-State Audit 已完成（Pass）；P8-B ExecutorProfile / DiscoveryResult contract freeze 已完成（Pass）；P8-C safe discovery service 最小实现已完成（Pass）；P8-D read-only API + backend readback 已完成（Pass）；P8-E launch preview contract + preview-only API 已完成（Pass）。P8 Executor Config Discovery / Registry / Readback / Launch Preview。**P8-Final Not started。**
 
 **关键入口**：
 - [P8执行器配置发现总账与阶段设计-20260608](../10-P8执行器配置发现/P8执行器配置发现总账与阶段设计-20260608.md) — P8 阶段唯一总账，所有 P8 证据统一追加至此
@@ -145,7 +145,8 @@ P8-A Ledger + Current-State Audit 已完成（Pass）；P8-B ExecutorProfile / D
 | **P8-B** | ExecutorProfile / DiscoveryResult contract freeze | **Pass** |
 | **P8-C** | safe discovery service 最小实现 | **Pass** |
 | **P8-D** | read-only API + backend readback | **Pass** |
-| **P8-E/P8-Final** | Launch preview 与最终 Gate 后续子阶段实现 | **Not started** |
+| **P8-E** | Launch preview contract + preview-only API | **Pass** |
+| **P8-Final** | targeted evidence + P8 Gate | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
 
 ---

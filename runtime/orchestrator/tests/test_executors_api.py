@@ -140,6 +140,84 @@ def test_fake_probe_can_return_ready_true(fake_available_client: TestClient) -> 
     assert data["blocking_reasons"] == []
 
 
+def test_post_codex_launch_preview_returns_preview(client: TestClient) -> None:
+    response = client.post("/executors/codex/launch-preview")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["executor_id"] == "codex"
+    assert data["contract_kind"] == "preview_only"
+    assert data["launch_command_preview"].startswith("PREVIEW ONLY:")
+    assert data["safety_flags"]["launch_preview_only"] is True
+
+
+def test_noop_probe_codex_launch_preview_is_not_ready(client: TestClient) -> None:
+    response = client.post("/executors/codex/launch-preview")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ready"] is False
+    assert "executor_not_installed" in data["blocking_reasons"]
+    assert "p9_not_started" in data["blocking_reasons"]
+
+
+def test_fake_available_codex_launch_preview_ready_but_preview_only(
+    fake_available_client: TestClient,
+) -> None:
+    response = fake_available_client.post(
+        "/executors/codex/launch-preview",
+        json={
+            "operation_intent": "code fix",
+            "project_id": "project-1",
+            "task_id": "task-1",
+            "model_name": "gpt-5",
+            "workspace_bound": True,
+            "launch_cwd_hint": "/private/workspace/path",
+            "require_human_confirmation": True,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ready"] is True
+    assert data["reason_code"] == "preview_ready"
+    assert data["launch_command_preview"].startswith("PREVIEW ONLY:")
+    assert data["launch_cwd_hint"] == "workspace hint provided"
+    assert data["workspace_bound"] is True
+    assert data["safety_flags"]["no_external_process_launch"] is True
+    assert data["safety_flags"]["no_product_runtime_git_write"] is True
+
+
+def test_launch_preview_not_found_returns_404(client: TestClient) -> None:
+    response = client.post("/executors/not_real/launch-preview")
+
+    assert response.status_code == 404
+
+
+def test_launch_preview_response_excludes_sensitive_and_runtime_fields(
+    fake_available_client: TestClient,
+) -> None:
+    forbidden = {
+        "pid",
+        "exit_code",
+        "log_path",
+        "process_handle",
+        "session_id",
+        "api_key",
+        "token_value",
+        "auth_token",
+        "secret",
+        "env_vars_present",
+        "native_config_path",
+        "cli_path",
+    }
+
+    response = fake_available_client.post("/executors/codex/launch-preview")
+
+    assert response.status_code == 200
+    assert_response_tree_excludes(response.json(), forbidden)
+
+
 def test_get_available_executors_only_returns_available_profiles(
     fake_available_client: TestClient,
 ) -> None:
@@ -178,13 +256,23 @@ def test_executor_responses_exclude_process_runtime_fields(client: TestClient) -
     assert_response_tree_excludes(client.get("/executors/codex/readiness").json(), forbidden)
 
 
-def test_executors_api_route_file_has_no_write_endpoints() -> None:
+def test_executors_api_route_file_has_only_preview_post_endpoint() -> None:
     source = Path("app/api/routes/executors.py").read_text()
 
-    assert "@router.post" not in source
+    assert "@router.post(" in source
+    assert '"/{executor_id}/launch-preview"' in source
     assert "@router.put" not in source
     assert "@router.patch" not in source
     assert "@router.delete" not in source
+    forbidden_route_fragments = [
+        '"/{executor_id}/launch"',
+        '"/{executor_id}/execute"',
+        '"/{executor_id}/run"',
+        '"/{executor_id}/start"',
+        '"/{executor_id}/dispatch"',
+    ]
+    for route_fragment in forbidden_route_fragments:
+        assert route_fragment not in source
 
 
 def test_executors_api_route_file_does_not_import_execution_helpers() -> None:
