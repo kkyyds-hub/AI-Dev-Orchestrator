@@ -13,7 +13,13 @@ from sqlalchemy.orm import sessionmaker
 from app.api.router import api_router
 from app.api.routes import project_director as project_director_route
 from app.core.db import get_db_session
-from app.core.db_tables import ORMBase, ProjectDirectorMessageTable, RunTable
+from app.core.db_tables import (
+    ORMBase,
+    ProjectDirectorMessageTable,
+    ProjectDirectorSessionTable,
+    RunTable,
+    TaskTable,
+)
 from app.domain.project import Project
 from app.domain.project_director_message import ProjectDirectorMessageRole
 from app.domain.project_director_plan_version import (
@@ -45,9 +51,28 @@ from app.repositories.task_repository import TaskRepository
 from app.services.project_director_context_builder_service import (
     ProjectDirectorContextBuilderService,
 )
+from app.services.project_director_context_assembler_service import (
+    DirectorContextAssemblerService,
+)
 from app.services.project_director_message_service import ProjectDirectorMessageService
 from app.services.project_director_service import ProjectDirectorService
 from app.services.provider_config_service import OpenAIProviderRuntimeConfig
+
+
+TECHNICAL_USER_VISIBLE_TERMS = (
+    "provider",
+    "worker",
+    "executor",
+    "runtime",
+    "API",
+    "payload",
+    "Git",
+    "dispatch_question",
+    "session_id",
+    "project_id",
+    "synthetic",
+    "read model",
+)
 
 
 class NoProviderConfigService:
@@ -189,6 +214,12 @@ def _message_rows_for_session(db_session, session_id: str):
     )
 
 
+def _assert_no_user_visible_technical_terms(*values: object) -> None:
+    text = " ".join(str(value) for value in values)
+    for term in TECHNICAL_USER_VISIBLE_TERMS:
+        assert term not in text
+
+
 def _create_plan_version(
     db_session,
     *,
@@ -271,12 +302,16 @@ def test_post_message_persists_user_and_rule_fallback_assistant(client):
     assert data["user_message"]["sequence_no"] == 1
     assert data["assistant_message"]["role"] == "assistant"
     assert data["assistant_message"]["source"] == "rule_fallback"
-    assert data["assistant_message"]["source_detail"].startswith("stage_7_b2_rule_fallback")
+    assert data["assistant_message"]["source_detail"].startswith("stage_7_e4_rule_fallback")
     assert data["assistant_message"]["sequence_no"] == 2
     assert data["assistant_message"]["requires_confirmation"] is False
     assert data["assistant_message"]["suggested_actions"] == []
-    assert "不创建 Run" in data["assistant_message"]["forbidden_actions_detected"]
-    assert "不执行 suggested_actions" in data["assistant_message"]["forbidden_actions_detected"]
+    assert "不会自动创建任务" in data["assistant_message"]["forbidden_actions_detected"]
+    assert "不会修改仓库" in data["assistant_message"]["forbidden_actions_detected"]
+    _assert_no_user_visible_technical_terms(
+        data["assistant_message"]["content"],
+        data["assistant_message"]["forbidden_actions_detected"],
+    )
 
 
 def test_list_messages_returns_session_timeline_in_sequence_order(client):
@@ -401,7 +436,7 @@ def test_messages_service_with_unconfigured_provider_falls_back_and_creates_no_r
 
     assert user_message.source == "system"
     assert assistant_message.source == "rule_fallback"
-    assert assistant_message.source_detail.startswith("stage_7_b2_rule_fallback")
+    assert assistant_message.source_detail.startswith("stage_7_e4_rule_fallback")
     assert "provider_not_configured" in assistant_message.source_detail
     assert _count_rows(db_session, RunTable) == 0
 
@@ -429,7 +464,7 @@ def test_messages_service_provider_config_failure_uses_rule_fallback(db_session)
     assert user_message.source_detail == "user_submitted_message"
     assert assistant_message.source == "rule_fallback"
     assert "provider_config_unavailable" in assistant_message.source_detail
-    assert "不创建 Run" in assistant_message.forbidden_actions_detected
+    assert "不会自动创建任务" in assistant_message.forbidden_actions_detected
 
 
 def test_messages_are_fully_isolated_between_sessions(client, db_session):
@@ -474,7 +509,7 @@ def test_source_detail_readback_matches_persisted_rows(client, db_session):
     rows = _message_rows_for_session(db_session, session_id)
 
     assert rows[0].source_detail == "user_submitted_message"
-    assert rows[1].source_detail.startswith("stage_7_b2_rule_fallback")
+    assert rows[1].source_detail.startswith("stage_7_e4_rule_fallback")
     assert [m["source_detail"] for m in messages] == [row.source_detail for row in rows]
     assert post_data["user_message"]["source_detail"] == rows[0].source_detail
     assert post_data["assistant_message"]["source_detail"] == rows[1].source_detail
@@ -504,7 +539,7 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
         captured["prompt_text"] = prompt_text
         captured["request_id"] = request_id
         return (
-            '{"intent":"ask_about_next_step","answer":"这是 Provider 生成的 Project Director 对话回复",'
+            '{"intent":"ask_about_next_step","answer":"这是基于上下文生成的 Project Director 对话回复",'
             '"suggested_actions":[{"type":"navigate","label":"查看项目页","requires_confirmation":false,"risk_level":"low"}],'
             '"requires_confirmation":false,"risk_level":"low","forbidden_actions_detected":[]}',
             "receipt-chat-1",
@@ -533,7 +568,7 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
 
     assert user_message.source == "system"
     assert assistant_message.source == "ai"
-    assert assistant_message.content == "这是 Provider 生成的 Project Director 对话回复"
+    assert assistant_message.content == "这是基于上下文生成的 Project Director 对话回复"
     assert assistant_message.intent == "ask_about_next_step"
     assert assistant_message.suggested_actions == [
         {
@@ -543,7 +578,7 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
             "risk_level": "low",
         }
     ]
-    assert "stage_7_b2_provider_chat" in assistant_message.source_detail
+    assert "stage_7_e4_provider_chat" in assistant_message.source_detail
     assert "receipt-chat-1" in assistant_message.source_detail
     assert captured["model_name"] == "test-chat-model"
     assert "基于现有项目回答用户问题" in captured["prompt_text"]
@@ -551,10 +586,17 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
     assert "Project Director 对话项目" in captured["prompt_text"]
     assert "上下文任务" in captured["prompt_text"]
     assert "请说明当前项目下一步" in captured["prompt_text"]
-    assert "不得声称已经启动 Worker" in captured["prompt_text"]
+    assert "不能声称已执行任务" in captured["prompt_text"]
+    assert "用户输入意图：询问下一步" in captured["prompt_text"]
+    assert "已选上下文摘要" in captured["prompt_text"]
     assert captured["request_id"].startswith("project-director-chat-")
     assert assistant_message.requires_confirmation is False
-    assert "不写仓库" in assistant_message.forbidden_actions_detected
+    assert "不会修改仓库" in assistant_message.forbidden_actions_detected
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+        [action["label"] for action in assistant_message.suggested_actions],
+    )
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -623,7 +665,7 @@ def test_provider_json_contract_persists_plan_trace_and_suggested_actions(db_ses
         }
     ]
     assert "receipt-contract-1" in assistant_message.source_detail
-    assert "不执行 suggested_actions" in assistant_message.forbidden_actions_detected
+    assert "不会修改仓库" in assistant_message.forbidden_actions_detected
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -654,7 +696,7 @@ def test_provider_chat_failure_falls_back_without_run(db_session):
     assert assistant_message.source == "rule_fallback"
     assert "provider_generation_failed" in assistant_message.source_detail
     assert "provider exploded" in assistant_message.source_detail
-    assert "本回复不会启动 Worker" in assistant_message.content
+    assert "本回复不会自动执行任务" in assistant_message.content
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -698,8 +740,8 @@ def test_invalid_provider_contract_falls_back_without_persisting_provider_text(
     assert "provider_contract_invalid" in assistant_message.source_detail
     assert expected_reason in assistant_message.source_detail
     assert provider_output not in assistant_message.content
-    assert "非法 Provider 输出降级" in assistant_message.content
-    assert "不会启动 Worker" in assistant_message.content
+    assert "非法 回答服务 输出降级" in assistant_message.content
+    assert "不会启动外部工具" in assistant_message.content
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -759,14 +801,237 @@ def test_rule_fallback_uses_plan_risks_and_task_creation_context(db_session):
 
     assert assistant_message.source == "rule_fallback"
     assert "草案包含上下文补齐、fallback 增强和测试收口" in assistant_message.content
-    assert "Provider 合同不稳定" in assistant_message.content
+    assert "回答服务 合同不稳定" in assistant_message.content
     assert "用户可能误以为已执行" in assistant_message.content
     assert "分析与设计" in assistant_message.content
     assert "梳理上下文字段" in assistant_message.content
     assert "fallback 上下文项目" in assistant_message.content
     assert "任务数 1" in assistant_message.content
-    assert "不会启动 Worker" in assistant_message.content
+    assert "不会启动外部工具" in assistant_message.content
     assert _count_rows(db_session, RunTable) == 0
+
+
+def test_request_action_route_is_high_risk_and_requires_confirmation(db_session):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="验证执行请求只做安全回复")
+    session_row_before = db_session.get(ProjectDirectorSessionTable, session_obj.id)
+    status_before = session_row_before.status
+    counts_before = {
+        "sessions": _count_rows(db_session, ProjectDirectorSessionTable),
+        "tasks": _count_rows(db_session, TaskTable),
+        "runs": _count_rows(db_session, RunTable),
+    }
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="请开始执行任务并提交推送",
+    )
+
+    assert assistant_message.intent == "request_action"
+    assert assistant_message.risk_level == "high"
+    assert assistant_message.requires_confirmation is True
+    assert assistant_message.suggested_actions == []
+    assert "不会自动执行任务" in assistant_message.forbidden_actions_detected
+    assert "不会修改仓库" in assistant_message.forbidden_actions_detected
+    assert "不会启动外部工具" in assistant_message.forbidden_actions_detected
+    assert "我不能自动执行任务，也不会修改仓库" in assistant_message.content
+    assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
+    assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
+    assert _count_rows(db_session, RunTable) == counts_before["runs"]
+    assert db_session.get(ProjectDirectorSessionTable, session_obj.id).status == status_before
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+    )
+
+
+def test_request_action_filters_provider_suggested_actions_over_route_safety(db_session):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="过滤越界建议")
+
+    def unsafe_provider(model_name: str, prompt_text: str, request_id: str):
+        return (
+            "{"
+            '"intent":"request_action",'
+            '"answer":"我可以先说明需要确认的步骤。",'
+            '"suggested_actions":['
+            '{"type":"run_worker_once","label":"启动执行","requires_confirmation":false,"risk_level":"low"},'
+            '{"type":"create_formal_project","label":"创建正式项目","requires_confirmation":false,"risk_level":"low"},'
+            '{"type":"navigate","label":"查看提醒","requires_confirmation":false,"risk_level":"low"},'
+            '{"type":"explain","label":"说明确认步骤","requires_confirmation":false,"risk_level":"low"}'
+            "],"
+            '"requires_confirmation":false,'
+            '"risk_level":"low",'
+            '"forbidden_actions_detected":[]'
+            "}",
+            "receipt-route-safety",
+        )
+
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=ConfiguredProviderConfigService(),
+        provider_text_generator=unsafe_provider,
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="请启动执行并提交",
+    )
+
+    action_types = [action["type"] for action in assistant_message.suggested_actions]
+    assert "run_worker_once" not in action_types
+    assert "create_formal_project" not in action_types
+    assert action_types == ["navigate", "explain"]
+    assert all(action["requires_confirmation"] is True for action in assistant_message.suggested_actions)
+    assert {action["risk_level"] for action in assistant_message.suggested_actions} == {"high"}
+    assert assistant_message.intent == "request_action"
+    assert assistant_message.risk_level == "high"
+    assert assistant_message.requires_confirmation is True
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_ask_inbox_route_maps_to_existing_current_context_intent(db_session):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="查看提醒")
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="有哪些提醒和待处理？",
+    )
+
+    assert assistant_message.intent == "ask_about_current_context"
+    assert assistant_message.risk_level == "low"
+    assert "可以查看提醒并解释含义，但不会替你执行任何操作" in assistant_message.content
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+    )
+
+
+def test_challenge_plan_route_is_medium_risk_without_modification(db_session):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="质疑草案")
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="我不同意，这样不合理",
+    )
+
+    assert assistant_message.intent == "request_plan_change"
+    assert assistant_message.risk_level == "medium"
+    assert assistant_message.requires_confirmation is False
+    assert assistant_message.suggested_actions == []
+    assert "不会直接应用草案修改" in assistant_message.forbidden_actions_detected
+    assert "不会直接修改草案" in assistant_message.content
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_provider_unavailable_request_action_uses_router_chinese_safety(db_session):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="执行请求降级")
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="请创建任务并执行",
+    )
+
+    assert assistant_message.source == "rule_fallback"
+    assert assistant_message.intent == "request_action"
+    assert assistant_message.risk_level == "high"
+    assert assistant_message.requires_confirmation is True
+    assert "我不能自动执行任务，也不会修改仓库" in assistant_message.content
+    assert "不会自动执行任务" in assistant_message.forbidden_actions_detected
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+    )
+
+
+def test_assembler_exception_falls_back_to_base_context_without_interrupting(
+    db_session,
+    monkeypatch,
+):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="上下文异常降级")
+
+    def explode(self, **kwargs):
+        raise RuntimeError("assembler exploded")
+
+    monkeypatch.setattr(DirectorContextAssemblerService, "assemble", explode)
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    user_message, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="当前状态如何？",
+    )
+
+    assert user_message.sequence_no == 1
+    assert assistant_message.sequence_no == 2
+    assert assistant_message.source == "rule_fallback"
+    assert "上下文回看失败，已使用基础上下文" in assistant_message.content
+    assert "context_note=上下文回看失败，已使用基础上下文" in assistant_message.source_detail
+    assert len(_message_rows_for_session(db_session, session_obj.id)) == 2
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_assistant_user_visible_text_avoids_technical_terms(db_session):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="检查用户可见文案")
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="请问 API payload 和 Git 相关状态？",
+    )
+
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+        [action["label"] for action in assistant_message.suggested_actions],
+    )
 
 
 def test_context_builder_reads_recent_messages_project_and_tasks(db_session):
