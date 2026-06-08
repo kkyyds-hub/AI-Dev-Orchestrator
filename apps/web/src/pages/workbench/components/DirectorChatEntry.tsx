@@ -36,6 +36,7 @@ import { buildTaskRoute } from "../../../lib/task-route";
 import { ProjectDirectorChallengeReadbackPanel } from "./ProjectDirectorChallengeReadbackPanel";
 import { ProjectDirectorMessageSafetyPanel } from "./ProjectDirectorMessageSafetyPanel";
 import { ProjectDirectorPlanReviewModal } from "./ProjectDirectorPlanReviewModal";
+import { ProjectDirectorProposalReadbackPanel } from "./ProjectDirectorProposalReadbackPanel";
 
 type OpenAIProviderSettingsSummary = {
   provider_key: string;
@@ -1303,6 +1304,7 @@ function MessageBubble({
         {!isUser ? (
           <>
             <ProjectDirectorChallengeReadbackPanel message={message} />
+            <ProjectDirectorProposalReadbackPanel message={message} />
             <ProjectDirectorMessageSafetyPanel message={message} />
           </>
         ) : null}
