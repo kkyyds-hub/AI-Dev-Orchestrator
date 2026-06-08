@@ -19,6 +19,13 @@ from app.domain.project_director_conversation_router import (
     RouteDecision,
     SafetyRiskLevel,
 )
+from app.domain.project_director_action_proposal import (
+    DirectorActionProposal,
+    DirectorActionProposalBuilder,
+    DirectorActionProposalType,
+    DirectorActionRisk,
+    ProposalApprovalRequirement,
+)
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
     ProjectDirectorMessageRiskLevel,
@@ -75,6 +82,13 @@ _CHALLENGE_SAFE_ACTION_TYPES = {
     "request_changes",
 }
 
+_PROPOSAL_SAFE_ACTION_TYPES = {
+    "explain",
+    "navigate",
+    "none",
+    "request_changes",
+}
+
 _EXECUTION_ACTION_TEXTS = (
     "启动执行",
     "创建任务",
@@ -82,6 +96,8 @@ _EXECUTION_ACTION_TEXTS = (
     "合并",
     "提交代码",
     "重试",
+    "应用修改",
+    "执行审批",
 )
 
 _TECHNICAL_USER_VISIBLE_TERMS = (
@@ -108,6 +124,10 @@ _TECHNICAL_USER_VISIBLE_TERMS = (
     "challenge_type",
     "challenge_severity",
     "challenge_status",
+    "proposal_type",
+    "proposal_status",
+    "approval_requirement",
+    "plan_revision",
     "Codex",
     "Claude",
     "DeepSeek",
@@ -141,6 +161,10 @@ _TECHNICAL_TERM_REPLACEMENTS = {
     "challenge_type": "反馈类型",
     "challenge_severity": "反馈严重程度",
     "challenge_status": "反馈状态",
+    "proposal_type": "建议类型",
+    "proposal_status": "建议状态",
+    "approval_requirement": "审查要求",
+    "plan_revision": "草案修改建议",
     "Skill": "技能",
 }
 
@@ -202,6 +226,19 @@ _CHALLENGE_SEVERITY_LABELS_CN = {
     UserChallengeSeverity.MEDIUM: "中",
     UserChallengeSeverity.HIGH: "高",
     UserChallengeSeverity.BLOCKING: "阻塞",
+}
+
+_PROPOSAL_RISK_TO_MESSAGE_RISK = {
+    DirectorActionRisk.LOW: ProjectDirectorMessageRiskLevel.LOW,
+    DirectorActionRisk.MEDIUM: ProjectDirectorMessageRiskLevel.MEDIUM,
+    DirectorActionRisk.HIGH: ProjectDirectorMessageRiskLevel.HIGH,
+}
+
+_PROPOSAL_APPROVAL_LABELS_CN = {
+    ProposalApprovalRequirement.NONE: "暂不需要确认",
+    ProposalApprovalRequirement.USER_CONFIRMATION_REQUIRED: "需要你确认",
+    ProposalApprovalRequirement.HUMAN_REVIEW_REQUIRED: "需要人工复核",
+    ProposalApprovalRequirement.OWNER_APPROVAL_REQUIRED: "需要负责人确认",
 }
 
 _CHALLENGE_SIGNAL_KEYWORDS = (
@@ -307,6 +344,11 @@ class ProjectDirectorMessageService:
             session_id=session_id,
             project_id=session_obj.project_id,
         )
+        action_proposal = (
+            DirectorActionProposalBuilder.build_from_challenge(challenge_seed)
+            if challenge_seed is not None
+            else None
+        )
         context, assembly, context_note = self._assemble_route_context(
             session_id=session_id,
             route_decision=route_decision,
@@ -318,6 +360,7 @@ class ProjectDirectorMessageService:
             assembly=assembly,
             context_note=context_note,
             challenge_seed=challenge_seed,
+            action_proposal=action_proposal,
         )
 
         assistant_message = self._message_repository.create(
@@ -375,9 +418,36 @@ class ProjectDirectorMessageService:
         if route_decision.intent in {
             ConversationIntent.CHALLENGE_PLAN,
             ConversationIntent.REQUEST_PLAN_CHANGE,
-            ConversationIntent.REQUEST_ACTION,
         }:
             return True
+        if route_decision.intent == ConversationIntent.REQUEST_ACTION:
+            return any(
+                keyword in user_content
+                for keyword in (
+                    "不同意",
+                    "不合理",
+                    "不对",
+                    "有问题",
+                    "不应该",
+                    "质疑",
+                    "调度",
+                    "派给",
+                    "Codex",
+                    "Claude",
+                    "DeepSeek",
+                    "外部工具",
+                    "改需求",
+                    "换需求",
+                    "新需求",
+                    "需求变了",
+                    "成本",
+                    "角色",
+                    "Skill",
+                    "skill",
+                    "权限",
+                    "治理",
+                )
+            )
         if route_decision.intent in {
             ConversationIntent.ASK_INBOX,
             ConversationIntent.ASK_TASK_OR_RUN,
@@ -437,6 +507,7 @@ class ProjectDirectorMessageService:
         assembly: DirectorContextAssembly | None,
         context_note: str | None,
         challenge_seed: UserChallengeSeed | None,
+        action_proposal: DirectorActionProposal | None,
     ) -> ChatGenerationResult:
         provider_config_service = (
             self._provider_config_service or ProviderConfigService()
@@ -453,14 +524,16 @@ class ProjectDirectorMessageService:
                         assembly=assembly,
                         context_note=context_note,
                         challenge_seed=challenge_seed,
+                        action_proposal=action_proposal,
                         reason=f"provider_config_unavailable:{exc}",
                     ),
                     source=ProjectDirectorMessageSource.RULE_FALLBACK,
                     source_detail=self._truncate_source_detail(
                         self._source_detail_with_context_note(
-                            self._source_detail_with_challenge_seed(
+                            self._source_detail_with_challenge_and_proposal(
                                 f"stage_7_e4_rule_fallback; reason=provider_config_unavailable:{exc}",
                                 challenge_seed,
+                                action_proposal,
                             ),
                             context_note,
                         )
@@ -470,6 +543,7 @@ class ProjectDirectorMessageService:
                 ),
                 route_decision=route_decision,
                 challenge_seed=challenge_seed,
+                action_proposal=action_proposal,
             )
 
         if not getattr(runtime_config, "api_key", None):
@@ -482,13 +556,15 @@ class ProjectDirectorMessageService:
                         assembly=assembly,
                         context_note=context_note,
                         challenge_seed=challenge_seed,
+                        action_proposal=action_proposal,
                         reason="provider_not_configured",
                     ),
                     source=ProjectDirectorMessageSource.RULE_FALLBACK,
                     source_detail=self._source_detail_with_context_note(
-                        self._source_detail_with_challenge_seed(
+                        self._source_detail_with_challenge_and_proposal(
                             "stage_7_e4_rule_fallback; reason=provider_not_configured",
                             challenge_seed,
+                            action_proposal,
                         ),
                         context_note,
                     ),
@@ -497,6 +573,7 @@ class ProjectDirectorMessageService:
                 ),
                 route_decision=route_decision,
                 challenge_seed=challenge_seed,
+                action_proposal=action_proposal,
             )
 
         model_name = runtime_config.model_names.get(
@@ -510,6 +587,7 @@ class ProjectDirectorMessageService:
             assembly=assembly,
             context_note=context_note,
             challenge_seed=challenge_seed,
+            action_proposal=action_proposal,
         )
         request_id = f"project-director-chat-{uuid4().hex[:12]}"
         try:
@@ -536,14 +614,16 @@ class ProjectDirectorMessageService:
                         assembly=assembly,
                         context_note=context_note,
                         challenge_seed=challenge_seed,
+                        action_proposal=action_proposal,
                         reason=f"provider_generation_failed:{exc}",
                     ),
                     source=ProjectDirectorMessageSource.RULE_FALLBACK,
                     source_detail=self._truncate_source_detail(
                         self._source_detail_with_context_note(
-                            self._source_detail_with_challenge_seed(
+                            self._source_detail_with_challenge_and_proposal(
                                 f"stage_7_e4_rule_fallback; reason=provider_generation_failed:{exc}",
                                 challenge_seed,
+                                action_proposal,
                             ),
                             context_note,
                         )
@@ -553,6 +633,7 @@ class ProjectDirectorMessageService:
                 ),
                 route_decision=route_decision,
                 challenge_seed=challenge_seed,
+                action_proposal=action_proposal,
             )
 
         cleaned_output = output_text.strip()
@@ -566,13 +647,15 @@ class ProjectDirectorMessageService:
                         assembly=assembly,
                         context_note=context_note,
                         challenge_seed=challenge_seed,
+                        action_proposal=action_proposal,
                         reason="provider_empty_output",
                     ),
                     source=ProjectDirectorMessageSource.RULE_FALLBACK,
                     source_detail=self._source_detail_with_context_note(
-                        self._source_detail_with_challenge_seed(
+                        self._source_detail_with_challenge_and_proposal(
                             "stage_7_e4_rule_fallback; reason=provider_empty_output",
                             challenge_seed,
+                            action_proposal,
                         ),
                         context_note,
                     ),
@@ -581,6 +664,7 @@ class ProjectDirectorMessageService:
                 ),
                 route_decision=route_decision,
                 challenge_seed=challenge_seed,
+                action_proposal=action_proposal,
             )
 
         try:
@@ -598,14 +682,16 @@ class ProjectDirectorMessageService:
                         assembly=assembly,
                         context_note=context_note,
                         challenge_seed=challenge_seed,
+                        action_proposal=action_proposal,
                         reason=f"provider_contract_invalid:{exc}",
                     ),
                     source=ProjectDirectorMessageSource.RULE_FALLBACK,
                     source_detail=self._truncate_source_detail(
                         self._source_detail_with_context_note(
-                            self._source_detail_with_challenge_seed(
+                            self._source_detail_with_challenge_and_proposal(
                                 f"stage_7_e4_rule_fallback; reason=provider_contract_invalid:{exc}",
                                 challenge_seed,
+                                action_proposal,
                             ),
                             context_note,
                         )
@@ -615,6 +701,7 @@ class ProjectDirectorMessageService:
                 ),
                 route_decision=route_decision,
                 challenge_seed=challenge_seed,
+                action_proposal=action_proposal,
             )
 
         return self._apply_route_safety(
@@ -623,10 +710,12 @@ class ProjectDirectorMessageService:
                 source=ProjectDirectorMessageSource.AI,
                 source_detail=self._truncate_source_detail(
                     self._source_detail_with_context_note(
-                        "stage_7_e4_provider_chat; "
-                        f"provider={runtime_config.detected_provider_type}; "
-                        f"model={model_name}; receipt={receipt_id or 'missing'}"
-                        + self._challenge_source_detail_suffix(challenge_seed),
+                        self._source_detail_with_challenge_and_proposal(
+                            "stage_7_e4_provider_chat; "
+                            f"receipt={receipt_id or 'missing'}",
+                            challenge_seed,
+                            action_proposal,
+                        ),
                         context_note,
                     )
                 ),
@@ -639,9 +728,10 @@ class ProjectDirectorMessageService:
                     *parsed_reply.forbidden_actions_detected,
                     *_FORBIDDEN_MESSAGE_ACTIONS,
                 ],
-        ),
+            ),
             route_decision=route_decision,
             challenge_seed=challenge_seed,
+            action_proposal=action_proposal,
         )
 
     @staticmethod
@@ -826,6 +916,7 @@ class ProjectDirectorMessageService:
         *,
         route_decision: RouteDecision,
         challenge_seed: UserChallengeSeed | None = None,
+        action_proposal: DirectorActionProposal | None = None,
     ) -> ChatGenerationResult:
         route_risk = _ROUTE_RISK_TO_MESSAGE_RISK[
             route_decision.safety_policy.risk_level
@@ -836,16 +927,25 @@ class ProjectDirectorMessageService:
                 risk_level,
                 _CHALLENGE_SEVERITY_TO_MESSAGE_RISK[challenge_seed.severity],
             )
+        if action_proposal is not None:
+            risk_level = cls._max_risk_level(
+                risk_level,
+                _PROPOSAL_RISK_TO_MESSAGE_RISK[action_proposal.risk],
+            )
         route_forbidden = cls._sanitize_user_visible_actions(
             route_decision.safety_policy.forbidden_actions
         )
         challenge_forbidden = cls._sanitize_user_visible_actions(
             challenge_seed.forbidden_actions if challenge_seed else []
         )
+        proposal_forbidden = cls._sanitize_user_visible_actions(
+            action_proposal.forbidden_actions if action_proposal else []
+        )
         forbidden_actions = cls._dedupe_actions(
             [
                 *route_forbidden,
                 *challenge_forbidden,
+                *proposal_forbidden,
                 *cls._sanitize_user_visible_actions(
                     reply.forbidden_actions_detected
                 ),
@@ -856,12 +956,17 @@ class ProjectDirectorMessageService:
             content=cls._sanitize_user_visible_text(reply.content)[:10_000],
             source=reply.source,
             source_detail=cls._truncate_source_detail(reply.source_detail),
-            intent=cls._message_intent_for_route(route_decision, challenge_seed),
+            intent=cls._message_intent_for_route(
+                route_decision,
+                challenge_seed,
+                action_proposal,
+            ),
             related_plan_version_id=reply.related_plan_version_id,
             suggested_actions=cls._filter_suggested_actions_for_route(
                 reply.suggested_actions,
                 route_decision=route_decision,
                 challenge_seed=challenge_seed,
+                action_proposal=action_proposal,
             ),
             requires_confirmation=(
                 reply.requires_confirmation
@@ -869,6 +974,12 @@ class ProjectDirectorMessageService:
                 or (
                     challenge_seed.requires_human_confirmation
                     if challenge_seed is not None
+                    else False
+                )
+                or (
+                    action_proposal.approval_requirement
+                    != ProposalApprovalRequirement.NONE
+                    if action_proposal is not None
                     else False
                 )
             ),
@@ -880,7 +991,16 @@ class ProjectDirectorMessageService:
     def _message_intent_for_route(
         route_decision: RouteDecision,
         challenge_seed: UserChallengeSeed | None = None,
+        action_proposal: DirectorActionProposal | None = None,
     ) -> str:
+        if action_proposal is not None:
+            if action_proposal.plan_revision is not None:
+                return "request_plan_change"
+            if action_proposal.proposal_type in {
+                DirectorActionProposalType.DISPATCH_REVIEW,
+                DirectorActionProposalType.GOVERNANCE_REVIEW,
+            }:
+                return "ask_about_current_context"
         if challenge_seed is not None:
             if challenge_seed.challenge_type == UserChallengeType.REQUIREMENT_CHANGE:
                 return "request_plan_change"
@@ -905,6 +1025,7 @@ class ProjectDirectorMessageService:
         *,
         route_decision: RouteDecision,
         challenge_seed: UserChallengeSeed | None = None,
+        action_proposal: DirectorActionProposal | None = None,
     ) -> list[dict]:
         if not suggested_actions:
             return []
@@ -913,6 +1034,8 @@ class ProjectDirectorMessageService:
             allowed_types = {"explain", "navigate", "none"}
         if challenge_seed is not None:
             allowed_types = allowed_types.intersection(_CHALLENGE_SAFE_ACTION_TYPES)
+        if action_proposal is not None:
+            allowed_types = allowed_types.intersection(_PROPOSAL_SAFE_ACTION_TYPES)
 
         filtered: list[dict] = []
         route_risk = _ROUTE_RISK_TO_MESSAGE_RISK[
@@ -922,6 +1045,16 @@ class ProjectDirectorMessageService:
             _CHALLENGE_SEVERITY_TO_MESSAGE_RISK[challenge_seed.severity]
             if challenge_seed is not None
             else ProjectDirectorMessageRiskLevel.LOW
+        )
+        proposal_risk = (
+            _PROPOSAL_RISK_TO_MESSAGE_RISK[action_proposal.risk]
+            if action_proposal is not None
+            else ProjectDirectorMessageRiskLevel.LOW
+        )
+        proposal_requires_confirmation = (
+            action_proposal.approval_requirement != ProposalApprovalRequirement.NONE
+            if action_proposal is not None
+            else False
         )
         for action in suggested_actions[:5]:
             action_type = str(action.get("type", "none")).strip() or "none"
@@ -938,8 +1071,11 @@ class ProjectDirectorMessageService:
             except ValueError:
                 action_risk = ProjectDirectorMessageRiskLevel.LOW
             effective_risk = cls._max_risk_level(
-                cls._max_risk_level(action_risk, route_risk),
-                challenge_risk,
+                cls._max_risk_level(
+                    cls._max_risk_level(action_risk, route_risk),
+                    challenge_risk,
+                ),
+                proposal_risk,
             )
             filtered.append(
                 {
@@ -953,7 +1089,8 @@ class ProjectDirectorMessageService:
                         challenge_seed.requires_human_confirmation
                         if challenge_seed is not None
                         else False
-                    ),
+                    )
+                    or proposal_requires_confirmation,
                     "risk_level": effective_risk.value,
                 }
             )
@@ -1000,6 +1137,27 @@ class ProjectDirectorMessageService:
     ) -> str:
         return source_detail + cls._challenge_source_detail_suffix(challenge_seed)
 
+    @classmethod
+    def _source_detail_with_challenge_and_proposal(
+        cls,
+        source_detail: str,
+        challenge_seed: UserChallengeSeed | None,
+        action_proposal: DirectorActionProposal | None,
+    ) -> str:
+        if action_proposal is None:
+            return cls._source_detail_with_challenge_seed(source_detail, challenge_seed)
+        if challenge_seed is not None:
+            source_detail += f"; challenge_type={challenge_seed.challenge_type.value}"
+        return source_detail + cls._proposal_source_detail_suffix(action_proposal)
+
+    @classmethod
+    def _source_detail_with_proposal(
+        cls,
+        source_detail: str,
+        action_proposal: DirectorActionProposal | None,
+    ) -> str:
+        return source_detail + cls._proposal_source_detail_suffix(action_proposal)
+
     @staticmethod
     def _challenge_source_detail_suffix(
         challenge_seed: UserChallengeSeed | None,
@@ -1010,8 +1168,20 @@ class ProjectDirectorMessageService:
             f"; challenge_type={challenge_seed.challenge_type.value}"
             f"; challenge_severity={challenge_seed.severity.value}"
             f"; challenge_status={challenge_seed.status.value}"
-            "; challenge_requires_plan_revision="
-            f"{str(challenge_seed.requires_plan_revision).lower()}"
+        )
+
+    @staticmethod
+    def _proposal_source_detail_suffix(
+        action_proposal: DirectorActionProposal | None,
+    ) -> str:
+        if action_proposal is None:
+            return ""
+        return (
+            f"; proposal_type={action_proposal.proposal_type.value}"
+            f"; proposal_status={action_proposal.status.value}"
+            f"; approval_requirement={action_proposal.approval_requirement.value}"
+            "; has_plan_revision="
+            f"{str(action_proposal.plan_revision is not None).lower()}"
         )
 
     @classmethod
@@ -1024,6 +1194,7 @@ class ProjectDirectorMessageService:
         assembly: DirectorContextAssembly | None,
         context_note: str | None,
         challenge_seed: UserChallengeSeed | None,
+        action_proposal: DirectorActionProposal | None,
         reason: str,
     ) -> str:
         plan_status = "无计划草案"
@@ -1065,6 +1236,7 @@ class ProjectDirectorMessageService:
 
         route_lines = cls._route_specific_fallback_lines(route_decision)
         challenge_lines = cls._challenge_fallback_lines(challenge_seed)
+        proposal_lines = cls._proposal_fallback_lines(action_proposal)
         assembly_lines = cls._assembly_summary_lines(assembly)
         lines = [
             "已记录你的消息。当前先按安全规则回复。",
@@ -1088,6 +1260,7 @@ class ProjectDirectorMessageService:
         if risks:
             lines.append("主要风险：" + "；".join(risks))
         lines.extend(challenge_lines)
+        lines.extend(proposal_lines)
         lines.extend(route_lines)
         lines.extend(
             [
@@ -1102,6 +1275,62 @@ class ProjectDirectorMessageService:
             ]
         )
         return cls._sanitize_user_visible_text("\n".join(lines))[:10_000]
+
+    @classmethod
+    def _proposal_fallback_lines(
+        cls,
+        action_proposal: DirectorActionProposal | None,
+    ) -> list[str]:
+        if action_proposal is None:
+            return []
+        lines = [
+            "我会先把它整理成一个可审查的建议。",
+            f"建议类型：{action_proposal.title}。",
+            f"建议摘要：{action_proposal.summary}",
+            f"建议原因：{action_proposal.reason}",
+            "审查要求："
+            + _PROPOSAL_APPROVAL_LABELS_CN[action_proposal.approval_requirement]
+            + "。",
+        ]
+        if action_proposal.plan_revision is not None:
+            lines.extend(
+                [
+                    "这只是修改建议，不会直接改草案。",
+                    f"修改建议标题：{action_proposal.plan_revision.title}",
+                    f"修改建议摘要：{action_proposal.plan_revision.summary}",
+                ]
+            )
+        if action_proposal.approval_requirement != ProposalApprovalRequirement.NONE:
+            lines.append("继续处理前需要你确认或复核。")
+        if (
+            action_proposal.proposal_type
+            == DirectorActionProposalType.DISPATCH_REVIEW
+        ):
+            lines.append("不会启动外部工具，会先复核调度安排。")
+        if (
+            action_proposal.proposal_type
+            == DirectorActionProposalType.GOVERNANCE_REVIEW
+        ):
+            lines.append("不会修改治理配置，会先复核风险。")
+        if action_proposal.safe_next_actions:
+            lines.append(
+                "可做下一步："
+                + "、".join(
+                    cls._sanitize_user_visible_actions(
+                        action_proposal.safe_next_actions
+                    )[:5]
+                )
+            )
+        if action_proposal.forbidden_actions:
+            lines.append(
+                "安全边界："
+                + "、".join(
+                    cls._sanitize_user_visible_actions(
+                        action_proposal.forbidden_actions
+                    )[:6]
+                )
+            )
+        return lines
 
     @classmethod
     def _challenge_fallback_lines(
@@ -1186,6 +1415,7 @@ class ProjectDirectorMessageService:
         assembly: DirectorContextAssembly | None,
         context_note: str | None,
         challenge_seed: UserChallengeSeed | None,
+        action_proposal: DirectorActionProposal | None,
     ) -> str:
         recent_lines = [
             f"- 第 {message.sequence_no} 条 {message.role.value}: {message.content[:300]}"
@@ -1201,11 +1431,13 @@ class ProjectDirectorMessageService:
             or route_decision.safety_policy.safe_next_actions
         )
         challenge_lines = cls._provider_challenge_lines(challenge_seed)
+        proposal_lines = cls._provider_proposal_lines(action_proposal)
         return "\n".join(
             [
                 "你是 AI Project Director 的对话大脑。请基于只读上下文回答用户。",
                 "硬性边界：不能声称已执行任务；不能声称已修改仓库；不能声称已启动外部工具。",
-                "硬性边界：不能声称已修改草案；不能声称已创建任务；不能把复核问题写成已处理完成。",
+                "硬性边界：不能声称已修改草案；不能声称已创建任务；不能声称已执行审批；不能把复核问题写成已处理完成。",
+                "建议边界：下面如有可审查建议，它只是建议，不是已应用；不能把建议写成已处理完成。",
                 "如果用户要求执行，只能说明需要用户确认或建议下一步；不要要求或暗示你会执行真实动作。",
                 f"用户输入意图：{_INTENT_LABELS_CN.get(route_decision.intent, '普通讨论')}",
                 f"当前安全提醒：{route_decision.safety_policy.user_visible_warning}",
@@ -1216,6 +1448,8 @@ class ProjectDirectorMessageService:
                 "安全下一步：" + "、".join(safe_next_actions[:8]),
                 "复核问题回看：",
                 *(challenge_lines or ["- 无。"]),
+                "可审查建议回看：",
+                *(proposal_lines or ["- 无。"]),
                 f"会话状态：{context.session_status}",
                 f"目标：{context.goal_text[:800]}",
                 f"约束：{(context.constraints or '（无）')[:800]}",
@@ -1235,6 +1469,59 @@ class ProjectDirectorMessageService:
                 f"用户消息：{user_content}",
             ]
         )
+
+    @classmethod
+    def _provider_proposal_lines(
+        cls,
+        action_proposal: DirectorActionProposal | None,
+    ) -> list[str]:
+        if action_proposal is None:
+            return []
+        lines = [
+            f"- 建议类型：{action_proposal.title}",
+            f"- 建议摘要：{action_proposal.summary[:300]}",
+            f"- 建议原因：{action_proposal.reason[:300]}",
+            "- 审查要求："
+            + _PROPOSAL_APPROVAL_LABELS_CN[action_proposal.approval_requirement],
+            "- 这只是建议，不是已应用。",
+            "- 不能声称已修改草案；不能声称已创建任务；不能声称已执行审批；不能声称已启动外部工具；不能把建议写成已处理完成。",
+        ]
+        if action_proposal.plan_revision is not None:
+            lines.extend(
+                [
+                    f"- 修改建议标题：{action_proposal.plan_revision.title}",
+                    f"- 修改建议摘要：{action_proposal.plan_revision.summary[:300]}",
+                    "- 受影响内容："
+                    + "、".join(
+                        cls._sanitize_user_visible_actions(
+                            action_proposal.plan_revision.affected_sections
+                        )[:6]
+                    ),
+                    "- 建议改动："
+                    + "、".join(
+                        cls._sanitize_user_visible_actions(
+                            action_proposal.plan_revision.proposed_changes
+                        )[:6]
+                    ),
+                ]
+            )
+        lines.extend(
+            [
+                "- 安全边界："
+                + "、".join(
+                    cls._sanitize_user_visible_actions(
+                        action_proposal.forbidden_actions
+                    )[:6]
+                ),
+                "- 可做下一步："
+                + "、".join(
+                    cls._sanitize_user_visible_actions(
+                        action_proposal.safe_next_actions
+                    )[:5]
+                ),
+            ]
+        )
+        return lines
 
     @classmethod
     def _provider_challenge_lines(
