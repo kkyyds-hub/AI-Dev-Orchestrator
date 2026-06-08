@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8-A: Pass（Executor Config Discovery ledger + current-state audit）；P8-B: Pass（ExecutorProfile / DiscoveryResult contract freeze）；P8-C: Pass（safe discovery service 最小实现）；P8-D: Pass（read-only API + backend readback）；P8-E: Pass（launch preview contract + preview-only API）；P8-Final: Pass（targeted evidence + P8 Gate）；P8 Executor Config Discovery: Pass；P9-A: Pass（Controlled Runtime ledger + current-state audit + safety boundary）；P9-B: Pass（ExecutorRuntimeSession / RuntimeState / RuntimeEvent 纯 domain contract）；P9-C: Pass（RuntimeSafetyGate / LaunchRequest / LaunchApproval 纯 domain contract）；P9-D: Pass（ControlledRuntimeService skeleton + FakeExecutorAdapter + in-memory event recorder）；P9-E: Pass（read-only runtime API + fake launch request preview API）；P9-F: Pass（frontend read-only fake runtime readback）；P9-G: Pass（fake-only dry-run E2E evidence）；P9-H/P9-Final: Not started；P9 implementation: Partial（fake dry-run E2E evidence only；no real runtime）；P9 real executor launch: Not started；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8-A: Pass（Executor Config Discovery ledger + current-state audit）；P8-B: Pass（ExecutorProfile / DiscoveryResult contract freeze）；P8-C: Pass（safe discovery service 最小实现）；P8-D: Pass（read-only API + backend readback）；P8-E: Pass（launch preview contract + preview-only API）；P8-Final: Pass（targeted evidence + P8 Gate）；P8 Executor Config Discovery: Pass；P9-A: Pass（Controlled Runtime ledger + current-state audit + safety boundary）；P9-B: Pass（ExecutorRuntimeSession / RuntimeState / RuntimeEvent 纯 domain contract）；P9-C: Pass（RuntimeSafetyGate / LaunchRequest / LaunchApproval 纯 domain contract）；P9-D: Pass（ControlledRuntimeService skeleton + FakeExecutorAdapter + in-memory event recorder）；P9-E: Pass（read-only runtime API + fake launch request preview API）；P9-F: Pass（frontend read-only fake runtime readback）；P9-G: Pass（fake-only dry-run E2E evidence）；P9-H: Pass（real executor pilot gate design；still default off）；P9-Final: Not started；P9 implementation: Partial（fake dry-run + pilot gate design；no real runtime）；P9 real executor launch: Not started；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
 
 ---
 
@@ -24,7 +24,7 @@ docs/产品文档/AI项目主管/
   08-历史验证与证据/       ← 历史阶段验证文档（工作台/Worker/失败/治理/工作树）
   09-历史归档/            ← 已冻结的历史文档（审计/freeze/gap）
   10-P8执行器配置发现/     ← P8-A/B/C/D/E/Final: Pass；P8 Executor Config Discovery: Pass；P9: Not started
-  11-P9受控运行时与执行器调度/ ← P9-A/B/C/D/E/F/G: Pass；P9 implementation: Partial（fake dry-run E2E evidence only；no real runtime）
+  11-P9受控运行时与执行器调度/ ← P9-A/B/C/D/E/F/G/H: Pass；P9 implementation: Partial（fake dry-run + pilot gate design；no real runtime）
 ```
 
 ---
@@ -96,7 +96,7 @@ P8 Executor Config Discovery 已完成（Pass）。P8-A/B/C/D/E/Final 全部 Pas
 
 ### 11-P9受控运行时与执行器调度
 
-P9-A 至 P9-G 全部 Pass。P9-G fake-only dry-run E2E evidence 完成（115 backend + build + 6 frontend tests）。P9-H/P9-Final 仍 Not started。**P9 implementation: Partial（fake dry-run E2E evidence only；no real runtime）。**
+P9-A 至 P9-H 全部 Pass。P9-G fake-only dry-run E2E evidence 完成（115 backend + build + 6 frontend tests）。P9-H real executor pilot gate design 完成（21-item checklist + execution sequence；still default off）。P9-Final 仍 Not started。**P9 implementation: Partial（fake dry-run + pilot gate design；no real runtime）。**
 
 **关键入口**：
 - [P9受控运行时与执行器调度总账与阶段设计-20260608](../11-P9受控运行时与执行器调度/P9受控运行时与执行器调度总账与阶段设计-20260608.md) — P9 阶段唯一总账，所有 P9 证据统一追加至此
@@ -163,8 +163,9 @@ P9-A 至 P9-G 全部 Pass。P9-G fake-only dry-run E2E evidence 完成（115 bac
 | **P9-E** | read-only runtime API + fake launch request preview API | **Pass** |
 | **P9-F** | frontend read-only fake runtime readback | **Pass** |
 | **P9-G** | fake-only dry-run E2E evidence | **Pass** |
-| **P9-H/P9-Final** | real executor pilot gate design / final gate | **Not started** |
-| **P9 implementation** | P9-B/C/D/E/F/G 完成；fake dry-run E2E evidence only；no real runtime | **Partial** |
+| **P9-H** | real executor pilot gate design（still default off） | **Pass** |
+| **P9-Final** | targeted evidence + P9 Gate | **Not started** |
+| **P9 implementation** | P9-B/C/D/E/F/G/H 完成；fake dry-run + pilot gate design；no real runtime | **Partial** |
 | **P9 real executor launch** | 真实 Codex / Claude Code / DeepSeek executor launch | **Not started** |
 | **产品运行时 Git 写操作** | 产品内部 git add/commit/push/PR/merge/branch/delete/reset/checkout/rebase/stash/tag/CI 自动触发 | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
