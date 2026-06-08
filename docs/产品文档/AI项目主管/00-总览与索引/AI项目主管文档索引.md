@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass（P7 总 Gate Not started）；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E1: Pass（ConversationRouter + ContextAssembler audit / slice plan）；P7-E2 至 P7-J: Not started；P7 总 Gate: Not started；AI Project Director 总闭环: Partial
 
 ---
 
@@ -126,7 +126,9 @@ P7-A Ledger + Stage Design 已启动。P7 Project Director Conversation Hub + Go
 | P7-B | Current-state audit / contract freeze | **Pass** |
 | P7-C | Conversation/ConversationList contract | **Pass** |
 | P7-D | DirectorInbox / cross-page intake contract | **Pass** |
-| P7-E/F/G/H/I/J | Conversation Hub + Governance Implementation | **Not started** |
+| P7-E1 | ConversationRouter + ContextAssembler audit / slice plan | **Pass** |
+| P7-E2/E3/E4/E5 | ConversationRouter + ContextAssembler implementation | **Not started** |
+| P7-F/G/H/I/J | Conversation Hub + Governance Implementation (后续) | **Not started** |
 | P7 | Conversation Hub + Governance 总 Gate | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
 
