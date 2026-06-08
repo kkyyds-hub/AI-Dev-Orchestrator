@@ -7,6 +7,7 @@ from app.api.routes.approvals import router as approvals_router
 from app.api.routes.console import router as console_router
 from app.api.routes.deliverables import router as deliverables_router
 from app.api.routes.events import router as events_router
+from app.api.routes.executors import router as executors_router
 from app.api.routes.health import router as health_router
 from app.api.routes.planning import router as planning_router
 from app.api.routes.project_director import router as project_director_router
@@ -26,6 +27,7 @@ api_router = APIRouter()
 
 api_router.include_router(health_router)
 api_router.include_router(events_router)
+api_router.include_router(executors_router)
 api_router.include_router(console_router)
 api_router.include_router(agent_threads_router)
 api_router.include_router(approvals_router)
