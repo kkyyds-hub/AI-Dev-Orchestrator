@@ -72,6 +72,15 @@ TECHNICAL_USER_VISIBLE_TERMS = (
     "project_id",
     "synthetic",
     "read model",
+    "intent",
+    "source_detail",
+    "risk_level",
+    "suggested_actions",
+    "Codex",
+    "Claude",
+    "DeepSeek",
+    "Skill",
+    "challenge_type",
 )
 
 
@@ -947,6 +956,223 @@ def test_challenge_plan_route_is_medium_risk_without_modification(db_session):
     assert assistant_message.suggested_actions == []
     assert "不会直接应用草案修改" in assistant_message.forbidden_actions_detected
     assert "不会直接修改草案" in assistant_message.content
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_challenge_readback_fallback_handles_plan_challenge_without_raw_statement(
+    db_session,
+):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="质疑草案 readback")
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="我不同意这个草案",
+    )
+
+    assert assistant_message.intent == "request_plan_change"
+    assert assistant_message.risk_level == "medium"
+    assert assistant_message.requires_confirmation is False
+    assert "我会先把这当作一个需要复核的问题处理" in assistant_message.content
+    assert "不会直接修改草案，会先解释原因或准备修改建议" in assistant_message.content
+    assert "我不同意这个草案" not in assistant_message.content
+    assert "challenge_type=plan_challenge" in assistant_message.source_detail
+    assert "challenge_severity=medium" in assistant_message.source_detail
+    assert "challenge_type" not in assistant_message.content
+    assert "不会自动修改草案" in assistant_message.forbidden_actions_detected
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+        [action["label"] for action in assistant_message.suggested_actions],
+    )
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_challenge_readback_requirement_change_is_high_risk_without_mutation(
+    db_session,
+):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="需求变更 readback")
+    session_row_before = db_session.get(ProjectDirectorSessionTable, session_obj.id)
+    status_before = session_row_before.status
+    counts_before = {
+        "sessions": _count_rows(db_session, ProjectDirectorSessionTable),
+        "tasks": _count_rows(db_session, TaskTable),
+        "runs": _count_rows(db_session, RunTable),
+    }
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="需求变了，要换需求",
+    )
+
+    assert assistant_message.intent == "request_plan_change"
+    assert assistant_message.risk_level == "high"
+    assert assistant_message.requires_confirmation is True
+    assert "需求变更" in assistant_message.content
+    assert "不会直接修改草案，会先解释原因或准备修改建议" in assistant_message.content
+    assert "challenge_type=requirement_change" in assistant_message.source_detail
+    assert "challenge_requires_plan_revision=true" in assistant_message.source_detail
+    assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
+    assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
+    assert _count_rows(db_session, RunTable) == counts_before["runs"]
+    assert db_session.get(ProjectDirectorSessionTable, session_obj.id).status == status_before
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+    )
+
+
+def test_challenge_readback_dispatch_fallback_translates_external_tool_names(
+    db_session,
+):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="调度质疑 readback")
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="调度给 Codex 不合理",
+    )
+
+    assert assistant_message.intent == "ask_about_current_context"
+    assert assistant_message.risk_level == "high"
+    assert assistant_message.requires_confirmation is True
+    assert "外部工具" in assistant_message.content
+    assert "不会启动外部工具，会先解释调度依据并等待你确认" in assistant_message.content
+    assert "challenge_type=dispatch_challenge" in assistant_message.source_detail
+    assert "不会启动外部工具" in assistant_message.forbidden_actions_detected
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+    )
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
+    db_session,
+):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="调度建议 readback")
+    captured = {}
+
+    def unsafe_provider(model_name: str, prompt_text: str, request_id: str):
+        captured["prompt_text"] = prompt_text
+        return (
+            "{"
+            '"intent":"request_action",'
+            '"answer":"可以先说明外部工具的调度依据，等待你确认。",'
+            '"suggested_actions":['
+            '{"type":"run_worker_once","label":"启动执行","requires_confirmation":false,"risk_level":"low"},'
+            '{"type":"create_formal_project","label":"创建任务","requires_confirmation":false,"risk_level":"low"},'
+            '{"type":"navigate","label":"启动执行","requires_confirmation":false,"risk_level":"low"},'
+            '{"type":"request_changes","label":"准备修改建议","requires_confirmation":false,"risk_level":"low"},'
+            '{"type":"explain","label":"解释调度依据","requires_confirmation":false,"risk_level":"low"}'
+            "],"
+            '"requires_confirmation":false,'
+            '"risk_level":"low",'
+            '"forbidden_actions_detected":[]'
+            "}",
+            "receipt-challenge-readback",
+        )
+
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=ConfiguredProviderConfigService(),
+        provider_text_generator=unsafe_provider,
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="调度给 Codex 不合理",
+    )
+
+    assert "复核问题回看" in captured["prompt_text"]
+    assert "反馈类型：质疑调度建议" in captured["prompt_text"]
+    assert "严重程度：高" in captured["prompt_text"]
+    assert "摘要：收到用户反馈，需要处理“质疑调度建议”" in captured["prompt_text"]
+    assert "提取原因：用户认为调度建议需要人工确认" in captured["prompt_text"]
+    assert "安全边界：不会自动修改草案" in captured["prompt_text"]
+    assert "可做下一步：解释调度依据" in captured["prompt_text"]
+    assert "不能把复核问题写成已处理完成" in captured["prompt_text"]
+    assert assistant_message.source == "ai"
+    assert assistant_message.intent == "ask_about_current_context"
+    assert assistant_message.risk_level == "high"
+    assert assistant_message.requires_confirmation is True
+    action_types = [action["type"] for action in assistant_message.suggested_actions]
+    action_labels = [action["label"] for action in assistant_message.suggested_actions]
+    assert action_types == ["request_changes", "explain"]
+    assert action_labels == ["准备修改建议", "解释调度依据"]
+    assert all(action["requires_confirmation"] is True for action in assistant_message.suggested_actions)
+    assert {action["risk_level"] for action in assistant_message.suggested_actions} == {"high"}
+    assert "challenge_type=dispatch_challenge" in assistant_message.source_detail
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+        action_labels,
+    )
+    assert _count_rows(db_session, RunTable) == 0
+
+
+def test_challenge_readback_provider_contract_fallback_uses_seed_boundaries(
+    db_session,
+):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="非法回答降级 readback")
+
+    def invalid_provider(model_name: str, prompt_text: str, request_id: str):
+        return "不是 JSON", "receipt-invalid-challenge"
+
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=ConfiguredProviderConfigService(),
+        provider_text_generator=invalid_provider,
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="成本和 Skill 权限治理不合理",
+    )
+
+    assert assistant_message.source == "rule_fallback"
+    assert assistant_message.risk_level == "high"
+    assert assistant_message.requires_confirmation is True
+    assert "我会先把这当作一个需要复核的问题处理" in assistant_message.content
+    assert "质疑治理设置" in assistant_message.content
+    assert "不会修改治理配置，会先说明风险和建议" in assistant_message.content
+    assert "不会自动修改草案" in assistant_message.forbidden_actions_detected
+    assert "challenge_type=governance_challenge" in assistant_message.source_detail
+    assert "challenge_type" not in assistant_message.content
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+    )
     assert _count_rows(db_session, RunTable) == 0
 
 
