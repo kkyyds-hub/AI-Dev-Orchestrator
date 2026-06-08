@@ -30,7 +30,7 @@ const SAFETY_FLAG_LABELS: Record<string, string> = {
   launches_ai_runtime: "启动 AI 运行时",
   runs_real_command: "执行真实命令",
   runs_git: "执行 Git 命令",
-  runs_write_git: "执行写入型 Git 命令",
+  runs_write_git: "Git 写入风险命令",
   changes_process_cwd: "改变进程工作目录",
   fake_launch_started: "启动模拟运行",
   real_runtime_started: "启动真实运行时",

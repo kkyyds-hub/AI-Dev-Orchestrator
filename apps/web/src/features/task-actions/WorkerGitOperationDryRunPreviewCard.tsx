@@ -136,7 +136,7 @@ export function WorkerGitOperationDryRunPreviewCard(
       "runs_write_git",
       "提交或推送等写操作",
       props.git_operation_dry_run_runs_write_git,
-      "未执行提交或推送等写操作",
+      "没有产生提交或推送等写操作",
     ),
     safeFlag(
       "git_add",

@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { useProjectRoleCatalog, useProjectRoleSkillConsumption, useSystemRoleCatalog } from "../../features/roles/hooks";
 import { useProjectSkillBindings, useSkillRegistry } from "../../features/skills/hooks";
 import { useProjectCostDashboardSnapshot } from "../../features/costs/hooks";
+import { GitWriteReadbackPanel } from "../../features/git-write/GitWriteReadbackPanel";
 import { useProjectScope } from "../shared/useProjectScope";
 
 const TABS = [
@@ -578,7 +579,7 @@ function SkillsTab({ hasProject, projectId }: { hasProject: boolean; projectId: 
 const POLICIES = [
   { id: "auto", category: "可自动执行", items: ["Worker 单次调度", "运行观测状态读取", "交付物摘要生成", "成本数据读取"], why: "低风险，不需要修改系统状态或资产", backend: "部分已接入（Worker/观测），部分待接入" },
   { id: "confirm", category: "需要用户确认", items: ["生成作战计划", "调整任务优先级", "角色/Skill 沉淀建议", "项目阶段推进"], why: "中高风险，涉及项目方向、资源分配和资产变更", backend: "待接入用户确认闭环后端" },
-  { id: "forbid", category: "禁止自动执行", items: ["git commit", "git push", "发布生产", "删除项目", "删除交付物", "覆盖 Provider Key", "删除运行证据", "永久删除稳定 Skill / 角色模板"], why: "不可逆操作，必须人工决策", backend: "静态基线策略定义，动态策略引擎待后端接入" },
+  { id: "forbid", category: "禁止自动执行", items: ["生成本地提交", "推送远程仓库", "发布生产", "删除项目", "删除交付物", "覆盖 Provider Key", "删除运行证据", "永久删除稳定 Skill / 角色模板"], why: "不可逆操作，必须人工决策", backend: "静态基线策略定义，动态策略引擎待后端接入" },
 ];
 
 function PolicyTab() {
@@ -588,6 +589,7 @@ function PolicyTab() {
   return (
     <div className="space-y-3">
       <p className="text-sm text-zinc-400">策略与权限 · 区分 AI 可自动执行、需确认、禁止自动执行三类</p>
+      <GitWriteReadbackPanel />
       <TwoPanel
         left={
           POLICIES.map((p) => (

@@ -45,7 +45,7 @@ export function WorkerHumanApprovalConfirmDialog(
             </h2>
             <p className="mt-2 text-sm leading-6 text-zinc-300">
               确认后不会立即提交代码。系统只会记录你的确认，并进入下一阶段写入前安全检查。
-              当前不会执行 git add、git commit、git push 或创建 PR。
+              当前不会加入待提交区、生成本地提交、推送远程仓库或创建代码合并请求。
             </p>
           </div>
           <button

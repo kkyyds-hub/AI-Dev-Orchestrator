@@ -58,7 +58,7 @@ const SAFETY_FLAG_LABELS: Record<string, string> = {
 };
 
 const FORBIDDEN_FALSE_TEXT: Record<string, string> = {
-  runs_write_git: "未执行提交或推送等写操作",
+  runs_write_git: "没有产生提交或推送等写操作",
   git_add_triggered: "未加入待提交区",
   git_commit_triggered: "未生成本地提交",
   git_push_triggered: "未推送到远程仓库",

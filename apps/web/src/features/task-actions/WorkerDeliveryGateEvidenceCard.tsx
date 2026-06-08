@@ -85,7 +85,7 @@ const DELIVERY_HUMAN_APPROVAL_REQUESTED_ACTION =
   "approve_git_add_commit_preview" as const;
 const DELIVERY_HUMAN_APPROVAL_SCOPE = "git_add_commit_preview" as const;
 const DELIVERY_HUMAN_APPROVAL_SUCCESS_SUMMARY =
-  "用户确认记录已生成，可进入下一阶段写入前安全检查。当前仍未执行提交或推送。";
+  "用户确认记录已生成，可进入下一阶段写入前安全检查。当前没有产生提交或推送。";
 
 const HUMAN_APPROVAL_REASON_LABELS: Record<string, string> = {
   agent_session_missing: "会话信息缺失，无法记录用户确认",
@@ -215,7 +215,7 @@ export function WorkerDeliveryGateEvidenceCard(
       "runs_write_git",
       "提交或推送等写操作",
       props.delivery_gate_evidence_runs_write_git,
-      "未执行提交或推送等写操作",
+      "没有产生提交或推送等写操作",
     ),
     safeFlag(
       "git_add",
@@ -393,7 +393,7 @@ export function WorkerDeliveryGateEvidenceCard(
                 用户确认入口
               </div>
               <p className="mt-2 text-sm leading-6 text-zinc-200">
-                这只是确认进入下一阶段，尚未执行提交或推送。
+                这只是确认进入下一阶段，尚未产生提交或推送。
               </p>
             </div>
             <button
@@ -514,7 +514,7 @@ function DeliveryHumanApprovalRecordedCard(props: {
             {DELIVERY_HUMAN_APPROVAL_SUCCESS_SUMMARY}
           </p>
           <p className="mt-1 text-xs leading-5 text-emerald-100/80">
-            尚未执行提交或推送。
+            尚未产生提交或推送。
           </p>
         </div>
         <StatusBadge label="用户确认记录已生成" tone="success" />

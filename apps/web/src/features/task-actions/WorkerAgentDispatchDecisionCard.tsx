@@ -52,11 +52,11 @@ const INSTRUCTION_KIND_LABELS_CN: Record<string, string> = {
 
 const DANGEROUS_DISPATCH_SAFETY_FIELDS: DangerousSafetyField[] = [
   { key: "runs_git", label: "运行 Git" },
-  { key: "runs_write_git", label: "执行 Git 写操作" },
+  { key: "runs_write_git", label: "Git 写操作风险" },
   { key: "git_add_triggered", label: "加入待提交区" },
   { key: "git_commit_triggered", label: "生成提交" },
   { key: "git_push_triggered", label: "推送远程" },
-  { key: "pr_opened", label: "创建 PR" },
+  { key: "pr_opened", label: "代码合并请求记录" },
   { key: "merge_triggered", label: "合并分支" },
   { key: "branch_deleted", label: "删除分支" },
   { key: "git_reset_triggered", label: "执行 Git reset" },

@@ -182,7 +182,7 @@ export function ExecutionRepositoryTab() {
           <div className="text-sm font-semibold text-zinc-100">提交草案确认</div>
           <p className="mt-2 text-sm leading-6 text-zinc-400">
             已检测到 {candidates.length} 个提交草案。提交草案仅记录候选版本与证据，
-            不是 git commit，不会执行 git push。确认这条边界后，再进入放行判断。
+            不是本地提交，不会推送远程仓库。确认这条边界后，再进入放行判断。
           </p>
           <button
             type="button"
@@ -207,7 +207,7 @@ export function ExecutionRepositoryTab() {
       {/* ── 提交草案说明 ── */}
       {candidates.length > 0 && (
         <div className="rounded border border-[#333333] px-3 py-2 text-[11px] text-zinc-500">
-          提交草案仅记录候选版本与证据，不是 git commit，不会执行 git push。
+          提交草案仅记录候选版本与证据，不是本地提交，不会推送远程仓库。
         </div>
       )}
 
@@ -324,7 +324,7 @@ function getStepMessage(
     case "commit_draft":
       return {
         title: `提交草案阶段（${ctx.candidateCount} 个草案）`,
-        detail: "提交草案已生成。这不是 git commit，不会执行 git push。仅记录候选版本与证据。",
+        detail: "提交草案已生成。这不是本地提交，不会推送远程仓库。仅记录候选版本与证据。",
       };
     case "release_judge":
       return {

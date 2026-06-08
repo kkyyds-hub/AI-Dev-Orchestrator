@@ -138,7 +138,7 @@ export function WorkerGitDiffDryRunEvidenceCard(
       label: "提交或推送等写操作",
       value: formatForbiddenFlag(
         props.git_diff_dry_run_runs_write_git,
-        "未执行提交或推送等写操作",
+        "没有产生提交或推送等写操作",
       ),
       tone: forbiddenTone(props.git_diff_dry_run_runs_write_git),
     },

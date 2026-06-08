@@ -377,7 +377,7 @@ export function AgentCodingSessionSnapshot(props: {
 
       <p className="mt-3 rounded-2xl border border-[#333333] bg-black/20 px-3 py-2 text-xs leading-5 text-slate-500">
         当前阶段只读展示智能体会话与时间线已有数据：可看到处理者、后台通道、任务进度、活动情况、工作区绑定、分支名和工作区审计错误。
-        P3-C1 的运行时轴只展示已有证据；未启动或未探测时不会把会话处理状态误标为运行时存活。这里不会创建或清理独立工作区，也不表示已经进入 AI 运行时、自动编码、提交、推送或创建 PR。
+        P3-C1 的运行时轴只展示已有证据；未启动或未探测时不会把会话处理状态误标为运行时存活。这里不会创建或清理独立工作区，也不表示已经进入 AI 运行时、自动编码、提交、推送或创建代码合并请求。
       </p>
 
       <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs leading-5 text-emerald-100">
