@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8/P9 implementation: Not started；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8-A: Pass（Executor Config Discovery ledger + current-state audit）；P8-B/P8-C/P8-D/P8-E/P8-Final: Not started；P9 Controlled Runtime: Not started；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
 
 ---
 
@@ -20,9 +20,10 @@ docs/产品文档/AI项目主管/
   04-P4交付预览与人工确认/  ← P4 Git Delivery + Human Approval Gate 全链路
   05-P5失败回流/           ← P5 已完成（Pass）
   06-P6智能体调度/         ← P6 已完成（Pass）
-  07-P7主管对话与治理/     ← P7-A 已启动（P7 总 Gate Not started）
+  07-P7主管对话与治理/     ← P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）
   08-历史验证与证据/       ← 历史阶段验证文档（工作台/Worker/失败/治理/工作树）
   09-历史归档/            ← 已冻结的历史文档（审计/freeze/gap）
+  10-P8执行器配置发现/     ← P8-A: Pass（ledger + current-state audit）；P8-B 至 P8-Final: Not started
 ```
 
 ---
@@ -85,6 +86,13 @@ P7-A Ledger + Stage Design 已启动。P7 Project Director Conversation Hub + Go
 - [P7对话中枢设计-20260603](../07-P7主管对话与治理/P7对话中枢设计-20260603.md) — 历史 Stage 7-B0 设计基线（不删除）
 - [P7对话中枢审计-20260603](../07-P7主管对话与治理/P7对话中枢审计-20260603.md) — 历史 Stage 7-B 审计基线（不删除）
 
+### 10-P8执行器配置发现
+
+P8-A Ledger + Current-State Audit 已启动。P8 Executor Config Discovery / Registry / Readback / Launch Preview。**P8-B 至 P8-Final Not started。**
+
+**关键入口**：
+- [P8执行器配置发现总账与阶段设计-20260608](../10-P8执行器配置发现/P8执行器配置发现总账与阶段设计-20260608.md) — P8 阶段唯一总账，所有 P8 证据统一追加至此
+
 ### 08-历史验证与证据
 
 历史阶段（P1-P3 期间及更早）的验证文档。
@@ -133,6 +141,8 @@ P7-A Ledger + Stage Design 已启动。P7 Project Director Conversation Hub + Go
 | P7-I Final | Workbench multi-conversation hub frontend scoped closure | **Pass** |
 | P7-J Final | targeted evidence + UAT seed scoped closure | **Pass** |
 | **P7 Final Gate** | Project Director Conversation Hub + Governance total closure | **Pass** |
+| **P8-A** | Executor Config Discovery ledger + current-state audit + safety boundary | **Pass** |
+| **P8-B 至 P8-Final** | Executor Config Discovery 子阶段实现 | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
 
 ---
