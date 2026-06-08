@@ -79,7 +79,7 @@ P6 Agent Orchestration / AI 主管调度。**已完成（Pass）。**（P6 scope
 
 ### 07-P7主管对话与治理
 
-P7-A Ledger + Stage Design 已启动。P7 Project Director Conversation Hub + Governance。**总 Gate Not started。**
+P7 Final Gate: Pass。Project Director Conversation Hub + Governance total closure。
 
 **关键入口**：
 - [P7主管对话与治理总账与阶段设计-20260607](../07-P7主管对话与治理/P7主管对话与治理总账与阶段设计-20260607.md) — P7 阶段唯一总账，所有 P7 证据统一追加至此
@@ -88,7 +88,7 @@ P7-A Ledger + Stage Design 已启动。P7 Project Director Conversation Hub + Go
 
 ### 10-P8执行器配置发现
 
-P8-A Ledger + Current-State Audit 已启动。P8 Executor Config Discovery / Registry / Readback / Launch Preview。**P8-B 至 P8-Final Not started。**
+P8-A Ledger + Current-State Audit 已完成（Pass）。P8 Executor Config Discovery / Registry / Readback / Launch Preview。**P8-B 至 P8-Final Not started。**
 
 **关键入口**：
 - [P8执行器配置发现总账与阶段设计-20260608](../10-P8执行器配置发现/P8执行器配置发现总账与阶段设计-20260608.md) — P8 阶段唯一总账，所有 P8 证据统一追加至此
