@@ -87,6 +87,11 @@ TECHNICAL_USER_VISIBLE_TERMS = (
     "proposal_status",
     "approval_requirement",
     "plan_revision",
+    "conversion_target",
+    "conversion_status",
+    "conversion_risk",
+    "task_draft",
+    "plan_draft",
 )
 
 
@@ -988,19 +993,29 @@ def test_challenge_readback_fallback_handles_plan_challenge_without_raw_statemen
     assert assistant_message.requires_confirmation is True
     assert "我会先把这当作一个需要复核的问题处理" in assistant_message.content
     assert "我会先把它整理成一个可审查的建议" in assistant_message.content
+    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
+    assert "这只是计划修改草稿，不会直接改草案" in assistant_message.content
     assert "这只是修改建议，不会直接改草案" in assistant_message.content
+    assert "继续处理前需要你确认" in assistant_message.content
     assert "继续处理前需要你确认或复核" in assistant_message.content
     assert "不会直接修改草案，会先解释原因或准备修改建议" in assistant_message.content
     assert "我不同意这个草案" not in assistant_message.content
-    assert "challenge_type=plan_challenge" in assistant_message.source_detail
     assert "proposal_type=plan_revision" in assistant_message.source_detail
-    assert "proposal_status=pending_user_review" in assistant_message.source_detail
     assert "approval_requirement=user_confirmation_required" in assistant_message.source_detail
     assert "has_plan_revision=true" in assistant_message.source_detail
+    assert "conversion_target=plan_revision_draft" in assistant_message.source_detail
+    assert "conversion_status=needs_user_review" in assistant_message.source_detail
+    assert "conversion_risk=medium" in assistant_message.source_detail
+    assert "has_plan_draft=true" in assistant_message.source_detail
+    assert "has_task_draft=false" in assistant_message.source_detail
     assert "challenge_type" not in assistant_message.content
     assert "proposal_type" not in assistant_message.content
     assert "approval_requirement" not in assistant_message.content
     assert "plan_revision" not in assistant_message.content
+    assert "conversion_target" not in assistant_message.content
+    assert "conversion_status" not in assistant_message.content
+    assert "plan_draft" not in assistant_message.content
+    assert "task_draft" not in assistant_message.content
     assert "不会自动修改草案" in assistant_message.forbidden_actions_detected
     _assert_no_user_visible_technical_terms(
         assistant_message.content,
@@ -1040,12 +1055,65 @@ def test_challenge_readback_requirement_change_is_high_risk_without_mutation(
     assert assistant_message.requires_confirmation is True
     assert "需求变更" in assistant_message.content
     assert "我会先把它整理成一个可审查的建议" in assistant_message.content
+    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
+    assert "这只是计划修改草稿，不会直接改草案" in assistant_message.content
+    assert "继续处理前需要你确认" in assistant_message.content
     assert "继续处理前需要你确认或复核" in assistant_message.content
     assert "不会直接修改草案，会先解释原因或准备修改建议" in assistant_message.content
-    assert "challenge_type=requirement_change" in assistant_message.source_detail
     assert "proposal_type=requirement_change_review" in assistant_message.source_detail
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
     assert "has_plan_revision=true" in assistant_message.source_detail
+    assert "conversion_target=plan_revision_draft" in assistant_message.source_detail
+    assert "conversion_status=needs_user_review" in assistant_message.source_detail
+    assert "conversion_risk=high" in assistant_message.source_detail
+    assert "has_plan_draft=true" in assistant_message.source_detail
+    assert "has_task_draft=false" in assistant_message.source_detail
+    assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
+    assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
+    assert _count_rows(db_session, RunTable) == counts_before["runs"]
+    assert db_session.get(ProjectDirectorSessionTable, session_obj.id).status == status_before
+    _assert_no_user_visible_technical_terms(
+        assistant_message.content,
+        assistant_message.forbidden_actions_detected,
+    )
+
+
+def test_conversion_task_scope_fallback_uses_task_draft_without_task_creation(
+    db_session,
+):
+    session_obj = ProjectDirectorService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    ).create_session(goal_text="任务范围草稿 readback")
+    status_before = db_session.get(ProjectDirectorSessionTable, session_obj.id).status
+    counts_before = {
+        "sessions": _count_rows(db_session, ProjectDirectorSessionTable),
+        "tasks": _count_rows(db_session, TaskTable),
+        "runs": _count_rows(db_session, RunTable),
+    }
+    message_service = ProjectDirectorMessageService(
+        session_repository=ProjectDirectorSessionRepository(db_session),
+        message_repository=ProjectDirectorMessageRepository(db_session),
+        provider_config_service=NoProviderConfigService(),
+    )
+
+    _, assistant_message = message_service.post_user_message(
+        session_id=session_obj.id,
+        content="这个任务范围做多了，验收也不对",
+    )
+
+    assert assistant_message.intent == "request_plan_change"
+    assert assistant_message.risk_level == "medium"
+    assert assistant_message.requires_confirmation is True
+    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
+    assert "这只是任务草稿，不会自动创建任务" in assistant_message.content
+    assert "任务草稿标题：调整任务范围" in assistant_message.content
+    assert "任务草稿摘要：这条反馈适合整理为任务范围调整草稿" in assistant_message.content
+    assert "conversion_target=task_scope_update_draft" in assistant_message.source_detail
+    assert "conversion_status=needs_user_review" in assistant_message.source_detail
+    assert "conversion_risk=medium" in assistant_message.source_detail
+    assert "has_plan_draft=false" in assistant_message.source_detail
+    assert "has_task_draft=true" in assistant_message.source_detail
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
@@ -1080,11 +1148,16 @@ def test_challenge_readback_dispatch_fallback_translates_external_tool_names(
     assert "外部工具" in assistant_message.content
     assert "不会启动外部工具，会先解释调度依据并等待你确认" in assistant_message.content
     assert "不会启动外部工具，会先复核调度安排" in assistant_message.content
-    assert "challenge_type=dispatch_challenge" in assistant_message.source_detail
+    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
+    assert "这类反馈更适合先解释原因，不会执行后续动作" in assistant_message.content
     assert "proposal_type=dispatch_review" in assistant_message.source_detail
-    assert "proposal_status=pending_user_review" in assistant_message.source_detail
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
     assert "has_plan_revision=false" in assistant_message.source_detail
+    assert "conversion_target=explanation_only" in assistant_message.source_detail
+    assert "conversion_status=draft" in assistant_message.source_detail
+    assert "conversion_risk=high" in assistant_message.source_detail
+    assert "has_plan_draft=false" in assistant_message.source_detail
+    assert "has_task_draft=false" in assistant_message.source_detail
     assert "不会启动外部工具" in assistant_message.forbidden_actions_detected
     _assert_no_user_visible_technical_terms(
         assistant_message.content,
@@ -1136,6 +1209,7 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
 
     assert "复核问题回看" in captured["prompt_text"]
     assert "可审查建议回看" in captured["prompt_text"]
+    assert "可查看草稿回看" in captured["prompt_text"]
     assert "反馈类型：质疑调度建议" in captured["prompt_text"]
     assert "严重程度：高" in captured["prompt_text"]
     assert "摘要：收到用户反馈，需要处理“质疑调度建议”" in captured["prompt_text"]
@@ -1146,6 +1220,11 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
     assert "这只是建议，不是已应用" in captured["prompt_text"]
     assert "不能声称已执行审批" in captured["prompt_text"]
     assert "不能把建议写成已处理完成" in captured["prompt_text"]
+    assert "草稿类型：仅解释说明" in captured["prompt_text"]
+    assert "草稿摘要：这条建议只适合先解释原因，不生成执行草稿" in captured["prompt_text"]
+    assert "审查状态：草稿" in captured["prompt_text"]
+    assert "这只是草稿，不是已应用" in captured["prompt_text"]
+    assert "不能把草稿写成已处理完成" in captured["prompt_text"]
     assert "安全边界：不会自动修改草案" in captured["prompt_text"]
     assert "可做下一步：解释调度依据" in captured["prompt_text"]
     assert "不能把复核问题写成已处理完成" in captured["prompt_text"]
@@ -1159,9 +1238,13 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
     assert action_labels == ["准备修改建议", "解释调度依据"]
     assert all(action["requires_confirmation"] is True for action in assistant_message.suggested_actions)
     assert {action["risk_level"] for action in assistant_message.suggested_actions} == {"high"}
-    assert "challenge_type=dispatch_challenge" in assistant_message.source_detail
     assert "proposal_type=dispatch_review" in assistant_message.source_detail
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
+    assert "conversion_target=explanation_only" in assistant_message.source_detail
+    assert "conversion_status=draft" in assistant_message.source_detail
+    assert "conversion_risk=high" in assistant_message.source_detail
+    assert "has_plan_draft=false" in assistant_message.source_detail
+    assert "has_task_draft=false" in assistant_message.source_detail
     _assert_no_user_visible_technical_terms(
         assistant_message.content,
         assistant_message.forbidden_actions_detected,
@@ -1212,6 +1295,7 @@ def test_proposal_plan_revision_prompt_readback_is_not_applied(
     )
 
     assert "可审查建议回看" in captured["prompt_text"]
+    assert "可查看草稿回看" in captured["prompt_text"]
     assert "建议类型：建议调整项目草案" in captured["prompt_text"]
     assert "修改建议标题：调整草案摘要" in captured["prompt_text"]
     assert "修改建议摘要：建议复核项目草案摘要" in captured["prompt_text"]
@@ -1221,6 +1305,11 @@ def test_proposal_plan_revision_prompt_readback_is_not_applied(
     assert "不能声称已修改草案" in captured["prompt_text"]
     assert "不能声称已创建任务" in captured["prompt_text"]
     assert "不能声称已执行审批" in captured["prompt_text"]
+    assert "草稿类型：计划修改草稿" in captured["prompt_text"]
+    assert "计划草稿标题：调整草案摘要" in captured["prompt_text"]
+    assert "计划草稿摘要：建议复核项目草案摘要" in captured["prompt_text"]
+    assert "这只是草稿，不是已应用" in captured["prompt_text"]
+    assert "不能声称已创建任务" in captured["prompt_text"]
     assert assistant_message.intent == "request_plan_change"
     assert assistant_message.risk_level == "medium"
     assert assistant_message.requires_confirmation is True
@@ -1235,6 +1324,11 @@ def test_proposal_plan_revision_prompt_readback_is_not_applied(
     assert "proposal_type=plan_revision" in assistant_message.source_detail
     assert "approval_requirement=user_confirmation_required" in assistant_message.source_detail
     assert "has_plan_revision=true" in assistant_message.source_detail
+    assert "conversion_target=plan_revision_draft" in assistant_message.source_detail
+    assert "conversion_status=needs_user_review" in assistant_message.source_detail
+    assert "conversion_risk=medium" in assistant_message.source_detail
+    assert "has_plan_draft=true" in assistant_message.source_detail
+    assert "has_task_draft=false" in assistant_message.source_detail
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
@@ -1276,12 +1370,17 @@ def test_challenge_readback_provider_contract_fallback_uses_seed_boundaries(
     assert "质疑治理设置" in assistant_message.content
     assert "不会修改治理配置，会先说明风险和建议" in assistant_message.content
     assert "不会修改治理配置，会先复核风险" in assistant_message.content
+    assert "这类反馈更适合先解释原因，不会执行后续动作" in assistant_message.content
     assert "继续处理前需要你确认或复核" in assistant_message.content
     assert "不会自动修改草案" in assistant_message.forbidden_actions_detected
-    assert "challenge_type=governance_challenge" in assistant_message.source_detail
     assert "proposal_type=governance_review" in assistant_message.source_detail
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
     assert "has_plan_revision=false" in assistant_message.source_detail
+    assert "conversion_target=explanation_only" in assistant_message.source_detail
+    assert "conversion_status=draft" in assistant_message.source_detail
+    assert "conversion_risk=high" in assistant_message.source_detail
+    assert "has_plan_draft=false" in assistant_message.source_detail
+    assert "has_task_draft=false" in assistant_message.source_detail
     assert "challenge_type" not in assistant_message.content
     assert "proposal_type" not in assistant_message.content
     assert "approval_requirement" not in assistant_message.content
