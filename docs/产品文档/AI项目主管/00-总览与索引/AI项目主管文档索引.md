@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 总 Gate: Not started；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8/P9 implementation: Not started；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
 
 ---
 
@@ -132,7 +132,7 @@ P7-A Ledger + Stage Design 已启动。P7 Project Director Conversation Hub + Go
 | P7-H Final | Conversation-to-Task / Conversation-to-Plan scoped closure | **Pass** |
 | P7-I Final | Workbench multi-conversation hub frontend scoped closure | **Pass** |
 | P7-J Final | targeted evidence + UAT seed scoped closure | **Pass** |
-| P7 | Conversation Hub + Governance 总 Gate | **Not started** |
+| **P7 Final Gate** | Project Director Conversation Hub + Governance total closure | **Pass** |
 | **AI Project Director 总闭环** | — | **Partial** |
 
 ---
