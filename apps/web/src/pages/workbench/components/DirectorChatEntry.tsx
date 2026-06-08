@@ -610,9 +610,10 @@ export function DirectorChatEntry({
         <div className="mb-5 shrink-0">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-zinc-100">AI 项目主管</h2>
-              <p className="mt-1.5 text-sm text-zinc-500">
-                提出目标、澄清范围、查看项目草案并完成审核。草案通过前不会自动执行任何真实任务。
+              <h2 className="text-xl font-semibold text-zinc-100">当前主管会话</h2>
+              <p className="mt-1.5 text-sm leading-6 text-zinc-500">
+                这里用于和 AI 项目主管讨论目标、查看提醒、复核建议和草稿。
+                这里不会自动执行任务，也不会自动修改仓库。
               </p>
             </div>
             <span className="inline-flex w-fit max-w-full items-center rounded-full border border-[#333333] bg-[#111111] px-3 py-1 text-xs text-zinc-400">
@@ -623,8 +624,13 @@ export function DirectorChatEntry({
                   : "请选择一个正式项目上下文"}
             </span>
           </div>
+          <div className="mt-4 rounded border border-[#333333] bg-[#111111] px-4 py-3 text-sm text-zinc-400">
+            {session
+              ? "当前主管会话已选中，继续输入会追加到这段对话。"
+              : "请先选择一个主管会话，或新建主管会话。"}
+          </div>
           {directorStatusMessage ? (
-            <div className="mt-4 rounded border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+            <div className="mt-3 rounded border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
               {directorStatusMessage}
             </div>
           ) : null}
@@ -635,7 +641,8 @@ export function DirectorChatEntry({
             <div className="space-y-4">
               <div className="rounded-lg border border-[#333333] bg-[#111111] p-4">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                  <span>会话编号：{session.id.slice(0, 8)}</span>
+                  <span>当前主管会话</span>
+                  <span>编号：{session.id.slice(0, 8)}</span>
                   <StatusBadge
                     label={formatSessionStatus(session.status)}
                     tone={mapSessionTone(session.status)}
@@ -653,7 +660,7 @@ export function DirectorChatEntry({
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-sm font-medium text-zinc-200">
-                      AI 项目主管对话
+                      当前主管会话
                     </h3>
                     <p className="mt-1 text-xs text-zinc-500">
                       继续输入会追加到当前对话，不会新建会话。
@@ -722,8 +729,8 @@ export function DirectorChatEntry({
                                 >
                                   来源：
                                   {question.source === "ai"
-                                    ? "AI 生成"
-                                    : "系统规则生成"}
+                                    ? "主管整理"
+                                    : "系统整理"}
                                 </span>
                               </div>
                               {question.hint ? (
@@ -1097,14 +1104,14 @@ export function DirectorChatEntry({
             <div className="flex h-full min-h-[260px] flex-col items-center justify-center">
               <div className="w-full max-w-lg text-center">
                 <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-600">
-                  {mode === "new-project" ? "新项目入口" : "项目主管对话"}
+                  当前主管会话
                 </p>
                 <h3 className="mt-2 text-lg font-semibold text-zinc-100">
                   {mode === "new-project"
-                    ? "还没有正式项目时，从这里开始"
+                    ? "请先选择一个主管会话，或新建主管会话"
                     : scopedProjectId
-                      ? `继续调度：${selectedProjectName}`
-                      : "请先选择新项目会话或一个正式项目"}
+                      ? `当前项目：${selectedProjectName}`
+                      : "请先选择一个项目或切换到新项目会话"}
                 </h3>
                 <p className="mb-4 mt-2 text-sm leading-6 text-zinc-500">
                   {newSessionMode
@@ -1292,14 +1299,7 @@ function MessageBubble({
             {isUser ? "你" : "AI 项目主管"}
           </span>
           <span className="text-zinc-600">#{message.sequence_no}</span>
-          {!isUser ? (
-            <SourceBadge source={message.source} />
-          ) : null}
-          {message.intent ? (
-            <span className="rounded border border-[#333333] px-1.5 py-0.5 text-zinc-500">
-              意图：{formatMessageIntent(message.intent)}
-            </span>
-          ) : null}
+          {!isUser ? <SourceBadge source={message.source} /> : null}
         </div>
         <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
         {!isUser ? (
@@ -1322,7 +1322,7 @@ function SourceBadge({
 }) {
   const label =
     source === "ai"
-      ? "AI 生成"
+      ? "主管整理"
       : source === "rule_fallback"
         ? "系统规则"
         : "系统";
@@ -1348,8 +1348,8 @@ function PlanGenerationErrorPanel({ message }: { message: string }) {
     >
       <p className="text-sm font-medium text-red-200">AI 计划草案生成失败</p>
       <p className="mt-1 text-xs leading-5 text-red-100/90">
-        系统不会自动展示模板草案，以免把规则模板误认为 AI 项目主管输出。
-        请根据下方原因调整目标或约束后重试。
+        系统不会自动展示模板草案，以免把规则模板误认为主管输出。
+        请根据下方原因调整目标或约束后再次尝试。
       </p>
       <p className="mt-2 whitespace-pre-wrap rounded border border-red-500/20 bg-[#111111] px-3 py-2 text-xs text-red-100">
         {message}
@@ -1384,16 +1384,6 @@ function formatGateConclusion(value: string) {
     return "当前结论：部分完成";
   }
   return `当前结论：${value}`;
-}
-
-function formatMessageIntent(value: string) {
-  const labels: Record<string, string> = {
-    ask_clarifying_question: "澄清问题",
-    answer_question: "回答问题",
-    plan_review: "草案审核",
-    follow_up: "继续讨论",
-  };
-  return labels[value] ?? "继续讨论";
 }
 
 function mapSessionTone(status: ProjectDirectorSession["status"]) {

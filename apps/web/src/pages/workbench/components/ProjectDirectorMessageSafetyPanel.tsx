@@ -63,12 +63,12 @@ export function ProjectDirectorMessageSafetyPanel({
   return (
     <div
       data-testid="project-director-message-safety-panel"
-      className={`mt-3 rounded-lg border p-3 ${riskTone.container}`}
+      className={`mt-2 rounded-md border p-2.5 ${riskTone.container}`}
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-medium text-zinc-100">安全说明</p>
-          <p className="mt-1 text-[10px] leading-4 text-zinc-500">
+          <p className="mt-0.5 text-[10px] leading-4 text-zinc-500">
             这是对本条回复的只读说明；建议不代表已经执行。
           </p>
         </div>
@@ -94,16 +94,16 @@ export function ProjectDirectorMessageSafetyPanel({
         </p>
       ) : null}
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+      <div className="mt-2 grid gap-2 lg:grid-cols-2">
         <div>
           <p className="text-[10px] font-medium text-zinc-400">
             系统不会自动做这些事
           </p>
-          <ul className="mt-1 space-y-1">
+          <ul className="mt-1 flex flex-wrap gap-1">
             {forbiddenActions.map((action) => (
               <li
                 key={action}
-                className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] leading-4 text-zinc-400"
+                className="rounded border border-[#333333] bg-[#111111] px-1.5 py-0.5 text-[10px] leading-4 text-zinc-400"
               >
                 {action}
               </li>
@@ -114,11 +114,11 @@ export function ProjectDirectorMessageSafetyPanel({
         <div>
           <p className="text-[10px] font-medium text-zinc-400">建议下一步</p>
           {safeSuggestedActions.length > 0 ? (
-            <ul className="mt-1 space-y-1">
+            <ul className="mt-1 flex flex-wrap gap-1">
               {safeSuggestedActions.map((action, index) => (
                 <li
                   key={`${action.label}-${index}`}
-                  className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] leading-4 text-zinc-400"
+                  className="rounded border border-[#333333] bg-[#111111] px-1.5 py-0.5 text-[10px] leading-4 text-zinc-400"
                 >
                   <span>{action.label}</span>
                   {action.requiresConfirmation || action.highRisk ? (
@@ -135,7 +135,7 @@ export function ProjectDirectorMessageSafetyPanel({
               ))}
             </ul>
           ) : (
-            <p className="mt-1 rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] leading-4 text-zinc-500">
+            <p className="mt-1 rounded border border-[#333333] bg-[#111111] px-1.5 py-0.5 text-[10px] leading-4 text-zinc-500">
               继续提问，或查看当前草案和提醒。
             </p>
           )}

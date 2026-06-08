@@ -117,7 +117,7 @@ export function ProjectDirectorConversationList({
                         </p>
                         {isSelected ? (
                           <span className="rounded border border-cyan-500/40 px-1.5 py-0.5 text-[10px] text-cyan-200">
-                            当前选择
+                            当前主管会话
                           </span>
                         ) : null}
                         {conversation.requires_user_action ? (

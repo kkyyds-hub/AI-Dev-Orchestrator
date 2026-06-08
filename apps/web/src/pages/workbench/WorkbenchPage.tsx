@@ -367,8 +367,8 @@ export function WorkbenchPage() {
         onSelectContext={handleSelectWorkbenchContext}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden lg:flex-row lg:items-stretch">
-        <div className="flex min-h-0 flex-1 flex-col gap-4 lg:min-w-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden xl:flex-row xl:items-stretch">
+        <div className="flex min-h-0 w-full shrink-0 flex-col gap-4 xl:w-[22rem]">
           <ProjectDirectorConversationList
             projectId={
               activeWorkbenchMode === "project" &&
@@ -392,17 +392,18 @@ export function WorkbenchPage() {
             onNavigateToTask={handleNavigateToTask}
             onNavigateToRun={handleNavigateToRun}
           />
-          <div className="min-h-0 flex-1">
-            <DirectorChatEntry
-              selectedProjectId={activeProjectId}
-              selectedProjectName={activeProjectName}
-              mode={activeWorkbenchMode}
-              resumeSessionId={selectedDirectorSessionId}
-            />
-          </div>
         </div>
 
-        <div className="min-h-0 w-full shrink-0 lg:w-72 xl:w-80">
+        <div className="min-h-0 flex-1 xl:min-w-0">
+          <DirectorChatEntry
+            selectedProjectId={activeProjectId}
+            selectedProjectName={activeProjectName}
+            mode={activeWorkbenchMode}
+            resumeSessionId={selectedDirectorSessionId}
+          />
+        </div>
+
+        <div className="min-h-0 w-full shrink-0 xl:w-72 2xl:w-80">
           <WorkbenchRightRail
             overviewData={visibleOverviewData}
             overviewIsInitialLoading={overviewIsInitialLoading}

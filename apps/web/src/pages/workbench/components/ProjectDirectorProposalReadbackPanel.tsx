@@ -36,12 +36,12 @@ export function ProjectDirectorProposalReadbackPanel({
   return (
     <div
       data-testid="project-director-proposal-readback-panel"
-      className="mt-3 rounded-lg border border-violet-500/30 bg-violet-500/5 p-3"
+      className="mt-2 rounded-md border border-violet-500/25 bg-violet-500/5 p-2.5"
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-medium text-violet-100">可审查建议</p>
-          <p className="mt-1 text-[10px] leading-4 text-violet-100/75">
+          <p className="mt-0.5 text-[10px] leading-4 text-violet-100/75">
             系统可能已经把你的反馈整理成一个建议。这个建议只用于查看和确认，不会自动应用。
           </p>
         </div>
@@ -63,13 +63,13 @@ export function ProjectDirectorProposalReadbackPanel({
         ) : null}
       </div>
 
-      <div className="mt-3">
+      <div className="mt-2">
         <p className="text-[10px] font-medium text-zinc-400">系统不会做这些事</p>
-        <ul className="mt-1 grid gap-1 sm:grid-cols-2">
+        <ul className="mt-1 flex flex-wrap gap-1">
           {READONLY_BOUNDARIES.map((boundary) => (
             <li
               key={boundary}
-              className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] leading-4 text-zinc-400"
+              className="rounded border border-[#333333] bg-[#111111] px-1.5 py-0.5 text-[10px] leading-4 text-zinc-400"
             >
               {boundary}
             </li>

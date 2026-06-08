@@ -34,12 +34,12 @@ export function ProjectDirectorChallengeReadbackPanel({
   return (
     <div
       data-testid="project-director-challenge-readback-panel"
-      className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3"
+      className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/5 p-2.5"
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-medium text-amber-100">复核提示</p>
-          <p className="mt-1 text-[10px] leading-4 text-amber-100/75">
+          <p className="mt-0.5 text-[10px] leading-4 text-amber-100/75">
             这条回复可能涉及你的质疑或需求变化。系统只会先解释和整理，不会直接修改草案。
           </p>
         </div>
@@ -61,13 +61,13 @@ export function ProjectDirectorChallengeReadbackPanel({
         ) : null}
       </div>
 
-      <div className="mt-3">
+      <div className="mt-2">
         <p className="text-[10px] font-medium text-zinc-400">系统不会做这些事</p>
-        <ul className="mt-1 grid gap-1 sm:grid-cols-2">
+        <ul className="mt-1 flex flex-wrap gap-1">
           {READONLY_BOUNDARIES.map((boundary) => (
             <li
               key={boundary}
-              className="rounded border border-[#333333] bg-[#111111] px-2 py-1 text-[10px] leading-4 text-zinc-400"
+              className="rounded border border-[#333333] bg-[#111111] px-1.5 py-0.5 text-[10px] leading-4 text-zinc-400"
             >
               {boundary}
             </li>
