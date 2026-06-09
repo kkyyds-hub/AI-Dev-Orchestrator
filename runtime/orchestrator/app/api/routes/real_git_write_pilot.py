@@ -1,4 +1,4 @@
-"""P9-RGWP-C preview-only API for the real Git write pilot."""
+"""P9-RGWP preview and readiness readback APIs for the real Git write pilot."""
 
 from __future__ import annotations
 
@@ -12,6 +12,11 @@ from app.services.real_git_write_pilot_preview_service import (
     RealGitWritePilotPreviewRequest,
     RealGitWritePilotPreviewService,
 )
+from app.services.real_git_write_pilot_readiness_service import (
+    RealGitWritePilotReadinessReadback,
+    RealGitWritePilotReadinessRequest,
+    RealGitWritePilotReadinessService,
+)
 
 
 router = APIRouter(
@@ -20,10 +25,15 @@ router = APIRouter(
 )
 
 _service = RealGitWritePilotPreviewService()
+_readiness_service = RealGitWritePilotReadinessService()
 
 
 def get_real_git_write_pilot_preview_service() -> RealGitWritePilotPreviewService:
     return _service
+
+
+def get_real_git_write_pilot_readiness_service() -> RealGitWritePilotReadinessService:
+    return _readiness_service
 
 
 @router.post(
@@ -44,4 +54,25 @@ def build_real_git_write_pilot_preview(
         raise HTTPException(
             status_code=422,
             detail="real Git write pilot preview validation failed",
+        ) from exc
+
+
+@router.post(
+    "/readiness",
+    response_model=RealGitWritePilotReadinessReadback,
+    status_code=status.HTTP_200_OK,
+)
+def build_real_git_write_pilot_readiness(
+    request: RealGitWritePilotReadinessRequest,
+    service: Annotated[
+        RealGitWritePilotReadinessService,
+        Depends(get_real_git_write_pilot_readiness_service),
+    ],
+) -> RealGitWritePilotReadinessReadback:
+    try:
+        return service.build_readiness(request)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="real Git write pilot readiness validation failed",
         ) from exc

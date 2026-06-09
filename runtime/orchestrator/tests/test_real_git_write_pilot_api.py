@@ -12,6 +12,9 @@ from app.api.routes import real_git_write_pilot as pilot_route
 from app.services.real_git_write_pilot_preview_service import (
     RealGitWritePilotPreviewService,
 )
+from app.services.real_git_write_pilot_readiness_service import (
+    RealGitWritePilotReadinessService,
+)
 
 
 NOW = datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc)
@@ -39,9 +42,13 @@ def pilot_client() -> TestClient:
     app = FastAPI()
     app.include_router(api_router)
     service = RealGitWritePilotPreviewService()
+    readiness_service = RealGitWritePilotReadinessService()
     app.dependency_overrides[
         pilot_route.get_real_git_write_pilot_preview_service
     ] = lambda: service
+    app.dependency_overrides[
+        pilot_route.get_real_git_write_pilot_readiness_service
+    ] = lambda: readiness_service
 
     with TestClient(app) as test_client:
         yield test_client
@@ -86,6 +93,39 @@ def _payload(**overrides: object) -> dict:
         },
         "diff_summary": "single doc-only markdown file candidate",
         "rollback_summary": "rollback remains a manual contract",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _readiness_payload(**overrides: object) -> dict:
+    payload = {
+        "pilot_id": "pilot-1",
+        "executor": {
+            "executor_id": "codex",
+            "executor_kind": "codex",
+            "configured": True,
+            "authenticated": True,
+            "available": True,
+            "model_or_profile": "gpt-5-codex",
+            "safe_summary": "executor profile is ready",
+            "checked_at": NOW.isoformat(),
+        },
+        "workspace": {
+            "workspace_id": "workspace-1",
+            "repository_id": "repo-1",
+            "base_commit": BASE_COMMIT,
+            "target_branch": "ai/gitwrite-pilot/2026-06-09-doc-only",
+            "file_paths": ["docs/product/pilot.md"],
+            "workspace_bound": True,
+            "worktree_registered": True,
+            "stale_workspace_detected": False,
+            "safe_path_confirmed": True,
+            "safe_summary": "workspace binding is ready",
+            "checked_at": NOW.isoformat(),
+        },
+        "requested_by": "user-1",
+        "requested_at": NOW.isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -145,6 +185,99 @@ def test_real_git_write_pilot_preview_endpoint_default_flags_block_full_gate(
     assert data["real_executor_started"] is False
 
 
+def test_real_git_write_pilot_readiness_endpoint_returns_readback(
+    pilot_client: TestClient,
+) -> None:
+    response = pilot_client.post(
+        "/real-git-write-pilot/readiness",
+        json=_readiness_payload(),
+    )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["pilot_id"] == "pilot-1"
+    assert data["executor_readiness"]["ready"] is True
+    assert data["workspace_binding"]["bound"] is True
+    assert data["ready_for_preview"] is True
+    assert data["ready_for_execution"] is False
+    assert data["product_runtime_git_write_executed"] is False
+    assert data["real_executor_started"] is False
+    assert [gate["gate_name"] for gate in data["gate_checks"]] == [
+        "executor_readiness",
+        "workspace_binding",
+        "target_branch_allowlist",
+        "file_scope",
+    ]
+    _assert_no_forbidden_keys(data)
+
+
+def test_real_git_write_pilot_readiness_endpoint_blocks_unsafe_workspace(
+    pilot_client: TestClient,
+) -> None:
+    payload = _readiness_payload()
+    payload["workspace"] = {
+        **payload["workspace"],
+        "safe_path_confirmed": False,
+    }
+
+    response = pilot_client.post("/real-git-write-pilot/readiness", json=payload)
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["ready_for_preview"] is False
+    assert data["workspace_binding"]["bound"] is False
+    assert "workspace_not_bound" in [
+        gate["block_reason"]
+        for gate in data["gate_checks"]
+        if gate["block_reason"] is not None
+    ]
+    assert data["ready_for_execution"] is False
+
+
+@pytest.mark.parametrize(
+    "target_branch",
+    ["main", "master", "release", "production", "staging", "gh-pages"],
+)
+def test_real_git_write_pilot_readiness_endpoint_blocks_protected_branches(
+    pilot_client: TestClient,
+    target_branch: str,
+) -> None:
+    payload = _readiness_payload()
+    payload["workspace"] = {**payload["workspace"], "target_branch": target_branch}
+
+    response = pilot_client.post("/real-git-write-pilot/readiness", json=payload)
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["ready_for_preview"] is False
+    assert "main_branch_blocked" in [
+        gate["block_reason"]
+        for gate in data["gate_checks"]
+        if gate["block_reason"] is not None
+    ]
+
+
+def test_real_git_write_pilot_readiness_endpoint_blocks_non_docs_markdown_file(
+    pilot_client: TestClient,
+) -> None:
+    payload = _readiness_payload()
+    payload["workspace"] = {
+        **payload["workspace"],
+        "file_paths": ["runtime/orchestrator/app/main.py"],
+    }
+
+    response = pilot_client.post("/real-git-write-pilot/readiness", json=payload)
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["ready_for_preview"] is False
+    assert "file_scope_not_allowed" in [
+        gate["block_reason"]
+        for gate in data["gate_checks"]
+        if gate["block_reason"] is not None
+    ]
+
+
 @pytest.mark.parametrize(
     "target_branch",
     ["main", "master", "release", "production", "staging", "gh-pages"],
@@ -199,6 +332,9 @@ def test_real_git_write_pilot_api_has_no_write_endpoint(
 def test_real_git_write_pilot_api_files_have_preview_only_boundaries() -> None:
     sources = [
         Path("app/services/real_git_write_pilot_preview_service.py").read_text(
+            encoding="utf-8",
+        ),
+        Path("app/services/real_git_write_pilot_readiness_service.py").read_text(
             encoding="utf-8",
         ),
         Path("app/api/routes/real_git_write_pilot.py").read_text(encoding="utf-8"),
