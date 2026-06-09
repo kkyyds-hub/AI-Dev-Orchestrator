@@ -27,6 +27,11 @@ from app.services.real_git_write_pilot_readiness_service import (
     RealGitWritePilotReadinessRequest,
     RealGitWritePilotReadinessService,
 )
+from app.services.real_git_write_pilot_token_readback_service import (
+    RealGitWritePilotTokenReadback,
+    RealGitWritePilotTokenReadbackRequest,
+    RealGitWritePilotTokenReadbackService,
+)
 
 
 router = APIRouter(
@@ -38,6 +43,7 @@ _service = RealGitWritePilotPreviewService()
 _readiness_service = RealGitWritePilotReadinessService()
 _dry_run_plan_service = RealGitWritePilotDryRunPlanService()
 _approval_readback_service = RealGitWritePilotApprovalReadbackService()
+_token_readback_service = RealGitWritePilotTokenReadbackService()
 
 
 def get_real_git_write_pilot_preview_service() -> RealGitWritePilotPreviewService:
@@ -56,6 +62,12 @@ def get_real_git_write_pilot_approval_readback_service() -> (
     RealGitWritePilotApprovalReadbackService
 ):
     return _approval_readback_service
+
+
+def get_real_git_write_pilot_token_readback_service() -> (
+    RealGitWritePilotTokenReadbackService
+):
+    return _token_readback_service
 
 
 @router.post(
@@ -139,4 +151,25 @@ def build_real_git_write_pilot_approval_readback(
         raise HTTPException(
             status_code=422,
             detail="real Git write pilot approval readback validation failed",
+        ) from exc
+
+
+@router.post(
+    "/token-readback",
+    response_model=RealGitWritePilotTokenReadback,
+    status_code=status.HTTP_200_OK,
+)
+def build_real_git_write_pilot_token_readback(
+    request: RealGitWritePilotTokenReadbackRequest,
+    service: Annotated[
+        RealGitWritePilotTokenReadbackService,
+        Depends(get_real_git_write_pilot_token_readback_service),
+    ],
+) -> RealGitWritePilotTokenReadback:
+    try:
+        return service.build_readback(request)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="real Git write pilot token readback validation failed",
         ) from exc

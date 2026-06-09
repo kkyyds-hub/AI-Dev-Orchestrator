@@ -23,6 +23,9 @@ from app.services.real_git_write_pilot_readiness_service import (
     RealGitWritePilotReadinessRequest,
     RealGitWritePilotReadinessService,
 )
+from app.services.real_git_write_pilot_token_readback_service import (
+    RealGitWritePilotTokenReadbackService,
+)
 
 
 NOW = datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc)
@@ -53,6 +56,7 @@ def pilot_client() -> TestClient:
     readiness_service = RealGitWritePilotReadinessService()
     dry_run_plan_service = RealGitWritePilotDryRunPlanService()
     approval_readback_service = RealGitWritePilotApprovalReadbackService()
+    token_readback_service = RealGitWritePilotTokenReadbackService()
     app.dependency_overrides[
         pilot_route.get_real_git_write_pilot_preview_service
     ] = lambda: service
@@ -65,6 +69,9 @@ def pilot_client() -> TestClient:
     app.dependency_overrides[
         pilot_route.get_real_git_write_pilot_approval_readback_service
     ] = lambda: approval_readback_service
+    app.dependency_overrides[
+        pilot_route.get_real_git_write_pilot_token_readback_service
+    ] = lambda: token_readback_service
 
     with TestClient(app) as test_client:
         yield test_client
@@ -179,6 +186,34 @@ def _approval_readback_payload(**overrides: object) -> dict:
         "approved_scope_summary": "approval covers the dry-run doc-only pilot scope",
         "requested_at": requested_at.isoformat(),
         "expires_at": expires_at.isoformat(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _token_readback_payload(**overrides: object) -> dict:
+    requested_at = datetime.now(timezone.utc)
+    expires_at = requested_at + timedelta(minutes=30)
+    payload = {
+        "token_id": "token-reference-1",
+        "scope": {
+            "pilot_id": "pilot-1",
+            "approval_id": "pilot-approval-readback-pilot-1",
+            "executor_id": "codex",
+            "workspace_id": "workspace-1",
+            "target_branch": "ai/gitwrite-pilot/2026-06-09-doc-only",
+            "file_paths": ["docs/product/pilot.md"],
+            "dry_run_ready": True,
+            "approval_decision": "approved",
+            "approval_phrase_matched": True,
+            "approved_scope_summary": "approval covers the doc-only pilot scope",
+        },
+        "purpose": "authorize_single_doc_only_pilot",
+        "token_hint": "hint ending 1234",
+        "issued_reference_at": requested_at.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "requested_by": "user-1",
+        "requested_at": requested_at.isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -436,6 +471,48 @@ def test_real_git_write_pilot_approval_readback_endpoint_keeps_broad_phrase_pend
     assert data["ready_for_execution"] is False
 
 
+def test_real_git_write_pilot_token_readback_endpoint_returns_readback(
+    pilot_client: TestClient,
+) -> None:
+    response = pilot_client.post(
+        "/real-git-write-pilot/token-readback",
+        json=_token_readback_payload(),
+    )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["token_reference"]["token_id"] == "token-reference-1"
+    assert data["token_reference"]["status"] == "issuable"
+    assert data["audit_readback"]["append_only"] is True
+    assert data["token_issue_started"] is False
+    assert data["token_consume_started"] is False
+    assert data["ready_for_execution"] is False
+    assert data["product_runtime_git_write_executed"] is False
+    assert data["real_executor_started"] is False
+    assert data["safe_summary"]
+    assert data["created_at"]
+    _assert_no_forbidden_keys(data)
+
+
+def test_real_git_write_pilot_token_readback_endpoint_blocks_unapproved_scope(
+    pilot_client: TestClient,
+) -> None:
+    payload = _token_readback_payload()
+    payload["scope"] = {**payload["scope"], "approval_decision": "pending"}
+
+    response = pilot_client.post(
+        "/real-git-write-pilot/token-readback",
+        json=payload,
+    )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["token_reference"]["status"] == "blocked"
+    assert data["token_issue_started"] is False
+    assert data["token_consume_started"] is False
+    assert data["ready_for_execution"] is False
+
+
 @pytest.mark.parametrize(
     "target_branch",
     ["main", "master", "release", "production", "staging", "gh-pages"],
@@ -466,6 +543,8 @@ def test_real_git_write_pilot_preview_endpoint_rejects_non_docs_markdown_file(
 @pytest.mark.parametrize(
     "path",
     [
+        "/real-git-write-pilot/token-issue",
+        "/real-git-write-pilot/token-consume",
         "/real-git-write-pilot/execute",
         "/real-git-write-pilot/commit",
         "/real-git-write-pilot/push",
@@ -499,6 +578,9 @@ def test_real_git_write_pilot_api_files_have_preview_only_boundaries() -> None:
             encoding="utf-8",
         ),
         Path("app/services/real_git_write_pilot_approval_service.py").read_text(
+            encoding="utf-8",
+        ),
+        Path("app/services/real_git_write_pilot_token_readback_service.py").read_text(
             encoding="utf-8",
         ),
         Path("app/api/routes/real_git_write_pilot.py").read_text(encoding="utf-8"),
