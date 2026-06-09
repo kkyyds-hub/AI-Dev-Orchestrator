@@ -1,0 +1,233 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.router import api_router
+from app.api.routes import real_git_write_pilot as pilot_route
+from app.services.real_git_write_pilot_preview_service import (
+    RealGitWritePilotPreviewService,
+)
+
+
+NOW = datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc)
+LATER = NOW + timedelta(minutes=5)
+BASE_COMMIT = "60193910875933d8582737a7d8991cd3bf4c38e1"
+
+FORBIDDEN_RESPONSE_KEYS = {
+    "command",
+    "raw_command",
+    "raw_args",
+    "cwd",
+    "env",
+    "env_vars",
+    "token_value",
+    "api_key",
+    "secret",
+    "raw_diff",
+    "subprocess_output",
+    "error_output",
+}
+
+
+@pytest.fixture
+def pilot_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(api_router)
+    service = RealGitWritePilotPreviewService()
+    app.dependency_overrides[
+        pilot_route.get_real_git_write_pilot_preview_service
+    ] = lambda: service
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
+
+
+def _payload(**overrides: object) -> dict:
+    payload = {
+        "pilot_id": "pilot-1",
+        "project_id": "project-1",
+        "run_id": "run-1",
+        "executor_id": "codex",
+        "workspace_id": "workspace-1",
+        "repository_id": "repo-1",
+        "base_commit": BASE_COMMIT,
+        "target_branch": "ai/gitwrite-pilot/2026-06-09-doc-only",
+        "file_paths": ["docs/product/pilot.md"],
+        "requested_by": "user-1",
+        "requested_at": NOW.isoformat(),
+        "expires_at": LATER.isoformat(),
+        "feature_flags": {
+            "p9_real_executor_launch_enabled": True,
+            "product_runtime_git_write_enabled": True,
+            "real_git_write_pilot_enabled": True,
+        },
+        "gate_inputs": {
+            "executor_ready": True,
+            "workspace_bound": True,
+            "target_branch_allowed": True,
+            "diff_preview_ready": True,
+            "secret_scan_passed": True,
+            "human_approved": False,
+            "one_shot_token_issued": False,
+            "budget_within_limit": True,
+            "timeout_configured": True,
+            "rollback_plan_ready": True,
+            "append_only_audit_ready": True,
+            "force_push_requested": False,
+            "auto_pr_requested": False,
+            "auto_merge_requested": False,
+        },
+        "diff_summary": "single doc-only markdown file candidate",
+        "rollback_summary": "rollback remains a manual contract",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _assert_no_forbidden_keys(value) -> None:
+    if isinstance(value, dict):
+        assert FORBIDDEN_RESPONSE_KEYS.isdisjoint(value.keys())
+        for nested in value.values():
+            _assert_no_forbidden_keys(nested)
+    elif isinstance(value, list):
+        for item in value:
+            _assert_no_forbidden_keys(item)
+
+
+def test_real_git_write_pilot_preview_endpoint_returns_preview_only_response(
+    pilot_client: TestClient,
+) -> None:
+    response = pilot_client.post("/real-git-write-pilot/preview", json=_payload())
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["pilot_id"] == "pilot-1"
+    assert data["status"] == "approval_required"
+    assert data["product_runtime_git_write_executed"] is False
+    assert data["real_executor_started"] is False
+    assert data["gate_snapshot"]["all_passed"] is False
+    assert data["command_plan"]["safe_steps"] == [
+        "validate pilot branch",
+        "prepare doc-only file candidate",
+        "prepare local commit candidate",
+        "prepare rollback plan",
+    ]
+    assert data["command_plan"]["forbidden_operations"] == [
+        "main write",
+        "force push",
+        "auto PR",
+        "auto merge",
+        "raw shell execution",
+    ]
+    assert data["rollback_plan"]["pilot_commit_id"] is None
+    _assert_no_forbidden_keys(data)
+
+
+def test_real_git_write_pilot_preview_endpoint_default_flags_block_full_gate(
+    pilot_client: TestClient,
+) -> None:
+    payload = _payload(feature_flags={})
+
+    response = pilot_client.post("/real-git-write-pilot/preview", json=payload)
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["status"] == "blocked"
+    assert "feature_flag_disabled" in data["gate_snapshot"]["blocking_reasons"]
+    assert data["product_runtime_git_write_executed"] is False
+    assert data["real_executor_started"] is False
+
+
+@pytest.mark.parametrize(
+    "target_branch",
+    ["main", "master", "release", "production", "staging", "gh-pages"],
+)
+def test_real_git_write_pilot_preview_endpoint_rejects_protected_branches(
+    pilot_client: TestClient,
+    target_branch: str,
+) -> None:
+    response = pilot_client.post(
+        "/real-git-write-pilot/preview",
+        json=_payload(target_branch=target_branch),
+    )
+
+    assert response.status_code == 422
+
+
+def test_real_git_write_pilot_preview_endpoint_rejects_non_docs_markdown_file(
+    pilot_client: TestClient,
+) -> None:
+    response = pilot_client.post(
+        "/real-git-write-pilot/preview",
+        json=_payload(file_paths=["runtime/orchestrator/app/main.py"]),
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/real-git-write-pilot/execute",
+        "/real-git-write-pilot/commit",
+        "/real-git-write-pilot/push",
+        "/real-git-write-pilot/pr",
+        "/real-git-write-pilot/merge",
+        "/real-git-write-pilot/checkout",
+        "/real-git-write-pilot/reset",
+        "/real-git-write-pilot/rebase",
+        "/real-git-write-pilot/stash",
+        "/real-git-write-pilot/tag",
+    ],
+)
+def test_real_git_write_pilot_api_has_no_write_endpoint(
+    pilot_client: TestClient,
+    path: str,
+) -> None:
+    response = pilot_client.post(path, json={})
+
+    assert response.status_code == 404
+
+
+def test_real_git_write_pilot_api_files_have_preview_only_boundaries() -> None:
+    sources = [
+        Path("app/services/real_git_write_pilot_preview_service.py").read_text(
+            encoding="utf-8",
+        ),
+        Path("app/api/routes/real_git_write_pilot.py").read_text(encoding="utf-8"),
+    ]
+    forbidden_fragments = [
+        "import subprocess",
+        "from subprocess",
+        "os.popen",
+        "asyncio.subprocess",
+        "app.workers",
+        "os.environ",
+        "git add ",
+        "git commit ",
+        "git push ",
+        "git merge ",
+        "git reset ",
+        "git checkout ",
+        "git switch ",
+        "git rebase ",
+        "git stash ",
+        "git tag ",
+        "/Users/kk/project explore/agent-orchestrator",
+        "@aoagents/ao-core",
+        "workspace-worktree",
+        "CleanupStack",
+        "Zod",
+        "tmux",
+    ]
+
+    for source in sources:
+        for fragment in forbidden_fragments:
+            assert fragment not in source

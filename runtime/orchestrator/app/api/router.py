@@ -14,6 +14,7 @@ from app.api.routes.planning import router as planning_router
 from app.api.routes.project_director import router as project_director_router
 from app.api.routes.provider_settings import router as provider_settings_router
 from app.api.routes.projects import router as projects_router
+from app.api.routes.real_git_write_pilot import router as real_git_write_pilot_router
 from app.api.routes.repositories import router as repositories_router
 from app.api.routes.roles import router as roles_router
 from app.api.routes.runtime import router as runtime_router
@@ -31,6 +32,7 @@ api_router.include_router(health_router)
 api_router.include_router(events_router)
 api_router.include_router(executors_router)
 api_router.include_router(git_write_router)
+api_router.include_router(real_git_write_pilot_router)
 api_router.include_router(console_router)
 api_router.include_router(agent_threads_router)
 api_router.include_router(approvals_router)
