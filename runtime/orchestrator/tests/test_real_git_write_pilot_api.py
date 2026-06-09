@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 
 from app.api.router import api_router
 from app.api.routes import real_git_write_pilot as pilot_route
+from app.services.real_git_write_pilot_approval_service import (
+    RealGitWritePilotApprovalReadbackService,
+)
 from app.services.real_git_write_pilot_dry_run_plan_service import (
     RealGitWritePilotDryRunPlanService,
 )
@@ -49,6 +52,7 @@ def pilot_client() -> TestClient:
     service = RealGitWritePilotPreviewService()
     readiness_service = RealGitWritePilotReadinessService()
     dry_run_plan_service = RealGitWritePilotDryRunPlanService()
+    approval_readback_service = RealGitWritePilotApprovalReadbackService()
     app.dependency_overrides[
         pilot_route.get_real_git_write_pilot_preview_service
     ] = lambda: service
@@ -58,6 +62,9 @@ def pilot_client() -> TestClient:
     app.dependency_overrides[
         pilot_route.get_real_git_write_pilot_dry_run_plan_service
     ] = lambda: dry_run_plan_service
+    app.dependency_overrides[
+        pilot_route.get_real_git_write_pilot_approval_readback_service
+    ] = lambda: approval_readback_service
 
     with TestClient(app) as test_client:
         yield test_client
@@ -153,6 +160,25 @@ def _dry_run_plan_payload(**overrides: object) -> dict:
         "readiness": readiness.model_dump(mode="json"),
         "requested_by": "user-1",
         "requested_at": NOW.isoformat(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _approval_readback_payload(**overrides: object) -> dict:
+    dry_run_plan_response = RealGitWritePilotDryRunPlanService().build_plan(
+        pilot_route.RealGitWritePilotDryRunPlanRequest(**_dry_run_plan_payload()),
+    )
+    requested_at = datetime.now(timezone.utc)
+    expires_at = requested_at + timedelta(minutes=30)
+    payload = {
+        "pilot_id": "pilot-1",
+        "dry_run_plan": dry_run_plan_response.model_dump(mode="json"),
+        "approved_by": "user-1",
+        "approval_phrase": "我确认此次试点写入",
+        "approved_scope_summary": "approval covers the dry-run doc-only pilot scope",
+        "requested_at": requested_at.isoformat(),
+        "expires_at": expires_at.isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -368,6 +394,48 @@ def test_real_git_write_pilot_dry_run_plan_endpoint_blocks_when_readiness_not_re
     assert data["ready_for_execution"] is False
 
 
+def test_real_git_write_pilot_approval_readback_endpoint_returns_readback(
+    pilot_client: TestClient,
+) -> None:
+    response = pilot_client.post(
+        "/real-git-write-pilot/approval-readback",
+        json=_approval_readback_payload(),
+    )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["approval_id"] == "pilot-approval-readback-pilot-1"
+    assert data["pilot_id"] == "pilot-1"
+    assert data["decision"] == "approved"
+    assert data["approved_by"] == "user-1"
+    assert data["approval_phrase_matched"] is True
+    assert data["dry_run_ready"] is True
+    assert data["ready_for_execution"] is False
+    assert data["one_shot_token_issued"] is False
+    assert data["product_runtime_git_write_executed"] is False
+    assert data["real_executor_started"] is False
+    assert data["safe_summary"]
+    assert data["audit_event_summaries"]
+    assert data["created_at"]
+    assert data["expires_at"]
+    _assert_no_forbidden_keys(data)
+
+
+def test_real_git_write_pilot_approval_readback_endpoint_keeps_broad_phrase_pending(
+    pilot_client: TestClient,
+) -> None:
+    response = pilot_client.post(
+        "/real-git-write-pilot/approval-readback",
+        json=_approval_readback_payload(approval_phrase="approve"),
+    )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["decision"] == "pending"
+    assert data["approval_phrase_matched"] is False
+    assert data["ready_for_execution"] is False
+
+
 @pytest.mark.parametrize(
     "target_branch",
     ["main", "master", "release", "production", "staging", "gh-pages"],
@@ -428,6 +496,9 @@ def test_real_git_write_pilot_api_files_have_preview_only_boundaries() -> None:
             encoding="utf-8",
         ),
         Path("app/services/real_git_write_pilot_dry_run_plan_service.py").read_text(
+            encoding="utf-8",
+        ),
+        Path("app/services/real_git_write_pilot_approval_service.py").read_text(
             encoding="utf-8",
         ),
         Path("app/api/routes/real_git_write_pilot.py").read_text(encoding="utf-8"),
