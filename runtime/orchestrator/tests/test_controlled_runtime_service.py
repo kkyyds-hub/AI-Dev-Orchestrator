@@ -30,8 +30,8 @@ from app.services.controlled_runtime_service import (
     ControlledRuntimeBlockedError,
     ControlledRuntimeService,
     FakeExecutorAdapter,
-    InMemoryRuntimeEventRecorder,
 )
+from app.repositories.runtime_session_repository import InMemoryRuntimeEventRepository
 
 
 def _now() -> datetime:
@@ -248,8 +248,8 @@ def test_get_session_and_lifecycle_methods_return_none_for_missing_session() -> 
     assert service.cleanup("missing") is None
 
 
-def test_in_memory_event_recorder_returns_append_only_copies() -> None:
-    recorder = InMemoryRuntimeEventRecorder()
+def test_in_memory_event_repository_returns_append_only_copies() -> None:
+    repository = InMemoryRuntimeEventRepository()
     event = RuntimeEvent(
         event_id="event-1",
         session_id="session-1",
@@ -258,8 +258,8 @@ def test_in_memory_event_recorder_returns_append_only_copies() -> None:
         payload=RuntimeEventPayload(message="session created"),
     )
 
-    recorder.append(event)
-    snapshot = recorder.events_for_session("session-1")
+    repository.append(event)
+    snapshot = repository.events_for_session("session-1")
     snapshot.events.append(
         RuntimeEvent(
             event_id="event-2",
@@ -269,7 +269,7 @@ def test_in_memory_event_recorder_returns_append_only_copies() -> None:
         ),
     )
 
-    stored_snapshot = recorder.events_for_session("session-1")
+    stored_snapshot = repository.events_for_session("session-1")
 
     assert stored_snapshot.total == 1
     assert stored_snapshot.latest_event().event_id == "event-1"

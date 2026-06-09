@@ -22,6 +22,12 @@ from app.domain.executor_runtime_safety import (
     ExecutorLaunchRequest,
     RuntimeLaunchRequestStatus,
 )
+from app.repositories.runtime_session_repository import (
+    InMemoryRuntimeEventRepository,
+    InMemoryRuntimeSessionRepository,
+    RuntimeEventRepository,
+    RuntimeSessionRepository,
+)
 
 Clock = Callable[[], datetime]
 
@@ -180,41 +186,24 @@ class FakeExecutorAdapter:
         )
 
 
-class InMemoryRuntimeEventRecorder:
-    def __init__(self) -> None:
-        self._events_by_session: dict[str, list[RuntimeEvent]] = {}
-
-    def append(self, event: RuntimeEvent) -> RuntimeEvent:
-        stored_event = event.model_copy(deep=True)
-        self._events_by_session.setdefault(stored_event.session_id, []).append(stored_event)
-        return stored_event.model_copy(deep=True)
-
-    def events_for_session(self, session_id: str) -> RuntimeEventStreamSnapshot:
-        events = [
-            event.model_copy(deep=True)
-            for event in self._events_by_session.get(session_id.strip(), [])
-        ]
-        return RuntimeEventStreamSnapshot(session_id=session_id, events=events)
-
-    def latest_event(self, session_id: str) -> RuntimeEvent | None:
-        events = self._events_by_session.get(session_id.strip(), [])
-        if not events:
-            return None
-        return events[-1].model_copy(deep=True)
-
-
 class ControlledRuntimeService:
     def __init__(
         self,
         *,
         adapter: ExecutorRuntimeAdapter | None = None,
-        event_recorder: InMemoryRuntimeEventRecorder | None = None,
+        session_repository: RuntimeSessionRepository | None = None,
+        event_repository: RuntimeEventRepository | None = None,
+        event_recorder: RuntimeEventRepository | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._clock = clock or _utc_now
         self._adapter = adapter or FakeExecutorAdapter(clock=self._clock)
-        self._event_recorder = event_recorder or InMemoryRuntimeEventRecorder()
-        self._sessions: dict[str, ExecutorRuntimeSession] = {}
+        self._session_repository = session_repository or InMemoryRuntimeSessionRepository()
+        self._event_repository = (
+            event_repository
+            or event_recorder
+            or InMemoryRuntimeEventRepository()
+        )
 
     @property
     def adapter(self) -> ExecutorRuntimeAdapter:
@@ -269,10 +258,7 @@ class ControlledRuntimeService:
         return launched
 
     def get_session(self, session_id: str) -> ExecutorRuntimeSession | None:
-        session = self._sessions.get(session_id.strip())
-        if session is None:
-            return None
-        return session.model_copy(deep=True)
+        return self._session_repository.get(session_id)
 
     def poll(self, session_id: str) -> ExecutorRuntimeSession | None:
         session = self.get_session(session_id)
@@ -312,7 +298,7 @@ class ControlledRuntimeService:
         return updated
 
     def events_for_session(self, session_id: str) -> RuntimeEventStreamSnapshot:
-        return self._event_recorder.events_for_session(session_id)
+        return self._event_repository.events_for_session(session_id)
 
     def _build_blocked_session(
         self,
@@ -336,7 +322,7 @@ class ControlledRuntimeService:
         )
 
     def _store(self, session: ExecutorRuntimeSession) -> None:
-        self._sessions[session.session_id] = session.model_copy(deep=True)
+        self._session_repository.save(session)
 
     def _record(
         self,
@@ -344,7 +330,7 @@ class ControlledRuntimeService:
         event_type: ExecutorRuntimeEventType,
         message: str,
     ) -> RuntimeEvent:
-        return self._event_recorder.append(
+        return self._event_repository.append(
             RuntimeEvent(
                 event_id=_new_id("runtime-event"),
                 session_id=session.session_id,
