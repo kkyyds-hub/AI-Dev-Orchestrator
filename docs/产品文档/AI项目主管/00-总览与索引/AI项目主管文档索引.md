@@ -5,7 +5,7 @@
 > **文档目录治理 R1**: `fbb1518ab1405148ecbeea465491180e1644ed33`
 > **本文档 R1-Fix**: 以下新增第 6、7 节；修复旧路径引用
 
-**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8-A: Pass（Executor Config Discovery ledger + current-state audit）；P8-B: Pass（ExecutorProfile / DiscoveryResult contract freeze）；P8-C: Pass（safe discovery service 最小实现）；P8-D: Pass（read-only API + backend readback）；P8-E: Pass（launch preview contract + preview-only API）；P8-Final: Pass（targeted evidence + P8 Gate）；P8 Executor Config Discovery: Pass；P9-A: Pass（Controlled Runtime ledger + current-state audit + safety boundary）；P9-B: Pass（ExecutorRuntimeSession / RuntimeState / RuntimeEvent 纯 domain contract）；P9-C: Pass（RuntimeSafetyGate / LaunchRequest / LaunchApproval 纯 domain contract）；P9-D: Pass（ControlledRuntimeService skeleton + FakeExecutorAdapter + in-memory event recorder）；P9-E: Pass（read-only runtime API + fake launch request preview API）；P9-F: Pass（frontend read-only fake runtime readback）；P9-G: Pass（fake-only dry-run E2E evidence）；P9-H: Pass（real executor pilot gate design；still default off）；P9-Final: Pass（targeted evidence + P9 scoped gate）；P9 scoped closure: Pass（fake dry-run + pilot gate design）；P9 real executor launch: Not started；GitWrite-A: Pass（产品运行时 Git 写闭环 ledger + current-state audit + safety boundary）；GitWrite-B: Pass（pure domain contract only）；GitWrite-C: Pass（dry-run preview service）；GitWrite-D: Pass（read-only API + approval readback）；GitWrite-E: Pass（frontend readback panel）；GitWrite-F: Pass（disabled adapter seam）；GitWrite-G: Pass（fake adapter evidence；fake only）；GitWrite-Final: Not started；GitWrite implementation: Partial（GitWrite-B/C/D/E/F/G complete through fake evidence only；no real adapter/write）；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
+**当前状态**: 文档目录治理 R1: Pass；P5: Pass；P6: Pass；P7-A 至 P7-D: Pass；P7-E/F/G/H/I/J Final scoped gate: Pass；P7 Final Gate: Pass（Project Director Conversation Hub + Governance total closure）；P8-A: Pass（Executor Config Discovery ledger + current-state audit）；P8-B: Pass（ExecutorProfile / DiscoveryResult contract freeze）；P8-C: Pass（safe discovery service 最小实现）；P8-D: Pass（read-only API + backend readback）；P8-E: Pass（launch preview contract + preview-only API）；P8-Final: Pass（targeted evidence + P8 Gate）；P8 Executor Config Discovery: Pass；P9-A: Pass（Controlled Runtime ledger + current-state audit + safety boundary）；P9-B: Pass（ExecutorRuntimeSession / RuntimeState / RuntimeEvent 纯 domain contract）；P9-C: Pass（RuntimeSafetyGate / LaunchRequest / LaunchApproval 纯 domain contract）；P9-D: Pass（ControlledRuntimeService skeleton + FakeExecutorAdapter + in-memory event recorder）；P9-E: Pass（read-only runtime API + fake launch request preview API）；P9-F: Pass（frontend read-only fake runtime readback）；P9-G: Pass（fake-only dry-run E2E evidence）；P9-H: Pass（real executor pilot gate design；still default off）；P9-Final: Pass（targeted evidence + P9 scoped gate）；P9 scoped closure: Pass（fake dry-run + pilot gate design）；P9 real executor launch: Not started；GitWrite-A: Pass（产品运行时 Git 写闭环 ledger + current-state audit + safety boundary）；GitWrite-B: Pass（pure domain contract only）；GitWrite-C: Pass（dry-run preview service）；GitWrite-D: Pass（read-only API + approval readback）；GitWrite-E: Pass（frontend readback panel）；GitWrite-F: Pass（disabled adapter seam）；GitWrite-G: Pass（fake adapter evidence；fake only）；GitWrite-Final: Pass（targeted evidence + scoped gate；fake-only closure）；GitWrite implementation: Scoped Pass to fake-only closure（no real adapter / no real write）；产品运行时 Git 写操作: Not started；AI Project Director 总闭环: Partial
 
 ---
 
@@ -25,7 +25,7 @@ docs/产品文档/AI项目主管/
   09-历史归档/            ← 已冻结的历史文档（审计/freeze/gap）
   10-P8执行器配置发现/     ← P8-A/B/C/D/E/Final: Pass；P8 Executor Config Discovery: Pass；P9: Not started
   11-P9受控运行时与执行器调度/ ← P9-A/B/C/D/E/F/G/H/Final: Pass；P9 scoped closure: Pass；P9 real executor launch: Not started
-  12-产品运行时Git写闭环/ ← GitWrite-A/B: Pass；GitWrite implementation: Partial（pure domain contract only；no write）
+  12-产品运行时Git写闭环/ ← GitWrite-A/B/C/D/E/F/G/Final: Pass；GitWrite scoped closure: Scoped Pass to fake-only；Real Git write pilot: Not started
 ```
 
 ---
@@ -104,7 +104,7 @@ P9-A 至 P9-Final 全部 Pass。P9 scoped closure: Pass（fake dry-run + pilot g
 
 ### 12-产品运行时Git写闭环
 
-GitWrite-A Ledger + Current-State Audit 已完成（Pass）。GitWrite-B pure domain contract 已完成（Pass）。GitWrite-C/D/E/F/G/Final 仍 Not started。**GitWrite implementation: Partial（GitWrite-B pure domain contract only；no write）。**
+GitWrite-A/B/C/D/E/F/G/Final 全部 Pass。GitWrite scoped closure: Scoped Pass to fake-only。产品运行时 Git 写操作 仍 Not started。Real Git write pilot 仍 Not started。
 
 **关键入口**：
 - [Git写闭环总账与阶段设计-20260608](../12-产品运行时Git写闭环/Git写闭环总账与阶段设计-20260608.md) — GitWrite 阶段唯一总账
@@ -182,8 +182,8 @@ GitWrite-A Ledger + Current-State Audit 已完成（Pass）。GitWrite-B pure do
 | **GitWrite-E** | frontend readback panel；no write | **Pass** |
 | **GitWrite-F** | disabled adapter seam；no write | **Pass** |
 | **GitWrite-G** | fake adapter evidence + readback helper；fake only；no real write | **Pass** |
-| **GitWrite-Final** | targeted evidence + scoped gate | **Not started** |
-| **GitWrite implementation** | GitWrite-B/C/D/E/F/G complete through fake evidence only；no real adapter/write | **Partial** |
+| **GitWrite-Final** | targeted evidence + scoped gate | **Pass** |
+| **GitWrite scoped closure** | GitWrite-A～Final 全部 Pass；fake-only closure | **Scoped Pass** |
 | **产品运行时 Git 写操作** | 产品内部 git add/commit/push/PR/merge/branch/delete/reset/checkout/rebase/stash/tag/CI 自动触发 | **Not started** |
 | **AI Project Director 总闭环** | — | **Partial** |
 
