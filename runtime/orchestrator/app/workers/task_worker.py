@@ -112,10 +112,28 @@ if TYPE_CHECKING:
 _RUN_RESULT_SUMMARY_MAX_LENGTH = 2_000
 _CLAIM_RETRY_LIMIT = 3
 
+WORKER_RUN_RESULT_TOP_LEVEL_FIELD_GUARD = (
+    "WorkerRunResult top-level fields are historical compatibility fields. "
+    "Do not add more flat fields for new capabilities; prefer grouped snapshots."
+)
+
+WORKER_RUN_RESULT_FUTURE_GROUPED_SNAPSHOTS = (
+    "runtime_snapshot",
+    "external_executor_snapshot",
+    "delivery_snapshot",
+    "approval_snapshot",
+    "cost_snapshot",
+)
+
 
 @dataclass(slots=True)
 class WorkerRunResult:
-    """Single worker-cycle result returned to the API layer."""
+    """Single worker-cycle result returned to the API layer.
+
+    P9-PEG-C guardrail: existing top-level fields are retained for backward
+    compatibility. Future capabilities, including external executor results,
+    should add grouped snapshot objects instead of more flat top-level fields.
+    """
 
     claimed: bool
     message: str
