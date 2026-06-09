@@ -5,6 +5,7 @@ import { useProjectRoleCatalog, useProjectRoleSkillConsumption, useSystemRoleCat
 import { useProjectSkillBindings, useSkillRegistry } from "../../features/skills/hooks";
 import { useProjectCostDashboardSnapshot } from "../../features/costs/hooks";
 import { GitWriteReadbackPanel } from "../../features/git-write/GitWriteReadbackPanel";
+import { RealGitWritePilotApprovalReadbackPanel } from "../../features/real-git-write-pilot/RealGitWritePilotApprovalReadbackPanel";
 import { useProjectScope } from "../shared/useProjectScope";
 
 const TABS = [
@@ -590,6 +591,7 @@ function PolicyTab() {
     <div className="space-y-3">
       <p className="text-sm text-zinc-400">策略与权限 · 区分 AI 可自动执行、需确认、禁止自动执行三类</p>
       <GitWriteReadbackPanel />
+      <RealGitWritePilotApprovalReadbackPanel />
       <TwoPanel
         left={
           POLICIES.map((p) => (
