@@ -124,6 +124,7 @@ class GitWriteAdapterResultStatus(StrEnum):
     DISABLED = "disabled"
     BLOCKED = "blocked"
     DRY_RUN_READY = "dry_run_ready"
+    FAKE_EVIDENCE_READY = "fake_evidence_ready"
     EXECUTED = "executed"
 
 

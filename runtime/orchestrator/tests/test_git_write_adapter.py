@@ -20,9 +20,16 @@ from app.domain.git_write import (
 )
 from app.services.git_write_adapter import (
     DisabledGitWriteAdapter,
+    FakeGitWriteAdapter,
+    GitWriteAdapterEvidenceRecord,
     GitWriteAdapterOperationPlan,
     GitWriteAdapterRequest,
     GitWriteAdapterResult,
+)
+from app.services.git_write_preview_service import GitWriteChangedFileInput
+from app.services.git_write_readback_service import (
+    GitWriteReadbackConflictError,
+    GitWriteReadbackService,
 )
 
 
@@ -251,3 +258,166 @@ def test_adapter_file_has_no_forbidden_runtime_imports_or_calls() -> None:
     ]
     for fragment in forbidden_fragments:
         assert fragment not in source
+
+
+def test_fake_adapter_returns_ready_evidence_when_full_gates_passed() -> None:
+    result = FakeGitWriteAdapter().run(
+        make_request(
+            adapter_mode=GitWriteAdapterMode.FAKE,
+            safety_snapshot=passed_snapshot(),
+        ),
+    )
+
+    assert result.status == GitWriteAdapterResultStatus.FAKE_EVIDENCE_READY
+    assert result.executed is False
+    assert result.product_runtime_git_write_executed is False
+    assert result.blocking_reason is None
+    assert result.fake_evidence is not None
+    assert result.fake_evidence.evidence_id == "fake-evidence-intent-1"
+    assert result.fake_evidence.adapter_mode == GitWriteAdapterMode.FAKE
+    assert result.fake_evidence.fake_evidence_ready is True
+    assert result.fake_evidence.fake_execution_recorded is True
+    assert result.fake_evidence.product_runtime_git_write_executed is False
+    assert "Fake evidence only" in result.fake_evidence.safe_summary
+    assert_no_forbidden_keys(result.model_dump(mode="json"))
+
+
+def test_fake_adapter_blocks_preview_ready_without_full_write_gate() -> None:
+    request = make_request(
+        adapter_mode=GitWriteAdapterMode.FAKE,
+        safety_snapshot=preview_ready_snapshot(),
+    )
+    evidence = FakeGitWriteAdapter().build_fake_evidence(request)
+
+    assert request.safety_snapshot.preview_gates_passed() is True
+    assert request.safety_snapshot.all_passed is False
+    assert evidence.status == GitWriteAdapterResultStatus.BLOCKED
+    assert evidence.blocking_reason == GitWriteAdapterBlockReason.FULL_WRITE_GATE_NOT_PASSED
+    assert evidence.fake_evidence_ready is False
+    assert evidence.fake_execution_recorded is False
+    assert evidence.product_runtime_git_write_executed is False
+
+
+def test_fake_adapter_remains_no_write_when_product_flag_off() -> None:
+    evidence = FakeGitWriteAdapter().build_fake_evidence(
+        make_request(
+            adapter_mode=GitWriteAdapterMode.FAKE,
+            product_runtime_write_enabled=False,
+            safety_snapshot=passed_snapshot(),
+        ),
+    )
+
+    assert evidence.status == GitWriteAdapterResultStatus.DISABLED
+    assert evidence.blocking_reason == (
+        GitWriteAdapterBlockReason.PRODUCT_RUNTIME_WRITE_DISABLED
+    )
+    assert evidence.product_runtime_git_write_executed is False
+
+
+def test_fake_adapter_blocks_non_fake_adapter_modes() -> None:
+    evidence = FakeGitWriteAdapter().build_fake_evidence(
+        make_request(
+            adapter_mode=GitWriteAdapterMode.REAL_CANDIDATE,
+            safety_snapshot=passed_snapshot(),
+        ),
+    )
+
+    assert evidence.status == GitWriteAdapterResultStatus.BLOCKED
+    assert evidence.blocking_reason == GitWriteAdapterBlockReason.REAL_ADAPTER_NOT_STARTED
+    assert evidence.product_runtime_git_write_executed is False
+
+
+def test_fake_evidence_record_rejects_executed_or_unsafe_shapes() -> None:
+    evidence = FakeGitWriteAdapter().build_fake_evidence(
+        make_request(
+            adapter_mode=GitWriteAdapterMode.FAKE,
+            safety_snapshot=passed_snapshot(),
+        ),
+    )
+
+    with pytest.raises(ValidationError):
+        GitWriteAdapterEvidenceRecord(
+            **{
+                **evidence.model_dump(),
+                "product_runtime_git_write_executed": True,
+            }
+        )
+    with pytest.raises(ValidationError):
+        GitWriteAdapterEvidenceRecord(
+            **{
+                **evidence.model_dump(),
+                "status": GitWriteAdapterResultStatus.EXECUTED,
+            }
+        )
+    assert_no_forbidden_keys(evidence.model_dump(mode="json"))
+
+
+def test_readback_service_records_fake_adapter_evidence_without_write() -> None:
+    service = GitWriteReadbackService()
+    record = service.create_intent(
+        intent_id="intent-1",
+        workspace_id="workspace-1",
+        target_branch="feature/git-write",
+        file_paths=["runtime/orchestrator/app/domain/git_write.py"],
+        changed_files=[
+            GitWriteChangedFileInput(
+                path="runtime/orchestrator/app/domain/git_write.py",
+                change_type="modified",
+                additions=5,
+                deletions=1,
+                reviewed=True,
+                safe_summary="Readback route update.",
+            )
+        ],
+        allowed_branches=["feature/git-write"],
+        feature_flag_enabled=True,
+    )
+    request = make_request(
+        adapter_mode=GitWriteAdapterMode.FAKE,
+        intent_id=record.intent.intent_id,
+        preview_id=record.preview.preview_id,
+        safety_snapshot=passed_snapshot(),
+    )
+
+    updated = service.record_fake_adapter_evidence(record.intent.intent_id, request)
+
+    assert updated.adapter_evidence is not None
+    assert updated.adapter_evidence.status == GitWriteAdapterResultStatus.FAKE_EVIDENCE_READY
+    assert updated.product_runtime_git_write_executed is False
+    assert [event.event_type for event in updated.audit_events][-1] == (
+        "git_write.fake_adapter_evidence_recorded"
+    )
+    assert_no_forbidden_keys(updated.model_dump(mode="json"))
+
+
+def test_readback_service_rejects_mismatched_fake_adapter_evidence() -> None:
+    service = GitWriteReadbackService()
+    record = service.create_intent(
+        intent_id="intent-1",
+        workspace_id="workspace-1",
+        target_branch="feature/git-write",
+        file_paths=["runtime/orchestrator/app/domain/git_write.py"],
+        changed_files=[
+            GitWriteChangedFileInput(
+                path="runtime/orchestrator/app/domain/git_write.py",
+                change_type="modified",
+                additions=5,
+                deletions=1,
+                reviewed=True,
+                safe_summary="Readback route update.",
+            )
+        ],
+        allowed_branches=["feature/git-write"],
+        feature_flag_enabled=True,
+    )
+
+    with pytest.raises(GitWriteReadbackConflictError):
+        service.record_fake_adapter_evidence(
+            record.intent.intent_id,
+            make_request(
+                adapter_mode=GitWriteAdapterMode.FAKE,
+                intent_id="other-intent",
+                preview_id=record.preview.preview_id,
+                safety_snapshot=passed_snapshot(),
+            ),
+        )

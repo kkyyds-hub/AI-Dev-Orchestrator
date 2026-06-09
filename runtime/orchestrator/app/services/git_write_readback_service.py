@@ -26,6 +26,11 @@ from app.domain.git_write import (
     GitWriteTokenStatus,
     OneShotApprovalToken,
 )
+from app.services.git_write_adapter import (
+    FakeGitWriteAdapter,
+    GitWriteAdapterEvidenceRecord,
+    GitWriteAdapterRequest,
+)
 from app.services.git_write_preview_service import (
     GitWriteChangedFileInput,
     GitWritePreviewRequest,
@@ -38,6 +43,7 @@ class GitWriteReadbackRecord(DomainModel):
     preview: GitWritePreview
     approval: GitWriteApproval | None = None
     approval_summary: str | None = None
+    adapter_evidence: GitWriteAdapterEvidenceRecord | None = None
     audit_events: list[GitWriteAuditEvent] = Field(default_factory=list)
     product_runtime_git_write_executed: bool = False
 
@@ -206,6 +212,39 @@ class GitWriteReadbackService:
 
     def get_audit_events(self, intent_id: str) -> list[GitWriteAuditEvent]:
         return self.get_intent(intent_id).audit_events
+
+    def record_fake_adapter_evidence(
+        self,
+        intent_id: str,
+        request: GitWriteAdapterRequest,
+        adapter: FakeGitWriteAdapter | None = None,
+    ) -> GitWriteReadbackRecord:
+        record = self.get_intent(intent_id)
+        if request.intent_id != record.intent.intent_id:
+            raise GitWriteReadbackConflictError("adapter request intent mismatch")
+        if request.preview_id != record.preview.preview_id:
+            raise GitWriteReadbackConflictError("adapter request preview mismatch")
+
+        evidence = (adapter or FakeGitWriteAdapter()).build_fake_evidence(request)
+        updated_record = record.model_copy(
+            update={
+                "adapter_evidence": evidence,
+                "audit_events": [
+                    *record.audit_events,
+                    self._audit_event(
+                        intent_id=record.intent.intent_id,
+                        event_type="git_write.fake_adapter_evidence_recorded",
+                        summary=(
+                            "Fake adapter evidence readback recorded; no product runtime "
+                            "Git write operation has run."
+                        ),
+                    ),
+                ],
+                "product_runtime_git_write_executed": False,
+            }
+        )
+        self._records[intent_id] = updated_record
+        return updated_record
 
     def _audit_event(
         self,

@@ -110,6 +110,7 @@ def test_create_intent_returns_preview_ready_without_write_ready(
     assert gate(data, "human_approval")["status"] == "pending"
     assert gate(data, "one_shot_token")["status"] == "pending"
     assert data["product_runtime_git_write_executed"] is False
+    assert data["adapter_evidence"] is None
     assert data["rollback_plan"]["plan_id"] == "rollback-intent-1"
     assert_no_forbidden_keys(data)
 

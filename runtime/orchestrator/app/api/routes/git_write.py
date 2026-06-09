@@ -24,6 +24,7 @@ from app.domain.git_write import (
     OneShotApprovalToken,
 )
 from app.services.git_write_preview_service import GitWriteChangedFileInput
+from app.services.git_write_adapter import GitWriteAdapterEvidenceRecord
 from app.services.git_write_readback_service import (
     GitWriteReadbackConflictError,
     GitWriteReadbackNotFoundError,
@@ -327,6 +328,51 @@ class GitWriteAuditEventResponse(BaseModel):
         )
 
 
+class GitWriteAdapterEvidenceResponse(BaseModel):
+    evidence_id: str
+    intent_id: str
+    preview_id: str
+    adapter_mode: str
+    status: str
+    fake_evidence_ready: bool
+    fake_execution_recorded: bool
+    product_runtime_git_write_executed: bool
+    operation_plan_id: str
+    rollback_plan_id: str
+    safe_summary: str
+    blocking_reason: str | None
+    audit_event_summaries: list[str]
+    created_at: datetime
+
+    @classmethod
+    def from_domain(
+        cls,
+        evidence: GitWriteAdapterEvidenceRecord | None,
+    ) -> "GitWriteAdapterEvidenceResponse | None":
+        if evidence is None:
+            return None
+        return cls(
+            evidence_id=evidence.evidence_id,
+            intent_id=evidence.intent_id,
+            preview_id=evidence.preview_id,
+            adapter_mode=evidence.adapter_mode.value,
+            status=evidence.status.value,
+            fake_evidence_ready=evidence.fake_evidence_ready,
+            fake_execution_recorded=evidence.fake_execution_recorded,
+            product_runtime_git_write_executed=evidence.product_runtime_git_write_executed,
+            operation_plan_id=evidence.operation_plan_id,
+            rollback_plan_id=evidence.rollback_plan_id,
+            safe_summary=evidence.safe_summary,
+            blocking_reason=(
+                evidence.blocking_reason.value
+                if evidence.blocking_reason is not None
+                else None
+            ),
+            audit_event_summaries=evidence.audit_event_summaries,
+            created_at=evidence.created_at,
+        )
+
+
 class GitWriteReadbackResponse(BaseModel):
     intent: GitWriteIntentResponse
     preview: GitWritePreviewResponse
@@ -334,6 +380,7 @@ class GitWriteReadbackResponse(BaseModel):
     rollback_plan: GitWriteRollbackPlanResponse | None
     approval: GitWriteApprovalResponse | None
     approval_summary: str | None
+    adapter_evidence: GitWriteAdapterEvidenceResponse | None
     audit_timeline: list[GitWriteAuditEventResponse]
     product_runtime_git_write_executed: bool
 
@@ -347,6 +394,9 @@ class GitWriteReadbackResponse(BaseModel):
             rollback_plan=preview.rollback_plan,
             approval=GitWriteApprovalResponse.from_domain(record.approval),
             approval_summary=record.approval_summary,
+            adapter_evidence=GitWriteAdapterEvidenceResponse.from_domain(
+                record.adapter_evidence,
+            ),
             audit_timeline=[
                 GitWriteAuditEventResponse.from_domain(event)
                 for event in record.audit_events
