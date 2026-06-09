@@ -264,6 +264,30 @@ def test_unknown_intent_returns_404(git_write_client: TestClient) -> None:
     assert response.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/git-write/execute",
+        "/git-write/commit",
+        "/git-write/push",
+        "/git-write/pr",
+        "/git-write/merge",
+        "/git-write/intents/intent-1/execute",
+        "/git-write/intents/intent-1/commit",
+        "/git-write/intents/intent-1/push",
+        "/git-write/intents/intent-1/pr",
+        "/git-write/intents/intent-1/merge",
+    ],
+)
+def test_git_write_api_has_no_write_endpoint(
+    git_write_client: TestClient,
+    path: str,
+) -> None:
+    response = git_write_client.post(path, json={})
+
+    assert response.status_code == 404
+
+
 def test_git_write_api_files_have_no_forbidden_runtime_operations() -> None:
     sources = [
         Path("app/services/git_write_readback_service.py").read_text(encoding="utf-8"),

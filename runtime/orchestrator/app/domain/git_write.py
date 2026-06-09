@@ -114,6 +114,28 @@ class GitWritePreviewStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class GitWriteAdapterMode(StrEnum):
+    DISABLED = "disabled"
+    FAKE = "fake"
+    REAL_CANDIDATE = "real_candidate"
+
+
+class GitWriteAdapterResultStatus(StrEnum):
+    DISABLED = "disabled"
+    BLOCKED = "blocked"
+    DRY_RUN_READY = "dry_run_ready"
+    EXECUTED = "executed"
+
+
+class GitWriteAdapterBlockReason(StrEnum):
+    PRODUCT_RUNTIME_WRITE_DISABLED = "product_runtime_write_disabled"
+    PREVIEW_NOT_READY = "preview_not_ready"
+    FULL_WRITE_GATE_NOT_PASSED = "full_write_gate_not_passed"
+    ONE_SHOT_TOKEN_NOT_ACTIVE = "one_shot_token_not_active"
+    REAL_ADAPTER_NOT_STARTED = "real_adapter_not_started"
+    UNKNOWN = "unknown"
+
+
 REQUIRED_GIT_WRITE_SAFETY_GATES: tuple[GitWriteSafetyGateName, ...] = tuple(
     GitWriteSafetyGateName
 )
@@ -362,6 +384,11 @@ class GitWriteSafetyGateSnapshot(DomainModel):
             and self.get_gate(gate).passed is True
             for gate in PREVIEW_GIT_WRITE_SAFETY_GATES
         )
+
+    def adapter_write_gates_passed(self) -> bool:
+        """Return whether a future adapter could even be considered."""
+
+        return self.all_passed is True
 
     def get_gate(
         self,
