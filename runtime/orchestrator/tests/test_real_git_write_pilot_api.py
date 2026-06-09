@@ -9,10 +9,15 @@ from fastapi.testclient import TestClient
 
 from app.api.router import api_router
 from app.api.routes import real_git_write_pilot as pilot_route
+from app.services.real_git_write_pilot_dry_run_plan_service import (
+    RealGitWritePilotDryRunPlanService,
+)
 from app.services.real_git_write_pilot_preview_service import (
+    RealGitWritePilotPreviewRequest,
     RealGitWritePilotPreviewService,
 )
 from app.services.real_git_write_pilot_readiness_service import (
+    RealGitWritePilotReadinessRequest,
     RealGitWritePilotReadinessService,
 )
 
@@ -43,12 +48,16 @@ def pilot_client() -> TestClient:
     app.include_router(api_router)
     service = RealGitWritePilotPreviewService()
     readiness_service = RealGitWritePilotReadinessService()
+    dry_run_plan_service = RealGitWritePilotDryRunPlanService()
     app.dependency_overrides[
         pilot_route.get_real_git_write_pilot_preview_service
     ] = lambda: service
     app.dependency_overrides[
         pilot_route.get_real_git_write_pilot_readiness_service
     ] = lambda: readiness_service
+    app.dependency_overrides[
+        pilot_route.get_real_git_write_pilot_dry_run_plan_service
+    ] = lambda: dry_run_plan_service
 
     with TestClient(app) as test_client:
         yield test_client
@@ -124,6 +133,24 @@ def _readiness_payload(**overrides: object) -> dict:
             "safe_summary": "workspace binding is ready",
             "checked_at": NOW.isoformat(),
         },
+        "requested_by": "user-1",
+        "requested_at": NOW.isoformat(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _dry_run_plan_payload(**overrides: object) -> dict:
+    preview = RealGitWritePilotPreviewService().build_preview(
+        RealGitWritePilotPreviewRequest(**_payload()),
+    )
+    readiness = RealGitWritePilotReadinessService().build_readiness(
+        RealGitWritePilotReadinessRequest(**_readiness_payload()),
+    )
+    payload = {
+        "pilot_id": "pilot-1",
+        "preview": preview.model_dump(mode="json"),
+        "readiness": readiness.model_dump(mode="json"),
         "requested_by": "user-1",
         "requested_at": NOW.isoformat(),
     }
@@ -278,6 +305,69 @@ def test_real_git_write_pilot_readiness_endpoint_blocks_non_docs_markdown_file(
     ]
 
 
+def test_real_git_write_pilot_dry_run_plan_endpoint_returns_readback(
+    pilot_client: TestClient,
+) -> None:
+    response = pilot_client.post(
+        "/real-git-write-pilot/dry-run-plan",
+        json=_dry_run_plan_payload(),
+    )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["pilot_id"] == "pilot-1"
+    assert data["readiness_ready_for_preview"] is True
+    assert data["preview_status"] == "approval_required"
+    assert data["dry_run_ready"] is True
+    assert data["ready_for_execution"] is False
+    assert data["product_runtime_git_write_executed"] is False
+    assert data["real_executor_started"] is False
+    assert [step["step_order"] for step in data["semantic_steps"]] == list(range(1, 12))
+    assert data["forbidden_operations"] == [
+        "raw shell execution",
+        "direct main write",
+        "git force push",
+        "automatic PR creation",
+        "automatic merge",
+        "branch delete",
+        "reset hard",
+        "tag creation",
+        "stash operation",
+    ]
+    _assert_no_forbidden_keys(data)
+
+
+def test_real_git_write_pilot_dry_run_plan_endpoint_blocks_when_readiness_not_ready(
+    pilot_client: TestClient,
+) -> None:
+    readiness = RealGitWritePilotReadinessService().build_readiness(
+        RealGitWritePilotReadinessRequest(
+            **_readiness_payload(
+                executor={
+                    "executor_id": "codex",
+                    "executor_kind": "codex",
+                    "configured": True,
+                    "authenticated": True,
+                    "available": False,
+                    "model_or_profile": "gpt-5-codex",
+                    "safe_summary": "executor profile is unavailable",
+                    "checked_at": NOW.isoformat(),
+                },
+            ),
+        ),
+    )
+    response = pilot_client.post(
+        "/real-git-write-pilot/dry-run-plan",
+        json=_dry_run_plan_payload(readiness=readiness.model_dump(mode="json")),
+    )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["readiness_ready_for_preview"] is False
+    assert data["dry_run_ready"] is False
+    assert data["ready_for_execution"] is False
+
+
 @pytest.mark.parametrize(
     "target_branch",
     ["main", "master", "release", "production", "staging", "gh-pages"],
@@ -335,6 +425,9 @@ def test_real_git_write_pilot_api_files_have_preview_only_boundaries() -> None:
             encoding="utf-8",
         ),
         Path("app/services/real_git_write_pilot_readiness_service.py").read_text(
+            encoding="utf-8",
+        ),
+        Path("app/services/real_git_write_pilot_dry_run_plan_service.py").read_text(
             encoding="utf-8",
         ),
         Path("app/api/routes/real_git_write_pilot.py").read_text(encoding="utf-8"),

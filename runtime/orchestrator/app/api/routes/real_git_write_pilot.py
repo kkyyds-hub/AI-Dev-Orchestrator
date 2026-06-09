@@ -1,4 +1,4 @@
-"""P9-RGWP preview and readiness readback APIs for the real Git write pilot."""
+"""P9-RGWP readback APIs for the real Git write pilot."""
 
 from __future__ import annotations
 
@@ -7,6 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 
+from app.services.real_git_write_pilot_dry_run_plan_service import (
+    RealGitWritePilotDryRunPlan,
+    RealGitWritePilotDryRunPlanRequest,
+    RealGitWritePilotDryRunPlanService,
+)
 from app.services.real_git_write_pilot_preview_service import (
     RealGitWritePilotPreview,
     RealGitWritePilotPreviewRequest,
@@ -26,6 +31,7 @@ router = APIRouter(
 
 _service = RealGitWritePilotPreviewService()
 _readiness_service = RealGitWritePilotReadinessService()
+_dry_run_plan_service = RealGitWritePilotDryRunPlanService()
 
 
 def get_real_git_write_pilot_preview_service() -> RealGitWritePilotPreviewService:
@@ -34,6 +40,10 @@ def get_real_git_write_pilot_preview_service() -> RealGitWritePilotPreviewServic
 
 def get_real_git_write_pilot_readiness_service() -> RealGitWritePilotReadinessService:
     return _readiness_service
+
+
+def get_real_git_write_pilot_dry_run_plan_service() -> RealGitWritePilotDryRunPlanService:
+    return _dry_run_plan_service
 
 
 @router.post(
@@ -75,4 +85,25 @@ def build_real_git_write_pilot_readiness(
         raise HTTPException(
             status_code=422,
             detail="real Git write pilot readiness validation failed",
+        ) from exc
+
+
+@router.post(
+    "/dry-run-plan",
+    response_model=RealGitWritePilotDryRunPlan,
+    status_code=status.HTTP_200_OK,
+)
+def build_real_git_write_pilot_dry_run_plan(
+    request: RealGitWritePilotDryRunPlanRequest,
+    service: Annotated[
+        RealGitWritePilotDryRunPlanService,
+        Depends(get_real_git_write_pilot_dry_run_plan_service),
+    ],
+) -> RealGitWritePilotDryRunPlan:
+    try:
+        return service.build_plan(request)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="real Git write pilot dry-run plan validation failed",
         ) from exc
