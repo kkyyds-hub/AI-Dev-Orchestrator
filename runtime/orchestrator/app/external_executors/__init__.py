@@ -1,5 +1,12 @@
 """External executor boundary package for P9 guarded runtime work."""
 
+from app.external_executors.actual_disabled_adapter import (
+    DISABLED_REASON,
+    DisabledRealExecutorAdapter,
+    DisabledRealExecutorAdapterAuditEvent,
+    DisabledRealExecutorAdapterConfig,
+    DisabledRealExecutorAdapterResultFactory,
+)
 from app.external_executors.actual_contract import (
     RealExecutorAdapterProtocol,
     RealExecutorCapability,
@@ -23,6 +30,11 @@ from app.external_executors.actual_preview import (
 )
 
 __all__ = (
+    "DISABLED_REASON",
+    "DisabledRealExecutorAdapter",
+    "DisabledRealExecutorAdapterAuditEvent",
+    "DisabledRealExecutorAdapterConfig",
+    "DisabledRealExecutorAdapterResultFactory",
     "RealExecutorAdapterProtocol",
     "RealExecutorCapability",
     "RealExecutorLaunchContext",
