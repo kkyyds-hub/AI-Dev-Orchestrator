@@ -11,6 +11,11 @@ from app.external_executors.actual_contract import (
     RealExecutorPollState,
     RealExecutorSafetyBoundary,
 )
+from app.external_executors.actual_preflight import (
+    RealExecutorPreflightInput,
+    RealExecutorPreflightResult,
+    RealExecutorPreflightService,
+)
 
 __all__ = (
     "RealExecutorAdapterProtocol",
@@ -21,5 +26,8 @@ __all__ = (
     "RealExecutorOperationStatus",
     "RealExecutorPollSnapshot",
     "RealExecutorPollState",
+    "RealExecutorPreflightInput",
+    "RealExecutorPreflightResult",
+    "RealExecutorPreflightService",
     "RealExecutorSafetyBoundary",
 )

@@ -13,6 +13,7 @@ from app.external_executors.boundary import (
 EXTERNAL_EXECUTOR_DIR = Path("app/external_executors")
 BOUNDARY_FILE = EXTERNAL_EXECUTOR_DIR / "boundary.py"
 ACTUAL_CONTRACT_FILE = EXTERNAL_EXECUTOR_DIR / "actual_contract.py"
+ACTUAL_PREFLIGHT_FILE = EXTERNAL_EXECUTOR_DIR / "actual_preflight.py"
 
 
 def _read(path: str) -> str:
@@ -24,6 +25,7 @@ def test_external_executor_boundary_package_exists() -> None:
     assert (EXTERNAL_EXECUTOR_DIR / "__init__.py").is_file()
     assert BOUNDARY_FILE.is_file()
     assert ACTUAL_CONTRACT_FILE.is_file()
+    assert ACTUAL_PREFLIGHT_FILE.is_file()
 
 
 def test_boundary_declares_module_kind_split_and_legacy_targets() -> None:
@@ -192,6 +194,39 @@ def test_actual_contract_exists_without_legacy_integration_targets() -> None:
         "from pty",
         "import shlex",
         "from shlex",
+    }
+
+    for snippet in forbidden_snippets:
+        assert snippet not in source
+
+
+def test_actual_preflight_exists_without_legacy_integration_targets() -> None:
+    source = ACTUAL_PREFLIGHT_FILE.read_text()
+
+    assert "RealExecutorPreflightService" in source
+    assert "RealExecutorPreflightInput" in source
+    assert "RealExecutorPreflightResult" in source
+    assert "class RealExecutorAdapter(" not in source
+    assert "def evaluate(" in source
+    assert "def evaluate_launch(" in source
+
+    forbidden_snippets = {
+        "app.api",
+        "app.workers",
+        "app.services",
+        "app.repositories",
+        "import subprocess",
+        "from subprocess",
+        "os.popen",
+        "import os",
+        "from os",
+        "import pty",
+        "from pty",
+        "import shlex",
+        "from shlex",
+        "Popen",
+        "shell=True",
+        "tmux",
     }
 
     for snippet in forbidden_snippets:
