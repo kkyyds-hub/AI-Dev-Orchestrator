@@ -17,10 +17,15 @@ import { ProjectTimelineRoutePage } from "../pages/projects/ProjectTimelineRoute
 import { ProjectsPage } from "../pages/projects/ProjectsPage";
 import { RunsPage } from "../pages/runs/RunsPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { SanshengLiubuUiLabPage } from "../features/ui-selection-lab/SanshengLiubuUiLabPage";
 import { TasksPage } from "../pages/tasks/TasksPage";
 import { WorkbenchPage } from "../pages/workbench/WorkbenchPage";
 
 export const router = createBrowserRouter([
+  {
+    path: "/__lab/sansheng-liubu-ui",
+    element: <SanshengLiubuUiLabPage />,
+  },
   {
     path: "/",
     element: <AppShell />,
