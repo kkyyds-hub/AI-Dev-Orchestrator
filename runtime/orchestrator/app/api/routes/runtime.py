@@ -30,6 +30,11 @@ from app.domain.executor_runtime_safety import (
     RuntimeSafetyGateSnapshot,
     RuntimeWorkspaceGateInput,
 )
+from app.external_executors.actual_readback import (
+    RealExecutorLaunchReadbackBuilder,
+    RealExecutorLaunchReadbackRequest,
+    RealExecutorLaunchReadbackResponse,
+)
 from app.services.controlled_runtime_service import ControlledRuntimeService
 
 
@@ -423,6 +428,7 @@ class InMemoryLaunchRequestRegistry:
 
 _runtime_service = ControlledRuntimeService()
 _launch_request_registry = InMemoryLaunchRequestRegistry()
+_real_executor_launch_readback_builder = RealExecutorLaunchReadbackBuilder()
 
 
 def get_controlled_runtime_service() -> ControlledRuntimeService:
@@ -433,7 +439,26 @@ def get_launch_request_registry() -> InMemoryLaunchRequestRegistry:
     return _launch_request_registry
 
 
+def get_real_executor_launch_readback_builder() -> RealExecutorLaunchReadbackBuilder:
+    return _real_executor_launch_readback_builder
+
+
 router = APIRouter(prefix="/runtime", tags=["runtime"])
+
+
+@router.post(
+    "/real-executor/launch-readback",
+    response_model=RealExecutorLaunchReadbackResponse,
+    summary="Read back real executor launch safety preview",
+)
+def build_real_executor_launch_readback(
+    request_input: RealExecutorLaunchReadbackRequest,
+    builder: Annotated[
+        RealExecutorLaunchReadbackBuilder,
+        Depends(get_real_executor_launch_readback_builder),
+    ],
+) -> RealExecutorLaunchReadbackResponse:
+    return builder.build(request_input)
 
 
 @router.get(

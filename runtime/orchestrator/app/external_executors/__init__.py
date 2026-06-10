@@ -28,6 +28,11 @@ from app.external_executors.actual_preview import (
     RealExecutorLaunchPlanPreviewBuilder,
     RealExecutorLaunchPlanPreviewInput,
 )
+from app.external_executors.actual_readback import (
+    RealExecutorLaunchReadbackBuilder,
+    RealExecutorLaunchReadbackRequest,
+    RealExecutorLaunchReadbackResponse,
+)
 
 __all__ = (
     "DISABLED_REASON",
@@ -46,6 +51,9 @@ __all__ = (
     "RealExecutorLaunchPlanPreview",
     "RealExecutorLaunchPlanPreviewBuilder",
     "RealExecutorLaunchPlanPreviewInput",
+    "RealExecutorLaunchReadbackBuilder",
+    "RealExecutorLaunchReadbackRequest",
+    "RealExecutorLaunchReadbackResponse",
     "RealExecutorPreflightInput",
     "RealExecutorPreflightResult",
     "RealExecutorPreflightService",

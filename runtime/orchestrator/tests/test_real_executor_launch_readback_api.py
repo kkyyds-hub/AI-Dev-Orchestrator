@@ -1,0 +1,297 @@
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from app.api.routes.runtime import (
+    build_real_executor_launch_readback,
+    get_real_executor_launch_readback_builder,
+    router,
+)
+from app.external_executors.actual_contract import (
+    RealExecutorOperationStatus,
+    RealExecutorSafetyBoundary,
+)
+from app.external_executors.actual_readback import (
+    RealExecutorLaunchReadbackBuilder,
+    RealExecutorLaunchReadbackRequest,
+    RealExecutorLaunchReadbackResponse,
+)
+
+
+READBACK_FILE = Path("app/external_executors/actual_readback.py")
+RUNTIME_ROUTE_FILE = Path("app/api/routes/runtime.py")
+
+FORBIDDEN_RUNTIME_FIELDS = {
+    "raw_command",
+    "command",
+    "args",
+    "env",
+    "env_vars",
+    "api_key",
+    "token_value",
+    "auth_token",
+    "secret",
+    "password",
+    "native_config_path",
+    "cli_path",
+    "process_handle",
+    "stdout_path",
+    "stderr_path",
+    "log_path",
+}
+
+FORBIDDEN_IMPORT_SNIPPETS = {
+    "app.workers",
+    "app.repositories",
+    "import subprocess",
+    "from subprocess",
+    "import os",
+    "from os",
+    "import pty",
+    "from pty",
+    "import shlex",
+    "from shlex",
+    "import pathlib",
+    "from pathlib",
+}
+
+FORBIDDEN_EXECUTION_SNIPPETS = {
+    "Popen",
+    "shell=True",
+    "os.popen",
+    "asyncio.create_subprocess_exec",
+    "asyncio.create_subprocess_shell",
+    "tmux",
+    "Codex CLI",
+    "Claude Code",
+    "DeepSeek CLI",
+}
+
+FORBIDDEN_ENVIRONMENT_SNIPPETS = {
+    "environ",
+    "getenv",
+    "environment variable",
+    "environment variables",
+}
+
+
+def _source(path: Path) -> str:
+    return path.read_text()
+
+
+def _module(path: Path) -> ast.Module:
+    return ast.parse(_source(path))
+
+
+def _class_field_names(path: Path, class_name: str) -> set[str]:
+    for node in _module(path).body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            fields: set[str] = set()
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    fields.add(item.target.id)
+            return fields
+    raise AssertionError(f"{class_name} was not found")
+
+
+def _passing_boundary() -> RealExecutorSafetyBoundary:
+    return RealExecutorSafetyBoundary(
+        feature_flag_enabled=True,
+        human_confirmation_present=True,
+        executor_readiness_available=True,
+        workspace_worktree_gate_passed=True,
+        budget_cost_gate_passed=True,
+        concurrency_gate_passed=True,
+        timeout_supported=True,
+        cancel_supported=True,
+        kill_supported=True,
+        audit_events_append_only=True,
+        credential_exposure_blocked=True,
+        environment_dump_blocked=True,
+    )
+
+
+def _request(boundary: RealExecutorSafetyBoundary) -> RealExecutorLaunchReadbackRequest:
+    return RealExecutorLaunchReadbackRequest(
+        request_id="request-1",
+        executor_label="safe executor label",
+        command_summary="future launch summary",
+        workspace_hint="registered worktree",
+        safety_boundary=boundary,
+    )
+
+
+def test_real_executor_launch_readback_endpoint_exists() -> None:
+    matches = [
+        route
+        for route in router.routes
+        if getattr(route, "path", None) == "/runtime/real-executor/launch-readback"
+    ]
+
+    assert len(matches) == 1
+    route = matches[0]
+    assert "POST" in getattr(route, "methods", set())
+    assert "execute" not in route.path
+    assert "approve" not in route.path
+    assert "confirm" not in route.path
+    assert "consume" not in route.path
+
+
+def test_readback_file_lives_under_external_executors() -> None:
+    assert READBACK_FILE.is_file()
+    assert READBACK_FILE.parts[:2] == ("app", "external_executors")
+
+
+def test_readback_builder_exists() -> None:
+    assert isinstance(get_real_executor_launch_readback_builder(), RealExecutorLaunchReadbackBuilder)
+
+
+def test_all_safety_gates_pass_still_returns_disabled_adapter_blocked() -> None:
+    response = build_real_executor_launch_readback(
+        _request(_passing_boundary()),
+        get_real_executor_launch_readback_builder(),
+    )
+
+    assert isinstance(response, RealExecutorLaunchReadbackResponse)
+    assert response.preflight_ready is True
+    assert response.preflight_status is RealExecutorOperationStatus.ACCEPTED
+    assert response.preview_ready is True
+    assert response.preview_executable is False
+    assert response.adapter_enabled is False
+    assert response.adapter_launch_status is RealExecutorOperationStatus.BLOCKED
+    assert "real_executor_disabled" in response.blocking_reasons
+    assert response.real_executor_launch_started is False
+    assert response.product_runtime_git_write_allowed is False
+    assert response.api_mode == "read_only"
+
+
+def test_blocked_safety_gates_return_blocking_reasons() -> None:
+    response = build_real_executor_launch_readback(
+        _request(RealExecutorSafetyBoundary()),
+        get_real_executor_launch_readback_builder(),
+    )
+
+    assert response.preflight_ready is False
+    assert response.preflight_status is RealExecutorOperationStatus.BLOCKED
+    assert response.preview_ready is False
+    assert response.adapter_launch_status is RealExecutorOperationStatus.BLOCKED
+    assert "feature_flag_disabled" in response.blocking_reasons
+    assert "human_confirmation_missing" in response.blocking_reasons
+    assert "real_executor_disabled" in response.blocking_reasons
+    assert response.preview_executable is False
+    assert response.real_executor_launch_started is False
+    assert response.product_runtime_git_write_allowed is False
+
+
+def test_response_safety_flags_are_constant() -> None:
+    response = RealExecutorLaunchReadbackBuilder().build(_request(_passing_boundary()))
+
+    assert response.preview_executable is False
+    assert response.real_executor_launch_started is False
+    assert response.product_runtime_git_write_allowed is False
+    assert response.adapter_enabled is False
+    assert response.redaction_applied is True
+    assert response.api_mode == "read_only"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("executor_label", "contains api key"),
+        ("command_summary", "contains token"),
+        ("command_summary", "contains secret"),
+        ("workspace_hint", "contains password"),
+        ("workspace_hint", "contains bearer value"),
+        ("executor_label", "contains sk-test"),
+    ],
+)
+def test_readback_request_rejects_suspected_credential_text(
+    field_name: str,
+    value: str,
+) -> None:
+    payload = {
+        "request_id": "request-1",
+        "executor_label": "safe executor label",
+    }
+    payload[field_name] = value
+
+    with pytest.raises(ValidationError):
+        RealExecutorLaunchReadbackRequest(**payload)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "raw_command",
+        "args",
+        "env",
+        "env_vars",
+        "token_value",
+        "cli_path",
+        "process_handle",
+    ],
+)
+def test_readback_request_rejects_forbidden_runtime_fields(field_name: str) -> None:
+    payload = {
+        "request_id": "request-1",
+        "executor_label": "safe executor label",
+        field_name: "not allowed",
+    }
+
+    with pytest.raises(ValidationError):
+        RealExecutorLaunchReadbackRequest(**payload)
+
+
+def test_readback_field_names_do_not_include_forbidden_runtime_fields() -> None:
+    checked_classes = {
+        "RealExecutorLaunchReadbackRequest",
+        "RealExecutorLaunchReadbackResponse",
+    }
+
+    for class_name in checked_classes:
+        assert _class_field_names(READBACK_FILE, class_name).isdisjoint(
+            FORBIDDEN_RUNTIME_FIELDS,
+        )
+
+
+def test_readback_module_does_not_import_forbidden_layers_or_process_modules() -> None:
+    source = _source(READBACK_FILE)
+
+    for snippet in FORBIDDEN_IMPORT_SNIPPETS:
+        assert snippet not in source
+
+
+def test_readback_module_does_not_contain_execution_traces() -> None:
+    source = _source(READBACK_FILE)
+
+    for snippet in FORBIDDEN_EXECUTION_SNIPPETS:
+        assert snippet not in source
+
+
+def test_readback_module_does_not_read_environment_values() -> None:
+    source = _source(READBACK_FILE)
+
+    for snippet in FORBIDDEN_ENVIRONMENT_SNIPPETS:
+        assert snippet not in source
+
+
+def test_runtime_route_readback_endpoint_stays_thin_and_read_only() -> None:
+    source = _source(RUNTIME_ROUTE_FILE)
+
+    assert "/real-executor/launch-readback" in source
+    assert "RealExecutorLaunchReadbackBuilder" in source
+    assert "task_worker" not in source
+    assert "ExecutorService" not in source
+    assert "subprocess" not in source
+    assert "os.popen" not in source
+    assert "shell=True" not in source
+
+
+def test_no_frontend_worker_or_migration_entrypoints_added() -> None:
+    assert not Path("app/workers/real_executor_worker.py").exists()
+    assert not any(Path("migrations").glob("*real_executor*"))
+    assert not Path("../../apps/web/real-executors").exists()
