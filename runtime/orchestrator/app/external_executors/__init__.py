@@ -16,6 +16,11 @@ from app.external_executors.actual_preflight import (
     RealExecutorPreflightResult,
     RealExecutorPreflightService,
 )
+from app.external_executors.actual_preview import (
+    RealExecutorLaunchPlanPreview,
+    RealExecutorLaunchPlanPreviewBuilder,
+    RealExecutorLaunchPlanPreviewInput,
+)
 
 __all__ = (
     "RealExecutorAdapterProtocol",
@@ -26,6 +31,9 @@ __all__ = (
     "RealExecutorOperationStatus",
     "RealExecutorPollSnapshot",
     "RealExecutorPollState",
+    "RealExecutorLaunchPlanPreview",
+    "RealExecutorLaunchPlanPreviewBuilder",
+    "RealExecutorLaunchPlanPreviewInput",
     "RealExecutorPreflightInput",
     "RealExecutorPreflightResult",
     "RealExecutorPreflightService",
