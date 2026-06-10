@@ -7,18 +7,21 @@ import test from "node:test";
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webSrc = join(testDir, "../../../..");
 const panelPath = join(testDir, "../RuntimeReadbackPanel.tsx");
+const realExecutorCardPath = join(testDir, "../RealExecutorLaunchReadbackCard.tsx");
 const apiPath = join(webSrc, "features/runtime/api.ts");
 const typesPath = join(webSrc, "features/runtime/types.ts");
 const workbenchPath = join(webSrc, "pages/workbench/WorkbenchPage.tsx");
 const inboxPath = join(webSrc, "pages/workbench/components/ProjectDirectorInboxPanel.tsx");
 
 const panelSource = readFileSync(panelPath, "utf8");
+const realExecutorCardSource = readFileSync(realExecutorCardPath, "utf8");
 const apiSource = readFileSync(apiPath, "utf8");
 const typesSource = readFileSync(typesPath, "utf8");
 const workbenchSource = readFileSync(workbenchPath, "utf8");
 const inboxSource = readFileSync(inboxPath, "utf8");
 const frontendReadbackSource = [
   panelSource,
+  realExecutorCardSource,
   apiSource,
   typesSource,
   workbenchSource,
@@ -59,6 +62,7 @@ test("Runtime readback client only uses session GET endpoints and one real execu
     apiSource,
     new RegExp(`/runtime/${token(["launch", "-", "requests"])}/\\$\\{[^}]+\\}/${token(["confirm"])}`),
   );
+  assert.doesNotMatch(apiSource, /\/confirm\b/);
   assert.doesNotMatch(
     apiSource,
     new RegExp(`/runtime/sessions/\\$\\{[^}]+\\}/${token(["cancel"])}`),
@@ -69,18 +73,24 @@ test("Runtime readback client only uses session GET endpoints and one real execu
   assert.doesNotMatch(apiSource, /\/token\b/);
 });
 
-test("RuntimeReadbackPanel renders real executor launch readback safety fields", () => {
-  assert.match(panelSource, /真实执行器启动前只读读回/);
-  assert.match(panelSource, /只读 readback/);
-  assert.match(panelSource, /adapter_enabled/);
-  assert.match(panelSource, /adapter_launch_status/);
-  assert.match(panelSource, /preview_executable/);
-  assert.match(panelSource, /real_executor_launch_started/);
-  assert.match(panelSource, /product_runtime_git_write_allowed/);
-  assert.match(panelSource, /read_only/);
-  assert.match(panelSource, /blocking reasons/);
-  assert.match(panelSource, /display steps/);
-  assert.match(panelSource, /safe_summary/);
+test("RuntimeReadbackPanel keeps the real executor readback card split out", () => {
+  assert.match(panelSource, /RealExecutorLaunchReadbackCard/);
+  assert.doesNotMatch(panelSource, /REAL_EXECUTOR_READBACK_BOUNDARY/);
+  assert.doesNotMatch(panelSource, /buildSafeRealExecutorReadbackRequest/);
+});
+
+test("RealExecutorLaunchReadbackCard renders real executor launch readback safety fields", () => {
+  assert.match(realExecutorCardSource, /真实执行器启动前只读读回/);
+  assert.match(realExecutorCardSource, /只读 readback/);
+  assert.match(realExecutorCardSource, /adapter_enabled/);
+  assert.match(realExecutorCardSource, /adapter_launch_status/);
+  assert.match(realExecutorCardSource, /preview_executable/);
+  assert.match(realExecutorCardSource, /real_executor_launch_started/);
+  assert.match(realExecutorCardSource, /product_runtime_git_write_allowed/);
+  assert.match(realExecutorCardSource, /read_only/);
+  assert.match(realExecutorCardSource, /blocking reasons/);
+  assert.match(realExecutorCardSource, /display steps/);
+  assert.match(realExecutorCardSource, /safe_summary/);
 });
 
 test("Runtime readback source keeps unsafe DTO fields out", () => {
@@ -99,9 +109,10 @@ test("Runtime readback source keeps unsafe DTO fields out", () => {
 });
 
 test("RuntimeReadbackPanel does not render runtime control buttons", () => {
-  const buttonBodies = [...panelSource.matchAll(/<button[\s\S]*?<\/button>/g)].map(
-    (match) => match[0],
-  );
+  const buttonBodies = [
+    ...panelSource.matchAll(/<button[\s\S]*?<\/button>/g),
+    ...realExecutorCardSource.matchAll(/<button[\s\S]*?<\/button>/g),
+  ].map((match) => match[0]);
   const forbiddenButtonLabels = [
     "启动",
     "执行",
@@ -127,6 +138,7 @@ test("Workbench linkage is read-only and does not expose product runtime Git wri
   const buttonBodies = [
     ...workbenchSource.matchAll(/<button[\s\S]*?<\/button>/g),
     ...panelSource.matchAll(/<button[\s\S]*?<\/button>/g),
+    ...realExecutorCardSource.matchAll(/<button[\s\S]*?<\/button>/g),
     ...inboxSource.matchAll(/<button[\s\S]*?<\/button>/g),
   ].map((match) => match[0]);
   const gitWriteLabels = ["git add", "git commit", "git push", "merge"];
