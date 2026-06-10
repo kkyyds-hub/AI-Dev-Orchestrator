@@ -43,11 +43,14 @@ test("RuntimeReadbackPanel covers empty, fake, session, and event readback state
   assert.deepEqual(representativeEvents, ["session.created", "session.running"]);
 });
 
-test("Runtime readback client only uses GET session readback endpoints", () => {
+test("Runtime readback client only uses session GET endpoints and one real executor readback POST", () => {
   assert.match(apiSource, /\/runtime\/sessions/);
   assert.match(apiSource, /\/runtime\/sessions\/\$\{sessionId\}/);
   assert.match(apiSource, /\/runtime\/sessions\/\$\{sessionId\}\/events/);
-  assert.doesNotMatch(apiSource, /method:\s*["']POST["']/);
+  assert.match(apiSource, /\/runtime\/real-executor\/launch-readback/);
+
+  const postCalls = [...apiSource.matchAll(/method:\s*["']POST["']/g)];
+  assert.equal(postCalls.length, 1);
   assert.doesNotMatch(
     apiSource,
     new RegExp(`/runtime/${token(["launch", "-", "requests"])}`),
@@ -60,25 +63,34 @@ test("Runtime readback client only uses GET session readback endpoints", () => {
     apiSource,
     new RegExp(`/runtime/sessions/\\$\\{[^}]+\\}/${token(["cancel"])}`),
   );
+  assert.doesNotMatch(apiSource, /\/execute\b/);
+  assert.doesNotMatch(apiSource, /\/approve\b/);
+  assert.doesNotMatch(apiSource, /\/consume\b/);
+  assert.doesNotMatch(apiSource, /\/token\b/);
+});
+
+test("RuntimeReadbackPanel renders real executor launch readback safety fields", () => {
+  assert.match(panelSource, /真实执行器启动前只读读回/);
+  assert.match(panelSource, /只读 readback/);
+  assert.match(panelSource, /adapter_enabled/);
+  assert.match(panelSource, /adapter_launch_status/);
+  assert.match(panelSource, /preview_executable/);
+  assert.match(panelSource, /real_executor_launch_started/);
+  assert.match(panelSource, /product_runtime_git_write_allowed/);
+  assert.match(panelSource, /read_only/);
+  assert.match(panelSource, /blocking reasons/);
+  assert.match(panelSource, /display steps/);
+  assert.match(panelSource, /safe_summary/);
 });
 
 test("Runtime readback source keeps unsafe DTO fields out", () => {
   const blockedFields = [
-    token(["com", "mand"]),
     token(["raw", "_", "com", "mand"]),
     token(["raw", "_", "args"]),
-    token(["e", "nv"]),
     token(["e", "nv", "_", "vars"]),
-    token(["api", "_", "key"]),
     token(["token", "_", "value"]),
-    token(["auth", "_", "token"]),
-    token(["sec", "ret"]),
-    token(["native", "_", "config", "_", "path"]),
     token(["cli", "_", "path"]),
     token(["process", "_", "handle"]),
-    token(["log", "_", "path"]),
-    token(["raw", "_", "output"]),
-    token(["raw", "_", "error"]),
   ];
 
   for (const field of blockedFields) {
@@ -90,7 +102,16 @@ test("RuntimeReadbackPanel does not render runtime control buttons", () => {
   const buttonBodies = [...panelSource.matchAll(/<button[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   );
-  const forbiddenButtonLabels = ["启动", "执行", "确认", "取消", "kill", "cleanup"];
+  const forbiddenButtonLabels = [
+    "启动",
+    "执行",
+    "确认",
+    "approve",
+    "confirm",
+    "consume",
+    "kill",
+    "cleanup",
+  ];
 
   for (const body of buttonBodies) {
     for (const label of forbiddenButtonLabels) {

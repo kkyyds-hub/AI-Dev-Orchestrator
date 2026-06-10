@@ -68,3 +68,46 @@ export interface RuntimeEventStreamReadback {
   events: RuntimeEventReadback[];
   total: number;
 }
+
+export interface RealExecutorSafetyBoundaryReadback {
+  feature_flag_enabled: boolean;
+  human_confirmation_present: boolean;
+  executor_readiness_available: boolean;
+  workspace_worktree_gate_passed: boolean;
+  budget_cost_gate_passed: boolean;
+  concurrency_gate_passed: boolean;
+  timeout_supported: boolean;
+  cancel_supported: boolean;
+  kill_supported: boolean;
+  audit_events_append_only: boolean;
+  credential_exposure_blocked: boolean;
+  environment_dump_blocked: boolean;
+  product_runtime_git_write_allowed: boolean;
+}
+
+export interface RealExecutorLaunchReadbackRequest {
+  request_id: string;
+  executor_label: string;
+  command_summary: string;
+  workspace_hint: string;
+  safety_boundary: RealExecutorSafetyBoundaryReadback;
+}
+
+export interface RealExecutorLaunchReadbackResponse {
+  readback_id: string;
+  executor_label: string;
+  preflight_ready: boolean;
+  preflight_status: string;
+  preview_ready: boolean;
+  preview_executable: boolean;
+  adapter_enabled: boolean;
+  adapter_launch_status: string;
+  blocking_reasons: string[];
+  display_steps: string[];
+  safe_summary: string | null;
+  redaction_applied: boolean;
+  product_runtime_git_write_allowed: boolean;
+  real_executor_launch_started: boolean;
+  api_mode: "read_only";
+  created_at: string;
+}
