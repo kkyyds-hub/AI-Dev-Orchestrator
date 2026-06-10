@@ -12,6 +12,7 @@ from app.external_executors.boundary import (
 
 EXTERNAL_EXECUTOR_DIR = Path("app/external_executors")
 BOUNDARY_FILE = EXTERNAL_EXECUTOR_DIR / "boundary.py"
+ACTUAL_CONTRACT_FILE = EXTERNAL_EXECUTOR_DIR / "actual_contract.py"
 
 
 def _read(path: str) -> str:
@@ -22,6 +23,7 @@ def test_external_executor_boundary_package_exists() -> None:
     assert EXTERNAL_EXECUTOR_DIR.is_dir()
     assert (EXTERNAL_EXECUTOR_DIR / "__init__.py").is_file()
     assert BOUNDARY_FILE.is_file()
+    assert ACTUAL_CONTRACT_FILE.is_file()
 
 
 def test_boundary_declares_module_kind_split_and_legacy_targets() -> None:
@@ -165,3 +167,32 @@ def test_boundary_does_not_create_route_migration_or_web_entrypoints() -> None:
     assert not Path("app/api/routes/external_executors.py").exists()
     assert not any(Path("migrations").glob("*external_executor*"))
     assert not Path("../../apps/web/external_executors").exists()
+
+
+def test_actual_contract_exists_without_legacy_integration_targets() -> None:
+    source = ACTUAL_CONTRACT_FILE.read_text()
+
+    assert "RealExecutorAdapterProtocol" in source
+    assert "class RealExecutorAdapter(" not in source
+    assert "def launch(self, context:" in source
+    assert "def poll(self, session_id:" in source
+    assert "def cancel(self, session_id:" in source
+    assert "def kill(self, session_id:" in source
+    assert "def cleanup(self, session_id:" in source
+
+    forbidden_snippets = {
+        "app.api",
+        "app.workers",
+        "app.services",
+        "app.repositories",
+        "import subprocess",
+        "from subprocess",
+        "os.popen",
+        "import pty",
+        "from pty",
+        "import shlex",
+        "from shlex",
+    }
+
+    for snippet in forbidden_snippets:
+        assert snippet not in source
