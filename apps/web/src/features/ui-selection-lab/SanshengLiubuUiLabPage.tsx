@@ -1,13 +1,16 @@
 import {
   Activity,
+  Archive,
   Bot,
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleEllipsis,
   ClipboardCheck,
   FolderKanban,
   Gauge,
+  GitBranch,
   LayoutDashboard,
   MessageSquarePlus,
   MoreHorizontal,
@@ -15,6 +18,7 @@ import {
   Send,
   Settings,
   User,
+  Wallet,
   XCircle,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -70,7 +74,6 @@ import {
   mockConversationMessages,
   pageNavItems,
   projectGroups,
-  slimMoreTools,
   type Conversation,
   type MockMessage,
 } from "./mockInteractions";
@@ -415,37 +418,33 @@ function WorkbenchPreview() {
                     <SidebarNavItem label="执行状态" icon={Activity} active={false} />
                   </ExecutionStatusModal>
 
-                  {/* ... 更多 — inline sidebar disclosure, NOT a main page entry */}
-                  <div>
+                  {/* ... 更多 / 收起 — inline sidebar disclosure */}
+                  {!moreToolsExpanded ? (
                     <SidebarNavItem
                       label="... 更多"
                       icon={CircleEllipsis}
-                      muted={!moreToolsExpanded}
                       active={false}
-                      onClick={() => setMoreToolsExpanded((prev) => !prev)}
+                      onClick={() => setMoreToolsExpanded(true)}
                     />
-                    <div
-                      className={`grid transition-all duration-200 ease-out ${
-                        moreToolsExpanded
-                          ? "grid-rows-[1fr] opacity-100 translate-y-0"
-                          : "grid-rows-[0fr] opacity-0 -translate-y-1"
-                      }`}
-                    >
-                      <div className="overflow-hidden">
-                        <div className="space-y-0.5 pt-0.5">
-                          <CostUsageModal>
-                            <SidebarNavItem label="成本用量" icon={slimMoreTools[0].icon} />
-                          </CostUsageModal>
-                          <RepositoryQueueModal>
-                            <SidebarNavItem label="仓库队列" icon={slimMoreTools[1].icon} />
-                          </RepositoryQueueModal>
-                          <GitWritePreviewModal>
-                            <SidebarNavItem label="Git 写入预览" icon={slimMoreTools[2].icon} />
-                          </GitWritePreviewModal>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      <CostUsageModal>
+                        <SidebarNavItem label="成本用量" icon={Wallet} />
+                      </CostUsageModal>
+                      <RepositoryQueueModal>
+                        <SidebarNavItem label="仓库队列" icon={Archive} />
+                      </RepositoryQueueModal>
+                      <GitWritePreviewModal>
+                        <SidebarNavItem label="Git 写入预览" icon={GitBranch} />
+                      </GitWritePreviewModal>
+                      <SidebarNavItem
+                        label="收起"
+                        icon={ChevronUp}
+                        muted
+                        onClick={() => setMoreToolsExpanded(false)}
+                      />
+                    </>
+                  )}
                 </div>
               </div>
 

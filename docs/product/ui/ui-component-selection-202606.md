@@ -329,15 +329,12 @@
 ### 9.2.1 `... 更多` 是 Sidebar disclosure，不是 Main 页面入口
 
 - `... 更多` 本身不弹窗，仅在 Sidebar 内部展开/收起更多工具列表。
+- **未展开时**：`... 更多` 是「运行与治理」区域的最后一个入口。
+- **展开后**：`... 更多` 行消失，替换为 3 个工具项（成本用量、仓库队列、Git 写入预览），最后显示「收起」。
+- 点击「收起」恢复显示 `... 更多`。
 - 点击 `... 更多` 不切换右侧 Main 内容，不影响当前会话或对话。
-- 展开/收起使用 CSS grid 技巧：收起 `grid-rows-[0fr] opacity-0 -translate-y-1`，展开 `grid-rows-[1fr] opacity-100 translate-y-0`，内部 `overflow-hidden`。duration 200ms，easing ease-out。
-- 展开内容只保留 3 项（不显示运行记录、证据中心、模型配置、执行器配置、任务队列）：
-  - 成本用量
-  - 仓库队列
-  - Git 写入预览
-- 点击其中一项：打开居中 Dialog 弹窗（与数据看板、待审批、执行状态同级），**不替换 Main 内容**。
-- Sidebar 中只显示图标和名称，不显示副文案，避免出现 `成本...` 截断。
-- 展开项定位与上方运行与治理入口对齐，无额外 `ml-5` 右移。
+- 展开项与上方「数据看板 / 待审批 / 执行状态」对齐：图标左边距、文字左边距、行高、hover 背景均一致，无缩进、无副文案。
+- 点击其中一项：打开居中 Dialog 弹窗（与数据看板、待审批、执行状态同级），**不替换 Main 内容**，不调用 `setActiveMainPage`。
 - 原 MoreToolsModal 组件已移除，新增 CostUsageModal、RepositoryQueueModal、GitWritePreviewModal。
 
 ### 9.2.1.1 更多工具子项弹窗
