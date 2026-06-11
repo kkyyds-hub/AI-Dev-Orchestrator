@@ -248,6 +248,9 @@ function ProjectManagementMockPage() {
             <span className="hidden h-5 w-px bg-[#2A2A2A] sm:block" />
             <span>最后更新：2025-05-22 14:32</span>
           </div>
+          <div className="mt-3 text-xs text-[#8A8A8A]">
+            任务 28 项 · 已完成 6 · 执行中 2 · 待人工 1
+          </div>
         </section>
 
         <section className="mt-6 rounded-lg border border-[#2A2A2A] bg-[#171717]/80 px-5 py-4">
