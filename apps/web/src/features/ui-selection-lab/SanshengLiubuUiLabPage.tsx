@@ -423,7 +423,7 @@ function WorkbenchPreview() {
     setActiveConversationId(null);
     setTopContext({
       title: label,
-      subtitle: "工作台页面 · mock",
+      subtitle: label === "项目管理" ? "当前项目页面 · mock" : "工作台页面 · mock",
       status: "page",
     });
   }, []);
@@ -729,8 +729,9 @@ function WorkbenchPreview() {
 
           {renderMainContent()}
 
-          {/* PromptBox */}
-          <WorkbenchPromptBox onSend={handlePromptSend} />
+          {activeMainPage !== "projects" ? (
+            <WorkbenchPromptBox onSend={handlePromptSend} />
+          ) : null}
         </main>
       </div>
 
