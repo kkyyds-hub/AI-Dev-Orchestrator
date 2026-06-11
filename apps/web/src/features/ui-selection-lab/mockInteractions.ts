@@ -522,7 +522,9 @@ export const costUsageMock = {
 export const repoQueueMock = {
   pendingReview: [
     { branch: "feat/search-bar", status: "等待审查", author: "Codex" },
-    { branch: "fix/prompt-layout", status: "待合入", author: "kk" },
+  ],
+  pendingMerge: [
+    { branch: "feat/sansheng-liubu-ui-selection-lab", status: "待合入", author: "kk" },
   ],
   pendingDraft: [
     { message: "feat(web): add search component", changedFiles: 3, additions: 156, deletions: 12 },
