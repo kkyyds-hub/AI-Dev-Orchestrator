@@ -30,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  Separator,
   Tabs,
   TabsContent,
   TabsList,
@@ -113,11 +114,51 @@ export function DashboardModal({ children }: { children: React.ReactNode }) {
 
 // ── Approvals Modal ────────────────────────────────────────
 
+const approvalDetails: Record<string, { rows: [string, string][]; records: string[]; footer: string }> = {
+  "appr-1": {
+    rows: [
+      ["审批项", "商品发布与搜索规划"],
+      ["项目", "二手交易平台 MVP"],
+      ["当前状态", "pending"],
+      ["等待原因", "需要确认搜索排序和筛选范围"],
+      ["风险", "范围不清会导致后续任务拆分反复"],
+      ["建议处理", "先在工作台继续澄清，再决定是否放行"],
+    ],
+    records: [
+      "12:30 AI 主管生成规划草案",
+      "12:34 等待人工确认范围",
+      "12:38 当前审批仍处于待处理",
+    ],
+    footer: "仅展示审批读回与本地 mock 状态，不接真实后端。",
+  },
+  "appr-2": {
+    rows: [
+      ["审批项", "Workbench 两栏布局"],
+      ["项目", "AI 项目主管改造"],
+      ["当前状态", "pending"],
+      ["等待原因", "等待用户确认视觉方向"],
+      ["风险", "未确认前不应进入正式页替换"],
+      ["建议处理", "仅在隐藏实验页继续推进"],
+    ],
+    records: [
+      "09:18 生成两栏布局方案",
+      "09:24 完成审查报告",
+      "09:26 等待用户选择是否放行",
+    ],
+    footer: "仅展示审批读回与本地 mock 状态，不接真实后端。",
+  },
+};
+
 export function ApprovalsModal({ children }: { children: React.ReactNode }) {
   const [approvals, setApprovals] = useState<ApprovalItem[]>(initialApprovals);
+  const [selectedApprovalId, setSelectedApprovalId] = useState(initialApprovals[0]?.id ?? "");
+
+  const selectedApproval = approvals.find((item) => item.id === selectedApprovalId);
+  const detail = approvalDetails[selectedApprovalId];
 
   function handleAction(id: string, action: "approved" | "rejected") {
     setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, state: action } : a)));
+    setSelectedApprovalId(id);
   }
 
   return (
@@ -138,7 +179,12 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
             {approvals.map((item, idx) => (
               <div key={item.id}>
                 {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
-                <div className="group rounded-xl px-1 py-3 transition-colors hover:bg-[#222222]">
+                <div
+                  className={[
+                    "group rounded-xl px-1 py-3 transition-colors",
+                    selectedApprovalId === item.id ? "bg-[#171717]" : "hover:bg-[#222222]",
+                  ].join(" ")}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-white">{item.title}</div>
@@ -151,7 +197,11 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
                   </div>
 
                   <div className="mt-2 flex items-center gap-1.5">
-                    <button className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-colors hover:bg-[#2C2C2C] hover:text-white">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedApprovalId(item.id)}
+                      className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-colors hover:bg-[#2C2C2C] hover:text-white"
+                    >
                       <Eye className="h-3 w-3" />
                       查看
                     </button>
@@ -159,6 +209,7 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
                     {item.state === "pending" ? (
                       <>
                         <button
+                          type="button"
                           className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-black transition-all active:scale-[0.97]"
                           onClick={() => handleAction(item.id, "approved")}
                         >
@@ -166,6 +217,7 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
                           放行
                         </button>
                         <button
+                          type="button"
                           className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-all hover:bg-[#2C2C2C] hover:text-white active:scale-[0.97]"
                           onClick={() => handleAction(item.id, "rejected")}
                         >
@@ -191,6 +243,44 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
             ))}
           </div>
         </div>
+
+        {selectedApproval && detail ? (
+          <>
+            <Separator className="my-4" />
+            <div>
+              <div className="text-sm font-semibold text-white">审批详情</div>
+              <div className="mt-0.5 text-xs text-[#8A8A8A]">当前查看项 · mock</div>
+            </div>
+            <div className="mt-3 border-y border-[#2A2A2A]">
+              {detail.rows.map(([label, value]) => (
+                <div
+                  key={label}
+                  className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[100px_1fr]"
+                >
+                  <span className="text-[#C7C7C7]">{label}</span>
+                  <span className="text-[#8A8A8A]">
+                    {label === "当前状态"
+                      ? selectedApproval.state === "approved"
+                        ? "已放行"
+                        : selectedApproval.state === "rejected"
+                          ? "已驳回"
+                          : "待处理"
+                      : value}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3">
+              <div className="mb-1.5 text-xs font-semibold text-[#C7C7C7]">处理记录</div>
+              <div className="space-y-1">
+                {detail.records.map((record) => (
+                  <div key={record} className="text-xs text-[#8A8A8A]">{record}</div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-[#5F5F5F]">{detail.footer}</div>
+          </>
+        ) : null}
 
         <div className="mt-4 flex justify-end">
           <DialogClose asChild>
