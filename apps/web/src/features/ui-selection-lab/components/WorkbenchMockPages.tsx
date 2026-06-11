@@ -94,6 +94,26 @@ const executionProgressSteps = [
   },
 ] as const;
 
+const currentExecutionStepDetail = {
+  title: "当前步骤详情",
+  description: "当前运行步骤读回 · mock",
+  rows: [
+    ["当前步骤", "执行中"],
+    ["执行器", "Codex · Worker 1 / 3"],
+    ["Run ID", "run_7F3A"],
+    ["开始时间", "11:34:08"],
+    ["当前动作", "校验数据源连通性并生成接入任务拆分建议"],
+    ["下一步", "等待结果回写"],
+    ["预计完成", "11:40 前"],
+  ],
+  logs: [
+    "11:34:08 读取当前项目上下文",
+    "11:34:19 校验数据源连接参数",
+    "11:34:37 生成接入任务拆分建议",
+  ],
+  footer: "仅展示当前步骤读回，不触发执行操作 · mock",
+} as const;
+
 const executionStatusRows = [
   ["运行", "running · run_7F3A"],
   ["运行环境", "ready"],
@@ -559,33 +579,88 @@ function ExecutionCenterMockPage() {
           <div>
             <h2 className="text-base font-semibold text-white">当前运行</h2>
             <div className="mt-5 space-y-0">
-              {executionProgressSteps.map((step, index) => (
-                <div key={step.title} className="relative grid grid-cols-[40px_1fr] pb-7 last:pb-0">
-                  {index < executionProgressSteps.length - 1 ? (
-                    <span className="absolute left-[13px] top-7 h-[calc(100%-28px)] w-px bg-[#3A3A3A]" />
-                  ) : null}
-                  <span
-                    className={[
-                      "relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-xs",
-                      step.state === "done"
-                        ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
-                        : step.state === "current"
-                          ? "border-[#C7C7C7] bg-black text-white"
-                          : "border-[#3A3A3A] bg-black text-[#5F5F5F]",
-                    ].join(" ")}
-                  >
-                    {step.state === "done" ? <Check className="h-4 w-4" /> : step.state === "current" ? (
-                      <span className="h-2.5 w-2.5 rounded-full bg-white" />
+              {executionProgressSteps.map((step, index) => {
+                const stepContent = (
+                  <>
+                    {index < executionProgressSteps.length - 1 ? (
+                      <span className="absolute left-[13px] top-7 h-[calc(100%-28px)] w-px bg-[#3A3A3A]" />
                     ) : null}
-                  </span>
-                  <div>
-                    <div className={step.state === "current" ? "text-sm font-semibold text-white" : "text-sm font-medium text-[#C7C7C7]"}>
-                      {step.title}
+                    <span
+                      className={[
+                        "relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-xs",
+                        step.state === "done"
+                          ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
+                          : step.state === "current"
+                            ? "border-[#C7C7C7] bg-black text-white"
+                            : "border-[#3A3A3A] bg-black text-[#5F5F5F]",
+                      ].join(" ")}
+                    >
+                      {step.state === "done" ? <Check className="h-4 w-4" /> : step.state === "current" ? (
+                        <span className="h-2.5 w-2.5 rounded-full bg-white" />
+                      ) : null}
+                    </span>
+                    <div>
+                      <div className={step.state === "current" ? "text-sm font-semibold text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                        {step.title}
+                      </div>
+                      <div className="mt-2 text-sm text-[#8A8A8A]">{step.detail}</div>
                     </div>
-                    <div className="mt-2 text-sm text-[#8A8A8A]">{step.detail}</div>
+                  </>
+                );
+
+                if (step.state === "current") {
+                  return (
+                    <Dialog key={step.title}>
+                      <DialogTrigger asChild>
+                        <button
+                          type="button"
+                          className="relative grid w-full cursor-pointer grid-cols-[40px_1fr] rounded-2xl pb-7 last:pb-0 transition-colors hover:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]"
+                        >
+                          {stepContent}
+                        </button>
+                      </DialogTrigger>
+                      <DialogContent className="w-[min(92vw,520px)]">
+                        <DialogHeader>
+                          <DialogTitle>{currentExecutionStepDetail.title}</DialogTitle>
+                          <DialogDescription>{currentExecutionStepDetail.description}</DialogDescription>
+                        </DialogHeader>
+                        <Separator className="my-4" />
+                        <div className="border-y border-[#2A2A2A]">
+                          {currentExecutionStepDetail.rows.map((row) => (
+                            <div
+                              key={row[0]}
+                              className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
+                            >
+                              <span className="text-[#C7C7C7]">{row[0]}</span>
+                              <span className="text-[#8A8A8A]">{row[1]}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4">
+                          <div className="mb-2 text-sm font-semibold text-white">最近日志</div>
+                          <div className="space-y-1">
+                            {currentExecutionStepDetail.logs.map((log) => (
+                              <div key={log} className="text-xs text-[#8A8A8A]">{log}</div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="mt-4 text-xs text-[#5F5F5F]">{currentExecutionStepDetail.footer}</div>
+                        <div className="mt-5 flex justify-end">
+                          <DialogClose asChild>
+                            <Button variant="secondary" size="sm">关闭</Button>
+                          </DialogClose>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  );
+                }
+
+                return (
+                  <div key={step.title} className="relative grid grid-cols-[40px_1fr] pb-7 last:pb-0">
+                    {stepContent}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
