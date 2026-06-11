@@ -226,7 +226,23 @@ export const ScrollArea = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & { hideScrollbar?: boolean }
 >(({ className, children, hideScrollbar, ...props }, ref) => (
   <ScrollAreaPrimitive.Root ref={ref} className={cn("overflow-hidden", className)} {...props}>
-    <ScrollAreaPrimitive.Viewport className="h-full w-full">{children}</ScrollAreaPrimitive.Viewport>
+    <style>{`
+      .ui-lab-hidden-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      .ui-lab-hidden-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+    `}</style>
+    <ScrollAreaPrimitive.Viewport
+      className={cn(
+        "h-full w-full",
+        hideScrollbar && "overflow-y-auto ui-lab-hidden-scrollbar",
+      )}
+    >
+      {children}
+    </ScrollAreaPrimitive.Viewport>
     {!hideScrollbar && (
       <ScrollAreaPrimitive.Scrollbar
         orientation="vertical"
