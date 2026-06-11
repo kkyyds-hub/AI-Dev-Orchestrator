@@ -614,7 +614,7 @@ function ExecutionCenterMockPage() {
                       <DialogTrigger asChild>
                         <button
                           type="button"
-                          className="relative grid w-full cursor-pointer grid-cols-[40px_1fr] rounded-2xl pb-7 last:pb-0 transition-colors hover:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]"
+                          className="relative grid w-full cursor-pointer grid-cols-[40px_1fr] items-start rounded-2xl pb-7 text-left last:pb-0 transition-colors hover:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]"
                         >
                           {stepContent}
                         </button>
