@@ -11,14 +11,14 @@ import * as React from "react";
 import { cn } from "../../../lib/cn";
 
 const buttonVariants = cva(
-  "inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        primary: "bg-sky-500 text-slate-950 hover:bg-sky-400",
-        secondary: "border border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800",
-        ghost: "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-50",
-        destructive: "bg-red-500 text-white hover:bg-red-400",
+        primary: "bg-white text-black hover:bg-[#E7E7E7]",
+        secondary: "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]",
+        ghost: "text-[#C7C7C7] hover:bg-[#1F1F1F] hover:text-white",
+        destructive: "bg-[#3A3A3A] text-white hover:bg-[#4A4A4A]",
       },
       size: {
         default: "h-10 px-4",
@@ -49,7 +49,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        "flex h-10 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20",
+        "flex h-10 w-full rounded-full border border-[#2A2A2A] bg-[#1A1A1A] px-4 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10",
         className,
       )}
       {...props}
@@ -63,7 +63,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
     <textarea
       ref={ref}
       className={cn(
-        "flex min-h-24 w-full resize-none rounded-md border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20",
+        "flex min-h-24 w-full resize-none rounded-[22px] border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10",
         className,
       )}
       {...props}
@@ -73,7 +73,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
 Textarea.displayName = "Textarea";
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-100", className)} {...props} />;
+  return <div className={cn("rounded-[20px] border border-[#2A2A2A] bg-black text-white", className)} {...props} />;
 }
 
 const badgeVariants = cva(
@@ -81,10 +81,10 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-zinc-700 bg-zinc-900 text-zinc-200",
-        success: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-        warning: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-        danger: "border-red-400/30 bg-red-400/10 text-red-300",
+        default: "border-[#3A3A3A] bg-[#2A2A2A] text-white",
+        success: "border-[#3A3A3A] bg-[#2A2A2A] text-white",
+        warning: "border-[#3A3A3A] bg-[#2A2A2A] text-[#C7C7C7]",
+        danger: "border-[#3A3A3A] bg-[#2A2A2A] text-[#C7C7C7]",
       },
     },
     defaultVariants: {
@@ -112,7 +112,7 @@ export const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 min-w-48 rounded-md border border-zinc-800 bg-zinc-950 p-1 text-zinc-100 shadow-2xl shadow-black/40",
+        "z-50 min-w-56 rounded-[22px] border border-[#3A3A3A] bg-[#303030] p-2 text-white shadow-2xl shadow-black/50",
         className,
       )}
       {...props}
@@ -128,7 +128,7 @@ export const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center rounded px-2 py-2 text-sm outline-none transition-colors focus:bg-zinc-900 focus:text-zinc-50",
+      "flex cursor-default select-none items-center rounded-2xl px-3 py-2.5 text-sm text-white outline-none transition-colors focus:bg-[#4A4A4A] focus:text-white",
       className,
     )}
     {...props}
@@ -145,17 +145,17 @@ export const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
   <DialogPrimitive.Portal>
-    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/70" />
+    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/75" />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,440px)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-800 bg-zinc-950 p-5 text-zinc-100 shadow-2xl shadow-black/50 focus:outline-none",
+        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-[#3A3A3A] bg-[#303030] p-6 text-white shadow-2xl shadow-black/60 focus:outline-none",
         className,
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200">
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full p-2 text-[#C7C7C7] transition-colors hover:bg-[#4A4A4A] hover:text-white">
         <X className="h-4 w-4" />
         <span className="sr-only">关闭</span>
       </DialogPrimitive.Close>
@@ -172,7 +172,7 @@ export const DialogTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Title ref={ref} className={cn("text-lg font-semibold text-zinc-50", className)} {...props} />
+  <DialogPrimitive.Title ref={ref} className={cn("text-lg font-semibold text-white", className)} {...props} />
 ));
 DialogTitle.displayName = DialogPrimitive.Title.displayName;
 
@@ -180,7 +180,7 @@ export const DialogDescription = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Description>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Description ref={ref} className={cn("text-sm leading-6 text-zinc-400", className)} {...props} />
+  <DialogPrimitive.Description ref={ref} className={cn("text-sm leading-6 text-[#C7C7C7]", className)} {...props} />
 ));
 DialogDescription.displayName = DialogPrimitive.Description.displayName;
 
@@ -192,7 +192,7 @@ export const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
-    className={cn("inline-flex h-10 items-center rounded-md border border-zinc-800 bg-zinc-950 p-1", className)}
+    className={cn("inline-flex h-10 items-center rounded-full bg-[#1A1A1A] p-1", className)}
     {...props}
   />
 ));
@@ -205,7 +205,7 @@ export const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex h-8 items-center justify-center rounded px-3 text-sm font-medium text-zinc-500 transition-colors data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-50",
+      "inline-flex h-8 items-center justify-center rounded-full px-3 text-sm font-medium text-[#8A8A8A] transition-colors hover:text-white data-[state=active]:bg-[#2A2A2A] data-[state=active]:text-white",
       className,
     )}
     {...props}
@@ -231,7 +231,7 @@ export const ScrollArea = React.forwardRef<
       orientation="vertical"
       className="flex w-2 touch-none select-none bg-transparent p-px"
     >
-      <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-zinc-700" />
+      <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-[#3A3A3A]" />
     </ScrollAreaPrimitive.Scrollbar>
   </ScrollAreaPrimitive.Root>
 ));
@@ -245,7 +245,7 @@ export const AvatarFallback = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AvatarPrimitive.Fallback
     ref={ref}
-    className={cn("flex h-full w-full items-center justify-center rounded-full bg-zinc-800 text-xs font-semibold", className)}
+    className={cn("flex h-full w-full items-center justify-center rounded-full bg-[#2A2A2A] text-xs font-semibold text-white", className)}
     {...props}
   />
 ));
@@ -255,6 +255,6 @@ export const Separator = React.forwardRef<
   React.ElementRef<typeof SeparatorPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>
 >(({ className, ...props }, ref) => (
-  <SeparatorPrimitive.Root ref={ref} className={cn("bg-zinc-800 data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full", className)} {...props} />
+  <SeparatorPrimitive.Root ref={ref} className={cn("bg-[#2A2A2A] data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full", className)} {...props} />
 ));
 Separator.displayName = SeparatorPrimitive.Root.displayName;

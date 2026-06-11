@@ -8,6 +8,38 @@
 - 关键界面方向：ChatGPT 风格两栏布局，左侧固定 Sidebar，右侧主工作区，不采用传统后台的重顶部导航 + 多层卡片堆叠形态。
 - 本次边界：只新增隐藏实验页，不改正式 Workbench 页面，不改后端、数据库或真实执行器。
 
+## 1.1 最终视觉收敛结论
+
+最终视觉方向收敛为 **三省六部 Minimal Dark Tokens**，而不是 shadcn/ui 默认 dashboard 风格，也不是彩色数据看板风格。
+
+组件栈仍保持：
+
+**shadcn-style + Radix UI + Tailwind CSS + lucide-react**
+
+视觉规范明确为：
+
+- page-bg / sidebar-bg / main-bg：`#000000`
+- hover-bg：`#1F1F1F`
+- active-bg：`#2A2A2A`
+- modal-bg / popover-bg：`#303030`
+- input-bg：`#1A1A1A`
+- border-subtle：`#2A2A2A`
+- border-strong：`#3A3A3A`
+- text-primary：`#FFFFFF`
+- text-secondary：`#C7C7C7`
+- text-muted：`#8A8A8A`
+- text-disabled：`#5F5F5F`
+
+长期 UI 原则：
+
+- 不使用彩色 dashboard 作为默认表达。
+- 不堆大卡片，默认使用轻量行级入口和分隔线。
+- 常规状态全部使用黑白灰表达，待审批数量、运行状态、菜单、Tab、输入框都走灰阶 token。
+- hover 时才出现灰色圆角背景。
+- Dialog 和 Dropdown 参考 ChatGPT 用户菜单风格，使用深灰浮层、较大圆角、灰阶 hover。
+- 图标统一使用 lucide-react 白灰线性图标。
+- 危险态作为极低频例外保留语义，但默认实验区不使用高饱和红色抢占视觉。
+
 ## 2. 候选组件库对比表
 
 | 方案 | React / TS / Vite | 暗色 AI 工作台适配 | Tailwind | dark mode | 源码可控 | 关键组件覆盖 | 图标体系 | 依赖重量 | 维护活跃 | License | 结论 |
@@ -103,10 +135,12 @@
 
 本次实验页实际采用这一方向的最小组件栈：Radix primitives、Tailwind CSS、lucide-react、class-variance-authority、clsx、tailwind-merge，并在 `apps/web/src/features/ui-selection-lab/components/ui.tsx` 中落地本地 shadcn-style 组件。
 
+需要强调：推荐的是 shadcn-style 的源码可控组件体系，不是照搬 shadcn/ui 默认 dashboard 视觉。三省六部的正式视觉应以 Minimal Dark Tokens 为准。
+
 ## 6. 为什么推荐这个方案
 
 - 与现有 `apps/web` 技术栈匹配：项目已经使用 React、TypeScript、Vite、Tailwind CSS。
-- 适合暗色 AI 工作台：可以自然实现 ChatGPT 风格两栏布局、Prompt 输入框、轻量 Sidebar、状态 pill、弹窗和菜单。
+- 适合暗色 AI 工作台：可以自然实现 ChatGPT 风格两栏布局、Prompt 输入框、轻量 Sidebar、灰阶状态 pill、弹窗和菜单。
 - 组件源码可控：适合 Codex 后续按项目语义持续修改，而不是围绕大型组件库做样式覆盖。
 - 依赖克制：按需引入 primitives，避免一次性安装大型 UI 框架并改造正式页面。
 - license 安全：核心栈为 MIT / ISC 等宽松许可，没有 GPL / AGPL 污染风险。
@@ -125,6 +159,7 @@
 - 实验页：`apps/web/src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx`
 - 本地 UI 组件：`apps/web/src/features/ui-selection-lab/components/ui.tsx`
 - 工具函数：`apps/web/src/lib/cn.ts`
+- 视觉 token：`apps/web/src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx` 中的 `minimalDarkTokens`
 - 新增依赖：
   - `@radix-ui/react-avatar`
   - `@radix-ui/react-dialog`
@@ -139,7 +174,7 @@
 
 ## 9. 后续正式接入迁移步骤
 
-1. 保留隐藏实验页，先由产品侧确认 Sidebar、PromptBox、Card、Badge、Dialog、Dropdown、Tabs 的视觉方向。
+1. 保留隐藏实验页，先由产品侧确认 Sidebar、PromptBox、Badge、Dialog、Dropdown、Tabs 的 Minimal Dark 视觉方向。
 2. 将实验页中的通用组件从 `features/ui-selection-lab/components` 提升到正式 `src/components/ui`，并补组件命名、variant、状态规范。
 3. 只迁移正式 Workbench 的外壳和基础输入体验，不同时改业务数据流。
 4. 再逐步迁移审批、执行中心、成果中心、治理等页面的局部组件。
