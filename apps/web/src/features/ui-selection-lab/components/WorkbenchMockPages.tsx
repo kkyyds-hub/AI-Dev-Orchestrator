@@ -71,6 +71,47 @@ const projectContextRows = [
   ["approval", "审批 / 交付物", "待审批 1 项 / 交付物 0 项", "待处理"],
 ] as const;
 
+const executionProgressSteps = [
+  {
+    title: "已领取任务",
+    detail: "11:32:41 · Worker 1 已领取并确认",
+    state: "done",
+  },
+  {
+    title: "上下文已建立",
+    detail: "11:32:43 · 项目信息与上下文已加载",
+    state: "done",
+  },
+  {
+    title: "执行中",
+    detail: "11:34:08 · AI 正在处理当前任务",
+    state: "current",
+  },
+  {
+    title: "等待结果回写",
+    detail: "预计 11:40 前完成",
+    state: "pending",
+  },
+] as const;
+
+const executionStatusRows = [
+  ["运行", "running · run_7F3A"],
+  ["运行环境", "ready"],
+  ["工作区", "clean"],
+  ["Git", "只读预检 · 写入关闭"],
+  ["审批", "无需审批"],
+  ["质量闸门", "等待结果"],
+  ["预算", "正常"],
+] as const;
+
+const executionEvidenceItems = ["运行详情", "上下文", "决策回放", "安全预检"] as const;
+
+const executionQueueRows = [
+  ["待人工", "数据源账号确认", "需产品负责人确认"],
+  ["待执行", "指标口径确认", "AI 评估后自动执行"],
+  ["待执行", "可视化报表联调", "预计 2 个任务后进行"],
+] as const;
+
 const projectContextDialogContent = {
   task: {
     title: "任务上下文",
@@ -426,9 +467,120 @@ function ProjectManagementMockPage() {
   );
 }
 
+function ExecutionCenterMockPage() {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="mx-auto flex w-full max-w-[1080px] flex-col">
+        <section className="border-b border-[#2A2A2A] pb-7">
+          <div className="text-sm font-medium text-[#8A8A8A]">当前运行</div>
+          <h1 className="mt-3 text-2xl font-semibold tracking-normal text-white md:text-[28px]">
+            AI 正在处理：数据接入模块联调
+          </h1>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[#C7C7C7]">
+            <span>Codex</span>
+            <span className="text-[#5F5F5F]">·</span>
+            <span>Worker 1/3</span>
+            <span className="text-[#5F5F5F]">·</span>
+            <span>运行环境就绪</span>
+            <span className="text-[#5F5F5F]">·</span>
+            <span>预算正常</span>
+            <span className="text-[#5F5F5F]">·</span>
+            <span>Git 写入关闭</span>
+          </div>
+        </section>
+
+        <section className="grid gap-8 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.15fr] lg:gap-10">
+          <div>
+            <h2 className="text-base font-semibold text-white">当前运行</h2>
+            <div className="mt-5 space-y-0">
+              {executionProgressSteps.map((step, index) => (
+                <div key={step.title} className="relative grid grid-cols-[40px_1fr] pb-7 last:pb-0">
+                  {index < executionProgressSteps.length - 1 ? (
+                    <span className="absolute left-[13px] top-7 h-[calc(100%-28px)] w-px bg-[#3A3A3A]" />
+                  ) : null}
+                  <span
+                    className={[
+                      "relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-xs",
+                      step.state === "done"
+                        ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
+                        : step.state === "current"
+                          ? "border-[#C7C7C7] bg-black text-white"
+                          : "border-[#3A3A3A] bg-black text-[#5F5F5F]",
+                    ].join(" ")}
+                  >
+                    {step.state === "done" ? <Check className="h-4 w-4" /> : step.state === "current" ? (
+                      <span className="h-2.5 w-2.5 rounded-full bg-white" />
+                    ) : null}
+                  </span>
+                  <div>
+                    <div className={step.state === "current" ? "text-sm font-semibold text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                      {step.title}
+                    </div>
+                    <div className="mt-2 text-sm text-[#8A8A8A]">{step.detail}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-[#2A2A2A] pt-7 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
+            <h2 className="text-base font-semibold text-white">安全与状态</h2>
+            <div className="mt-4 border-y border-[#2A2A2A]">
+              {executionStatusRows.map(([label, value]) => (
+                <div
+                  key={label}
+                  className="grid gap-2 border-b border-[#1F1F1F] px-1 py-2.5 text-sm last:border-b-0 sm:grid-cols-[160px_1fr]"
+                >
+                  <span className="text-[#C7C7C7]">{label}</span>
+                  <span className="text-[#C7C7C7]">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 space-y-2 text-sm leading-6 text-[#8A8A8A]">
+              <p>正在校验数据源连通性，并生成接入任务拆分建议。</p>
+              <p>当前未触发 Git 写入，运行环境处于只读安全边界内。</p>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-[#8A8A8A]">
+              <span>查看证据：</span>
+              {executionEvidenceItems.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-md border border-[#2A2A2A] px-2.5 py-1 text-xs text-[#C7C7C7]"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="pt-6">
+          <h2 className="text-base font-semibold text-white">后续队列 · 当前项目内</h2>
+          <div className="mt-4 border-y border-[#2A2A2A]">
+            {executionQueueRows.map(([state, title, note]) => (
+              <div
+                key={title}
+                className="grid gap-2 border-b border-[#1F1F1F] px-1 py-3 text-sm last:border-b-0 md:grid-cols-[120px_1fr_1.15fr]"
+              >
+                <span className="text-[#8A8A8A]">{state}</span>
+                <span className="text-[#C7C7C7]">{title}</span>
+                <span className="text-[#8A8A8A]">{note}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export function MockPageContent({ pageKey }: { pageKey: string }) {
   if (pageKey === "projects") {
     return <ProjectManagementMockPage />;
+  }
+
+  if (pageKey === "execution") {
+    return <ExecutionCenterMockPage />;
   }
 
   const content: MainPageContent | undefined = mainPageMockContents[pageKey];

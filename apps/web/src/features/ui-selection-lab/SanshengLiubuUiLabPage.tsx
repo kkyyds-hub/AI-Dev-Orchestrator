@@ -423,7 +423,11 @@ function WorkbenchPreview() {
     setActiveConversationId(null);
     setTopContext({
       title: label,
-      subtitle: label === "项目管理" ? "当前项目页面 · mock" : "工作台页面 · mock",
+      subtitle: label === "项目管理"
+        ? "当前项目页面 · mock"
+        : label === "执行中心"
+          ? "当前项目执行流 · mock"
+          : "工作台页面 · mock",
       status: "page",
     });
   }, []);
@@ -723,13 +727,13 @@ function WorkbenchPreview() {
             </div>
             <Badge className="h-7 shrink-0 gap-1.5 rounded-full border-[#2A2A2A] bg-transparent px-2.5 text-[11px] text-[#C7C7C7]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#C7C7C7]" />
-              准备接收任务
+              {activeMainPage === "execution" ? "执行中 · Git 写入关闭" : "准备接收任务"}
             </Badge>
           </div>
 
           {renderMainContent()}
 
-          {activeMainPage !== "projects" ? (
+          {activeMainPage !== "projects" && activeMainPage !== "execution" ? (
             <WorkbenchPromptBox onSend={handlePromptSend} />
           ) : null}
         </main>
