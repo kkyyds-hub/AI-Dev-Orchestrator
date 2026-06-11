@@ -99,6 +99,14 @@ const workbenchShellStyle = {
   "--lab-sidebar-width": "clamp(248px, 20.5vw, 300px)",
 } as React.CSSProperties;
 
+function createSupervisorConversation(id: string): Conversation {
+  return {
+    id,
+    title: "新的 AI 主管对话",
+    status: "pending",
+  };
+}
+
 // ── Lab Logo ───────────────────────────────────────────────
 
 function LabLogo() {
@@ -266,7 +274,6 @@ function WorkbenchPreview() {
   const [moreToolsExpanded, setMoreToolsExpanded] = useState(false);
   const [projectGroupsState, setProjectGroupsState] = useState<ProjectGroup[]>(initialProjectGroups);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [nextConvId, setNextConvId] = useState(10);
 
   // -- derived --
@@ -303,43 +310,41 @@ function WorkbenchPreview() {
     setTimeout(() => setToast(null), 2500);
   }, []);
 
-  const handleNewSession = useCallback(() => {
-    // If no active project, open create project dialog
-    if (!activeProjectId) {
-      setCreateProjectOpen(true);
-      return;
-    }
-    // Otherwise add new conversation under current project
-    const newConv: Conversation = {
-      id: `conv-${nextConvId}`,
-      title: "新的 AI 主管对话",
-      status: "pending",
-    };
-    setNextConvId((n) => n + 1);
-    setProjectGroupsState((prev) =>
-      prev.map((g) =>
-        g.id === activeProjectId
-          ? { ...g, conversations: [...g.conversations, newConv] }
-          : g,
-      ),
-    );
-    setConversationMessages((prev) => ({ ...prev, [newConv.id]: getNewConversationWelcome() }));
-    setActiveMainPage(null);
-    setActiveConversationId(newConv.id);
-    setTopContext({
-      title: "新的 AI 主管对话",
-      subtitle: `${projectGroupsState.find((g) => g.id === activeProjectId)?.name ?? "项目"} · 目标澄清 · pending`,
-      status: "pending",
-    });
-    setMoreToolsExpanded(false);
-    // Ensure project is expanded
-    setCollapsedProjects((prev) => {
-      const next = new Set(prev);
-      next.delete(activeProjectId!);
-      return next;
-    });
-    showToast("已创建新对话");
-  }, [activeProjectId, nextConvId, projectGroupsState, showToast]);
+  const handleNewProjectSession = useCallback(() => {
+    setCreateProjectOpen(true);
+  }, []);
+
+  const handleAddConversationToProject = useCallback(
+    (projectGroup: ProjectGroup, event?: React.MouseEvent<HTMLButtonElement>) => {
+      event?.stopPropagation();
+      const newConv = createSupervisorConversation(`conv-${nextConvId}`);
+
+      setNextConvId((n) => n + 1);
+      setProjectGroupsState((prev) =>
+        prev.map((g) =>
+          g.id === projectGroup.id
+            ? { ...g, conversations: [...g.conversations, newConv] }
+            : g,
+        ),
+      );
+      setConversationMessages((prev) => ({ ...prev, [newConv.id]: getNewConversationWelcome() }));
+      setActiveMainPage(null);
+      setActiveConversationId(newConv.id);
+      setTopContext({
+        title: "新的 AI 主管对话",
+        subtitle: `${projectGroup.name} · 目标澄清 · pending`,
+        status: "pending",
+      });
+      setMoreToolsExpanded(false);
+      setCollapsedProjects((prev) => {
+        const next = new Set(prev);
+        next.delete(projectGroup.id);
+        return next;
+      });
+      showToast("已创建新对话");
+    },
+    [nextConvId, showToast],
+  );
 
   const handleCreateProject = useCallback(
     (name: string, _note: string) => {
@@ -347,11 +352,7 @@ function WorkbenchPreview() {
       const convId = `conv-${nextConvId + 1}`;
       setNextConvId((n) => n + 2);
 
-      const newConv: Conversation = {
-        id: convId,
-        title: "新的 AI 主管对话",
-        status: "pending",
-      };
+      const newConv = createSupervisorConversation(convId);
 
       const newGroup: ProjectGroup = {
         id: projectId,
@@ -362,7 +363,6 @@ function WorkbenchPreview() {
       setProjectGroupsState((prev) => [...prev, newGroup]);
       setConversationMessages((prev) => ({ ...prev, [convId]: getNewConversationWelcome() }));
       setActiveMainPage(null);
-      setActiveProjectId(projectId);
       setActiveConversationId(convId);
       setTopContext({
         title: "新的 AI 主管对话",
@@ -401,7 +401,6 @@ function WorkbenchPreview() {
   const handleSelectConversation = useCallback(
     (conv: Conversation, projectGroup: ProjectGroup) => {
       setActiveMainPage(null);
-      setActiveProjectId(projectGroup.id);
       setActiveConversationId(conv.id);
       setTopContext({
         title: conv.title,
@@ -523,13 +522,13 @@ function WorkbenchPreview() {
         >
           <LabLogo />
 
-          {/* 新建会话 — primary CTA anchor */}
+          {/* 新建项目会话 — primary CTA anchor */}
           <button
             className="mt-5 flex h-11 w-full items-center justify-start gap-2 rounded-[14px] bg-white px-3 text-sm font-semibold text-black transition-all duration-150 hover:bg-[#EDEDED] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-            onClick={handleNewSession}
+            onClick={handleNewProjectSession}
           >
             <MessageSquarePlus className="h-4 w-4" />
-            新建会话
+            新建项目会话
           </button>
 
           {/* Search */}
@@ -637,19 +636,30 @@ function WorkbenchPreview() {
                       const isCollapsed = collapsedProjects.has(group.id);
                       return (
                         <div key={group.id}>
-                          <button
-                            className="flex w-full items-center gap-2 px-2 text-left text-sm font-semibold text-white transition-colors hover:text-white"
-                            onClick={() => toggleProject(group.id)}
-                          >
-                            <span className="transition-transform duration-200" style={{ display: "inline-flex" }}>
-                              {isCollapsed ? (
-                                <ChevronRight className="h-4 w-4 text-[#8A8A8A]" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-[#8A8A8A]" />
-                              )}
-                            </span>
-                            {group.name}
-                          </button>
+                          <div className="group flex w-full items-center gap-1">
+                            <button
+                              className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left text-sm font-semibold text-white transition-colors hover:text-white"
+                              onClick={() => toggleProject(group.id)}
+                            >
+                              <span
+                                className="shrink-0 transition-transform duration-200"
+                                style={{ display: "inline-flex" }}
+                              >
+                                {isCollapsed ? (
+                                  <ChevronRight className="h-4 w-4 text-[#8A8A8A]" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-[#8A8A8A]" />
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                            </button>
+                            <button
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[#8A8A8A] opacity-0 transition-all duration-150 hover:bg-[#222222] hover:text-white active:scale-[0.96] group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                              onClick={(event) => handleAddConversationToProject(group, event)}
+                            >
+                              <MessageSquarePlus className="h-[15px] w-[15px]" />
+                            </button>
+                          </div>
                           {!isCollapsed && (
                             <div className="mt-2 space-y-1 pl-7">
                               {group.conversations.map((conv) => (
