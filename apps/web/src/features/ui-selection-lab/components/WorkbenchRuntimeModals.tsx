@@ -15,7 +15,6 @@ import {
   dashboardMetrics,
   gitWritePreviewMock,
   initialApprovals,
-  mockExecutionLog,
   quickActionMockContent,
   repoQueueMock,
   runRecords,
@@ -31,6 +30,10 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "./ui";
 
 // ── Dashboard Modal ────────────────────────────────────────
@@ -201,7 +204,134 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
 
 // ── Execution Status Modal ─────────────────────────────────
 
+const runRecordDetails: Record<string, { summary: [string, string][]; log: string; safety: [string, string][] }> = {
+  "run-1": {
+    summary: [
+      ["任务", "Workbench UI Lab 构建检查"],
+      ["状态", "passed"],
+      ["执行器", "Codex"],
+      ["开始时间", "12:42"],
+      ["耗时", "4s"],
+      ["结果", "构建检查通过"],
+    ],
+    log: `[12:42:10] run started: workbench-ui-lab
+[12:42:11] lint check passed
+[12:42:14] build passed (3.2s)
+[12:42:16] diff summary: 5 files changed, +340 -12
+[12:42:18] run completed: passed`,
+    safety: [
+      ["Runtime", "ready"],
+      ["Workspace", "clean"],
+      ["Git", "只读预检 · 写入关闭"],
+      ["Approval", "无需审批"],
+      ["Quality gate", "passed"],
+      ["Budget", "正常"],
+    ],
+  },
+  "run-2": {
+    summary: [
+      ["任务", "商品搜索规划执行"],
+      ["状态", "partial"],
+      ["执行器", "Codex"],
+      ["开始时间", "12:38"],
+      ["耗时", "22s"],
+      ["结果", "4 项中 3 项完成，1 项待确认"],
+    ],
+    log: `[12:38:02] run started: search-planning
+[12:38:06] task 1/4 completed: index design
+[12:38:12] task 2/4 completed: search fields
+[12:38:18] task 3/4 completed: filter UI
+[12:38:24] task 4/4 partial: sort dimension pending
+[12:38:24] run completed: partial`,
+    safety: [
+      ["Runtime", "ready"],
+      ["Workspace", "clean"],
+      ["Git", "只读预检 · 写入关闭"],
+      ["Approval", "无需审批"],
+      ["Quality gate", "waiting"],
+      ["Budget", "正常"],
+    ],
+  },
+  "run-3": {
+    summary: [
+      ["任务", "聊天消息持久化层"],
+      ["状态", "running"],
+      ["执行器", "Codex · Worker 2 / 3"],
+      ["开始时间", "11:22"],
+      ["耗时", "进行中"],
+      ["结果", "等待执行完成"],
+    ],
+    log: `[11:22:10] run started: chat-persistence
+[11:22:15] loading project context
+[11:22:30] analyzing message schema
+[11:23:01] generating storage layer mock`,
+    safety: [
+      ["Runtime", "ready"],
+      ["Workspace", "clean"],
+      ["Git", "只读预检 · 写入关闭"],
+      ["Approval", "无需审批"],
+      ["Quality gate", "waiting"],
+      ["Budget", "正常"],
+    ],
+  },
+  "run-4": {
+    summary: [
+      ["任务", "支付结算方案审查"],
+      ["状态", "blocked"],
+      ["执行器", "DeepSeek"],
+      ["开始时间", "10:15"],
+      ["耗时", "8s"],
+      ["结果", "依赖未满足，阻塞中"],
+    ],
+    log: `[10:15:02] run started: payment-review
+[10:15:06] loading project context
+[10:15:08] blocked: missing payment provider config
+[10:15:10] run completed: blocked`,
+    safety: [
+      ["Runtime", "ready"],
+      ["Workspace", "clean"],
+      ["Git", "只读预检 · 写入关闭"],
+      ["Approval", "无需审批"],
+      ["Quality gate", "blocked"],
+      ["Budget", "正常"],
+    ],
+  },
+  "run-5": {
+    summary: [
+      ["任务", "后端审核模块部署"],
+      ["状态", "passed"],
+      ["执行器", "Codex"],
+      ["开始时间", "09:48"],
+      ["耗时", "31s"],
+      ["结果", "部署检查通过"],
+    ],
+    log: `[09:48:10] run started: audit-deploy
+[09:48:15] lint check passed
+[09:48:22] type check passed
+[09:48:35] build passed
+[09:48:41] run completed: passed`,
+    safety: [
+      ["Runtime", "ready"],
+      ["Workspace", "clean"],
+      ["Git", "只读预检 · 写入关闭"],
+      ["Approval", "无需审批"],
+      ["Quality gate", "passed"],
+      ["Budget", "正常"],
+    ],
+  },
+};
+
 export function ExecutionStatusModal({ children }: { children: React.ReactNode }) {
+  const [selectedRunId, setSelectedRunId] = useState(runRecords[0]?.id ?? "");
+  const [copyMessage, setCopyMessage] = useState("");
+
+  const detail = runRecordDetails[selectedRunId] ?? runRecordDetails["run-1"];
+
+  function handleCopyLog() {
+    void navigator.clipboard?.writeText(detail.log).catch(() => undefined);
+    setCopyMessage("已复制日志摘要 · mock");
+  }
+
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -218,24 +348,72 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
           <style>{`.no-scrollbar::-webkit-scrollbar{display:none}`}</style>
           <div className="no-scrollbar space-y-0">
             {runRecords.map((run) => (
-              <div
+              <button
                 key={run.id}
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#222222]"
+                type="button"
+                onClick={() => { setSelectedRunId(run.id); setCopyMessage(""); }}
+                className={[
+                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]",
+                  selectedRunId === run.id ? "bg-[#171717]" : "hover:bg-[#111111]",
+                ].join(" ")}
               >
                 <StatusPill status={run.status} />
                 <span className="min-w-0 flex-1 truncate text-sm text-white">{run.title}</span>
                 <span className="shrink-0 text-xs text-[#8A8A8A]">{run.time}</span>
                 <span className="shrink-0 text-xs text-[#5F5F5F] w-12 text-right">{run.duration}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-black">
-          <pre className="max-h-48 overflow-y-auto p-4 font-mono text-xs leading-6 text-[#C7C7C7]">
-            {mockExecutionLog}
-          </pre>
-        </div>
+        <Tabs defaultValue="summary" className="mt-4">
+          <TabsList>
+            <TabsTrigger value="summary">摘要</TabsTrigger>
+            <TabsTrigger value="log">日志</TabsTrigger>
+            <TabsTrigger value="safety">安全</TabsTrigger>
+          </TabsList>
+          <TabsContent value="summary">
+            <div className="mt-3 border-y border-[#2A2A2A]">
+              {detail.summary.map(([label, value]) => (
+                <div
+                  key={label}
+                  className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[100px_1fr]"
+                >
+                  <span className="text-[#C7C7C7]">{label}</span>
+                  <span className="text-[#8A8A8A]">{value}</span>
+                </div>
+              ))}
+            </div>
+          </TabsContent>
+          <TabsContent value="log">
+            <div className="mt-3 rounded-2xl border border-[#2A2A2A] bg-black">
+              <pre className="max-h-48 overflow-y-auto p-4 font-mono text-xs leading-6 text-[#C7C7C7]">
+                {detail.log}
+              </pre>
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <Button variant="secondary" size="sm" onClick={handleCopyLog}>
+                复制日志
+              </Button>
+              {copyMessage ? (
+                <span className="text-xs text-[#8A8A8A]">{copyMessage}</span>
+              ) : null}
+            </div>
+          </TabsContent>
+          <TabsContent value="safety">
+            <div className="mt-3 border-y border-[#2A2A2A]">
+              {detail.safety.map(([label, value]) => (
+                <div
+                  key={label}
+                  className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[120px_1fr]"
+                >
+                  <span className="text-[#C7C7C7]">{label}</span>
+                  <span className="text-[#8A8A8A]">{value}</span>
+                </div>
+              ))}
+            </div>
+          </TabsContent>
+        </Tabs>
 
         <div className="mt-5 flex justify-end">
           <DialogClose asChild>
