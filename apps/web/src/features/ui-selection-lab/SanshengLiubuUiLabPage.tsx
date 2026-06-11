@@ -51,7 +51,7 @@ import {
   TabsTrigger,
   Textarea,
 } from "./components/ui";
-import { ConversationHeader, ConversationMessages } from "./components/WorkbenchMockConversation";
+import { ConversationMessages } from "./components/WorkbenchMockConversation";
 import { MockPageContent } from "./components/WorkbenchMockPages";
 import { WorkbenchPromptBox } from "./components/WorkbenchPromptBox";
 import {
@@ -60,7 +60,6 @@ import {
   CreatePlanModal,
   DashboardModal,
   ExecutionStatusModal,
-  MoreToolsModal,
   ReviewResultModal,
 } from "./components/WorkbenchRuntimeModals";
 import {
@@ -68,6 +67,7 @@ import {
   mockConversationMessages,
   pageNavItems,
   projectGroups,
+  slimMoreTools,
   type Conversation,
   type MockMessage,
 } from "./mockInteractions";
@@ -190,6 +190,7 @@ function WorkbenchPreview() {
   );
   const [welcomeMessages, setWelcomeMessages] = useState<MockMessage[]>(getDefaultMessages());
   const [topStatus, setTopStatus] = useState("当前项目 / 当前会话 / 状态");
+  const [moreToolsExpanded, setMoreToolsExpanded] = useState(false);
 
   // -- derived --
   const filteredGroups = useMemo(() => {
@@ -230,6 +231,7 @@ function WorkbenchPreview() {
     setActiveConversationId(null);
     setWelcomeMessages(getDefaultMessages());
     setTopStatus("新会话 / 未绑定项目 / 准备构建");
+    setMoreToolsExpanded(false);
   }, []);
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -301,18 +303,9 @@ function WorkbenchPreview() {
       return <MockPageContent pageKey={activeMainPage} />;
     }
 
-    // If a conversation is selected, show conversation
+    // If a conversation is selected, show conversation (no duplicate header)
     if (activeConversation && activeConversationId) {
-      return (
-        <>
-          <ConversationHeader
-            projectName={activeConversation.project.name}
-            conversationTitle={activeConversation.conversation.title}
-            status={activeConversation.conversation.status}
-          />
-          <ConversationMessages messages={messages} />
-        </>
-      );
+      return <ConversationMessages messages={messages} />;
     }
 
     // Welcome state
@@ -418,9 +411,54 @@ function WorkbenchPreview() {
                   <ExecutionStatusModal>
                     <SidebarNavItem label="执行状态" icon={Activity} active={false} />
                   </ExecutionStatusModal>
-                  <MoreToolsModal>
-                    <SidebarNavItem label="... 更多" icon={CircleEllipsis} muted active={false} />
-                  </MoreToolsModal>
+
+                  {/* ... 更多 — inline expansion */}
+                  <div>
+                    <SidebarNavItem
+                      label="... 更多"
+                      icon={CircleEllipsis}
+                      muted={!moreToolsExpanded}
+                      active={false}
+                      onClick={() => setMoreToolsExpanded((prev) => !prev)}
+                    />
+                    {moreToolsExpanded && (
+                      <div
+                        className="ml-5 mt-0.5 space-y-0.5 overflow-hidden transition-all duration-200"
+                        style={{ opacity: 1 }}
+                      >
+                        {slimMoreTools.map((tool) => {
+                          const Icon = tool.icon;
+                          const isActive = activeMainPage === tool.key && !activeConversationId;
+                          return (
+                            <div
+                              key={tool.key}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                setActiveMainPage(tool.key);
+                                setActiveConversationId(null);
+                                setTopStatus(`${tool.label} / mock`);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  setActiveMainPage(tool.key);
+                                  setActiveConversationId(null);
+                                  setTopStatus(`${tool.label} / mock`);
+                                }
+                              }}
+                              className={`flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm transition-all duration-150 hover:bg-[#1F1F1F] hover:text-white active:scale-[0.98] ${
+                                isActive ? "bg-[#2A2A2A] text-white" : "text-[#C7C7C7]"
+                              }`}
+                            >
+                              <Icon className="h-3.5 w-3.5 shrink-0 text-[#8A8A8A]" />
+                              <span className="min-w-0 flex-1 truncate">{tool.label}</span>
+                              <span className="hidden text-xs text-[#5F5F5F] xl:block">{tool.description}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

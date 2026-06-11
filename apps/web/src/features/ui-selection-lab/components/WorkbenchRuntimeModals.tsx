@@ -14,11 +14,9 @@ import {
   dashboardMetrics,
   initialApprovals,
   mockExecutionLog,
-  moreTools,
   quickActionMockContent,
   runRecords,
   type ApprovalItem,
-  type ToolEntry,
 } from "../mockInteractions";
 import { StatusPill } from "./DataListPreview";
 import {
@@ -125,67 +123,70 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
           <DialogDescription>mock 审批列表，不接真实后端</DialogDescription>
         </DialogHeader>
 
-        <div className="mt-5 space-y-3">
-          {approvals.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-2xl border border-[#2A2A2A] bg-black p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-white">{item.title}</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className="text-xs text-[#8A8A8A]">{item.project}</span>
-                    <StatusPill status={item.status} />
+        <div
+          className="mt-5 max-h-[min(52vh,420px)] overflow-y-auto"
+          style={{ scrollbarWidth: "none" } as React.CSSProperties}
+        >
+          <style>{`.no-scrollbar::-webkit-scrollbar{display:none}`}</style>
+          <div className="no-scrollbar space-y-0">
+            {approvals.map((item, idx) => (
+              <div key={item.id}>
+                {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
+                <div className="group rounded-xl px-1 py-3 transition-colors hover:bg-[#1F1F1F]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-white">{item.title}</div>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        <span className="text-xs text-[#8A8A8A]">{item.project}</span>
+                        <StatusPill status={item.status} />
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-xs text-[#5F5F5F]">{item.actionLabel}</div>
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <button className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-colors hover:bg-[#4A4A4A] hover:text-white">
+                      <Eye className="h-3 w-3" />
+                      查看
+                    </button>
+
+                    {item.state === "pending" ? (
+                      <>
+                        <button
+                          className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-black transition-all active:scale-[0.97]"
+                          onClick={() => handleAction(item.id, "approved")}
+                        >
+                          <ThumbsUp className="h-3 w-3" />
+                          放行
+                        </button>
+                        <button
+                          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-all hover:bg-[#4A4A4A] hover:text-white active:scale-[0.97]"
+                          onClick={() => handleAction(item.id, "rejected")}
+                        >
+                          <ThumbsDown className="h-3 w-3" />
+                          驳回
+                        </button>
+                      </>
+                    ) : (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${
+                          item.state === "approved"
+                            ? "bg-[#303030] text-white"
+                            : "bg-[#1A1A1A] text-[#8A8A8A]"
+                        }`}
+                      >
+                        <Check className="h-3 w-3" />
+                        {item.state === "approved" ? "已放行" : "已驳回"}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="shrink-0 text-xs text-[#8A8A8A]">{item.actionLabel}</div>
               </div>
-
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-[#C7C7C7] transition-colors hover:bg-[#1F1F1F] hover:text-white"
-                  onClick={() => {}}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  查看
-                </button>
-
-                {item.state === "pending" ? (
-                  <>
-                    <button
-                      className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs text-black transition-all active:scale-[0.97]"
-                      onClick={() => handleAction(item.id, "approved")}
-                    >
-                      <ThumbsUp className="h-3.5 w-3.5" />
-                      放行
-                    </button>
-                    <button
-                      className="flex items-center gap-1.5 rounded-full bg-[#2A2A2A] px-3 py-1.5 text-xs text-[#C7C7C7] transition-all hover:bg-[#3A3A3A] active:scale-[0.97]"
-                      onClick={() => handleAction(item.id, "rejected")}
-                    >
-                      <ThumbsDown className="h-3.5 w-3.5" />
-                      驳回
-                    </button>
-                  </>
-                ) : (
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs ${
-                      item.state === "approved"
-                        ? "bg-[#303030] text-white"
-                        : "bg-[#1A1A1A] text-[#8A8A8A]"
-                    }`}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    {item.state === "approved" ? "已放行" : "已驳回"}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-4 flex justify-end">
           <DialogClose asChild>
             <Button variant="secondary">关闭</Button>
           </DialogClose>
@@ -204,27 +205,27 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
       <DialogContent className="w-[min(92vw,540px)]">
         <DialogHeader>
           <DialogTitle>执行状态</DialogTitle>
-          <DialogDescription>最近运行记录与状态样张</DialogDescription>
+          <DialogDescription>最近运行记录</DialogDescription>
         </DialogHeader>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {(["running", "partial", "passed", "blocked", "pending"] as const).map((s) => (
-            <StatusPill key={s} status={s} />
-          ))}
-        </div>
-
-        <div className="mt-4 space-y-1">
-          {runRecords.map((run) => (
-            <div
-              key={run.id}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#1F1F1F]"
-            >
-              <StatusPill status={run.status} />
-              <span className="min-w-0 flex-1 truncate text-sm text-white">{run.title}</span>
-              <span className="shrink-0 text-xs text-[#8A8A8A]">{run.time}</span>
-              <span className="shrink-0 text-xs text-[#5F5F5F] w-12 text-right">{run.duration}</span>
-            </div>
-          ))}
+        <div
+          className="mt-5 max-h-[min(40vh,320px)] overflow-y-auto"
+          style={{ scrollbarWidth: "none" } as React.CSSProperties}
+        >
+          <style>{`.no-scrollbar::-webkit-scrollbar{display:none}`}</style>
+          <div className="no-scrollbar space-y-0">
+            {runRecords.map((run) => (
+              <div
+                key={run.id}
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#1F1F1F]"
+              >
+                <StatusPill status={run.status} />
+                <span className="min-w-0 flex-1 truncate text-sm text-white">{run.title}</span>
+                <span className="shrink-0 text-xs text-[#8A8A8A]">{run.time}</span>
+                <span className="shrink-0 text-xs text-[#5F5F5F] w-12 text-right">{run.duration}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-black">
@@ -232,68 +233,6 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
             {mockExecutionLog}
           </pre>
         </div>
-
-        <div className="mt-5 flex justify-end">
-          <DialogClose asChild>
-            <Button variant="secondary">关闭</Button>
-          </DialogClose>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── More Tools Modal ───────────────────────────────────────
-
-export function MoreToolsModal({ children }: { children: React.ReactNode }) {
-  const [activeTool, setActiveTool] = useState<ToolEntry | null>(null);
-
-  return (
-    <Dialog>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,480px)]">
-        <DialogHeader>
-          <DialogTitle>{activeTool ? activeTool.label : "更多工具"}</DialogTitle>
-          <DialogDescription>
-            {activeTool ? activeTool.description : "选择工具入口查看 mock 内容"}
-          </DialogDescription>
-        </DialogHeader>
-
-        {activeTool ? (
-          <div className="mt-5">
-            <button
-              className="mb-4 text-xs text-[#8A8A8A] transition-colors hover:text-white"
-              onClick={() => setActiveTool(null)}
-            >
-              ← 返回工具列表
-            </button>
-            <div className="rounded-2xl border border-[#2A2A2A] bg-black p-4">
-              <p className="text-sm leading-6 text-[#C7C7C7]">
-                这是 <span className="text-white">{activeTool.label}</span> 的占位内容。
-              </p>
-              <p className="mt-2 text-sm text-[#8A8A8A]">
-                当前为实验页 mock，不接真实后端。正式接入后将展示实际数据。
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-4 space-y-1">
-            {moreTools.map((tool) => {
-              const Icon = tool.icon;
-              return (
-                <button
-                  key={tool.label}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-[#1F1F1F] active:scale-[0.98]"
-                  onClick={() => setActiveTool(tool)}
-                >
-                  <Icon className="h-4 w-4 shrink-0 text-[#8A8A8A]" />
-                  <span className="min-w-0 flex-1 text-sm text-white">{tool.label}</span>
-                  <span className="text-xs text-[#5F5F5F]">{tool.description}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         <div className="mt-5 flex justify-end">
           <DialogClose asChild>

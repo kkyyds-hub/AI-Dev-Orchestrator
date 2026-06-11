@@ -321,3 +321,49 @@
 - Tremor Docs: https://www.tremor.so
 - Tremor GitHub: https://github.com/tremorlabs/tremor-npm
 - Tremor npm: https://www.npmjs.com/package/@tremor/react
+
+## 9.2 Workbench 交互收敛记录
+
+本节记录第二轮交互细节收敛的修改内容。
+
+### 9.2.1 `... 更多` 从弹窗改为 Sidebar 内联展开
+
+- 点击左侧 `... 更多` 不再打开弹窗，而是在 Sidebar 内部展开一个内联区域。
+- 再次点击 `... 更多` 收起。
+- 展开/收起有轻微动效（opacity / max-height transition，约 200ms）。
+- 展开内容只保留 3 项：
+  - 成本用量（Token 消耗与 API 成本统计）
+  - 仓库队列（待处理仓库任务与变更队列）
+  - Git 写入预览（预览待提交的代码变更）
+- 点击其中一项：右侧 Main 区域显示对应 mock 页面（标题 + 说明 + 3 行轻量数据），不弹窗。
+- 原 MoreToolsModal 组件已移除。
+
+### 9.2.2 运行与治理弹窗保留
+
+数据看板、待审批、执行状态仍使用弹窗（Radix Dialog），不做内联展开。
+
+### 9.2.3 会话页取消重复顶部栏
+
+- 会话内容内部不再有 `ConversationHeader`。
+- 全局 Main 顶部状态栏作为唯一顶部栏，继续显示「项目名 / 会话名 / 状态」。
+- 消息列表直接从顶部状态栏下方开始渲染。
+
+### 9.2.4 消息布局改为 ChatGPT-like
+
+- AI 项目主管消息：靠左，左侧 Bot 头像，内容左对齐，最大宽度约 760px。
+- 用户消息：靠右，右侧 K 头像，气泡背景 #1F1F1F，最大宽度约 640px。
+- 时间弱化：AI 消息时间放在标题旁，用户消息时间放在气泡上方右侧，颜色 #5F5F5F。
+
+### 9.2.5 待审批弹窗行级优化
+
+- 审批列表区域设置 `max-height: min(52vh, 420px)`，内部可滚动。
+- 滚动条隐藏（Firefox `scrollbar-width: none`，WebKit `::-webkit-scrollbar { display: none }`）。
+- 每条审批改为行级结构：无 `bg-black`、无 border 卡片，仅使用分割线 + hover 背景 #1F1F1F。
+- hover 时出现圆角背景，放行/驳回按钮保持小型行内按钮。
+
+### 9.2.6 执行状态弹窗取消顶部状态 pill 行
+
+- 删除弹窗顶部一排 running / partial / passed / blocked / pending 状态 pill。
+- 只保留最近运行记录列表（每条行内保留状态 pill）。
+- 执行日志块继续保留。
+- 运行记录区域设置 `max-height: min(40vh, 320px)`，内部隐藏滚动条。

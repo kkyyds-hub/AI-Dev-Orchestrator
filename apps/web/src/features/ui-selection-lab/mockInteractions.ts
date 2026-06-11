@@ -1,11 +1,9 @@
 import {
   Activity,
   Archive,
-  Bot,
   CircleEllipsis,
   ClipboardCheck,
   FolderKanban,
-  Gauge,
   GitBranch,
   LayoutDashboard,
   ShieldCheck,
@@ -290,49 +288,33 @@ export const mockExecutionLog = `[12:42:10] run started: workbench-ui-lab
 [12:38:24] task 4/4 partial: sort dimension pending
 [12:38:24] run completed: partial`;
 
-// ── More Tools Mock ────────────────────────────────────────
+// ── More Tools Mock (slim — only 3) ────────────────────────
 
-export interface ToolEntry {
+export interface SlimToolEntry {
+  key: string;
   label: string;
   icon: LucideIcon;
   description: string;
 }
 
-export const moreTools: ToolEntry[] = [
+export const slimMoreTools: SlimToolEntry[] = [
   {
-    label: "任务队列",
-    icon: Workflow,
-    description: "查看当前排队的任务与优先级",
-  },
-  {
-    label: "运行记录",
-    icon: Timer,
-    description: "浏览历史运行日志与结果",
-  },
-  {
-    label: "Git 写入预览",
-    icon: GitBranch,
-    description: "预览待提交的代码变更",
-  },
-  {
-    label: "证据中心",
-    icon: Archive,
-    description: "查看可交付物与审查证据",
-  },
-  {
+    key: "cost-usage",
     label: "成本用量",
     icon: Wallet,
     description: "Token 消耗与 API 成本统计",
   },
   {
-    label: "模型配置",
-    icon: Bot,
-    description: "管理可用模型与策略",
+    key: "repo-queue",
+    label: "仓库队列",
+    icon: Archive,
+    description: "待处理仓库任务与变更队列",
   },
   {
-    label: "执行器配置",
-    icon: Gauge,
-    description: "配置 Codex / DeepSeek 执行器参数",
+    key: "git-write-preview",
+    label: "Git 写入预览",
+    icon: GitBranch,
+    description: "预览待提交的代码变更",
   },
 ];
 
@@ -384,6 +366,36 @@ export const mainPageMockContents: Record<string, MainPageContent> = {
       { label: "审批管理", description: "查看和操作待审批项目" },
       { label: "策略配置", description: "设置执行策略与安全边界" },
       { label: "记忆治理", description: "管理 AI 上下文与记忆范围" },
+    ],
+  },
+  "cost-usage": {
+    title: "成本用量",
+    subtitle: "Token 消耗与 API 成本统计",
+    description: "查看近期 API 调用次数、Token 消耗量及预估费用。",
+    items: [
+      { label: "本周消耗", description: "GPT-4o: 142K tokens / $0.71" },
+      { label: "本月累计", description: "总计 1.2M tokens / $5.84" },
+      { label: "按项目拆分", description: "闲置二手 42% / AI 主管改造 58%" },
+    ],
+  },
+  "repo-queue": {
+    title: "仓库队列",
+    subtitle: "待处理仓库任务与变更队列",
+    description: "查看当前排队中的仓库操作、分支状态与合并请求。",
+    items: [
+      { label: "待合并分支", description: "feat/search-bar — 等待审查" },
+      { label: "构建队列", description: "2 个任务排队中" },
+      { label: "最近提交", description: "23c2f8a — workbench lab interactions" },
+    ],
+  },
+  "git-write-preview": {
+    title: "Git 写入预览",
+    subtitle: "预览待提交的代码变更",
+    description: "审查 AI 生成的代码 diff 后再决定是否提交。",
+    items: [
+      { label: "待提交 diff", description: "3 files changed, +156 -12" },
+      { label: "变更文件", description: "SanshengLiubuUiLabPage.tsx, mockInteractions.ts" },
+      { label: "提交信息预览", description: "feat(web): add workbench lab interactions" },
     ],
   },
 };
