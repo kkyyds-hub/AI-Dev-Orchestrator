@@ -544,7 +544,7 @@ function WorkbenchPreview() {
             />
           </div>
 
-          <ScrollArea className="mt-4 min-h-0 flex-1 pr-1 md:mt-6">
+          <ScrollArea hideScrollbar className="mt-4 min-h-0 flex-1 pr-1 md:mt-6">
             <div className="space-y-4 md:space-y-6">
               {/* 运行与治理 — open modals */}
               <div>

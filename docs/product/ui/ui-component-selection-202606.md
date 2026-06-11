@@ -455,3 +455,10 @@
 - 仓库队列不用彩色状态，但必须用 pill、outline、border 等形状区分状态：等待审查=filled pill、待合入=outline pill、待提交=muted filled pill。
 - Git 写入预览中的 diff 区域采用代码块结构：顶部栏（左侧"Diff 摘要"、右侧 files changed 计数）+ 代码内容区。
 - Diff 不使用红绿高亮，使用灰阶明暗：`+` 行 #C7C7C7 + 左边框 #5F5F5F，`-` 行 #6F6F6F + 左边框 #3A3A3A。
+
+## Sidebar 滚动条规则
+
+- Sidebar 允许内容滚动，但默认隐藏可见滚动条。
+- 保留鼠标滚轮和触控板滚动能力。
+- 隐藏滚动条只作用于 Workbench Lab Sidebar，不影响弹窗内部滚动。
+- Minimal Dark 下避免出现突兀的系统滚动条。
