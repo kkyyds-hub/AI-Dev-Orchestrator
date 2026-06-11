@@ -7,6 +7,7 @@ interface WorkbenchPromptBoxProps {
 
 export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
   const [text, setText] = useState("");
+  const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasText = text.trim().length > 0;
@@ -33,11 +34,12 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
 
   const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
-    // Auto-resize
     const el = e.target;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, []);
+
+  const isActive = focused || hasText;
 
   return (
     <div
@@ -46,8 +48,8 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
       style={{ width: "min(760px, calc(100vw - var(--lab-sidebar-width) - 64px))" }}
     >
       <div
-        className={`flex min-h-16 items-end gap-4 rounded-[24px] border bg-[#171717] px-4 py-3 transition-all duration-150 md:min-h-[72px] md:px-5 md:py-4 ${
-          text.length > 0 ? "border-[#3A3A3A]" : "border-[#2A2A2A]"
+        className={`flex min-h-16 items-end gap-4 rounded-[24px] border bg-[#161616]/95 px-4 py-3 shadow-2xl shadow-black/70 ring-1 ring-white/[0.03] backdrop-blur-md transition-all duration-150 md:min-h-[72px] md:px-5 md:py-4 ${
+          isActive ? "border-[#3A3A3A]" : "border-[#333333]"
         }`}
       >
         <textarea
@@ -58,9 +60,11 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
           value={text}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
         />
         <button
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-150 active:scale-[0.92] ${
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-150 active:scale-[0.96] ${
             hasText
               ? "bg-white text-black hover:bg-[#E7E7E7]"
               : "bg-[#2C2C2C] text-[#5F5F5F]"
