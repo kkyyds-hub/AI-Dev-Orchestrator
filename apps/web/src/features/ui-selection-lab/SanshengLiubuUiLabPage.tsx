@@ -372,9 +372,9 @@ function WorkbenchPreview() {
         >
           <LabLogo />
 
-          {/* 新建会话 */}
+          {/* 新建会话 — primary CTA anchor */}
           <button
-            className="mt-4 flex w-full items-center justify-start gap-2 rounded-xl px-3 py-2.5 text-sm text-white transition-all duration-150 hover:bg-[#222222] active:scale-[0.98] md:mt-6"
+            className="mt-5 flex h-11 w-full items-center justify-start gap-2 rounded-[14px] bg-white px-3 text-sm font-semibold text-black transition-all duration-150 hover:bg-[#EDEDED] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
             onClick={handleNewSession}
           >
             <MessageSquarePlus className="h-4 w-4" />
