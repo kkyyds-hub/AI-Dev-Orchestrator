@@ -251,9 +251,54 @@ const executionEvidenceDialogItems = [
 ] as const;
 
 const executionQueueRows = [
-  ["待人工", "数据源账号确认", "需产品负责人确认"],
-  ["待执行", "指标口径确认", "AI 评估后自动执行"],
-  ["待执行", "可视化报表联调", "预计 2 个任务后进行"],
+  {
+    state: "待人工",
+    title: "数据源账号确认",
+    note: "需产品负责人确认",
+    description: "后续队列任务读回 · mock",
+    rows: [
+      ["状态", "待人工"],
+      ["队列位置", "1"],
+      ["为什么排在后面", "当前执行任务完成后需要确认数据源账号"],
+      ["依赖", "数据接入模块联调"],
+      ["下一步处理者", "产品负责人"],
+      ["处理方式", "回到工作台讨论后确认"],
+      ["风险", "账号未确认会阻塞后续接入验证"],
+    ],
+    footer: "仅展示队列任务读回，不触发执行操作 · mock",
+  },
+  {
+    state: "待执行",
+    title: "指标口径确认",
+    note: "AI 评估后自动执行",
+    description: "后续队列任务读回 · mock",
+    rows: [
+      ["状态", "待执行"],
+      ["队列位置", "2"],
+      ["为什么排在后面", "需要等待数据源账号确认后进入指标口径校验"],
+      ["依赖", "数据源账号确认"],
+      ["下一步处理者", "AI 主管"],
+      ["处理方式", "AI 评估后自动执行"],
+      ["风险", "口径未确认会影响报表验收"],
+    ],
+    footer: "仅展示队列任务读回，不触发执行操作 · mock",
+  },
+  {
+    state: "待执行",
+    title: "可视化报表联调",
+    note: "预计 2 个任务后进行",
+    description: "后续队列任务读回 · mock",
+    rows: [
+      ["状态", "待执行"],
+      ["队列位置", "3"],
+      ["为什么排在后面", "需要等待指标口径确认后再联调报表"],
+      ["依赖", "指标口径确认"],
+      ["下一步处理者", "Codex"],
+      ["处理方式", "预计 2 个任务后进行"],
+      ["风险", "暂无阻塞项"],
+    ],
+    footer: "仅展示队列任务读回，不执行提交、推送或写入操作 · mock",
+  },
 ] as const;
 
 const projectContextDialogContent = {
@@ -778,15 +823,43 @@ function ExecutionCenterMockPage() {
         <section className="pt-6">
           <h2 className="text-base font-semibold text-white">后续队列 · 当前项目内</h2>
           <div className="mt-4 border-y border-[#2A2A2A]">
-            {executionQueueRows.map(([state, title, note]) => (
-              <div
-                key={title}
-                className="grid gap-2 border-b border-[#1F1F1F] px-1 py-3 text-sm last:border-b-0 md:grid-cols-[120px_1fr_1.15fr]"
-              >
-                <span className="text-[#8A8A8A]">{state}</span>
-                <span className="text-[#C7C7C7]">{title}</span>
-                <span className="text-[#8A8A8A]">{note}</span>
-              </div>
+            {executionQueueRows.map((item) => (
+              <Dialog key={item.title}>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="grid w-full cursor-pointer gap-2 border-b border-[#1F1F1F] px-1 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-[#0D0D0D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99] md:grid-cols-[120px_1fr_1.15fr]"
+                  >
+                    <span className="text-[#8A8A8A]">{item.state}</span>
+                    <span className="text-[#C7C7C7]">{item.title}</span>
+                    <span className="text-[#8A8A8A]">{item.note}</span>
+                  </button>
+                </DialogTrigger>
+                <DialogContent className="w-[min(92vw,520px)]">
+                  <DialogHeader>
+                    <DialogTitle>{item.title}</DialogTitle>
+                    <DialogDescription>{item.description}</DialogDescription>
+                  </DialogHeader>
+                  <Separator className="my-4" />
+                  <div className="border-y border-[#2A2A2A]">
+                    {item.rows.map((row) => (
+                      <div
+                        key={row[0]}
+                        className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
+                      >
+                        <span className="text-[#C7C7C7]">{row[0]}</span>
+                        <span className="text-[#8A8A8A]">{row[1]}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 text-xs text-[#5F5F5F]">{item.footer}</div>
+                  <div className="mt-5 flex justify-end">
+                    <DialogClose asChild>
+                      <Button variant="secondary" size="sm">关闭</Button>
+                    </DialogClose>
+                  </div>
+                </DialogContent>
+              </Dialog>
             ))}
           </div>
         </section>
