@@ -94,25 +94,83 @@ const executionProgressSteps = [
   },
 ] as const;
 
-const currentExecutionStepDetail = {
-  title: "当前步骤详情",
-  description: "当前运行步骤读回 · mock",
-  rows: [
-    ["当前步骤", "执行中"],
-    ["执行器", "Codex · Worker 1 / 3"],
-    ["Run ID", "run_7F3A"],
-    ["开始时间", "11:34:08"],
-    ["当前动作", "校验数据源连通性并生成接入任务拆分建议"],
-    ["下一步", "等待结果回写"],
-    ["预计完成", "11:40 前"],
-  ],
-  logs: [
-    "11:34:08 读取当前项目上下文",
-    "11:34:19 校验数据源连接参数",
-    "11:34:37 生成接入任务拆分建议",
-  ],
-  footer: "仅展示当前步骤读回，不触发执行操作 · mock",
+const executionStepDetails = {
+  已领取任务: {
+    title: "已领取任务",
+    description: "任务领取读回 · mock",
+    rows: [
+      ["步骤", "已领取任务"],
+      ["执行器", "Worker 1 / 3"],
+      ["领取时间", "11:32:41"],
+      ["任务", "数据接入模块联调"],
+      ["领取结果", "已领取并确认"],
+      ["下一步", "建立执行上下文"],
+    ],
+    logs: [
+      "11:32:41 Worker 1 领取任务",
+      "11:32:41 校验任务状态为 running",
+      "11:32:42 准备加载项目上下文",
+    ],
+    footer: "仅展示步骤读回，不触发执行操作 · mock",
+  },
+  上下文已建立: {
+    title: "上下文已建立",
+    description: "执行上下文读回 · mock",
+    rows: [
+      ["步骤", "上下文已建立"],
+      ["建立时间", "11:32:43"],
+      ["项目上下文", "已加载"],
+      ["依赖状态", "无阻塞依赖"],
+      ["记忆召回", "命中 3 条项目背景"],
+      ["下一步", "进入执行处理"],
+    ],
+    logs: [
+      "11:32:43 加载项目目标与任务边界",
+      "11:32:45 读取最近运行摘要",
+      "11:32:47 确认 ready_for_execution true",
+    ],
+    footer: "上下文内容来自当前项目 mock 数据，不代表真实后端响应。",
+  },
+  执行中: {
+    title: "执行中",
+    description: "当前运行步骤读回 · mock",
+    rows: [
+      ["步骤", "执行中"],
+      ["执行器", "Codex · Worker 1 / 3"],
+      ["Run ID", "run_7F3A"],
+      ["开始时间", "11:34:08"],
+      ["当前动作", "校验数据源连通性并生成接入任务拆分建议"],
+      ["下一步", "等待结果回写"],
+      ["预计完成", "11:40 前"],
+    ],
+    logs: [
+      "11:34:08 读取当前项目上下文",
+      "11:34:19 校验数据源连接参数",
+      "11:34:37 生成接入任务拆分建议",
+    ],
+    footer: "仅展示当前步骤读回，不触发执行操作 · mock",
+  },
+  等待结果回写: {
+    title: "等待结果回写",
+    description: "结果回写等待状态 · mock",
+    rows: [
+      ["步骤", "等待结果回写"],
+      ["预计完成", "11:40 前"],
+      ["等待内容", "执行结果摘要与任务拆分建议"],
+      ["后续动作", "进入审批 / 交付检查"],
+      ["Git 状态", "写入关闭"],
+      ["风险", "暂无阻塞项"],
+    ],
+    logs: [
+      "等待 Worker 返回结果摘要",
+      "等待质量闸门更新",
+      "等待页面刷新执行读回",
+    ],
+    footer: "仅展示等待状态，不执行提交、推送或写入操作 · mock",
+  },
 } as const;
+
+type ExecutionStepTitle = keyof typeof executionStepDetails;
 
 const executionStatusRows = [
   ["运行", "running · run_7F3A"],
@@ -580,6 +638,7 @@ function ExecutionCenterMockPage() {
             <h2 className="text-base font-semibold text-white">当前运行</h2>
             <div className="mt-5 space-y-0">
               {executionProgressSteps.map((step, index) => {
+                const detail = executionStepDetails[step.title as ExecutionStepTitle];
                 const stepContent = (
                   <>
                     {index < executionProgressSteps.length - 1 ? (
@@ -608,57 +667,49 @@ function ExecutionCenterMockPage() {
                   </>
                 );
 
-                if (step.state === "current") {
-                  return (
-                    <Dialog key={step.title}>
-                      <DialogTrigger asChild>
-                        <button
-                          type="button"
-                          className="relative grid w-full cursor-pointer grid-cols-[40px_1fr] items-start rounded-2xl pb-7 text-left last:pb-0 transition-colors hover:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]"
-                        >
-                          {stepContent}
-                        </button>
-                      </DialogTrigger>
-                      <DialogContent className="w-[min(92vw,520px)]">
-                        <DialogHeader>
-                          <DialogTitle>{currentExecutionStepDetail.title}</DialogTitle>
-                          <DialogDescription>{currentExecutionStepDetail.description}</DialogDescription>
-                        </DialogHeader>
-                        <Separator className="my-4" />
-                        <div className="border-y border-[#2A2A2A]">
-                          {currentExecutionStepDetail.rows.map((row) => (
-                            <div
-                              key={row[0]}
-                              className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
-                            >
-                              <span className="text-[#C7C7C7]">{row[0]}</span>
-                              <span className="text-[#8A8A8A]">{row[1]}</span>
-                            </div>
+                return (
+                  <Dialog key={step.title}>
+                    <DialogTrigger asChild>
+                      <button
+                        type="button"
+                        className="relative grid w-full cursor-pointer grid-cols-[40px_1fr] items-start rounded-2xl pb-7 text-left last:pb-0 transition-colors hover:bg-[#0D0D0D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]"
+                      >
+                        {stepContent}
+                      </button>
+                    </DialogTrigger>
+                    <DialogContent className="w-[min(92vw,520px)]">
+                      <DialogHeader>
+                        <DialogTitle>{detail.title}</DialogTitle>
+                        <DialogDescription>{detail.description}</DialogDescription>
+                      </DialogHeader>
+                      <Separator className="my-4" />
+                      <div className="border-y border-[#2A2A2A]">
+                        {detail.rows.map((row) => (
+                          <div
+                            key={row[0]}
+                            className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
+                          >
+                            <span className="text-[#C7C7C7]">{row[0]}</span>
+                            <span className="text-[#8A8A8A]">{row[1]}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4">
+                        <div className="mb-2 text-sm font-semibold text-white">最近记录</div>
+                        <div className="space-y-1">
+                          {detail.logs.map((log) => (
+                            <div key={log} className="text-xs text-[#8A8A8A]">{log}</div>
                           ))}
                         </div>
-                        <div className="mt-4">
-                          <div className="mb-2 text-sm font-semibold text-white">最近日志</div>
-                          <div className="space-y-1">
-                            {currentExecutionStepDetail.logs.map((log) => (
-                              <div key={log} className="text-xs text-[#8A8A8A]">{log}</div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="mt-4 text-xs text-[#5F5F5F]">{currentExecutionStepDetail.footer}</div>
-                        <div className="mt-5 flex justify-end">
-                          <DialogClose asChild>
-                            <Button variant="secondary" size="sm">关闭</Button>
-                          </DialogClose>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  );
-                }
-
-                return (
-                  <div key={step.title} className="relative grid grid-cols-[40px_1fr] pb-7 last:pb-0">
-                    {stepContent}
-                  </div>
+                      </div>
+                      <div className="mt-4 text-xs text-[#5F5F5F]">{detail.footer}</div>
+                      <div className="mt-5 flex justify-end">
+                        <DialogClose asChild>
+                          <Button variant="secondary" size="sm">关闭</Button>
+                        </DialogClose>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 );
               })}
             </div>
