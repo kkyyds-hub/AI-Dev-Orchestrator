@@ -259,7 +259,11 @@ function WorkbenchPreview() {
     mockConversationMessages,
   );
   const [welcomeMessages, setWelcomeMessages] = useState<MockMessage[]>(getDefaultMessages());
-  const [topStatus, setTopStatus] = useState("当前项目 / 当前会话 / 状态");
+  const [topContext, setTopContext] = useState({
+    title: "新会话",
+    subtitle: "未绑定项目 · 准备构建",
+    status: "ready" as string,
+  });
   const [moreToolsExpanded, setMoreToolsExpanded] = useState(false);
   const [projectGroupsState, setProjectGroupsState] = useState<ProjectGroup[]>(initialProjectGroups);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
@@ -323,9 +327,11 @@ function WorkbenchPreview() {
     setConversationMessages((prev) => ({ ...prev, [newConv.id]: getNewConversationWelcome() }));
     setActiveMainPage(null);
     setActiveConversationId(newConv.id);
-    setTopStatus(
-      `${projectGroupsState.find((g) => g.id === activeProjectId)?.name ?? "项目"} / 新的 AI 主管对话 / pending`,
-    );
+    setTopContext({
+      title: "新的 AI 主管对话",
+      subtitle: `${projectGroupsState.find((g) => g.id === activeProjectId)?.name ?? "项目"} · 目标澄清 · pending`,
+      status: "pending",
+    });
     setMoreToolsExpanded(false);
     // Ensure project is expanded
     setCollapsedProjects((prev) => {
@@ -359,7 +365,11 @@ function WorkbenchPreview() {
       setActiveMainPage(null);
       setActiveProjectId(projectId);
       setActiveConversationId(convId);
-      setTopStatus(`${name} / 新的 AI 主管对话 / pending`);
+      setTopContext({
+        title: "新的 AI 主管对话",
+        subtitle: `${name} · 目标澄清 · pending`,
+        status: "pending",
+      });
       setCollapsedProjects((prev) => {
         const next = new Set(prev);
         // Collapse all others, expand the new one
@@ -394,7 +404,11 @@ function WorkbenchPreview() {
       setActiveMainPage(null);
       setActiveProjectId(projectGroup.id);
       setActiveConversationId(conv.id);
-      setTopStatus(`${projectGroup.name} / ${conv.title} / ${conv.status}`);
+      setTopContext({
+        title: conv.title,
+        subtitle: `${projectGroup.name} · 对话中 · ${conv.status}`,
+        status: conv.status,
+      });
     },
     [],
   );
@@ -409,7 +423,11 @@ function WorkbenchPreview() {
     const key = pageKeyMap[label] ?? label;
     setActiveMainPage(key);
     setActiveConversationId(null);
-    setTopStatus(`${label} / mock 页面`);
+    setTopContext({
+      title: label,
+      subtitle: "工作台页面 · mock",
+      status: "page",
+    });
   }, []);
 
   const handlePromptSend = useCallback(
@@ -688,11 +706,14 @@ function WorkbenchPreview() {
 
         {/* ── Main ── */}
         <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#000000]">
-          {/* Top status bar */}
-          <div className="flex h-14 shrink-0 items-center justify-between border-b border-[#2A2A2A] px-5 md:h-16 md:px-8">
-            <div className="text-sm text-[#8A8A8A]">{topStatus}</div>
-            <Badge className="h-8 shrink-0 gap-2 rounded-full px-3 md:px-4">
-              <span className="h-2 w-2 rounded-full bg-white" />
+          {/* Top context bar */}
+          <div className="flex h-[68px] shrink-0 items-center justify-between border-b border-[#2A2A2A] px-5 md:px-8">
+            <div className="min-w-0 flex-1 mr-4">
+              <div className="truncate text-[15px] font-semibold text-white">{topContext.title}</div>
+              <div className="mt-0.5 truncate text-[13px] text-[#8A8A8A]">{topContext.subtitle}</div>
+            </div>
+            <Badge className="h-7 shrink-0 gap-1.5 rounded-full border-[#2A2A2A] bg-transparent px-2.5 text-[11px] text-[#C7C7C7]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#C7C7C7]" />
               准备接收任务
             </Badge>
           </div>
