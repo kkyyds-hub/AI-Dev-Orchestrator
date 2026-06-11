@@ -50,17 +50,17 @@ export function FeedbackPreview() {
               <DialogDescription>删除、放行、重新执行会共享同一套 Minimal Dark 弹窗层级。</DialogDescription>
             </DialogHeader>
             <div className="mt-5 grid gap-2">
-              <button className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-[#4A4A4A]">
+              <button className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-[#2C2C2C]">
                 <Trash2 className="h-4 w-4 text-[#C7C7C7]" />
                 <span className="flex-1 text-sm text-white">删除当前草稿</span>
                 <span className="text-xs text-[#8A8A8A]">低频危险态</span>
               </button>
-              <button className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-[#4A4A4A]">
+              <button className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-[#2C2C2C]">
                 <ShieldCheck className="h-4 w-4 text-[#C7C7C7]" />
                 <span className="flex-1 text-sm text-white">放行审批结果</span>
                 <span className="text-xs text-[#8A8A8A]">确认</span>
               </button>
-              <button className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-[#4A4A4A]">
+              <button className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-[#2C2C2C]">
                 <RotateCcw className="h-4 w-4 text-[#C7C7C7]" />
                 <span className="flex-1 text-sm text-white">重新执行任务</span>
                 <span className="text-xs text-[#8A8A8A]">重试</span>
@@ -99,7 +99,7 @@ export function FeedbackPreview() {
                   <div className="text-xs text-[#8A8A8A]">摘要</div>
                   <p className="mt-1 leading-6">抽屉仅作为临时详情层，不作为固定右栏，避免破坏 ChatGPT-like 两栏主体验。</p>
                 </div>
-                <div className="rounded-2xl bg-[#1F1F1F] p-3 font-mono text-xs">run_id: ui_lab_preview_001</div>
+                <div className="rounded-2xl bg-[#222222] p-3 font-mono text-xs">run_id: ui_lab_preview_001</div>
               </div>
             </div>
           </DialogContent>

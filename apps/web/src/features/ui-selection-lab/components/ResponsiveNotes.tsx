@@ -6,7 +6,7 @@ export function ResponsiveNotes() {
       <div className="mb-4 text-sm font-semibold text-white">Responsive acceptance / 响应式验收尺寸</div>
       <div className="grid gap-2 text-sm text-[#8A8A8A] md:grid-cols-2">
         {sizes.map((size) => (
-          <div key={size} className="rounded-2xl px-3 py-2 hover:bg-[#1F1F1F]">
+          <div key={size} className="rounded-2xl px-3 py-2 hover:bg-[#222222]">
             {size}
           </div>
         ))}

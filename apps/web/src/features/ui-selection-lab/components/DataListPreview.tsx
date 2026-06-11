@@ -16,12 +16,12 @@ const activities = [
 
 export function StatusPill({ status }: { status: string }) {
   const shade = {
-    pending: "bg-[#1A1A1A] text-[#C7C7C7]",
-    running: "bg-[#2A2A2A] text-white",
-    partial: "bg-[#1F1F1F] text-[#C7C7C7]",
-    passed: "bg-[#303030] text-white",
-    blocked: "bg-[#1A1A1A] text-[#8A8A8A]",
-  }[status] ?? "bg-[#1A1A1A] text-[#C7C7C7]";
+    pending: "bg-[#171717] text-[#C7C7C7]",
+    running: "bg-[#2C2C2C] text-white",
+    partial: "bg-[#222222] text-[#C7C7C7]",
+    passed: "bg-[#1C1C1C] text-white",
+    blocked: "bg-[#171717] text-[#8A8A8A]",
+  }[status] ?? "bg-[#171717] text-[#C7C7C7]";
 
   return (
     <span className={`inline-flex items-center gap-2 rounded-full border border-[#3A3A3A] px-2.5 py-1 text-xs ${shade}`}>
@@ -41,7 +41,7 @@ export function DataListPreview() {
         </div>
         <div className="space-y-1">
           {rows.map((row) => (
-            <div key={row.title} className="grid gap-3 rounded-2xl px-3 py-3 transition-colors hover:bg-[#1F1F1F] md:grid-cols-[112px_minmax(0,1fr)_96px_80px_56px] md:items-center">
+            <div key={row.title} className="grid gap-3 rounded-2xl px-3 py-3 transition-colors hover:bg-[#222222] md:grid-cols-[112px_minmax(0,1fr)_96px_80px_56px] md:items-center">
               <div className="text-xs text-[#8A8A8A]">{row.type}</div>
               <div className="min-w-0 truncate text-sm text-white">{row.title}</div>
               <StatusPill status={row.status} />
@@ -74,7 +74,7 @@ export function DataListPreview() {
             <div key={activity.title} className="grid grid-cols-[22px_minmax(0,1fr)] gap-3">
               <div className="flex flex-col items-center">
                 <span className="mt-1 h-2.5 w-2.5 rounded-full border border-[#C7C7C7] bg-black" />
-                {index < activities.length - 1 ? <span className="mt-1 h-full min-h-12 w-px bg-[#2A2A2A]" /> : null}
+                {index < activities.length - 1 ? <span className="mt-1 h-full min-h-12 w-px bg-[#2C2C2C]" /> : null}
               </div>
               <div className="pb-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">

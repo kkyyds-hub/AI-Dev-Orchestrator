@@ -372,3 +372,27 @@
 - 只保留最近运行记录列表（每条行内保留状态 pill）。
 - 执行日志块继续保留。
 - 运行记录区域设置 `max-height: min(40vh, 320px)`，内部隐藏滚动条。
+
+### 9.2.7 Minimal Dark 空间层级修正
+
+纯黑不是所有区域都用 `#000000`。本轮收敛为黑色分层 token 体系：
+
+- **App** (#050505)：最外层页面背景，略浅于纯黑。
+- **Sidebar** (#080808)：比 App 略深一线，与 Main 形成微差。
+- **Main** (#000000)：最深区域，纯黑，突出内容焦点。
+- **Surface / Input** (#171717)：输入框、PromptBox、轻量卡片背景。
+- **Surface Hover** (#222222)：hover 时出现的背景。
+- **Surface Active** (#2C2C2C)：active / selected 状态背景。
+- **Modal** (#1C1C1C)：Dialog 弹窗主背景，不再使用过亮的 #303030。
+- **Popover** (#202020)：Dropdown 菜单主背景。
+- **Border Subtle** (#2A2A2A)：细分割线、侧栏边界。
+- **Border Strong** (#3A3A3A)：弹窗边框、输入框聚焦边框。
+
+关键变化：
+- 弹窗背景从 `#303030` 降为 `#1C1C1C`，shadow 加强为 `shadow-black/70`。
+- Dropdown 背景从 `#303030` 降为 `#202020`。
+- hover 从 `#1F1F1F` 调整为 `#222222`。
+- active/selected 从 `#2A2A2A` 调整为 `#2C2C2C`。
+- Input/Textarea/PromptBox 从 `#1A1A1A` 调整为 `#171717`。
+- App/Sidebar/Main 三者不再全是 `#000000`，形成轻微层级差。
+- 仍然坚持黑白灰，不恢复彩色 dashboard。

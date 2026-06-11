@@ -20,7 +20,7 @@ export function ConversationMessages({
             {isAssistant ? (
               <>
                 {/* AI avatar */}
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1F1F1F]">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#222222]">
                   <Bot className="h-4 w-4 text-[#C7C7C7]" />
                 </div>
                 <div className="min-w-0 max-w-[760px]">
@@ -40,12 +40,12 @@ export function ConversationMessages({
                     <span className="text-xs text-[#5F5F5F]">{msg.time}</span>
                     <span className="text-sm font-medium text-white">kk</span>
                   </div>
-                  <div className="whitespace-pre-wrap rounded-2xl bg-[#1F1F1F] px-4 py-3 text-sm leading-6 text-white">
+                  <div className="whitespace-pre-wrap rounded-2xl bg-[#222222] px-4 py-3 text-sm leading-6 text-white">
                     {msg.content}
                   </div>
                 </div>
                 {/* User avatar */}
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#2A2A2A] text-xs font-medium text-white">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#2C2C2C] text-xs font-medium text-white">
                   K
                 </div>
               </>

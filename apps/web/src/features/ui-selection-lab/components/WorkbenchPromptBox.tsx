@@ -46,7 +46,7 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
       style={{ width: "min(760px, calc(100vw - var(--lab-sidebar-width) - 64px))" }}
     >
       <div
-        className={`flex min-h-16 items-end gap-4 rounded-[24px] border bg-[#1A1A1A] px-4 py-3 transition-all duration-150 md:min-h-[72px] md:px-5 md:py-4 ${
+        className={`flex min-h-16 items-end gap-4 rounded-[24px] border bg-[#171717] px-4 py-3 transition-all duration-150 md:min-h-[72px] md:px-5 md:py-4 ${
           text.length > 0 ? "border-[#3A3A3A]" : "border-[#2A2A2A]"
         }`}
       >
@@ -63,7 +63,7 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-150 active:scale-[0.92] ${
             hasText
               ? "bg-white text-black hover:bg-[#E7E7E7]"
-              : "bg-[#2A2A2A] text-[#5F5F5F]"
+              : "bg-[#2C2C2C] text-[#5F5F5F]"
           }`}
           onClick={handleSend}
           disabled={!hasText}

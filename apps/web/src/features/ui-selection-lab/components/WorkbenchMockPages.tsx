@@ -23,7 +23,7 @@ export function MockPageContent({ pageKey }: { pageKey: string }) {
         {content.items.map((item) => (
           <button
             key={item.label}
-            className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-[#1F1F1F] active:scale-[0.98]"
+            className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-[#222222] active:scale-[0.98]"
           >
             <span className="min-w-0 flex-1 text-sm font-medium text-white">{item.label}</span>
             <span className="text-xs text-[#8A8A8A]">{item.description}</span>

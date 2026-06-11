@@ -16,9 +16,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary: "bg-white text-black hover:bg-[#E7E7E7]",
-        secondary: "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]",
-        ghost: "text-[#C7C7C7] hover:bg-[#1F1F1F] hover:text-white",
-        destructive: "bg-[#3A3A3A] text-white hover:bg-[#4A4A4A]",
+        secondary: "bg-[#2C2C2C] text-white hover:bg-[#3A3A3A]",
+        ghost: "text-[#C7C7C7] hover:bg-[#222222] hover:text-white",
+        destructive: "bg-[#2C2C2C] text-white hover:bg-[#3A3A3A]",
       },
       size: {
         default: "h-10 px-4",
@@ -49,7 +49,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        "flex h-10 w-full rounded-full border border-[#2A2A2A] bg-[#1A1A1A] px-4 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10",
+        "flex h-10 w-full rounded-full border border-[#2A2A2A] bg-[#171717] px-4 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10",
         className,
       )}
       {...props}
@@ -73,7 +73,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
 Textarea.displayName = "Textarea";
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("rounded-[20px] border border-[#2A2A2A] bg-black text-white", className)} {...props} />;
+  return <div className={cn("rounded-[20px] border border-[#2A2A2A] bg-transparent text-white", className)} {...props} />;
 }
 
 const badgeVariants = cva(
@@ -81,10 +81,10 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-[#3A3A3A] bg-[#2A2A2A] text-white",
-        success: "border-[#3A3A3A] bg-[#2A2A2A] text-white",
-        warning: "border-[#3A3A3A] bg-[#2A2A2A] text-[#C7C7C7]",
-        danger: "border-[#3A3A3A] bg-[#2A2A2A] text-[#C7C7C7]",
+        default: "border-[#3A3A3A] bg-[#2C2C2C] text-white",
+        success: "border-[#3A3A3A] bg-[#2C2C2C] text-white",
+        warning: "border-[#3A3A3A] bg-[#2C2C2C] text-[#C7C7C7]",
+        danger: "border-[#3A3A3A] bg-[#2C2C2C] text-[#C7C7C7]",
       },
     },
     defaultVariants: {
@@ -112,7 +112,7 @@ export const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 min-w-56 rounded-[22px] border border-[#3A3A3A] bg-[#303030] p-2 text-white shadow-2xl shadow-black/50",
+        "z-50 min-w-56 rounded-[22px] border border-[#3A3A3A] bg-[#202020] p-2 text-white shadow-2xl shadow-black/70",
         className,
       )}
       {...props}
@@ -128,7 +128,7 @@ export const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center rounded-2xl px-3 py-2.5 text-sm text-white outline-none transition-colors focus:bg-[#4A4A4A] focus:text-white",
+      "flex cursor-default select-none items-center rounded-2xl px-3 py-2.5 text-sm text-white outline-none transition-colors focus:bg-[#2C2C2C] focus:text-white",
       className,
     )}
     {...props}
@@ -149,13 +149,13 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-[#3A3A3A] bg-[#303030] p-6 text-white shadow-2xl shadow-black/60 focus:outline-none",
+        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-[#3A3A3A] bg-[#1C1C1C] p-6 text-white shadow-2xl shadow-black/70 focus:outline-none",
         className,
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full p-2 text-[#C7C7C7] transition-colors hover:bg-[#4A4A4A] hover:text-white">
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full p-2 text-[#C7C7C7] transition-colors hover:bg-[#2C2C2C] hover:text-white">
         <X className="h-4 w-4" />
         <span className="sr-only">关闭</span>
       </DialogPrimitive.Close>
@@ -192,7 +192,7 @@ export const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
-    className={cn("inline-flex h-10 items-center rounded-full bg-[#1A1A1A] p-1", className)}
+    className={cn("inline-flex h-10 items-center rounded-full bg-[#171717] p-1", className)}
     {...props}
   />
 ));
@@ -205,7 +205,7 @@ export const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex h-8 items-center justify-center rounded-full px-3 text-sm font-medium text-[#8A8A8A] transition-colors hover:text-white data-[state=active]:bg-[#2A2A2A] data-[state=active]:text-white",
+      "inline-flex h-8 items-center justify-center rounded-full px-3 text-sm font-medium text-[#8A8A8A] transition-colors hover:text-white data-[state=active]:bg-[#2C2C2C] data-[state=active]:text-white",
       className,
     )}
     {...props}
@@ -245,7 +245,7 @@ export const AvatarFallback = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AvatarPrimitive.Fallback
     ref={ref}
-    className={cn("flex h-full w-full items-center justify-center rounded-full bg-[#2A2A2A] text-xs font-semibold text-white", className)}
+    className={cn("flex h-full w-full items-center justify-center rounded-full bg-[#2C2C2C] text-xs font-semibold text-white", className)}
     {...props}
   />
 ));

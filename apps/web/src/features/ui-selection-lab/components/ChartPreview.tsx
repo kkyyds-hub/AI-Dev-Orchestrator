@@ -39,8 +39,8 @@ export function ChartPreview() {
             </div>
             <svg viewBox="0 0 176 92" className="h-32 w-full overflow-visible" role="img" aria-label="灰阶折线图">
               <path d="M 8 82 H 168" stroke="#2A2A2A" strokeWidth="1" />
-              <path d="M 8 58 H 168" stroke="#1F1F1F" strokeWidth="1" />
-              <path d="M 8 34 H 168" stroke="#1F1F1F" strokeWidth="1" />
+              <path d="M 8 58 H 168" stroke="#222222" strokeWidth="1" />
+              <path d="M 8 34 H 168" stroke="#222222" strokeWidth="1" />
               <path d={path} fill="none" stroke="#C7C7C7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
               {linePoints.map(([x, y]) => (
                 <circle key={`${x}-${y}`} cx={x} cy={y} fill="#000000" r="3" stroke="#C7C7C7" strokeWidth="1.5" />
@@ -55,7 +55,7 @@ export function ChartPreview() {
             </div>
             <div className="flex h-32 items-end gap-3">
               {bars.map((height, index) => (
-                <div key={`${height}-${index}`} className="flex flex-1 items-end rounded-full bg-[#1A1A1A]">
+                <div key={`${height}-${index}`} className="flex flex-1 items-end rounded-full bg-[#171717]">
                   <div
                     className="w-full rounded-full bg-[#C7C7C7]"
                     style={{ height: `${height}%`, opacity: 0.36 + index * 0.04 }}
@@ -73,7 +73,7 @@ export function ChartPreview() {
           {metrics.map((metric) => {
             const Icon = metric.icon;
             return (
-              <div key={metric.label} className="rounded-2xl px-3 py-3 transition-colors hover:bg-[#1F1F1F]">
+              <div key={metric.label} className="rounded-2xl px-3 py-3 transition-colors hover:bg-[#222222]">
                 <div className="mb-3 flex items-center gap-2 text-xs text-[#8A8A8A]">
                   <Icon className="h-4 w-4" />
                   {metric.label}

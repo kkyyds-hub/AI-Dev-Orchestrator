@@ -81,14 +81,15 @@ import {
 // ── Tokens ─────────────────────────────────────────────────
 
 const minimalDarkTokens = {
-  pageBg: "#000000",
-  sidebarBg: "#000000",
+  appBg: "#050505",
+  sidebarBg: "#080808",
   mainBg: "#000000",
-  hoverBg: "#1F1F1F",
-  activeBg: "#2A2A2A",
-  modalBg: "#303030",
-  popoverBg: "#303030",
-  inputBg: "#1A1A1A",
+  surface: "#171717",
+  surfaceHover: "#222222",
+  surfaceActive: "#2C2C2C",
+  modalBg: "#1C1C1C",
+  popoverBg: "#202020",
+  inputBg: "#171717",
   borderSubtle: "#2A2A2A",
   borderStrong: "#3A3A3A",
   textPrimary: "#FFFFFF",
@@ -152,16 +153,16 @@ function SidebarNavItem({ label, icon: Icon, active, hover, muted, badge, classN
       }}
       className={cn(
         "flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-sm transition-all duration-150 active:scale-[0.99]",
-        active && "bg-[#2A2A2A] text-white",
-        hover && "bg-[#1F1F1F] text-white",
+        active && "bg-[#2C2C2C] text-white",
+        hover && "bg-[#222222] text-white",
         !active && !hover && (muted ? "text-[#5F5F5F]" : "text-[#C7C7C7]"),
-        "hover:bg-[#1F1F1F] hover:text-white",
+        "hover:bg-[#222222] hover:text-white",
         className,
       )}
     >
       {Icon ? <Icon className="h-4 w-4 shrink-0 text-[#8A8A8A]" /> : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {badge ? <Badge className="h-5 border-[#3A3A3A] bg-[#2A2A2A] text-[11px] text-white">{badge}</Badge> : null}
+      {badge ? <Badge className="h-5 border-[#3A3A3A] bg-[#2C2C2C] text-[11px] text-white">{badge}</Badge> : null}
     </div>
   );
 }
@@ -171,7 +172,7 @@ function SidebarNavItem({ label, icon: Icon, active, hover, muted, badge, classN
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div className="fixed bottom-20 left-1/2 z-[100] -translate-x-1/2 animate-[fadeIn_150ms_ease-out]">
-      <div className="flex items-center gap-3 rounded-full border border-[#3A3A3A] bg-[#303030] px-4 py-2.5 shadow-2xl shadow-black/60">
+      <div className="flex items-center gap-3 rounded-full border border-[#3A3A3A] bg-[#202020] px-4 py-2.5 shadow-2xl shadow-black/60">
         <Check className="h-4 w-4 text-white" />
         <span className="text-sm text-white">{message}</span>
         <button className="ml-1 rounded-full p-0.5 text-[#8A8A8A] transition-colors hover:text-white" onClick={onClose}>
@@ -332,7 +333,7 @@ function WorkbenchPreview() {
           {quickActions.map((action) => {
             const Icon = action.icon;
             const buttonContent = (
-              <button className="group flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-all duration-150 hover:bg-[#1F1F1F] active:scale-[0.98]">
+              <button className="group flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-all duration-150 hover:bg-[#222222] active:scale-[0.98]">
                 <Icon className="h-4 w-4 shrink-0 text-[#8A8A8A]" />
                 <span className="min-w-0 flex-1 text-sm font-medium text-white">{action.title}</span>
                 <span className="hidden max-w-[220px] text-sm text-[#8A8A8A] xl:block">{action.description}</span>
@@ -360,20 +361,20 @@ function WorkbenchPreview() {
       data-testid="ui-lab-workbench-preview"
       aria-label="三省六部 Workbench Preview"
       className="h-[100dvh] min-h-[720px] w-full overflow-hidden text-white"
-      style={{ ...workbenchShellStyle, backgroundColor: minimalDarkTokens.pageBg }}
+      style={{ ...workbenchShellStyle, backgroundColor: minimalDarkTokens.appBg }}
     >
       <div className="flex h-full w-full overflow-hidden">
         {/* ── Sidebar ── */}
         <aside
           data-testid="ui-lab-sidebar"
-          className="flex h-full shrink-0 flex-col border-r border-[#2A2A2A] bg-black px-3 py-4 md:px-4 md:py-5"
+          className="flex h-full shrink-0 flex-col border-r border-[#2A2A2A] bg-[#080808] px-3 py-4 md:px-4 md:py-5"
           style={{ width: "var(--lab-sidebar-width)" }}
         >
           <LabLogo />
 
           {/* 新建会话 */}
           <button
-            className="mt-4 flex w-full items-center justify-start gap-2 rounded-xl px-3 py-2.5 text-sm text-white transition-all duration-150 hover:bg-[#1F1F1F] active:scale-[0.98] md:mt-6"
+            className="mt-4 flex w-full items-center justify-start gap-2 rounded-xl px-3 py-2.5 text-sm text-white transition-all duration-150 hover:bg-[#222222] active:scale-[0.98] md:mt-6"
             onClick={handleNewSession}
           >
             <MessageSquarePlus className="h-4 w-4" />
@@ -506,8 +507,8 @@ function WorkbenchPreview() {
                                   className={cn(
                                     "block w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors",
                                     activeConversationId === conv.id
-                                      ? "bg-[#2A2A2A] text-white"
-                                      : "text-[#C7C7C7] hover:bg-[#1F1F1F] hover:text-white",
+                                      ? "bg-[#2C2C2C] text-white"
+                                      : "text-[#C7C7C7] hover:bg-[#222222] hover:text-white",
                                   )}
                                   onClick={() => handleSelectConversation(conv, group.name)}
                                 >
@@ -528,7 +529,7 @@ function WorkbenchPreview() {
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="mt-4 flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-left transition-all duration-150 hover:bg-[#1F1F1F] active:scale-[0.98]">
+              <button className="mt-4 flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-left transition-all duration-150 hover:bg-[#222222] active:scale-[0.98]">
                 <Avatar className="h-7 w-7 rounded-full">
                   <AvatarFallback>K</AvatarFallback>
                 </Avatar>
@@ -545,14 +546,14 @@ function WorkbenchPreview() {
                 <Settings className="mr-2 h-4 w-4 text-[#C7C7C7]" />
                 工作台设置
               </DropdownMenuItem>
-              <DropdownMenuSeparator className="my-1 h-px bg-[#4A4A4A]" />
+              <DropdownMenuSeparator className="my-1 h-px bg-[#2C2C2C]" />
               <DropdownMenuItem className="text-[#C7C7C7]">退出 mock 菜单</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </aside>
 
         {/* ── Main ── */}
-        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-black">
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#000000]">
           {/* Top status bar */}
           <div className="flex h-14 shrink-0 items-center justify-between border-b border-[#2A2A2A] px-5 md:h-16 md:px-8">
             <div className="text-sm text-[#8A8A8A]">{topStatus}</div>
@@ -597,7 +598,7 @@ function ComponentPlayground() {
   const [demoCollapsed, setDemoCollapsed] = useState(false);
 
   return (
-    <section aria-label="Minimal Dark Tokens" className="bg-black px-8 py-14 text-white">
+    <section aria-label="Minimal Dark Tokens" className="bg-[#050505] px-8 py-14 text-white">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -677,7 +678,7 @@ function ComponentPlayground() {
                       这是组件选型实验页的 mock 弹窗，用于验证 Radix Dialog 的暗色层级、按钮区和可访问性。
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="mt-5 rounded-2xl bg-[#1F1F1F] p-3 text-sm text-[#C7C7C7]">
+                  <div className="mt-5 rounded-2xl bg-[#222222] p-3 text-sm text-[#C7C7C7]">
                     二手交易平台 MVP / 商品发布与搜索规划 / Partial
                   </div>
                   <div className="mt-5 flex justify-end gap-3">
@@ -711,32 +712,32 @@ function ComponentPlayground() {
           {/* ── INTERACTION STATES SECTION ── */}
           <ComponentRow title="Interaction States / 交互状态预览">
             <div className="space-y-3">
-              <div className="rounded-2xl bg-[#1F1F1F] px-4 py-3 text-sm text-white">
-                hover row — 灰色圆角背景 #1F1F1F
+              <div className="rounded-2xl bg-[#222222] px-4 py-3 text-sm text-white">
+                hover row — 灰色圆角背景 #222222
               </div>
-              <div className="rounded-2xl bg-[#2A2A2A] px-4 py-3 text-sm text-white">
+              <div className="rounded-2xl bg-[#2C2C2C] px-4 py-3 text-sm text-white">
                 active row — 深灰圆角背景 #2A2A2A
               </div>
               <button className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-medium text-black transition-all active:scale-[0.98]">
                 pressed button — active:scale-[0.98]
               </button>
               <input
-                className="w-full rounded-full border-2 border-[#3A3A3A] bg-[#1A1A1A] px-4 py-3 text-sm text-white outline-none transition-all focus:border-[#4A4A4A] focus:ring-2 focus:ring-white/10"
+                className="w-full rounded-full border-2 border-[#3A3A3A] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition-all focus:border-[#2C2C2C] focus:ring-2 focus:ring-white/10"
                 placeholder="focused input — border 变亮 + ring"
                 readOnly
               />
-              <div className="flex items-center gap-3 rounded-2xl bg-[#303030] px-4 py-3 text-sm text-white shadow-2xl shadow-black/60">
+              <div className="flex items-center gap-3 rounded-2xl bg-[#202020] px-4 py-3 text-sm text-white shadow-2xl shadow-black/60">
                 <span className="flex items-center gap-1.5 rounded-full bg-white px-2 py-1 text-xs text-black">
                   <Check className="h-3 w-3" />
                   opened dialog trigger
                 </span>
-                opened dialog — #303030 背景 + 阴影
+                opened dialog — #1C1C1C 背景 + 阴影
               </div>
 
               {/* collapsible project row demo */}
               <div>
                 <button
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-white transition-colors hover:bg-[#1F1F1F]"
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-white transition-colors hover:bg-[#222222]"
                   onClick={() => setDemoCollapsed(!demoCollapsed)}
                 >
                   <ChevronDown
@@ -747,10 +748,10 @@ function ComponentPlayground() {
                 </button>
                 {!demoCollapsed && (
                   <div className="mt-1 space-y-1 pl-7">
-                    <div className="rounded-md bg-[#2A2A2A] px-3 py-2 text-sm text-white">
+                    <div className="rounded-md bg-[#2C2C2C] px-3 py-2 text-sm text-white">
                       selected conversation row — active bg
                     </div>
-                    <div className="rounded-md px-3 py-2 text-sm text-[#C7C7C7] transition-colors hover:bg-[#1F1F1F] hover:text-white">
+                    <div className="rounded-md px-3 py-2 text-sm text-[#C7C7C7] transition-colors hover:bg-[#222222] hover:text-white">
                       normal conversation row — hover bg only
                     </div>
                   </div>
@@ -766,9 +767,9 @@ function ComponentPlayground() {
         <ResponsiveNotes />
 
         <div className="mt-8 grid gap-3 text-sm text-[#8A8A8A] md:grid-cols-3">
-          <div className="rounded-2xl px-3 py-2 hover:bg-[#1F1F1F]">源码可控：组件代码在项目内继续演进。</div>
-          <div className="rounded-2xl px-3 py-2 hover:bg-[#1F1F1F]">依赖克制：不新增更多 UI 库。</div>
-          <div className="rounded-2xl px-3 py-2 hover:bg-[#1F1F1F]">可回滚隔离：隐藏路由不影响正式页面。</div>
+          <div className="rounded-2xl px-3 py-2 hover:bg-[#222222]">源码可控：组件代码在项目内继续演进。</div>
+          <div className="rounded-2xl px-3 py-2 hover:bg-[#222222]">依赖克制：不新增更多 UI 库。</div>
+          <div className="rounded-2xl px-3 py-2 hover:bg-[#222222]">可回滚隔离：隐藏路由不影响正式页面。</div>
         </div>
       </div>
     </section>
@@ -779,10 +780,10 @@ function ComponentPlayground() {
 
 export function SanshengLiubuUiLabPage() {
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-[#050505]">
       <WorkbenchPreview />
       <ComponentPlayground />
-      <div className="border-t border-[#2A2A2A] bg-black px-8 py-6 text-center text-xs text-[#5F5F5F]">
+      <div className="border-t border-[#2A2A2A] bg-[#050505] px-8 py-6 text-center text-xs text-[#5F5F5F]">
         <XCircle className="mr-2 inline h-3.5 w-3.5" />
         隐藏实验页：不接真实执行器、不写后端、不改正式 Workbench。
       </div>

@@ -51,7 +51,7 @@ export function DashboardModal({ children }: { children: React.ReactNode }) {
           {dashboardMetrics.map((m) => {
             const Icon = m.icon;
             return (
-              <div key={m.label} className="rounded-2xl bg-[#1F1F1F] px-3 py-3">
+              <div key={m.label} className="rounded-2xl bg-[#222222] px-3 py-3">
                 <div className="mb-2 flex items-center gap-2 text-xs text-[#8A8A8A]">
                   <Icon className="h-3.5 w-3.5" />
                   {m.label}
@@ -71,8 +71,8 @@ export function DashboardModal({ children }: { children: React.ReactNode }) {
             </div>
             <svg viewBox="0 0 176 92" className="h-28 w-full overflow-visible" role="img" aria-label="运行趋势折线图">
               <path d="M 8 82 H 168" stroke="#2A2A2A" strokeWidth="1" />
-              <path d="M 8 58 H 168" stroke="#1F1F1F" strokeWidth="1" />
-              <path d="M 8 34 H 168" stroke="#1F1F1F" strokeWidth="1" />
+              <path d="M 8 58 H 168" stroke="#222222" strokeWidth="1" />
+              <path d="M 8 34 H 168" stroke="#222222" strokeWidth="1" />
               <path d={path} fill="none" stroke="#C7C7C7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
               {chartLinePoints.map(([x, y]) => (
                 <circle key={`${x}-${y}`} cx={x} cy={y} fill="#000" r="2.5" stroke="#C7C7C7" strokeWidth="1.5" />
@@ -87,7 +87,7 @@ export function DashboardModal({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex h-28 items-end gap-2">
               {chartBars.map((h, i) => (
-                <div key={i} className="flex flex-1 items-end rounded-full bg-[#1A1A1A]">
+                <div key={i} className="flex flex-1 items-end rounded-full bg-[#171717]">
                   <div
                     className="w-full rounded-full bg-[#C7C7C7]"
                     style={{ height: `${h}%`, opacity: 0.36 + i * 0.04 }}
@@ -135,7 +135,7 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
             {approvals.map((item, idx) => (
               <div key={item.id}>
                 {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
-                <div className="group rounded-xl px-1 py-3 transition-colors hover:bg-[#1F1F1F]">
+                <div className="group rounded-xl px-1 py-3 transition-colors hover:bg-[#222222]">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-white">{item.title}</div>
@@ -148,7 +148,7 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
                   </div>
 
                   <div className="mt-2 flex items-center gap-1.5">
-                    <button className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-colors hover:bg-[#4A4A4A] hover:text-white">
+                    <button className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-colors hover:bg-[#2C2C2C] hover:text-white">
                       <Eye className="h-3 w-3" />
                       查看
                     </button>
@@ -163,7 +163,7 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
                           放行
                         </button>
                         <button
-                          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-all hover:bg-[#4A4A4A] hover:text-white active:scale-[0.97]"
+                          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-all hover:bg-[#2C2C2C] hover:text-white active:scale-[0.97]"
                           onClick={() => handleAction(item.id, "rejected")}
                         >
                           <ThumbsDown className="h-3 w-3" />
@@ -174,8 +174,8 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${
                           item.state === "approved"
-                            ? "bg-[#303030] text-white"
-                            : "bg-[#1A1A1A] text-[#8A8A8A]"
+                            ? "bg-[#1C1C1C] text-white"
+                            : "bg-[#171717] text-[#8A8A8A]"
                         }`}
                       >
                         <Check className="h-3 w-3" />
@@ -220,7 +220,7 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
             {runRecords.map((run) => (
               <div
                 key={run.id}
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#1F1F1F]"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#222222]"
               >
                 <StatusPill status={run.status} />
                 <span className="min-w-0 flex-1 truncate text-sm text-white">{run.title}</span>
@@ -260,15 +260,15 @@ export function CostUsageModal({ children }: { children: React.ReactNode }) {
         </DialogHeader>
 
         <div className="mt-5 grid grid-cols-3 gap-3">
-          <div className="rounded-2xl bg-[#1F1F1F] px-3 py-3">
+          <div className="rounded-2xl bg-[#222222] px-3 py-3">
             <div className="text-xs text-[#8A8A8A]">今日 Token</div>
             <div className="mt-1.5 text-lg font-semibold text-white">{costUsageMock.todayTokens}</div>
           </div>
-          <div className="rounded-2xl bg-[#1F1F1F] px-3 py-3">
+          <div className="rounded-2xl bg-[#222222] px-3 py-3">
             <div className="text-xs text-[#8A8A8A]">本周成本</div>
             <div className="mt-1.5 text-lg font-semibold text-white">{costUsageMock.weekCost}</div>
           </div>
-          <div className="rounded-2xl bg-[#1F1F1F] px-3 py-3">
+          <div className="rounded-2xl bg-[#222222] px-3 py-3">
             <div className="text-xs text-[#8A8A8A]">主要模型</div>
             <div className="mt-1.5 text-lg font-semibold text-white">{costUsageMock.primaryModel}</div>
           </div>
@@ -281,7 +281,7 @@ export function CostUsageModal({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex h-20 items-end gap-2">
             {costUsageMock.trend.map((h, i) => (
-              <div key={i} className="flex flex-1 items-end rounded-full bg-[#1A1A1A]">
+              <div key={i} className="flex flex-1 items-end rounded-full bg-[#171717]">
                 <div
                   className="w-full rounded-full bg-[#C7C7C7]"
                   style={{ height: `${(h / 60) * 100}%`, opacity: 0.4 + i * 0.05 }}
@@ -320,7 +320,7 @@ export function RepositoryQueueModal({ children }: { children: React.ReactNode }
               {repoQueueMock.pendingReview.map((item, idx) => (
                 <div key={item.branch}>
                   {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
-                  <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-[#1F1F1F]">
+                  <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-[#222222]">
                     <span className="min-w-0 flex-1 truncate text-sm text-white">{item.branch}</span>
                     <span className="shrink-0 text-xs text-[#8A8A8A]">{item.status}</span>
                     <span className="shrink-0 text-xs text-[#5F5F5F]">{item.author}</span>
@@ -333,7 +333,7 @@ export function RepositoryQueueModal({ children }: { children: React.ReactNode }
           <div>
             <div className="mb-2 text-xs font-medium text-[#8A8A8A]">待提交草稿</div>
             {repoQueueMock.pendingDraft.map((draft) => (
-              <div key={draft.message} className="rounded-xl bg-[#1F1F1F] px-3 py-3">
+              <div key={draft.message} className="rounded-xl bg-[#222222] px-3 py-3">
                 <div className="text-sm text-white">{draft.message}</div>
                 <div className="mt-1 text-xs text-[#8A8A8A]">
                   {draft.changedFiles} files, +{draft.additions} −{draft.deletions}
@@ -372,7 +372,7 @@ export function GitWritePreviewModal({ children }: { children: React.ReactNode }
               {gitWritePreviewMock.changes.map((change, idx) => (
                 <div key={change.file}>
                   {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
-                  <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-[#1F1F1F]">
+                  <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-[#222222]">
                     <span className="min-w-0 flex-1 truncate font-mono text-xs text-[#C7C7C7]">{change.file}</span>
                     <span className="shrink-0 text-xs text-[#8A8A8A]">
                       +{change.additions} −{change.deletions}
@@ -385,7 +385,7 @@ export function GitWritePreviewModal({ children }: { children: React.ReactNode }
 
           <div>
             <div className="mb-2 text-xs font-medium text-[#8A8A8A]">提交信息</div>
-            <div className="rounded-xl bg-[#1F1F1F] px-3 py-2.5 font-mono text-xs text-white">
+            <div className="rounded-xl bg-[#222222] px-3 py-2.5 font-mono text-xs text-white">
               {gitWritePreviewMock.commitMessage}
             </div>
           </div>
@@ -399,7 +399,7 @@ export function GitWritePreviewModal({ children }: { children: React.ReactNode }
             </div>
           </div>
 
-          <div className="rounded-xl border border-[#3A3A3A] bg-[#1F1F1F] px-3 py-2 text-xs text-[#8A8A8A]">
+          <div className="rounded-xl border border-[#3A3A3A] bg-[#222222] px-3 py-2 text-xs text-[#8A8A8A]">
             {gitWritePreviewMock.limitationNote}
           </div>
         </div>
@@ -432,14 +432,14 @@ export function CreatePlanModal({ children }: { children: React.ReactNode }) {
           <div>
             <label className="mb-1.5 block text-xs font-medium text-[#C7C7C7]">项目目标</label>
             <textarea
-              className="flex min-h-[72px] w-full resize-none rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
+              className="flex min-h-[72px] w-full resize-none rounded-2xl border border-[#2A2A2A] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
               defaultValue={quickActionMockContent.createPlan.projectGoal}
             />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-[#C7C7C7]">约束条件</label>
             <textarea
-              className="flex min-h-[56px] w-full resize-none rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
+              className="flex min-h-[56px] w-full resize-none rounded-2xl border border-[#2A2A2A] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
               defaultValue={quickActionMockContent.createPlan.constraints}
             />
           </div>
@@ -479,7 +479,7 @@ export function ReviewResultModal({ children }: { children: React.ReactNode }) {
 
         <div className="mt-5 space-y-4">
           <textarea
-            className="flex min-h-[140px] w-full resize-none rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-3 font-mono text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
+            className="flex min-h-[140px] w-full resize-none rounded-2xl border border-[#2A2A2A] bg-[#171717] px-4 py-3 font-mono text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
             placeholder={quickActionMockContent.reviewResult.placeholder}
           />
 
