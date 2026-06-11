@@ -30,10 +30,38 @@ const projectScopeRows = [
 ] as const;
 
 const projectPlanSteps = [
-  { label: "目标澄清", status: "已完成", state: "done" },
-  { label: "任务拆分", status: "进行中", state: "current" },
-  { label: "执行规划", status: "待开始", state: "pending" },
-  { label: "交付验收", status: "待开始", state: "pending" },
+  {
+    label: "目标澄清",
+    status: "已完成",
+    state: "done",
+    detailTitle: "目标澄清已完成",
+    detailSummary: "已确认项目目标、核心边界与交付标准。",
+    detailRows: ["完成目标描述", "明确数据分析范围", "收敛验收口径"],
+  },
+  {
+    label: "任务拆分",
+    status: "进行中",
+    state: "current",
+    detailTitle: "任务拆分进行中",
+    detailSummary: "正在把项目目标拆成可执行任务，并确认依赖、风险与人工审批点。",
+    detailRows: ["数据接入模块拆分中", "指标口径等待确认", "发现 1 个待人工项"],
+  },
+  {
+    label: "执行规划",
+    status: "待开始",
+    state: "pending",
+    detailTitle: "执行规划待开始",
+    detailSummary: "任务拆分完成后，将生成执行顺序、负责人角色与验证路径。",
+    detailRows: ["等待任务拆分完成", "待生成执行批次", "待确认验证方式"],
+  },
+  {
+    label: "交付验收",
+    status: "待开始",
+    state: "pending",
+    detailTitle: "交付验收待开始",
+    detailSummary: "执行完成后，将汇总交付物、验收证据和审批结论。",
+    detailRows: ["待生成交付物", "待完成审批", "待形成验收记录"],
+  },
 ] as const;
 
 const projectContextRows = [
@@ -219,7 +247,9 @@ function ProjectContextDialog({
 function ProjectManagementMockPage() {
   const [discussion, setDiscussion] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [selectedStageLabel, setSelectedStageLabel] = useState("任务拆分");
   const hasDiscussion = discussion.trim().length > 0;
+  const selectedStage = projectPlanSteps.find((step) => step.label === selectedStageLabel) ?? projectPlanSteps[1];
 
   function handleRecordFeedback() {
     if (!hasDiscussion) return;
@@ -290,22 +320,53 @@ function ProjectManagementMockPage() {
                 {index < projectPlanSteps.length - 1 ? (
                   <span className="absolute right-0 top-3 h-px w-1/2 bg-[#3A3A3A]" />
                 ) : null}
-                <span
-                  className={[
-                    "relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold",
-                    step.state === "done"
-                      ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
-                      : step.state === "current"
-                        ? "border-white bg-black text-white"
-                        : "border-[#2A2A2A] bg-[#171717] text-[#8A8A8A]",
-                  ].join(" ")}
+                <button
+                  className="relative z-10 flex min-w-0 flex-col items-center rounded-xl px-2 pb-1 text-center transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/10 active:scale-[0.98]"
+                  onClick={() => setSelectedStageLabel(step.label)}
+                  aria-pressed={selectedStageLabel === step.label}
                 >
-                  {step.state === "done" ? <Check className="h-4 w-4" /> : index + 1}
-                </span>
-                <div className="mt-3 w-full px-1 text-sm font-medium text-[#C7C7C7]">{step.label}</div>
-                <div className="mt-1 text-xs text-[#8A8A8A]">{step.status}</div>
+                  <span
+                    className={[
+                      "relative flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold",
+                      step.state === "done"
+                        ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
+                        : step.state === "current"
+                          ? "border-white bg-black text-white"
+                          : "border-[#2A2A2A] bg-[#171717] text-[#8A8A8A]",
+                    ].join(" ")}
+                  >
+                    {step.state === "current" ? (
+                      <span className="absolute inset-[-4px] rounded-full border border-white/20 animate-pulse" />
+                    ) : null}
+                    <span className="relative z-10">
+                      {step.state === "done" ? <Check className="h-4 w-4" /> : index + 1}
+                    </span>
+                  </span>
+                  <span
+                    className={[
+                      "mt-3 w-full text-sm font-medium",
+                      selectedStageLabel === step.label ? "text-white" : "text-[#C7C7C7]",
+                    ].join(" ")}
+                  >
+                    {step.label}
+                  </span>
+                  <span className="mt-1 text-xs text-[#8A8A8A]">{step.status}</span>
+                </button>
               </div>
             ))}
+          </div>
+          <div className="relative mt-5 rounded-2xl border border-[#2A2A2A] bg-[#171717]/80 px-4 py-3">
+            <span className="absolute left-1/2 top-[-5px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-[#2A2A2A] bg-[#171717]" />
+            <div className="text-sm font-medium text-white">{selectedStage.detailTitle}</div>
+            <p className="mt-1 text-sm leading-6 text-[#C7C7C7]">{selectedStage.detailSummary}</p>
+            <div className="mt-3 space-y-1">
+              {selectedStage.detailRows.map((row) => (
+                <div key={row} className="flex items-center gap-2 text-xs text-[#8A8A8A]">
+                  <span className="h-1 w-1 rounded-full bg-[#8A8A8A]" />
+                  <span>{row}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
