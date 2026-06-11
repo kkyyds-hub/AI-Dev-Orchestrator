@@ -1,5 +1,4 @@
 import {
-  ArrowUp,
   Briefcase,
   Check,
   ChevronRight,
@@ -10,6 +9,17 @@ import {
 import { useState } from "react";
 import type * as React from "react";
 
+import {
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  Separator,
+} from "./ui";
 import { mainPageMockContents, type MainPageContent } from "../mockInteractions";
 
 const projectScopeRows = [
@@ -27,11 +37,109 @@ const projectPlanSteps = [
 ] as const;
 
 const projectContextRows = [
-  ["最近任务", "拆分数据接入模块任务", "32 分钟前"],
-  ["最近操作", "数据源连通性测试", "1 小时前"],
-  ["仓库绑定", "dev/marketing-analytics", "已绑定"],
-  ["审批 / 交付物", "待审批 1 项 / 交付物 0 项", "待处理"],
+  ["task", "最近任务", "拆分数据接入模块任务", "32 分钟前"],
+  ["timeline", "最近操作", "数据源连通性测试", "1 小时前"],
+  ["repository", "仓库绑定", "dev/marketing-analytics", "已绑定"],
+  ["approval", "审批 / 交付物", "待审批 1 项 / 交付物 0 项", "待处理"],
 ] as const;
+
+const projectContextDialogContent = {
+  task: {
+    title: "任务上下文",
+    description: "展示当前项目最近任务与阻塞情况 · mock",
+    metrics: [
+      ["任务总数", "28"],
+      ["当前阶段任务", "6"],
+      ["阻塞任务", "1"],
+    ],
+    sections: [
+      {
+        title: "最近任务",
+        rows: [
+          ["拆分数据接入模块任务", "进行中", "32 分钟前"],
+          ["指标口径确认", "待处理", "3 小时前"],
+          ["可视化报表联调", "待开始", "1 天前"],
+        ],
+      },
+      {
+        title: "阻塞提示",
+        rows: [["等待数据源账号确认"]],
+      },
+    ],
+  },
+  timeline: {
+    title: "最近运行与时间线",
+    description: "展示最近项目事件、运行与阶段动作 · mock",
+    sections: [
+      {
+        title: "最近事件",
+        rows: [
+          ["数据源连通性测试完成", "run", "1 小时前"],
+          ["阶段推进到任务拆分", "stage", "2 小时前"],
+          ["生成指标口径草案", "deliverable", "4 小时前"],
+          ["发起报表验收审批", "approval", "1 天前"],
+        ],
+      },
+    ],
+  },
+  repository: {
+    title: "仓库上下文",
+    description: "展示当前项目绑定仓库与变更会话 · mock",
+    sections: [
+      {
+        title: "仓库",
+        rows: [
+          ["仓库", "dev/marketing-analytics"],
+          ["默认分支", "main"],
+          ["当前分支", "feature/marketing-report"],
+          ["访问模式", "read_only"],
+          ["扫描状态", "completed"],
+          ["文件数", "128"],
+          ["目录数", "18"],
+        ],
+      },
+      {
+        title: "变更会话",
+        rows: [
+          ["guard", "clean"],
+          ["dirty files", "0"],
+          ["闭环状态", "进行中"],
+        ],
+      },
+    ],
+  },
+  approval: {
+    title: "审批与交付物",
+    description: "展示待审批项、交付物与放行检查 · mock",
+    sections: [
+      {
+        title: "审批",
+        rows: [
+          ["待审批", "1"],
+          ["已完成", "2"],
+          ["逾期", "0"],
+        ],
+      },
+      {
+        title: "交付物",
+        rows: [
+          ["指标口径说明 v1", "pending_review"],
+          ["报表联调记录 v1", "draft"],
+        ],
+      },
+      {
+        title: "放行检查",
+        rows: [
+          ["release gate", "pending_approval"],
+          ["blocked", "false"],
+          ["missing items", "0"],
+        ],
+      },
+    ],
+  },
+} as const;
+
+type ProjectContextDialogKey = keyof typeof projectContextDialogContent;
 
 function ProjectSectionTitle({
   icon: Icon,
@@ -48,14 +156,84 @@ function ProjectSectionTitle({
   );
 }
 
+function ProjectContextDialog({
+  dialogKey,
+  children,
+}: {
+  dialogKey: ProjectContextDialogKey;
+  children: React.ReactNode;
+}) {
+  const content = projectContextDialogContent[dialogKey];
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="w-[min(92vw,540px)]">
+        <DialogHeader>
+          <DialogTitle>{content.title}</DialogTitle>
+          <DialogDescription>{content.description}</DialogDescription>
+        </DialogHeader>
+
+        {"metrics" in content ? (
+          <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            {content.metrics.map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-[#2A2A2A] bg-[#171717] px-3 py-3">
+                <div className="text-xs text-[#8A8A8A]">{label}</div>
+                <div className="mt-1 text-lg font-semibold text-white">{value}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-5 space-y-5">
+          {content.sections.map((section, sectionIndex) => (
+            <div key={section.title}>
+              {sectionIndex > 0 ? <Separator className="mb-5" /> : null}
+              <div className="mb-2 text-sm font-semibold text-white">{section.title}</div>
+              <div className="border-y border-[#2A2A2A]">
+                {section.rows.map((row) => (
+                  <div
+                    key={row.join("-")}
+                    className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[1fr_112px_96px]"
+                  >
+                    <span className="text-[#C7C7C7]">{row[0]}</span>
+                    <span className="text-[#8A8A8A]">{row[1] ?? ""}</span>
+                    <span className="text-[#8A8A8A] sm:text-right">{row[2] ?? ""}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <DialogClose asChild>
+            <Button variant="secondary" size="sm">关闭</Button>
+          </DialogClose>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProjectManagementMockPage() {
   const [discussion, setDiscussion] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
   const hasDiscussion = discussion.trim().length > 0;
+
+  function handleRecordFeedback() {
+    if (!hasDiscussion) return;
+    setDiscussion("");
+    setFeedbackMessage("已记录讨论点 · 将在工作台新会话反馈 · mock");
+  }
 
   return (
     <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
       <div className="mx-auto flex w-full max-w-[980px] flex-col">
         <section className="pt-1">
+          <div className="mb-3 text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">
+            当前项目上下文 · 仅展示当前选中项目
+          </div>
           <h1 className="text-2xl font-semibold tracking-normal text-white">营销活动分析平台</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-[#C7C7C7]">
             构建统一的营销数据分析平台，整合多渠道数据，提供可视化洞察与增长决策支持。
@@ -131,37 +309,53 @@ function ProjectManagementMockPage() {
         <section className="mt-6">
           <ProjectSectionTitle icon={Briefcase}>当前上下文</ProjectSectionTitle>
           <div className="mt-3 border-y border-[#2A2A2A]">
-            {projectContextRows.map(([label, value, meta]) => (
-              <button
-                key={label}
-                className="grid w-full items-center gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-left text-sm transition-colors last:border-b-0 hover:bg-[#111111] md:grid-cols-[170px_1fr_112px_16px]"
-              >
-                <span className="text-[#8A8A8A]">{label}</span>
-                <span className="min-w-0 truncate text-[#C7C7C7]">{value}</span>
-                <span className="text-left text-[#8A8A8A] md:text-right">{meta}</span>
-                <ChevronRight className="hidden h-4 w-4 text-[#5F5F5F] md:block" />
-              </button>
+            {projectContextRows.map(([dialogKey, label, value, meta]) => (
+              <ProjectContextDialog key={label} dialogKey={dialogKey}>
+                <button
+                  className="grid w-full items-center gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-left text-sm transition-colors last:border-b-0 hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/10 md:grid-cols-[170px_1fr_112px_16px]"
+                >
+                  <span className="text-[#8A8A8A]">{label}</span>
+                  <span className="min-w-0 truncate text-[#C7C7C7]">{value}</span>
+                  <span className="text-left text-[#8A8A8A] md:text-right">{meta}</span>
+                  <ChevronRight className="hidden h-4 w-4 text-[#5F5F5F] md:block" />
+                </button>
+              </ProjectContextDialog>
             ))}
           </div>
         </section>
 
-        <div className="mt-4 flex h-11 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-4">
-          <input
-            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#8A8A8A]"
-            placeholder="讨论审批或需要改进的地方..."
-            value={discussion}
-            onChange={(event) => setDiscussion(event.target.value)}
-          />
-          <button
-            className={[
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors active:scale-[0.96]",
-              hasDiscussion ? "bg-white text-black hover:bg-[#E7E7E7]" : "bg-[#2C2C2C] text-[#8A8A8A]",
-            ].join(" ")}
-            disabled={!hasDiscussion}
-            aria-label="发送讨论"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </button>
+        <div className="mt-4">
+          <div className="flex h-11 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-4">
+            <input
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#8A8A8A]"
+              placeholder="记录审批疑问或改进点，AI 主管将在工作台新会话中反馈..."
+              value={discussion}
+              onChange={(event) => {
+                setDiscussion(event.target.value);
+                if (feedbackMessage) setFeedbackMessage("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleRecordFeedback();
+                }
+              }}
+            />
+            <button
+              className={[
+                "flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-xs font-medium transition-colors active:scale-[0.96]",
+                hasDiscussion ? "bg-white text-black hover:bg-[#E7E7E7]" : "bg-[#2C2C2C] text-[#8A8A8A]",
+              ].join(" ")}
+              disabled={!hasDiscussion}
+              aria-label="记录讨论点"
+              onClick={handleRecordFeedback}
+            >
+              记录
+            </button>
+          </div>
+          {feedbackMessage ? (
+            <div className="mt-2 text-xs text-[#8A8A8A]">{feedbackMessage}</div>
+          ) : null}
         </div>
       </div>
     </div>
