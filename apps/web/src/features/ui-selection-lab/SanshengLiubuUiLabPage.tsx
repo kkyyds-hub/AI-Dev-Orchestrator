@@ -57,9 +57,12 @@ import { WorkbenchPromptBox } from "./components/WorkbenchPromptBox";
 import {
   AdvanceNextModal,
   ApprovalsModal,
+  CostUsageModal,
   CreatePlanModal,
   DashboardModal,
   ExecutionStatusModal,
+  GitWritePreviewModal,
+  RepositoryQueueModal,
   ReviewResultModal,
 } from "./components/WorkbenchRuntimeModals";
 import {
@@ -145,7 +148,7 @@ function SidebarNavItem({ label, icon: Icon, active, hover, muted, badge, classN
         if (e.key === "Enter" || e.key === " ") onClick?.();
       }}
       className={cn(
-        "flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-sm transition-all duration-150 active:scale-[0.98]",
+        "flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-sm transition-all duration-150 active:scale-[0.99]",
         active && "bg-[#2A2A2A] text-white",
         hover && "bg-[#1F1F1F] text-white",
         !active && !hover && (muted ? "text-[#5F5F5F]" : "text-[#C7C7C7]"),
@@ -412,7 +415,7 @@ function WorkbenchPreview() {
                     <SidebarNavItem label="执行状态" icon={Activity} active={false} />
                   </ExecutionStatusModal>
 
-                  {/* ... 更多 — inline expansion */}
+                  {/* ... 更多 — inline sidebar disclosure, NOT a main page entry */}
                   <div>
                     <SidebarNavItem
                       label="... 更多"
@@ -421,43 +424,27 @@ function WorkbenchPreview() {
                       active={false}
                       onClick={() => setMoreToolsExpanded((prev) => !prev)}
                     />
-                    {moreToolsExpanded && (
-                      <div
-                        className="ml-5 mt-0.5 space-y-0.5 overflow-hidden transition-all duration-200"
-                        style={{ opacity: 1 }}
-                      >
-                        {slimMoreTools.map((tool) => {
-                          const Icon = tool.icon;
-                          const isActive = activeMainPage === tool.key && !activeConversationId;
-                          return (
-                            <div
-                              key={tool.key}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => {
-                                setActiveMainPage(tool.key);
-                                setActiveConversationId(null);
-                                setTopStatus(`${tool.label} / mock`);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  setActiveMainPage(tool.key);
-                                  setActiveConversationId(null);
-                                  setTopStatus(`${tool.label} / mock`);
-                                }
-                              }}
-                              className={`flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm transition-all duration-150 hover:bg-[#1F1F1F] hover:text-white active:scale-[0.98] ${
-                                isActive ? "bg-[#2A2A2A] text-white" : "text-[#C7C7C7]"
-                              }`}
-                            >
-                              <Icon className="h-3.5 w-3.5 shrink-0 text-[#8A8A8A]" />
-                              <span className="min-w-0 flex-1 truncate">{tool.label}</span>
-                              <span className="hidden text-xs text-[#5F5F5F] xl:block">{tool.description}</span>
-                            </div>
-                          );
-                        })}
+                    <div
+                      className={`grid transition-all duration-200 ease-out ${
+                        moreToolsExpanded
+                          ? "grid-rows-[1fr] opacity-100 translate-y-0"
+                          : "grid-rows-[0fr] opacity-0 -translate-y-1"
+                      }`}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="space-y-0.5 pt-0.5">
+                          <CostUsageModal>
+                            <SidebarNavItem label="成本用量" icon={slimMoreTools[0].icon} />
+                          </CostUsageModal>
+                          <RepositoryQueueModal>
+                            <SidebarNavItem label="仓库队列" icon={slimMoreTools[1].icon} />
+                          </RepositoryQueueModal>
+                          <GitWritePreviewModal>
+                            <SidebarNavItem label="Git 写入预览" icon={slimMoreTools[2].icon} />
+                          </GitWritePreviewModal>
+                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>

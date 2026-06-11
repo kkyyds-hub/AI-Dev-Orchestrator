@@ -326,17 +326,25 @@
 
 本节记录第二轮交互细节收敛的修改内容。
 
-### 9.2.1 `... 更多` 从弹窗改为 Sidebar 内联展开
+### 9.2.1 `... 更多` 是 Sidebar disclosure，不是 Main 页面入口
 
-- 点击左侧 `... 更多` 不再打开弹窗，而是在 Sidebar 内部展开一个内联区域。
-- 再次点击 `... 更多` 收起。
-- 展开/收起有轻微动效（opacity / max-height transition，约 200ms）。
-- 展开内容只保留 3 项：
-  - 成本用量（Token 消耗与 API 成本统计）
-  - 仓库队列（待处理仓库任务与变更队列）
-  - Git 写入预览（预览待提交的代码变更）
-- 点击其中一项：右侧 Main 区域显示对应 mock 页面（标题 + 说明 + 3 行轻量数据），不弹窗。
-- 原 MoreToolsModal 组件已移除。
+- `... 更多` 本身不弹窗，仅在 Sidebar 内部展开/收起更多工具列表。
+- 点击 `... 更多` 不切换右侧 Main 内容，不影响当前会话或对话。
+- 展开/收起使用 CSS grid 技巧：收起 `grid-rows-[0fr] opacity-0 -translate-y-1`，展开 `grid-rows-[1fr] opacity-100 translate-y-0`，内部 `overflow-hidden`。duration 200ms，easing ease-out。
+- 展开内容只保留 3 项（不显示运行记录、证据中心、模型配置、执行器配置、任务队列）：
+  - 成本用量
+  - 仓库队列
+  - Git 写入预览
+- 点击其中一项：打开居中 Dialog 弹窗（与数据看板、待审批、执行状态同级），**不替换 Main 内容**。
+- Sidebar 中只显示图标和名称，不显示副文案，避免出现 `成本...` 截断。
+- 展开项定位与上方运行与治理入口对齐，无额外 `ml-5` 右移。
+- 原 MoreToolsModal 组件已移除，新增 CostUsageModal、RepositoryQueueModal、GitWritePreviewModal。
+
+### 9.2.1.1 更多工具子项弹窗
+
+- **成本用量弹窗**：展示今日 Token、本周成本、主要模型、成本趋势 mock 柱状图。黑白灰，无彩色图表。
+- **仓库队列弹窗**：展示待审查变更列表、待提交草稿。纯 mock，不接真实 Git。
+- **Git 写入预览弹窗**：展示 mock 文件变更列表、commit message、diff 摘要。明确标注「实验页 mock：不执行真实 Git 写入」。
 
 ### 9.2.2 运行与治理弹窗保留
 

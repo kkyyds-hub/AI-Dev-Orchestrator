@@ -400,6 +400,43 @@ export const mainPageMockContents: Record<string, MainPageContent> = {
   },
 };
 
+// ── More Tools Dialog Mock Data ─────────────────────────────
+
+export const costUsageMock = {
+  todayTokens: "42,180",
+  weekCost: "$2.47",
+  primaryModel: "GPT-4o",
+  trend: [28, 34, 42, 38, 46, 52, 42],
+};
+
+export const repoQueueMock = {
+  pendingReview: [
+    { branch: "feat/search-bar", status: "等待审查", author: "Codex" },
+    { branch: "fix/prompt-layout", status: "待合入", author: "kk" },
+  ],
+  pendingDraft: [
+    { message: "feat(web): add search component", changedFiles: 3, additions: 156, deletions: 12 },
+  ],
+};
+
+export const gitWritePreviewMock = {
+  changes: [
+    { file: "SanshengLiubuUiLabPage.tsx", additions: 42, deletions: 18 },
+    { file: "WorkbenchRuntimeModals.tsx", additions: 86, deletions: 5 },
+    { file: "mockInteractions.ts", additions: 28, deletions: 0 },
+  ],
+  commitMessage: "fix(web): correct more tools sidebar interaction",
+  diffSummary: `diff --git a/apps/web/src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx
+--- a/apps/web/src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx
++++ b/apps/web/src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx
+@@ -435,11 +435,10 @@
+-  <div className="ml-5 mt-0.5 ...">
++  <div className="mt-0.5 ...">
+-    onClick={() => { setActiveMainPage(tool.key); ... }}
++    // open dialog instead`,
+  limitationNote: "实验页 mock：不执行真实 Git 写入。",
+};
+
 // ── Quick Action Mock Content ──────────────────────────────
 
 export const quickActionMockContent = {

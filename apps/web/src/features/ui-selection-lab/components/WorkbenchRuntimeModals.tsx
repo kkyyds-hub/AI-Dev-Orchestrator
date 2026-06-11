@@ -11,10 +11,13 @@ import { useState } from "react";
 import {
   chartBars,
   chartLinePoints,
+  costUsageMock,
   dashboardMetrics,
+  gitWritePreviewMock,
   initialApprovals,
   mockExecutionLog,
   quickActionMockContent,
+  repoQueueMock,
   runRecords,
   type ApprovalItem,
 } from "../mockInteractions";
@@ -235,6 +238,173 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
         </div>
 
         <div className="mt-5 flex justify-end">
+          <DialogClose asChild>
+            <Button variant="secondary">关闭</Button>
+          </DialogClose>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Cost Usage Modal ───────────────────────────────────────
+
+export function CostUsageModal({ children }: { children: React.ReactNode }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="w-[min(92vw,440px)]">
+        <DialogHeader>
+          <DialogTitle>成本用量</DialogTitle>
+          <DialogDescription>Token 消耗与 API 成本统计</DialogDescription>
+        </DialogHeader>
+
+        <div className="mt-5 grid grid-cols-3 gap-3">
+          <div className="rounded-2xl bg-[#1F1F1F] px-3 py-3">
+            <div className="text-xs text-[#8A8A8A]">今日 Token</div>
+            <div className="mt-1.5 text-lg font-semibold text-white">{costUsageMock.todayTokens}</div>
+          </div>
+          <div className="rounded-2xl bg-[#1F1F1F] px-3 py-3">
+            <div className="text-xs text-[#8A8A8A]">本周成本</div>
+            <div className="mt-1.5 text-lg font-semibold text-white">{costUsageMock.weekCost}</div>
+          </div>
+          <div className="rounded-2xl bg-[#1F1F1F] px-3 py-3">
+            <div className="text-xs text-[#8A8A8A]">主要模型</div>
+            <div className="mt-1.5 text-lg font-semibold text-white">{costUsageMock.primaryModel}</div>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-black p-3">
+          <div className="mb-3 flex items-center justify-between text-xs">
+            <span className="text-white">成本趋势</span>
+            <span className="text-[#8A8A8A]">7 天</span>
+          </div>
+          <div className="flex h-20 items-end gap-2">
+            {costUsageMock.trend.map((h, i) => (
+              <div key={i} className="flex flex-1 items-end rounded-full bg-[#1A1A1A]">
+                <div
+                  className="w-full rounded-full bg-[#C7C7C7]"
+                  style={{ height: `${(h / 60) * 100}%`, opacity: 0.4 + i * 0.05 }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <DialogClose asChild>
+            <Button variant="secondary">关闭</Button>
+          </DialogClose>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Repository Queue Modal ──────────────────────────────────
+
+export function RepositoryQueueModal({ children }: { children: React.ReactNode }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="w-[min(92vw,460px)]">
+        <DialogHeader>
+          <DialogTitle>仓库队列</DialogTitle>
+          <DialogDescription>待处理仓库任务与变更队列</DialogDescription>
+        </DialogHeader>
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <div className="mb-2 text-xs font-medium text-[#8A8A8A]">待审查变更</div>
+            <div className="space-y-0">
+              {repoQueueMock.pendingReview.map((item, idx) => (
+                <div key={item.branch}>
+                  {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
+                  <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-[#1F1F1F]">
+                    <span className="min-w-0 flex-1 truncate text-sm text-white">{item.branch}</span>
+                    <span className="shrink-0 text-xs text-[#8A8A8A]">{item.status}</span>
+                    <span className="shrink-0 text-xs text-[#5F5F5F]">{item.author}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-xs font-medium text-[#8A8A8A]">待提交草稿</div>
+            {repoQueueMock.pendingDraft.map((draft) => (
+              <div key={draft.message} className="rounded-xl bg-[#1F1F1F] px-3 py-3">
+                <div className="text-sm text-white">{draft.message}</div>
+                <div className="mt-1 text-xs text-[#8A8A8A]">
+                  {draft.changedFiles} files, +{draft.additions} −{draft.deletions}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <DialogClose asChild>
+            <Button variant="secondary">关闭</Button>
+          </DialogClose>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Git Write Preview Modal ─────────────────────────────────
+
+export function GitWritePreviewModal({ children }: { children: React.ReactNode }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="w-[min(92vw,500px)]">
+        <DialogHeader>
+          <DialogTitle>Git 写入预览</DialogTitle>
+          <DialogDescription>预览待提交的代码变更</DialogDescription>
+        </DialogHeader>
+
+        <div className="mt-5 space-y-3">
+          <div>
+            <div className="mb-2 text-xs font-medium text-[#8A8A8A]">变更文件</div>
+            <div className="space-y-0">
+              {gitWritePreviewMock.changes.map((change, idx) => (
+                <div key={change.file}>
+                  {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
+                  <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-[#1F1F1F]">
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-[#C7C7C7]">{change.file}</span>
+                    <span className="shrink-0 text-xs text-[#8A8A8A]">
+                      +{change.additions} −{change.deletions}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-xs font-medium text-[#8A8A8A]">提交信息</div>
+            <div className="rounded-xl bg-[#1F1F1F] px-3 py-2.5 font-mono text-xs text-white">
+              {gitWritePreviewMock.commitMessage}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-xs font-medium text-[#8A8A8A]">Diff 摘要</div>
+            <div className="rounded-2xl border border-[#2A2A2A] bg-black">
+              <pre className="max-h-36 overflow-y-auto p-3 font-mono text-xs leading-5 text-[#C7C7C7]">
+                {gitWritePreviewMock.diffSummary}
+              </pre>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[#3A3A3A] bg-[#1F1F1F] px-3 py-2 text-xs text-[#8A8A8A]">
+            {gitWritePreviewMock.limitationNote}
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
           <DialogClose asChild>
             <Button variant="secondary">关闭</Button>
           </DialogClose>
