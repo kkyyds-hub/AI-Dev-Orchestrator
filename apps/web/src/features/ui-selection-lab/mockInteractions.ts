@@ -83,8 +83,10 @@ export const projectGroups: ProjectGroup[] = [
 
 // ── Mock Conversations Messages ────────────────────────────
 
+export type MessageCardType = "draft" | "review" | "progress" | "next_step";
+
 export interface MessageCard {
-  type: "draft" | "review" | "progress";
+  type: MessageCardType;
   title: string;
   status: string;
   summary: string;
@@ -100,6 +102,63 @@ export interface MockMessage {
   card?: MessageCard;
 }
 
+// ── Mock Cards for Conversation Samples ─────────────────────
+
+export const mockDraftCard: MessageCard = {
+  type: "draft",
+  title: "项目草案",
+  status: "draft",
+  summary: "基于对话澄清的目标，整理出以下项目草案。",
+  items: [
+    "目标：为二手交易平台构建 MVP 版本",
+    "范围：商品发布、搜索、聊天、订单闭环",
+    "约束：React + Node.js，预算 $500 以内",
+  ],
+  primaryAction: "确认草案",
+  secondaryAction: "继续澄清",
+};
+
+export const mockReviewCard: MessageCard = {
+  type: "review",
+  title: "审查报告",
+  status: "passed",
+  summary: "Workbench UI Lab 构建检查已完成，代码审查通过。",
+  items: [
+    "结论：通过",
+    "发现：无阻断问题",
+    "建议：PromptBox 对齐方式建议后续微调",
+  ],
+  primaryAction: "生成修正指令",
+  secondaryAction: "标记为已读",
+};
+
+export const mockProgressCard: MessageCard = {
+  type: "progress",
+  title: "进度汇报",
+  status: "in_progress",
+  summary: "当前项目执行进度概览。",
+  items: [
+    "已完成：商品发布与搜索规划",
+    "进行中：聊天与订单闭环",
+    "阻塞：支付与结算设计（等待 API 文档）",
+  ],
+  primaryAction: "查看详情",
+};
+
+export const mockNextStepCard: MessageCard = {
+  type: "next_step",
+  title: "下一步指令",
+  status: "ready",
+  summary: "根据当前审查结果，建议下一轮只修复 PromptBox 与消息卡片视觉。",
+  items: [
+    "范围：仅修改隐藏实验页",
+    "执行器：Codex",
+    "验收：build 通过，视觉保持 Minimal Dark",
+  ],
+  primaryAction: "复制指令",
+  secondaryAction: "继续讨论",
+};
+
 export const mockConversationMessages: Record<string, MockMessage[]> = {
   "conv-1": [
     {
@@ -109,9 +168,9 @@ export const mockConversationMessages: Record<string, MockMessage[]> = {
     },
     {
       role: "assistant",
-      content:
-        "已生成商品发布与搜索规划：\n\n1. 定义搜索字段（标题、分类、价格区间、位置）\n2. 设计 Elasticsearch 索引映射\n3. 实现前端搜索栏与结果列表\n4. 添加搜索结果过滤与排序\n\n状态：Partial — 等待确认过滤维度。",
+      content: "我已经根据当前目标整理出项目草案，下面是主管建议：",
       time: "12:39",
+      card: mockDraftCard,
     },
     {
       role: "user",
@@ -120,8 +179,7 @@ export const mockConversationMessages: Record<string, MockMessage[]> = {
     },
     {
       role: "assistant",
-      content:
-        "可以。已追加 `created_at` 排序字段到索引映射，默认按相关性排序，用户可切换到最新发布。更新后的过滤维度：分类、价格区间、位置、发布时间。",
+      content: "可以。已追加 `created_at` 排序字段到索引映射，默认按相关性排序，用户可切换到最新发布。",
       time: "12:42",
     },
   ],
@@ -133,9 +191,9 @@ export const mockConversationMessages: Record<string, MockMessage[]> = {
     },
     {
       role: "assistant",
-      content:
-        "聊天与订单闭环方案：\n\n1. WebSocket 实时消息通道\n2. 消息持久化到 PostgreSQL\n3. 未读消息计数与推送\n4. 订单状态变更联动聊天通知\n\n状态：Running — 正在实现消息持久化层。",
+      content: "收到。我先整理当前进度：",
       time: "11:22",
+      card: mockProgressCard,
     },
     {
       role: "user",
@@ -144,8 +202,7 @@ export const mockConversationMessages: Record<string, MockMessage[]> = {
     },
     {
       role: "assistant",
-      content:
-        "第一期仅支持文本消息。图片消息已列入 Phase 2，将复用对象存储基础设施。当前优先完成文本消息的收发、持久化和订单联动。",
+      content: "第一期仅支持文本消息。图片消息已列入 Phase 2，将复用对象存储基础设施。当前优先完成文本消息的收发、持久化和订单联动。",
       time: "11:26",
     },
   ],
@@ -195,49 +252,6 @@ export function getNewConversationWelcome(): MockMessage[] {
   ];
 }
 
-// ── Mock Cards for Conversation Samples ─────────────────────
-
-export const mockDraftCard: MessageCard = {
-  type: "draft",
-  title: "项目草案",
-  status: "draft",
-  summary: "基于对话澄清的目标，整理出以下项目草案。",
-  items: [
-    "目标：为二手交易平台构建 MVP 版本",
-    "范围：商品发布、搜索、聊天、订单闭环",
-    "约束：React + Node.js，预算 $500 以内",
-  ],
-  primaryAction: "确认草案",
-  secondaryAction: "继续澄清",
-};
-
-export const mockReviewCard: MessageCard = {
-  type: "review",
-  title: "审查报告",
-  status: "passed",
-  summary: "Workbench UI Lab 构建检查已完成，代码审查通过。",
-  items: [
-    "结论：通过",
-    "发现：无阻断问题",
-    "建议：PromptBox 对齐方式建议后续微调",
-  ],
-  primaryAction: "生成修正指令",
-  secondaryAction: "标记为已读",
-};
-
-export const mockProgressCard: MessageCard = {
-  type: "progress",
-  title: "进度汇报",
-  status: "in_progress",
-  summary: "当前项目执行进度概览。",
-  items: [
-    "已完成：商品发布与搜索规划",
-    "进行中：聊天与订单闭环",
-    "阻塞：支付与结算设计（等待 API 文档）",
-  ],
-  primaryAction: "查看详情",
-};
-
 // Extend conv-5 with card messages
 mockConversationMessages["conv-5"] = [
   {
@@ -247,15 +261,26 @@ mockConversationMessages["conv-5"] = [
   },
   {
     role: "assistant",
-    content:
-      "Workbench 两栏布局方案：\n\n1. 左侧固定 Sidebar（248-300px 响应式）\n2. 右侧主工作区 flex-1\n3. 底部 PromptBox 居中悬浮\n4. 顶部状态栏 56-64px\n\n布局已完成并通过响应式验收。",
+    content: "我已经整理出当前方案，下面是主管建议：",
     time: "09:18",
+    card: { ...mockDraftCard, title: "主管建议", status: "draft", summary: "基于 Minimal Dark 方向整理的两栏布局方案。" },
+  },
+  {
+    role: "user",
+    content: "方向没问题，继续推进。",
+    time: "09:22",
   },
   {
     role: "assistant",
     content: "下面是我根据当前进度整理的审查报告：",
     time: "09:24",
     card: mockReviewCard,
+  },
+  {
+    role: "assistant",
+    content: "审查已完成。建议按以下最小指令推进下一步：",
+    time: "09:26",
+    card: mockNextStepCard,
   },
 ];
 
