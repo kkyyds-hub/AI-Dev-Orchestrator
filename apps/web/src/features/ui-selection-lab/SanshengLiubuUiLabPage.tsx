@@ -22,6 +22,10 @@ import {
 import type * as React from "react";
 
 import { cn } from "../../lib/cn";
+import { ChartPreview } from "./components/ChartPreview";
+import { DataListPreview } from "./components/DataListPreview";
+import { FeedbackPreview } from "./components/FeedbackPreview";
+import { ResponsiveNotes } from "./components/ResponsiveNotes";
 import {
   Avatar,
   AvatarFallback,
@@ -65,6 +69,10 @@ const minimalDarkTokens = {
   textMuted: "#8A8A8A",
   textDisabled: "#5F5F5F",
 } as const;
+
+const workbenchShellStyle = {
+  "--lab-sidebar-width": "clamp(248px, 20.5vw, 300px)",
+} as React.CSSProperties;
 
 const primaryNav = [
   { label: "数据看板", icon: LayoutDashboard, active: true },
@@ -152,9 +160,13 @@ function LabLogo() {
 
 function WorkbenchSidebar() {
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-[#2A2A2A] bg-black px-4 py-5">
+    <aside
+      data-testid="ui-lab-sidebar"
+      className="flex h-full shrink-0 flex-col border-r border-[#2A2A2A] bg-black px-3 py-4 md:px-4 md:py-5"
+      style={{ width: "var(--lab-sidebar-width)" }}
+    >
       <LabLogo />
-      <Button variant="ghost" className="mt-6 w-full justify-start rounded-xl text-white">
+      <Button variant="ghost" className="mt-4 w-full justify-start rounded-xl text-white md:mt-6">
         <MessageSquarePlus className="h-4 w-4" />
         新建会话
       </Button>
@@ -163,8 +175,8 @@ function WorkbenchSidebar() {
         <Input className="h-10 pl-9" placeholder="搜索项目、会话、任务..." />
       </div>
 
-      <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
-        <div className="space-y-6">
+      <ScrollArea className="mt-4 min-h-0 flex-1 pr-1 md:mt-6">
+        <div className="space-y-4 md:space-y-6">
           <div>
             <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#5F5F5F]">运行与治理</div>
             <div className="space-y-1">
@@ -244,32 +256,33 @@ function WorkbenchSidebar() {
 function WorkbenchPreview() {
   return (
     <section
+      data-testid="ui-lab-workbench-preview"
       aria-label="三省六部 Workbench Preview"
-      className="h-[900px] min-h-screen text-white"
-      style={{ backgroundColor: minimalDarkTokens.pageBg }}
+      className="h-[100dvh] min-h-[720px] w-full overflow-hidden text-white"
+      style={{ ...workbenchShellStyle, backgroundColor: minimalDarkTokens.pageBg }}
     >
-      <div className="flex h-full min-w-[1120px]">
+      <div className="flex h-full w-full overflow-hidden">
         <WorkbenchSidebar />
-        <main className="relative flex min-w-0 flex-1 flex-col bg-black">
-          <div className="flex h-16 items-center justify-between border-b border-[#2A2A2A] px-8">
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-black">
+          <div className="flex h-14 shrink-0 items-center justify-between border-b border-[#2A2A2A] px-5 md:h-16 md:px-8">
             <div className="text-sm text-[#8A8A8A]">当前项目 / 当前会话 / 状态</div>
-            <Badge className="h-8 gap-2 rounded-full px-4">
+            <Badge className="h-8 shrink-0 gap-2 rounded-full px-3 md:px-4">
               <span className="h-2 w-2 rounded-full bg-white" />
               准备接收任务
             </Badge>
           </div>
 
-          <div className="flex flex-1 flex-col items-center justify-center px-10 pb-32 text-center">
-            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#2A2A2A] bg-black">
-              <Bot className="h-7 w-7 text-[#C7C7C7]" />
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 pb-24 pt-6 text-center md:px-8 md:pb-28 lg:px-10">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#2A2A2A] bg-black md:mb-5 md:h-14 md:w-14">
+              <Bot className="h-6 w-6 text-[#C7C7C7] md:h-7 md:w-7" />
             </div>
-            <h1 className="text-[42px] font-semibold tracking-normal text-white">欢迎</h1>
-            <h2 className="mt-4 text-2xl font-semibold tracking-normal text-[#C7C7C7]">我们来构建什么？</h2>
-            <p className="mt-4 max-w-xl text-sm leading-6 text-[#8A8A8A]">
+            <h1 className="text-3xl font-semibold tracking-normal text-white md:text-[42px]">欢迎</h1>
+            <h2 className="mt-3 text-xl font-semibold tracking-normal text-[#C7C7C7] md:mt-4 md:text-2xl">我们来构建什么？</h2>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-[#8A8A8A] md:mt-4">
               描述目标、粘贴执行结果，或让 AI 项目主管拆分下一步任务
             </p>
 
-            <div className="mt-12 w-full max-w-[680px] space-y-1 text-left">
+            <div className="mt-6 w-full max-w-[680px] space-y-1 text-left md:mt-10 lg:mt-12">
               {quickActions.map((action) => {
                 const Icon = action.icon;
                 return (
@@ -279,7 +292,7 @@ function WorkbenchPreview() {
                   >
                     <Icon className="h-4 w-4 shrink-0 text-[#8A8A8A]" />
                     <span className="min-w-0 flex-1 text-sm font-medium text-white">{action.title}</span>
-                    <span className="hidden text-sm text-[#8A8A8A] sm:block">{action.description}</span>
+                    <span className="hidden max-w-[220px] text-sm text-[#8A8A8A] xl:block">{action.description}</span>
                     <span className="text-lg leading-none text-[#5F5F5F] transition-colors group-hover:text-[#C7C7C7]">&gt;</span>
                   </button>
                 );
@@ -287,8 +300,12 @@ function WorkbenchPreview() {
             </div>
           </div>
 
-          <div className="absolute bottom-9 left-1/2 w-[min(760px,calc(100%-96px))] -translate-x-1/2">
-            <div className="flex min-h-[72px] items-center gap-4 rounded-[24px] border border-[#2A2A2A] bg-[#1A1A1A] px-5 py-4">
+          <div
+            data-testid="ui-lab-promptbox"
+            className="absolute bottom-5 left-1/2 max-w-[calc(100%-40px)] -translate-x-1/2 md:bottom-7 lg:bottom-9"
+            style={{ width: "min(760px, calc(100vw - var(--lab-sidebar-width) - 64px))" }}
+          >
+            <div className="flex min-h-16 items-center gap-4 rounded-[24px] border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-3 md:min-h-[72px] md:px-5 md:py-4">
               <div className="min-w-0 flex-1 text-left text-sm text-[#8A8A8A]">输入你的目标、需求或执行结果...</div>
               <Button size="icon" className="h-9 w-9 rounded-full">
                 <ArrowUp className="h-4 w-4" />
@@ -423,6 +440,11 @@ function ComponentPlayground() {
             </Tabs>
           </ComponentRow>
         </div>
+
+        <ChartPreview />
+        <DataListPreview />
+        <FeedbackPreview />
+        <ResponsiveNotes />
 
         <div className="mt-8 grid gap-3 text-sm text-[#8A8A8A] md:grid-cols-3">
           <div className="rounded-2xl px-3 py-2 hover:bg-[#1F1F1F]">源码可控：组件代码在项目内继续演进。</div>

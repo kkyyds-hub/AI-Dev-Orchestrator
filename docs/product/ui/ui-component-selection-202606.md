@@ -40,6 +40,40 @@
 - 图标统一使用 lucide-react 白灰线性图标。
 - 危险态作为极低频例外保留语义，但默认实验区不使用高饱和红色抢占视觉。
 
+## 1.2 响应式设计基准
+
+`1440x900` 只是设计参考尺寸，不是页面固定尺寸。正式 Workbench 与当前隐藏实验页都应以真实浏览器窗口为准，优先适配 MacBook Air 13.6 寸常见浏览器视口。
+
+本轮实验页响应式基准：
+
+- Workbench Preview 使用 `height: 100dvh`，并保留 `min-height: 720px`，避免在中等屏上被固定 900px 画布撑出不必要滚动。
+- Sidebar 使用响应式宽度 `clamp(248px, 20.5vw, 300px)`：大屏接近 300px，中等屏约 280px，较窄屏收敛到 248px。
+- Main 区域使用 `flex: 1`、`min-width: 0`、`overflow: hidden`，不允许横向撑破页面。
+- PromptBox 使用 `min(760px, calc(100vw - sidebarWidth - 64px))` 的等价策略，确保不溢出视口。
+- 小于 1200px 宽度时，快捷操作描述文字可隐藏，保留主动作和入口箭头。
+- 组件选型试验区允许纵向滚动，但不得横向滚动。
+
+响应式验收尺寸：
+
+- `1440x900`
+- `1366x768`
+- `MacBook Air 13.6 browser window`
+- `1280x800`
+
+## 1.3 高频组件补充结论
+
+隐藏实验页已补充后续高频会用到的组件样张，并继续遵守 Minimal Dark Tokens，不恢复彩色 dashboard 风格：
+
+- Chart / 图表组件：先使用 SVG / div mock 表达极简折线图和柱状图，不新增 chart 依赖。后续若进入真实数据可视化，再优先单独评估 Recharts，避免同时引入多个 chart 库。
+- Metric / 指标组件：运行次数、成功率、平均耗时、成本估算使用行级或轻量灰阶块。
+- Data List / 数据列表：任务行、执行记录行、审批记录行支持状态、时间和操作入口，hover 使用 `#1F1F1F`。
+- Status / 状态组件：pending、running、partial、passed、blocked 全部灰阶表达，通过文字、点和边框深浅区分。
+- Alert / Toast / Inline Notice：普通、警告、失败提示都使用灰阶，失败态不使用鲜红。
+- Confirm Dialog：删除、放行、重新执行使用同一套深灰弹窗层级。
+- Sheet / Drawer：作为任务详情、运行详情、审批详情的临时右侧面板样张，不作为固定常驻右栏。
+- Timeline / Activity Feed：运行事件、审查记录、任务推进历史使用灰阶线条和节点。
+- Code / Log Block：执行日志、错误片段、Git diff 摘要使用黑底灰边、等宽字体，并允许内容区横向滚动但不撑破页面。
+
 ## 2. 候选组件库对比表
 
 | 方案 | React / TS / Vite | 暗色 AI 工作台适配 | Tailwind | dark mode | 源码可控 | 关键组件覆盖 | 图标体系 | 依赖重量 | 维护活跃 | License | 结论 |
@@ -160,6 +194,11 @@
 - 本地 UI 组件：`apps/web/src/features/ui-selection-lab/components/ui.tsx`
 - 工具函数：`apps/web/src/lib/cn.ts`
 - 视觉 token：`apps/web/src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx` 中的 `minimalDarkTokens`
+- 高频样张组件：
+  - `apps/web/src/features/ui-selection-lab/components/ChartPreview.tsx`
+  - `apps/web/src/features/ui-selection-lab/components/DataListPreview.tsx`
+  - `apps/web/src/features/ui-selection-lab/components/FeedbackPreview.tsx`
+  - `apps/web/src/features/ui-selection-lab/components/ResponsiveNotes.tsx`
 - 新增依赖：
   - `@radix-ui/react-avatar`
   - `@radix-ui/react-dialog`
