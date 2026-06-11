@@ -352,14 +352,22 @@ function ProjectManagementMockPage() {
               </div>
             ))}
           </div>
-          {openStage ? (
-            <div className="absolute top-[76px] z-20 w-[min(82vw,260px)] -translate-x-1/2 rounded-2xl border border-[#2A2A2A] bg-[#171717] px-3 py-3 shadow-2xl shadow-black/40" style={{ left: stageBubbleLeft }}>
-              <span className="absolute left-1/2 top-[-5px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-[#2A2A2A] bg-[#171717]" />
-              <div className="text-sm font-medium text-white">{openStage.bubbleTitle}</div>
-              <p className="mt-1 text-xs leading-5 text-[#C7C7C7]">{openStage.bubbleSummary}</p>
-              <div className="mt-2 text-xs text-[#8A8A8A]">状态：{openStage.bubbleMeta}</div>
-            </div>
-          ) : null}
+          <div
+            className={[
+              "absolute top-[76px] z-20 w-[min(82vw,260px)] origin-top -translate-x-1/2 rounded-2xl border border-[#2A2A2A] bg-[#171717] px-3 py-3 shadow-2xl shadow-black/40 transition-all duration-200 ease-out",
+              openStage ? "scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
+            ].join(" ")}
+            style={{ left: stageBubbleLeft }}
+          >
+            <span className="absolute left-1/2 top-[-5px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-[#2A2A2A] bg-[#171717]" />
+            {openStage ? (
+              <>
+                <div className="text-sm font-medium text-white">{openStage.bubbleTitle}</div>
+                <p className="mt-1 text-xs leading-5 text-[#C7C7C7]">{openStage.bubbleSummary}</p>
+                <div className="mt-2 text-xs text-[#8A8A8A]">状态：{openStage.bubbleMeta}</div>
+              </>
+            ) : null}
+          </div>
         </section>
 
         <section className="mt-6">
