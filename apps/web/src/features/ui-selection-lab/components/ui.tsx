@@ -145,11 +145,11 @@ export const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
   <DialogPrimitive.Portal>
-    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/75" />
+    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/75 transition-opacity duration-150 data-[state=open]:opacity-100 data-[state=closed]:opacity-0" />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-[#3A3A3A] bg-[#1C1C1C] p-6 text-white shadow-2xl shadow-black/70 focus:outline-none",
+        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-[#3A3A3A] bg-[#1C1C1C] p-6 text-white shadow-2xl shadow-black/70 focus:outline-none transition-all duration-150 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=open]:scale-100 data-[state=closed]:scale-95",
         className,
       )}
       {...props}

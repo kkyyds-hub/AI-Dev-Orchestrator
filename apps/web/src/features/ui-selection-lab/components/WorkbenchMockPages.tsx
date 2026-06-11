@@ -104,7 +104,73 @@ const executionStatusRows = [
   ["预算", "正常"],
 ] as const;
 
-const executionEvidenceItems = ["运行详情", "上下文", "决策回放", "安全预检"] as const;
+const executionEvidenceDialogItems = [
+  {
+    key: "run",
+    label: "运行详情",
+    title: "运行详情",
+    description: "当前任务运行摘要 · mock",
+    rows: [
+      ["任务", "数据接入模块联调"],
+      ["Run ID", "run_7F3A"],
+      ["Worker", "Worker 1 / 3"],
+      ["状态", "running"],
+      ["开始时间", "11:32:41"],
+      ["预计完成", "11:40 前"],
+      ["模型", "Codex · gpt-5.5"],
+      ["成本预估", "$0.012"],
+      ["Token", "4.8k"],
+      ["Log", "logs/runs/run_7F3A.log"],
+    ],
+    footer: "仅展示运行读回，不触发执行操作 · mock",
+  },
+  {
+    key: "context",
+    label: "上下文",
+    title: "上下文",
+    description: "执行前上下文摘要 · mock",
+    rows: [
+      ["项目", "营销活动分析平台"],
+      ["当前任务输入", "校验数据源连通性并拆分接入任务"],
+      ["依赖", "无阻塞依赖"],
+      ["记忆召回", "命中 3 条项目背景"],
+      ["验收口径", "接入路径明确、验证命令完整、风险说明清晰"],
+      ["上下文状态", "ready_for_execution true"],
+    ],
+    footer: "上下文来自当前项目 mock 数据，不代表真实后端响应。",
+  },
+  {
+    key: "decision",
+    label: "决策回放",
+    title: "决策回放",
+    description: "为什么由当前执行器处理 · mock",
+    rows: [
+      ["路由结果", "选择 Codex"],
+      ["原因", "当前任务偏代码与联调，适合代码执行器处理"],
+      ["未选择 DeepSeek", "本轮不是规划总结任务"],
+      ["执行模式", "只读运行"],
+      ["验证模式", "mock verification"],
+      ["下一步", "等待结果回写后进入审批 / 交付检查"],
+    ],
+    footer: "该回放只解释调度决策，不代表真实模型调用。",
+  },
+  {
+    key: "safety",
+    label: "安全预检",
+    title: "安全预检",
+    description: "运行前安全边界读回 · mock",
+    rows: [
+      ["Runtime", "ready"],
+      ["Workspace", "clean"],
+      ["Git", "只读预检 · 写入关闭"],
+      ["Approval", "无需审批"],
+      ["Quality gate", "等待结果"],
+      ["Budget", "正常"],
+      ["风险", "未发现阻塞项"],
+    ],
+    footer: "当前仅预览安全状态，不执行 git add / commit / push。",
+  },
+] as const;
 
 const executionQueueRows = [
   ["待人工", "数据源账号确认", "需产品负责人确认"],
@@ -542,13 +608,42 @@ function ExecutionCenterMockPage() {
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-[#8A8A8A]">
               <span>查看证据：</span>
-              {executionEvidenceItems.map((item) => (
-                <span
-                  key={item}
-                  className="rounded-md border border-[#2A2A2A] px-2.5 py-1 text-xs text-[#C7C7C7]"
-                >
-                  {item}
-                </span>
+              {executionEvidenceDialogItems.map((item) => (
+                <Dialog key={item.key}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 rounded-md border border-[#2A2A2A] bg-transparent px-2.5 text-xs text-[#C7C7C7] hover:bg-[#222222] hover:text-white active:scale-[0.98]"
+                    >
+                      {item.label}
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="w-[min(92vw,520px)]">
+                    <DialogHeader>
+                      <DialogTitle>{item.title}</DialogTitle>
+                      <DialogDescription>{item.description}</DialogDescription>
+                    </DialogHeader>
+                    <Separator className="my-4" />
+                    <div className="border-y border-[#2A2A2A]">
+                      {item.rows.map((row) => (
+                        <div
+                          key={row[0]}
+                          className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
+                        >
+                          <span className="text-[#C7C7C7]">{row[0]}</span>
+                          <span className="text-[#8A8A8A]">{row[1]}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 text-xs text-[#5F5F5F]">{item.footer}</div>
+                    <div className="mt-5 flex justify-end">
+                      <DialogClose asChild>
+                        <Button variant="secondary" size="sm">关闭</Button>
+                      </DialogClose>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               ))}
             </div>
           </div>
