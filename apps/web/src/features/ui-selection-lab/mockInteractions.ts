@@ -83,10 +83,21 @@ export const projectGroups: ProjectGroup[] = [
 
 // ── Mock Conversations Messages ────────────────────────────
 
+export interface MessageCard {
+  type: "draft" | "review" | "progress";
+  title: string;
+  status: string;
+  summary: string;
+  items: string[];
+  primaryAction: string;
+  secondaryAction?: string;
+}
+
 export interface MockMessage {
   role: "user" | "assistant";
   content: string;
   time: string;
+  card?: MessageCard;
 }
 
 export const mockConversationMessages: Record<string, MockMessage[]> = {
@@ -168,11 +179,85 @@ export function getDefaultMessages(): MockMessage[] {
   return [
     {
       role: "assistant",
-      content: "欢迎回来。选择一个项目会话，或描述你想构建的目标。",
+      content: "创建一个项目或选择一个已有项目来开始。",
       time: "刚刚",
     },
   ];
 }
+
+export function getNewConversationWelcome(): MockMessage[] {
+  return [
+    {
+      role: "assistant",
+      content: "项目已创建。描述你的目标，AI 主管会逐步帮你澄清范围、生成计划并推进执行。",
+      time: "刚刚",
+    },
+  ];
+}
+
+// ── Mock Cards for Conversation Samples ─────────────────────
+
+export const mockDraftCard: MessageCard = {
+  type: "draft",
+  title: "项目草案",
+  status: "draft",
+  summary: "基于对话澄清的目标，整理出以下项目草案。",
+  items: [
+    "目标：为二手交易平台构建 MVP 版本",
+    "范围：商品发布、搜索、聊天、订单闭环",
+    "约束：React + Node.js，预算 $500 以内",
+  ],
+  primaryAction: "确认草案",
+  secondaryAction: "继续澄清",
+};
+
+export const mockReviewCard: MessageCard = {
+  type: "review",
+  title: "审查报告",
+  status: "passed",
+  summary: "Workbench UI Lab 构建检查已完成，代码审查通过。",
+  items: [
+    "结论：通过",
+    "发现：无阻断问题",
+    "建议：PromptBox 对齐方式建议后续微调",
+  ],
+  primaryAction: "生成修正指令",
+  secondaryAction: "标记为已读",
+};
+
+export const mockProgressCard: MessageCard = {
+  type: "progress",
+  title: "进度汇报",
+  status: "in_progress",
+  summary: "当前项目执行进度概览。",
+  items: [
+    "已完成：商品发布与搜索规划",
+    "进行中：聊天与订单闭环",
+    "阻塞：支付与结算设计（等待 API 文档）",
+  ],
+  primaryAction: "查看详情",
+};
+
+// Extend conv-5 with card messages
+mockConversationMessages["conv-5"] = [
+  {
+    role: "user",
+    content: "将三省六部工作台重构为两栏布局。",
+    time: "09:15",
+  },
+  {
+    role: "assistant",
+    content:
+      "Workbench 两栏布局方案：\n\n1. 左侧固定 Sidebar（248-300px 响应式）\n2. 右侧主工作区 flex-1\n3. 底部 PromptBox 居中悬浮\n4. 顶部状态栏 56-64px\n\n布局已完成并通过响应式验收。",
+    time: "09:18",
+  },
+  {
+    role: "assistant",
+    content: "下面是我根据当前进度整理的审查报告：",
+    time: "09:24",
+    card: mockReviewCard,
+  },
+];
 
 // ── Dashboard Mock ─────────────────────────────────────────
 

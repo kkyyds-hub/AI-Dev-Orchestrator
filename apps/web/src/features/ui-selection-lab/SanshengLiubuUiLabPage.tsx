@@ -15,7 +15,6 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   Search,
-  Send,
   Settings,
   User,
   Wallet,
@@ -59,23 +58,22 @@ import { ConversationMessages } from "./components/WorkbenchMockConversation";
 import { MockPageContent } from "./components/WorkbenchMockPages";
 import { WorkbenchPromptBox } from "./components/WorkbenchPromptBox";
 import {
-  AdvanceNextModal,
   ApprovalsModal,
   CostUsageModal,
-  CreatePlanModal,
   DashboardModal,
   ExecutionStatusModal,
   GitWritePreviewModal,
   RepositoryQueueModal,
-  ReviewResultModal,
 } from "./components/WorkbenchRuntimeModals";
 import {
   getDefaultMessages,
+  getNewConversationWelcome,
   mockConversationMessages,
   pageNavItems,
-  projectGroups,
+  projectGroups as initialProjectGroups,
   type Conversation,
   type MockMessage,
+  type ProjectGroup,
 } from "./mockInteractions";
 
 // ── Tokens ─────────────────────────────────────────────────
@@ -101,14 +99,6 @@ const minimalDarkTokens = {
 const workbenchShellStyle = {
   "--lab-sidebar-width": "clamp(248px, 20.5vw, 300px)",
 } as React.CSSProperties;
-
-// ── Quick Actions ──────────────────────────────────────────
-
-const quickActions = [
-  { title: "创建项目计划", description: "从目标生成任务队列", icon: FolderKanban, modal: "createPlan" as const },
-  { title: "审查执行结果", description: "判断 Pass / Partial", icon: ClipboardCheck, modal: "reviewResult" as const },
-  { title: "推进下一步", description: "生成最小执行指令", icon: Send, modal: "advanceNext" as const },
-];
 
 // ── Lab Logo ───────────────────────────────────────────────
 
@@ -183,6 +173,79 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   );
 }
 
+// ── Create Project Dialog ───────────────────────────────────
+
+function CreateProjectDialog({
+  open,
+  onOpenChange,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onCreate: (name: string, note: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [note, setNote] = useState("");
+
+  function handleCreate() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onCreate(trimmed, note.trim());
+    setName("");
+    setNote("");
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(92vw,440px)]">
+        <DialogHeader>
+          <DialogTitle>创建项目</DialogTitle>
+          <DialogDescription>
+            先创建一个项目文件夹。目标、范围和计划将在项目对话中由 AI 主管逐步澄清。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[#C7C7C7]">项目名称</label>
+            <input
+              className="flex h-10 w-full rounded-full border border-[#2A2A2A] bg-[#171717] px-4 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
+              placeholder="例如：二手交易平台 MVP"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreate();
+              }}
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[#C7C7C7]">
+              项目备注<span className="text-[#5F5F5F]">（可选）</span>
+            </label>
+            <input
+              className="flex h-10 w-full rounded-full border border-[#2A2A2A] bg-[#171717] px-4 text-sm text-white outline-none transition-colors placeholder:text-[#8A8A8A] focus:border-[#3A3A3A] focus:ring-2 focus:ring-white/10"
+              placeholder="简短备注..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-3">
+          <DialogClose asChild>
+            <Button variant="secondary">取消</Button>
+          </DialogClose>
+          <Button onClick={handleCreate} disabled={!name.trim()}>
+            创建
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Workbench Preview (Interactive) ────────────────────────
 
 function WorkbenchPreview() {
@@ -198,27 +261,31 @@ function WorkbenchPreview() {
   const [welcomeMessages, setWelcomeMessages] = useState<MockMessage[]>(getDefaultMessages());
   const [topStatus, setTopStatus] = useState("当前项目 / 当前会话 / 状态");
   const [moreToolsExpanded, setMoreToolsExpanded] = useState(false);
+  const [projectGroupsState, setProjectGroupsState] = useState<ProjectGroup[]>(initialProjectGroups);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [nextConvId, setNextConvId] = useState(10);
 
   // -- derived --
   const filteredGroups = useMemo(() => {
-    if (!searchQuery.trim()) return projectGroups;
+    if (!searchQuery.trim()) return projectGroupsState;
     const q = searchQuery.toLowerCase();
-    return projectGroups
+    return projectGroupsState
       .map((g) => ({
         ...g,
         conversations: g.conversations.filter((c) => c.title.toLowerCase().includes(q)),
       }))
       .filter((g) => g.name.toLowerCase().includes(q) || g.conversations.length > 0);
-  }, [searchQuery]);
+  }, [searchQuery, projectGroupsState]);
 
   const activeConversation = useMemo(() => {
     if (!activeConversationId) return null;
-    for (const g of projectGroups) {
+    for (const g of projectGroupsState) {
       const found = g.conversations.find((c) => c.id === activeConversationId);
       if (found) return { conversation: found, project: g };
     }
     return null;
-  }, [activeConversationId]);
+  }, [activeConversationId, projectGroupsState]);
 
   const messages = useMemo(() => {
     if (activeConversationId) {
@@ -234,12 +301,77 @@ function WorkbenchPreview() {
   }, []);
 
   const handleNewSession = useCallback(() => {
+    // If no active project, open create project dialog
+    if (!activeProjectId) {
+      setCreateProjectOpen(true);
+      return;
+    }
+    // Otherwise add new conversation under current project
+    const newConv: Conversation = {
+      id: `conv-${nextConvId}`,
+      title: "新的 AI 主管对话",
+      status: "pending",
+    };
+    setNextConvId((n) => n + 1);
+    setProjectGroupsState((prev) =>
+      prev.map((g) =>
+        g.id === activeProjectId
+          ? { ...g, conversations: [...g.conversations, newConv] }
+          : g,
+      ),
+    );
+    setConversationMessages((prev) => ({ ...prev, [newConv.id]: getNewConversationWelcome() }));
     setActiveMainPage(null);
-    setActiveConversationId(null);
-    setWelcomeMessages(getDefaultMessages());
-    setTopStatus("新会话 / 未绑定项目 / 准备构建");
+    setActiveConversationId(newConv.id);
+    setTopStatus(
+      `${projectGroupsState.find((g) => g.id === activeProjectId)?.name ?? "项目"} / 新的 AI 主管对话 / pending`,
+    );
     setMoreToolsExpanded(false);
-  }, []);
+    // Ensure project is expanded
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      next.delete(activeProjectId!);
+      return next;
+    });
+    showToast("已创建新对话");
+  }, [activeProjectId, nextConvId, projectGroupsState, showToast]);
+
+  const handleCreateProject = useCallback(
+    (name: string, _note: string) => {
+      const projectId = `proj-${nextConvId}`;
+      const convId = `conv-${nextConvId + 1}`;
+      setNextConvId((n) => n + 2);
+
+      const newConv: Conversation = {
+        id: convId,
+        title: "新的 AI 主管对话",
+        status: "pending",
+      };
+
+      const newGroup: ProjectGroup = {
+        id: projectId,
+        name: name,
+        conversations: [newConv],
+      };
+
+      setProjectGroupsState((prev) => [...prev, newGroup]);
+      setConversationMessages((prev) => ({ ...prev, [convId]: getNewConversationWelcome() }));
+      setActiveMainPage(null);
+      setActiveProjectId(projectId);
+      setActiveConversationId(convId);
+      setTopStatus(`${name} / 新的 AI 主管对话 / pending`);
+      setCollapsedProjects((prev) => {
+        const next = new Set(prev);
+        // Collapse all others, expand the new one
+        projectGroupsState.forEach((g) => next.add(g.id));
+        next.delete(projectId);
+        return next;
+      });
+      setMoreToolsExpanded(false);
+      showToast(`已创建项目「${name}」`);
+    },
+    [nextConvId, projectGroupsState, showToast],
+  );
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -257,11 +389,15 @@ function WorkbenchPreview() {
     });
   }, []);
 
-  const handleSelectConversation = useCallback((conv: Conversation, projectName: string) => {
-    setActiveMainPage(null);
-    setActiveConversationId(conv.id);
-    setTopStatus(`${projectName} / ${conv.title} / ${conv.status}`);
-  }, []);
+  const handleSelectConversation = useCallback(
+    (conv: Conversation, projectGroup: ProjectGroup) => {
+      setActiveMainPage(null);
+      setActiveProjectId(projectGroup.id);
+      setActiveConversationId(conv.id);
+      setTopStatus(`${projectGroup.name} / ${conv.title} / ${conv.status}`);
+    },
+    [],
+  );
 
   const handlePageNav = useCallback((label: string) => {
     const pageKeyMap: Record<string, string> = {
@@ -278,16 +414,30 @@ function WorkbenchPreview() {
 
   const handlePromptSend = useCallback(
     (text: string) => {
+      const timeStr = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
       const newMsg: MockMessage = {
         role: "user",
         content: text,
-        time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+        time: timeStr,
       };
-      const reply: MockMessage = {
-        role: "assistant",
-        content: `收到：「${text}」\n\n这是 mock 回复。当前为实验页，不连接真实 AI 执行器。你的输入已记录在本地会话状态中。`,
-        time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      };
+      // Check if this is a fresh conversation (0 or 1 messages)
+      const existingMsgs = activeConversationId
+        ? (conversationMessages[activeConversationId] ?? [])
+        : welcomeMessages;
+      const isFreshConversation = existingMsgs.length <= 1;
+
+      const reply: MockMessage = isFreshConversation
+        ? {
+            role: "assistant",
+            content:
+              `好的，我先帮你把目标澄清清楚。为了避免过早拆任务，我需要先确认几个问题：\n\n1. 目标用户是谁？\n2. 第一版 MVP 只做哪些能力？\n3. 是否已有代码仓库？\n\n你可以直接回复，我会逐步整理出项目草案。`,
+            time: timeStr,
+          }
+        : {
+            role: "assistant",
+            content: `收到：「${text}」\n\n这是 mock 回复。当前为实验页，不连接真实 AI 执行器。你的输入已记录在本地会话状态中。`,
+            time: timeStr,
+          };
 
       if (activeConversationId) {
         setConversationMessages((prev) => ({
@@ -300,7 +450,7 @@ function WorkbenchPreview() {
 
       showToast("已添加到实验会话 mock");
     },
-    [activeConversationId, showToast],
+    [activeConversationId, conversationMessages, welcomeMessages, showToast],
   );
 
   // -- render main content --
@@ -315,7 +465,7 @@ function WorkbenchPreview() {
       return <ConversationMessages messages={messages} />;
     }
 
-    // Welcome state
+    // Welcome state — single CTA: 创建项目
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 pb-24 pt-6 text-center md:px-8 md:pb-28 lg:px-10">
         <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#2A2A2A] bg-black md:mb-5 md:h-14 md:w-14">
@@ -326,32 +476,16 @@ function WorkbenchPreview() {
           我们来构建什么？
         </h2>
         <p className="mt-3 max-w-xl text-sm leading-6 text-[#8A8A8A] md:mt-4">
-          描述目标、粘贴执行结果，或让 AI 项目主管拆分下一步任务
+          创建一个项目，AI 主管会逐步帮你澄清目标、生成计划并推进执行
         </p>
 
-        <div className="mt-6 w-full max-w-[680px] space-y-1 text-left md:mt-10 lg:mt-12">
-          {quickActions.map((action) => {
-            const Icon = action.icon;
-            const buttonContent = (
-              <button className="group flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-all duration-150 hover:bg-[#222222] active:scale-[0.98]">
-                <Icon className="h-4 w-4 shrink-0 text-[#8A8A8A]" />
-                <span className="min-w-0 flex-1 text-sm font-medium text-white">{action.title}</span>
-                <span className="hidden max-w-[220px] text-sm text-[#8A8A8A] xl:block">{action.description}</span>
-                <span className="text-lg leading-none text-[#5F5F5F] transition-colors group-hover:text-[#C7C7C7]">
-                  &gt;
-                </span>
-              </button>
-            );
-
-            if (action.modal === "createPlan") {
-              return <CreatePlanModal key={action.title}>{buttonContent}</CreatePlanModal>;
-            }
-            if (action.modal === "reviewResult") {
-              return <ReviewResultModal key={action.title}>{buttonContent}</ReviewResultModal>;
-            }
-            return <AdvanceNextModal key={action.title}>{buttonContent}</AdvanceNextModal>;
-          })}
-        </div>
+        <button
+          className="mt-8 flex h-11 items-center gap-2 rounded-[14px] bg-white px-5 text-sm font-semibold text-black transition-all duration-150 hover:bg-[#EDEDED] active:scale-[0.99]"
+          onClick={() => setCreateProjectOpen(true)}
+        >
+          <FolderKanban className="h-4 w-4" />
+          创建项目
+        </button>
       </div>
     );
   }
@@ -510,7 +644,7 @@ function WorkbenchPreview() {
                                       ? "bg-[#2C2C2C] text-white"
                                       : "text-[#C7C7C7] hover:bg-[#222222] hover:text-white",
                                   )}
-                                  onClick={() => handleSelectConversation(conv, group.name)}
+                                  onClick={() => handleSelectConversation(conv, group)}
                                 >
                                   <div className="truncate">{conv.title}</div>
                                 </button>
@@ -569,6 +703,13 @@ function WorkbenchPreview() {
           <WorkbenchPromptBox onSend={handlePromptSend} />
         </main>
       </div>
+
+      {/* Create Project Dialog */}
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        onCreate={handleCreateProject}
+      />
 
       {/* Toast */}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
