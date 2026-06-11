@@ -247,9 +247,10 @@ function ProjectContextDialog({
 function ProjectManagementMockPage() {
   const [discussion, setDiscussion] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
-  const [openStageLabel, setOpenStageLabel] = useState<string | null>(null);
+  const [openStageIndex, setOpenStageIndex] = useState<number | null>(null);
   const hasDiscussion = discussion.trim().length > 0;
-  const openStage = openStageLabel ? projectPlanSteps.find((step) => step.label === openStageLabel) : null;
+  const openStage = openStageIndex === null ? null : projectPlanSteps[openStageIndex];
+  const stageBubbleLeft = openStageIndex === null ? "50%" : `${(openStageIndex + 0.5) * 25}%`;
 
   function handleRecordFeedback() {
     if (!hasDiscussion) return;
@@ -323,10 +324,10 @@ function ProjectManagementMockPage() {
                 <button
                   className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/10 active:scale-[0.98]"
                   onClick={() => {
-                    setOpenStageLabel((current) => (current === step.label ? null : step.label));
+                    setOpenStageIndex((current) => (current === index ? null : index));
                   }}
                   aria-label={`查看${step.label}阶段进展`}
-                  aria-pressed={openStageLabel === step.label}
+                  aria-pressed={openStageIndex === index}
                 >
                   <span
                     className={[
@@ -352,7 +353,7 @@ function ProjectManagementMockPage() {
             ))}
           </div>
           {openStage ? (
-            <div className="absolute left-1/2 top-[78px] z-20 w-[min(82vw,280px)] -translate-x-1/2 rounded-2xl border border-[#2A2A2A] bg-[#171717] px-3.5 py-3 shadow-2xl shadow-black/40">
+            <div className="absolute top-[76px] z-20 w-[min(82vw,260px)] -translate-x-1/2 rounded-2xl border border-[#2A2A2A] bg-[#171717] px-3 py-3 shadow-2xl shadow-black/40" style={{ left: stageBubbleLeft }}>
               <span className="absolute left-1/2 top-[-5px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-[#2A2A2A] bg-[#171717]" />
               <div className="text-sm font-medium text-white">{openStage.bubbleTitle}</div>
               <p className="mt-1 text-xs leading-5 text-[#C7C7C7]">{openStage.bubbleSummary}</p>
