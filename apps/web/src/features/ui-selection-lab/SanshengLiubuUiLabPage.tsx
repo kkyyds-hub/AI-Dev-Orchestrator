@@ -46,7 +46,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
-  ScrollArea,
   Separator,
   Tabs,
   TabsContent,
@@ -544,7 +543,7 @@ function WorkbenchPreview() {
             />
           </div>
 
-          <ScrollArea hideScrollbar className="mt-4 min-h-0 flex-1 pr-1 md:mt-6">
+          <div className="ui-lab-sidebar-scroll mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 md:mt-6">
             <div className="space-y-4 md:space-y-6">
               {/* 运行与治理 — open modals */}
               <div>
@@ -676,7 +675,7 @@ function WorkbenchPreview() {
                 </div>
               </div>
             </div>
-          </ScrollArea>
+          </div>
 
           {/* User menu */}
           <DropdownMenu>
@@ -734,6 +733,18 @@ function WorkbenchPreview() {
 
       {/* Toast */}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      <style>{`
+        .ui-lab-sidebar-scroll {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+
+        .ui-lab-sidebar-scroll::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+      `}</style>
     </section>
   );
 }
