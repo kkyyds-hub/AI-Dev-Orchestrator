@@ -663,6 +663,7 @@ function ProjectManagementMockPage() {
 
 function ExecutionCenterMockPage() {
   const [activeEvidenceTab, setActiveEvidenceTab] = useState("run");
+  const [queueDiscussionMessage, setQueueDiscussionMessage] = useState("");
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
@@ -826,6 +827,9 @@ function ExecutionCenterMockPage() {
 
         <section className="pt-6">
           <h2 className="text-base font-semibold text-white">后续队列 · 当前项目内</h2>
+          {queueDiscussionMessage ? (
+            <div className="mt-2 text-xs text-[#8A8A8A]">{queueDiscussionMessage}</div>
+          ) : null}
           <div className="mt-4 border-y border-[#2A2A2A]">
             {executionQueueRows.map((item) => (
               <Dialog key={item.title}>
@@ -848,7 +852,13 @@ function ExecutionCenterMockPage() {
                   <div className="mt-5 flex justify-end gap-3">
                     {item.state === "待人工" ? (
                       <DialogClose asChild>
-                        <Button variant="secondary" size="sm">回到工作台讨论 · mock</Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setQueueDiscussionMessage("已把「数据源账号确认」加入工作台讨论入口 · mock")}
+                        >
+                          回到工作台讨论 · mock
+                        </Button>
                       </DialogClose>
                     ) : null}
                     <DialogClose asChild>
