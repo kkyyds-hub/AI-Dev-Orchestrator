@@ -866,7 +866,7 @@ function ExecutionCenterMockPage({
                             variant="secondary"
                             size="sm"
                             onClick={() => {
-                              setQueueDiscussionMessage("已把「数据源账号确认」加入工作台讨论入口 · mock");
+                              setQueueDiscussionMessage("已加入工作台讨论：@「数据源账号确认」 · mock");
                               onQueueDiscussionAction?.("add", item.title);
                             }}
                           >
@@ -884,11 +884,11 @@ function ExecutionCenterMockPage({
                             <DialogClose asChild>
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setQueueDiscussionMessage("已把「数据源账号确认」加入并打开工作台讨论 · mock");
+                                  setQueueDiscussionMessage("已加入并前往工作台讨论：@「数据源账号确认」 · mock");
                                   onQueueDiscussionAction?.("add-and-open", item.title);
                                 }}
                               >
-                                加入并回到工作台 · mock
+                                加入并前往工作台 · mock
                               </DropdownMenuItem>
                             </DialogClose>
                           </DropdownMenuContent>
