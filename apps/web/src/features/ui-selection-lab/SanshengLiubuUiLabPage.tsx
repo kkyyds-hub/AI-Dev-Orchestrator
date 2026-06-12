@@ -311,6 +311,32 @@ function WorkbenchPreview() {
     setTimeout(() => setToast(null), 2500);
   }, []);
 
+  const handleQueueDiscussionAction = useCallback(
+    (mode: "add" | "add-and-open", title: string) => {
+      if (mode === "add") {
+        showToast(`已加入工作台讨论：「${title}」 · mock`);
+        return;
+      }
+
+      setActiveMainPage(null);
+      setActiveConversationId(null);
+      setWelcomeMessages([
+        {
+          role: "assistant",
+          content: `已加入工作台讨论：「${title}」。这里会继续澄清人工确认项，并生成下一步处理建议。`,
+          time: "刚刚",
+        },
+      ]);
+      setTopContext({
+        title: "工作台讨论",
+        subtitle: `${title} · mock`,
+        status: "pending",
+      });
+      showToast(`已回到工作台讨论：「${title}」 · mock`);
+    },
+    [showToast],
+  );
+
   const handleNewProjectSession = useCallback(() => {
     setCreateProjectOpen(true);
   }, []);
@@ -478,7 +504,7 @@ function WorkbenchPreview() {
   function renderMainContent() {
     // If a main page is selected, show mock page
     if (activeMainPage && !activeConversationId) {
-      return <MockPageContent pageKey={activeMainPage} />;
+      return <MockPageContent pageKey={activeMainPage} onQueueDiscussionAction={handleQueueDiscussionAction} />;
     }
 
     // If a conversation is selected, show conversation (no duplicate header)

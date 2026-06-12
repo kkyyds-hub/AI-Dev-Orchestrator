@@ -1,6 +1,7 @@
 import {
   Briefcase,
   Check,
+  ChevronDown,
   ChevronRight,
   Clock3,
   FileText,
@@ -18,6 +19,10 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   ReadbackRows,
   Separator,
   Tabs,
@@ -661,7 +666,11 @@ function ProjectManagementMockPage() {
   );
 }
 
-function ExecutionCenterMockPage() {
+function ExecutionCenterMockPage({
+  onQueueDiscussionAction,
+}: {
+  onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
+}) {
   const [activeEvidenceTab, setActiveEvidenceTab] = useState("run");
   const [queueDiscussionMessage, setQueueDiscussionMessage] = useState("");
 
@@ -851,15 +860,40 @@ function ExecutionCenterMockPage() {
                   <ReadbackRows rows={item.rows} footer={item.footer} />
                   <div className="mt-5 flex justify-end gap-3">
                     {item.state === "待人工" ? (
-                      <DialogClose asChild>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setQueueDiscussionMessage("已把「数据源账号确认」加入工作台讨论入口 · mock")}
-                        >
-                          回到工作台讨论 · mock
-                        </Button>
-                      </DialogClose>
+                      <div className="flex items-center gap-1">
+                        <DialogClose asChild>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setQueueDiscussionMessage("已把「数据源账号确认」加入工作台讨论入口 · mock");
+                              onQueueDiscussionAction?.("add", item.title);
+                            }}
+                          >
+                            加入工作台讨论
+                          </Button>
+                        </DialogClose>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="secondary" size="sm" className="px-2" aria-label="更多讨论动作">
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DialogClose asChild>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setQueueDiscussionMessage("已把「数据源账号确认」加入并打开工作台讨论 · mock");
+                                  onQueueDiscussionAction?.("add-and-open", item.title);
+                                }}
+                              >
+                                加入并回到工作台 · mock
+                              </DropdownMenuItem>
+                            </DialogClose>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     ) : null}
                     <DialogClose asChild>
                       <Button variant="secondary" size="sm">关闭</Button>
@@ -875,13 +909,19 @@ function ExecutionCenterMockPage() {
   );
 }
 
-export function MockPageContent({ pageKey }: { pageKey: string }) {
+export function MockPageContent({
+  pageKey,
+  onQueueDiscussionAction,
+}: {
+  pageKey: string;
+  onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
+}) {
   if (pageKey === "projects") {
     return <ProjectManagementMockPage />;
   }
 
   if (pageKey === "execution") {
-    return <ExecutionCenterMockPage />;
+    return <ExecutionCenterMockPage onQueueDiscussionAction={onQueueDiscussionAction} />;
   }
 
   const content: MainPageContent | undefined = mainPageMockContents[pageKey];
