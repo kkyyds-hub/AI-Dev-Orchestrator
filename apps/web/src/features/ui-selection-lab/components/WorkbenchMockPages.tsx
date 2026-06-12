@@ -29,6 +29,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Textarea,
 } from "./ui";
 import { mainPageMockContents, type MainPageContent } from "../mockInteractions";
 
@@ -308,6 +309,136 @@ const executionQueueRows = [
       ["风险", "暂无阻塞项"],
     ],
     footer: "仅展示队列任务读回，不执行提交、推送或写入操作 · mock",
+  },
+] as const;
+
+const deliverablesItems = [
+  {
+    id: "deliv-1",
+    title: "项目规划草案 v1",
+    status: "已锁定",
+    type: "规划草案",
+    stage: "目标澄清阶段",
+    version: "版本 1",
+    summary: "明确本阶段目标、范围与交付边界，建议先完成数据接入与指标口径确认，再进入报表联调。",
+    source: "由 AI 主管沉淀 · 来源 run_7F39 · 今天 09:58",
+    content: `本成果明确了营销活动分析平台在当前阶段的目标、范围与交付边界。
+
+- 目标：建立可复用的活动数据分析全链路
+- 范围：数据接入、指标口径、报表联调、验收交付
+- 边界：本阶段不进行复杂模型建设
+- 建议：先完成数据源与指标口径确认，再进入报表联调
+
+当前内容仅为 mock，不连接真实后端。`,
+    evidence: [
+      ["task_id", "task_001"],
+      ["run_id", "run_7F39"],
+      ["source_label", "AI 主管 · 规划生成"],
+      ["evidence_refs", "project-scope.md, delivery-criteria.md"],
+      ["Git", "写入关闭"],
+      ["后端", "未连接"],
+    ] as const,
+    versions: [
+      ["version_no", "1"],
+      ["total_versions", "1"],
+      ["latest_version", "v1"],
+      ["change_note", "初始版本，目标澄清阶段产出"],
+    ] as const,
+    meta: [
+      ["状态", "已锁定"],
+      ["类型", "规划草案"],
+      ["阶段", "目标澄清阶段"],
+      ["创建者", "AI 主管"],
+      ["创建时间", "今天 09:58"],
+      ["更新时间", "今天 09:58"],
+      ["是否可作为验收证据", "是"],
+    ] as const,
+  },
+  {
+    id: "deliv-2",
+    title: "数据接入任务拆分",
+    status: "待审查",
+    type: "任务拆分",
+    stage: "数据接入阶段",
+    version: "版本 1",
+    summary: "将数据接入拆分为源账号确认、连通性校验、字段映射和验收记录四个子任务，并标出依赖顺序。",
+    source: "由 AI 主管沉淀 · 来源 run_7F3A · 今天 10:22",
+    content: `本成果将数据接入阶段拆分为四个子任务：
+
+1. 源账号确认 — 需人工确认数据源账号权限
+2. 连通性校验 — 验证数据源可访问性
+3. 字段映射 — 确认字段对应关系
+4. 验收记录 — 生成接入验证报告
+
+依赖顺序：1 → 2 → 3 → 4，其中步骤 1 需人工介入。
+
+当前内容仅为 mock，不连接真实后端。`,
+    evidence: [
+      ["task_id", "task_002"],
+      ["run_id", "run_7F3A"],
+      ["source_label", "AI 主管 · 任务拆分"],
+      ["evidence_refs", "data-ingestion-plan.md"],
+      ["Git", "写入关闭"],
+      ["后端", "未连接"],
+    ] as const,
+    versions: [
+      ["version_no", "1"],
+      ["total_versions", "1"],
+      ["latest_version", "v1"],
+      ["change_note", "初始版本，数据接入阶段任务拆分"],
+    ] as const,
+    meta: [
+      ["状态", "待审查"],
+      ["类型", "任务拆分"],
+      ["阶段", "数据接入阶段"],
+      ["创建者", "AI 主管"],
+      ["创建时间", "今天 10:22"],
+      ["更新时间", "今天 10:22"],
+      ["是否可作为验收证据", "待确认"],
+    ] as const,
+  },
+  {
+    id: "deliv-3",
+    title: "当前运行摘要",
+    status: "草稿",
+    type: "运行摘要",
+    stage: "执行阶段",
+    version: "版本 1",
+    summary: "当前执行聚焦数据源连通性校验，已完成上下文建立，下一步等待结果回写与补充验证证据。",
+    source: "由 AI 主管沉淀 · 来源 run_7F2E · 今天 11:16",
+    content: `本成果记录当前运行的执行摘要：
+
+- 执行焦点：数据源连通性校验
+- 已完成：上下文建立、任务领取
+- 进行中：AI 正在处理当前任务
+- 下一步：等待结果回写与补充验证证据
+
+运行环境处于只读安全边界内，未触发 Git 写入。
+
+当前内容仅为 mock，不连接真实后端。`,
+    evidence: [
+      ["task_id", "task_003"],
+      ["run_id", "run_7F2E"],
+      ["source_label", "AI 主管 · 运行摘要"],
+      ["evidence_refs", "execution-log.txt"],
+      ["Git", "写入关闭"],
+      ["后端", "未连接"],
+    ] as const,
+    versions: [
+      ["version_no", "1"],
+      ["total_versions", "1"],
+      ["latest_version", "v1"],
+      ["change_note", "草稿版本，执行阶段运行摘要"],
+    ] as const,
+    meta: [
+      ["状态", "草稿"],
+      ["类型", "运行摘要"],
+      ["阶段", "执行阶段"],
+      ["创建者", "AI 主管"],
+      ["创建时间", "今天 11:16"],
+      ["更新时间", "今天 11:16"],
+      ["是否可作为验收证据", "否"],
+    ] as const,
   },
 ] as const;
 
@@ -909,6 +1040,136 @@ function ExecutionCenterMockPage({
   );
 }
 
+function DeliverablesCenterMockPage({
+  onQueueDiscussionAction,
+}: {
+  onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
+}) {
+  const [selectedId, setSelectedId] = useState<string>(deliverablesItems[0]?.id ?? "");
+  const [discussionText, setDiscussionText] = useState("");
+  const [discussionMessage, setDiscussionMessage] = useState("");
+
+  const selected = deliverablesItems.find((d) => d.id === selectedId) ?? deliverablesItems[0];
+
+  function handleDiscussionSubmit() {
+    if (!discussionText.trim()) return;
+    setDiscussionText("");
+    setDiscussionMessage("已提交给 AI 主管审核，将在工作台创建成果讨论会话 · mock");
+    onQueueDiscussionAction?.("add", `成果讨论：${selected.title}`);
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="mx-auto flex w-full max-w-[1080px] flex-col">
+        <section className="border-b border-[#2A2A2A] pb-7">
+          <h1 className="text-2xl font-semibold tracking-normal text-white">成果中心</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-[#C7C7C7]">
+            沉淀文档、代码变更与可交付证据
+          </p>
+          <p className="mt-1 text-xs text-[#8A8A8A]">当前为 mock，不接后端，不触发 Git 写入。</p>
+          <div className="mt-4 text-sm text-[#8A8A8A]">
+            营销活动分析平台 · 已沉淀 3 项 · 待审查 1 项 · 已锁定 1 项 · Git 写入关闭
+          </div>
+        </section>
+
+        <section className="grid gap-0 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.2fr] lg:gap-8">
+          <div>
+            <h2 className="text-base font-semibold text-white">近期沉淀</h2>
+            <div className="mt-5 space-y-0">
+              {deliverablesItems.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSelectedId(item.id)}
+                  className={[
+                    "w-full rounded-xl px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                    selectedId === item.id ? "bg-[#111111]" : "hover:bg-[#0A0A0A]",
+                  ].join(" ")}
+                >
+                  {index > 0 && <div className="mb-4 -mx-3 h-px bg-[#2A2A2A]" />}
+                  <div className="text-sm font-medium text-white">{item.title}</div>
+                  <div className="mt-1 text-xs text-[#8A8A8A]">
+                    {item.status} · {item.type} · {item.stage} · {item.version}
+                  </div>
+                  <div className="mt-2 text-sm leading-5 text-[#C7C7C7]">{item.summary}</div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs text-[#5F5F5F]">{item.source}</span>
+                    <span className="text-xs text-[#5F5F5F]">查看详情</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6">
+              <Textarea
+                value={discussionText}
+                onChange={(e) => {
+                  setDiscussionText(e.target.value);
+                  if (discussionMessage) setDiscussionMessage("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleDiscussionSubmit();
+                  }
+                }}
+                placeholder="补充对这个成果的修改意见或证据说明..."
+                className="min-h-[80px] rounded-2xl border border-[#2A2A2A] bg-[#0D0D0D] px-4 py-3 text-sm text-white placeholder:text-[#5F5F5F]"
+              />
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-[#5F5F5F]">
+                  发送后，AI 主管将审核并在工作台创建成果讨论会话 · mock
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDiscussionSubmit}
+                  disabled={!discussionText.trim()}
+                >
+                  发送
+                </Button>
+              </div>
+              {discussionMessage && (
+                <div className="mt-2 text-xs text-[#8A8A8A]">{discussionMessage}</div>
+              )}
+            </div>
+          </div>
+
+          <div className="border-l border-[#2A2A2A] pl-8">
+            <div className="text-sm font-semibold text-white">{selected.title}</div>
+            <div className="mt-0.5 text-xs text-[#8A8A8A]">
+              {selected.status} · {selected.type} · {selected.stage}
+            </div>
+
+            <Tabs defaultValue="content" className="mt-5">
+              <TabsList>
+                <TabsTrigger value="content">内容</TabsTrigger>
+                <TabsTrigger value="evidence">证据</TabsTrigger>
+                <TabsTrigger value="versions">版本</TabsTrigger>
+                <TabsTrigger value="summary">摘要</TabsTrigger>
+              </TabsList>
+              <TabsContent value="content">
+                <div className="mt-4 text-sm leading-6 text-[#C7C7C7] whitespace-pre-line">
+                  {selected.content}
+                </div>
+              </TabsContent>
+              <TabsContent value="evidence">
+                <ReadbackRows rows={selected.evidence} footer="仅展示证据读回，不触发 Git 写入 · mock" />
+              </TabsContent>
+              <TabsContent value="versions">
+                <ReadbackRows rows={selected.versions} footer="仅展示版本读回，不触发写入操作 · mock" />
+              </TabsContent>
+              <TabsContent value="summary">
+                <ReadbackRows rows={selected.meta} footer="仅展示摘要读回，不接真实后端 · mock" />
+              </TabsContent>
+            </Tabs>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export function MockPageContent({
   pageKey,
   onQueueDiscussionAction,
@@ -922,6 +1183,10 @@ export function MockPageContent({
 
   if (pageKey === "execution") {
     return <ExecutionCenterMockPage onQueueDiscussionAction={onQueueDiscussionAction} />;
+  }
+
+  if (pageKey === "deliverables") {
+    return <DeliverablesCenterMockPage onQueueDiscussionAction={onQueueDiscussionAction} />;
   }
 
   const content: MainPageContent | undefined = mainPageMockContents[pageKey];
