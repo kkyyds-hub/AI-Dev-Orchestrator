@@ -46,6 +46,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
+  ReadbackRows,
   Separator,
   Tabs,
   TabsContent,
@@ -948,6 +949,21 @@ function ComponentPlayground() {
             </div>
           </ComponentRow>
         </div>
+
+          <ComponentRow title="ReadbackRows">
+            <ReadbackRows
+              rows={[
+                ["运行", "running · run_7F3A"],
+                ["Git", "只读预检 · 写入关闭"],
+                ["质量闸门", "等待结果"],
+              ]}
+              records={[
+                "11:34:08 读取当前项目上下文",
+                "11:34:37 生成接入任务拆分建议",
+              ]}
+              footer="仅展示读回信息，不触发执行操作 · mock"
+            />
+          </ComponentRow>
 
         <ChartPreview />
         <DataListPreview />

@@ -18,7 +18,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  ReadbackRows,
   Separator,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "./ui";
 import { mainPageMockContents, type MainPageContent } from "../mockInteractions";
 
@@ -657,6 +662,8 @@ function ProjectManagementMockPage() {
 }
 
 function ExecutionCenterMockPage() {
+  const [activeEvidenceTab, setActiveEvidenceTab] = useState("run");
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
       <div className="mx-auto flex w-full max-w-[1080px] flex-col">
@@ -676,6 +683,7 @@ function ExecutionCenterMockPage() {
             <span className="text-[#5F5F5F]">·</span>
             <span>Git 写入关闭</span>
           </div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">上次刷新 11:34:40 · mock</div>
         </section>
 
         <section className="grid gap-8 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.15fr] lg:gap-10">
@@ -684,6 +692,10 @@ function ExecutionCenterMockPage() {
             <div className="mt-5 space-y-0">
               {executionProgressSteps.map((step, index) => {
                 const detail = executionStepDetails[step.title as ExecutionStepTitle];
+                const isDone = step.state === "done";
+                const isCurrent = step.state === "current";
+                const isPending = step.state === "pending";
+
                 const stepContent = (
                   <>
                     {index < executionProgressSteps.length - 1 ? (
@@ -692,32 +704,52 @@ function ExecutionCenterMockPage() {
                     <span
                       className={[
                         "relative z-10 flex h-7 w-7 items-center justify-center rounded-full border text-xs",
-                        step.state === "done"
+                        isDone
                           ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
-                          : step.state === "current"
+                          : isCurrent
                             ? "border-[#C7C7C7] bg-black text-white"
                             : "border-[#3A3A3A] bg-black text-[#5F5F5F]",
                       ].join(" ")}
                     >
-                      {step.state === "done" ? <Check className="h-4 w-4" /> : step.state === "current" ? (
-                        <span className="h-2.5 w-2.5 rounded-full bg-white" />
+                      {isDone ? <Check className="h-4 w-4" /> : isCurrent ? (
+                        <span className="h-2.5 w-2.5 rounded-full bg-white animate-pulse" />
                       ) : null}
                     </span>
                     <div>
-                      <div className={step.state === "current" ? "text-sm font-semibold text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                      <div className={isCurrent ? "text-sm font-semibold text-white" : "text-sm font-medium text-[#C7C7C7]"}>
                         {step.title}
                       </div>
-                      <div className="mt-2 text-sm text-[#8A8A8A]">{step.detail}</div>
+                      <div className="mt-2 text-sm text-[#8A8A8A]">
+                        {isPending ? "尚未发生 · " : ""}{step.detail}
+                      </div>
                     </div>
                   </>
                 );
 
+                // Pending step: not clickable
+                if (isPending) {
+                  return (
+                    <div
+                      key={step.title}
+                      className="relative grid grid-cols-[40px_1fr] items-start rounded-2xl pb-7 text-left last:pb-0"
+                    >
+                      {stepContent}
+                    </div>
+                  );
+                }
+
+                // Done or current: clickable with dialog
                 return (
                   <Dialog key={step.title}>
                     <DialogTrigger asChild>
                       <button
                         type="button"
-                        className="relative grid w-full cursor-pointer grid-cols-[40px_1fr] items-start rounded-2xl pb-7 text-left last:pb-0 transition-colors hover:bg-[#0D0D0D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]"
+                        className={[
+                          "relative grid w-full grid-cols-[40px_1fr] items-start rounded-2xl pb-7 text-left last:pb-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+                          isDone
+                            ? "cursor-pointer hover:bg-[#090909] active:scale-[0.995]"
+                            : "cursor-pointer hover:bg-[#111111] active:scale-[0.99]",
+                        ].join(" ")}
                       >
                         {stepContent}
                       </button>
@@ -727,27 +759,7 @@ function ExecutionCenterMockPage() {
                         <DialogTitle>{detail.title}</DialogTitle>
                         <DialogDescription>{detail.description}</DialogDescription>
                       </DialogHeader>
-                      <Separator className="my-4" />
-                      <div className="border-y border-[#2A2A2A]">
-                        {detail.rows.map((row) => (
-                          <div
-                            key={row[0]}
-                            className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
-                          >
-                            <span className="text-[#C7C7C7]">{row[0]}</span>
-                            <span className="text-[#8A8A8A]">{row[1]}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-4">
-                        <div className="mb-2 text-sm font-semibold text-white">最近记录</div>
-                        <div className="space-y-1">
-                          {detail.logs.map((log) => (
-                            <div key={log} className="text-xs text-[#8A8A8A]">{log}</div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="mt-4 text-xs text-[#5F5F5F]">{detail.footer}</div>
+                      <ReadbackRows rows={detail.rows} records={detail.logs} footer={detail.footer} />
                       <div className="mt-5 flex justify-end">
                         <DialogClose asChild>
                           <Button variant="secondary" size="sm">关闭</Button>
@@ -762,61 +774,53 @@ function ExecutionCenterMockPage() {
 
           <div className="border-t border-[#2A2A2A] pt-7 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
             <h2 className="text-base font-semibold text-white">安全与状态</h2>
-            <div className="mt-4 border-y border-[#2A2A2A]">
-              {executionStatusRows.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="grid gap-2 border-b border-[#1F1F1F] px-1 py-2.5 text-sm last:border-b-0 sm:grid-cols-[160px_1fr]"
-                >
-                  <span className="text-[#C7C7C7]">{label}</span>
-                  <span className="text-[#C7C7C7]">{value}</span>
-                </div>
-              ))}
-            </div>
+            <ReadbackRows rows={executionStatusRows} compact />
             <div className="mt-5 space-y-2 text-sm leading-6 text-[#8A8A8A]">
               <p>正在校验数据源连通性，并生成接入任务拆分建议。</p>
               <p>当前未触发 Git 写入，运行环境处于只读安全边界内。</p>
             </div>
-            <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-[#8A8A8A]">
-              <span>查看证据：</span>
-              {executionEvidenceDialogItems.map((item) => (
-                <Dialog key={item.key}>
-                  <DialogTrigger asChild>
+
+            {/* Merged evidence dialog */}
+            <Dialog>
+              <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-[#8A8A8A]">
+                <span>查看证据：</span>
+                {executionEvidenceDialogItems.map((item) => (
+                  <DialogTrigger asChild key={item.key}>
                     <Button
                       variant="secondary"
                       size="sm"
                       className="h-7 rounded-md border border-[#2A2A2A] bg-transparent px-2.5 text-xs text-[#C7C7C7] hover:bg-[#222222] hover:text-white active:scale-[0.98]"
+                      onClick={() => setActiveEvidenceTab(item.key)}
                     >
                       {item.label}
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="w-[min(92vw,520px)]">
-                    <DialogHeader>
-                      <DialogTitle>{item.title}</DialogTitle>
-                      <DialogDescription>{item.description}</DialogDescription>
-                    </DialogHeader>
-                    <Separator className="my-4" />
-                    <div className="border-y border-[#2A2A2A]">
-                      {item.rows.map((row) => (
-                        <div
-                          key={row[0]}
-                          className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
-                        >
-                          <span className="text-[#C7C7C7]">{row[0]}</span>
-                          <span className="text-[#8A8A8A]">{row[1]}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-4 text-xs text-[#5F5F5F]">{item.footer}</div>
-                    <div className="mt-5 flex justify-end">
-                      <DialogClose asChild>
-                        <Button variant="secondary" size="sm">关闭</Button>
-                      </DialogClose>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              ))}
-            </div>
+                ))}
+              </div>
+              <DialogContent className="w-[min(92vw,620px)]">
+                <DialogHeader>
+                  <DialogTitle>执行证据</DialogTitle>
+                  <DialogDescription>当前运行证据读回 · mock</DialogDescription>
+                </DialogHeader>
+                <Tabs value={activeEvidenceTab} onValueChange={setActiveEvidenceTab}>
+                  <TabsList className="mt-4">
+                    {executionEvidenceDialogItems.map((item) => (
+                      <TabsTrigger key={item.key} value={item.key}>{item.label}</TabsTrigger>
+                    ))}
+                  </TabsList>
+                  {executionEvidenceDialogItems.map((item) => (
+                    <TabsContent key={item.key} value={item.key}>
+                      <ReadbackRows rows={item.rows} footer={item.footer} />
+                    </TabsContent>
+                  ))}
+                </Tabs>
+                <div className="mt-5 flex justify-end">
+                  <DialogClose asChild>
+                    <Button variant="secondary" size="sm">关闭</Button>
+                  </DialogClose>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </section>
 
@@ -840,20 +844,13 @@ function ExecutionCenterMockPage() {
                     <DialogTitle>{item.title}</DialogTitle>
                     <DialogDescription>{item.description}</DialogDescription>
                   </DialogHeader>
-                  <Separator className="my-4" />
-                  <div className="border-y border-[#2A2A2A]">
-                    {item.rows.map((row) => (
-                      <div
-                        key={row[0]}
-                        className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[140px_1fr]"
-                      >
-                        <span className="text-[#C7C7C7]">{row[0]}</span>
-                        <span className="text-[#8A8A8A]">{row[1]}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 text-xs text-[#5F5F5F]">{item.footer}</div>
-                  <div className="mt-5 flex justify-end">
+                  <ReadbackRows rows={item.rows} footer={item.footer} />
+                  <div className="mt-5 flex justify-end gap-3">
+                    {item.state === "待人工" ? (
+                      <DialogClose asChild>
+                        <Button variant="secondary" size="sm">回到工作台讨论 · mock</Button>
+                      </DialogClose>
+                    ) : null}
                     <DialogClose asChild>
                       <Button variant="secondary" size="sm">关闭</Button>
                     </DialogClose>

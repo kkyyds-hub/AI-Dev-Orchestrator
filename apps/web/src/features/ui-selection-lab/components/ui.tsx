@@ -276,3 +276,51 @@ export const Separator = React.forwardRef<
   <SeparatorPrimitive.Root ref={ref} className={cn("bg-[#2A2A2A] data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full", className)} {...props} />
 ));
 Separator.displayName = SeparatorPrimitive.Root.displayName;
+
+export interface ReadbackRowsProps {
+  rows: readonly (readonly [string, string])[];
+  records?: readonly string[];
+  recordsLabel?: string;
+  footer?: string;
+  compact?: boolean;
+}
+
+export function ReadbackRows({
+  rows,
+  records,
+  recordsLabel = "最近记录",
+  footer,
+  compact = false,
+}: ReadbackRowsProps) {
+  return (
+    <>
+      <div className="border-y border-[#2A2A2A]">
+        {rows.map(([label, value]) => (
+          <div
+            key={label}
+            className={[
+              "grid gap-2 border-b border-[#1F1F1F] text-sm last:border-b-0 sm:grid-cols-[140px_1fr]",
+              compact ? "px-1 py-2" : "px-3 py-2.5",
+            ].join(" ")}
+          >
+            <span className="text-[#C7C7C7]">{label}</span>
+            <span className="text-[#8A8A8A]">{value}</span>
+          </div>
+        ))}
+      </div>
+      {records && records.length > 0 ? (
+        <div className="mt-4">
+          <div className="mb-2 text-sm font-semibold text-white">{recordsLabel}</div>
+          <div className="space-y-1">
+            {records.map((record) => (
+              <div key={record} className="text-xs text-[#8A8A8A]">{record}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {footer ? (
+        <div className="mt-4 text-xs text-[#5F5F5F]">{footer}</div>
+      ) : null}
+    </>
+  );
+}
