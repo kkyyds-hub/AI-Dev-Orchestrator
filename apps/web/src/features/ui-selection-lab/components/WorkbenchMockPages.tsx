@@ -1100,34 +1100,35 @@ function DeliverablesCenterMockPage({
               ))}
             </div>
 
-            <div className="mt-6">
-              <Textarea
-                value={discussionText}
-                onChange={(e) => {
-                  setDiscussionText(e.target.value);
-                  if (discussionMessage) setDiscussionMessage("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleDiscussionSubmit();
-                  }
-                }}
-                placeholder="补充对这个成果的修改意见或证据说明..."
-                className="min-h-[80px] rounded-2xl border border-[#2A2A2A] bg-[#0D0D0D] px-4 py-3 text-sm text-white placeholder:text-[#5F5F5F]"
-              />
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-[#5F5F5F]">
-                  发送后，AI 主管将审核并在工作台创建成果讨论会话 · mock
-                </span>
+            <div className="mt-6 rounded-[22px] border border-[#2A2A2A] bg-[#111111] px-4 py-3">
+              <div className="flex items-end gap-3">
+                <Textarea
+                  value={discussionText}
+                  onChange={(e) => {
+                    setDiscussionText(e.target.value);
+                    if (discussionMessage) setDiscussionMessage("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleDiscussionSubmit();
+                    }
+                  }}
+                  placeholder="补充对这个成果的修改意见或证据说明..."
+                  className="min-h-[56px] flex-1 border-0 bg-transparent px-0 py-0 text-sm text-white placeholder:text-[#5F5F5F]"
+                />
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={handleDiscussionSubmit}
                   disabled={!discussionText.trim()}
+                  onClick={handleDiscussionSubmit}
+                  className="shrink-0"
                 >
                   发送
                 </Button>
+              </div>
+              <div className="mt-2 text-xs text-[#5F5F5F]">
+                发送后，AI 主管将审核并在工作台创建成果讨论会话 · mock
               </div>
               {discussionMessage && (
                 <div className="mt-2 text-xs text-[#8A8A8A]">{discussionMessage}</div>

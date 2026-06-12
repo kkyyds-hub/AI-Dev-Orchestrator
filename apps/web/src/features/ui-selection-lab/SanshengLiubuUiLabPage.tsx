@@ -773,7 +773,7 @@ function WorkbenchPreview() {
 
           {renderMainContent()}
 
-          {activeMainPage !== "projects" && activeMainPage !== "execution" ? (
+          {activeMainPage !== "projects" && activeMainPage !== "execution" && activeMainPage !== "deliverables" ? (
             <WorkbenchPromptBox onSend={handlePromptSend} />
           ) : null}
         </main>
