@@ -305,6 +305,11 @@ function WorkbenchPreview() {
     return welcomeMessages;
   }, [activeConversationId, conversationMessages, welcomeMessages]);
 
+  const hasWorkbenchDiscussionMessages = useMemo(
+    () => welcomeMessages.some((message) => message.content.includes("@「")),
+    [welcomeMessages],
+  );
+
   // -- actions --
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -513,6 +518,11 @@ function WorkbenchPreview() {
     // If a conversation is selected, show conversation (no duplicate header)
     if (activeConversation && activeConversationId) {
       return <ConversationMessages messages={messages} />;
+    }
+
+    // Show queued workbench discussion content
+    if (hasWorkbenchDiscussionMessages) {
+      return <ConversationMessages messages={welcomeMessages} />;
     }
 
     // Welcome state — single CTA: 创建项目
