@@ -30,7 +30,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  Separator,
   Tabs,
   TabsContent,
   TabsList,
@@ -164,125 +163,134 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,500px)]">
+      <DialogContent className="flex max-h-[min(86vh,760px)] w-[min(94vw,900px)] flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>待审批</DialogTitle>
           <DialogDescription>mock 审批列表，不接真实后端</DialogDescription>
         </DialogHeader>
 
-        <div
-          className="mt-5 max-h-[min(52vh,420px)] overflow-y-auto"
-          style={{ scrollbarWidth: "none" } as React.CSSProperties}
-        >
-          <style>{`.no-scrollbar::-webkit-scrollbar{display:none}`}</style>
-          <div className="no-scrollbar space-y-0">
-            {approvals.map((item, idx) => (
-              <div key={item.id}>
-                {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
-                <div
-                  className={[
-                    "group rounded-xl px-1 py-3 transition-colors",
-                    selectedApprovalId === item.id ? "bg-[#171717]" : "hover:bg-[#222222]",
-                  ].join(" ")}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-white">{item.title}</div>
-                      <div className="mt-0.5 flex items-center gap-2">
-                        <span className="text-xs text-[#8A8A8A]">{item.project}</span>
-                        <StatusPill status={item.status} />
+        <div className="mt-5 grid min-h-0 flex-1 gap-5 overflow-hidden lg:grid-cols-[340px_1fr]">
+          {/* Left: approval list */}
+          <div
+            className="min-h-0 overflow-y-auto"
+            style={{ scrollbarWidth: "none" } as React.CSSProperties}
+          >
+            <style>{`.no-scrollbar::-webkit-scrollbar{display:none}`}</style>
+            <div className="no-scrollbar space-y-0 pr-1">
+              {approvals.map((item, idx) => (
+                <div key={item.id}>
+                  {idx > 0 && <div className="mx-0 h-px bg-[#3A3A3A]" />}
+                  <div
+                    className={[
+                      "group rounded-xl px-1 py-2 transition-colors",
+                      selectedApprovalId === item.id ? "bg-[#171717]" : "hover:bg-[#222222]",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-white">{item.title}</div>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span className="text-xs text-[#8A8A8A]">{item.project}</span>
+                          <StatusPill status={item.status} />
+                        </div>
                       </div>
+                      <div className="shrink-0 text-xs text-[#5F5F5F]">{item.actionLabel}</div>
                     </div>
-                    <div className="shrink-0 text-xs text-[#5F5F5F]">{item.actionLabel}</div>
-                  </div>
 
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedApprovalId(item.id)}
-                      className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-colors hover:bg-[#2C2C2C] hover:text-white"
-                    >
-                      <Eye className="h-3 w-3" />
-                      查看
-                    </button>
-
-                    {item.state === "pending" ? (
-                      <>
-                        <button
-                          type="button"
-                          className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-black transition-all active:scale-[0.97]"
-                          onClick={() => handleAction(item.id, "approved")}
-                        >
-                          <ThumbsUp className="h-3 w-3" />
-                          放行
-                        </button>
-                        <button
-                          type="button"
-                          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-all hover:bg-[#2C2C2C] hover:text-white active:scale-[0.97]"
-                          onClick={() => handleAction(item.id, "rejected")}
-                        >
-                          <ThumbsDown className="h-3 w-3" />
-                          驳回
-                        </button>
-                      </>
-                    ) : (
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${
-                          item.state === "approved"
-                            ? "bg-[#1C1C1C] text-white"
-                            : "bg-[#171717] text-[#8A8A8A]"
-                        }`}
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedApprovalId(item.id)}
+                        className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-colors hover:bg-[#2C2C2C] hover:text-white"
                       >
-                        <Check className="h-3 w-3" />
-                        {item.state === "approved" ? "已放行" : "已驳回"}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                        <Eye className="h-3 w-3" />
+                        查看
+                      </button>
 
-        {selectedApproval && detail ? (
-          <>
-            <Separator className="my-4" />
-            <div>
-              <div className="text-sm font-semibold text-white">审批详情</div>
-              <div className="mt-0.5 text-xs text-[#8A8A8A]">当前查看项 · mock</div>
-            </div>
-            <div className="mt-3 border-y border-[#2A2A2A]">
-              {detail.rows.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 sm:grid-cols-[100px_1fr]"
-                >
-                  <span className="text-[#C7C7C7]">{label}</span>
-                  <span className="text-[#8A8A8A]">
-                    {label === "当前状态"
-                      ? selectedApproval.state === "approved"
-                        ? "已放行"
-                        : selectedApproval.state === "rejected"
-                          ? "已驳回"
-                          : "待处理"
-                      : value}
-                  </span>
+                      {item.state === "pending" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-black transition-all active:scale-[0.97]"
+                            onClick={() => handleAction(item.id, "approved")}
+                          >
+                            <ThumbsUp className="h-3 w-3" />
+                            放行
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A8A8A] transition-all hover:bg-[#2C2C2C] hover:text-white active:scale-[0.97]"
+                            onClick={() => handleAction(item.id, "rejected")}
+                          >
+                            <ThumbsDown className="h-3 w-3" />
+                            驳回
+                          </button>
+                        </>
+                      ) : (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${
+                            item.state === "approved"
+                              ? "bg-[#1C1C1C] text-white"
+                              : "bg-[#171717] text-[#8A8A8A]"
+                          }`}
+                        >
+                          <Check className="h-3 w-3" />
+                          {item.state === "approved" ? "已放行" : "已驳回"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-            <div className="mt-3">
-              <div className="mb-1.5 text-xs font-semibold text-[#C7C7C7]">处理记录</div>
-              <div className="space-y-1">
-                {detail.records.map((record) => (
-                  <div key={record} className="text-xs text-[#8A8A8A]">{record}</div>
-                ))}
-              </div>
-            </div>
-            <div className="mt-3 text-xs text-[#5F5F5F]">{detail.footer}</div>
-          </>
-        ) : null}
+          </div>
 
-        <div className="mt-4 flex justify-end">
+          {/* Right: approval detail */}
+          <div className="min-h-0 overflow-y-auto border-t border-[#2A2A2A] pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            {selectedApproval && detail ? (
+              <>
+                <div>
+                  <div className="text-sm font-semibold text-white">审批详情</div>
+                  <div className="mt-0.5 text-xs text-[#8A8A8A]">当前查看项 · mock</div>
+                </div>
+                <div className="mt-3 border-y border-[#2A2A2A]">
+                  {detail.rows.map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="grid gap-2 border-b border-[#1F1F1F] px-1 py-2 text-sm last:border-b-0 sm:grid-cols-[88px_1fr]"
+                    >
+                      <span className="text-[#C7C7C7]">{label}</span>
+                      <span className="text-[#8A8A8A]">
+                        {label === "当前状态"
+                          ? selectedApproval.state === "approved"
+                            ? "已放行"
+                            : selectedApproval.state === "rejected"
+                              ? "已驳回"
+                              : "待处理"
+                          : value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3">
+                  <div className="mb-1.5 text-xs font-semibold text-[#C7C7C7]">处理记录</div>
+                  <div className="space-y-1">
+                    {detail.records.map((record) => (
+                      <div key={record} className="text-xs text-[#8A8A8A]">{record}</div>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-[#5F5F5F]">{detail.footer}</div>
+              </>
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-[#5F5F5F]">
+                选择一项查看详情
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 flex shrink-0 justify-end border-t border-[#2A2A2A] pt-4">
           <DialogClose asChild>
             <Button variant="secondary">关闭</Button>
           </DialogClose>
