@@ -29,7 +29,6 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-  Textarea,
 } from "./ui";
 import { mainPageMockContents, type MainPageContent } from "../mockInteractions";
 
@@ -1059,9 +1058,21 @@ function DeliverablesCenterMockPage({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
-      <div className="mx-auto flex w-full max-w-[1080px] flex-col">
-        <section className="border-b border-[#2A2A2A] pb-7">
+    <div className="flex min-h-0 flex-1 overflow-hidden px-6 py-8 md:px-10">
+      <style>{`
+        .ui-lab-deliverables-scroll {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+
+        .ui-lab-deliverables-scroll::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+      `}</style>
+      <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
+        <section className="shrink-0 border-b border-[#2A2A2A] pb-7">
           <h1 className="text-2xl font-semibold tracking-normal text-white">成果中心</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-[#C7C7C7]">
             沉淀文档、代码变更与可交付证据
@@ -1072,22 +1083,21 @@ function DeliverablesCenterMockPage({
           </div>
         </section>
 
-        <section className="grid gap-0 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.2fr] lg:gap-8">
-          <div>
+        <section className="grid min-h-0 flex-1 gap-0 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.2fr] lg:gap-8">
+          <div className="min-h-0 flex flex-col">
             <h2 className="text-base font-semibold text-white">近期沉淀</h2>
-            <div className="mt-5 space-y-0">
-              {deliverablesItems.map((item, index) => (
+            <div className="ui-lab-deliverables-scroll mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+              {deliverablesItems.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => setSelectedId(item.id)}
                   className={[
-                    "w-full rounded-xl px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
-                    selectedId === item.id ? "bg-[#111111]" : "hover:bg-[#0A0A0A]",
+                    "relative w-full border-b border-[#2A2A2A] py-4 pl-3 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                    selectedId === item.id ? "before:absolute before:left-0 before:top-4 before:h-[calc(100%-32px)] before:w-px before:bg-[#8A8A8A] before:content-['']" : "hover:bg-[#080808]",
                   ].join(" ")}
                 >
-                  {index > 0 && <div className="mb-4 -mx-3 h-px bg-[#2A2A2A]" />}
-                  <div className="text-sm font-medium text-white">{item.title}</div>
+                  <div className={selectedId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>{item.title}</div>
                   <div className="mt-1 text-xs text-[#8A8A8A]">
                     {item.status} · {item.type} · {item.stage} · {item.version}
                   </div>
@@ -1100,9 +1110,9 @@ function DeliverablesCenterMockPage({
               ))}
             </div>
 
-            <div className="mt-6 rounded-[22px] border border-[#2A2A2A] bg-[#111111] px-4 py-3">
-              <div className="flex items-end gap-3">
-                <Textarea
+            <div className="mt-4 shrink-0 border-t border-[#2A2A2A] pt-4">
+              <div className="flex h-12 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-3">
+                <textarea
                   value={discussionText}
                   onChange={(e) => {
                     setDiscussionText(e.target.value);
@@ -1115,14 +1125,14 @@ function DeliverablesCenterMockPage({
                     }
                   }}
                   placeholder="补充对这个成果的修改意见或证据说明..."
-                  className="min-h-[56px] flex-1 border-0 bg-transparent px-0 py-0 text-sm text-white placeholder:text-[#5F5F5F]"
+                  className="h-8 min-h-0 flex-1 resize-none bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#5F5F5F]"
                 />
                 <Button
                   variant="secondary"
                   size="sm"
                   disabled={!discussionText.trim()}
                   onClick={handleDiscussionSubmit}
-                  className="shrink-0"
+                  className="h-8 shrink-0 rounded-full px-3"
                 >
                   发送
                 </Button>
@@ -1136,7 +1146,7 @@ function DeliverablesCenterMockPage({
             </div>
           </div>
 
-          <div className="border-l border-[#2A2A2A] pl-8">
+          <div className="min-h-0 overflow-y-auto border-l border-[#2A2A2A] pl-8">
             <div className="text-sm font-semibold text-white">{selected.title}</div>
             <div className="mt-0.5 text-xs text-[#8A8A8A]">
               {selected.status} · {selected.type} · {selected.stage}
