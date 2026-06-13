@@ -40,48 +40,6 @@ const projectScopeRows = [
   ["交付标准", "功能可用、性能达标、文档完整、验收通过"],
 ] as const;
 
-const projectPlanSteps = [
-  {
-    label: "目标澄清",
-    status: "已完成",
-    state: "done",
-    bubbleTitle: "目标澄清已完成",
-    bubbleSummary: "已确认目标、边界与交付标准。",
-    bubbleMeta: "已完成",
-  },
-  {
-    label: "任务拆分",
-    status: "进行中",
-    state: "current",
-    bubbleTitle: "任务拆分进行中",
-    bubbleSummary: "正在拆分数据接入与指标口径任务。",
-    bubbleMeta: "待人工 1 项",
-  },
-  {
-    label: "执行规划",
-    status: "待开始",
-    state: "pending",
-    bubbleTitle: "执行规划待开始",
-    bubbleSummary: "等待任务拆分完成后生成执行顺序。",
-    bubbleMeta: "待开始",
-  },
-  {
-    label: "交付验收",
-    status: "待开始",
-    state: "pending",
-    bubbleTitle: "交付验收待开始",
-    bubbleSummary: "执行完成后汇总交付物与验收证据。",
-    bubbleMeta: "待开始",
-  },
-] as const;
-
-const projectContextRows = [
-  ["task", "最近任务", "拆分数据接入模块任务", "32 分钟前"],
-  ["timeline", "最近操作", "数据源连通性测试", "1 小时前"],
-  ["repository", "仓库绑定", "dev/marketing-analytics", "已绑定"],
-  ["approval", "审批 / 交付物", "待审批 1 项 / 交付物 0 项", "待处理"],
-] as const;
-
 const executionProgressSteps = [
   {
     title: "已领取任务",
@@ -556,6 +514,75 @@ const projectContextDialogContent = {
 
 type ProjectContextDialogKey = keyof typeof projectContextDialogContent;
 
+type ProjectStageState = "done" | "current" | "pending" | "blocked";
+
+type ProjectStageViewModel = {
+  id: string;
+  label: string;
+  status_label: string;
+  state: ProjectStageState;
+  summary: string;
+  meta: string;
+};
+
+type ProjectContextItemViewModel = {
+  id: string;
+  label: string;
+  value: string;
+  meta: string;
+  dialogKey: ProjectContextDialogKey;
+};
+
+type ProjectOverviewViewModel = {
+  id: string;
+  name: string;
+  status: "active" | "pending" | "blocked" | "archived";
+  status_label: string;
+  current_stage: string;
+  updated_at: string;
+  summary: string;
+  recommendation: string;
+  scope_rows: readonly (readonly [string, string])[];
+  stages: readonly ProjectStageViewModel[];
+  context_items: readonly ProjectContextItemViewModel[];
+  task_total: number;
+  task_done: number;
+  task_running: number;
+  manual_pending: number;
+  backend_status: "mock" | "unavailable";
+};
+
+type ProjectPageViewState = "ready" | "loading" | "empty" | "error" | "no_project" | "no_permission";
+
+const projectOverview: ProjectOverviewViewModel = {
+  id: "proj_marketing_analytics",
+  name: "营销活动分析平台",
+  status: "active",
+  status_label: "进行中",
+  current_stage: "任务拆分",
+  updated_at: "2025-05-22 14:32",
+  summary: "项目整体进度顺利，已完成目标澄清并梳理核心需求，正在进行任务拆分与优先级排序。",
+  recommendation: "建议聚焦数据接入与指标体系搭建的核心路径，优先完成关键链路以尽早验证价值。",
+  scope_rows: projectScopeRows,
+  stages: [
+    { id: "stage_1", label: "目标澄清", status_label: "已完成", state: "done", summary: "已确认目标、边界与交付标准。", meta: "已完成" },
+    { id: "stage_2", label: "任务拆分", status_label: "进行中", state: "current", summary: "正在拆分数据接入与指标口径任务。", meta: "待人工 1 项" },
+    { id: "stage_3", label: "执行规划", status_label: "待开始", state: "pending", summary: "等待任务拆分完成后生成执行顺序。", meta: "待开始" },
+    { id: "stage_4", label: "交付验收", status_label: "待开始", state: "pending", summary: "执行完成后汇总交付物与验收证据。", meta: "待开始" },
+  ],
+  context_items: [
+    { id: "ctx_task", label: "最近任务", value: "拆分数据接入模块任务", meta: "32 分钟前", dialogKey: "task" },
+    { id: "ctx_timeline", label: "最近操作", value: "数据源连通性测试", meta: "1 小时前", dialogKey: "timeline" },
+    { id: "ctx_repo", label: "仓库绑定", value: "dev/marketing-analytics", meta: "已绑定", dialogKey: "repository" },
+    { id: "ctx_approval", label: "审批 / 交付物", value: "待审批 1 项 / 交付物 0 项", meta: "待处理", dialogKey: "approval" },
+  ],
+  task_total: 28,
+  task_done: 6,
+  task_running: 2,
+  manual_pending: 1,
+  backend_status: "mock",
+};
+
 function ProjectSectionTitle({
   icon: Icon,
   children,
@@ -635,14 +662,94 @@ function ProjectManagementMockPage() {
   const [discussion, setDiscussion] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [openStageIndex, setOpenStageIndex] = useState<number | null>(null);
-  const hasDiscussion = discussion.trim().length > 0;
-  const openStage = openStageIndex === null ? null : projectPlanSteps[openStageIndex];
-  const stageBubbleLeft = openStageIndex === null ? "50%" : `${(openStageIndex + 0.5) * 25}%`;
+
+  const projectPageViewState = "ready" as ProjectPageViewState;
+  const ov = projectOverview;
+  const projectDiscussionDisabled = projectPageViewState !== "ready";
+
+  const projectDiscussionHint =
+    projectPageViewState === "ready"
+      ? "记录后，AI 主管将在工作台新会话中反馈 · mock"
+      : projectPageViewState === "loading"
+        ? "正在读取项目上下文，暂不可记录 · mock"
+        : projectPageViewState === "error"
+          ? "读取失败，暂不可记录 · mock"
+          : projectPageViewState === "no_permission"
+            ? "暂无权限，暂不可记录 · mock"
+            : "请选择或创建项目后再记录 · mock";
 
   function handleRecordFeedback() {
-    if (!hasDiscussion) return;
+    if (projectDiscussionDisabled || !discussion.trim()) return;
     setDiscussion("");
     setFeedbackMessage("已记录讨论点 · 将在工作台新会话反馈 · mock");
+  }
+
+  const openStage = openStageIndex === null ? null : ov.stages[openStageIndex];
+
+  if (projectPageViewState === "loading") {
+    return (
+      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[980px] flex-col">
+          <div className="text-sm text-[#8A8A8A]">正在读取项目上下文 · mock</div>
+          <Separator className="mt-4" />
+          <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
+          <Separator className="mt-4" />
+          <div className="mt-4 h-3 w-1/2 rounded bg-[#1A1A1A]" />
+        </div>
+      </div>
+    );
+  }
+
+  if (projectPageViewState === "empty") {
+    return (
+      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">暂无项目</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">
+            创建项目后，AI 主管会在这里沉淀目标、范围、阶段计划和上下文。
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (projectPageViewState === "error") {
+    return (
+      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">项目上下文读取失败 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">
+            当前为模拟错误，不接真实后端。请稍后重试或回到工作台确认项目状态。
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (projectPageViewState === "no_project") {
+    return (
+      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">
+            选择一个项目后，这里会展示项目范围、阶段计划和当前上下文。
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (projectPageViewState === "no_permission") {
+    return (
+      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">暂无访问权限 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">
+            你当前没有查看该项目上下文的权限。
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -650,24 +757,24 @@ function ProjectManagementMockPage() {
       <div className="mx-auto flex w-full max-w-[980px] flex-col">
         <section className="pt-1">
           <div className="mb-3 text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">
-            当前项目上下文 · 仅展示当前选中项目
+            当前项目上下文
           </div>
-          <h1 className="text-2xl font-semibold tracking-normal text-white">营销活动分析平台</h1>
+          <h1 className="text-2xl font-semibold tracking-normal text-white">{ov.name}</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-[#C7C7C7]">
             构建统一的营销数据分析平台，整合多渠道数据，提供可视化洞察与增长决策支持。
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[#C7C7C7]">
             <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#2A2A2A] bg-[#171717] px-3 text-xs text-white">
               <span className="h-1.5 w-1.5 rounded-full bg-[#C7C7C7]" />
-              进行中
+              {ov.status_label}
             </span>
             <span className="hidden h-5 w-px bg-[#2A2A2A] sm:block" />
-            <span>当前阶段：任务拆分</span>
+            <span>当前阶段：{ov.current_stage}</span>
             <span className="hidden h-5 w-px bg-[#2A2A2A] sm:block" />
-            <span>最后更新：2025-05-22 14:32</span>
+            <span>最后更新：{ov.updated_at}</span>
           </div>
           <div className="mt-3 text-xs text-[#8A8A8A]">
-            任务 28 项 · 已完成 6 · 执行中 2 · 待人工 1
+            任务 {ov.task_total} 项 · 已完成 {ov.task_done} · 执行中 {ov.task_running} · 待人工 {ov.manual_pending}
           </div>
         </section>
 
@@ -677,15 +784,15 @@ function ProjectManagementMockPage() {
             <span>摘要</span>
           </div>
           <div className="mt-4 space-y-2 text-sm leading-6 text-[#C7C7C7]">
-            <p>项目整体进度顺利，已完成目标澄清并梳理核心需求，正在进行任务拆分与优先级排序。</p>
-            <p>建议聚焦数据接入与指标体系搭建的核心路径，优先完成关键链路以尽早验证价值。</p>
+            <p>{ov.summary}</p>
+            <p>{ov.recommendation}</p>
           </div>
         </section>
 
         <section className="mt-6">
           <ProjectSectionTitle icon={FolderOpen}>项目范围</ProjectSectionTitle>
           <div className="mt-3 border-y border-[#2A2A2A]">
-            {projectScopeRows.map(([label, value]) => (
+            {ov.scope_rows.map(([label, value]) => (
               <div
                 key={label}
                 className="grid gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-sm last:border-b-0 md:grid-cols-[180px_1fr]"
@@ -697,77 +804,95 @@ function ProjectManagementMockPage() {
           </div>
         </section>
 
-        <section className="relative mt-6">
+        <section className="mt-6">
           <ProjectSectionTitle icon={Clock3}>阶段计划</ProjectSectionTitle>
-          <div className="mt-5 grid grid-cols-4 items-start">
-            {projectPlanSteps.map((step, index) => (
-              <div key={step.label} className="relative flex min-w-0 flex-col items-center text-center">
+
+          <div className="mt-5 hidden lg:grid lg:grid-cols-4 lg:items-start">
+            {ov.stages.map((stage, index) => (
+              <div key={stage.id} className="relative flex min-w-0 flex-col items-center text-center">
                 {index > 0 ? (
                   <span className="absolute left-0 top-3 h-px w-1/2 bg-[#3A3A3A]" />
                 ) : null}
-                {index < projectPlanSteps.length - 1 ? (
+                {index < ov.stages.length - 1 ? (
                   <span className="absolute right-0 top-3 h-px w-1/2 bg-[#3A3A3A]" />
                 ) : null}
                 <button
                   className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/10 active:scale-[0.98]"
-                  onClick={() => {
-                    setOpenStageIndex((current) => (current === index ? null : index));
-                  }}
-                  aria-label={`查看${step.label}阶段进展`}
+                  onClick={() => setOpenStageIndex((current) => (current === index ? null : index))}
+                  aria-label={`查看${stage.label}阶段进展`}
                   aria-pressed={openStageIndex === index}
                 >
                   <span
                     className={[
                       "relative flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold",
-                      step.state === "done"
+                      stage.state === "done"
                         ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
-                        : step.state === "current"
+                        : stage.state === "current"
                           ? "border-white bg-black text-white"
                           : "border-[#2A2A2A] bg-[#171717] text-[#8A8A8A]",
                     ].join(" ")}
                   >
-                    {step.state === "current" ? (
+                    {stage.state === "current" ? (
                       <span className="absolute inset-[-4px] rounded-full border border-white/20 animate-pulse" />
                     ) : null}
                     <span className="relative z-10">
-                      {step.state === "done" ? <Check className="h-4 w-4" /> : index + 1}
+                      {stage.state === "done" ? <Check className="h-4 w-4" /> : index + 1}
                     </span>
                   </span>
                 </button>
-                <div className="mt-3 w-full px-1 text-sm font-medium text-[#C7C7C7]">{step.label}</div>
-                <div className="mt-1 text-xs text-[#8A8A8A]">{step.status}</div>
+                <div className="mt-3 w-full px-1 text-sm font-medium text-[#C7C7C7]">{stage.label}</div>
+                <div className="mt-1 text-xs text-[#8A8A8A]">{stage.status_label}</div>
               </div>
             ))}
           </div>
-          <div
-            className={[
-              "absolute top-[76px] z-20 w-[min(82vw,260px)] origin-top -translate-x-1/2 rounded-2xl border border-[#2A2A2A] bg-[#171717] px-3 py-3 shadow-2xl shadow-black/40 transition-all duration-200 ease-out",
-              openStage ? "scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
-            ].join(" ")}
-            style={{ left: stageBubbleLeft }}
-          >
-            <span className="absolute left-1/2 top-[-5px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-[#2A2A2A] bg-[#171717]" />
-            {openStage ? (
-              <>
-                <div className="text-sm font-medium text-white">{openStage.bubbleTitle}</div>
-                <p className="mt-1 text-xs leading-5 text-[#C7C7C7]">{openStage.bubbleSummary}</p>
-                <div className="mt-2 text-xs text-[#8A8A8A]">状态：{openStage.bubbleMeta}</div>
-              </>
-            ) : null}
+
+          <div className="mt-4 lg:hidden">
+            {ov.stages.map((stage, index) => (
+              <button
+                key={stage.id}
+                type="button"
+                onClick={() => setOpenStageIndex((current) => (current === index ? null : index))}
+                className="flex w-full items-center gap-3 border-b border-[#1F1F1F] py-3 text-left transition-colors last:border-b-0 hover:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/10"
+              >
+                <span
+                  className={[
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                    stage.state === "done"
+                      ? "border-[#3A3A3A] bg-[#2C2C2C] text-white"
+                      : stage.state === "current"
+                        ? "border-white bg-black text-white"
+                        : "border-[#2A2A2A] bg-[#171717] text-[#8A8A8A]",
+                  ].join(" ")}
+                >
+                  {stage.state === "done" ? <Check className="h-4 w-4" /> : index + 1}
+                </span>
+                <span className="flex-1 text-sm font-medium text-[#C7C7C7]">{stage.label}</span>
+                <span className="text-xs text-[#8A8A8A]">{stage.status_label}</span>
+                <ChevronRight className="h-4 w-4 text-[#5F5F5F]" />
+              </button>
+            ))}
           </div>
+
+          {openStage ? (
+            <div className="mt-4 rounded-lg border border-[#2A2A2A] bg-[#171717]/80 px-4 py-3">
+              <div className="text-sm font-medium text-white">{openStage.label}{openStage.status_label}</div>
+              <p className="mt-1 text-xs leading-5 text-[#C7C7C7]">{openStage.summary}</p>
+              <div className="mt-2 text-xs text-[#8A8A8A]">状态：{openStage.meta}</div>
+            </div>
+          ) : null}
         </section>
 
         <section className="mt-6">
           <ProjectSectionTitle icon={Briefcase}>当前上下文</ProjectSectionTitle>
           <div className="mt-3 border-y border-[#2A2A2A]">
-            {projectContextRows.map(([dialogKey, label, value, meta]) => (
-              <ProjectContextDialog key={label} dialogKey={dialogKey}>
+            {ov.context_items.map((item) => (
+              <ProjectContextDialog key={item.id} dialogKey={item.dialogKey}>
                 <button
                   className="grid w-full items-center gap-2 border-b border-[#1F1F1F] px-3 py-2.5 text-left text-sm transition-colors last:border-b-0 hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/10 md:grid-cols-[170px_1fr_112px_16px]"
                 >
-                  <span className="text-[#8A8A8A]">{label}</span>
-                  <span className="min-w-0 truncate text-[#C7C7C7]">{value}</span>
-                  <span className="text-left text-[#8A8A8A] md:text-right">{meta}</span>
+                  <span className="text-[#8A8A8A]">{item.label}</span>
+                  <span className="min-w-0 truncate text-[#C7C7C7]">{item.value}</span>
+                  <span className="text-left text-[#8A8A8A] md:text-right">{item.meta}</span>
                   <ChevronRight className="hidden h-4 w-4 text-[#5F5F5F] md:block" />
                 </button>
               </ProjectContextDialog>
@@ -777,36 +902,38 @@ function ProjectManagementMockPage() {
 
         <div className="mt-4">
           <div className="flex h-11 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-4">
-            <input
-              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#8A8A8A]"
-              placeholder="记录审批疑问或改进点，AI 主管将在工作台新会话中反馈..."
+            <Textarea
               value={discussion}
+              disabled={projectDiscussionDisabled}
               onChange={(event) => {
                 setDiscussion(event.target.value);
                 if (feedbackMessage) setFeedbackMessage("");
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter") {
+                if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   handleRecordFeedback();
                 }
               }}
+              placeholder="记录审批疑问或改进点，AI 主管将在工作台新会话中反馈..."
+              className="h-8 min-h-0 flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#8A8A8A]"
             />
-            <button
-              className={[
-                "flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-xs font-medium transition-colors active:scale-[0.96]",
-                hasDiscussion ? "bg-white text-black hover:bg-[#E7E7E7]" : "bg-[#2C2C2C] text-[#8A8A8A]",
-              ].join(" ")}
-              disabled={!hasDiscussion}
-              aria-label="记录讨论点"
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={projectDiscussionDisabled || !discussion.trim()}
               onClick={handleRecordFeedback}
+              className="h-8 shrink-0 rounded-full px-3"
             >
               记录
-            </button>
+            </Button>
           </div>
           {feedbackMessage ? (
             <div className="mt-2 text-xs text-[#8A8A8A]">{feedbackMessage}</div>
           ) : null}
+          <div className="mt-2 text-xs text-[#5F5F5F]">
+            {projectDiscussionHint}
+          </div>
         </div>
       </div>
     </div>
