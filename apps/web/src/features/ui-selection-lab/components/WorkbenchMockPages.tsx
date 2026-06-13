@@ -1027,6 +1027,10 @@ function DeliverablesCenterMockPage({
 
   const selected = deliverablesItems.find((d) => d.id === selectedId) ?? deliverablesItems[0];
 
+  const lockedCount = deliverablesItems.filter((d) => d.status === "locked").length;
+  const pendingCount = deliverablesItems.filter((d) => d.status === "pending_review").length;
+  const totalCount = deliverablesItems.length;
+
   function handleSelectDeliverable(id: string) {
     setSelectedId(id);
     setActiveDetailTab("content");
@@ -1066,7 +1070,7 @@ function DeliverablesCenterMockPage({
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden px-6 py-8 md:px-10">
+    <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
       <style>{`
         .ui-lab-deliverables-scroll {
           scrollbar-width: none;
@@ -1080,46 +1084,53 @@ function DeliverablesCenterMockPage({
         }
       `}</style>
       <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
-        <section className="shrink-0 border-b border-[#2A2A2A] pb-7">
-          <h1 className="text-2xl font-semibold tracking-normal text-white">营销活动分析平台</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-[#C7C7C7]">
+        <section className="shrink-0 border-b border-[#2A2A2A] pb-5 md:pb-7">
+          <h1 className="text-xl font-semibold tracking-normal text-white md:text-2xl">营销活动分析平台</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#C7C7C7] md:mt-3">
             沉淀文档、代码变更与可交付证据
           </p>
           <p className="mt-1 text-xs text-[#8A8A8A]">当前为 mock，不接后端，不触发 Git 写入。</p>
-          <div className="mt-4 text-sm text-[#8A8A8A]">
-            已沉淀 3 项 · 待审查 1 项 · 已锁定 1 项 · Git 写入关闭
+          <div className="mt-3 text-xs text-[#5F5F5F] md:mt-4 md:text-sm">
+            已沉淀 {totalCount} 项 · 待审查 {pendingCount} 项 · 已锁定 {lockedCount} 项 · Git 写入关闭
           </div>
         </section>
 
-        <section className="grid min-h-0 flex-1 gap-0 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.2fr] lg:gap-8">
+        <section className="grid min-h-0 flex-1 gap-0 border-b border-[#2A2A2A] py-5 md:grid-cols-[1fr_1.2fr] md:gap-6 md:py-7 lg:gap-8">
           <div className="min-h-0 flex flex-col">
             <h2 className="text-base font-semibold text-white">近期沉淀</h2>
-            <div className="ui-lab-deliverables-scroll mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
-              {deliverablesItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => handleSelectDeliverable(item.id)}
-                  className={[
-                    "relative w-full border-b border-[#2A2A2A] py-4 pl-3 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
-                    selectedId === item.id ? "before:absolute before:left-0 before:top-4 before:h-[calc(100%-32px)] before:w-px before:bg-[#8A8A8A] before:content-['']" : "hover:bg-[#080808]",
-                  ].join(" ")}
-                >
-                  <div className={selectedId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>{item.title}</div>
-                  <div className="mt-1 text-xs text-[#8A8A8A]">
-                    {item.status_label} · {item.type_label} · {item.stage_label} · 版本 {item.version_no}
-                  </div>
-                  <div className="mt-2 text-sm leading-5 text-[#C7C7C7]">{item.summary}</div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-xs text-[#5F5F5F]">由 {item.created_by} 沉淀 · 来源 {item.source_run_id} · {item.created_at}</span>
-                    <span className="text-xs text-[#5F5F5F]">查看详情</span>
-                  </div>
-                </button>
-              ))}
+            <div className="ui-lab-deliverables-scroll mt-4 min-h-0 flex-1 overflow-y-auto pr-1 md:mt-5">
+              {(deliverablesItems as readonly (typeof deliverablesItems[number])[]).length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="text-sm text-[#8A8A8A]">暂无沉淀成果</div>
+                  <div className="mt-1 text-xs text-[#5F5F5F]">当 AI 主管完成任务后，成果将自动沉淀到这里。</div>
+                </div>
+              ) : (
+                deliverablesItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelectDeliverable(item.id)}
+                    className={[
+                      "relative w-full border-b border-[#2A2A2A] py-3 pl-3 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995] md:py-4",
+                      selectedId === item.id ? "before:absolute before:left-0 before:top-4 before:h-[calc(100%-32px)] before:w-px before:bg-[#8A8A8A] before:content-['']" : "hover:bg-[#080808]",
+                    ].join(" ")}
+                  >
+                    <div className={selectedId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>{item.title}</div>
+                    <div className="mt-1 text-xs text-[#8A8A8A]">
+                      {item.status_label} · {item.type_label} · {item.stage_label} · 版本 {item.version_no}
+                    </div>
+                    <div className="mt-2 text-sm leading-5 text-[#C7C7C7]">{item.summary}</div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-[#5F5F5F]">由 {item.created_by} 沉淀 · 来源 {item.source_run_id} · {item.created_at}</span>
+                      <span className="text-xs text-[#5F5F5F]">查看详情</span>
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
 
-            <div className="mt-4 shrink-0 border-t border-[#2A2A2A] pt-4">
-              <div className="flex h-12 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-3">
+            <div className="mt-3 shrink-0 border-t border-[#2A2A2A] pt-3 md:mt-4 md:pt-4">
+              <div className="flex h-10 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-3 md:h-12">
                 <textarea
                   value={discussionText}
                   onChange={(e) => {
@@ -1154,13 +1165,13 @@ function DeliverablesCenterMockPage({
             </div>
           </div>
 
-          <div className="min-h-0 overflow-y-auto border-l border-[#2A2A2A] pl-8">
+          <div className="min-h-0 overflow-y-auto border-l border-[#2A2A2A] pl-6 md:pl-8">
             <div className="text-sm font-semibold text-white">{selected.title}</div>
             <div className="mt-0.5 text-xs text-[#8A8A8A]">
               {selected.status_label} · {selected.type_label} · {selected.stage_label}
             </div>
 
-            <Tabs value={activeDetailTab} onValueChange={setActiveDetailTab} className="mt-5">
+            <Tabs value={activeDetailTab} onValueChange={setActiveDetailTab} className="mt-4 md:mt-5">
               <TabsList>
                 <TabsTrigger value="content">内容</TabsTrigger>
                 <TabsTrigger value="evidence">证据</TabsTrigger>
