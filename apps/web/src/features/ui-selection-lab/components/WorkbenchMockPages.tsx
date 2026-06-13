@@ -29,6 +29,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Textarea,
 } from "./ui";
 import { mainPageMockContents, type MainPageContent } from "../mockInteractions";
 
@@ -311,7 +312,47 @@ const executionQueueRows = [
   },
 ] as const;
 
-const deliverablesItems = [
+type DeliverableStatus = "draft" | "pending_review" | "locked" | "archived" | "needs_more_evidence";
+
+type DeliverableType =
+  | "plan_draft"
+  | "task_split"
+  | "review_report"
+  | "run_summary"
+  | "verification_evidence"
+  | "code_change_summary"
+  | "delivery_doc";
+
+type DeliverableViewModel = {
+  id: string;
+  project_id: string;
+  title: string;
+  type: DeliverableType;
+  type_label: string;
+  status: DeliverableStatus;
+  status_label: string;
+  stage: string;
+  stage_label: string;
+  version_no: number;
+  total_versions: number;
+  latest_version: boolean;
+  summary: string;
+  content_markdown: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  source_task_id?: string;
+  source_run_id?: string;
+  source_label: string;
+  evidence_refs: string[];
+  git_write_status: "disabled" | "preview_only";
+  backend_status: "mock" | "unavailable";
+  can_be_acceptance_evidence: boolean;
+};
+
+type DeliverablesDemoState = "ready" | "empty" | "loading" | "error" | "no_project";
+
+const deliverablesItems: readonly DeliverableViewModel[] = [
   {
     id: "deliv_001",
     project_id: "proj_marketing_analytics",
@@ -415,7 +456,7 @@ const deliverablesItems = [
     backend_status: "mock",
     can_be_acceptance_evidence: false,
   },
-] as const;
+];
 
 const projectContextDialogContent = {
   task: {
@@ -1024,12 +1065,17 @@ function DeliverablesCenterMockPage({
   const [activeDetailTab, setActiveDetailTab] = useState("content");
   const [discussionText, setDiscussionText] = useState("");
   const [discussionMessage, setDiscussionMessage] = useState("");
+  const [demoState, setDemoState] = useState<DeliverablesDemoState>("ready");
 
-  const selected = deliverablesItems.find((d) => d.id === selectedId) ?? deliverablesItems[0];
+  const visibleDeliverables = demoState === "ready" ? deliverablesItems : [];
+  const selected = visibleDeliverables.find((d) => d.id === selectedId) ?? visibleDeliverables[0] ?? null;
+  const hasDeliverables = visibleDeliverables.length > 0;
 
   const lockedCount = deliverablesItems.filter((d) => d.status === "locked").length;
   const pendingCount = deliverablesItems.filter((d) => d.status === "pending_review").length;
   const totalCount = deliverablesItems.length;
+
+  const discussionDisabled = demoState !== "ready" || !selected;
 
   function handleSelectDeliverable(id: string) {
     setSelectedId(id);
@@ -1037,37 +1083,54 @@ function DeliverablesCenterMockPage({
   }
 
   function handleDiscussionSubmit() {
-    if (!discussionText.trim()) return;
+    if (discussionDisabled || !selected || !discussionText.trim()) return;
     setDiscussionText("");
     setDiscussionMessage("已提交给 AI 主管审核，将在工作台创建成果讨论会话 · mock");
     onQueueDiscussionAction?.("add", `成果讨论：${selected.title}`);
   }
 
-  const evidenceRows: readonly (readonly [string, string])[] = [
-    ["task_id", selected.source_task_id],
-    ["run_id", selected.source_run_id],
-    ["source_label", selected.source_label],
-    ["evidence_refs", selected.evidence_refs.join(", ")],
-    ["Git", selected.git_write_status === "disabled" ? "写入关闭" : selected.git_write_status],
-    ["后端", selected.backend_status === "mock" ? "未连接" : selected.backend_status],
-  ];
+  const discussionHint =
+    demoState === "ready"
+      ? "发送后，AI 主管将审核并在工作台创建成果讨论会话 · mock"
+      : demoState === "empty"
+        ? "暂无成果可补充 · mock"
+        : demoState === "loading"
+          ? "正在读取成果，暂不可补充 · mock"
+          : demoState === "error"
+            ? "读取失败，暂不可补充 · mock"
+            : "请选择项目后再补充成果说明 · mock";
 
-  const versionRows: readonly (readonly [string, string])[] = [
-    ["version_no", String(selected.version_no)],
-    ["total_versions", String(selected.total_versions)],
-    ["latest_version", selected.latest_version ? "是" : "否"],
-    ["change_note", "当前仅展示版本读回，不做 diff 对比"],
-  ];
+  const evidenceRows: readonly (readonly [string, string])[] = selected
+    ? [
+        ["task_id", selected.source_task_id ?? "—"],
+        ["run_id", selected.source_run_id ?? "—"],
+        ["source_label", selected.source_label],
+        ["evidence_refs", selected.evidence_refs.join(", ")],
+        ["Git", selected.git_write_status === "disabled" ? "写入关闭" : selected.git_write_status],
+        ["后端", selected.backend_status === "mock" ? "未连接" : selected.backend_status],
+      ]
+    : [];
 
-  const summaryRows: readonly (readonly [string, string])[] = [
-    ["状态", selected.status_label],
-    ["类型", selected.type_label],
-    ["阶段", selected.stage_label],
-    ["创建者", selected.created_by],
-    ["创建时间", selected.created_at],
-    ["更新时间", selected.updated_at],
-    ["是否可作为验收证据", selected.can_be_acceptance_evidence ? "是" : "否"],
-  ];
+  const versionRows: readonly (readonly [string, string])[] = selected
+    ? [
+        ["version_no", String(selected.version_no)],
+        ["total_versions", String(selected.total_versions)],
+        ["latest_version", selected.latest_version ? "是" : "否"],
+        ["change_note", "当前仅展示版本读回，不做 diff 对比"],
+      ]
+    : [];
+
+  const summaryRows: readonly (readonly [string, string])[] = selected
+    ? [
+        ["状态", selected.status_label],
+        ["类型", selected.type_label],
+        ["阶段", selected.stage_label],
+        ["创建者", selected.created_by],
+        ["创建时间", selected.created_at],
+        ["更新时间", selected.updated_at],
+        ["是否可作为验收证据", selected.can_be_acceptance_evidence ? "是" : "否"],
+      ]
+    : [];
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
@@ -1093,19 +1156,50 @@ function DeliverablesCenterMockPage({
           <div className="mt-3 text-xs text-[#5F5F5F] md:mt-4 md:text-sm">
             已沉淀 {totalCount} 项 · 待审查 {pendingCount} 项 · 已锁定 {lockedCount} 项 · Git 写入关闭
           </div>
+          <div className="mt-4">
+            <Tabs value={demoState} onValueChange={(v) => setDemoState(v as DeliverablesDemoState)}>
+              <TabsList>
+                <TabsTrigger value="ready">正常</TabsTrigger>
+                <TabsTrigger value="empty">空状态</TabsTrigger>
+                <TabsTrigger value="loading">加载</TabsTrigger>
+                <TabsTrigger value="error">错误</TabsTrigger>
+                <TabsTrigger value="no_project">无项目</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </section>
 
-        <section className="grid min-h-0 flex-1 gap-0 border-b border-[#2A2A2A] py-5 md:grid-cols-[1fr_1.2fr] md:gap-6 md:py-7 lg:gap-8">
+        <section className="grid min-h-0 flex-1 gap-7 border-b border-[#2A2A2A] py-5 lg:grid-cols-[1fr_1.2fr] lg:gap-8 lg:py-7">
           <div className="min-h-0 flex flex-col">
             <h2 className="text-base font-semibold text-white">近期沉淀</h2>
             <div className="ui-lab-deliverables-scroll mt-4 min-h-0 flex-1 overflow-y-auto pr-1 md:mt-5">
-              {(deliverablesItems as readonly (typeof deliverablesItems[number])[]).length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
+              {demoState === "loading" ? (
+                <div className="space-y-4 py-4">
+                  <div className="text-sm text-[#8A8A8A]">正在读取当前项目成果 · mock</div>
+                  <Separator />
+                  <div className="h-4 w-3/4 rounded bg-[#1A1A1A]" />
+                  <div className="h-3 w-1/2 rounded bg-[#1A1A1A]" />
+                  <Separator />
+                  <div className="h-4 w-2/3 rounded bg-[#1A1A1A]" />
+                  <div className="h-3 w-2/5 rounded bg-[#1A1A1A]" />
+                </div>
+              ) : demoState === "error" ? (
+                <div className="py-8">
+                  <div className="text-sm text-[#8A8A8A]">成果读取失败 · mock</div>
+                  <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请回到工作台确认项目状态。</div>
+                </div>
+              ) : demoState === "no_project" ? (
+                <div className="py-8">
+                  <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
+                  <div className="mt-2 text-xs text-[#5F5F5F]">选择一个项目后，这里会展示该项目沉淀下来的成果、证据和版本。</div>
+                </div>
+              ) : !hasDeliverables ? (
+                <div className="py-8">
                   <div className="text-sm text-[#8A8A8A]">暂无沉淀成果</div>
-                  <div className="mt-1 text-xs text-[#5F5F5F]">当 AI 主管完成任务后，成果将自动沉淀到这里。</div>
+                  <div className="mt-2 text-xs text-[#5F5F5F]">当前项目还没有可展示的成果。完成一次执行或审查后，AI 主管会在这里沉淀文档、摘要和证据。</div>
                 </div>
               ) : (
-                deliverablesItems.map((item) => (
+                visibleDeliverables.map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -1131,8 +1225,9 @@ function DeliverablesCenterMockPage({
 
             <div className="mt-3 shrink-0 border-t border-[#2A2A2A] pt-3 md:mt-4 md:pt-4">
               <div className="flex h-10 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-3 md:h-12">
-                <textarea
+                <Textarea
                   value={discussionText}
+                  disabled={discussionDisabled}
                   onChange={(e) => {
                     setDiscussionText(e.target.value);
                     if (discussionMessage) setDiscussionMessage("");
@@ -1144,12 +1239,12 @@ function DeliverablesCenterMockPage({
                     }
                   }}
                   placeholder="补充对这个成果的修改意见或证据说明..."
-                  className="h-8 min-h-0 flex-1 resize-none bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#5F5F5F]"
+                  className="h-8 min-h-0 flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#5F5F5F]"
                 />
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={!discussionText.trim()}
+                  disabled={discussionDisabled || !discussionText.trim()}
                   onClick={handleDiscussionSubmit}
                   className="h-8 shrink-0 rounded-full px-3"
                 >
@@ -1157,7 +1252,7 @@ function DeliverablesCenterMockPage({
                 </Button>
               </div>
               <div className="mt-2 text-xs text-[#5F5F5F]">
-                发送后，AI 主管将审核并在工作台创建成果讨论会话 · mock
+                {discussionHint}
               </div>
               {discussionMessage && (
                 <div className="mt-2 text-xs text-[#8A8A8A]">{discussionMessage}</div>
@@ -1165,34 +1260,47 @@ function DeliverablesCenterMockPage({
             </div>
           </div>
 
-          <div className="min-h-0 overflow-y-auto border-l border-[#2A2A2A] pl-6 md:pl-8">
-            <div className="text-sm font-semibold text-white">{selected.title}</div>
-            <div className="mt-0.5 text-xs text-[#8A8A8A]">
-              {selected.status_label} · {selected.type_label} · {selected.stage_label}
-            </div>
-
-            <Tabs value={activeDetailTab} onValueChange={setActiveDetailTab} className="mt-4 md:mt-5">
-              <TabsList>
-                <TabsTrigger value="content">内容</TabsTrigger>
-                <TabsTrigger value="evidence">证据</TabsTrigger>
-                <TabsTrigger value="versions">版本</TabsTrigger>
-                <TabsTrigger value="summary">摘要</TabsTrigger>
-              </TabsList>
-              <TabsContent value="content">
-                <div className="mt-4 text-sm leading-6 text-[#C7C7C7] whitespace-pre-line">
-                  {selected.content_markdown}
+          <div className="min-h-0 overflow-y-auto border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+            {selected ? (
+              <>
+                <div className="text-sm font-semibold text-white">{selected.title}</div>
+                <div className="mt-0.5 text-xs text-[#8A8A8A]">
+                  {selected.status_label} · {selected.type_label} · {selected.stage_label}
                 </div>
-              </TabsContent>
-              <TabsContent value="evidence">
-                <ReadbackRows rows={evidenceRows} footer="仅展示证据读回，不触发 Git 写入 · mock" />
-              </TabsContent>
-              <TabsContent value="versions">
-                <ReadbackRows rows={versionRows} footer="仅展示版本读回，不触发写入操作 · mock" />
-              </TabsContent>
-              <TabsContent value="summary">
-                <ReadbackRows rows={summaryRows} footer="仅展示摘要读回，不接真实后端 · mock" />
-              </TabsContent>
-            </Tabs>
+
+                <Tabs value={activeDetailTab} onValueChange={setActiveDetailTab} className="mt-4 md:mt-5">
+                  <TabsList>
+                    <TabsTrigger value="content">内容</TabsTrigger>
+                    <TabsTrigger value="evidence">证据</TabsTrigger>
+                    <TabsTrigger value="versions">版本</TabsTrigger>
+                    <TabsTrigger value="summary">摘要</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="content">
+                    <div className="mt-4 text-sm leading-6 text-[#C7C7C7] whitespace-pre-line">
+                      {selected.content_markdown}
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="evidence">
+                    <ReadbackRows rows={evidenceRows} footer="仅展示证据读回，不触发 Git 写入 · mock" />
+                  </TabsContent>
+                  <TabsContent value="versions">
+                    <ReadbackRows rows={versionRows} footer="仅展示版本读回，不触发写入操作 · mock" />
+                  </TabsContent>
+                  <TabsContent value="summary">
+                    <ReadbackRows rows={summaryRows} footer="仅展示摘要读回，不接真实后端 · mock" />
+                  </TabsContent>
+                </Tabs>
+              </>
+            ) : (
+              <div className="py-8">
+                <div className="text-sm text-[#8A8A8A]">
+                  {demoState === "loading" ? "正在准备成果读回 · mock" : demoState === "error" ? "无法展示成果详情" : demoState === "no_project" ? "等待项目上下文" : "请选择一个成果"}
+                </div>
+                <div className="mt-2 text-xs text-[#5F5F5F]">
+                  {demoState === "error" ? "当前为模拟错误状态 · mock" : demoState === "no_project" ? "当前没有可读回成果 · mock" : "暂无可读回内容 · mock"}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </div>
