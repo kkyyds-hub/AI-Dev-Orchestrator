@@ -313,15 +313,20 @@ const executionQueueRows = [
 
 const deliverablesItems = [
   {
-    id: "deliv-1",
+    id: "deliv_001",
+    project_id: "proj_marketing_analytics",
     title: "项目规划草案 v1",
-    status: "已锁定",
-    type: "规划草案",
-    stage: "目标澄清阶段",
-    version: "版本 1",
+    type: "plan_draft",
+    type_label: "规划草案",
+    status: "locked",
+    status_label: "已锁定",
+    stage: "goal_clarification",
+    stage_label: "目标澄清阶段",
+    version_no: 1,
+    total_versions: 1,
+    latest_version: true,
     summary: "明确本阶段目标、范围与交付边界，建议先完成数据接入与指标口径确认，再进入报表联调。",
-    source: "由 AI 主管沉淀 · 来源 run_7F39 · 今天 09:58",
-    content: `本成果明确了营销活动分析平台在当前阶段的目标、范围与交付边界。
+    content_markdown: `本成果明确了营销活动分析平台在当前阶段的目标、范围与交付边界。
 
 - 目标：建立可复用的活动数据分析全链路
 - 范围：数据接入、指标口径、报表联调、验收交付
@@ -329,40 +334,32 @@ const deliverablesItems = [
 - 建议：先完成数据源与指标口径确认，再进入报表联调
 
 当前内容仅为 mock，不连接真实后端。`,
-    evidence: [
-      ["task_id", "task_001"],
-      ["run_id", "run_7F39"],
-      ["source_label", "AI 主管 · 规划生成"],
-      ["evidence_refs", "project-scope.md, delivery-criteria.md"],
-      ["Git", "写入关闭"],
-      ["后端", "未连接"],
-    ] as const,
-    versions: [
-      ["version_no", "1"],
-      ["total_versions", "1"],
-      ["latest_version", "v1"],
-      ["change_note", "初始版本，目标澄清阶段产出"],
-    ] as const,
-    meta: [
-      ["状态", "已锁定"],
-      ["类型", "规划草案"],
-      ["阶段", "目标澄清阶段"],
-      ["创建者", "AI 主管"],
-      ["创建时间", "今天 09:58"],
-      ["更新时间", "今天 09:58"],
-      ["是否可作为验收证据", "是"],
-    ] as const,
+    created_by: "AI 主管",
+    created_at: "今天 09:58",
+    updated_at: "今天 09:58",
+    source_task_id: "task_001",
+    source_run_id: "run_7F39",
+    source_label: "AI 主管 · 规划生成",
+    evidence_refs: ["project-scope.md", "delivery-criteria.md"],
+    git_write_status: "disabled",
+    backend_status: "mock",
+    can_be_acceptance_evidence: true,
   },
   {
-    id: "deliv-2",
+    id: "deliv_002",
+    project_id: "proj_marketing_analytics",
     title: "数据接入任务拆分",
-    status: "待审查",
-    type: "任务拆分",
-    stage: "数据接入阶段",
-    version: "版本 1",
+    type: "task_split",
+    type_label: "任务拆分",
+    status: "pending_review",
+    status_label: "待审查",
+    stage: "data_ingestion",
+    stage_label: "数据接入阶段",
+    version_no: 1,
+    total_versions: 1,
+    latest_version: true,
     summary: "将数据接入拆分为源账号确认、连通性校验、字段映射和验收记录四个子任务，并标出依赖顺序。",
-    source: "由 AI 主管沉淀 · 来源 run_7F3A · 今天 10:22",
-    content: `本成果将数据接入阶段拆分为四个子任务：
+    content_markdown: `本成果将数据接入阶段拆分为四个子任务：
 
 1. 源账号确认 — 需人工确认数据源账号权限
 2. 连通性校验 — 验证数据源可访问性
@@ -372,40 +369,32 @@ const deliverablesItems = [
 依赖顺序：1 → 2 → 3 → 4，其中步骤 1 需人工介入。
 
 当前内容仅为 mock，不连接真实后端。`,
-    evidence: [
-      ["task_id", "task_002"],
-      ["run_id", "run_7F3A"],
-      ["source_label", "AI 主管 · 任务拆分"],
-      ["evidence_refs", "data-ingestion-plan.md"],
-      ["Git", "写入关闭"],
-      ["后端", "未连接"],
-    ] as const,
-    versions: [
-      ["version_no", "1"],
-      ["total_versions", "1"],
-      ["latest_version", "v1"],
-      ["change_note", "初始版本，数据接入阶段任务拆分"],
-    ] as const,
-    meta: [
-      ["状态", "待审查"],
-      ["类型", "任务拆分"],
-      ["阶段", "数据接入阶段"],
-      ["创建者", "AI 主管"],
-      ["创建时间", "今天 10:22"],
-      ["更新时间", "今天 10:22"],
-      ["是否可作为验收证据", "待确认"],
-    ] as const,
+    created_by: "AI 主管",
+    created_at: "今天 10:22",
+    updated_at: "今天 10:22",
+    source_task_id: "task_002",
+    source_run_id: "run_7F3A",
+    source_label: "AI 主管 · 任务拆分",
+    evidence_refs: ["data-ingestion-plan.md"],
+    git_write_status: "disabled",
+    backend_status: "mock",
+    can_be_acceptance_evidence: false,
   },
   {
-    id: "deliv-3",
+    id: "deliv_003",
+    project_id: "proj_marketing_analytics",
     title: "当前运行摘要",
-    status: "草稿",
-    type: "运行摘要",
-    stage: "执行阶段",
-    version: "版本 1",
+    type: "run_summary",
+    type_label: "运行摘要",
+    status: "draft",
+    status_label: "草稿",
+    stage: "execution",
+    stage_label: "执行阶段",
+    version_no: 1,
+    total_versions: 1,
+    latest_version: true,
     summary: "当前执行聚焦数据源连通性校验，已完成上下文建立，下一步等待结果回写与补充验证证据。",
-    source: "由 AI 主管沉淀 · 来源 run_7F2E · 今天 11:16",
-    content: `本成果记录当前运行的执行摘要：
+    content_markdown: `本成果记录当前运行的执行摘要：
 
 - 执行焦点：数据源连通性校验
 - 已完成：上下文建立、任务领取
@@ -415,29 +404,16 @@ const deliverablesItems = [
 运行环境处于只读安全边界内，未触发 Git 写入。
 
 当前内容仅为 mock，不连接真实后端。`,
-    evidence: [
-      ["task_id", "task_003"],
-      ["run_id", "run_7F2E"],
-      ["source_label", "AI 主管 · 运行摘要"],
-      ["evidence_refs", "execution-log.txt"],
-      ["Git", "写入关闭"],
-      ["后端", "未连接"],
-    ] as const,
-    versions: [
-      ["version_no", "1"],
-      ["total_versions", "1"],
-      ["latest_version", "v1"],
-      ["change_note", "草稿版本，执行阶段运行摘要"],
-    ] as const,
-    meta: [
-      ["状态", "草稿"],
-      ["类型", "运行摘要"],
-      ["阶段", "执行阶段"],
-      ["创建者", "AI 主管"],
-      ["创建时间", "今天 11:16"],
-      ["更新时间", "今天 11:16"],
-      ["是否可作为验收证据", "否"],
-    ] as const,
+    created_by: "AI 主管",
+    created_at: "今天 11:16",
+    updated_at: "今天 11:16",
+    source_task_id: "task_003",
+    source_run_id: "run_7F2E",
+    source_label: "AI 主管 · 运行摘要",
+    evidence_refs: ["execution-log.txt"],
+    git_write_status: "disabled",
+    backend_status: "mock",
+    can_be_acceptance_evidence: false,
   },
 ] as const;
 
@@ -1045,10 +1021,16 @@ function DeliverablesCenterMockPage({
   onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string>(deliverablesItems[0]?.id ?? "");
+  const [activeDetailTab, setActiveDetailTab] = useState("content");
   const [discussionText, setDiscussionText] = useState("");
   const [discussionMessage, setDiscussionMessage] = useState("");
 
   const selected = deliverablesItems.find((d) => d.id === selectedId) ?? deliverablesItems[0];
+
+  function handleSelectDeliverable(id: string) {
+    setSelectedId(id);
+    setActiveDetailTab("content");
+  }
 
   function handleDiscussionSubmit() {
     if (!discussionText.trim()) return;
@@ -1056,6 +1038,32 @@ function DeliverablesCenterMockPage({
     setDiscussionMessage("已提交给 AI 主管审核，将在工作台创建成果讨论会话 · mock");
     onQueueDiscussionAction?.("add", `成果讨论：${selected.title}`);
   }
+
+  const evidenceRows: readonly (readonly [string, string])[] = [
+    ["task_id", selected.source_task_id],
+    ["run_id", selected.source_run_id],
+    ["source_label", selected.source_label],
+    ["evidence_refs", selected.evidence_refs.join(", ")],
+    ["Git", selected.git_write_status === "disabled" ? "写入关闭" : selected.git_write_status],
+    ["后端", selected.backend_status === "mock" ? "未连接" : selected.backend_status],
+  ];
+
+  const versionRows: readonly (readonly [string, string])[] = [
+    ["version_no", String(selected.version_no)],
+    ["total_versions", String(selected.total_versions)],
+    ["latest_version", selected.latest_version ? "是" : "否"],
+    ["change_note", "当前仅展示版本读回，不做 diff 对比"],
+  ];
+
+  const summaryRows: readonly (readonly [string, string])[] = [
+    ["状态", selected.status_label],
+    ["类型", selected.type_label],
+    ["阶段", selected.stage_label],
+    ["创建者", selected.created_by],
+    ["创建时间", selected.created_at],
+    ["更新时间", selected.updated_at],
+    ["是否可作为验收证据", selected.can_be_acceptance_evidence ? "是" : "否"],
+  ];
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden px-6 py-8 md:px-10">
@@ -1073,13 +1081,13 @@ function DeliverablesCenterMockPage({
       `}</style>
       <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
         <section className="shrink-0 border-b border-[#2A2A2A] pb-7">
-          <h1 className="text-2xl font-semibold tracking-normal text-white">成果中心</h1>
+          <h1 className="text-2xl font-semibold tracking-normal text-white">营销活动分析平台</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-[#C7C7C7]">
             沉淀文档、代码变更与可交付证据
           </p>
           <p className="mt-1 text-xs text-[#8A8A8A]">当前为 mock，不接后端，不触发 Git 写入。</p>
           <div className="mt-4 text-sm text-[#8A8A8A]">
-            营销活动分析平台 · 已沉淀 3 项 · 待审查 1 项 · 已锁定 1 项 · Git 写入关闭
+            已沉淀 3 项 · 待审查 1 项 · 已锁定 1 项 · Git 写入关闭
           </div>
         </section>
 
@@ -1091,7 +1099,7 @@ function DeliverablesCenterMockPage({
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => handleSelectDeliverable(item.id)}
                   className={[
                     "relative w-full border-b border-[#2A2A2A] py-4 pl-3 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
                     selectedId === item.id ? "before:absolute before:left-0 before:top-4 before:h-[calc(100%-32px)] before:w-px before:bg-[#8A8A8A] before:content-['']" : "hover:bg-[#080808]",
@@ -1099,11 +1107,11 @@ function DeliverablesCenterMockPage({
                 >
                   <div className={selectedId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>{item.title}</div>
                   <div className="mt-1 text-xs text-[#8A8A8A]">
-                    {item.status} · {item.type} · {item.stage} · {item.version}
+                    {item.status_label} · {item.type_label} · {item.stage_label} · 版本 {item.version_no}
                   </div>
                   <div className="mt-2 text-sm leading-5 text-[#C7C7C7]">{item.summary}</div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-xs text-[#5F5F5F]">{item.source}</span>
+                    <span className="text-xs text-[#5F5F5F]">由 {item.created_by} 沉淀 · 来源 {item.source_run_id} · {item.created_at}</span>
                     <span className="text-xs text-[#5F5F5F]">查看详情</span>
                   </div>
                 </button>
@@ -1149,10 +1157,10 @@ function DeliverablesCenterMockPage({
           <div className="min-h-0 overflow-y-auto border-l border-[#2A2A2A] pl-8">
             <div className="text-sm font-semibold text-white">{selected.title}</div>
             <div className="mt-0.5 text-xs text-[#8A8A8A]">
-              {selected.status} · {selected.type} · {selected.stage}
+              {selected.status_label} · {selected.type_label} · {selected.stage_label}
             </div>
 
-            <Tabs defaultValue="content" className="mt-5">
+            <Tabs value={activeDetailTab} onValueChange={setActiveDetailTab} className="mt-5">
               <TabsList>
                 <TabsTrigger value="content">内容</TabsTrigger>
                 <TabsTrigger value="evidence">证据</TabsTrigger>
@@ -1161,17 +1169,17 @@ function DeliverablesCenterMockPage({
               </TabsList>
               <TabsContent value="content">
                 <div className="mt-4 text-sm leading-6 text-[#C7C7C7] whitespace-pre-line">
-                  {selected.content}
+                  {selected.content_markdown}
                 </div>
               </TabsContent>
               <TabsContent value="evidence">
-                <ReadbackRows rows={selected.evidence} footer="仅展示证据读回，不触发 Git 写入 · mock" />
+                <ReadbackRows rows={evidenceRows} footer="仅展示证据读回，不触发 Git 写入 · mock" />
               </TabsContent>
               <TabsContent value="versions">
-                <ReadbackRows rows={selected.versions} footer="仅展示版本读回，不触发写入操作 · mock" />
+                <ReadbackRows rows={versionRows} footer="仅展示版本读回，不触发写入操作 · mock" />
               </TabsContent>
               <TabsContent value="summary">
-                <ReadbackRows rows={selected.meta} footer="仅展示摘要读回，不接真实后端 · mock" />
+                <ReadbackRows rows={summaryRows} footer="仅展示摘要读回，不接真实后端 · mock" />
               </TabsContent>
             </Tabs>
           </div>
