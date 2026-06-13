@@ -1065,9 +1065,9 @@ function DeliverablesCenterMockPage({
   const [activeDetailTab, setActiveDetailTab] = useState("content");
   const [discussionText, setDiscussionText] = useState("");
   const [discussionMessage, setDiscussionMessage] = useState("");
-  const [demoState, setDemoState] = useState<DeliverablesDemoState>("ready");
+  const deliverablesViewState = "ready" as DeliverablesDemoState;
 
-  const visibleDeliverables = demoState === "ready" ? deliverablesItems : [];
+  const visibleDeliverables = deliverablesViewState === "ready" ? deliverablesItems : [];
   const selected = visibleDeliverables.find((d) => d.id === selectedId) ?? visibleDeliverables[0] ?? null;
   const hasDeliverables = visibleDeliverables.length > 0;
 
@@ -1075,7 +1075,7 @@ function DeliverablesCenterMockPage({
   const pendingCount = deliverablesItems.filter((d) => d.status === "pending_review").length;
   const totalCount = deliverablesItems.length;
 
-  const discussionDisabled = demoState !== "ready" || !selected;
+  const discussionDisabled = deliverablesViewState !== "ready" || !selected;
 
   function handleSelectDeliverable(id: string) {
     setSelectedId(id);
@@ -1090,13 +1090,13 @@ function DeliverablesCenterMockPage({
   }
 
   const discussionHint =
-    demoState === "ready"
+    deliverablesViewState === "ready"
       ? "发送后，AI 主管将审核并在工作台创建成果讨论会话 · mock"
-      : demoState === "empty"
+      : deliverablesViewState === "empty"
         ? "暂无成果可补充 · mock"
-        : demoState === "loading"
+        : deliverablesViewState === "loading"
           ? "正在读取成果，暂不可补充 · mock"
-          : demoState === "error"
+          : deliverablesViewState === "error"
             ? "读取失败，暂不可补充 · mock"
             : "请选择项目后再补充成果说明 · mock";
 
@@ -1156,24 +1156,13 @@ function DeliverablesCenterMockPage({
           <div className="mt-3 text-xs text-[#5F5F5F] md:mt-4 md:text-sm">
             已沉淀 {totalCount} 项 · 待审查 {pendingCount} 项 · 已锁定 {lockedCount} 项 · Git 写入关闭
           </div>
-          <div className="mt-4">
-            <Tabs value={demoState} onValueChange={(v) => setDemoState(v as DeliverablesDemoState)}>
-              <TabsList>
-                <TabsTrigger value="ready">正常</TabsTrigger>
-                <TabsTrigger value="empty">空状态</TabsTrigger>
-                <TabsTrigger value="loading">加载</TabsTrigger>
-                <TabsTrigger value="error">错误</TabsTrigger>
-                <TabsTrigger value="no_project">无项目</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
         </section>
 
         <section className="grid min-h-0 flex-1 gap-7 border-b border-[#2A2A2A] py-5 lg:grid-cols-[1fr_1.2fr] lg:gap-8 lg:py-7">
           <div className="min-h-0 flex flex-col">
             <h2 className="text-base font-semibold text-white">近期沉淀</h2>
             <div className="ui-lab-deliverables-scroll mt-4 min-h-0 flex-1 overflow-y-auto pr-1 md:mt-5">
-              {demoState === "loading" ? (
+              {deliverablesViewState === "loading" ? (
                 <div className="space-y-4 py-4">
                   <div className="text-sm text-[#8A8A8A]">正在读取当前项目成果 · mock</div>
                   <Separator />
@@ -1183,12 +1172,12 @@ function DeliverablesCenterMockPage({
                   <div className="h-4 w-2/3 rounded bg-[#1A1A1A]" />
                   <div className="h-3 w-2/5 rounded bg-[#1A1A1A]" />
                 </div>
-              ) : demoState === "error" ? (
+              ) : deliverablesViewState === "error" ? (
                 <div className="py-8">
                   <div className="text-sm text-[#8A8A8A]">成果读取失败 · mock</div>
                   <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请回到工作台确认项目状态。</div>
                 </div>
-              ) : demoState === "no_project" ? (
+              ) : deliverablesViewState === "no_project" ? (
                 <div className="py-8">
                   <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
                   <div className="mt-2 text-xs text-[#5F5F5F]">选择一个项目后，这里会展示该项目沉淀下来的成果、证据和版本。</div>
@@ -1294,10 +1283,10 @@ function DeliverablesCenterMockPage({
             ) : (
               <div className="py-8">
                 <div className="text-sm text-[#8A8A8A]">
-                  {demoState === "loading" ? "正在准备成果读回 · mock" : demoState === "error" ? "无法展示成果详情" : demoState === "no_project" ? "等待项目上下文" : "请选择一个成果"}
+                  {deliverablesViewState === "loading" ? "正在准备成果读回 · mock" : deliverablesViewState === "error" ? "无法展示成果详情" : deliverablesViewState === "no_project" ? "等待项目上下文" : "请选择一个成果"}
                 </div>
                 <div className="mt-2 text-xs text-[#5F5F5F]">
-                  {demoState === "error" ? "当前为模拟错误状态 · mock" : demoState === "no_project" ? "当前没有可读回成果 · mock" : "暂无可读回内容 · mock"}
+                  {deliverablesViewState === "error" ? "当前为模拟错误状态 · mock" : deliverablesViewState === "no_project" ? "当前没有可读回成果 · mock" : "暂无可读回内容 · mock"}
                 </div>
               </div>
             )}
