@@ -343,6 +343,265 @@ const executionRun: ExecutionRunViewModel = {
 
 const executionPageViewState: ExecutionPageViewState = "ready";
 
+type GovernanceSkillRecommendation = "retain" | "merge" | "observe" | "deprecate";
+
+type GovernanceSkillViewModel = {
+  id: string;
+  skill_id: string;
+  skill_code: string;
+  skill_name: string;
+  summary: string;
+  purpose: string;
+  bound_version: string;
+  registry_current_version: string | null;
+  registry_enabled: boolean;
+  upgrade_available: boolean;
+  applicable_role_codes: readonly string[];
+  binding_source: "default_seed" | "manual" | "project_governance";
+  owner_role_code: string;
+  owner_role_name: string;
+  run_count: number;
+  succeeded_run_count: number;
+  failed_run_count: number;
+  total_tokens: number;
+  estimated_cost: number;
+  latest_run_id: string | null;
+  latest_run_status: string | null;
+  latest_run_summary: string | null;
+  latest_used_at: string | null;
+  recommendation: GovernanceSkillRecommendation;
+  recommendation_label: string;
+  recommendation_reason: string;
+  evidence_rows: readonly (readonly [string, string])[];
+  version_rows: readonly (readonly [string, string])[];
+  suggestion_rows: readonly (readonly [string, string])[];
+};
+
+type GovernanceSkillPageViewState =
+  | "ready"
+  | "loading"
+  | "empty"
+  | "error"
+  | "no_project"
+  | "no_permission";
+
+const governanceSkills: readonly GovernanceSkillViewModel[] = [
+  {
+    id: "gs_001",
+    skill_id: "skill_project_director_governance",
+    skill_code: "project_director_governance",
+    skill_name: "AI Project Director 指令治理",
+    summary: "负责目标澄清、任务拆分、证据审查与回报，输出治理链路的核心规则与口径。",
+    purpose: "为 AI 项目主管提供结构化指令模板，确保目标澄清、任务拆分、证据审查与回报流程标准化。",
+    bound_version: "v20260607",
+    registry_current_version: "v20260607",
+    registry_enabled: true,
+    upgrade_available: false,
+    applicable_role_codes: ["product_manager"],
+    binding_source: "default_seed",
+    owner_role_code: "product_manager",
+    owner_role_name: "AI 项目主管",
+    run_count: 128,
+    succeeded_run_count: 121,
+    failed_run_count: 7,
+    total_tokens: 482600,
+    estimated_cost: 12.36,
+    latest_run_id: "run_7F3A",
+    latest_run_status: "running",
+    latest_run_summary: "正在校验数据源连通性并生成接入任务拆分建议。",
+    latest_used_at: "2h 前",
+    recommendation: "retain",
+    recommendation_label: "建议保留",
+    recommendation_reason: "该 Skill 持续参与目标澄清、任务拆分与审查回报，是治理链路的核心规则来源。运行成功率 94.5%，近期使用频率稳定。",
+    evidence_rows: [
+      ["最近运行次数", "128"],
+      ["成功次数", "121"],
+      ["失败次数", "7"],
+      ["总 Token", "482,600"],
+      ["预估成本", "$12.36"],
+      ["最近 Run", "run_7F3A"],
+      ["最近 Run 状态", "running"],
+      ["最近摘要", "正在校验数据源连通性并生成接入任务拆分建议。"],
+    ],
+    version_rows: [
+      ["当前绑定版本", "v20260607"],
+      ["注册表版本", "v20260607"],
+      ["是否启用", "是"],
+      ["是否有升级", "否"],
+      ["绑定来源", "默认映射"],
+      ["版本记录", "v20260607 · v20260601 · v20260525"],
+    ],
+    suggestion_rows: [
+      ["建议", "保留"],
+      ["理由", "该 Skill 持续参与目标澄清、任务拆分与审查回报，是治理链路的核心规则来源。"],
+      ["影响范围", "AI 项目主管角色 · 所有关联任务"],
+      ["建议动作", "保持当前版本绑定，无需调整"],
+      ["是否需要用户确认", "否"],
+    ],
+  },
+  {
+    id: "gs_002",
+    skill_id: "skill_task_instruction_gen",
+    skill_code: "task_instruction_generation",
+    skill_name: "任务指令生成",
+    summary: "与 AI Project Director 指令治理在职责上高度重叠，建议合并减少重复维护。",
+    purpose: "根据项目目标和阶段计划，自动生成结构化任务指令供执行器消费。",
+    bound_version: "v20260611",
+    registry_current_version: "v20260611",
+    registry_enabled: true,
+    upgrade_available: false,
+    applicable_role_codes: ["product_manager", "architect"],
+    binding_source: "manual",
+    owner_role_code: "product_manager",
+    owner_role_name: "指令生成 Agent",
+    run_count: 46,
+    succeeded_run_count: 39,
+    failed_run_count: 7,
+    total_tokens: 124800,
+    estimated_cost: 3.42,
+    latest_run_id: "run_6E2B",
+    latest_run_status: "completed",
+    latest_run_summary: "已生成数据接入阶段 4 项子任务指令。",
+    latest_used_at: "1d 前",
+    recommendation: "merge",
+    recommendation_label: "建议合并",
+    recommendation_reason: "与 AI Project Director 指令治理在目标澄清与任务拆分职责上高度重叠。合并后可减少维护成本，避免指令冲突。",
+    evidence_rows: [
+      ["最近运行次数", "46"],
+      ["成功次数", "39"],
+      ["失败次数", "7"],
+      ["总 Token", "124,800"],
+      ["预估成本", "$3.42"],
+      ["最近 Run", "run_6E2B"],
+      ["最近 Run 状态", "completed"],
+      ["最近摘要", "已生成数据接入阶段 4 项子任务指令。"],
+    ],
+    version_rows: [
+      ["当前绑定版本", "v20260611"],
+      ["注册表版本", "v20260611"],
+      ["是否启用", "是"],
+      ["是否有升级", "否"],
+      ["绑定来源", "手动绑定"],
+      ["版本记录", "v20260611 · v20260601"],
+    ],
+    suggestion_rows: [
+      ["建议", "合并"],
+      ["理由", "与 AI Project Director 指令治理在目标澄清与任务拆分职责上高度重叠，合并可减少维护成本。"],
+      ["影响范围", "指令生成 Agent · AI 项目主管角色"],
+      ["建议动作", "将本 Skill 的独有字段合并至 AI Project Director 指令治理，然后淘汰本 Skill"],
+      ["是否需要用户确认", "是"],
+    ],
+  },
+  {
+    id: "gs_003",
+    skill_id: "skill_frontend_production_verify",
+    skill_code: "frontend_production_verification",
+    skill_name: "前端生产化验收",
+    summary: "覆盖范围明确，但近期使用较少，建议持续观察其对验收质量的实际贡献。",
+    purpose: "对前端页面进行生产化验收检查，包括构建验证、组件一致性与状态兜底覆盖。",
+    bound_version: "v20260610",
+    registry_current_version: "v20260612",
+    registry_enabled: true,
+    upgrade_available: true,
+    applicable_role_codes: ["reviewer"],
+    binding_source: "project_governance",
+    owner_role_code: "reviewer",
+    owner_role_name: "前端体验 Agent",
+    run_count: 18,
+    succeeded_run_count: 16,
+    failed_run_count: 2,
+    total_tokens: 53200,
+    estimated_cost: 1.48,
+    latest_run_id: "run_5D1C",
+    latest_run_status: "completed",
+    latest_run_summary: "执行中心页面状态兜底验收通过，7 个状态分支均覆盖。",
+    latest_used_at: "3d 前",
+    recommendation: "observe",
+    recommendation_label: "观察",
+    recommendation_reason: "覆盖范围明确，但近 7 天使用频率下降。建议观察其在下一阶段验收中的实际贡献后再决定保留或淘汰。",
+    evidence_rows: [
+      ["最近运行次数", "18"],
+      ["成功次数", "16"],
+      ["失败次数", "2"],
+      ["总 Token", "53,200"],
+      ["预估成本", "$1.48"],
+      ["最近 Run", "run_5D1C"],
+      ["最近 Run 状态", "completed"],
+      ["最近摘要", "执行中心页面状态兜底验收通过，7 个状态分支均覆盖。"],
+    ],
+    version_rows: [
+      ["当前绑定版本", "v20260610"],
+      ["注册表版本", "v20260612"],
+      ["是否启用", "是"],
+      ["是否有升级", "是"],
+      ["绑定来源", "项目治理"],
+      ["版本记录", "v20260612 · v20260610 · v20260605"],
+    ],
+    suggestion_rows: [
+      ["建议", "观察"],
+      ["理由", "覆盖范围明确，但近 7 天使用频率下降，需观察下一阶段验收中的实际贡献。"],
+      ["影响范围", "前端体验 Agent · 验收流程"],
+      ["建议动作", "暂不升级，观察下一轮验收结果后再决定"],
+      ["是否需要用户确认", "否"],
+    ],
+  },
+  {
+    id: "gs_004",
+    skill_id: "skill_legacy_plan_gen",
+    skill_code: "legacy_plan_generation",
+    skill_name: "旧版计划生成",
+    summary: "已被新版计划生成 Skill 全面替代，近 30 天无实际使用，建议淘汰。",
+    purpose: "根据项目目标生成阶段计划草案，已被新版计划生成 Skill 替代。",
+    bound_version: "v20260521",
+    registry_current_version: null,
+    registry_enabled: false,
+    upgrade_available: false,
+    applicable_role_codes: ["product_manager"],
+    binding_source: "default_seed",
+    owner_role_code: "product_manager",
+    owner_role_name: "计划生成 Agent",
+    run_count: 0,
+    succeeded_run_count: 0,
+    failed_run_count: 0,
+    total_tokens: 0,
+    estimated_cost: 0,
+    latest_run_id: null,
+    latest_run_status: null,
+    latest_run_summary: null,
+    latest_used_at: "32d 前",
+    recommendation: "deprecate",
+    recommendation_label: "建议淘汰",
+    recommendation_reason: "已被新版计划生成 Skill 全面替代，近 30 天无实际使用。注册表已禁用，绑定版本已过期。",
+    evidence_rows: [
+      ["最近运行次数", "0"],
+      ["成功次数", "0"],
+      ["失败次数", "0"],
+      ["总 Token", "0"],
+      ["预估成本", "$0.00"],
+      ["最近 Run", "—"],
+      ["最近 Run 状态", "—"],
+      ["最近摘要", "近 30 天无运行记录。"],
+    ],
+    version_rows: [
+      ["当前绑定版本", "v20260521"],
+      ["注册表版本", "已下线"],
+      ["是否启用", "否"],
+      ["是否有升级", "否"],
+      ["绑定来源", "默认映射"],
+      ["版本记录", "v20260521"],
+    ],
+    suggestion_rows: [
+      ["建议", "淘汰"],
+      ["理由", "已被新版计划生成 Skill 全面替代，近 30 天无实际使用，注册表已禁用。"],
+      ["影响范围", "计划生成 Agent · 历史遗留绑定"],
+      ["建议动作", "移除绑定，归档版本记录"],
+      ["是否需要用户确认", "是"],
+    ],
+  },
+];
+
+const governanceSkillViewState: GovernanceSkillPageViewState = "ready";
+
 type DeliverableStatus = "draft" | "pending_review" | "locked" | "archived" | "needs_more_evidence";
 
 type DeliverableType =
@@ -1337,6 +1596,216 @@ function ExecutionCenterMockPage({
   );
 }
 
+function GovernanceSkillMockPage() {
+  const [selectedSkillId, setSelectedSkillId] = useState<string>(governanceSkills[0]?.id ?? "");
+  const [activeTab, setActiveTab] = useState("overview");
+  const [opinionText, setOpinionText] = useState("");
+  const [opinionMessage, setOpinionMessage] = useState("");
+
+  const viewState = governanceSkillViewState;
+  const selected = governanceSkills.find((s) => s.id === selectedSkillId) ?? governanceSkills[0] ?? null;
+
+  function handleSubmitOpinion() {
+    if (!selected || !opinionText.trim()) return;
+    setOpinionText("");
+    setOpinionMessage(`已记录治理建议：@「${selected.skill_name}」 · mock`);
+  }
+
+  if (viewState === "loading") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col">
+          <div className="text-sm text-[#8A8A8A]">正在读取 Skill 治理状态 · mock</div>
+          <Separator className="mt-4" />
+          <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
+          <Separator className="mt-4" />
+          <div className="mt-4 h-3 w-1/2 rounded bg-[#1A1A1A]" />
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "empty") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">暂无 Skill 绑定</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前项目还没有可展示的 Skill 绑定记录。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "error") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">Skill 治理状态读取失败 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请稍后重试或回到工作台确认项目状态。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "no_project") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的 Skill 绑定、运行证据和治理建议。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "no_permission") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">暂无访问权限 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">你当前没有查看该项目 Skill 治理状态的权限。</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
+        <section className="shrink-0 pb-4 md:pb-5">
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">
+            Skill 治理 · 当前项目：营销活动分析平台 · mock
+          </div>
+        </section>
+
+        <section className="grid min-h-0 flex-1 gap-7 lg:grid-cols-[1fr_0.95fr] lg:gap-8">
+          <div className="min-h-0 flex flex-col">
+            <h2 className="shrink-0 text-base font-semibold text-white">当前 Skill 清单</h2>
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-y border-[#2A2A2A]">
+              {governanceSkills.map((skill) => (
+                <button
+                  key={skill.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedSkillId(skill.id);
+                    setActiveTab("overview");
+                  }}
+                  className={[
+                    "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                    selectedSkillId === skill.id
+                      ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
+                      : "hover:bg-[#080808]",
+                  ].join(" ")}
+                >
+                  <div className={selectedSkillId === skill.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                    {skill.skill_name}
+                  </div>
+                  <div className="mt-1 text-xs text-[#8A8A8A]">
+                    {skill.recommendation_label} · {skill.owner_role_name} · {skill.bound_version}
+                  </div>
+                  <div className="mt-1.5 text-xs leading-5 text-[#8A8A8A] line-clamp-2">
+                    {skill.summary}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-xs text-[#5F5F5F]">
+                    <span>最近运行 {skill.run_count} 次 · 最近使用 {skill.latest_used_at ?? "—"} · 来源：{skill.binding_source === "default_seed" ? "默认映射" : skill.binding_source === "manual" ? "手动绑定" : "项目治理"}</span>
+                    <span>查看详情</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="min-h-0 overflow-y-auto border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+            {selected ? (
+              <>
+                <div className="text-base font-semibold text-white">{selected.skill_name}</div>
+                <div className="mt-1 text-xs text-[#8A8A8A]">
+                  {selected.registry_enabled ? "已生效" : "未启用"} · {selected.owner_role_name} · {selected.bound_version}
+                </div>
+
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4 md:mt-5">
+                  <TabsList>
+                    <TabsTrigger value="overview">概览</TabsTrigger>
+                    <TabsTrigger value="evidence">证据</TabsTrigger>
+                    <TabsTrigger value="suggestion">建议</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="overview">
+                    <ReadbackRows
+                      rows={[
+                        ["用途", selected.purpose],
+                        ["适用角色", selected.applicable_role_codes.join(", ")],
+                        ["绑定来源", selected.binding_source === "default_seed" ? "默认映射" : selected.binding_source === "manual" ? "手动绑定" : "项目治理"],
+                        ["当前版本", selected.bound_version],
+                        ["注册表版本", selected.registry_current_version ?? "已下线"],
+                        ["是否启用", selected.registry_enabled ? "是" : "否"],
+                        ["是否有升级", selected.upgrade_available ? "是" : "否"],
+                      ]}
+                      footer="仅展示 Skill 概览读回，不触发配置变更 · mock"
+                    />
+                  </TabsContent>
+                  <TabsContent value="evidence">
+                    <ReadbackRows
+                      rows={selected.evidence_rows}
+                      footer="运行证据来自当前项目 mock 数据，不代表真实执行结果。"
+                    />
+                  </TabsContent>
+                  <TabsContent value="suggestion">
+                    <ReadbackRows
+                      rows={selected.suggestion_rows}
+                      footer="治理建议基于运行证据与使用频率分析，不触发真实合并或淘汰操作 · mock"
+                    />
+                  </TabsContent>
+                </Tabs>
+
+                <div className="mt-6 border-t border-[#2A2A2A] pt-5">
+                  <div className="text-sm font-semibold text-white">治理意见</div>
+                  <p className="mt-1 text-xs text-[#8A8A8A]">
+                    补充对该 Skill 的保留、合并、观察或淘汰意见。发送后将作为工作台治理讨论记录 · mock
+                  </p>
+                  <div className="mt-3 flex h-11 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-4">
+                    <Textarea
+                      value={opinionText}
+                      onChange={(e) => {
+                        setOpinionText(e.target.value);
+                        if (opinionMessage) setOpinionMessage("");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSubmitOpinion();
+                        }
+                      }}
+                      placeholder="补充这个 Skill 的治理意见..."
+                      className="h-8 min-h-0 flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#8A8A8A]"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={!opinionText.trim()}
+                      onClick={handleSubmitOpinion}
+                      className="h-8 shrink-0 rounded-full px-3"
+                    >
+                      发送建议
+                    </Button>
+                  </div>
+                  {opinionMessage ? (
+                    <div className="mt-2 text-xs text-[#8A8A8A]">{opinionMessage}</div>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="py-8">
+                <div className="text-sm text-[#8A8A8A]">请选择一个 Skill</div>
+                <div className="mt-2 text-xs text-[#5F5F5F]">从左侧列表中选择 Skill 后，这里会展示详情、证据和治理建议。</div>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function DeliverablesCenterMockPage({
   onQueueDiscussionAction,
 }: {
@@ -1595,6 +2064,10 @@ export function MockPageContent({
 
   if (pageKey === "deliverables") {
     return <DeliverablesCenterMockPage onQueueDiscussionAction={onQueueDiscussionAction} />;
+  }
+
+  if (pageKey === "governance") {
+    return <GovernanceSkillMockPage />;
   }
 
   const content: MainPageContent | undefined = mainPageMockContents[pageKey];
