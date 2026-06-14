@@ -1600,22 +1600,30 @@ function GovernanceSkillMockPage() {
   const [selectedSkillId, setSelectedSkillId] = useState<string>(governanceSkills[0]?.id ?? "");
   const [activeTab, setActiveTab] = useState("overview");
   const [opinionText, setOpinionText] = useState("");
-  const [opinionMessage, setOpinionMessage] = useState("");
+  const [opinionMessages, setOpinionMessages] = useState<readonly { author: "user" | "director"; text: string }[]>([
+    { author: "user", text: "这个 Skill 是否可以和任务指令生成合并？" },
+    { author: "director", text: "暂不建议直接合并。当前 Skill 还承担 Git 边界和审查口径，建议只吸收任务生成 Skill 的模板部分。" },
+    { author: "user", text: "如果保留，它后续需要优化什么？" },
+    { author: "director", text: "建议补充版本淘汰条件和最近运行证据阈值。" },
+  ]);
 
   const viewState = governanceSkillViewState;
   const selected = governanceSkills.find((s) => s.id === selectedSkillId) ?? governanceSkills[0] ?? null;
 
   function handleSubmitOpinion() {
     if (!selected || !opinionText.trim()) return;
+    const userMsg = { author: "user" as const, text: opinionText.trim() };
+    const directorMsg = { author: "director" as const, text: `已记录对「${selected.skill_name}」的治理意见，后续将作为保留、合并或淘汰判断参考 · mock` };
+    setOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
     setOpinionText("");
-    setOpinionMessage(`已记录治理建议：@「${selected.skill_name}」 · mock`);
   }
 
   if (viewState === "loading") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
-        <div className="mx-auto flex w-full max-w-[1080px] flex-col">
-          <div className="text-sm text-[#8A8A8A]">正在读取 Skill 治理状态 · mock</div>
+      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台 · mock</div>
+          <div className="mt-4 text-sm text-[#8A8A8A]">正在读取 Skill 治理状态</div>
           <Separator className="mt-4" />
           <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
           <Separator className="mt-4" />
@@ -1627,9 +1635,10 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "empty") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
-        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">暂无 Skill 绑定</div>
+      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台 · mock</div>
+          <div className="mt-6 text-sm text-[#8A8A8A]">暂无 Skill 绑定</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">当前项目还没有可展示的 Skill 绑定记录。</div>
         </div>
       </div>
@@ -1638,10 +1647,11 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "error") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
-        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">Skill 治理状态读取失败 · mock</div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请稍后重试或回到工作台确认项目状态。</div>
+      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台 · mock</div>
+          <div className="mt-6 text-sm text-[#8A8A8A]">Skill 治理状态读取失败</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">请稍后重试或回到工作台确认项目状态。</div>
         </div>
       </div>
     );
@@ -1649,9 +1659,10 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "no_project") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
-        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
+      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理</div>
+          <div className="mt-6 text-sm text-[#8A8A8A]">尚未选择项目</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的 Skill 绑定、运行证据和治理建议。</div>
         </div>
       </div>
@@ -1660,9 +1671,10 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "no_permission") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
-        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">暂无访问权限 · mock</div>
+      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理</div>
+          <div className="mt-6 text-sm text-[#8A8A8A]">暂无访问权限</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">你当前没有查看该项目 Skill 治理状态的权限。</div>
         </div>
       </div>
@@ -1674,14 +1686,14 @@ function GovernanceSkillMockPage() {
       <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
         <section className="shrink-0 pb-4 md:pb-5">
           <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">
-            Skill 治理 · 当前项目：营销活动分析平台 · mock
+            Skill 治理 · 当前项目：营销活动分析平台 · 只读治理 · mock
           </div>
         </section>
 
         <section className="grid min-h-0 flex-1 gap-7 lg:grid-cols-[1fr_0.95fr] lg:gap-8">
           <div className="min-h-0 flex flex-col">
             <h2 className="shrink-0 text-base font-semibold text-white">当前 Skill 清单</h2>
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-y border-[#2A2A2A]">
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {governanceSkills.map((skill) => (
                 <button
                   key={skill.id}
@@ -1703,100 +1715,117 @@ function GovernanceSkillMockPage() {
                   <div className="mt-1 text-xs text-[#8A8A8A]">
                     {skill.recommendation_label} · {skill.owner_role_name} · {skill.bound_version}
                   </div>
-                  <div className="mt-1.5 text-xs leading-5 text-[#8A8A8A] line-clamp-2">
-                    {skill.summary}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs text-[#5F5F5F]">
-                    <span>最近运行 {skill.run_count} 次 · 最近使用 {skill.latest_used_at ?? "—"} · 来源：{skill.binding_source === "default_seed" ? "默认映射" : skill.binding_source === "manual" ? "手动绑定" : "项目治理"}</span>
-                    <span>查看详情</span>
+                  <div className="mt-1 text-xs text-[#5F5F5F]">
+                    最近运行 {skill.run_count} 次 · 最近使用 {skill.latest_used_at ?? "—"}
                   </div>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="min-h-0 overflow-y-auto border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+          <div className="min-h-0 flex flex-col border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
             {selected ? (
               <>
-                <div className="text-base font-semibold text-white">{selected.skill_name}</div>
-                <div className="mt-1 text-xs text-[#8A8A8A]">
-                  {selected.registry_enabled ? "已生效" : "未启用"} · {selected.owner_role_name} · {selected.bound_version}
+                <div className="shrink-0">
+                  <div className="text-base font-semibold text-white">{selected.skill_name}</div>
+                  <div className="mt-1 text-xs text-[#8A8A8A]">
+                    {selected.registry_enabled ? "已生效" : "未启用"} · {selected.owner_role_name} · {selected.bound_version}
+                  </div>
                 </div>
 
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4 md:mt-5">
-                  <TabsList>
-                    <TabsTrigger value="overview">概览</TabsTrigger>
-                    <TabsTrigger value="evidence">证据</TabsTrigger>
-                    <TabsTrigger value="suggestion">建议</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="overview">
-                    <ReadbackRows
-                      rows={[
-                        ["用途", selected.purpose],
-                        ["适用角色", selected.applicable_role_codes.join(", ")],
-                        ["绑定来源", selected.binding_source === "default_seed" ? "默认映射" : selected.binding_source === "manual" ? "手动绑定" : "项目治理"],
-                        ["当前版本", selected.bound_version],
-                        ["注册表版本", selected.registry_current_version ?? "已下线"],
-                        ["是否启用", selected.registry_enabled ? "是" : "否"],
-                        ["是否有升级", selected.upgrade_available ? "是" : "否"],
-                      ]}
-                      footer="仅展示 Skill 概览读回，不触发配置变更 · mock"
-                    />
-                  </TabsContent>
-                  <TabsContent value="evidence">
-                    <ReadbackRows
-                      rows={selected.evidence_rows}
-                      footer="运行证据来自当前项目 mock 数据，不代表真实执行结果。"
-                    />
-                  </TabsContent>
-                  <TabsContent value="suggestion">
-                    <ReadbackRows
-                      rows={selected.suggestion_rows}
-                      footer="治理建议基于运行证据与使用频率分析，不触发真实合并或淘汰操作 · mock"
-                    />
-                  </TabsContent>
-                </Tabs>
+                <div className="mt-4 min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <Tabs value={activeTab} onValueChange={setActiveTab}>
+                    <TabsList>
+                      <TabsTrigger value="overview">概览</TabsTrigger>
+                      <TabsTrigger value="evidence">证据</TabsTrigger>
+                      <TabsTrigger value="suggestion">建议</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="overview">
+                      <ReadbackRows
+                        compact
+                        rows={[
+                          ["用途", selected.purpose.length > 60 ? selected.purpose.slice(0, 60) + "…" : selected.purpose],
+                          ["适用角色", selected.applicable_role_codes.join(", ")],
+                          ["绑定来源", selected.binding_source === "default_seed" ? "默认映射" : selected.binding_source === "manual" ? "手动绑定" : "项目治理"],
+                          ["当前版本", selected.bound_version],
+                          ["注册表状态", selected.registry_enabled ? `启用 · ${selected.registry_current_version ?? selected.bound_version}` : "已下线"],
+                        ]}
+                      />
+                    </TabsContent>
+                    <TabsContent value="evidence">
+                      <ReadbackRows
+                        compact
+                        rows={[
+                          ["最近运行", `${selected.run_count} 次`],
+                          ["成功 / 失败", `${selected.succeeded_run_count} / ${selected.failed_run_count}`],
+                          ["总 Token", selected.total_tokens.toLocaleString()],
+                          ["预估成本", `$${selected.estimated_cost.toFixed(2)}`],
+                          ["最近 Run", selected.latest_run_id ?? "—"],
+                          ["最近摘要", selected.latest_run_summary ? (selected.latest_run_summary.length > 40 ? selected.latest_run_summary.slice(0, 40) + "…" : selected.latest_run_summary) : "—"],
+                        ]}
+                      />
+                    </TabsContent>
+                    <TabsContent value="suggestion">
+                      <ReadbackRows
+                        compact
+                        rows={[
+                          ["建议", selected.recommendation_label],
+                          ["理由", selected.recommendation_reason.length > 50 ? selected.recommendation_reason.slice(0, 50) + "…" : selected.recommendation_reason],
+                          ["影响范围", `${selected.owner_role_name} · 所有关联任务`],
+                          ["建议动作", selected.suggestion_rows.find((r) => r[0] === "建议动作")?.[1] ?? "—"],
+                        ]}
+                      />
+                    </TabsContent>
+                  </Tabs>
+                </div>
 
-                <div className="mt-6 border-t border-[#2A2A2A] pt-5">
-                  <div className="text-sm font-semibold text-white">治理意见</div>
-                  <p className="mt-1 text-xs text-[#8A8A8A]">
-                    补充对该 Skill 的保留、合并、观察或淘汰意见。发送后将作为工作台治理讨论记录 · mock
-                  </p>
-                  <div className="mt-3 flex h-11 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-4">
+                <div className="mt-4 shrink-0 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
+                  <div className="px-3 pt-3 pb-2 text-xs font-semibold text-[#C7C7C7]">治理意见</div>
+                  <div className="h-40 overflow-y-auto px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <div className="space-y-3 pb-2">
+                      {opinionMessages.map((msg, i) => (
+                        <div key={i} className="flex gap-2">
+                          <div className={[
+                            "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                            msg.author === "user"
+                              ? "bg-[#2C2C2C] text-white"
+                              : "bg-[#1A1A1A] text-[#8A8A8A]",
+                          ].join(" ")}>
+                            {msg.author === "user" ? "K" : "AI"}
+                          </div>
+                          <div className="min-w-0 flex-1 text-xs leading-5 text-[#C7C7C7]">{msg.text}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 border-t border-[#1F1F1F] px-3 py-2">
                     <Textarea
                       value={opinionText}
-                      onChange={(e) => {
-                        setOpinionText(e.target.value);
-                        if (opinionMessage) setOpinionMessage("");
-                      }}
+                      onChange={(e) => setOpinionText(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
                           handleSubmitOpinion();
                         }
                       }}
-                      placeholder="补充这个 Skill 的治理意见..."
-                      className="h-8 min-h-0 flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#8A8A8A]"
+                      placeholder="补充治理意见..."
+                      className="h-7 min-h-0 flex-1 resize-none border-0 bg-transparent py-0.5 text-xs leading-5 text-white outline-none placeholder:text-[#5F5F5F]"
                     />
                     <Button
                       variant="secondary"
                       size="sm"
                       disabled={!opinionText.trim()}
                       onClick={handleSubmitOpinion}
-                      className="h-8 shrink-0 rounded-full px-3"
+                      className="h-7 shrink-0 rounded-full px-2.5 text-xs"
                     >
-                      发送建议
+                      发送
                     </Button>
                   </div>
-                  {opinionMessage ? (
-                    <div className="mt-2 text-xs text-[#8A8A8A]">{opinionMessage}</div>
-                  ) : null}
                 </div>
               </>
             ) : (
               <div className="py-8">
                 <div className="text-sm text-[#8A8A8A]">请选择一个 Skill</div>
-                <div className="mt-2 text-xs text-[#5F5F5F]">从左侧列表中选择 Skill 后，这里会展示详情、证据和治理建议。</div>
               </div>
             )}
           </div>
