@@ -40,235 +40,308 @@ const projectScopeRows = [
   ["交付标准", "功能可用、性能达标、文档完整、验收通过"],
 ] as const;
 
-const executionProgressSteps = [
-  {
-    title: "已领取任务",
-    detail: "11:32:41 · Worker 1 已领取并确认",
-    state: "done",
-  },
-  {
-    title: "上下文已建立",
-    detail: "11:32:43 · 项目信息与上下文已加载",
-    state: "done",
-  },
-  {
-    title: "执行中",
-    detail: "11:34:08 · AI 正在处理当前任务",
-    state: "current",
-  },
-  {
-    title: "等待结果回写",
-    detail: "预计 11:40 前完成",
-    state: "pending",
-  },
-] as const;
+type ExecutionRunStatus = "idle" | "running" | "completed" | "blocked" | "failed";
 
-const executionStepDetails = {
-  已领取任务: {
-    title: "已领取任务",
-    description: "任务领取读回 · mock",
-    rows: [
-      ["步骤", "已领取任务"],
-      ["执行器", "Worker 1 / 3"],
-      ["领取时间", "11:32:41"],
-      ["任务", "数据接入模块联调"],
-      ["领取结果", "已领取并确认"],
-      ["下一步", "建立执行上下文"],
-    ],
-    logs: [
-      "11:32:41 Worker 1 领取任务",
-      "11:32:41 校验任务状态为 running",
-      "11:32:42 准备加载项目上下文",
-    ],
-    footer: "仅展示步骤读回，不触发执行操作 · mock",
-  },
-  上下文已建立: {
-    title: "上下文已建立",
-    description: "执行上下文读回 · mock",
-    rows: [
-      ["步骤", "上下文已建立"],
-      ["建立时间", "11:32:43"],
-      ["项目上下文", "已加载"],
-      ["依赖状态", "无阻塞依赖"],
-      ["记忆召回", "命中 3 条项目背景"],
-      ["下一步", "进入执行处理"],
-    ],
-    logs: [
-      "11:32:43 加载项目目标与任务边界",
-      "11:32:45 读取最近运行摘要",
-      "11:32:47 确认 ready_for_execution true",
-    ],
-    footer: "上下文内容来自当前项目 mock 数据，不代表真实后端响应。",
-  },
-  执行中: {
-    title: "执行中",
-    description: "当前运行步骤读回 · mock",
-    rows: [
-      ["步骤", "执行中"],
-      ["执行器", "Codex · Worker 1 / 3"],
-      ["Run ID", "run_7F3A"],
-      ["开始时间", "11:34:08"],
-      ["当前动作", "校验数据源连通性并生成接入任务拆分建议"],
-      ["下一步", "等待结果回写"],
-      ["预计完成", "11:40 前"],
-    ],
-    logs: [
-      "11:34:08 读取当前项目上下文",
-      "11:34:19 校验数据源连接参数",
-      "11:34:37 生成接入任务拆分建议",
-    ],
-    footer: "仅展示当前步骤读回，不触发执行操作 · mock",
-  },
-  等待结果回写: {
-    title: "等待结果回写",
-    description: "结果回写等待状态 · mock",
-    rows: [
-      ["步骤", "等待结果回写"],
-      ["预计完成", "11:40 前"],
-      ["等待内容", "执行结果摘要与任务拆分建议"],
-      ["后续动作", "进入审批 / 交付检查"],
-      ["Git 状态", "写入关闭"],
-      ["风险", "暂无阻塞项"],
-    ],
-    logs: [
-      "等待 Worker 返回结果摘要",
-      "等待质量闸门更新",
-      "等待页面刷新执行读回",
-    ],
-    footer: "仅展示等待状态，不执行提交、推送或写入操作 · mock",
-  },
-} as const;
+type ExecutionStepState = "done" | "current" | "pending" | "blocked" | "failed";
 
-type ExecutionStepTitle = keyof typeof executionStepDetails;
+type ExecutionStepViewModel = {
+  id: string;
+  title: string;
+  detail: string;
+  state: ExecutionStepState;
+  rows: readonly (readonly [string, string])[];
+  logs?: readonly string[];
+  footer: string;
+};
 
-const executionStatusRows = [
-  ["运行", "running · run_7F3A"],
-  ["运行环境", "ready"],
-  ["工作区", "clean"],
-  ["Git", "只读预检 · 写入关闭"],
-  ["审批", "无需审批"],
-  ["质量闸门", "等待结果"],
-  ["预算", "正常"],
-] as const;
+type ExecutionEvidenceTabViewModel = {
+  key: string;
+  label: string;
+  title: string;
+  description: string;
+  rows: readonly (readonly [string, string])[];
+  footer: string;
+};
 
-const executionEvidenceDialogItems = [
-  {
-    key: "run",
-    label: "运行详情",
-    title: "运行详情",
-    description: "当前任务运行摘要 · mock",
-    rows: [
-      ["任务", "数据接入模块联调"],
-      ["Run ID", "run_7F3A"],
-      ["Worker", "Worker 1 / 3"],
-      ["状态", "running"],
-      ["开始时间", "11:32:41"],
-      ["预计完成", "11:40 前"],
-      ["模型", "Codex · gpt-5.5"],
-      ["成本预估", "$0.012"],
-      ["Token", "4.8k"],
-      ["Log", "logs/runs/run_7F3A.log"],
-    ],
-    footer: "仅展示运行读回，不触发执行操作 · mock",
-  },
-  {
-    key: "context",
-    label: "上下文",
-    title: "上下文",
-    description: "执行前上下文摘要 · mock",
-    rows: [
-      ["项目", "营销活动分析平台"],
-      ["当前任务输入", "校验数据源连通性并拆分接入任务"],
-      ["依赖", "无阻塞依赖"],
-      ["记忆召回", "命中 3 条项目背景"],
-      ["验收口径", "接入路径明确、验证命令完整、风险说明清晰"],
-      ["上下文状态", "ready_for_execution true"],
-    ],
-    footer: "上下文来自当前项目 mock 数据，不代表真实后端响应。",
-  },
-  {
-    key: "decision",
-    label: "决策回放",
-    title: "决策回放",
-    description: "为什么由当前执行器处理 · mock",
-    rows: [
-      ["路由结果", "选择 Codex"],
-      ["原因", "当前任务偏代码与联调，适合代码执行器处理"],
-      ["未选择 DeepSeek", "本轮不是规划总结任务"],
-      ["执行模式", "只读运行"],
-      ["验证模式", "mock verification"],
-      ["下一步", "等待结果回写后进入审批 / 交付检查"],
-    ],
-    footer: "该回放只解释调度决策，不代表真实模型调用。",
-  },
-  {
-    key: "safety",
-    label: "安全预检",
-    title: "安全预检",
-    description: "运行前安全边界读回 · mock",
-    rows: [
-      ["Runtime", "ready"],
-      ["Workspace", "clean"],
-      ["Git", "只读预检 · 写入关闭"],
-      ["Approval", "无需审批"],
-      ["Quality gate", "等待结果"],
-      ["Budget", "正常"],
-      ["风险", "未发现阻塞项"],
-    ],
-    footer: "当前仅预览安全状态，不执行 git add / commit / push。",
-  },
-] as const;
+type ExecutionQueueItemViewModel = {
+  id: string;
+  state: "manual_required" | "queued" | "blocked" | "done";
+  state_label: string;
+  title: string;
+  note: string;
+  description: string;
+  rows: readonly (readonly [string, string])[];
+  footer: string;
+  can_add_to_workbench: boolean;
+};
 
-const executionQueueRows = [
-  {
-    state: "待人工",
-    title: "数据源账号确认",
-    note: "需产品负责人确认",
-    description: "后续队列任务读回 · mock",
-    rows: [
-      ["状态", "待人工"],
-      ["队列位置", "1"],
-      ["为什么排在后面", "当前执行任务完成后需要确认数据源账号"],
-      ["依赖", "数据接入模块联调"],
-      ["下一步处理者", "产品负责人"],
-      ["处理方式", "回到工作台讨论后确认"],
-      ["风险", "账号未确认会阻塞后续接入验证"],
-    ],
-    footer: "仅展示队列任务读回，不触发执行操作 · mock",
-  },
-  {
-    state: "待执行",
-    title: "指标口径确认",
-    note: "AI 评估后自动执行",
-    description: "后续队列任务读回 · mock",
-    rows: [
-      ["状态", "待执行"],
-      ["队列位置", "2"],
-      ["为什么排在后面", "需要等待数据源账号确认后进入指标口径校验"],
-      ["依赖", "数据源账号确认"],
-      ["下一步处理者", "AI 主管"],
-      ["处理方式", "AI 评估后自动执行"],
-      ["风险", "口径未确认会影响报表验收"],
-    ],
-    footer: "仅展示队列任务读回，不触发执行操作 · mock",
-  },
-  {
-    state: "待执行",
-    title: "可视化报表联调",
-    note: "预计 2 个任务后进行",
-    description: "后续队列任务读回 · mock",
-    rows: [
-      ["状态", "待执行"],
-      ["队列位置", "3"],
-      ["为什么排在后面", "需要等待指标口径确认后再联调报表"],
-      ["依赖", "指标口径确认"],
-      ["下一步处理者", "Codex"],
-      ["处理方式", "预计 2 个任务后进行"],
-      ["风险", "暂无阻塞项"],
-    ],
-    footer: "仅展示队列任务读回，不执行提交、推送或写入操作 · mock",
-  },
-] as const;
+type ExecutionRunViewModel = {
+  id: string;
+  title: string;
+  status: ExecutionRunStatus;
+  status_label: string;
+  executor_label: string;
+  worker_label: string;
+  environment_label: string;
+  budget_label: string;
+  git_write_status: "disabled" | "preview_only";
+  started_at: string;
+  updated_at: string;
+  current_summary: string;
+  safety_note: string;
+  status_rows: readonly (readonly [string, string])[];
+  steps: readonly ExecutionStepViewModel[];
+  evidence_tabs: readonly ExecutionEvidenceTabViewModel[];
+  queue_items: readonly ExecutionQueueItemViewModel[];
+  backend_status: "mock" | "unavailable";
+};
+
+type ExecutionPageViewState =
+  | "ready"
+  | "idle"
+  | "loading"
+  | "completed"
+  | "blocked"
+  | "error"
+  | "no_project"
+  | "no_permission";
+
+const executionRun: ExecutionRunViewModel = {
+  id: "run_7F3A",
+  title: "AI 正在处理：数据接入模块联调",
+  status: "running",
+  status_label: "running · mock",
+  executor_label: "Codex",
+  worker_label: "Worker 1/3",
+  environment_label: "运行环境就绪",
+  budget_label: "预算正常",
+  git_write_status: "disabled",
+  started_at: "11:32:41",
+  updated_at: "11:34:40",
+  current_summary: "正在校验数据源连通性，并生成接入任务拆分建议。",
+  safety_note: "当前未触发 Git 写入，运行环境处于只读安全边界内。",
+  status_rows: [
+    ["运行", "running · run_7F3A"],
+    ["运行环境", "ready"],
+    ["工作区", "clean"],
+    ["Git", "只读预检 · 写入关闭"],
+    ["审批", "无需审批"],
+    ["质量闸门", "等待结果"],
+    ["预算", "正常"],
+  ],
+  steps: [
+    {
+      id: "step_claimed",
+      title: "已领取任务",
+      detail: "11:32:41 · Worker 1 已领取并确认",
+      state: "done",
+      rows: [
+        ["步骤", "已领取任务"],
+        ["执行器", "Worker 1 / 3"],
+        ["领取时间", "11:32:41"],
+        ["任务", "数据接入模块联调"],
+        ["领取结果", "已领取并确认"],
+        ["下一步", "建立执行上下文"],
+      ],
+      logs: [
+        "11:32:41 Worker 1 领取任务",
+        "11:32:41 校验任务状态为 running",
+        "11:32:42 准备加载项目上下文",
+      ],
+      footer: "仅展示步骤读回，不触发执行操作 · mock",
+    },
+    {
+      id: "step_context",
+      title: "上下文已建立",
+      detail: "11:32:43 · 项目信息与上下文已加载",
+      state: "done",
+      rows: [
+        ["步骤", "上下文已建立"],
+        ["建立时间", "11:32:43"],
+        ["项目上下文", "已加载"],
+        ["依赖状态", "无阻塞依赖"],
+        ["记忆召回", "命中 3 条项目背景"],
+        ["下一步", "进入执行处理"],
+      ],
+      logs: [
+        "11:32:43 加载项目目标与任务边界",
+        "11:32:45 读取最近运行摘要",
+        "11:32:47 确认 ready_for_execution true",
+      ],
+      footer: "上下文内容来自当前项目 mock 数据，不代表真实后端响应。",
+    },
+    {
+      id: "step_executing",
+      title: "执行中",
+      detail: "11:34:08 · AI 正在处理当前任务",
+      state: "current",
+      rows: [
+        ["步骤", "执行中"],
+        ["执行器", "Codex · Worker 1 / 3"],
+        ["Run ID", "run_7F3A"],
+        ["开始时间", "11:34:08"],
+        ["当前动作", "校验数据源连通性并生成接入任务拆分建议"],
+        ["下一步", "等待结果回写"],
+        ["预计完成", "11:40 前"],
+      ],
+      logs: [
+        "11:34:08 读取当前项目上下文",
+        "11:34:19 校验数据源连接参数",
+        "11:34:37 生成接入任务拆分建议",
+      ],
+      footer: "仅展示当前步骤读回，不触发执行操作 · mock",
+    },
+    {
+      id: "step_writeback",
+      title: "等待结果回写",
+      detail: "预计 11:40 前完成",
+      state: "pending",
+      rows: [
+        ["步骤", "等待结果回写"],
+        ["预计完成", "11:40 前"],
+        ["等待内容", "执行结果摘要与任务拆分建议"],
+        ["后续动作", "进入审批 / 交付检查"],
+        ["Git 状态", "写入关闭"],
+        ["风险", "暂无阻塞项"],
+      ],
+      logs: [
+        "等待 Worker 返回结果摘要",
+        "等待质量闸门更新",
+        "等待页面刷新执行读回",
+      ],
+      footer: "仅展示等待状态，不执行提交、推送或写入操作 · mock",
+    },
+  ],
+  evidence_tabs: [
+    {
+      key: "run",
+      label: "运行详情",
+      title: "运行详情",
+      description: "当前任务运行摘要 · mock",
+      rows: [
+        ["任务", "数据接入模块联调"],
+        ["Run ID", "run_7F3A"],
+        ["Worker", "Worker 1 / 3"],
+        ["状态", "running"],
+        ["开始时间", "11:32:41"],
+        ["预计完成", "11:40 前"],
+        ["模型", "Codex · gpt-5.5"],
+        ["成本预估", "$0.012"],
+        ["Token", "4.8k"],
+        ["Log", "logs/runs/run_7F3A.log"],
+      ],
+      footer: "仅展示运行读回，不触发执行操作 · mock",
+    },
+    {
+      key: "context",
+      label: "上下文",
+      title: "上下文",
+      description: "执行前上下文摘要 · mock",
+      rows: [
+        ["项目", "营销活动分析平台"],
+        ["当前任务输入", "校验数据源连通性并拆分接入任务"],
+        ["依赖", "无阻塞依赖"],
+        ["记忆召回", "命中 3 条项目背景"],
+        ["验收口径", "接入路径明确、验证命令完整、风险说明清晰"],
+        ["上下文状态", "ready_for_execution true"],
+      ],
+      footer: "上下文来自当前项目 mock 数据，不代表真实后端响应。",
+    },
+    {
+      key: "decision",
+      label: "决策回放",
+      title: "决策回放",
+      description: "为什么由当前执行器处理 · mock",
+      rows: [
+        ["路由结果", "选择 Codex"],
+        ["原因", "当前任务偏代码与联调，适合代码执行器处理"],
+        ["未选择 DeepSeek", "本轮不是规划总结任务"],
+        ["执行模式", "只读运行"],
+        ["验证模式", "mock verification"],
+        ["下一步", "等待结果回写后进入审批 / 交付检查"],
+      ],
+      footer: "该回放只解释调度决策，不代表真实模型调用。",
+    },
+    {
+      key: "safety",
+      label: "安全预检",
+      title: "安全预检",
+      description: "运行前安全边界读回 · mock",
+      rows: [
+        ["Runtime", "ready"],
+        ["Workspace", "clean"],
+        ["Git", "只读预检 · 写入关闭"],
+        ["Approval", "无需审批"],
+        ["Quality gate", "等待结果"],
+        ["Budget", "正常"],
+        ["风险", "未发现阻塞项"],
+      ],
+      footer: "当前仅预览安全状态，不执行 git add / commit / push。",
+    },
+  ],
+  queue_items: [
+    {
+      id: "queue_1",
+      state: "manual_required",
+      state_label: "待人工",
+      title: "数据源账号确认",
+      note: "需产品负责人确认",
+      description: "后续队列任务读回 · mock",
+      rows: [
+        ["状态", "待人工"],
+        ["队列位置", "1"],
+        ["为什么排在后面", "当前执行任务完成后需要确认数据源账号"],
+        ["依赖", "数据接入模块联调"],
+        ["下一步处理者", "产品负责人"],
+        ["处理方式", "回到工作台讨论后确认"],
+        ["风险", "账号未确认会阻塞后续接入验证"],
+      ],
+      footer: "仅展示队列任务读回，不触发执行操作 · mock",
+      can_add_to_workbench: true,
+    },
+    {
+      id: "queue_2",
+      state: "queued",
+      state_label: "待执行",
+      title: "指标口径确认",
+      note: "AI 评估后自动执行",
+      description: "后续队列任务读回 · mock",
+      rows: [
+        ["状态", "待执行"],
+        ["队列位置", "2"],
+        ["为什么排在后面", "需要等待数据源账号确认后进入指标口径校验"],
+        ["依赖", "数据源账号确认"],
+        ["下一步处理者", "AI 主管"],
+        ["处理方式", "AI 评估后自动执行"],
+        ["风险", "口径未确认会影响报表验收"],
+      ],
+      footer: "仅展示队列任务读回，不触发执行操作 · mock",
+      can_add_to_workbench: false,
+    },
+    {
+      id: "queue_3",
+      state: "queued",
+      state_label: "待执行",
+      title: "可视化报表联调",
+      note: "预计 2 个任务后进行",
+      description: "后续队列任务读回 · mock",
+      rows: [
+        ["状态", "待执行"],
+        ["队列位置", "3"],
+        ["为什么排在后面", "需要等待指标口径确认后再联调报表"],
+        ["依赖", "指标口径确认"],
+        ["下一步处理者", "Codex"],
+        ["处理方式", "预计 2 个任务后进行"],
+        ["风险", "暂无阻塞项"],
+      ],
+      footer: "仅展示队列任务读回，不执行提交、推送或写入操作 · mock",
+      can_add_to_workbench: false,
+    },
+  ],
+  backend_status: "mock",
+};
+
+const executionPageViewState: ExecutionPageViewState = "ready";
 
 type DeliverableStatus = "draft" | "pending_review" | "locked" | "archived" | "needs_more_evidence";
 
@@ -948,41 +1021,123 @@ function ExecutionCenterMockPage({
   const [activeEvidenceTab, setActiveEvidenceTab] = useState("run");
   const [queueDiscussionMessage, setQueueDiscussionMessage] = useState("");
 
+  const viewState = executionPageViewState;
+  const run = executionRun;
+
+  if (viewState === "idle") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">暂无正在执行的任务</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前项目没有活跃运行。启动任务后，这里会展示执行器、步骤、证据和后续队列。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "loading") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col">
+          <div className="text-sm text-[#8A8A8A]">正在读取执行状态 · mock</div>
+          <Separator className="mt-4" />
+          <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
+          <Separator className="mt-4" />
+          <div className="mt-4 h-3 w-1/2 rounded bg-[#1A1A1A]" />
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "completed") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">当前运行已完成 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">执行结果已沉淀到成果中心，可继续查看交付证据。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "blocked") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">执行被阻塞 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前任务需要人工补充信息后才能继续。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "error") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">执行状态读取失败 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请稍后重试或回到工作台确认项目状态。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "no_project") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的运行状态、执行证据和后续队列。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === "no_permission") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
+          <div className="text-sm text-[#8A8A8A]">暂无访问权限 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">你当前没有查看该项目执行状态的权限。</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
       <div className="mx-auto flex w-full max-w-[1080px] flex-col">
         <section className="border-b border-[#2A2A2A] pb-7">
           <div className="text-sm font-medium text-[#8A8A8A]">当前运行</div>
           <h1 className="mt-3 text-2xl font-semibold tracking-normal text-white md:text-[28px]">
-            AI 正在处理：数据接入模块联调
+            {run.title}
           </h1>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[#C7C7C7]">
-            <span>Codex</span>
+            <span>{run.executor_label}</span>
             <span className="text-[#5F5F5F]">·</span>
-            <span>Worker 1/3</span>
+            <span>{run.worker_label}</span>
             <span className="text-[#5F5F5F]">·</span>
-            <span>运行环境就绪</span>
+            <span>{run.environment_label}</span>
             <span className="text-[#5F5F5F]">·</span>
-            <span>预算正常</span>
+            <span>{run.budget_label}</span>
             <span className="text-[#5F5F5F]">·</span>
-            <span>Git 写入关闭</span>
+            <span>{run.git_write_status === "disabled" ? "Git 写入关闭" : "Git 写入预览"}</span>
           </div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">上次刷新 11:34:40 · mock</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">上次刷新 {run.updated_at} · mock</div>
         </section>
 
         <section className="grid gap-8 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.15fr] lg:gap-10">
           <div>
             <h2 className="text-base font-semibold text-white">当前运行</h2>
             <div className="mt-5 space-y-0">
-              {executionProgressSteps.map((step, index) => {
-                const detail = executionStepDetails[step.title as ExecutionStepTitle];
+              {run.steps.map((step, index) => {
                 const isDone = step.state === "done";
                 const isCurrent = step.state === "current";
                 const isPending = step.state === "pending";
 
                 const stepContent = (
                   <>
-                    {index < executionProgressSteps.length - 1 ? (
+                    {index < run.steps.length - 1 ? (
                       <span className="absolute left-[13px] top-7 h-[calc(100%-28px)] w-px bg-[#3A3A3A]" />
                     ) : null}
                     <span
@@ -1010,11 +1165,10 @@ function ExecutionCenterMockPage({
                   </>
                 );
 
-                // Pending step: not clickable
                 if (isPending) {
                   return (
                     <div
-                      key={step.title}
+                      key={step.id}
                       className="relative grid grid-cols-[40px_1fr] items-start rounded-2xl pb-7 text-left last:pb-0"
                     >
                       {stepContent}
@@ -1022,9 +1176,8 @@ function ExecutionCenterMockPage({
                   );
                 }
 
-                // Done or current: clickable with dialog
                 return (
-                  <Dialog key={step.title}>
+                  <Dialog key={step.id}>
                     <DialogTrigger asChild>
                       <button
                         type="button"
@@ -1040,10 +1193,10 @@ function ExecutionCenterMockPage({
                     </DialogTrigger>
                     <DialogContent className="w-[min(92vw,520px)]">
                       <DialogHeader>
-                        <DialogTitle>{detail.title}</DialogTitle>
-                        <DialogDescription>{detail.description}</DialogDescription>
+                        <DialogTitle>{step.title}</DialogTitle>
+                        <DialogDescription>{step.title}读回 · mock</DialogDescription>
                       </DialogHeader>
-                      <ReadbackRows rows={detail.rows} records={detail.logs} footer={detail.footer} />
+                      <ReadbackRows rows={step.rows} records={step.logs} footer={step.footer} />
                       <div className="mt-5 flex justify-end">
                         <DialogClose asChild>
                           <Button variant="secondary" size="sm">关闭</Button>
@@ -1058,17 +1211,16 @@ function ExecutionCenterMockPage({
 
           <div className="border-t border-[#2A2A2A] pt-7 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
             <h2 className="text-base font-semibold text-white">安全与状态</h2>
-            <ReadbackRows rows={executionStatusRows} compact />
+            <ReadbackRows rows={run.status_rows} compact />
             <div className="mt-5 space-y-2 text-sm leading-6 text-[#8A8A8A]">
-              <p>正在校验数据源连通性，并生成接入任务拆分建议。</p>
-              <p>当前未触发 Git 写入，运行环境处于只读安全边界内。</p>
+              <p>{run.current_summary}</p>
+              <p>{run.safety_note}</p>
             </div>
 
-            {/* Merged evidence dialog */}
             <Dialog>
               <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-[#8A8A8A]">
                 <span>查看证据：</span>
-                {executionEvidenceDialogItems.map((item) => (
+                {run.evidence_tabs.map((item) => (
                   <DialogTrigger asChild key={item.key}>
                     <Button
                       variant="secondary"
@@ -1088,11 +1240,11 @@ function ExecutionCenterMockPage({
                 </DialogHeader>
                 <Tabs value={activeEvidenceTab} onValueChange={setActiveEvidenceTab}>
                   <TabsList className="mt-4">
-                    {executionEvidenceDialogItems.map((item) => (
+                    {run.evidence_tabs.map((item) => (
                       <TabsTrigger key={item.key} value={item.key}>{item.label}</TabsTrigger>
                     ))}
                   </TabsList>
-                  {executionEvidenceDialogItems.map((item) => (
+                  {run.evidence_tabs.map((item) => (
                     <TabsContent key={item.key} value={item.key}>
                       <ReadbackRows rows={item.rows} footer={item.footer} />
                     </TabsContent>
@@ -1109,21 +1261,23 @@ function ExecutionCenterMockPage({
         </section>
 
         <section className="pt-6">
-          <h2 className="text-base font-semibold text-white">后续队列 · 当前项目内</h2>
+          <h2 className="text-base font-semibold text-white">后续队列</h2>
           {queueDiscussionMessage ? (
             <div className="mt-2 text-xs text-[#8A8A8A]">{queueDiscussionMessage}</div>
           ) : null}
-          <div className="mt-4 border-y border-[#2A2A2A]">
-            {executionQueueRows.map((item) => (
-              <Dialog key={item.title}>
+          <div className="mt-4 space-y-0">
+            {run.queue_items.map((item) => (
+              <Dialog key={item.id}>
                 <DialogTrigger asChild>
                   <button
                     type="button"
-                    className="grid w-full cursor-pointer gap-2 border-b border-[#1F1F1F] px-1 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-[#0D0D0D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99] md:grid-cols-[120px_1fr_1.15fr]"
+                    className="flex w-full cursor-pointer items-start gap-3 border-b border-[#1F1F1F] px-1 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-[#0D0D0D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.99]"
                   >
-                    <span className="text-[#8A8A8A]">{item.state}</span>
-                    <span className="text-[#C7C7C7]">{item.title}</span>
-                    <span className="text-[#8A8A8A]">{item.note}</span>
+                    <span className="shrink-0 text-xs text-[#8A8A8A]">{item.state_label}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="text-[#C7C7C7]">{item.title}</span>
+                      <span className="ml-2 text-xs text-[#8A8A8A]">{item.note}</span>
+                    </span>
                   </button>
                 </DialogTrigger>
                 <DialogContent className="w-[min(92vw,520px)]">
@@ -1133,14 +1287,14 @@ function ExecutionCenterMockPage({
                   </DialogHeader>
                   <ReadbackRows rows={item.rows} footer={item.footer} />
                   <div className="mt-5 flex justify-end gap-3">
-                    {item.state === "待人工" ? (
+                    {item.can_add_to_workbench ? (
                       <div className="flex items-center gap-1">
                         <DialogClose asChild>
                           <Button
                             variant="secondary"
                             size="sm"
                             onClick={() => {
-                              setQueueDiscussionMessage("已加入工作台讨论：@「数据源账号确认」 · mock");
+                              setQueueDiscussionMessage(`已加入工作台讨论：@「${item.title}」 · mock`);
                               onQueueDiscussionAction?.("add", item.title);
                             }}
                           >
@@ -1158,7 +1312,7 @@ function ExecutionCenterMockPage({
                             <DialogClose asChild>
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setQueueDiscussionMessage("已加入并前往工作台讨论：@「数据源账号确认」 · mock");
+                                  setQueueDiscussionMessage(`已加入并前往工作台讨论：@「${item.title}」 · mock`);
                                   onQueueDiscussionAction?.("add-and-open", item.title);
                                 }}
                               >
