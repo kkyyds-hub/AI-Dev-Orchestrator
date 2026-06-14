@@ -1738,11 +1738,12 @@ function GovernanceSkillMockPage() {
                   </div>
                 </div>
 
-                <Tabs
-                  value={activeTab}
-                  onValueChange={setActiveTab}
-                  className="mt-4 flex min-h-0 flex-col overflow-hidden"
-                >
+                <div className="mt-4 h-[360px] min-h-0 overflow-hidden md:h-[380px] lg:h-[400px]">
+                  <Tabs
+                    value={activeTab}
+                    onValueChange={setActiveTab}
+                    className="flex h-full min-h-0 flex-col overflow-hidden"
+                  >
                   <TabsList className="shrink-0">
                     <TabsTrigger value="overview">概览</TabsTrigger>
                     <TabsTrigger value="evidence">证据</TabsTrigger>
@@ -1791,6 +1792,7 @@ function GovernanceSkillMockPage() {
                     </div>
                   </TabsContent>
                 </Tabs>
+                </div>
 
                 <div className="mt-4 min-h-0 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
                   <div className="px-3 pt-3 pb-2 text-xs font-semibold text-[#C7C7C7]">治理意见</div>
