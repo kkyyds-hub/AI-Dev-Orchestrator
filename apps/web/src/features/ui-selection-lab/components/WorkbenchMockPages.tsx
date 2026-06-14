@@ -602,6 +602,11 @@ const governanceSkills: readonly GovernanceSkillViewModel[] = [
 
 const governanceSkillViewState: GovernanceSkillPageViewState = "ready";
 
+function govShort(value: string | null | undefined, max = 40): string {
+  if (!value) return "—";
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
 type DeliverableStatus = "draft" | "pending_review" | "locked" | "archived" | "needs_more_evidence";
 
 type DeliverableType =
@@ -1693,7 +1698,7 @@ function GovernanceSkillMockPage() {
         <section className="grid min-h-0 flex-1 gap-7 lg:grid-cols-[1fr_0.95fr] lg:gap-8">
           <div className="min-h-0 flex flex-col">
             <h2 className="shrink-0 text-base font-semibold text-white">当前 Skill 清单</h2>
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {governanceSkills.map((skill) => (
                 <button
                   key={skill.id}
@@ -1723,36 +1728,42 @@ function GovernanceSkillMockPage() {
             </div>
           </div>
 
-          <div className="min-h-0 flex flex-col border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
             {selected ? (
               <>
-                <div className="shrink-0">
+                <div className="min-h-0">
                   <div className="text-base font-semibold text-white">{selected.skill_name}</div>
                   <div className="mt-1 text-xs text-[#8A8A8A]">
                     {selected.registry_enabled ? "已生效" : "未启用"} · {selected.owner_role_name} · {selected.bound_version}
                   </div>
                 </div>
 
-                <div className="mt-4 min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList>
-                      <TabsTrigger value="overview">概览</TabsTrigger>
-                      <TabsTrigger value="evidence">证据</TabsTrigger>
-                      <TabsTrigger value="suggestion">建议</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="overview">
+                <Tabs
+                  value={activeTab}
+                  onValueChange={setActiveTab}
+                  className="mt-4 flex min-h-0 flex-col overflow-hidden"
+                >
+                  <TabsList className="shrink-0">
+                    <TabsTrigger value="overview">概览</TabsTrigger>
+                    <TabsTrigger value="evidence">证据</TabsTrigger>
+                    <TabsTrigger value="suggestion">建议</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="overview" className="mt-3 min-h-0 flex-1 overflow-hidden">
+                    <div className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                       <ReadbackRows
                         compact
                         rows={[
-                          ["用途", selected.purpose.length > 60 ? selected.purpose.slice(0, 60) + "…" : selected.purpose],
+                          ["用途", govShort(selected.purpose, 48)],
                           ["适用角色", selected.applicable_role_codes.join(", ")],
                           ["绑定来源", selected.binding_source === "default_seed" ? "默认映射" : selected.binding_source === "manual" ? "手动绑定" : "项目治理"],
                           ["当前版本", selected.bound_version],
                           ["注册表状态", selected.registry_enabled ? `启用 · ${selected.registry_current_version ?? selected.bound_version}` : "已下线"],
                         ]}
                       />
-                    </TabsContent>
-                    <TabsContent value="evidence">
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="evidence" className="mt-3 min-h-0 flex-1 overflow-hidden">
+                    <div className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                       <ReadbackRows
                         compact
                         rows={[
@@ -1761,27 +1772,29 @@ function GovernanceSkillMockPage() {
                           ["总 Token", selected.total_tokens.toLocaleString()],
                           ["预估成本", `$${selected.estimated_cost.toFixed(2)}`],
                           ["最近 Run", selected.latest_run_id ?? "—"],
-                          ["最近摘要", selected.latest_run_summary ? (selected.latest_run_summary.length > 40 ? selected.latest_run_summary.slice(0, 40) + "…" : selected.latest_run_summary) : "—"],
+                          ["最近摘要", govShort(selected.latest_run_summary, 36)],
                         ]}
                       />
-                    </TabsContent>
-                    <TabsContent value="suggestion">
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="suggestion" className="mt-3 min-h-0 flex-1 overflow-hidden">
+                    <div className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                       <ReadbackRows
                         compact
                         rows={[
                           ["建议", selected.recommendation_label],
-                          ["理由", selected.recommendation_reason.length > 50 ? selected.recommendation_reason.slice(0, 50) + "…" : selected.recommendation_reason],
+                          ["理由", govShort(selected.recommendation_reason, 48)],
                           ["影响范围", `${selected.owner_role_name} · 所有关联任务`],
-                          ["建议动作", selected.suggestion_rows.find((r) => r[0] === "建议动作")?.[1] ?? "—"],
+                          ["建议动作", govShort(selected.suggestion_rows.find((r) => r[0] === "建议动作")?.[1], 40)],
                         ]}
                       />
-                    </TabsContent>
-                  </Tabs>
-                </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
 
-                <div className="mt-4 shrink-0 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
+                <div className="mt-4 min-h-0 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
                   <div className="px-3 pt-3 pb-2 text-xs font-semibold text-[#C7C7C7]">治理意见</div>
-                  <div className="h-40 overflow-y-auto px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="h-32 overflow-y-auto px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                     <div className="space-y-3 pb-2">
                       {opinionMessages.map((msg, i) => (
                         <div key={i} className="flex gap-2">
