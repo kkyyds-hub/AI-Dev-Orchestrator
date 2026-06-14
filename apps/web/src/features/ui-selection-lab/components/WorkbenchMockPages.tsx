@@ -778,7 +778,7 @@ function ProjectManagementMockPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-lg border border-[#2A2A2A] bg-[#171717]/80 px-5 py-4">
+        <section className="mt-6 border-y border-[#2A2A2A] py-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <FileText className="h-4 w-4 text-[#C7C7C7]" />
             <span>摘要</span>
@@ -875,7 +875,7 @@ function ProjectManagementMockPage() {
 
           {openStage ? (
             <div className="mt-4 rounded-lg border border-[#2A2A2A] bg-[#171717]/80 px-4 py-3">
-              <div className="text-sm font-medium text-white">{openStage.label}{openStage.status_label}</div>
+              <div className="text-sm font-medium text-white">{openStage.label} · {openStage.status_label}</div>
               <p className="mt-1 text-xs leading-5 text-[#C7C7C7]">{openStage.summary}</p>
               <div className="mt-2 text-xs text-[#8A8A8A]">状态：{openStage.meta}</div>
             </div>
