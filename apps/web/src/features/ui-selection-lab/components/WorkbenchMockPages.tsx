@@ -385,6 +385,21 @@ type GovernanceSkillPageViewState =
   | "no_project"
   | "no_permission";
 
+type GovernanceCatalogMode = "skills" | "roles";
+
+type GovernanceRoleViewModel = {
+  role_code: string;
+  enabled: boolean;
+  name: string;
+  summary: string;
+  responsibilities: readonly string[];
+  input_boundary: readonly string[];
+  output_boundary: readonly string[];
+  default_skill_slots: readonly string[];
+  custom_notes: string | null;
+  sort_order: number;
+};
+
 const governanceSkills: readonly GovernanceSkillViewModel[] = [
   {
     id: "gs_001",
@@ -601,6 +616,105 @@ const governanceSkills: readonly GovernanceSkillViewModel[] = [
 ];
 
 const governanceSkillViewState: GovernanceSkillPageViewState = "ready";
+
+const governanceRoles: readonly GovernanceRoleViewModel[] = [
+  {
+    role_code: "ai_project_director",
+    enabled: true,
+    name: "AI 项目主管",
+    summary: "负责澄清目标、拆分任务、推进计划",
+    responsibilities: [
+      "把二手交易平台 MVP 的目标、范围和约束整理成可执行计划",
+      "拆分阶段任务，并判断哪些问题需要先回到用户确认",
+      "协调不同角色的输入与输出，保持交付边界清晰",
+    ],
+    input_boundary: [
+      "用户提出的项目目标、约束、优先级和补充说明",
+      "已有项目范围、阶段计划、验收口径和治理意见",
+      "其他角色提交的方案摘要、风险说明和待确认事项",
+    ],
+    output_boundary: [
+      "项目目标澄清结果和阶段推进建议",
+      "面向执行的任务拆分、职责分派和下一步说明",
+      "需要用户决策的问题清单与交付边界提醒",
+    ],
+    default_skill_slots: ["目标澄清", "任务拆分", "治理意见整理"],
+    custom_notes: "默认作为项目协调角色出现，强调计划推进和边界收口。",
+    sort_order: 10,
+  },
+  {
+    role_code: "product_manager",
+    enabled: true,
+    name: "产品经理",
+    summary: "负责需求范围、优先级与验收标准",
+    responsibilities: [
+      "定义商品发布、搜索、聊天和订单闭环的 MVP 范围",
+      "整理用户路径、功能优先级和第一期不做的内容",
+      "把需求转成普通用户能理解的验收标准",
+    ],
+    input_boundary: [
+      "业务目标、目标用户、核心场景和约束条件",
+      "用户反馈、需求疑问和阶段性取舍建议",
+      "技术实现反馈中需要产品决策的事项",
+    ],
+    output_boundary: [
+      "需求范围说明和优先级判断",
+      "功能验收标准、边界说明和待确认问题",
+      "交付前需要确认的产品风险与取舍建议",
+    ],
+    default_skill_slots: ["需求澄清", "优先级判断", "验收标准整理"],
+    custom_notes: "默认聚焦普通用户体验和 MVP 范围，不承担技术实现细节。",
+    sort_order: 20,
+  },
+  {
+    role_code: "engineer",
+    enabled: true,
+    name: "工程师",
+    summary: "负责实现、联调和变更说明",
+    responsibilities: [
+      "根据已确认的任务边界完成前后端实现方案拆解",
+      "说明关键实现路径、依赖关系和联调注意事项",
+      "交付变更说明，并标出需要验证的功能点",
+    ],
+    input_boundary: [
+      "已确认的需求范围、任务拆分和验收标准",
+      "产品经理或 AI 项目主管给出的边界约束",
+      "评审者反馈的风险点和需要修正的问题",
+    ],
+    output_boundary: [
+      "实现方案、变更说明和联调建议",
+      "需要补充确认的技术问题和风险说明",
+      "交付给评审者检查的实现摘要",
+    ],
+    default_skill_slots: ["实现拆解", "联调说明", "变更总结"],
+    custom_notes: "默认只描述实现职责定义，不展示具体执行过程。",
+    sort_order: 30,
+  },
+  {
+    role_code: "reviewer",
+    enabled: true,
+    name: "评审者",
+    summary: "负责审查风险、质量和交付边界",
+    responsibilities: [
+      "检查需求、实现和验收口径是否一致",
+      "识别交付风险、遗漏项和需要补证的地方",
+      "给出是否可以继续推进的审查建议",
+    ],
+    input_boundary: [
+      "产品范围、实现摘要、变更说明和验收标准",
+      "AI 项目主管整理的阶段目标与交付边界",
+      "工程师提交的风险说明和待确认事项",
+    ],
+    output_boundary: [
+      "审查结论、风险说明和改进建议",
+      "缺失证据或边界不清的问题清单",
+      "面向下一步推进的验收建议",
+    ],
+    default_skill_slots: ["风险审查", "质量检查", "验收建议"],
+    custom_notes: "默认关注质量与边界，不替代产品决策或工程实现。",
+    sort_order: 40,
+  },
+];
 
 function govShort(value: string | null | undefined, max = 40): string {
   if (!value) return "—";
@@ -1602,24 +1716,37 @@ function ExecutionCenterMockPage({
 }
 
 function GovernanceSkillMockPage() {
+  const [catalogMode, setCatalogMode] = useState<GovernanceCatalogMode>("skills");
   const [selectedSkillId, setSelectedSkillId] = useState<string>(governanceSkills[0]?.id ?? "");
+  const [selectedRoleCode, setSelectedRoleCode] = useState<string>(governanceRoles[0]?.role_code ?? "");
   const [activeTab, setActiveTab] = useState("overview");
   const [opinionText, setOpinionText] = useState("");
-  const [opinionMessages, setOpinionMessages] = useState<readonly { author: "user" | "director"; text: string }[]>([
+  const [skillOpinionMessages, setSkillOpinionMessages] = useState<readonly { author: "user" | "director"; text: string }[]>([
     { author: "user", text: "这个 Skill 是否可以和任务指令生成合并？" },
     { author: "director", text: "暂不建议直接合并。当前 Skill 还承担 Git 边界和审查口径，建议只吸收任务生成 Skill 的模板部分。" },
     { author: "user", text: "如果保留，它后续需要优化什么？" },
     { author: "director", text: "建议补充版本淘汰条件和最近运行证据阈值。" },
   ]);
+  const [roleOpinionMessages, setRoleOpinionMessages] = useState<readonly { author: "user" | "director"; text: string }[]>([
+    { author: "user", text: "这个角色的职责边界是否清楚？" },
+    { author: "director", text: "职责边界已经按输入、输出和默认能力拆开，适合作为普通用户查看的角色定义。" },
+  ]);
 
   const viewState = governanceSkillViewState;
-  const selected = governanceSkills.find((s) => s.id === selectedSkillId) ?? governanceSkills[0] ?? null;
+  const selectedSkill = governanceSkills.find((s) => s.id === selectedSkillId) ?? governanceSkills[0] ?? null;
+  const selectedRole = governanceRoles.find((role) => role.role_code === selectedRoleCode) ?? governanceRoles[0] ?? null;
+  const opinionMessages = catalogMode === "skills" ? skillOpinionMessages : roleOpinionMessages;
+  const selectedName = catalogMode === "skills" ? selectedSkill?.skill_name : selectedRole?.name;
 
   function handleSubmitOpinion() {
-    if (!selected || !opinionText.trim()) return;
+    if (!selectedName || !opinionText.trim()) return;
     const userMsg = { author: "user" as const, text: opinionText.trim() };
-    const directorMsg = { author: "director" as const, text: `已记录对「${selected.skill_name}」的治理意见，后续将作为保留、合并或淘汰判断参考 · mock` };
-    setOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
+    const directorMsg = { author: "director" as const, text: `已记录对「${selectedName}」的治理意见，后续将作为清单维护参考 · mock` };
+    if (catalogMode === "skills") {
+      setSkillOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
+    } else {
+      setRoleOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
+    }
     setOpinionText("");
   }
 
@@ -1691,45 +1818,95 @@ function GovernanceSkillMockPage() {
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
         <section className="grid h-full min-h-0 flex-1 gap-7 lg:grid-cols-[1fr_0.95fr] lg:gap-8">
           <div className="flex h-full min-h-0 flex-col">
-            <h2 className="shrink-0 text-base font-semibold text-white">当前 Skill 清单</h2>
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-              {governanceSkills.map((skill) => (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <button
-                  key={skill.id}
                   type="button"
-                  onClick={() => {
-                    setSelectedSkillId(skill.id);
-                    setActiveTab("overview");
-                  }}
-                  className={[
-                    "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
-                    selectedSkillId === skill.id
-                      ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
-                      : "hover:bg-[#080808]",
-                  ].join(" ")}
+                  className="flex h-8 shrink-0 items-center gap-1.5 self-start rounded-md px-1 text-base font-semibold text-white outline-none transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:ring-2 focus-visible:ring-white/10"
                 >
-                  <div className={selectedSkillId === skill.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
-                    {skill.skill_name}
-                  </div>
-                  <div className="mt-1 text-xs text-[#8A8A8A]">
-                    {skill.recommendation_label} · {skill.owner_role_name} · {skill.bound_version}
-                  </div>
-                  <div className="mt-1 text-xs text-[#5F5F5F]">
-                    最近运行 {skill.run_count} 次 · 最近使用 {skill.latest_used_at ?? "—"}
-                  </div>
+                  {catalogMode === "skills" ? "Skill 清单" : "角色清单"}
+                  <ChevronDown className="h-4 w-4 text-[#8A8A8A]" />
                 </button>
-              ))}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-36 rounded-lg">
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setCatalogMode("skills");
+                    setOpinionText("");
+                  }}
+                  className={catalogMode === "skills" ? "bg-[#2C2C2C]" : undefined}
+                >
+                  Skill 清单
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setCatalogMode("roles");
+                    setOpinionText("");
+                  }}
+                  className={catalogMode === "roles" ? "bg-[#2C2C2C]" : undefined}
+                >
+                  角色清单
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+              {catalogMode === "skills"
+                ? governanceSkills.map((skill) => (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSkillId(skill.id);
+                        setActiveTab("overview");
+                      }}
+                      className={[
+                        "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                        selectedSkillId === skill.id
+                          ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
+                          : "hover:bg-[#080808]",
+                      ].join(" ")}
+                    >
+                      <div className={selectedSkillId === skill.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                        {skill.skill_name}
+                      </div>
+                      <div className="mt-1 text-xs text-[#8A8A8A]">
+                        {skill.recommendation_label} · {skill.owner_role_name} · {skill.bound_version}
+                      </div>
+                      <div className="mt-1 text-xs text-[#5F5F5F]">
+                        最近运行 {skill.run_count} 次 · 最近使用 {skill.latest_used_at ?? "—"}
+                      </div>
+                    </button>
+                  ))
+                : governanceRoles.map((role) => (
+                    <button
+                      key={role.role_code}
+                      type="button"
+                      onClick={() => setSelectedRoleCode(role.role_code)}
+                      className={[
+                        "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                        selectedRoleCode === role.role_code
+                          ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
+                          : "hover:bg-[#080808]",
+                      ].join(" ")}
+                    >
+                      <div className={selectedRoleCode === role.role_code ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                        {role.name}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{role.summary}</div>
+                      <div className="mt-1 text-xs text-[#5F5F5F]">{role.enabled ? "已启用" : "未启用"}</div>
+                    </button>
+                  ))}
             </div>
           </div>
 
           <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(190px,0.62fr)] border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-            {selected ? (
-              <>
+            {catalogMode === "skills" ? (
+              selectedSkill ? (
                 <section className="flex min-h-0 flex-col overflow-hidden">
                   <div className="shrink-0">
-                    <div className="text-base font-semibold text-white">{selected.skill_name}</div>
+                    <div className="text-base font-semibold text-white">{selectedSkill.skill_name}</div>
                     <div className="mt-1 text-xs text-[#8A8A8A]">
-                      {selected.registry_enabled ? "已生效" : "未启用"} · {selected.owner_role_name} · {selected.bound_version}
+                      {selectedSkill.registry_enabled ? "已生效" : "未启用"} · {selectedSkill.owner_role_name} · {selectedSkill.bound_version}
                     </div>
                   </div>
 
@@ -1748,11 +1925,11 @@ function GovernanceSkillMockPage() {
                         <ReadbackRows
                           compact
                           rows={[
-                            ["用途", govShort(selected.purpose, 48)],
-                            ["适用角色", selected.applicable_role_codes.join(", ")],
-                            ["绑定来源", selected.binding_source === "default_seed" ? "默认映射" : selected.binding_source === "manual" ? "手动绑定" : "项目治理"],
-                            ["当前版本", selected.bound_version],
-                            ["注册表状态", selected.registry_enabled ? `启用 · ${selected.registry_current_version ?? selected.bound_version}` : "已下线"],
+                            ["用途", govShort(selectedSkill.purpose, 48)],
+                            ["适用角色", selectedSkill.applicable_role_codes.join(", ")],
+                            ["绑定来源", selectedSkill.binding_source === "default_seed" ? "默认映射" : selectedSkill.binding_source === "manual" ? "手动绑定" : "项目治理"],
+                            ["当前版本", selectedSkill.bound_version],
+                            ["注册表状态", selectedSkill.registry_enabled ? `启用 · ${selectedSkill.registry_current_version ?? selectedSkill.bound_version}` : "已下线"],
                           ]}
                         />
                       </div>
@@ -1762,12 +1939,12 @@ function GovernanceSkillMockPage() {
                         <ReadbackRows
                           compact
                           rows={[
-                            ["最近运行", `${selected.run_count} 次`],
-                            ["成功 / 失败", `${selected.succeeded_run_count} / ${selected.failed_run_count}`],
-                            ["总 Token", selected.total_tokens.toLocaleString()],
-                            ["预估成本", `$${selected.estimated_cost.toFixed(2)}`],
-                            ["最近 Run", selected.latest_run_id ?? "—"],
-                            ["最近摘要", govShort(selected.latest_run_summary, 36)],
+                            ["最近运行", `${selectedSkill.run_count} 次`],
+                            ["成功 / 失败", `${selectedSkill.succeeded_run_count} / ${selectedSkill.failed_run_count}`],
+                            ["总 Token", selectedSkill.total_tokens.toLocaleString()],
+                            ["预估成本", `$${selectedSkill.estimated_cost.toFixed(2)}`],
+                            ["最近 Run", selectedSkill.latest_run_id ?? "—"],
+                            ["最近摘要", govShort(selectedSkill.latest_run_summary, 36)],
                           ]}
                         />
                       </div>
@@ -1777,66 +1954,112 @@ function GovernanceSkillMockPage() {
                         <ReadbackRows
                           compact
                           rows={[
-                            ["建议", selected.recommendation_label],
-                            ["理由", govShort(selected.recommendation_reason, 48)],
-                            ["影响范围", `${selected.owner_role_name} · 所有关联任务`],
-                            ["建议动作", govShort(selected.suggestion_rows.find((r) => r[0] === "建议动作")?.[1], 40)],
+                            ["建议", selectedSkill.recommendation_label],
+                            ["理由", govShort(selectedSkill.recommendation_reason, 48)],
+                            ["影响范围", `${selectedSkill.owner_role_name} · 所有关联任务`],
+                            ["建议动作", govShort(selectedSkill.suggestion_rows.find((r) => r[0] === "建议动作")?.[1], 40)],
                           ]}
                         />
                       </div>
                     </TabsContent>
                   </Tabs>
                 </section>
+              ) : (
+                <div className="py-8">
+                  <div className="text-sm text-[#8A8A8A]">请选择一个 Skill</div>
+                </div>
+              )
+            ) : selectedRole ? (
+              <section className="flex min-h-0 flex-col overflow-hidden">
+                <div className="shrink-0">
+                  <div className="text-base font-semibold text-white">{selectedRole.name}</div>
+                  <div className="mt-1 text-xs text-[#8A8A8A]">
+                    {selectedRole.summary} · {selectedRole.enabled ? "已启用" : "未启用"}
+                  </div>
+                </div>
 
-                <section className="mt-4 flex min-h-0 flex-col rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
-                  <div className="shrink-0 px-3 pt-3 pb-2 text-xs font-semibold text-[#C7C7C7]">治理意见</div>
-                  <div className="min-h-0 flex-1 overflow-y-auto px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                    <div className="space-y-3 pb-2">
-                      {opinionMessages.map((msg, i) => (
-                        <div key={i} className="flex gap-2">
-                          <div className={[
-                            "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
-                            msg.author === "user"
-                              ? "bg-[#2C2C2C] text-white"
-                              : "bg-[#1A1A1A] text-[#8A8A8A]",
-                          ].join(" ")}>
-                            {msg.author === "user" ? "K" : "AI"}
+                <div className="mt-4 min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <ReadbackRows
+                    compact
+                    rows={[
+                      ["一句话说明", selectedRole.summary],
+                      ["是否启用", selectedRole.enabled ? "已启用" : "未启用"],
+                    ]}
+                  />
+                  {[
+                    { title: "主要职责", items: selectedRole.responsibilities },
+                    { title: "接收的信息", items: selectedRole.input_boundary },
+                    { title: "输出结果", items: selectedRole.output_boundary },
+                    { title: "默认能力", items: selectedRole.default_skill_slots },
+                  ].map((section) => (
+                    <div key={section.title} className="mt-5">
+                      <div className="text-sm font-semibold text-white">{section.title}</div>
+                      <div className="mt-2 border-y border-[#2A2A2A]">
+                        {section.items.map((item) => (
+                          <div key={item} className="border-b border-[#1F1F1F] px-1 py-2 text-sm leading-6 text-[#C7C7C7] last:border-b-0">
+                            {item}
                           </div>
-                          <div className="min-w-0 flex-1 text-xs leading-5 text-[#C7C7C7]">{msg.text}</div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="mt-5">
+                    <div className="text-sm font-semibold text-white">补充说明</div>
+                    <div className="mt-2 border-y border-[#2A2A2A] px-1 py-2 text-sm leading-6 text-[#C7C7C7]">
+                      {selectedRole.custom_notes ?? "暂无补充说明"}
                     </div>
                   </div>
-                   <div className="shrink-0 flex items-center gap-2 border-t border-[#1F1F1F] px-3 py-2">
-                    <Textarea
-                      value={opinionText}
-                      onChange={(e) => setOpinionText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSubmitOpinion();
-                        }
-                      }}
-                      placeholder="补充治理意见..."
-                      className="h-7 min-h-0 flex-1 resize-none border-0 bg-transparent py-0.5 text-xs leading-5 text-white outline-none placeholder:text-[#5F5F5F]"
-                    />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={!opinionText.trim()}
-                      onClick={handleSubmitOpinion}
-                      className="h-7 shrink-0 rounded-full px-2.5 text-xs"
-                    >
-                      发送
-                    </Button>
-                  </div>
-                </section>
-              </>
+                </div>
+              </section>
             ) : (
               <div className="py-8">
-                <div className="text-sm text-[#8A8A8A]">请选择一个 Skill</div>
+                <div className="text-sm text-[#8A8A8A]">请选择一个角色</div>
               </div>
             )}
+
+            <section className="mt-4 flex min-h-0 flex-col rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
+              <div className="shrink-0 px-3 pt-3 pb-2 text-xs font-semibold text-[#C7C7C7]">治理意见</div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <div className="space-y-3 pb-2">
+                  {opinionMessages.map((msg, i) => (
+                    <div key={i} className="flex gap-2">
+                      <div className={[
+                        "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                        msg.author === "user"
+                          ? "bg-[#2C2C2C] text-white"
+                          : "bg-[#1A1A1A] text-[#8A8A8A]",
+                      ].join(" ")}>
+                        {msg.author === "user" ? "K" : "AI"}
+                      </div>
+                      <div className="min-w-0 flex-1 text-xs leading-5 text-[#C7C7C7]">{msg.text}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="shrink-0 flex items-center gap-2 border-t border-[#1F1F1F] px-3 py-2">
+                <Textarea
+                  value={opinionText}
+                  onChange={(e) => setOpinionText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmitOpinion();
+                    }
+                  }}
+                  placeholder="补充治理意见..."
+                  className="h-7 min-h-0 flex-1 resize-none border-0 bg-transparent py-0.5 text-xs leading-5 text-white outline-none placeholder:text-[#5F5F5F]"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!selectedName || !opinionText.trim()}
+                  onClick={handleSubmitOpinion}
+                  className="h-7 shrink-0 rounded-full px-2.5 text-xs"
+                >
+                  发送
+                </Button>
+              </div>
+            </section>
           </div>
         </section>
       </div>
