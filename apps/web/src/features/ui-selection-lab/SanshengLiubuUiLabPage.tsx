@@ -451,6 +451,7 @@ function WorkbenchPreview() {
       "项目管理": "projects",
       "执行中心": "execution",
       "成果中心": "deliverables",
+      "仓库": "repository",
       "治理": "governance",
     };
     const key = pageKeyMap[label] ?? label;
@@ -462,6 +463,8 @@ function WorkbenchPreview() {
         ? "当前项目页面 · mock"
         : label === "执行中心"
           ? "当前项目执行流 · mock"
+          : label === "仓库"
+            ? "当前项目代码空间"
           : label === "治理"
             ? "Skill 治理 · 当前项目：营销活动分析平台 · mock"
             : "工作台页面 · mock",
@@ -652,7 +655,7 @@ function WorkbenchPreview() {
                       label={item.label}
                       icon={item.icon}
                       active={activeMainPage === item.label || activeMainPage ===
-                        { "项目管理": "projects", "执行中心": "execution", "成果中心": "deliverables", "治理": "governance" }[item.label]
+                        { "项目管理": "projects", "执行中心": "execution", "成果中心": "deliverables", "仓库": "repository", "治理": "governance" }[item.label]
                       }
                       onClick={() => handlePageNav(item.label)}
                     />
@@ -762,13 +765,13 @@ function WorkbenchPreview() {
             </div>
             <Badge className="h-7 shrink-0 gap-1.5 rounded-full border-[#2A2A2A] bg-transparent px-2.5 text-[11px] text-[#C7C7C7]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#C7C7C7]" />
-              {activeMainPage === "execution" ? "进行中" : activeMainPage === "governance" ? "只读" : "准备中"}
+              {activeMainPage === "execution" ? "进行中" : activeMainPage === "governance" || activeMainPage === "repository" ? "只读" : "准备中"}
             </Badge>
           </div>
 
           {renderMainContent()}
 
-          {activeMainPage !== "projects" && activeMainPage !== "execution" && activeMainPage !== "deliverables" && activeMainPage !== "governance" ? (
+          {activeMainPage !== "projects" && activeMainPage !== "execution" && activeMainPage !== "deliverables" && activeMainPage !== "repository" && activeMainPage !== "governance" ? (
             <WorkbenchPromptBox onSend={handlePromptSend} />
           ) : null}
         </main>

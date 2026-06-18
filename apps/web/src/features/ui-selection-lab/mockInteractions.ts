@@ -34,6 +34,7 @@ export const pageNavItems: NavItem[] = [
   { label: "项目管理", icon: FolderKanban },
   { label: "执行中心", icon: Workflow },
   { label: "成果中心", icon: Archive },
+  { label: "仓库", icon: GitBranch },
   { label: "治理", icon: ShieldCheck },
 ];
 
