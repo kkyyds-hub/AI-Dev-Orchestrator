@@ -119,7 +119,7 @@ const executionRun: ExecutionRunViewModel = {
   started_at: "11:32:41",
   updated_at: "11:34:40",
   current_summary: "正在校验数据源连通性，并生成接入任务拆分建议。",
-  safety_note: "当前未触发 Git 写入，运行环境处于只读安全边界内。",
+  safety_note: "当前仅展示处理进度，不执行提交、推送或写入操作。",
   status_rows: [
     ["运行", "running · run_7F3A"],
     ["运行环境", "ready"],
@@ -133,7 +133,7 @@ const executionRun: ExecutionRunViewModel = {
     {
       id: "step_claimed",
       title: "已领取任务",
-      detail: "11:32:41 · Worker 1 已领取并确认",
+      detail: "11:32:41 · 已领取并确认",
       state: "done",
       rows: [
         ["步骤", "已领取任务"],
@@ -173,7 +173,7 @@ const executionRun: ExecutionRunViewModel = {
     {
       id: "step_executing",
       title: "执行中",
-      detail: "11:34:08 · AI 正在处理当前任务",
+      detail: "11:34:08 · 正在处理当前任务",
       state: "current",
       rows: [
         ["步骤", "执行中"],
@@ -215,8 +215,8 @@ const executionRun: ExecutionRunViewModel = {
   evidence_tabs: [
     {
       key: "run",
-      label: "运行详情",
-      title: "运行详情",
+      label: "运行记录",
+      title: "运行记录",
       description: "当前任务运行摘要 · mock",
       rows: [
         ["任务", "数据接入模块联调"],
@@ -249,8 +249,8 @@ const executionRun: ExecutionRunViewModel = {
     },
     {
       key: "decision",
-      label: "决策回放",
-      title: "决策回放",
+      label: "决策",
+      title: "决策",
       description: "为什么由当前执行器处理 · mock",
       rows: [
         ["路由结果", "选择 Codex"],
@@ -264,8 +264,8 @@ const executionRun: ExecutionRunViewModel = {
     },
     {
       key: "safety",
-      label: "安全预检",
-      title: "安全预检",
+      label: "安全",
+      title: "安全",
       description: "运行前安全边界读回 · mock",
       rows: [
         ["Runtime", "ready"],
@@ -286,7 +286,7 @@ const executionRun: ExecutionRunViewModel = {
       state_label: "待人工",
       title: "数据源账号确认",
       note: "需产品负责人确认",
-      description: "后续队列任务读回 · mock",
+      description: "后续安排详情 · mock",
       rows: [
         ["状态", "待人工"],
         ["队列位置", "1"],
@@ -304,8 +304,8 @@ const executionRun: ExecutionRunViewModel = {
       state: "queued",
       state_label: "待执行",
       title: "指标口径确认",
-      note: "AI 评估后自动执行",
-      description: "后续队列任务读回 · mock",
+      note: "等待前置事项",
+      description: "后续安排详情 · mock",
       rows: [
         ["状态", "待执行"],
         ["队列位置", "2"],
@@ -324,7 +324,7 @@ const executionRun: ExecutionRunViewModel = {
       state_label: "待执行",
       title: "可视化报表联调",
       note: "预计 2 个任务后进行",
-      description: "后续队列任务读回 · mock",
+      description: "后续安排详情 · mock",
       rows: [
         ["状态", "待执行"],
         ["队列位置", "3"],
@@ -1707,18 +1707,22 @@ function ExecutionCenterMockPage({
 }: {
   onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
 }) {
-  const [activeEvidenceTab, setActiveEvidenceTab] = useState("run");
+  const [activeEvidenceTab, setActiveEvidenceTab] = useState("status");
   const [queueDiscussionMessage, setQueueDiscussionMessage] = useState("");
 
   const viewState = executionPageViewState;
   const run = executionRun;
+  const displayTitle = run.title.replace(/^AI 正在处理：/, "");
+  const detailEvidenceTabs = ["context", "decision", "safety", "run"]
+    .map((key) => run.evidence_tabs.find((item) => item.key === key))
+    .filter((item): item is ExecutionEvidenceTabViewModel => Boolean(item));
 
   if (viewState === "idle") {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">暂无正在执行的任务</div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">当前项目没有活跃运行。启动任务后，这里会展示执行器、步骤、证据和后续队列。</div>
+          <div className="text-sm text-[#8A8A8A]">暂无正在处理的任务</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前项目没有活跃处理事项。启动任务后，这里会展示处理进展、等待事项和后续安排。</div>
         </div>
       </div>
     );
@@ -1728,7 +1732,7 @@ function ExecutionCenterMockPage({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col">
-          <div className="text-sm text-[#8A8A8A]">正在读取执行状态 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">正在读取处理状态 · mock</div>
           <Separator className="mt-4" />
           <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
           <Separator className="mt-4" />
@@ -1742,7 +1746,7 @@ function ExecutionCenterMockPage({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">当前运行已完成 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">当前处理已完成 · mock</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">执行结果已沉淀到成果中心，可继续查看交付证据。</div>
         </div>
       </div>
@@ -1753,7 +1757,7 @@ function ExecutionCenterMockPage({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">执行被阻塞 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">处理被阻塞 · mock</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">当前任务需要人工补充信息后才能继续。</div>
         </div>
       </div>
@@ -1764,7 +1768,7 @@ function ExecutionCenterMockPage({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">执行状态读取失败 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">处理状态读取失败 · mock</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请稍后重试或回到工作台确认项目状态。</div>
         </div>
       </div>
@@ -1776,7 +1780,7 @@ function ExecutionCenterMockPage({
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
           <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的运行状态、执行证据和后续队列。</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的处理进展、等待事项和后续安排。</div>
         </div>
       </div>
     );
@@ -1797,27 +1801,16 @@ function ExecutionCenterMockPage({
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
       <div className="mx-auto flex w-full max-w-[1080px] flex-col">
         <section className="border-b border-[#2A2A2A] pb-7">
-          <div className="text-sm font-medium text-[#8A8A8A]">当前运行</div>
+          <div className="text-sm font-medium text-[#8A8A8A]">当前处理</div>
           <h1 className="mt-3 text-2xl font-semibold tracking-normal text-white md:text-[28px]">
-            {run.title}
+            {displayTitle}
           </h1>
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[#C7C7C7]">
-            <span>{run.executor_label}</span>
-            <span className="text-[#5F5F5F]">·</span>
-            <span>{run.worker_label}</span>
-            <span className="text-[#5F5F5F]">·</span>
-            <span>{run.environment_label}</span>
-            <span className="text-[#5F5F5F]">·</span>
-            <span>{run.budget_label}</span>
-            <span className="text-[#5F5F5F]">·</span>
-            <span>{run.git_write_status === "disabled" ? "Git 写入关闭" : "Git 写入预览"}</span>
-          </div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">上次刷新 {run.updated_at} · mock</div>
+          <div className="mt-3 text-sm text-[#C7C7C7]">进行中 · 上次刷新 {run.updated_at}</div>
         </section>
 
         <section className="grid gap-8 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.15fr] lg:gap-10">
           <div>
-            <h2 className="text-base font-semibold text-white">当前运行</h2>
+            <h2 className="text-base font-semibold text-white">处理步骤</h2>
             <div className="mt-5 space-y-0">
               {run.steps.map((step, index) => {
                 const isDone = step.state === "done";
@@ -1899,41 +1892,39 @@ function ExecutionCenterMockPage({
           </div>
 
           <div className="border-t border-[#2A2A2A] pt-7 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
-            <h2 className="text-base font-semibold text-white">安全与状态</h2>
-            <ReadbackRows rows={run.status_rows} compact />
-            <div className="mt-5 space-y-2 text-sm leading-6 text-[#8A8A8A]">
+            <h2 className="text-base font-semibold text-white">状态说明</h2>
+            <div className="mt-4 space-y-2 text-sm leading-6 text-[#8A8A8A]">
               <p>{run.current_summary}</p>
               <p>{run.safety_note}</p>
             </div>
 
             <Dialog>
-              <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-[#8A8A8A]">
-                <span>查看证据：</span>
-                {run.evidence_tabs.map((item) => (
-                  <DialogTrigger asChild key={item.key}>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-7 rounded-md border border-[#2A2A2A] bg-transparent px-2.5 text-xs text-[#C7C7C7] hover:bg-[#222222] hover:text-white active:scale-[0.98]"
-                      onClick={() => setActiveEvidenceTab(item.key)}
-                    >
-                      {item.label}
-                    </Button>
-                  </DialogTrigger>
-                ))}
-              </div>
+              <DialogTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-5 h-7 rounded-md border border-[#2A2A2A] bg-transparent px-2.5 text-xs text-[#C7C7C7] hover:bg-[#222222] hover:text-white active:scale-[0.98]"
+                  onClick={() => setActiveEvidenceTab("status")}
+                >
+                  查看详情
+                </Button>
+              </DialogTrigger>
               <DialogContent className="w-[min(92vw,620px)]">
                 <DialogHeader>
-                  <DialogTitle>执行证据</DialogTitle>
-                  <DialogDescription>当前运行证据读回 · mock</DialogDescription>
+                  <DialogTitle>处理详情</DialogTitle>
+                  <DialogDescription>仅展示详情，不触发执行操作。</DialogDescription>
                 </DialogHeader>
                 <Tabs value={activeEvidenceTab} onValueChange={setActiveEvidenceTab}>
                   <TabsList className="mt-4">
-                    {run.evidence_tabs.map((item) => (
+                    <TabsTrigger value="status">状态</TabsTrigger>
+                    {detailEvidenceTabs.map((item) => (
                       <TabsTrigger key={item.key} value={item.key}>{item.label}</TabsTrigger>
                     ))}
                   </TabsList>
-                  {run.evidence_tabs.map((item) => (
+                  <TabsContent value="status">
+                    <ReadbackRows rows={run.status_rows} footer="仅展示状态详情，不触发执行操作 · mock" />
+                  </TabsContent>
+                  {detailEvidenceTabs.map((item) => (
                     <TabsContent key={item.key} value={item.key}>
                       <ReadbackRows rows={item.rows} footer={item.footer} />
                     </TabsContent>
@@ -1950,7 +1941,7 @@ function ExecutionCenterMockPage({
         </section>
 
         <section className="pt-6">
-          <h2 className="text-base font-semibold text-white">后续队列</h2>
+          <h2 className="text-base font-semibold text-white">后续安排</h2>
           {queueDiscussionMessage ? (
             <div className="mt-2 text-xs text-[#8A8A8A]">{queueDiscussionMessage}</div>
           ) : null}

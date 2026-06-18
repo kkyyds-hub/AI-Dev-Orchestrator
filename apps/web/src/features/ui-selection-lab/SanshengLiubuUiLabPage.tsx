@@ -590,59 +590,52 @@ function WorkbenchPreview() {
 
           <div className="ui-lab-sidebar-scroll mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 md:mt-6">
             <div className="space-y-4 md:space-y-6">
-              {/* 运行与治理 — open modals */}
-              <div>
-                <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#5F5F5F]">
-                  运行与治理
-                </div>
-                <div className="space-y-1">
-                  <DashboardModal>
+              <div className="space-y-1">
+                {!moreToolsExpanded ? (
+                  <SidebarNavItem
+                    label="高级详情"
+                    icon={CircleEllipsis}
+                    muted
+                    active={false}
+                    className="h-8 text-xs"
+                    onClick={() => setMoreToolsExpanded(true)}
+                  />
+                ) : (
+                  <>
                     <SidebarNavItem
-                      label="数据看板"
-                      icon={LayoutDashboard}
-                      active={false}
-                    />
-                  </DashboardModal>
-                  <ApprovalsModal>
-                    <SidebarNavItem
-                      label="待审批"
-                      icon={ClipboardCheck}
-                      badge="2"
-                      active={false}
-                    />
-                  </ApprovalsModal>
-                  <ExecutionStatusModal>
-                    <SidebarNavItem label="执行状态" icon={Activity} active={false} />
-                  </ExecutionStatusModal>
-
-                  {/* ... 更多 / 收起 — inline sidebar disclosure */}
-                  {!moreToolsExpanded ? (
-                    <SidebarNavItem
-                      label="... 更多"
+                      label="高级详情"
                       icon={CircleEllipsis}
+                      muted
                       active={false}
-                      onClick={() => setMoreToolsExpanded(true)}
+                      className="h-8 text-xs"
                     />
-                  ) : (
-                    <>
-                      <CostUsageModal>
-                        <SidebarNavItem label="成本用量" icon={Wallet} />
-                      </CostUsageModal>
-                      <RepositoryQueueModal>
-                        <SidebarNavItem label="仓库队列" icon={Archive} />
-                      </RepositoryQueueModal>
-                      <GitWritePreviewModal>
-                        <SidebarNavItem label="Git 写入预览" icon={GitBranch} />
-                      </GitWritePreviewModal>
-                      <SidebarNavItem
-                        label="收起"
-                        icon={ChevronUp}
-                        muted
-                        onClick={() => setMoreToolsExpanded(false)}
-                      />
-                    </>
-                  )}
-                </div>
+                    <DashboardModal>
+                      <SidebarNavItem label="数据看板" icon={LayoutDashboard} active={false} className="h-8 text-xs" />
+                    </DashboardModal>
+                    <ApprovalsModal>
+                      <SidebarNavItem label="待审批" icon={ClipboardCheck} badge="2" active={false} className="h-8 text-xs" />
+                    </ApprovalsModal>
+                    <ExecutionStatusModal>
+                      <SidebarNavItem label="执行状态" icon={Activity} active={false} className="h-8 text-xs" />
+                    </ExecutionStatusModal>
+                    <CostUsageModal>
+                      <SidebarNavItem label="成本用量" icon={Wallet} className="h-8 text-xs" />
+                    </CostUsageModal>
+                    <RepositoryQueueModal>
+                      <SidebarNavItem label="仓库队列" icon={Archive} className="h-8 text-xs" />
+                    </RepositoryQueueModal>
+                    <GitWritePreviewModal>
+                      <SidebarNavItem label="Git 写入预览" icon={GitBranch} className="h-8 text-xs" />
+                    </GitWritePreviewModal>
+                    <SidebarNavItem
+                      label="收起"
+                      icon={ChevronUp}
+                      muted
+                      className="h-8 text-xs"
+                      onClick={() => setMoreToolsExpanded(false)}
+                    />
+                  </>
+                )}
               </div>
 
               <Separator />
@@ -769,7 +762,7 @@ function WorkbenchPreview() {
             </div>
             <Badge className="h-7 shrink-0 gap-1.5 rounded-full border-[#2A2A2A] bg-transparent px-2.5 text-[11px] text-[#C7C7C7]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#C7C7C7]" />
-              {activeMainPage === "execution" ? "执行中 · Git 写入关闭" : activeMainPage === "governance" ? "Git 写入关闭 · 只读" : "准备接收任务"}
+              {activeMainPage === "execution" ? "进行中" : activeMainPage === "governance" ? "只读" : "准备中"}
             </Badge>
           </div>
 
