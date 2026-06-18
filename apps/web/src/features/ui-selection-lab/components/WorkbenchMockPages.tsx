@@ -387,6 +387,8 @@ type GovernanceSkillPageViewState =
 
 type GovernanceCatalogMode = "skills" | "roles" | "permissions";
 
+type GovernanceScopeMode = "project" | "all";
+
 type GovernanceRoleViewModel = {
   role_code: string;
   enabled: boolean;
@@ -397,6 +399,40 @@ type GovernanceRoleViewModel = {
   output_boundary: readonly string[];
   default_skill_slots: readonly string[];
   custom_notes: string | null;
+  sort_order: number;
+};
+
+type GovernanceRegistrySkill = {
+  id: string;
+  code: string;
+  name: string;
+  summary: string;
+  purpose: string;
+  applicable_role_codes: readonly string[];
+  enabled: boolean;
+  current_version: string;
+  version_history: readonly {
+    id: string;
+    version: string;
+    name: string;
+    summary: string;
+    purpose: string;
+    applicable_role_codes: readonly string[];
+    enabled: boolean;
+    change_note: string | null;
+    created_at: string;
+  }[];
+};
+
+type GovernanceSystemRole = {
+  code: string;
+  name: string;
+  summary: string;
+  responsibilities: readonly string[];
+  input_boundary: readonly string[];
+  output_boundary: readonly string[];
+  default_skill_slots: readonly string[];
+  enabled_by_default: boolean;
   sort_order: number;
 };
 
@@ -623,6 +659,145 @@ const governanceSkills: readonly GovernanceSkillViewModel[] = [
   },
 ];
 
+const governanceRegistrySkills: readonly GovernanceRegistrySkill[] = [
+  {
+    id: "registry_skill_task_instruction",
+    code: "task_instruction_generation",
+    name: "任务指令生成",
+    summary: "根据项目目标和阶段计划生成结构化任务指令。",
+    purpose: "将已确认的项目范围、阶段目标和验收口径整理为可执行的任务说明，供后续角色分工使用。",
+    applicable_role_codes: ["ai_project_director", "product_manager"],
+    enabled: true,
+    current_version: "v20260611",
+    version_history: [
+      {
+        id: "task_instruction_v20260611",
+        version: "v20260611",
+        name: "任务指令生成",
+        summary: "补充阶段计划与验收口径字段。",
+        purpose: "生成结构化任务指令。",
+        applicable_role_codes: ["ai_project_director", "product_manager"],
+        enabled: true,
+        change_note: "强化阶段计划与验收边界表达。",
+        created_at: "2026-06-11",
+      },
+      {
+        id: "task_instruction_v20260601",
+        version: "v20260601",
+        name: "任务指令生成",
+        summary: "初始任务指令模板。",
+        purpose: "生成任务拆分说明。",
+        applicable_role_codes: ["ai_project_director"],
+        enabled: true,
+        change_note: "建立基础模板。",
+        created_at: "2026-06-01",
+      },
+    ],
+  },
+  {
+    id: "registry_skill_code_review",
+    code: "code_review",
+    name: "代码审查",
+    summary: "检查实现变更、风险点和交付边界。",
+    purpose: "对代码改动进行结构、行为和风险审查，输出可执行的修正建议。",
+    applicable_role_codes: ["reviewer", "engineer"],
+    enabled: true,
+    current_version: "v20260610",
+    version_history: [
+      {
+        id: "code_review_v20260610",
+        version: "v20260610",
+        name: "代码审查",
+        summary: "增加结构边界和回归风险检查。",
+        purpose: "审查代码变更质量。",
+        applicable_role_codes: ["reviewer", "engineer"],
+        enabled: true,
+        change_note: "补充结构边界检查。",
+        created_at: "2026-06-10",
+      },
+      {
+        id: "code_review_v20260530",
+        version: "v20260530",
+        name: "代码审查",
+        summary: "基础审查清单。",
+        purpose: "审查实现风险。",
+        applicable_role_codes: ["reviewer"],
+        enabled: true,
+        change_note: "建立审查基线。",
+        created_at: "2026-05-30",
+      },
+    ],
+  },
+  {
+    id: "registry_skill_acceptance_check",
+    code: "acceptance_check",
+    name: "验收检查",
+    summary: "核对交付内容、验证证据和遗留风险。",
+    purpose: "对阶段交付进行事实核对，确认验收项、缺失证据和后续处理边界。",
+    applicable_role_codes: ["reviewer", "ai_project_director"],
+    enabled: true,
+    current_version: "v20260612",
+    version_history: [
+      {
+        id: "acceptance_check_v20260612",
+        version: "v20260612",
+        name: "验收检查",
+        summary: "补充缺证识别与遗留项收口。",
+        purpose: "完成阶段验收核对。",
+        applicable_role_codes: ["reviewer", "ai_project_director"],
+        enabled: true,
+        change_note: "强化缺失证据识别。",
+        created_at: "2026-06-12",
+      },
+      {
+        id: "acceptance_check_v20260604",
+        version: "v20260604",
+        name: "验收检查",
+        summary: "基础验收检查模板。",
+        purpose: "核对交付与验证结果。",
+        applicable_role_codes: ["reviewer"],
+        enabled: true,
+        change_note: "建立验收检查模板。",
+        created_at: "2026-06-04",
+      },
+    ],
+  },
+  {
+    id: "registry_skill_docs_closure",
+    code: "docs_closure",
+    name: "文档收口",
+    summary: "整理交付说明、决策记录和阶段结论。",
+    purpose: "把执行结果、关键决策和验收结论整理为稳定文档素材。",
+    applicable_role_codes: ["product_manager", "reviewer"],
+    enabled: false,
+    current_version: "v20260605",
+    version_history: [
+      {
+        id: "docs_closure_v20260605",
+        version: "v20260605",
+        name: "文档收口",
+        summary: "增加阶段结论整理字段。",
+        purpose: "整理交付文档素材。",
+        applicable_role_codes: ["product_manager", "reviewer"],
+        enabled: false,
+        change_note: "暂不默认启用，保留为文档收口候选。",
+        created_at: "2026-06-05",
+      },
+      {
+        id: "docs_closure_v20260528",
+        version: "v20260528",
+        name: "文档收口",
+        summary: "基础文档整理模板。",
+        purpose: "整理执行摘要。",
+        applicable_role_codes: ["product_manager"],
+        enabled: false,
+        change_note: "建立文档整理基线。",
+        created_at: "2026-05-28",
+      },
+    ],
+  },
+];
+
 const governanceSkillViewState: GovernanceSkillPageViewState = "ready";
 
 const governanceRoles: readonly GovernanceRoleViewModel[] = [
@@ -720,6 +895,101 @@ const governanceRoles: readonly GovernanceRoleViewModel[] = [
     ],
     default_skill_slots: ["风险审查", "质量检查", "验收建议"],
     custom_notes: "默认关注质量与边界，不替代产品决策或工程实现。",
+    sort_order: 40,
+  },
+];
+
+const governanceSystemRoles: readonly GovernanceSystemRole[] = [
+  {
+    code: "ai_project_director",
+    name: "AI 项目主管",
+    summary: "负责目标澄清、计划推进和治理边界收口",
+    responsibilities: [
+      "整理项目目标、范围、约束和阶段推进路径",
+      "拆分任务并协调角色之间的输入与输出",
+      "识别需要授权或补证的事项，维护治理边界",
+    ],
+    input_boundary: [
+      "项目目标、约束、优先级和补充说明",
+      "阶段计划、验收口径和治理意见",
+      "其他角色提交的方案摘要和风险说明",
+    ],
+    output_boundary: [
+      "项目目标澄清结果和阶段推进建议",
+      "任务拆分、职责分派和下一步说明",
+      "需要授权或补证的问题清单",
+    ],
+    default_skill_slots: ["目标澄清", "任务拆分", "治理意见整理"],
+    enabled_by_default: true,
+    sort_order: 10,
+  },
+  {
+    code: "product_manager",
+    name: "产品经理",
+    summary: "负责需求范围、优先级和验收标准",
+    responsibilities: [
+      "定义产品范围、用户路径和阶段目标",
+      "判断功能优先级和第一期不做的内容",
+      "维护验收标准和产品侧风险说明",
+    ],
+    input_boundary: [
+      "业务目标、目标用户和核心场景",
+      "用户反馈、需求疑问和取舍建议",
+      "实现反馈中需要产品决策的事项",
+    ],
+    output_boundary: [
+      "需求范围说明和优先级判断",
+      "功能验收标准、边界说明和待确认问题",
+      "交付前需要确认的产品风险",
+    ],
+    default_skill_slots: ["需求澄清", "优先级判断", "验收标准整理"],
+    enabled_by_default: true,
+    sort_order: 20,
+  },
+  {
+    code: "engineer",
+    name: "工程师",
+    summary: "负责实现拆解、联调说明和变更总结",
+    responsibilities: [
+      "根据任务边界完成实现方案拆解",
+      "说明关键实现路径、依赖关系和联调注意事项",
+      "交付变更说明，并标出需要验证的功能点",
+    ],
+    input_boundary: [
+      "已确认的需求范围、任务拆分和验收标准",
+      "产品经理或 AI 项目主管给出的边界约束",
+      "评审者反馈的风险点和修正要求",
+    ],
+    output_boundary: [
+      "实现方案、变更说明和联调建议",
+      "需要补充确认的技术问题和风险说明",
+      "交付给评审者检查的实现摘要",
+    ],
+    default_skill_slots: ["实现拆解", "联调说明", "变更总结"],
+    enabled_by_default: true,
+    sort_order: 30,
+  },
+  {
+    code: "reviewer",
+    name: "评审者",
+    summary: "负责质量审查、风险识别和验收建议",
+    responsibilities: [
+      "检查需求、实现和验收口径是否一致",
+      "识别交付风险、遗漏项和缺失证据",
+      "给出是否可以继续推进的审查建议",
+    ],
+    input_boundary: [
+      "产品范围、实现摘要、变更说明和验收标准",
+      "阶段目标、交付边界和验证结果",
+      "工程师提交的风险说明和待确认事项",
+    ],
+    output_boundary: [
+      "审查结论、风险说明和改进建议",
+      "缺失证据或边界不清的问题清单",
+      "面向下一步推进的验收建议",
+    ],
+    default_skill_slots: ["风险审查", "质量检查", "验收建议"],
+    enabled_by_default: true,
     sort_order: 40,
   },
 ];
@@ -1758,8 +2028,11 @@ function ExecutionCenterMockPage({
 
 function GovernanceSkillMockPage() {
   const [catalogMode, setCatalogMode] = useState<GovernanceCatalogMode>("skills");
+  const [scopeMode, setScopeMode] = useState<GovernanceScopeMode>("project");
   const [selectedSkillId, setSelectedSkillId] = useState<string>(governanceSkills[0]?.id ?? "");
+  const [selectedRegistrySkillCode, setSelectedRegistrySkillCode] = useState<string>(governanceRegistrySkills[0]?.code ?? "");
   const [selectedRoleCode, setSelectedRoleCode] = useState<string>(governanceRoles[0]?.role_code ?? "");
+  const [selectedSystemRoleCode, setSelectedSystemRoleCode] = useState<string>(governanceSystemRoles[0]?.code ?? "");
   const [selectedPermissionId, setSelectedPermissionId] = useState<GovernancePermissionPolicy["id"]>(
     governancePermissionPolicies[0]?.id ?? "auto",
   );
@@ -1782,11 +2055,17 @@ function GovernanceSkillMockPage() {
 
   const viewState = governanceSkillViewState;
   const selectedSkill = governanceSkills.find((s) => s.id === selectedSkillId) ?? governanceSkills[0] ?? null;
+  const selectedRegistrySkill =
+    governanceRegistrySkills.find((skill) => skill.code === selectedRegistrySkillCode) ?? governanceRegistrySkills[0] ?? null;
   const selectedRole = governanceRoles.find((role) => role.role_code === selectedRoleCode) ?? governanceRoles[0] ?? null;
+  const selectedSystemRole =
+    governanceSystemRoles.find((role) => role.code === selectedSystemRoleCode) ?? governanceSystemRoles[0] ?? null;
   const selectedPermission =
     governancePermissionPolicies.find((policy) => policy.id === selectedPermissionId) ?? governancePermissionPolicies[0] ?? null;
   const catalogLabel =
     catalogMode === "skills" ? "Skill 清单" : catalogMode === "roles" ? "角色清单" : "权限清单";
+  const scopeLabel = scopeMode === "project" ? "当前项目" : "全部";
+  const showScopeMenu = catalogMode === "skills" || catalogMode === "roles";
   const opinionMessages =
     catalogMode === "skills"
       ? skillOpinionMessages
@@ -1795,10 +2074,34 @@ function GovernanceSkillMockPage() {
         : permissionOpinionMessages;
   const selectedName =
     catalogMode === "skills"
-      ? selectedSkill?.skill_name
+      ? scopeMode === "project"
+        ? selectedSkill?.skill_name
+        : selectedRegistrySkill?.name
       : catalogMode === "roles"
-        ? selectedRole?.name
+        ? scopeMode === "project"
+          ? selectedRole?.name
+          : selectedSystemRole?.name
         : selectedPermission?.title;
+
+  function handleScopeChange(nextScope: GovernanceScopeMode) {
+    setScopeMode(nextScope);
+    setOpinionText("");
+    if (catalogMode === "skills") {
+      if (nextScope === "project") {
+        setSelectedSkillId(governanceSkills[0]?.id ?? "");
+        setActiveTab("overview");
+      } else {
+        setSelectedRegistrySkillCode(governanceRegistrySkills[0]?.code ?? "");
+      }
+    }
+    if (catalogMode === "roles") {
+      if (nextScope === "project") {
+        setSelectedRoleCode(governanceRoles[0]?.role_code ?? "");
+      } else {
+        setSelectedSystemRoleCode(governanceSystemRoles[0]?.code ?? "");
+      }
+    }
+  }
 
   function handleSubmitOpinion() {
     if (!selectedName || !opinionText.trim()) return;
@@ -1882,49 +2185,80 @@ function GovernanceSkillMockPage() {
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
         <section className="grid h-full min-h-0 flex-1 gap-7 lg:grid-cols-[1fr_0.95fr] lg:gap-8">
           <div className="flex h-full min-h-0 flex-col">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-8 shrink-0 items-center gap-1.5 self-start rounded-md px-1 text-base font-semibold text-white outline-none transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:ring-2 focus-visible:ring-white/10"
-                >
-                  {catalogLabel}
-                  <ChevronDown className="h-4 w-4 text-[#8A8A8A]" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-36 rounded-lg">
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setCatalogMode("skills");
-                    setOpinionText("");
-                  }}
-                  className={catalogMode === "skills" ? "bg-[#2C2C2C]" : undefined}
-                >
-                  Skill 清单
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setCatalogMode("roles");
-                    setOpinionText("");
-                  }}
-                  className={catalogMode === "roles" ? "bg-[#2C2C2C]" : undefined}
-                >
-                  角色清单
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setCatalogMode("permissions");
-                    setOpinionText("");
-                  }}
-                  className={catalogMode === "permissions" ? "bg-[#2C2C2C]" : undefined}
-                >
-                  权限清单
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex h-8 shrink-0 items-center justify-between gap-4">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-8 items-center gap-1.5 rounded-md px-1 text-base font-semibold text-white outline-none transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:ring-2 focus-visible:ring-white/10"
+                  >
+                    {catalogLabel}
+                    <ChevronDown className="h-4 w-4 text-[#8A8A8A]" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-36 rounded-lg">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setCatalogMode("skills");
+                      setOpinionText("");
+                    }}
+                    className={catalogMode === "skills" ? "bg-[#2C2C2C]" : undefined}
+                  >
+                    Skill 清单
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setCatalogMode("roles");
+                      setOpinionText("");
+                    }}
+                    className={catalogMode === "roles" ? "bg-[#2C2C2C]" : undefined}
+                  >
+                    角色清单
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setCatalogMode("permissions");
+                      setOpinionText("");
+                    }}
+                    className={catalogMode === "permissions" ? "bg-[#2C2C2C]" : undefined}
+                  >
+                    权限清单
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {showScopeMenu ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-[#C7C7C7] outline-none transition-colors hover:bg-[#111111] hover:text-white focus-visible:bg-[#111111] focus-visible:ring-2 focus-visible:ring-white/10"
+                    >
+                      {scopeLabel}
+                      <ChevronDown className="h-3.5 w-3.5 text-[#8A8A8A]" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-28 rounded-lg">
+                    <DropdownMenuItem
+                      onSelect={() => handleScopeChange("project")}
+                      className={scopeMode === "project" ? "bg-[#2C2C2C]" : undefined}
+                    >
+                      当前项目
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => handleScopeChange("all")}
+                      className={scopeMode === "all" ? "bg-[#2C2C2C]" : undefined}
+                    >
+                      全部
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+            </div>
             <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {catalogMode === "skills"
-                ? governanceSkills.map((skill) => (
+                ? scopeMode === "project"
+                  ? governanceSkills.map((skill) => (
                     <button
                       key={skill.id}
                       type="button"
@@ -1950,8 +2284,30 @@ function GovernanceSkillMockPage() {
                       </div>
                     </button>
                   ))
+                  : governanceRegistrySkills.map((skill) => (
+                    <button
+                      key={skill.code}
+                      type="button"
+                      onClick={() => setSelectedRegistrySkillCode(skill.code)}
+                      className={[
+                        "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                        selectedRegistrySkillCode === skill.code
+                          ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
+                          : "hover:bg-[#080808]",
+                      ].join(" ")}
+                    >
+                      <div className={selectedRegistrySkillCode === skill.code ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                        {skill.name}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{skill.summary}</div>
+                      <div className="mt-1 text-xs text-[#5F5F5F]">
+                        {skill.enabled ? "已启用" : "未启用"} · {skill.current_version}
+                      </div>
+                    </button>
+                  ))
                 : catalogMode === "roles"
-                  ? governanceRoles.map((role) => (
+                  ? scopeMode === "project"
+                    ? governanceRoles.map((role) => (
                     <button
                       key={role.role_code}
                       type="button"
@@ -1968,6 +2324,25 @@ function GovernanceSkillMockPage() {
                       </div>
                       <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{role.summary}</div>
                       <div className="mt-1 text-xs text-[#5F5F5F]">{role.enabled ? "已启用" : "未启用"}</div>
+                    </button>
+                  ))
+                    : governanceSystemRoles.map((role) => (
+                    <button
+                      key={role.code}
+                      type="button"
+                      onClick={() => setSelectedSystemRoleCode(role.code)}
+                      className={[
+                        "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                        selectedSystemRoleCode === role.code
+                          ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
+                          : "hover:bg-[#080808]",
+                      ].join(" ")}
+                    >
+                      <div className={selectedSystemRoleCode === role.code ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                        {role.name}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{role.summary}</div>
+                      <div className="mt-1 text-xs text-[#5F5F5F]">{role.enabled_by_default ? "默认启用" : "默认关闭"}</div>
                     </button>
                   ))
                   : governancePermissionPolicies.map((policy) => (
@@ -1993,7 +2368,8 @@ function GovernanceSkillMockPage() {
 
           <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(190px,0.62fr)] border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
             {catalogMode === "skills" ? (
-              selectedSkill ? (
+              scopeMode === "project" ? (
+                selectedSkill ? (
                 <section className="flex min-h-0 flex-col overflow-hidden">
                   <div className="shrink-0">
                     <div className="text-base font-semibold text-white">{selectedSkill.skill_name}</div>
@@ -2061,8 +2437,48 @@ function GovernanceSkillMockPage() {
                   <div className="text-sm text-[#8A8A8A]">请选择一个 Skill</div>
                 </div>
               )
+              ) : selectedRegistrySkill ? (
+                <section className="flex min-h-0 flex-col overflow-hidden">
+                  <div className="shrink-0">
+                    <div className="text-base font-semibold text-white">{selectedRegistrySkill.name}</div>
+                    <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{selectedRegistrySkill.summary}</div>
+                  </div>
+
+                  <div className="mt-4 min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <ReadbackRows
+                      compact
+                      rows={[
+                        ["用途", govShort(selectedRegistrySkill.purpose, 56)],
+                        ["适用角色", selectedRegistrySkill.applicable_role_codes.join(", ")],
+                        ["当前版本", selectedRegistrySkill.current_version],
+                        ["启用状态", selectedRegistrySkill.enabled ? "已启用" : "未启用"],
+                      ]}
+                    />
+                    <div className="mt-5">
+                      <div className="text-sm font-semibold text-white">版本记录</div>
+                      <div className="mt-2 border-y border-[#2A2A2A]">
+                        {selectedRegistrySkill.version_history.map((version) => (
+                          <div key={version.id} className="border-b border-[#1F1F1F] px-1 py-2 last:border-b-0">
+                            <div className="text-sm font-medium text-[#C7C7C7]">{version.version} · {version.name}</div>
+                            <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{version.summary}</div>
+                            <div className="mt-1 text-xs text-[#5F5F5F]">
+                              {version.enabled ? "已启用" : "未启用"} · {version.created_at}
+                              {version.change_note ? ` · ${version.change_note}` : ""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <div className="py-8">
+                  <div className="text-sm text-[#8A8A8A]">请选择一个 Skill</div>
+                </div>
+              )
             ) : catalogMode === "roles" ? (
-              selectedRole ? (
+              scopeMode === "project" ? (
+                selectedRole ? (
                 <section className="flex min-h-0 flex-col overflow-hidden">
                   <div className="shrink-0">
                     <div className="text-base font-semibold text-white">{selectedRole.name}</div>
@@ -2102,6 +2518,47 @@ function GovernanceSkillMockPage() {
                         {selectedRole.custom_notes ?? "暂无补充说明"}
                       </div>
                     </div>
+                  </div>
+                </section>
+              ) : (
+                <div className="py-8">
+                  <div className="text-sm text-[#8A8A8A]">请选择一个角色</div>
+                </div>
+              )
+              ) : selectedSystemRole ? (
+                <section className="flex min-h-0 flex-col overflow-hidden">
+                  <div className="shrink-0">
+                    <div className="text-base font-semibold text-white">{selectedSystemRole.name}</div>
+                    <div className="mt-1 text-xs text-[#8A8A8A]">
+                      {selectedSystemRole.summary} · {selectedSystemRole.enabled_by_default ? "默认启用" : "默认关闭"}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <ReadbackRows
+                      compact
+                      rows={[
+                        ["一句话说明", selectedSystemRole.summary],
+                        ["默认启用状态", selectedSystemRole.enabled_by_default ? "默认启用" : "默认关闭"],
+                      ]}
+                    />
+                    {[
+                      { title: "主要职责", items: selectedSystemRole.responsibilities },
+                      { title: "接收的信息", items: selectedSystemRole.input_boundary },
+                      { title: "输出结果", items: selectedSystemRole.output_boundary },
+                      { title: "默认能力", items: selectedSystemRole.default_skill_slots },
+                    ].map((section) => (
+                      <div key={section.title} className="mt-5">
+                        <div className="text-sm font-semibold text-white">{section.title}</div>
+                        <div className="mt-2 border-y border-[#2A2A2A]">
+                          {section.items.map((item) => (
+                            <div key={item} className="border-b border-[#1F1F1F] px-1 py-2 text-sm leading-6 text-[#C7C7C7] last:border-b-0">
+                              {item}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </section>
               ) : (
