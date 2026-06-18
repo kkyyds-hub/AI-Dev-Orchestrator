@@ -40,6 +40,43 @@ const projectScopeRows = [
   ["交付标准", "功能可用、性能达标、文档完整、验收通过"],
 ] as const;
 
+function CompactPageHeader({
+  eyebrow,
+  title,
+  meta,
+  description,
+}: {
+  eyebrow?: React.ReactNode;
+  title: React.ReactNode;
+  meta?: React.ReactNode;
+  description?: React.ReactNode;
+}) {
+  return (
+    <section className="shrink-0 border-b border-[#2A2A2A] pb-4">
+      {eyebrow ? (
+        <div className="mb-1 text-xs font-medium leading-5 text-[#8A8A8A]">
+          {eyebrow}
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <h1 className="text-2xl font-semibold leading-tight tracking-normal text-white md:text-[26px]">
+          {title}
+        </h1>
+        {meta ? (
+          <div className="text-xs leading-5 text-[#8A8A8A] sm:pb-0.5 sm:text-sm">
+            {meta}
+          </div>
+        ) : null}
+      </div>
+      {description ? (
+        <p className="mt-1.5 max-w-3xl text-sm leading-5 text-[#C7C7C7]">
+          {description}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 type ExecutionRunStatus = "idle" | "running" | "completed" | "blocked" | "failed";
 
 type ExecutionStepState = "done" | "current" | "pending" | "blocked" | "failed";
@@ -1725,32 +1762,16 @@ function ProjectManagementMockPage() {
   }
 
   return (
-    <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+    <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
       <div className="mx-auto flex w-full max-w-[980px] flex-col">
-        <section className="pt-1">
-          <div className="mb-3 text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">
-            当前项目上下文
-          </div>
-          <h1 className="text-2xl font-semibold tracking-normal text-white">{ov.name}</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-[#C7C7C7]">
-            构建统一的营销数据分析平台，整合多渠道数据，提供可视化洞察与增长决策支持。
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[#C7C7C7]">
-            <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[#2A2A2A] bg-[#171717] px-3 text-xs text-white">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#C7C7C7]" />
-              {ov.status_label}
-            </span>
-            <span className="hidden h-5 w-px bg-[#2A2A2A] sm:block" />
-            <span>当前阶段：{ov.current_stage}</span>
-            <span className="hidden h-5 w-px bg-[#2A2A2A] sm:block" />
-            <span>最后更新：{ov.updated_at}</span>
-          </div>
-          <div className="mt-3 text-xs text-[#8A8A8A]">
-            任务 {ov.task_total} 项 · 已完成 {ov.task_done} · 执行中 {ov.task_running} · 待人工 {ov.manual_pending}
-          </div>
-        </section>
+        <CompactPageHeader
+          eyebrow="当前项目上下文"
+          title={ov.name}
+          meta={`${ov.status_label} · 当前阶段：${ov.current_stage} · ${ov.updated_at}`}
+          description={`构建统一的营销数据分析平台，整合多渠道数据，提供可视化洞察与增长决策支持。任务 ${ov.task_total} 项 · 已完成 ${ov.task_done} · 执行中 ${ov.task_running} · 待人工 ${ov.manual_pending}`}
+        />
 
-        <section className="mt-6 border-y border-[#2A2A2A] py-4">
+        <section className="mt-5 border-y border-[#2A2A2A] py-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <FileText className="h-4 w-4 text-[#C7C7C7]" />
             <span>摘要</span>
@@ -2008,17 +2029,16 @@ function ExecutionCenterMockPage({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
       <div className="mx-auto flex w-full max-w-[1080px] flex-col">
-        <section className="border-b border-[#2A2A2A] pb-7">
-          <div className="text-sm font-medium text-[#8A8A8A]">当前处理</div>
-          <h1 className="mt-3 text-2xl font-semibold tracking-normal text-white md:text-[28px]">
-            {displayTitle}
-          </h1>
-          <div className="mt-3 text-sm text-[#C7C7C7]">进行中 · 上次刷新 {run.updated_at}</div>
-        </section>
+        <CompactPageHeader
+          eyebrow="当前处理"
+          title={displayTitle}
+          meta={`进行中 · ${run.updated_at.slice(0, 5)}`}
+          description={run.current_summary}
+        />
 
-        <section className="grid gap-8 border-b border-[#2A2A2A] py-7 lg:grid-cols-[1fr_1.15fr] lg:gap-10">
+        <section className="grid gap-8 border-b border-[#2A2A2A] py-5 lg:grid-cols-[1fr_1.15fr] lg:gap-10">
           <div>
             <h2 className="text-base font-semibold text-white">处理步骤</h2>
             <div className="mt-5 space-y-0">
@@ -2382,7 +2402,7 @@ function GovernanceSkillMockPage() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+    <div className="min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
         <section className="grid h-full min-h-0 flex-1 gap-7 lg:grid-cols-[1fr_0.95fr] lg:gap-8">
           <div className="flex h-full min-h-0 flex-col">
@@ -2934,7 +2954,7 @@ function DeliverablesCenterMockPage({
     : [];
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+    <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
       <style>{`
         .ui-lab-deliverables-scroll {
           scrollbar-width: none;
@@ -2948,15 +2968,12 @@ function DeliverablesCenterMockPage({
         }
       `}</style>
       <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
-        <section className="shrink-0 border-b border-[#2A2A2A] pb-5 md:pb-7">
-          <h1 className="text-xl font-semibold tracking-normal text-white md:text-2xl">营销活动分析平台</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#C7C7C7] md:mt-3">
-            项目成果、说明文档与验收材料
-          </p>
-          <div className="mt-3 text-xs text-[#5F5F5F] md:mt-4 md:text-sm">
-            已沉淀 {totalCount} 项 · 待审查 {pendingCount} 项 · 已锁定 {lockedCount} 项
-          </div>
-        </section>
+        <CompactPageHeader
+          eyebrow="营销活动分析平台"
+          title="成果"
+          meta={`已沉淀 ${totalCount} 项 · 待审查 ${pendingCount} 项 · 已锁定 ${lockedCount} 项`}
+          description="项目成果、说明文档与验收材料"
+        />
 
         <section className="grid min-h-0 flex-1 gap-7 border-b border-[#2A2A2A] py-5 lg:grid-cols-[1fr_1.2fr] lg:gap-8 lg:py-7">
           <div className="min-h-0 flex flex-col">
@@ -3358,16 +3375,14 @@ function RepositorySpaceMockPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+    <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
-        <section className="shrink-0 border-b border-[#2A2A2A] pb-5 md:pb-7">
-          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">营销活动分析平台</div>
-          <h1 className="mt-2 text-xl font-semibold tracking-normal text-white md:text-2xl">代码空间</h1>
-          <div className="mt-2 text-sm text-[#C7C7C7]">已关联仓库 · 只读查看 · 最近更新 今天 14:32</div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-[#8A8A8A]">
-            查看当前项目的目录、变更草稿、关联成果和写入边界。
-          </p>
-        </section>
+        <CompactPageHeader
+          eyebrow="营销活动分析平台"
+          title="代码空间"
+          meta="已关联仓库 · 只读查看 · 最近更新 今天 14:32"
+          description="查看目录、变更草稿、关联成果和写入边界。"
+        />
 
         <section className="grid min-h-0 flex-1 gap-7 border-b border-[#2A2A2A] py-5 lg:grid-cols-[1fr_1.15fr] lg:gap-8 lg:py-7">
           <div className="flex min-h-0 flex-col">
