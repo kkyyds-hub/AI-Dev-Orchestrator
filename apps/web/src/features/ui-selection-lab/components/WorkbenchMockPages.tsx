@@ -385,7 +385,7 @@ type GovernanceSkillPageViewState =
   | "no_project"
   | "no_permission";
 
-type GovernanceCatalogMode = "skills" | "roles";
+type GovernanceCatalogMode = "skills" | "roles" | "permissions";
 
 type GovernanceRoleViewModel = {
   role_code: string;
@@ -398,6 +398,14 @@ type GovernanceRoleViewModel = {
   default_skill_slots: readonly string[];
   custom_notes: string | null;
   sort_order: number;
+};
+
+type GovernancePermissionPolicy = {
+  id: "auto" | "request" | "forbidden";
+  title: string;
+  summary: string;
+  reason: string;
+  items: readonly string[];
 };
 
 const governanceSkills: readonly GovernanceSkillViewModel[] = [
@@ -713,6 +721,39 @@ const governanceRoles: readonly GovernanceRoleViewModel[] = [
     default_skill_slots: ["风险审查", "质量检查", "验收建议"],
     custom_notes: "默认关注质量与边界，不替代产品决策或工程实现。",
     sort_order: 40,
+  },
+];
+
+const governancePermissionPolicies: readonly GovernancePermissionPolicy[] = [
+  {
+    id: "auto",
+    title: "自动处理",
+    summary: "低风险操作，可由系统自动完成。",
+    items: ["任务调度", "运行状态读取", "交付物摘要生成", "成本数据读取"],
+    reason: "这些操作主要涉及读取、整理和低风险调度，不直接改变关键资产。",
+  },
+  {
+    id: "request",
+    title: "需要申请权限",
+    summary: "会影响项目计划、阶段或资产配置，执行前需要授权。",
+    items: ["生成作战计划", "调整任务优先级", "角色 / Skill 沉淀建议", "项目阶段推进", "变更确认"],
+    reason: "这些操作会改变项目推进路径或资产配置，需要保留人工授权边界。",
+  },
+  {
+    id: "forbidden",
+    title: "禁止自动处理",
+    summary: "不可逆或高风险操作，系统不得自动执行。",
+    items: [
+      "生成本地提交",
+      "推送远程仓库",
+      "发布生产",
+      "删除项目",
+      "删除交付物",
+      "覆盖 Provider Key",
+      "删除运行证据",
+      "永久删除稳定 Skill / 角色模板",
+    ],
+    reason: "这些操作具有不可逆影响或高风险边界，不能由系统自动完成。",
   },
 ];
 
@@ -1719,6 +1760,9 @@ function GovernanceSkillMockPage() {
   const [catalogMode, setCatalogMode] = useState<GovernanceCatalogMode>("skills");
   const [selectedSkillId, setSelectedSkillId] = useState<string>(governanceSkills[0]?.id ?? "");
   const [selectedRoleCode, setSelectedRoleCode] = useState<string>(governanceRoles[0]?.role_code ?? "");
+  const [selectedPermissionId, setSelectedPermissionId] = useState<GovernancePermissionPolicy["id"]>(
+    governancePermissionPolicies[0]?.id ?? "auto",
+  );
   const [activeTab, setActiveTab] = useState("overview");
   const [opinionText, setOpinionText] = useState("");
   const [skillOpinionMessages, setSkillOpinionMessages] = useState<readonly { author: "user" | "director"; text: string }[]>([
@@ -1731,12 +1775,30 @@ function GovernanceSkillMockPage() {
     { author: "user", text: "这个角色的职责边界是否清楚？" },
     { author: "director", text: "职责边界已经按输入、输出和默认能力拆开，适合作为普通用户查看的角色定义。" },
   ]);
+  const [permissionOpinionMessages, setPermissionOpinionMessages] = useState<readonly { author: "user" | "director"; text: string }[]>([
+    { author: "user", text: "权限边界是否需要按项目阶段调整？" },
+    { author: "director", text: "建议保持三类边界稳定，只在项目阶段变化时补充具体授权项。" },
+  ]);
 
   const viewState = governanceSkillViewState;
   const selectedSkill = governanceSkills.find((s) => s.id === selectedSkillId) ?? governanceSkills[0] ?? null;
   const selectedRole = governanceRoles.find((role) => role.role_code === selectedRoleCode) ?? governanceRoles[0] ?? null;
-  const opinionMessages = catalogMode === "skills" ? skillOpinionMessages : roleOpinionMessages;
-  const selectedName = catalogMode === "skills" ? selectedSkill?.skill_name : selectedRole?.name;
+  const selectedPermission =
+    governancePermissionPolicies.find((policy) => policy.id === selectedPermissionId) ?? governancePermissionPolicies[0] ?? null;
+  const catalogLabel =
+    catalogMode === "skills" ? "Skill 清单" : catalogMode === "roles" ? "角色清单" : "权限清单";
+  const opinionMessages =
+    catalogMode === "skills"
+      ? skillOpinionMessages
+      : catalogMode === "roles"
+        ? roleOpinionMessages
+        : permissionOpinionMessages;
+  const selectedName =
+    catalogMode === "skills"
+      ? selectedSkill?.skill_name
+      : catalogMode === "roles"
+        ? selectedRole?.name
+        : selectedPermission?.title;
 
   function handleSubmitOpinion() {
     if (!selectedName || !opinionText.trim()) return;
@@ -1744,8 +1806,10 @@ function GovernanceSkillMockPage() {
     const directorMsg = { author: "director" as const, text: `已记录对「${selectedName}」的治理意见，后续将作为清单维护参考 · mock` };
     if (catalogMode === "skills") {
       setSkillOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
-    } else {
+    } else if (catalogMode === "roles") {
       setRoleOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
+    } else {
+      setPermissionOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
     }
     setOpinionText("");
   }
@@ -1824,7 +1888,7 @@ function GovernanceSkillMockPage() {
                   type="button"
                   className="flex h-8 shrink-0 items-center gap-1.5 self-start rounded-md px-1 text-base font-semibold text-white outline-none transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:ring-2 focus-visible:ring-white/10"
                 >
-                  {catalogMode === "skills" ? "Skill 清单" : "角色清单"}
+                  {catalogLabel}
                   <ChevronDown className="h-4 w-4 text-[#8A8A8A]" />
                 </button>
               </DropdownMenuTrigger>
@@ -1846,6 +1910,15 @@ function GovernanceSkillMockPage() {
                   className={catalogMode === "roles" ? "bg-[#2C2C2C]" : undefined}
                 >
                   角色清单
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setCatalogMode("permissions");
+                    setOpinionText("");
+                  }}
+                  className={catalogMode === "permissions" ? "bg-[#2C2C2C]" : undefined}
+                >
+                  权限清单
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1877,7 +1950,8 @@ function GovernanceSkillMockPage() {
                       </div>
                     </button>
                   ))
-                : governanceRoles.map((role) => (
+                : catalogMode === "roles"
+                  ? governanceRoles.map((role) => (
                     <button
                       key={role.role_code}
                       type="button"
@@ -1894,6 +1968,24 @@ function GovernanceSkillMockPage() {
                       </div>
                       <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{role.summary}</div>
                       <div className="mt-1 text-xs text-[#5F5F5F]">{role.enabled ? "已启用" : "未启用"}</div>
+                    </button>
+                  ))
+                  : governancePermissionPolicies.map((policy) => (
+                    <button
+                      key={policy.id}
+                      type="button"
+                      onClick={() => setSelectedPermissionId(policy.id)}
+                      className={[
+                        "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
+                        selectedPermissionId === policy.id
+                          ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
+                          : "hover:bg-[#080808]",
+                      ].join(" ")}
+                    >
+                      <div className={selectedPermissionId === policy.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
+                        {policy.title}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{policy.summary}</div>
                     </button>
                   ))}
             </div>
@@ -1969,51 +2061,91 @@ function GovernanceSkillMockPage() {
                   <div className="text-sm text-[#8A8A8A]">请选择一个 Skill</div>
                 </div>
               )
-            ) : selectedRole ? (
+            ) : catalogMode === "roles" ? (
+              selectedRole ? (
+                <section className="flex min-h-0 flex-col overflow-hidden">
+                  <div className="shrink-0">
+                    <div className="text-base font-semibold text-white">{selectedRole.name}</div>
+                    <div className="mt-1 text-xs text-[#8A8A8A]">
+                      {selectedRole.summary} · {selectedRole.enabled ? "已启用" : "未启用"}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <ReadbackRows
+                      compact
+                      rows={[
+                        ["一句话说明", selectedRole.summary],
+                        ["是否启用", selectedRole.enabled ? "已启用" : "未启用"],
+                      ]}
+                    />
+                    {[
+                      { title: "主要职责", items: selectedRole.responsibilities },
+                      { title: "接收的信息", items: selectedRole.input_boundary },
+                      { title: "输出结果", items: selectedRole.output_boundary },
+                      { title: "默认能力", items: selectedRole.default_skill_slots },
+                    ].map((section) => (
+                      <div key={section.title} className="mt-5">
+                        <div className="text-sm font-semibold text-white">{section.title}</div>
+                        <div className="mt-2 border-y border-[#2A2A2A]">
+                          {section.items.map((item) => (
+                            <div key={item} className="border-b border-[#1F1F1F] px-1 py-2 text-sm leading-6 text-[#C7C7C7] last:border-b-0">
+                              {item}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="mt-5">
+                      <div className="text-sm font-semibold text-white">补充说明</div>
+                      <div className="mt-2 border-y border-[#2A2A2A] px-1 py-2 text-sm leading-6 text-[#C7C7C7]">
+                        {selectedRole.custom_notes ?? "暂无补充说明"}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <div className="py-8">
+                  <div className="text-sm text-[#8A8A8A]">请选择一个角色</div>
+                </div>
+              )
+            ) : selectedPermission ? (
               <section className="flex min-h-0 flex-col overflow-hidden">
                 <div className="shrink-0">
-                  <div className="text-base font-semibold text-white">{selectedRole.name}</div>
-                  <div className="mt-1 text-xs text-[#8A8A8A]">
-                    {selectedRole.summary} · {selectedRole.enabled ? "已启用" : "未启用"}
-                  </div>
+                  <div className="text-base font-semibold text-white">{selectedPermission.title}</div>
+                  <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{selectedPermission.summary}</div>
                 </div>
 
                 <div className="mt-4 min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  <ReadbackRows
-                    compact
-                    rows={[
-                      ["一句话说明", selectedRole.summary],
-                      ["是否启用", selectedRole.enabled ? "已启用" : "未启用"],
-                    ]}
-                  />
-                  {[
-                    { title: "主要职责", items: selectedRole.responsibilities },
-                    { title: "接收的信息", items: selectedRole.input_boundary },
-                    { title: "输出结果", items: selectedRole.output_boundary },
-                    { title: "默认能力", items: selectedRole.default_skill_slots },
-                  ].map((section) => (
-                    <div key={section.title} className="mt-5">
-                      <div className="text-sm font-semibold text-white">{section.title}</div>
-                      <div className="mt-2 border-y border-[#2A2A2A]">
-                        {section.items.map((item) => (
-                          <div key={item} className="border-b border-[#1F1F1F] px-1 py-2 text-sm leading-6 text-[#C7C7C7] last:border-b-0">
-                            {item}
-                          </div>
-                        ))}
-                      </div>
+                  <div className="border-y border-[#2A2A2A]">
+                    <div className="border-b border-[#1F1F1F] px-1 py-2 last:border-b-0">
+                      <div className="text-xs font-semibold text-[#8A8A8A]">权限边界</div>
+                      <div className="mt-1 text-sm leading-6 text-[#C7C7C7]">{selectedPermission.summary}</div>
                     </div>
-                  ))}
+                  </div>
+
                   <div className="mt-5">
-                    <div className="text-sm font-semibold text-white">补充说明</div>
+                    <div className="text-sm font-semibold text-white">包含项</div>
+                    <div className="mt-2 border-y border-[#2A2A2A]">
+                      {selectedPermission.items.map((item) => (
+                        <div key={item} className="border-b border-[#1F1F1F] px-1 py-2 text-sm leading-6 text-[#C7C7C7] last:border-b-0">
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <div className="text-sm font-semibold text-white">原因</div>
                     <div className="mt-2 border-y border-[#2A2A2A] px-1 py-2 text-sm leading-6 text-[#C7C7C7]">
-                      {selectedRole.custom_notes ?? "暂无补充说明"}
+                      {selectedPermission.reason}
                     </div>
                   </div>
                 </div>
               </section>
             ) : (
               <div className="py-8">
-                <div className="text-sm text-[#8A8A8A]">请选择一个角色</div>
+                <div className="text-sm text-[#8A8A8A]">请选择一个权限类别</div>
               </div>
             )}
 
