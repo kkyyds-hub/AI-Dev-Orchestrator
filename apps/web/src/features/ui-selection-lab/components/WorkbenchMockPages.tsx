@@ -1178,6 +1178,24 @@ const deliverablesItems: readonly DeliverableViewModel[] = [
   },
 ];
 
+function cleanMockMarkdown(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => !line.includes("当前内容仅为 mock，不连接真实后端。"))
+    .join("\n")
+    .trim();
+}
+
+function formatDeliverableGitStatus(status: DeliverableViewModel["git_write_status"]): string {
+  if (status === "disabled") return "未产生代码变更";
+  return "待确认变更";
+}
+
+function formatDeliverableDataStatus(status: DeliverableViewModel["backend_status"]): string {
+  if (status === "mock") return "示例数据";
+  return "暂不可用";
+}
+
 const projectContextDialogContent = {
   task: {
     title: "任务上下文",
@@ -2676,38 +2694,38 @@ function DeliverablesCenterMockPage({
   function handleDiscussionSubmit() {
     if (discussionDisabled || !selected || !discussionText.trim()) return;
     setDiscussionText("");
-    setDiscussionMessage("已提交给 AI 主管审核，将在工作台创建成果讨论会话 · mock");
+    setDiscussionMessage("已记录到工作台讨论");
     onQueueDiscussionAction?.("add", `成果讨论：${selected.title}`);
   }
 
   const discussionHint =
     deliverablesViewState === "ready"
-      ? "发送后，AI 主管将审核并在工作台创建成果讨论会话 · mock"
+      ? "发送后会加入工作台讨论。"
       : deliverablesViewState === "empty"
-        ? "暂无成果可补充 · mock"
+        ? "暂无成果可补充。"
         : deliverablesViewState === "loading"
-          ? "正在读取成果，暂不可补充 · mock"
+          ? "正在读取成果，暂不可补充。"
           : deliverablesViewState === "error"
-            ? "读取失败，暂不可补充 · mock"
-            : "请选择项目后再补充成果说明 · mock";
+            ? "读取失败，暂不可补充。"
+            : "请选择项目后再补充成果说明。";
 
   const evidenceRows: readonly (readonly [string, string])[] = selected
     ? [
-        ["task_id", selected.source_task_id ?? "—"],
-        ["run_id", selected.source_run_id ?? "—"],
-        ["source_label", selected.source_label],
-        ["evidence_refs", selected.evidence_refs.join(", ")],
-        ["Git", selected.git_write_status === "disabled" ? "写入关闭" : selected.git_write_status],
-        ["后端", selected.backend_status === "mock" ? "未连接" : selected.backend_status],
+        ["来源任务", selected.source_task_id ? "关联任务" : "暂无关联任务"],
+        ["生成记录", selected.source_run_id ? "已记录" : "暂无记录"],
+        ["生成来源", selected.source_label],
+        ["关联材料", selected.evidence_refs.length ? selected.evidence_refs.join("、") : "暂无关联材料"],
+        ["变更状态", formatDeliverableGitStatus(selected.git_write_status)],
+        ["数据状态", formatDeliverableDataStatus(selected.backend_status)],
       ]
     : [];
 
   const versionRows: readonly (readonly [string, string])[] = selected
     ? [
-        ["version_no", String(selected.version_no)],
-        ["total_versions", String(selected.total_versions)],
-        ["latest_version", selected.latest_version ? "是" : "否"],
-        ["change_note", "当前仅展示版本读回，不做 diff 对比"],
+        ["当前版本", `第 ${selected.version_no} 版`],
+        ["版本数量", `${selected.total_versions} 个版本`],
+        ["是否最新", selected.latest_version ? "是" : "否"],
+        ["版本说明", "当前仅展示版本信息，不做内容对比"],
       ]
     : [];
 
@@ -2719,7 +2737,7 @@ function DeliverablesCenterMockPage({
         ["创建者", selected.created_by],
         ["创建时间", selected.created_at],
         ["更新时间", selected.updated_at],
-        ["是否可作为验收证据", selected.can_be_acceptance_evidence ? "是" : "否"],
+        ["可用于验收", selected.can_be_acceptance_evidence ? "是" : "否"],
       ]
     : [];
 
@@ -2741,11 +2759,10 @@ function DeliverablesCenterMockPage({
         <section className="shrink-0 border-b border-[#2A2A2A] pb-5 md:pb-7">
           <h1 className="text-xl font-semibold tracking-normal text-white md:text-2xl">营销活动分析平台</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[#C7C7C7] md:mt-3">
-            沉淀文档、代码变更与可交付证据
+            项目成果、说明文档与验收材料
           </p>
-          <p className="mt-1 text-xs text-[#8A8A8A]">当前为 mock，不接后端，不触发 Git 写入。</p>
           <div className="mt-3 text-xs text-[#5F5F5F] md:mt-4 md:text-sm">
-            已沉淀 {totalCount} 项 · 待审查 {pendingCount} 项 · 已锁定 {lockedCount} 项 · Git 写入关闭
+            已沉淀 {totalCount} 项 · 待审查 {pendingCount} 项 · 已锁定 {lockedCount} 项
           </div>
         </section>
 
@@ -2755,7 +2772,7 @@ function DeliverablesCenterMockPage({
             <div className="ui-lab-deliverables-scroll mt-4 min-h-0 flex-1 overflow-y-auto pr-1 md:mt-5">
               {deliverablesViewState === "loading" ? (
                 <div className="space-y-4 py-4">
-                  <div className="text-sm text-[#8A8A8A]">正在读取当前项目成果 · mock</div>
+                  <div className="text-sm text-[#8A8A8A]">正在读取当前项目成果</div>
                   <Separator />
                   <div className="h-4 w-3/4 rounded bg-[#1A1A1A]" />
                   <div className="h-3 w-1/2 rounded bg-[#1A1A1A]" />
@@ -2765,8 +2782,8 @@ function DeliverablesCenterMockPage({
                 </div>
               ) : deliverablesViewState === "error" ? (
                 <div className="py-8">
-                  <div className="text-sm text-[#8A8A8A]">成果读取失败 · mock</div>
-                  <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请回到工作台确认项目状态。</div>
+                  <div className="text-sm text-[#8A8A8A]">成果读取失败</div>
+                  <div className="mt-2 text-xs text-[#5F5F5F]">请回到工作台确认项目状态。</div>
                 </div>
               ) : deliverablesViewState === "no_project" ? (
                 <div className="py-8">
@@ -2795,7 +2812,7 @@ function DeliverablesCenterMockPage({
                     </div>
                     <div className="mt-2 text-sm leading-5 text-[#C7C7C7]">{item.summary}</div>
                     <div className="mt-2 flex items-center justify-between">
-                      <span className="text-xs text-[#5F5F5F]">由 {item.created_by} 沉淀 · 来源 {item.source_run_id} · {item.created_at}</span>
+                      <span className="text-xs text-[#5F5F5F]">{item.created_by} · {item.created_at}</span>
                       <span className="text-xs text-[#5F5F5F]">查看详情</span>
                     </div>
                   </button>
@@ -2818,7 +2835,7 @@ function DeliverablesCenterMockPage({
                       handleDiscussionSubmit();
                     }
                   }}
-                  placeholder="补充对这个成果的修改意见或证据说明..."
+                  placeholder="补充修改意见或关联材料说明..."
                   className="h-8 min-h-0 flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#5F5F5F]"
                 />
                 <Button
@@ -2857,27 +2874,27 @@ function DeliverablesCenterMockPage({
                   </TabsList>
                   <TabsContent value="content">
                     <div className="mt-4 text-sm leading-6 text-[#C7C7C7] whitespace-pre-line">
-                      {selected.content_markdown}
+                      {cleanMockMarkdown(selected.content_markdown)}
                     </div>
                   </TabsContent>
                   <TabsContent value="evidence">
-                    <ReadbackRows rows={evidenceRows} footer="仅展示证据读回，不触发 Git 写入 · mock" />
+                    <ReadbackRows rows={evidenceRows} footer="仅展示成果来源与关联材料，不触发任何写入操作。" />
                   </TabsContent>
                   <TabsContent value="versions">
-                    <ReadbackRows rows={versionRows} footer="仅展示版本读回，不触发写入操作 · mock" />
+                    <ReadbackRows rows={versionRows} footer="仅展示版本信息，不执行修改操作。" />
                   </TabsContent>
                   <TabsContent value="summary">
-                    <ReadbackRows rows={summaryRows} footer="仅展示摘要读回，不接真实后端 · mock" />
+                    <ReadbackRows rows={summaryRows} footer="仅展示成果摘要。" />
                   </TabsContent>
                 </Tabs>
               </>
             ) : (
               <div className="py-8">
                 <div className="text-sm text-[#8A8A8A]">
-                  {deliverablesViewState === "loading" ? "正在准备成果读回 · mock" : deliverablesViewState === "error" ? "无法展示成果详情" : deliverablesViewState === "no_project" ? "等待项目上下文" : "请选择一个成果"}
+                  {deliverablesViewState === "loading" ? "正在准备成果详情" : deliverablesViewState === "error" ? "无法展示成果详情" : deliverablesViewState === "no_project" ? "等待项目上下文" : "请选择一个成果"}
                 </div>
                 <div className="mt-2 text-xs text-[#5F5F5F]">
-                  {deliverablesViewState === "error" ? "当前为模拟错误状态 · mock" : deliverablesViewState === "no_project" ? "当前没有可读回成果 · mock" : "暂无可读回内容 · mock"}
+                  {deliverablesViewState === "error" ? "请稍后重新查看。" : deliverablesViewState === "no_project" ? "当前没有可展示成果。" : "暂无可展示内容。"}
                 </div>
               </div>
             )}
