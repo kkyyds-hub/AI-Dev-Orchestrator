@@ -1233,28 +1233,6 @@ function formatDeliverableDataStatus(status: DeliverableViewModel["backend_statu
   return "暂不可用";
 }
 
-type RepositoryCatalogMode = "files" | "drafts" | "deliverables" | "boundary";
-
-type RepositoryFileItem = {
-  id: string;
-  name: string;
-  path: string;
-  kind: "folder" | "file";
-  summary: string;
-  status: "stable" | "changed" | "new";
-  related: string[];
-};
-
-type RepositoryDraftItem = {
-  id: string;
-  title: string;
-  summary: string;
-  status_label: string;
-  affected_files: string[];
-  source_label: string;
-  needs_approval: boolean;
-};
-
 type RepositoryLinkedDeliverable = {
   id: string;
   title: string;
@@ -1273,100 +1251,6 @@ type RepositoryBoundaryItem = {
 };
 
 type RepositoryPageViewState = "ready" | "loading" | "empty" | "error" | "no_project" | "no_permission";
-
-const repositoryCatalogLabels: Record<RepositoryCatalogMode, string> = {
-  files: "文件结构",
-  drafts: "变更草稿",
-  deliverables: "关联成果",
-  boundary: "写入边界",
-};
-
-const repositoryFiles: readonly RepositoryFileItem[] = [
-  {
-    id: "repo_file_lab_dir",
-    name: "ui-selection-lab",
-    path: "apps/web/src/features/ui-selection-lab",
-    kind: "folder",
-    summary: "隐藏实验页的页面入口、交互数据和示例组件所在目录。",
-    status: "changed",
-    related: ["三省六部 UI 实验页"],
-  },
-  {
-    id: "repo_file_lab_page",
-    name: "SanshengLiubuUiLabPage.tsx",
-    path: "apps/web/src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx",
-    kind: "file",
-    summary: "承载实验页外壳、主导航、顶部上下文和左侧高级详情。",
-    status: "changed",
-    related: ["主导航", "顶部上下文"],
-  },
-  {
-    id: "repo_file_mock_pages",
-    name: "WorkbenchMockPages.tsx",
-    path: "apps/web/src/features/ui-selection-lab/components/WorkbenchMockPages.tsx",
-    kind: "file",
-    summary: "承载项目管理、执行中心、成果中心、仓库和治理页的页面组件。",
-    status: "changed",
-    related: ["执行中心", "成果中心", "治理页"],
-  },
-  {
-    id: "repo_file_prompt",
-    name: "WorkbenchPromptBox.tsx",
-    path: "apps/web/src/features/ui-selection-lab/components/WorkbenchPromptBox.tsx",
-    kind: "file",
-    summary: "工作台底部输入区组件，供首页和对话视图使用。",
-    status: "stable",
-    related: ["工作台对话"],
-  },
-  {
-    id: "repo_file_interactions",
-    name: "mockInteractions.ts",
-    path: "apps/web/src/features/ui-selection-lab/mockInteractions.ts",
-    kind: "file",
-    summary: "实验页导航、会话、弹窗和示例交互数据。",
-    status: "changed",
-    related: ["主页面导航", "示例会话"],
-  },
-  {
-    id: "repo_file_product_docs",
-    name: "ai-project-director",
-    path: "docs/product/ai-project-director",
-    kind: "folder",
-    summary: "产品说明与项目主管相关材料目录。",
-    status: "new",
-    related: ["产品材料"],
-  },
-];
-
-const repositoryDrafts: readonly RepositoryDraftItem[] = [
-  {
-    id: "repo_draft_closure",
-    title: "三省六部 UI 实验页整体收口",
-    summary: "左侧高级详情降级，执行中心和成果中心默认视图去技术化。",
-    status_label: "待确认",
-    affected_files: ["SanshengLiubuUiLabPage.tsx", "WorkbenchMockPages.tsx"],
-    source_label: "实验页收口记录",
-    needs_approval: true,
-  },
-  {
-    id: "repo_draft_governance_scope",
-    title: "治理页清单范围切换",
-    summary: "Skill 和角色支持当前项目 / 全部范围查看，权限清单保持稳定边界。",
-    status_label: "已完成",
-    affected_files: ["WorkbenchMockPages.tsx"],
-    source_label: "治理页调整记录",
-    needs_approval: false,
-  },
-  {
-    id: "repo_draft_deliverables_copy",
-    title: "成果中心文案收口",
-    summary: "成果来源、版本和摘要字段已转为普通用户表达。",
-    status_label: "已完成",
-    affected_files: ["WorkbenchMockPages.tsx"],
-    source_label: "成果中心调整记录",
-    needs_approval: false,
-  },
-];
 
 const repositoryLinkedDeliverables: readonly RepositoryLinkedDeliverable[] = [
   {
@@ -1418,12 +1302,6 @@ const repositoryBoundaryItems: readonly RepositoryBoundaryItem[] = [
     reason: "这些动作具有不可逆影响或涉及关键资产，不能自动完成。",
   },
 ];
-
-function formatRepositoryFileStatus(status: RepositoryFileItem["status"]): string {
-  if (status === "changed") return "有变更";
-  if (status === "new") return "新增";
-  return "稳定";
-}
 
 const projectContextDialogContent = {
   task: {
@@ -3115,213 +2993,84 @@ function DeliverablesCenterMockPage({
 }
 
 function RepositorySpaceMockPage() {
-  const [catalogMode, setCatalogMode] = useState<RepositoryCatalogMode>("files");
-  const [selectedFileId, setSelectedFileId] = useState(repositoryFiles[0]?.id ?? "");
-  const [selectedDraftId, setSelectedDraftId] = useState(repositoryDrafts[0]?.id ?? "");
-  const [selectedDeliverableId, setSelectedDeliverableId] = useState(repositoryLinkedDeliverables[0]?.id ?? "");
-  const [selectedBoundaryId, setSelectedBoundaryId] = useState(repositoryBoundaryItems[0]?.id ?? "");
   const [noteText, setNoteText] = useState("");
   const [noteMessage, setNoteMessage] = useState("");
+  const [workspaceMessage, setWorkspaceMessage] = useState("");
   const viewState = "ready" as RepositoryPageViewState;
 
-  const selectedFile = repositoryFiles.find((item) => item.id === selectedFileId) ?? repositoryFiles[0] ?? null;
-  const selectedDraft = repositoryDrafts.find((item) => item.id === selectedDraftId) ?? repositoryDrafts[0] ?? null;
-  const selectedDeliverable =
-    repositoryLinkedDeliverables.find((item) => item.id === selectedDeliverableId) ??
-    repositoryLinkedDeliverables[0] ??
-    null;
-  const selectedBoundary =
-    repositoryBoundaryItems.find((item) => item.id === selectedBoundaryId) ?? repositoryBoundaryItems[0] ?? null;
-  const selectedModeLabel = repositoryCatalogLabels[catalogMode];
   const noteDisabled = viewState !== "ready";
-
-  function handleModeChange(nextMode: RepositoryCatalogMode) {
-    setCatalogMode(nextMode);
-    setNoteMessage("");
-  }
+  const workspacePath = "/Users/kk/owner project/AI-Dev-Orchestrator";
+  const defaultWorkspaceRoot = "/Users/kk/AI-Workspaces";
+  const detailItems = [
+    {
+      title: "仓库信息",
+      description: "当前项目绑定的本地仓库。",
+      rows: [
+        ["仓库名称", "AI-Dev-Orchestrator"],
+        ["本地路径", workspacePath],
+        ["默认分支", "main"],
+        ["查看方式", "只读查看"],
+        ["忽略目录", ".git、node_modules、dist、build"],
+      ] as const,
+    },
+    {
+      title: "工作区设置",
+      description: "Agent 可以使用的本地位置范围。",
+      rows: [
+        ["默认工作区", defaultWorkspaceRoot],
+        ["允许位置", "/Users/kk/AI-Workspaces、/Users/kk/owner project"],
+        ["当前路径状态", "位于允许位置内"],
+        ["设置来源", "项目设置"],
+      ] as const,
+    },
+    {
+      title: "最近快照",
+      description: "供 Agent 分析项目结构和定位文件。",
+      rows: [
+        ["快照状态", "已刷新"],
+        ["最近刷新", "今天 14:32"],
+        ["主要目录", "apps/web、runtime、docs"],
+        ["用途", "供 Agent 分析项目结构和定位文件"],
+      ] as const,
+      actionLabel: "刷新仓库信息",
+      actionMessage: "已记录刷新仓库信息",
+    },
+    {
+      title: "变更准备",
+      description: "仓库已可分析，等待生成变更计划。",
+      rows: [
+        ["当前状态", "等待生成变更计划"],
+        ["已有关联成果", `${repositoryLinkedDeliverables.length} 项`],
+        ["变更准备", "0 项待执行"],
+        ["下一步", "让 AI 主管根据项目目标生成变更计划"],
+      ] as const,
+      actionLabel: "生成变更计划",
+      actionMessage: "已记录生成变更计划请求",
+    },
+    {
+      title: "写入边界",
+      description: "改变本地仓库或远程仓库前需要人工确认。",
+      rows: [
+        ["默认方式", "只读查看"],
+        ["需要确认", "修改文件、生成变更草稿、关联成果"],
+        ["禁止自动处理", "自动提交、自动推送、自动合并、自动发布"],
+        ["原因", repositoryBoundaryItems.find((item) => item.id === "repo_boundary_forbidden")?.reason ?? "这些操作会改变本地仓库或远程仓库，需要人工确认"],
+      ] as const,
+    },
+  ];
 
   function handleSubmitNote() {
     if (noteDisabled || !noteText.trim()) return;
     setNoteText("");
     setNoteMessage("已记录到工作台讨论");
-  }
-
-  function renderRepositoryList() {
-    if (catalogMode === "files") {
-      return repositoryFiles.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => setSelectedFileId(item.id)}
-          className={[
-            "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
-            selectedFileId === item.id
-              ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
-              : "hover:bg-[#080808]",
-          ].join(" ")}
-        >
-          <div className={selectedFileId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
-            {item.name}
-          </div>
-          <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{item.summary}</div>
-          <div className="mt-1 text-xs text-[#5F5F5F]">{formatRepositoryFileStatus(item.status)}</div>
-        </button>
-      ));
-    }
-
-    if (catalogMode === "drafts") {
-      return repositoryDrafts.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => setSelectedDraftId(item.id)}
-          className={[
-            "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
-            selectedDraftId === item.id
-              ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
-              : "hover:bg-[#080808]",
-          ].join(" ")}
-        >
-          <div className={selectedDraftId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
-            {item.title}
-          </div>
-          <div className="mt-1 text-xs text-[#8A8A8A]">{item.status_label}</div>
-          <div className="mt-1 text-xs leading-5 text-[#5F5F5F]">{item.summary}</div>
-        </button>
-      ));
-    }
-
-    if (catalogMode === "deliverables") {
-      return repositoryLinkedDeliverables.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => setSelectedDeliverableId(item.id)}
-          className={[
-            "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
-            selectedDeliverableId === item.id
-              ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
-              : "hover:bg-[#080808]",
-          ].join(" ")}
-        >
-          <div className={selectedDeliverableId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
-            {item.title}
-          </div>
-          <div className="mt-1 text-xs text-[#8A8A8A]">{item.type_label}</div>
-          <div className="mt-1 text-xs leading-5 text-[#5F5F5F]">{item.summary}</div>
-        </button>
-      ));
-    }
-
-    return repositoryBoundaryItems.map((item) => (
-      <button
-        key={item.id}
-        type="button"
-        onClick={() => setSelectedBoundaryId(item.id)}
-        className={[
-          "relative w-full border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 active:scale-[0.995]",
-          selectedBoundaryId === item.id
-            ? "before:absolute before:left-0 before:top-3 before:h-[calc(100%-24px)] before:w-px before:bg-[#8A8A8A] before:content-[''] bg-[#0A0A0A]"
-            : "hover:bg-[#080808]",
-        ].join(" ")}
-      >
-        <div className={selectedBoundaryId === item.id ? "text-sm font-medium text-white" : "text-sm font-medium text-[#C7C7C7]"}>
-          {item.title}
-        </div>
-        <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{item.summary}</div>
-      </button>
-    ));
-  }
-
-  function renderRepositoryDetail() {
-    if (catalogMode === "files" && selectedFile) {
-      return (
-        <>
-          <h2 className="text-base font-semibold text-white">{selectedFile.name}</h2>
-          <ReadbackRows
-            rows={[
-              ["路径", selectedFile.path],
-              ["类型", selectedFile.kind === "folder" ? "目录" : "文件"],
-              ["状态", formatRepositoryFileStatus(selectedFile.status)],
-              ["说明", selectedFile.summary],
-              ["关联内容", selectedFile.related.join("、")],
-            ]}
-            footer="仅展示当前项目代码空间信息，不执行写入操作。"
-          />
-        </>
-      );
-    }
-
-    if (catalogMode === "drafts" && selectedDraft) {
-      return (
-        <>
-          <h2 className="text-base font-semibold text-white">{selectedDraft.title}</h2>
-          <ReadbackRows
-            rows={[
-              ["状态", selectedDraft.status_label],
-              ["摘要", selectedDraft.summary],
-              ["影响文件", selectedDraft.affected_files.join("、")],
-              ["生成来源", selectedDraft.source_label],
-              ["需要确认", selectedDraft.needs_approval ? "是" : "否"],
-            ]}
-            footer="仅展示变更草稿与影响范围，不执行写入操作。"
-          />
-        </>
-      );
-    }
-
-    if (catalogMode === "deliverables" && selectedDeliverable) {
-      return (
-        <>
-          <h2 className="text-base font-semibold text-white">{selectedDeliverable.title}</h2>
-          <ReadbackRows
-            rows={[
-              ["类型", selectedDeliverable.type_label],
-              ["摘要", selectedDeliverable.summary],
-              ["关联文件", selectedDeliverable.linked_files.join("、")],
-              ["可用于验收", selectedDeliverable.can_be_acceptance_evidence ? "是" : "否"],
-            ]}
-            footer="仅展示成果与代码空间的关联关系。"
-          />
-        </>
-      );
-    }
-
-    if (catalogMode === "boundary" && selectedBoundary) {
-      return (
-        <>
-          <h2 className="text-base font-semibold text-white">{selectedBoundary.title}</h2>
-          <div className="mt-3 text-sm leading-6 text-[#C7C7C7]">{selectedBoundary.summary}</div>
-          <div className="mt-5 border-t border-[#2A2A2A]">
-            <div className="border-b border-[#2A2A2A] py-3">
-              <div className="text-xs text-[#5F5F5F]">包含项</div>
-              <div className="mt-2 space-y-1">
-                {selectedBoundary.items.map((item) => (
-                  <div key={item} className="text-sm text-[#C7C7C7]">{item}</div>
-                ))}
-              </div>
-            </div>
-            <div className="border-b border-[#2A2A2A] py-3">
-              <div className="text-xs text-[#5F5F5F]">原因</div>
-              <div className="mt-1 text-sm leading-6 text-[#C7C7C7]">{selectedBoundary.reason}</div>
-            </div>
-          </div>
-        </>
-      );
-    }
-
-    return (
-      <div className="py-8">
-        <div className="text-sm text-[#8A8A8A]">请选择一项内容</div>
-      </div>
-    );
+    setWorkspaceMessage("");
   }
 
   if (viewState === "loading") {
     return (
       <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto w-full max-w-[1080px]">
-          <div className="text-sm text-[#8A8A8A]">正在读取代码空间</div>
+          <div className="text-sm text-[#8A8A8A]">正在读取工作区</div>
           <Separator className="mt-4" />
           <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
           <div className="mt-3 h-3 w-1/2 rounded bg-[#1A1A1A]" />
@@ -3335,7 +3084,7 @@ function RepositorySpaceMockPage() {
       <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto w-full max-w-[1080px]">
           <div className="text-sm text-[#8A8A8A]">暂无仓库关联</div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">当前项目还没有可展示的代码空间。</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前项目还没有可展示的工作区。</div>
         </div>
       </div>
     );
@@ -3357,7 +3106,7 @@ function RepositorySpaceMockPage() {
       <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto w-full max-w-[1080px]">
           <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的代码空间。</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的工作区。</div>
         </div>
       </div>
     );
@@ -3379,77 +3128,207 @@ function RepositorySpaceMockPage() {
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
         <CompactPageHeader
           eyebrow="营销活动分析平台"
-          title="代码空间"
-          meta="已关联仓库 · 只读查看 · 最近更新 今天 14:32"
-          description="查看目录、变更草稿、关联成果和写入边界。"
+          title="工作区"
+          meta="已就绪 · 只读查看"
+          description="当前项目的 Agent 工作位置和准备状态。"
         />
 
-        <section className="grid min-h-0 flex-1 gap-7 border-b border-[#2A2A2A] py-5 lg:grid-cols-[1fr_1.15fr] lg:gap-8 lg:py-7">
-          <div className="flex min-h-0 flex-col">
-            <div className="flex h-8 shrink-0 items-center justify-between gap-4">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-8 items-center gap-1.5 rounded-md px-1 text-base font-semibold text-white outline-none transition-colors hover:bg-[#111111] focus-visible:bg-[#111111] focus-visible:ring-2 focus-visible:ring-white/10"
-                  >
-                    {selectedModeLabel}
-                    <ChevronDown className="h-4 w-4 text-[#8A8A8A]" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-36 rounded-lg">
-                  {(["files", "drafts", "deliverables", "boundary"] as const).map((mode) => (
-                    <DropdownMenuItem
-                      key={mode}
-                      onSelect={() => handleModeChange(mode)}
-                      className={catalogMode === mode ? "bg-[#2C2C2C]" : undefined}
-                    >
-                      {repositoryCatalogLabels[mode]}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <span className="text-xs text-[#5F5F5F]">只读</span>
-            </div>
-
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-              {renderRepositoryList()}
-            </div>
-
-            <div className="mt-3 shrink-0 border-t border-[#2A2A2A] pt-3 md:mt-4 md:pt-4">
-              <div className="flex h-10 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-3 md:h-12">
-                <Textarea
-                  value={noteText}
-                  disabled={noteDisabled}
-                  onChange={(e) => {
-                    setNoteText(e.target.value);
-                    if (noteMessage) setNoteMessage("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSubmitNote();
-                    }
-                  }}
-                  placeholder="补充仓库说明或变更疑问..."
-                  className="h-8 min-h-0 flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#5F5F5F]"
-                />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={noteDisabled || !noteText.trim()}
-                  onClick={handleSubmitNote}
-                  className="h-8 shrink-0 rounded-full px-3"
-                >
-                  发送
-                </Button>
+        <section className="min-h-0 flex-1 overflow-y-auto border-b border-[#2A2A2A] py-5 [scrollbar-width:none] [-ms-overflow-style:none] md:py-6 [&::-webkit-scrollbar]:hidden">
+          <div className="grid gap-6 border-b border-[#2A2A2A] pb-6 lg:grid-cols-[1fr_340px] lg:gap-8">
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-3">
+                <h2 className="min-w-0 flex-1 truncate text-lg font-semibold text-white">AI-Dev-Orchestrator</h2>
+                <span className="shrink-0 text-sm text-[#C7C7C7]">已就绪</span>
               </div>
-              {noteMessage ? <div className="mt-2 text-xs text-[#8A8A8A]">{noteMessage}</div> : null}
+              <div className="break-all text-sm leading-6 text-[#C7C7C7]">{workspacePath}</div>
+              <div className="mt-3 text-sm text-[#8A8A8A]">本地 Git 仓库 · main · 只读查看</div>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#C7C7C7]">
+                Agent 可以基于这个仓库分析项目、生成计划和准备变更。
+              </p>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Button
+                  onClick={() => {
+                    setWorkspaceMessage("已记录开始分析仓库");
+                    setNoteMessage("");
+                  }}
+                >
+                  开始分析仓库
+                </Button>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="secondary">更换仓库</Button>
+                  </DialogTrigger>
+                  <DialogContent className="w-[min(92vw,620px)]">
+                    <DialogHeader>
+                      <DialogTitle>连接工作区</DialogTitle>
+                      <DialogDescription>
+                        没有仓库时，可以选择已有仓库，或让 AI 主管创建新仓库作为当前项目工作区。
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="mt-5 grid gap-5 border-y border-[#2A2A2A] py-5 sm:grid-cols-2">
+                      <div>
+                        <h3 className="text-sm font-semibold text-white">选择已有仓库</h3>
+                        <div className="mt-4 space-y-3 text-sm">
+                          <div>
+                            <div className="text-xs text-[#8A8A8A]">路径</div>
+                            <div className="mt-1 break-all leading-6 text-[#C7C7C7]">{workspacePath}</div>
+                          </div>
+                          <div className="space-y-1 text-xs leading-5 text-[#8A8A8A]">
+                            <div>必须是本地 Git 仓库</div>
+                            <div>必须位于允许的工作区目录内</div>
+                            <div>不会自动提交或推送</div>
+                          </div>
+                        </div>
+                        <DialogClose asChild>
+                          <Button
+                            className="mt-5"
+                            variant="secondary"
+                            onClick={() => {
+                              setWorkspaceMessage("已记录连接工作区操作");
+                              setNoteMessage("");
+                            }}
+                          >
+                            绑定已有仓库
+                          </Button>
+                        </DialogClose>
+                      </div>
+
+                      <div className="border-t border-[#2A2A2A] pt-5 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
+                        <h3 className="text-sm font-semibold text-white">让 AI 主管创建新仓库</h3>
+                        <div className="mt-4 space-y-3 text-sm">
+                          <div>
+                            <div className="text-xs text-[#8A8A8A]">默认位置</div>
+                            <div className="mt-1 break-all leading-6 text-[#C7C7C7]">{defaultWorkspaceRoot}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-[#8A8A8A]">仓库名称</div>
+                            <div className="mt-1 text-[#C7C7C7]">marketing-analytics</div>
+                          </div>
+                          <p className="text-xs leading-5 text-[#8A8A8A]">
+                            创建后会绑定到当前项目，作为 Agent 工作区。
+                          </p>
+                        </div>
+                        <DialogClose asChild>
+                          <Button
+                            className="mt-5"
+                            variant="secondary"
+                            onClick={() => {
+                              setWorkspaceMessage("已记录创建工作区操作");
+                              setNoteMessage("");
+                            }}
+                          >
+                            创建新仓库
+                          </Button>
+                        </DialogClose>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 flex justify-end">
+                      <DialogClose asChild>
+                        <Button variant="secondary">关闭</Button>
+                      </DialogClose>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+              {workspaceMessage ? <div className="mt-3 text-xs text-[#8A8A8A]">{workspaceMessage}</div> : null}
+            </div>
+
+            <div className="border-t border-[#2A2A2A] pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+              <h2 className="text-sm font-semibold text-white">准备情况</h2>
+              <div className="mt-4 space-y-2 text-sm leading-6">
+                {[
+                  "✓ 已绑定本地仓库",
+                  "✓ 位于允许的工作区目录",
+                  "✓ 已识别为 Git 仓库",
+                  "✓ 仓库快照已刷新",
+                  "○ 等待生成变更计划",
+                ].map((item) => (
+                  <div key={item} className="text-[#C7C7C7]">{item}</div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="min-h-0 overflow-y-auto border-t border-[#2A2A2A] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-            {renderRepositoryDetail()}
+          <div className="py-6">
+            <h2 className="text-base font-semibold text-white">详情</h2>
+            <div className="mt-3 border-y border-[#2A2A2A]">
+              {detailItems.map((item) => (
+                <Dialog key={item.title}>
+                  <DialogTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-4 border-b border-[#1F1F1F] px-1 py-3 text-left transition-colors last:border-b-0 hover:bg-[#080808] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-[#C7C7C7]">{item.title}</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-[#8A8A8A]">{item.description}</span>
+                      </span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-[#8A8A8A]" />
+                    </button>
+                  </DialogTrigger>
+                  <DialogContent className="w-[min(92vw,560px)]">
+                    <DialogHeader>
+                      <DialogTitle>{item.title}</DialogTitle>
+                      <DialogDescription>{item.description}</DialogDescription>
+                    </DialogHeader>
+                    <div className="mt-5">
+                      <ReadbackRows rows={item.rows} />
+                    </div>
+                    <div className="mt-5 flex justify-end gap-3">
+                      {item.actionLabel && item.actionMessage ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            setWorkspaceMessage(item.actionMessage);
+                            setNoteMessage("");
+                          }}
+                        >
+                          {item.actionLabel}
+                        </Button>
+                      ) : null}
+                      <DialogClose asChild>
+                        <Button variant="secondary">关闭</Button>
+                      </DialogClose>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              ))}
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t border-[#2A2A2A] pt-4">
+            <div className="flex h-10 items-center gap-2 rounded-[18px] border border-[#2A2A2A] bg-[#171717] px-3 md:h-12">
+              <Textarea
+                value={noteText}
+                disabled={noteDisabled}
+                onChange={(e) => {
+                  setNoteText(e.target.value);
+                  if (noteMessage) setNoteMessage("");
+                  if (workspaceMessage) setWorkspaceMessage("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmitNote();
+                  }
+                }}
+                placeholder="补充工作区说明或仓库问题..."
+                className="h-8 min-h-0 flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-6 text-white outline-none placeholder:text-[#5F5F5F]"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={noteDisabled || !noteText.trim()}
+                onClick={handleSubmitNote}
+                className="h-8 shrink-0 rounded-full px-3"
+              >
+                发送
+              </Button>
+            </div>
+            {noteMessage ? <div className="mt-2 text-xs text-[#8A8A8A]">{noteMessage}</div> : null}
           </div>
         </section>
       </div>

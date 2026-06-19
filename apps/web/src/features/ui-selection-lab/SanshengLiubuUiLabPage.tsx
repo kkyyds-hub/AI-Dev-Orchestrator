@@ -464,7 +464,7 @@ function WorkbenchPreview() {
         : label === "执行中心"
           ? "当前项目执行流 · mock"
           : label === "仓库"
-            ? "当前项目代码空间"
+            ? "当前项目工作区"
           : label === "治理"
             ? "Skill 治理 · 当前项目：营销活动分析平台 · mock"
             : "工作台页面 · mock",
