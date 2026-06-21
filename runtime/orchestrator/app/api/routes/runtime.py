@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -34,6 +34,14 @@ from app.external_executors.actual_readback import (
     RealExecutorLaunchReadbackBuilder,
     RealExecutorLaunchReadbackRequest,
     RealExecutorLaunchReadbackResponse,
+)
+from app.external_executors.actual_contract import (
+    RealExecutorLaunchContext,
+    RealExecutorSafetyBoundary,
+)
+from app.external_executors.actual_process_adapter import (
+    RealExecutorProcessAdapter,
+    SUPPORTED_PROCESS_EXECUTOR_LABELS,
 )
 from app.services.controlled_runtime_service import ControlledRuntimeService
 
@@ -387,6 +395,34 @@ class CancelRuntimeInput(BaseModel):
         return value
 
 
+class RealExecutorProcessAdapterReadbackResponse(BaseModel):
+    adapter_kind: Literal["process_skeleton"] = "process_skeleton"
+    supported_executor_labels: list[str]
+    default_launch_status: str
+    default_blocking_reasons: list[str]
+    all_gates_pass_behavior: Literal["noop_launch_pending"] = "noop_launch_pending"
+    product_runtime_git_write_allowed: bool = False
+    native_process_started: bool = False
+    secret_exposure_blocked: bool = True
+    environment_dump_blocked: bool = True
+    api_mode: Literal["read_only"] = "read_only"
+    created_at: datetime
+
+    @field_validator("product_runtime_git_write_allowed", "native_process_started")
+    @classmethod
+    def enforce_false_safety_flags(cls, value: bool) -> bool:
+        if value is not False:
+            raise ValueError("guarded process adapter readback must remain non-executing")
+        return value
+
+    @field_validator("secret_exposure_blocked", "environment_dump_blocked")
+    @classmethod
+    def enforce_true_safety_flags(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("guarded process adapter readback must keep safety blocks enabled")
+        return value
+
+
 class InMemoryLaunchRequestRegistry:
     def __init__(self) -> None:
         self._requests: dict[str, ExecutorLaunchRequest] = {}
@@ -459,6 +495,49 @@ def build_real_executor_launch_readback(
     ],
 ) -> RealExecutorLaunchReadbackResponse:
     return builder.build(request_input)
+
+
+@router.get(
+    "/real-executor/process-adapter-readback",
+    response_model=RealExecutorProcessAdapterReadbackResponse,
+    summary="Read back guarded real executor process adapter skeleton",
+)
+def build_real_executor_process_adapter_readback() -> RealExecutorProcessAdapterReadbackResponse:
+    adapter = RealExecutorProcessAdapter()
+    default_context = RealExecutorLaunchContext(
+        request_id="process-adapter-readback-default",
+        executor_label="codex",
+        command_summary="guarded process skeleton readback",
+        workspace_hint="registered worktree",
+        safety_boundary=RealExecutorSafetyBoundary(),
+    )
+    default_result = adapter.launch(default_context)
+
+    passing_result = adapter.launch(
+        RealExecutorLaunchContext(
+            request_id="process-adapter-readback-noop",
+            executor_label="codex",
+            command_summary="guarded process skeleton readback",
+            workspace_hint="registered worktree",
+            safety_boundary=_all_real_executor_gates_passed_boundary(),
+        ),
+    )
+
+    return RealExecutorProcessAdapterReadbackResponse(
+        supported_executor_labels=list(SUPPORTED_PROCESS_EXECUTOR_LABELS),
+        default_launch_status=default_result.status.value,
+        default_blocking_reasons=list(default_result.blocking_reasons),
+        all_gates_pass_behavior="noop_launch_pending",
+        product_runtime_git_write_allowed=(
+            default_result.product_runtime_git_write_allowed
+            or passing_result.product_runtime_git_write_allowed
+        ),
+        native_process_started=False,
+        secret_exposure_blocked=default_context.safety_boundary.credential_exposure_blocked,
+        environment_dump_blocked=default_context.safety_boundary.environment_dump_blocked,
+        api_mode="read_only",
+        created_at=_utc_now(),
+    )
 
 
 @router.get(
@@ -650,6 +729,23 @@ def cancel_runtime_session(
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid4()}"
+
+
+def _all_real_executor_gates_passed_boundary() -> RealExecutorSafetyBoundary:
+    return RealExecutorSafetyBoundary(
+        feature_flag_enabled=True,
+        human_confirmation_present=True,
+        executor_readiness_available=True,
+        workspace_worktree_gate_passed=True,
+        budget_cost_gate_passed=True,
+        concurrency_gate_passed=True,
+        timeout_supported=True,
+        cancel_supported=True,
+        kill_supported=True,
+        audit_events_append_only=True,
+        credential_exposure_blocked=True,
+        environment_dump_blocked=True,
+    )
 
 
 def _utc_now() -> datetime:

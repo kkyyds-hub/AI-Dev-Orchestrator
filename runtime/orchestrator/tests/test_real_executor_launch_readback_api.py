@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.api.routes.runtime import (
     build_real_executor_launch_readback,
+    build_real_executor_process_adapter_readback,
     get_real_executor_launch_readback_builder,
     router,
 )
@@ -139,6 +140,58 @@ def test_real_executor_launch_readback_endpoint_exists() -> None:
     assert "approve" not in route.path
     assert "confirm" not in route.path
     assert "consume" not in route.path
+
+
+def test_guarded_process_adapter_readback_endpoint_exists() -> None:
+    matches = [
+        route
+        for route in router.routes
+        if getattr(route, "path", None)
+        == "/runtime/real-executor/process-adapter-readback"
+    ]
+
+    assert len(matches) == 1
+    route = matches[0]
+    assert "GET" in getattr(route, "methods", set())
+    endpoint_name = route.path.rsplit("/", 1)[-1]
+    for forbidden in {"execute", "run", "start-native", "commit", "push", "merge"}:
+        assert forbidden not in endpoint_name
+
+
+def test_guarded_process_adapter_readback_defaults_to_blocked() -> None:
+    response = build_real_executor_process_adapter_readback()
+    data = response.model_dump(mode="json")
+
+    assert data["adapter_kind"] == "process_skeleton"
+    assert set(data["supported_executor_labels"]) >= {"codex", "claude code", "claude-code"}
+    assert data["default_launch_status"] == "blocked"
+    assert "feature_flag_disabled" in data["default_blocking_reasons"]
+    assert data["all_gates_pass_behavior"] == "noop_launch_pending"
+    assert data["product_runtime_git_write_allowed"] is False
+    assert data["native_process_started"] is False
+    assert data["secret_exposure_blocked"] is True
+    assert data["environment_dump_blocked"] is True
+
+
+def test_guarded_process_adapter_readback_response_does_not_expose_sensitive_text() -> None:
+    response = build_real_executor_process_adapter_readback()
+    values = [
+        str(value).lower()
+        for value in response.model_dump(mode="json").values()
+        if not isinstance(value, bool)
+    ]
+    body_values = " ".join(values)
+
+    for forbidden in {"api_key", "token", "secret", "bearer", "sk-", "password"}:
+        assert forbidden not in body_values
+
+
+def test_guarded_process_adapter_readback_does_not_imply_write_or_execute_controls() -> None:
+    response = build_real_executor_process_adapter_readback()
+    body = response.model_dump_json().lower()
+
+    for forbidden in {"execute", "commit", "push", "merge", "started native"}:
+        assert forbidden not in body
 
 
 def test_readback_file_lives_under_external_executors() -> None:
@@ -283,6 +336,7 @@ def test_runtime_route_readback_endpoint_stays_thin_and_read_only() -> None:
     source = _source(RUNTIME_ROUTE_FILE)
 
     assert "/real-executor/launch-readback" in source
+    assert "/real-executor/process-adapter-readback" in source
     assert "RealExecutorLaunchReadbackBuilder" in source
     assert "task_worker" not in source
     assert "ExecutorService" not in source

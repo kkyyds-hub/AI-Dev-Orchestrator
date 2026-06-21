@@ -25,8 +25,9 @@ from app.external_executors.actual_preflight import RealExecutorPreflightService
 
 
 PROCESS_ADAPTER_GATE_REASON = "real_executor_process_adapter_guarded"
+SUPPORTED_PROCESS_EXECUTOR_LABELS = ("codex", "claude code", "claude-code")
 _SESSION_NOT_FOUND_REASON = "session_not_found"
-_SUPPORTED_EXECUTOR_LABELS = frozenset({"codex", "claude code", "claude-code"})
+_SUPPORTED_EXECUTOR_LABELS = frozenset(SUPPORTED_PROCESS_EXECUTOR_LABELS)
 _SENSITIVE_TEXT_PATTERN = re.compile(
     r"(api\s*key|token|secret|bearer|sk-)",
     re.IGNORECASE,
@@ -265,4 +266,5 @@ __all__ = (
     "PROCESS_ADAPTER_GATE_REASON",
     "RealExecutorProcessAdapter",
     "RealExecutorProcessSession",
+    "SUPPORTED_PROCESS_EXECUTOR_LABELS",
 )
