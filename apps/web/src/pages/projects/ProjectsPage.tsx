@@ -1,5 +1,0 @@
-import { ProjectOverviewRouteContainer } from "./ProjectOverviewRouteContainer";
-
-export function ProjectsPage() {
-  return <ProjectOverviewRouteContainer />;
-}

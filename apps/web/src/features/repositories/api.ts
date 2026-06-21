@@ -19,8 +19,8 @@ import type {
 
 export function fetchProjectRepositorySnapshot(
   projectId: string,
-): Promise<RepositorySnapshot> {
-  return requestJson<RepositorySnapshot>(
+): Promise<RepositorySnapshot | null> {
+  return requestNullableJson<RepositorySnapshot>(
     `/repositories/projects/${projectId}/snapshot`,
   );
 }
@@ -38,8 +38,8 @@ export function refreshProjectRepositorySnapshot(
 
 export function fetchProjectRepositoryVerificationBaseline(
   projectId: string,
-): Promise<RepositoryVerificationBaseline> {
-  return requestJson<RepositoryVerificationBaseline>(
+): Promise<RepositoryVerificationBaseline | null> {
+  return requestNullableJson<RepositoryVerificationBaseline>(
     `/repositories/projects/${projectId}/verification-baseline`,
   );
 }
@@ -207,4 +207,21 @@ async function buildErrorMessage(response: Response): Promise<string> {
   }
 
   return `Request failed: ${response.status}`;
+}
+
+async function requestNullableJson<T>(input: string): Promise<T | null> {
+  const response = await fetch(input, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(await buildErrorMessage(response));
+  }
+
+  return (await response.json()) as T;
 }

@@ -7,14 +7,14 @@ import {
   fetchProjectChangeEvidence,
   fetchDeliverableVersionDiff,
   fetchDeliverableVersions,
-  fetchProjectDeliverableSnapshot,
+  fetchLegacyProjectDeliverableSnapshot,
   fetchTaskRelatedDeliverables,
 } from "./api";
 
 export function useProjectDeliverableSnapshot(projectId: string | null) {
   return useQuery({
     queryKey: ["deliverables", "project", projectId],
-    queryFn: () => fetchProjectDeliverableSnapshot(projectId as string),
+    queryFn: () => fetchLegacyProjectDeliverableSnapshot(projectId as string),
     enabled: Boolean(projectId),
   });
 }

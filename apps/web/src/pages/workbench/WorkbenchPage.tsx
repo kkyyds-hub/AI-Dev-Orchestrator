@@ -1,498 +1,585 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { useBackendHealth, useConsoleOverview } from "../../features/console/hooks";
-import type { ConsoleOverview } from "../../features/console/types";
-import { useConsoleEventStream } from "../../features/events/hooks";
-import { useRunWorkerOnce } from "../../features/task-actions/hooks";
-import { useProjectDirectorWorkbenchResumableSessions } from "../../features/project-director/hooks";
-import { formatDateTime } from "../../lib/format";
-import { buildRunRoute } from "../../lib/run-route";
-import { buildTaskRoute } from "../../lib/task-route";
-import { useProjectScope } from "../shared/useProjectScope";
-import { DirectorChatEntry } from "./components/DirectorChatEntry";
-import { ProjectDirectorConversationList } from "./components/ProjectDirectorConversationList";
-import { ProjectDirectorInboxPanel } from "./components/ProjectDirectorInboxPanel";
-import { RuntimeReadbackPanel } from "./components/RuntimeReadbackPanel";
+import { useProjectApprovalInbox } from "../../features/approvals/hooks";
+import { useProjectDeliverableSnapshot } from "../../features/deliverables/hooks";
 import {
-  parseDirectorSessionOptionValue,
-  WorkbenchHeader,
-} from "./components/WorkbenchHeader";
-import { WorkbenchRightRail } from "./components/WorkbenchRightRail";
+  useProjectDirectorAgentTeamConfig,
+  useProjectDirectorRepositoryBindingConfig,
+  useProjectDirectorSetupReadiness,
+  useProjectDirectorSkillBindingConfig,
+  useProjectDirectorVerificationConfig,
+  useProjectDirectorWorkbenchResumableSessions,
+} from "../../features/project-director/hooks";
+import {
+  useProjectDetail,
+  useProjectMemoryGovernanceState,
+  useProjectMemorySnapshot,
+} from "../../features/projects/hooks";
+import {
+  useProjectChangeSession,
+  useProjectRepositoryVerificationBaseline,
+  useProjectRepositorySnapshot,
+} from "../../features/repositories/hooks";
+import { useProjectRoleCatalog, useProjectRoleSkillConsumption, useSystemRoleCatalog } from "../../features/roles/hooks";
+import { useProjectSkillBindings, useSkillRegistry } from "../../features/skills/hooks";
+import { ProjectDirectorWorkbenchSurface } from "../../features/workbench/ProjectDirectorWorkbenchSurface";
+import { WorkbenchExperience } from "../../features/workbench/WorkbenchExperience";
+import type {
+  WorkbenchDirectorSurfaceContext,
+  WorkbenchInitialModal,
+  WorkbenchMainPageKey,
+} from "../../features/workbench/WorkbenchExperience";
+import {
+  fetchProvider,
+  fetchAccountProfile,
+  fetchWorkspaceSettings,
+  testProviderConnection,
+  updateAccountProfile,
+  updateProvider,
+  updateWorkspaceSettings,
+} from "../../features/settings/api";
+import type { WorkbenchAccountAdapter } from "../../features/ui-selection-lab/components/AccountSettingsModal";
+import type { SettingsDraft } from "../../features/ui-selection-lab/components/WorkbenchSettingsModal";
+import { buildRealWorkbenchProjectGroups } from "../../features/workbench/adapters/realWorkbenchAdapter";
+import {
+  fetchWorkbenchTask,
+  fetchWorkbenchRunLogs,
+  buildWorkbenchSurfaceData,
+  fetchWorkbenchTaskRuns,
+  fetchWorkbenchTasks,
+} from "../../features/workbench/adapters/realWorkbenchSurfaceAdapter";
+import { useProjectScope } from "../shared/useProjectScope";
+import { WorkbenchActionInbox } from "./components/WorkbenchActionInbox";
+import {
+  WorkbenchActionToast,
+  type WorkbenchActionToastState,
+  type WorkbenchActionToastStatus,
+} from "./components/WorkbenchActionToast";
+import { WorkbenchRepositoryBindingPanel } from "./components/WorkbenchRepositoryBindingPanel";
 
-const WORKBENCH_CONTEXT_MODE_STORAGE_KEY =
-  "ai-dev-orchestrator:workbench-context-mode";
+type WorkbenchPageProps = {
+  initialMainPage?: WorkbenchMainPageKey | null;
+  initialModal?: WorkbenchInitialModal | null;
+};
 
-function readStoredWorkbenchMode(): WorkbenchContextMode | null {
-  try {
-    const value = localStorage.getItem(WORKBENCH_CONTEXT_MODE_STORAGE_KEY);
-    return value === "new-project" || value === "project" ? value : null;
-  } catch {
-    return null;
-  }
+const WORKBENCH_SURFACES: readonly WorkbenchMainPageKey[] = [
+  "projects",
+  "execution",
+  "deliverables",
+  "repository",
+  "governance",
+];
+
+function parseWorkbenchSurface(value: string | null): WorkbenchMainPageKey | null {
+  return WORKBENCH_SURFACES.includes(value as WorkbenchMainPageKey)
+    ? (value as WorkbenchMainPageKey)
+    : null;
 }
 
-function writeStoredWorkbenchMode(mode: WorkbenchContextMode) {
-  try {
-    localStorage.setItem(WORKBENCH_CONTEXT_MODE_STORAGE_KEY, mode);
-  } catch {
-    // storage unavailable — ignore
-  }
-}
-
-export function WorkbenchPage() {
+export function WorkbenchPage({
+  initialMainPage = null,
+  initialModal = null,
+}: WorkbenchPageProps = {}) {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const params = useParams();
   const [searchParams] = useSearchParams();
-  const realtime = useConsoleEventStream();
-  const overviewQuery = useConsoleOverview({
-    enablePollingFallback: realtime.status !== "open",
-  });
-  const healthQuery = useBackendHealth();
+  const [toast, setToast] = useState<WorkbenchActionToastState | null>(null);
   const resumableSessionsQuery = useProjectDirectorWorkbenchResumableSessions();
   const {
     selectedProjectId,
     selectedProjectName,
     setSelectedProjectId,
     projects,
-    projectsLoading,
-    projectNotFound,
   } = useProjectScope();
-  const runWorkerOnceMutation = useRunWorkerOnce();
-  const [stableOverviewData, setStableOverviewData] = useState(overviewQuery.data);
-  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
-  const [workbenchMode, setWorkbenchMode] = useState<WorkbenchContextMode>(() =>
-    searchParams.get("mode") === "new-project"
-      ? "new-project"
-      : (readStoredWorkbenchMode() ?? "project"),
-  );
-  const [selectedDirectorSessionId, setSelectedDirectorSessionId] = useState<
-    string | null
-  >(() => searchParams.get("directorSessionId"));
-  const resumableSessions = resumableSessionsQuery.data?.sessions ?? [];
-  const selectedDirectorSession = selectedDirectorSessionId
-    ? resumableSessions.find(
-        (session) => session.session_id === selectedDirectorSessionId,
-      ) ?? null
-    : null;
-  const directorSessionUrlProjectId = selectedDirectorSessionId
-    ? searchParams.get("projectId")
-    : null;
-  const activeWorkbenchMode: WorkbenchContextMode = selectedDirectorSessionId
-    ? selectedDirectorSession?.project_id || directorSessionUrlProjectId
-      ? "project"
-      : "new-project"
-    : workbenchMode;
 
-  useEffect(() => {
-    if (overviewQuery.data) {
-      setStableOverviewData(overviewQuery.data);
-    }
-  }, [overviewQuery.data]);
-
-  useEffect(() => {
-    if (!refreshNotice) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setRefreshNotice(null);
-    }, 1800);
-
-    return () => window.clearTimeout(timer);
-  }, [refreshNotice]);
-
-  useEffect(() => {
-    const urlMode =
-      searchParams.get("mode") === "new-project"
-        ? "new-project"
-        : (readStoredWorkbenchMode() ?? "project");
-    setWorkbenchMode((current) => (current === urlMode ? current : urlMode));
-    setSelectedDirectorSessionId(searchParams.get("directorSessionId"));
-  }, [searchParams]);
-
-  useEffect(() => {
-    writeStoredWorkbenchMode(workbenchMode);
-  }, [workbenchMode]);
-
-  useEffect(() => {
-    if (
-      activeWorkbenchMode !== "new-project" ||
-      selectedDirectorSessionId ||
-      selectedProjectId === "all"
-    ) {
-      return;
-    }
-    setSelectedProjectId("all");
-  }, [
-    activeWorkbenchMode,
-    selectedDirectorSessionId,
-    selectedProjectId,
-    setSelectedProjectId,
-  ]);
-
-  useEffect(() => {
-    if (
-      selectedDirectorSessionId ||
-      workbenchMode !== "project" ||
-      selectedProjectId !== "all" ||
-      projects.length === 0
-    ) {
-      return;
-    }
-    setSelectedProjectId(projects[0].id);
-  }, [
-    projects,
-    selectedDirectorSessionId,
-    selectedProjectId,
-    setSelectedProjectId,
-    workbenchMode,
-  ]);
-
-  const lastUpdatedText = useMemo(() => {
-    if (!overviewQuery.dataUpdatedAt && !stableOverviewData) {
-      return "暂未刷新";
-    }
-    return formatDateTime(
-      new Date(overviewQuery.dataUpdatedAt || Date.now()).toISOString(),
-    );
-  }, [overviewQuery.dataUpdatedAt, stableOverviewData]);
-
-  const overviewIsInitialLoading =
-    !stableOverviewData && (overviewQuery.isLoading || overviewQuery.isFetching);
-  const activeProjectId = selectedDirectorSessionId
-    ? selectedDirectorSession?.project_id ?? directorSessionUrlProjectId
-    : activeWorkbenchMode === "new-project"
-      ? null
-      : selectedProjectId;
-  const activeProjectName =
-    selectedDirectorSessionId
-      ? selectedDirectorSession?.project_name ?? "未完成 AI 主管会话"
-      : activeWorkbenchMode === "new-project"
-        ? "新项目会话"
-        : selectedProjectName;
-  const visibleOverviewData = useMemo(
+  const urlProjectId = searchParams.get("projectId");
+  const routeProjectId = params.projectId ?? null;
+  const routeSurface = parseWorkbenchSurface(searchParams.get("surface"));
+  const urlMode = searchParams.get("mode") === "new-project" ? "new-project" : null;
+  const formalProjectId =
+    urlProjectId ??
+    routeProjectId ??
+    (selectedProjectId && selectedProjectId !== "all" ? selectedProjectId : null);
+  const formalProjectName =
+    projects.find((project) => project.id === formalProjectId)?.name ??
+    selectedProjectName ??
+    "新项目会话";
+  const surfaceProjectId =
+    formalProjectId ?? (initialMainPage ? projects[0]?.id ?? null : null);
+  const surfaceProjectName =
+    projects.find((project) => project.id === surfaceProjectId)?.name ??
+    formalProjectName;
+  const projectDetailQuery = useProjectDetail(surfaceProjectId);
+  const tasksQuery = useQuery({
+    queryKey: ["workbench-surface", "tasks"],
+    queryFn: fetchWorkbenchTasks,
+    retry: false,
+  });
+  const scopedTasks = useMemo(
     () =>
-      filterOverviewByProject(
-        stableOverviewData,
-        activeProjectId,
-        activeWorkbenchMode,
-      ),
-    [activeProjectId, activeWorkbenchMode, stableOverviewData],
+      surfaceProjectId
+        ? (tasksQuery.data ?? []).filter((task) => task.project_id === surfaceProjectId)
+        : tasksQuery.data ?? [],
+    [surfaceProjectId, tasksQuery.data],
+  );
+  const executionTaskId =
+    scopedTasks.find((task) => task.status === "running")?.id ??
+    scopedTasks.find((task) => task.human_status && task.human_status !== "none")?.id ??
+    scopedTasks[0]?.id ??
+    null;
+  const selectedTaskQuery = useQuery({
+    queryKey: ["workbench-surface", "task-detail", executionTaskId],
+    queryFn: () => fetchWorkbenchTask(executionTaskId as string),
+    enabled: Boolean(executionTaskId),
+    retry: false,
+  });
+  const taskRunsQuery = useQuery({
+    queryKey: ["workbench-surface", "task-runs", executionTaskId],
+    queryFn: () => fetchWorkbenchTaskRuns(executionTaskId as string),
+    enabled: Boolean(executionTaskId),
+    retry: false,
+  });
+  const executionRunId = taskRunsQuery.data?.[0]?.id ?? null;
+  const runLogsQuery = useQuery({
+    queryKey: ["workbench-surface", "run-logs", executionRunId],
+    queryFn: () => fetchWorkbenchRunLogs(executionRunId as string),
+    enabled: Boolean(executionRunId),
+    retry: false,
+  });
+  const deliverableSnapshotQuery = useProjectDeliverableSnapshot(surfaceProjectId);
+  const approvalInboxQuery = useProjectApprovalInbox(surfaceProjectId);
+  const repositorySnapshotQuery = useProjectRepositorySnapshot(surfaceProjectId);
+  const repositoryVerificationBaselineQuery =
+    useProjectRepositoryVerificationBaseline(surfaceProjectId);
+  const changeSessionQuery = useProjectChangeSession(surfaceProjectId);
+  const roleCatalogQuery = useProjectRoleCatalog(surfaceProjectId);
+  const systemRoleCatalogQuery = useSystemRoleCatalog();
+  const skillRegistryQuery = useSkillRegistry();
+  const skillBindingsQuery = useProjectSkillBindings(surfaceProjectId);
+  const roleConsumptionQuery = useProjectRoleSkillConsumption(surfaceProjectId);
+  const projectMemoryQuery = useProjectMemorySnapshot(surfaceProjectId);
+  const memoryGovernanceQuery = useProjectMemoryGovernanceState(surfaceProjectId);
+  const directorSetupReadinessQuery = useProjectDirectorSetupReadiness(surfaceProjectId);
+  const directorAgentTeamConfigQuery = useProjectDirectorAgentTeamConfig(surfaceProjectId);
+  const directorSkillBindingConfigQuery = useProjectDirectorSkillBindingConfig(surfaceProjectId);
+  const directorRepositoryBindingConfigQuery =
+    useProjectDirectorRepositoryBindingConfig(surfaceProjectId);
+  const directorVerificationConfigQuery = useProjectDirectorVerificationConfig(surfaceProjectId);
+  const providerSettingsQuery = useQuery({
+    queryKey: ["settings", "provider", "openai"],
+    queryFn: fetchProvider,
+    retry: false,
+  });
+  const workspaceSettingsQuery = useQuery({
+    queryKey: ["settings", "workspace"],
+    queryFn: fetchWorkspaceSettings,
+    retry: false,
+  });
+  const accountProfileQuery = useQuery({
+    queryKey: ["settings", "account-profile"],
+    queryFn: fetchAccountProfile,
+    retry: false,
+  });
+  const providerTestMutation = useMutation({
+    mutationFn: testProviderConnection,
+    retry: false,
+  });
+  const saveAccountMutation = useMutation({
+    mutationFn: updateAccountProfile,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["settings", "account-profile"],
+      });
+      showActionFeedback("账户信息已保存", "done");
+    },
+    onError: () => {
+      showActionFeedback("账户信息保存失败", "failed");
+    },
+  });
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (draft: SettingsDraft) => {
+      const roots = draft.trustedRoot
+        .split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const updates: Promise<unknown>[] = [];
+
+      if (providerSettingsQuery.data) {
+        const timeoutSeconds = Number.parseInt(draft.providerTimeoutSeconds, 10);
+        const providerPayload = {
+          base_url:
+            draft.providerBaseUrl.trim() ||
+            providerSettingsQuery.data.base_url,
+          timeout_seconds: Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
+            ? timeoutSeconds
+            : providerSettingsQuery.data.timeout_seconds,
+          model_preset: "custom" as const,
+          model_names: {
+            economy:
+              draft.economyModel.trim() ||
+              providerSettingsQuery.data.model_names.economy,
+            balanced:
+              draft.defaultModel.trim() ||
+              providerSettingsQuery.data.model_names.balanced,
+            premium:
+              draft.premiumModel.trim() ||
+              providerSettingsQuery.data.model_names.premium,
+          },
+          ...(draft.providerApiKey.trim()
+            ? { api_key: draft.providerApiKey.trim() }
+            : {}),
+        };
+
+        updates.push(
+          updateProvider(providerPayload),
+        );
+      }
+
+      if (roots.length > 0) {
+        updates.push(updateWorkspaceSettings({ allowed_workspace_roots: roots }));
+      }
+
+      await Promise.all(updates);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["settings", "provider", "openai"] }),
+        queryClient.invalidateQueries({ queryKey: ["settings", "workspace"] }),
+      ]);
+      showActionFeedback("设置已保存", "done");
+    },
+    onError: () => {
+      showActionFeedback("设置保存失败", "failed");
+    },
+  });
+
+  const projectGroups = useMemo(
+    () =>
+      buildRealWorkbenchProjectGroups({
+        projects,
+        resumableSessions: resumableSessionsQuery.data?.sessions ?? [],
+      }),
+    [projects, resumableSessionsQuery.data?.sessions],
   );
 
-  const handleRefresh = async () => {
-    setRefreshNotice("正在手动刷新...");
+  const showActionFeedback = useCallback(
+    (message: string, status: WorkbenchActionToastStatus = "done") => {
+      setToast({ message, status });
+      window.setTimeout(() => setToast(null), 3000);
+    },
+    [],
+  );
 
-    try {
-      await Promise.all([overviewQuery.refetch(), healthQuery.refetch()]);
-      setRefreshNotice("已刷新最新状态");
-    } catch {
-      setRefreshNotice("刷新失败，请稍后重试");
-    }
-  };
-
-  const handleNavigateToTask = (taskId: string, projectId?: string | null) => {
-    const fallbackProjectId =
-      activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all"
-        ? activeProjectId
-        : null;
-
-    navigate(
-      buildTaskRoute({
-        taskId,
-        from: "workbench",
-        projectId: projectId ?? fallbackProjectId,
+  const surfaceData = useMemo(
+    () =>
+      buildWorkbenchSurfaceData({
+        selectedProjectId: surfaceProjectId,
+        selectedProjectName: surfaceProjectName,
+        projects,
+        projectDetail: projectDetailQuery.data ?? null,
+        tasks: tasksQuery.data ?? [],
+        selectedTask: selectedTaskQuery.data ?? null,
+        taskRuns: taskRunsQuery.data ?? [],
+        taskRunLogs: runLogsQuery.data ?? null,
+        deliverables: deliverableSnapshotQuery.data ?? null,
+        approvals: approvalInboxQuery.data ?? null,
+        repositorySnapshot: repositorySnapshotQuery.data ?? null,
+        repositoryVerificationBaseline: repositoryVerificationBaselineQuery.data ?? null,
+        changeSession: changeSessionQuery.data ?? null,
+        workspaceSettings: workspaceSettingsQuery.data ?? null,
+        roleCatalog: roleCatalogQuery.data ?? null,
+        systemRoles: systemRoleCatalogQuery.data ?? [],
+        skillRegistry: skillRegistryQuery.data ?? null,
+        skillBindings: skillBindingsQuery.data ?? null,
+        roleSkillConsumption: roleConsumptionQuery.data ?? null,
+        projectMemory: projectMemoryQuery.data ?? null,
+        memoryGovernance: memoryGovernanceQuery.data ?? null,
+        directorSetupReadiness: directorSetupReadinessQuery.data ?? null,
+        directorAgentTeamConfig: directorAgentTeamConfigQuery.data ?? null,
+        directorSkillBindingConfig: directorSkillBindingConfigQuery.data ?? null,
+        directorRepositoryBindingConfig: directorRepositoryBindingConfigQuery.data ?? null,
+        directorVerificationConfig: directorVerificationConfigQuery.data ?? null,
+        loading: {
+          project: projectDetailQuery.isLoading,
+          execution: tasksQuery.isLoading || selectedTaskQuery.isLoading || taskRunsQuery.isLoading,
+          deliverables: deliverableSnapshotQuery.isLoading || approvalInboxQuery.isLoading,
+          repository:
+            repositorySnapshotQuery.isLoading ||
+            repositoryVerificationBaselineQuery.isLoading ||
+            changeSessionQuery.isLoading ||
+            workspaceSettingsQuery.isLoading,
+          governance:
+            roleCatalogQuery.isLoading ||
+            systemRoleCatalogQuery.isLoading ||
+            skillRegistryQuery.isLoading ||
+            skillBindingsQuery.isLoading ||
+            roleConsumptionQuery.isLoading ||
+            projectMemoryQuery.isLoading ||
+            memoryGovernanceQuery.isLoading ||
+            directorSetupReadinessQuery.isLoading ||
+            directorAgentTeamConfigQuery.isLoading ||
+            directorSkillBindingConfigQuery.isLoading ||
+            directorRepositoryBindingConfigQuery.isLoading ||
+            directorVerificationConfigQuery.isLoading,
+        },
+        error: {
+          project: projectDetailQuery.isError,
+          execution: tasksQuery.isError || selectedTaskQuery.isError || taskRunsQuery.isError,
+          deliverables: deliverableSnapshotQuery.isError || approvalInboxQuery.isError,
+          repository:
+            repositorySnapshotQuery.isError ||
+            repositoryVerificationBaselineQuery.isError ||
+            changeSessionQuery.isError ||
+            workspaceSettingsQuery.isError,
+          governance:
+            roleCatalogQuery.isError ||
+            systemRoleCatalogQuery.isError ||
+            skillRegistryQuery.isError ||
+            skillBindingsQuery.isError ||
+            roleConsumptionQuery.isError ||
+            projectMemoryQuery.isError ||
+            memoryGovernanceQuery.isError ||
+            directorSetupReadinessQuery.isError ||
+            directorAgentTeamConfigQuery.isError ||
+            directorSkillBindingConfigQuery.isError ||
+            directorRepositoryBindingConfigQuery.isError ||
+            directorVerificationConfigQuery.isError,
+        },
       }),
-    );
-  };
+    [
+      approvalInboxQuery.data,
+      approvalInboxQuery.isError,
+      approvalInboxQuery.isLoading,
+      changeSessionQuery.data,
+      changeSessionQuery.isError,
+      changeSessionQuery.isLoading,
+      deliverableSnapshotQuery.data,
+      deliverableSnapshotQuery.isError,
+      deliverableSnapshotQuery.isLoading,
+      directorAgentTeamConfigQuery.data,
+      directorAgentTeamConfigQuery.isError,
+      directorAgentTeamConfigQuery.isLoading,
+      directorRepositoryBindingConfigQuery.data,
+      directorRepositoryBindingConfigQuery.isError,
+      directorRepositoryBindingConfigQuery.isLoading,
+      directorSetupReadinessQuery.data,
+      directorSetupReadinessQuery.isError,
+      directorSetupReadinessQuery.isLoading,
+      directorSkillBindingConfigQuery.data,
+      directorSkillBindingConfigQuery.isError,
+      directorSkillBindingConfigQuery.isLoading,
+      directorVerificationConfigQuery.data,
+      directorVerificationConfigQuery.isError,
+      directorVerificationConfigQuery.isLoading,
+      projectDetailQuery.data,
+      projectDetailQuery.isError,
+      projectDetailQuery.isLoading,
+      projectMemoryQuery.data,
+      projectMemoryQuery.isError,
+      projectMemoryQuery.isLoading,
+      projects,
+      repositorySnapshotQuery.data,
+      repositorySnapshotQuery.isError,
+      repositorySnapshotQuery.isLoading,
+      repositoryVerificationBaselineQuery.data,
+      repositoryVerificationBaselineQuery.isError,
+      repositoryVerificationBaselineQuery.isLoading,
+      roleCatalogQuery.data,
+      roleCatalogQuery.isError,
+      roleCatalogQuery.isLoading,
+      runLogsQuery.data,
+      roleConsumptionQuery.data,
+      roleConsumptionQuery.isError,
+      roleConsumptionQuery.isLoading,
+      memoryGovernanceQuery.data,
+      memoryGovernanceQuery.isError,
+      memoryGovernanceQuery.isLoading,
+      skillBindingsQuery.data,
+      skillBindingsQuery.isError,
+      skillBindingsQuery.isLoading,
+      skillRegistryQuery.data,
+      skillRegistryQuery.isError,
+      skillRegistryQuery.isLoading,
+      surfaceProjectId,
+      surfaceProjectName,
+      systemRoleCatalogQuery.data,
+      systemRoleCatalogQuery.isError,
+      systemRoleCatalogQuery.isLoading,
+      selectedTaskQuery.data,
+      selectedTaskQuery.isError,
+      selectedTaskQuery.isLoading,
+      taskRunsQuery.data,
+      taskRunsQuery.isError,
+      taskRunsQuery.isLoading,
+      tasksQuery.data,
+      tasksQuery.isError,
+      tasksQuery.isLoading,
+      workspaceSettingsQuery.data,
+      workspaceSettingsQuery.isError,
+      workspaceSettingsQuery.isLoading,
+    ],
+  );
 
-  const handleNavigateToRun = (
-    runId: string,
-    taskId: string,
-    projectId?: string | null,
-  ) => {
-    const fallbackProjectId =
-      activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all"
-        ? activeProjectId
-        : null;
+  const settingsAdapter = useMemo(
+    () => ({
+      mode: "real" as const,
+      loading: providerSettingsQuery.isLoading || workspaceSettingsQuery.isLoading,
+      errorMessage:
+        providerSettingsQuery.error?.message ??
+        workspaceSettingsQuery.error?.message ??
+        null,
+      provider: providerSettingsQuery.data
+        ? {
+            configured: providerSettingsQuery.data.configured,
+            source: providerSettingsQuery.data.source,
+            baseUrl: providerSettingsQuery.data.base_url,
+            timeoutSeconds: providerSettingsQuery.data.timeout_seconds,
+            detectedProviderType: providerSettingsQuery.data.detected_provider_type,
+            modelPreset: providerSettingsQuery.data.model_preset,
+            modelNames: providerSettingsQuery.data.model_names,
+            maskedApiKey: providerSettingsQuery.data.masked_api_key,
+          }
+        : null,
+      workspace: workspaceSettingsQuery.data
+        ? {
+            defaultWorkspaceRoot: workspaceSettingsQuery.data.default_workspace_root,
+            allowedWorkspaceRoots: workspaceSettingsQuery.data.allowed_workspace_roots,
+            usingDefault: workspaceSettingsQuery.data.using_default,
+          }
+        : null,
+      providerTest: {
+        status: providerTestMutation.isPending
+          ? ("testing" as const)
+          : providerTestMutation.data?.status === "passed"
+            ? ("passed" as const)
+            : providerTestMutation.isError
+              ? ("failed" as const)
+              : ("idle" as const),
+        summary: providerTestMutation.isPending
+          ? "正在测试连接"
+          : providerTestMutation.data?.status === "passed"
+            ? "连接可用"
+            : providerTestMutation.error
+              ? "连接失败"
+              : "尚未测试",
+        testedAt: providerTestMutation.data?.tested_at ?? null,
+        modelName: providerTestMutation.data?.model_name ?? null,
+      },
+      onTestProvider: () => {
+        providerTestMutation.mutate(undefined, {
+          onSuccess: (result) => {
+            showActionFeedback(result.status === "passed" ? "Provider 测试通过" : "Provider 测试未通过", result.status === "passed" ? "done" : "failed");
+          },
+          onError: () => {
+            showActionFeedback("Provider 测试失败", "failed");
+          },
+        });
+      },
+      onSave: (draft: SettingsDraft) => {
+        saveSettingsMutation.mutate(draft);
+      },
+      saving: saveSettingsMutation.isPending,
+    }),
+    [
+      providerSettingsQuery.data,
+      providerSettingsQuery.error,
+      providerSettingsQuery.isLoading,
+      providerTestMutation,
+      saveSettingsMutation,
+      showActionFeedback,
+      workspaceSettingsQuery.data,
+      workspaceSettingsQuery.error,
+      workspaceSettingsQuery.isLoading,
+    ],
+  );
 
-    navigate(
-      buildRunRoute({
-        runId,
-        taskId,
-        from: "workbench",
-        projectId: projectId ?? fallbackProjectId,
-      }),
-    );
-  };
+  const accountAdapter = useMemo<WorkbenchAccountAdapter>(
+    () => ({
+      mode: "real",
+      loading: accountProfileQuery.isLoading,
+      errorMessage: accountProfileQuery.error?.message ?? null,
+      profile: accountProfileQuery.data
+        ? {
+            accountId: accountProfileQuery.data.account_id,
+            displayName: accountProfileQuery.data.display_name,
+            notificationEmail: accountProfileQuery.data.notification_email,
+            loginMethod: accountProfileQuery.data.login_method,
+            defaultRole: accountProfileQuery.data.default_role,
+            source: accountProfileQuery.data.source,
+          }
+        : null,
+      onSave: (draft) => {
+        saveAccountMutation.mutate({
+          display_name: draft.displayName,
+          notification_email: draft.notificationEmail,
+        });
+      },
+      saving: saveAccountMutation.isPending,
+    }),
+    [
+      accountProfileQuery.data,
+      accountProfileQuery.error?.message,
+      accountProfileQuery.isLoading,
+      saveAccountMutation,
+    ],
+  );
 
-  const handleNavigateToTasks = () => {
-    if (activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all") {
-      navigate(`/tasks?projectId=${activeProjectId}`);
-    } else {
-      navigate("/tasks");
-    }
-  };
+  const resolveProjectId = useCallback(
+    (context: WorkbenchDirectorSurfaceContext) => {
+      const contextProjectId =
+        context.activeProjectId && context.activeProjectId !== "new-project"
+          ? context.activeProjectId
+          : null;
+      return contextProjectId ?? formalProjectId ?? (initialMainPage ? surfaceProjectId : null);
+    },
+    [formalProjectId, initialMainPage, surfaceProjectId],
+  );
 
-  const handleNavigateToProjects = () => {
-    if (activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all") {
-      navigate(`/projects?projectId=${activeProjectId}`);
-    } else {
-      navigate("/projects");
-    }
-  };
-
-  const handleNavigateToRuns = () => {
-    if (activeWorkbenchMode === "project" && activeProjectId && activeProjectId !== "all") {
-      navigate(`/runs?projectId=${activeProjectId}`);
-    } else {
-      navigate("/runs");
-    }
-  };
-
-  const handleSelectWorkbenchContext = (nextValue: string) => {
-    const directorSessionId = parseDirectorSessionOptionValue(nextValue);
-    if (directorSessionId) {
-      const session = resumableSessions.find(
-        (item) => item.session_id === directorSessionId,
-      );
-      const nextMode: WorkbenchContextMode = session?.project_id
-        ? "project"
-        : "new-project";
-      setSelectedDirectorSessionId(directorSessionId);
-      setWorkbenchMode(nextMode);
-      writeStoredWorkbenchMode(nextMode);
-      setSelectedProjectId(session?.project_id ?? "all");
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.set("directorSessionId", directorSessionId);
-      if (nextMode === "new-project") {
-        nextParams.set("mode", "new-project");
-        nextParams.delete("projectId");
-      } else {
-        nextParams.delete("mode");
-        if (session?.project_id) {
-          nextParams.set("projectId", session.project_id);
-        }
-      }
-      navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
-      return;
-    }
-
-    if (nextValue === NEW_PROJECT_CONTEXT_VALUE) {
-      setSelectedDirectorSessionId(null);
-      setWorkbenchMode("new-project");
-      writeStoredWorkbenchMode("new-project");
-      setSelectedProjectId("all");
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.set("mode", "new-project");
-      nextParams.delete("projectId");
-      nextParams.delete("directorSessionId");
-      navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
-      return;
-    }
-
-    if (!nextValue) {
-      return;
-    }
-
-    setSelectedDirectorSessionId(null);
-    setWorkbenchMode("project");
-    writeStoredWorkbenchMode("project");
-    const nextProjectId = nextValue;
-    setSelectedProjectId(nextProjectId);
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete("mode");
-    nextParams.delete("directorSessionId");
-    nextParams.set("projectId", nextProjectId);
-    navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
-  };
-
-  const handleSelectDirectorConversation = (conversation: {
-    conversation_id: string;
-    project_id: string | null;
-  }) => {
-    const nextMode: WorkbenchContextMode = conversation.project_id
-      ? "project"
-      : "new-project";
-    setSelectedDirectorSessionId(conversation.conversation_id);
-    setWorkbenchMode(nextMode);
-    writeStoredWorkbenchMode(nextMode);
-    setSelectedProjectId(conversation.project_id ?? "all");
-
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.set("directorSessionId", conversation.conversation_id);
-    if (nextMode === "new-project") {
-      nextParams.set("mode", "new-project");
-      nextParams.delete("projectId");
-    } else {
-      nextParams.delete("mode");
-      if (conversation.project_id) {
-        nextParams.set("projectId", conversation.project_id);
-      }
-    }
-    navigate({ pathname: "/workbench", search: nextParams.toString() }, { replace: false });
-  };
-
-  const handleRightRailRunWorkerOnce = () => {
-    if (activeWorkbenchMode === "new-project") {
-      return;
-    }
-
-    runWorkerOnceMutation.mutate(
-      activeProjectId === null || activeProjectId === "all" ? null : activeProjectId,
-    );
-  };
-
-  const rightRailRunWorkerOnceDisabledReason =
-    activeWorkbenchMode === "new-project"
-      ? "新项目会话尚未创建正式项目，右侧 run-once 已禁用。"
-      : null;
+  const resolveProjectName = useCallback(
+    (context: WorkbenchDirectorSurfaceContext) =>
+      context.activeProjectName ?? formalProjectName,
+    [formalProjectName],
+  );
 
   return (
-    <div className="relative flex h-[calc(100vh-7rem)] min-w-0 flex-col gap-6 overflow-hidden">
-      <WorkbenchHeader
-        backendStatus={healthQuery.data?.status}
-        realtimeStatus={realtime.status}
-        lastUpdatedText={lastUpdatedText}
-        selectedProjectName={activeProjectName}
-        selectedProjectId={activeProjectId ?? "new-project"}
-        mode={activeWorkbenchMode}
-        selectedDirectorSessionId={selectedDirectorSessionId}
-        resumableSessions={resumableSessions}
-        resumableSessionsLoading={resumableSessionsQuery.isLoading}
-        projects={projects}
-        projectsLoading={projectsLoading}
-        projectNotFound={
-          !selectedDirectorSessionId && activeWorkbenchMode === "project" && projectNotFound
-        }
-        onSelectContext={handleSelectWorkbenchContext}
+    <>
+      <WorkbenchExperience
+        mode="real"
+        projectGroups={projectGroups}
+        initialMainPage={routeSurface ?? initialMainPage}
+        initialModal={initialModal}
+        pageAdapterMode="real"
+        surfaceData={surfaceData}
+        settingsAdapter={settingsAdapter}
+        accountAdapter={accountAdapter}
+        suppressPromptBox
+        onNewProjectSession={() => {
+          setSelectedProjectId("all");
+          navigate("/workbench?mode=new-project");
+        }}
+        renderTopActionSlot={(context) => (
+          <WorkbenchActionInbox projectId={resolveProjectId(context)} />
+        )}
+        renderRepositoryBindingPanel={(context) => (
+          <WorkbenchRepositoryBindingPanel
+            projectId={resolveProjectId(context)}
+            projectName={resolveProjectName(context)}
+            onActionFeedback={showActionFeedback}
+          />
+        )}
+        renderDirectorSurface={(context) => (
+          <ProjectDirectorWorkbenchSurface
+            context={context}
+            fallbackProjectId={resolveProjectId(context)}
+            fallbackProjectName={resolveProjectName(context)}
+            mode={urlMode === "new-project" || !resolveProjectId(context) ? "new-project" : "project"}
+          />
+        )}
       />
-
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden xl:flex-row xl:items-stretch">
-        <div className="flex min-h-0 w-full shrink-0 flex-col gap-4 xl:w-[22rem]">
-          <ProjectDirectorConversationList
-            projectId={
-              activeWorkbenchMode === "project" &&
-              activeProjectId &&
-              activeProjectId !== "all"
-                ? activeProjectId
-                : null
-            }
-            selectedConversationId={selectedDirectorSessionId}
-            onSelectConversation={handleSelectDirectorConversation}
-          />
-          <ProjectDirectorInboxPanel
-            projectId={
-              activeWorkbenchMode === "project" &&
-              activeProjectId &&
-              activeProjectId !== "all"
-                ? activeProjectId
-                : null
-            }
-            onSelectConversation={handleSelectDirectorConversation}
-            onNavigateToTask={handleNavigateToTask}
-            onNavigateToRun={handleNavigateToRun}
-          />
-        </div>
-
-        <div className="min-h-0 flex-1 xl:min-w-0">
-          <DirectorChatEntry
-            selectedProjectId={activeProjectId}
-            selectedProjectName={activeProjectName}
-            mode={activeWorkbenchMode}
-            resumeSessionId={selectedDirectorSessionId}
-          />
-        </div>
-
-        <div className="flex min-h-0 w-full shrink-0 flex-col gap-4 overflow-y-auto pr-1 xl:w-80 2xl:w-96">
-          <RuntimeReadbackPanel />
-          <WorkbenchRightRail
-            overviewData={visibleOverviewData}
-            overviewIsInitialLoading={overviewIsInitialLoading}
-            refreshNotice={refreshNotice}
-            selectedProjectId={activeProjectId ?? "new-project"}
-            onRefresh={() => {
-              void handleRefresh();
-            }}
-            onNavigateToTasks={handleNavigateToTasks}
-            onNavigateToTask={handleNavigateToTask}
-            onNavigateToProjects={handleNavigateToProjects}
-            onNavigateToRuns={handleNavigateToRuns}
-            isRunWorkerOncePending={runWorkerOnceMutation.isPending}
-            runWorkerOnceDisabledReason={rightRailRunWorkerOnceDisabledReason}
-            onRunWorkerOnce={handleRightRailRunWorkerOnce}
-            workerOnceData={
-              activeWorkbenchMode === "new-project" ? null : runWorkerOnceMutation.data
-            }
-            workerOnceIsError={
-              activeWorkbenchMode === "new-project" ? false : runWorkerOnceMutation.isError
-            }
-            workerOnceErrorMessage={
-              activeWorkbenchMode !== "new-project" && runWorkerOnceMutation.isError
-                ? runWorkerOnceMutation.error.message
-                : null
-            }
-          />
-        </div>
-      </div>
-    </div>
+      <WorkbenchActionToast toast={toast} onClose={() => setToast(null)} />
+    </>
   );
-}
-
-const NEW_PROJECT_CONTEXT_VALUE = "new-project";
-
-type WorkbenchContextMode = "new-project" | "project";
-
-function filterOverviewByProject(
-  overviewData: ConsoleOverview | undefined,
-  selectedProjectId: string | null,
-  mode: WorkbenchContextMode,
-): ConsoleOverview | undefined {
-  if (!overviewData) {
-    return overviewData;
-  }
-
-  if (mode === "new-project") {
-    return buildScopedOverview(overviewData, []);
-  }
-
-  if (selectedProjectId === null || selectedProjectId === "all") {
-    return overviewData;
-  }
-
-  const tasks = overviewData.tasks.filter((task) => task.project_id === selectedProjectId);
-  return buildScopedOverview(overviewData, tasks);
-}
-
-function buildScopedOverview(
-  overviewData: ConsoleOverview,
-  tasks: ConsoleOverview["tasks"],
-): ConsoleOverview {
-  const countByStatus = (status: string) =>
-    tasks.filter((task) => task.status === status).length;
-
-  return {
-    ...overviewData,
-    total_tasks: tasks.length,
-    pending_tasks: countByStatus("pending"),
-    running_tasks: countByStatus("running"),
-    paused_tasks: countByStatus("paused"),
-    waiting_human_tasks: countByStatus("waiting_human"),
-    completed_tasks: countByStatus("completed"),
-    failed_tasks: countByStatus("failed"),
-    blocked_tasks: countByStatus("blocked"),
-    total_estimated_cost: tasks.reduce(
-      (sum, task) => sum + (task.latest_run?.estimated_cost ?? 0),
-      0,
-    ),
-    total_prompt_tokens: tasks.reduce(
-      (sum, task) => sum + (task.latest_run?.prompt_tokens ?? 0),
-      0,
-    ),
-    total_completion_tokens: tasks.reduce(
-      (sum, task) => sum + (task.latest_run?.completion_tokens ?? 0),
-      0,
-    ),
-    tasks,
-  };
 }

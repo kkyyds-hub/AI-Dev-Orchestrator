@@ -5,6 +5,7 @@ import type {
   ChangePlanSummary,
   ChangePlanDraftInput,
   ProjectDetail,
+  ProjectMemoryGovernanceState,
   ProjectMemoryKind,
   ProjectMemorySearchResult,
   ProjectMemorySnapshot,
@@ -34,6 +35,14 @@ export function fetchProjectMemorySnapshot(
   projectId: string,
 ): Promise<ProjectMemorySnapshot> {
   return requestJson<ProjectMemorySnapshot>(`/projects/${projectId}/memory`);
+}
+
+export function fetchProjectMemoryGovernanceState(
+  projectId: string,
+): Promise<ProjectMemoryGovernanceState> {
+  return requestJson<ProjectMemoryGovernanceState>(
+    `/projects/${projectId}/memory/governance`,
+  );
 }
 
 export function searchProjectMemory(input: {

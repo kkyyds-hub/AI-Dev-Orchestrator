@@ -1,26 +1,14 @@
 import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "./AppShell";
-import { ApprovalsPage } from "../pages/approvals/ApprovalsPage";
-import { DeliverablesPage } from "../pages/deliverables/DeliverablesPage";
-import { DeliveryCenterPage } from "../pages/delivery/DeliveryCenterPage";
-import { ExecutionCenterPage } from "../pages/execution/ExecutionCenterPage";
-import { GovernancePage } from "../pages/governance/GovernancePage";
-import { MePage } from "../pages/me/MePage";
-import { ProjectApprovalsRoutePage } from "../pages/projects/ProjectApprovalsRoutePage";
-import { ProjectCollaborationRoutePage } from "../pages/projects/ProjectCollaborationRoutePage";
-import { ProjectOverviewRoutePage } from "../pages/projects/ProjectOverviewRoutePage";
-import { ProjectDeliverablesRoutePage } from "../pages/projects/ProjectDeliverablesRoutePage";
-import { ProjectGovernanceRoutePage } from "../pages/projects/ProjectGovernanceRoutePage";
-import { ProjectRepositoryRoutePage } from "../pages/projects/ProjectRepositoryRoutePage";
-import { ProjectTimelineRoutePage } from "../pages/projects/ProjectTimelineRoutePage";
-import { ProjectsPage } from "../pages/projects/ProjectsPage";
-import { RunsPage } from "../pages/runs/RunsPage";
-import { SettingsPage } from "../features/settings/SettingsPage";
-import { TasksPage } from "../pages/tasks/TasksPage";
+import { SanshengLiubuUiLabPage } from "../features/ui-selection-lab/SanshengLiubuUiLabPage";
 import { WorkbenchPage } from "../pages/workbench/WorkbenchPage";
 
 export const router = createBrowserRouter([
+  {
+    path: "/__lab/sansheng-liubu-ui",
+    element: <SanshengLiubuUiLabPage />,
+  },
   {
     path: "/",
     element: <AppShell />,
@@ -35,79 +23,79 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects",
-        element: <ProjectsPage />,
+        element: <WorkbenchPage initialMainPage="projects" />,
       },
       {
         path: "projects/:projectId",
-        element: <ProjectOverviewRoutePage />,
+        element: <WorkbenchPage initialMainPage="projects" />,
       },
       {
         path: "projects/:projectId/repository",
-        element: <ProjectRepositoryRoutePage />,
+        element: <WorkbenchPage initialMainPage="repository" />,
       },
       {
         path: "projects/:projectId/timeline",
-        element: <ProjectTimelineRoutePage />,
+        element: <WorkbenchPage initialMainPage="projects" />,
       },
       {
         path: "projects/:projectId/collaboration",
-        element: <ProjectCollaborationRoutePage />,
+        element: <WorkbenchPage initialMainPage="governance" />,
       },
       {
         path: "projects/:projectId/governance",
-        element: <ProjectGovernanceRoutePage />,
+        element: <WorkbenchPage initialMainPage="governance" />,
       },
       {
         path: "projects/:projectId/deliverables",
-        element: <ProjectDeliverablesRoutePage />,
+        element: <WorkbenchPage initialMainPage="deliverables" />,
       },
       {
         path: "projects/:projectId/approvals",
-        element: <ProjectApprovalsRoutePage />,
+        element: <WorkbenchPage initialMainPage="deliverables" />,
       },
       {
         path: "tasks",
-        element: <TasksPage />,
+        element: <WorkbenchPage initialMainPage="execution" />,
       },
       {
         path: "tasks/:taskId",
-        element: <TasksPage />,
+        element: <WorkbenchPage initialMainPage="execution" />,
       },
       {
         path: "runs",
-        element: <RunsPage />,
+        element: <WorkbenchPage initialMainPage="execution" />,
       },
       {
         path: "runs/:runId",
-        element: <RunsPage />,
-      },
-      {
-        path: "delivery",
-        element: <DeliveryCenterPage />,
-      },
-      {
-        path: "deliverables",
-        element: <DeliverablesPage />,
-      },
-      {
-        path: "approvals",
-        element: <ApprovalsPage />,
-      },
-      {
-        path: "governance",
-        element: <GovernancePage />,
-      },
-      {
-        path: "me",
-        element: <MePage />,
+        element: <WorkbenchPage initialMainPage="execution" />,
       },
       {
         path: "execution",
-        element: <ExecutionCenterPage />,
+        element: <WorkbenchPage initialMainPage="execution" />,
+      },
+      {
+        path: "delivery",
+        element: <WorkbenchPage initialMainPage="deliverables" />,
+      },
+      {
+        path: "deliverables",
+        element: <WorkbenchPage initialMainPage="deliverables" />,
+      },
+      {
+        path: "approvals",
+        element: <WorkbenchPage initialMainPage="deliverables" />,
+      },
+      {
+        path: "governance",
+        element: <WorkbenchPage initialMainPage="governance" />,
+      },
+      {
+        path: "me",
+        element: <WorkbenchPage initialModal="account" />,
       },
       {
         path: "settings",
-        element: <SettingsPage />,
+        element: <WorkbenchPage initialModal="settings" />,
       },
       {
         path: "*",
