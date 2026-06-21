@@ -44,6 +44,21 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument(
+        "--use-supervisor",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--supervisor-terminate-after-launch",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--supervisor-cleanup-after-launch",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
         "--executor",
         choices=("codex", "claude-code", "claude code"),
         default="codex",
@@ -82,6 +97,11 @@ def main(argv: list[str] | None = None) -> int:
             enable_native_process=args.enable_native_process,
             auto_terminate=args.auto_terminate,
             timeout_seconds=args.timeout_seconds,
+            use_supervisor=args.use_supervisor,
+            supervisor_terminate_after_launch=(
+                args.supervisor_terminate_after_launch
+            ),
+            supervisor_cleanup_after_launch=args.supervisor_cleanup_after_launch,
             executor_label=args.executor,
             workspace_path=Path(args.workspace_path).expanduser().resolve().as_posix(),
             product_runtime_git_write_allowed=False,
@@ -102,6 +122,11 @@ def main(argv: list[str] | None = None) -> int:
             "frontend_required": False,
             "frontend_change_allowed": False,
             "blocked_reasons": ["native_smoke_failed"],
+            "supervisor_enabled": getattr(args, "use_supervisor", False),
+            "supervisor_status": None,
+            "supervisor_registered": False,
+            "supervisor_cleanup_done": False,
+            "supervisor_action_success": None,
         }
     if args.json:
         print(json.dumps(summary, sort_keys=True))

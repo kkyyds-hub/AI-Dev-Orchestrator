@@ -22,6 +22,10 @@ from app.external_executors.actual_native_launcher import (
     RealExecutorNativeRunnerProtocol,
     SubprocessRealExecutorNativeRunner,
 )
+from app.external_executors.actual_process_supervisor import (
+    RealExecutorProcessStatus,
+    RealExecutorProcessSupervisor,
+)
 from app.external_executors.actual_runner_wiring import (
     RealExecutorRunnerFactory,
     RealExecutorRunnerWiringInput,
@@ -57,6 +61,9 @@ class RealExecutorNativeSmokeInput(_NativeSmokeModel):
     agent_session_id: UUID | None = None
     auto_terminate: bool = False
     timeout_seconds: float | None = None
+    use_supervisor: bool = False
+    supervisor_terminate_after_launch: bool = False
+    supervisor_cleanup_after_launch: bool = False
     product_runtime_git_write_allowed: bool = False
     frontend_required: bool = False
     frontend_change_allowed: bool = False
@@ -122,6 +129,11 @@ class RealExecutorNativeSmokeResult(_NativeSmokeModel):
     frontend_required: bool = False
     frontend_change_allowed: bool = False
     blocked_reasons: list[str] = Field(default_factory=list)
+    supervisor_enabled: bool = False
+    supervisor_status: RealExecutorProcessStatus | None = None
+    supervisor_registered: bool = False
+    supervisor_cleanup_done: bool = False
+    supervisor_action_success: bool | None = None
 
     @field_validator(
         "product_runtime_git_write_allowed",
@@ -141,9 +153,11 @@ class RealExecutorNativeSmokeRunner:
         *,
         fake_runner: RealExecutorNativeRunnerProtocol | None = None,
         process_runner: RealExecutorNativeRunnerProtocol | None = None,
+        process_supervisor: RealExecutorProcessSupervisor | None = None,
     ) -> None:
         self._fake_runner = fake_runner
         self._process_runner = process_runner
+        self._process_supervisor = process_supervisor
 
     def run(
         self,
@@ -192,6 +206,11 @@ class RealExecutorNativeSmokeRunner:
                     native_process_possible=wiring_result.native_process_possible,
                     blocked_reasons=["native_launch_failed"],
                 )
+            supervisor_summary = self._supervisor_summary(
+                smoke_input=smoke_input,
+                launch_result=launch_result,
+                agent_session_id=str(agent_session.id),
+            )
             return RealExecutorNativeSmokeResult(
                 smoke_status=launch_result.launch_status,
                 runner_kind=wiring_result.runner_kind,
@@ -203,6 +222,7 @@ class RealExecutorNativeSmokeRunner:
                 frontend_required=False,
                 frontend_change_allowed=False,
                 blocked_reasons=launch_result.blocked_reasons,
+                **supervisor_summary,
             )
         finally:
             session.close()
@@ -250,6 +270,9 @@ class RealExecutorNativeSmokeRunner:
             process_runner = SubprocessRealExecutorNativeRunner(
                 auto_terminate=smoke_input.auto_terminate,
                 timeout_seconds=smoke_input.timeout_seconds,
+                process_supervisor=(
+                    self._supervisor(smoke_input) if smoke_input.use_supervisor else None
+                ),
             )
         return RealExecutorRunnerFactory(
             fake_runner=fake_runner,
@@ -291,6 +314,11 @@ class RealExecutorNativeSmokeRunner:
             frontend_required=False,
             frontend_change_allowed=False,
             blocked_reasons=blocked_reasons,
+            supervisor_enabled=smoke_input.use_supervisor,
+            supervisor_status=None,
+            supervisor_registered=False,
+            supervisor_cleanup_done=False,
+            supervisor_action_success=None,
         )
 
     @staticmethod
@@ -304,6 +332,80 @@ class RealExecutorNativeSmokeRunner:
             and not smoke_input.auto_terminate
             and smoke_input.timeout_seconds is None
         )
+
+    def _supervisor(
+        self,
+        smoke_input: RealExecutorNativeSmokeInput,
+    ) -> RealExecutorProcessSupervisor:
+        if self._process_supervisor is None:
+            self._process_supervisor = RealExecutorProcessSupervisor()
+        return self._process_supervisor
+
+    def _supervisor_summary(
+        self,
+        *,
+        smoke_input: RealExecutorNativeSmokeInput,
+        launch_result,
+        agent_session_id: str,
+    ) -> dict[str, object]:
+        if not smoke_input.use_supervisor:
+            return {
+                "supervisor_enabled": False,
+                "supervisor_status": None,
+                "supervisor_registered": False,
+                "supervisor_cleanup_done": False,
+                "supervisor_action_success": None,
+            }
+        supervisor = self._supervisor(smoke_input)
+        process_handle_id = launch_result.runtime_handle_id
+        if process_handle_id is None:
+            return {
+                "supervisor_enabled": True,
+                "supervisor_status": None,
+                "supervisor_registered": False,
+                "supervisor_cleanup_done": False,
+                "supervisor_action_success": None,
+            }
+
+        record = supervisor.get_status(process_handle_id)
+        if (
+            record.status == RealExecutorProcessStatus.MISSING
+            and self._process_runner is not None
+        ):
+            record = supervisor.register(
+                process_handle_id,
+                executor_label=smoke_input.executor_label,
+                agent_session_id=agent_session_id,
+                workspace_path=smoke_input.workspace_path,
+                process_adapter=self._process_runner,
+            )
+
+        supervisor_status = record.status
+        supervisor_registered = record.status != RealExecutorProcessStatus.MISSING
+        supervisor_action_success: bool | None = None
+        supervisor_cleanup_done = False
+
+        if supervisor_registered and smoke_input.supervisor_terminate_after_launch:
+            action_result = supervisor.terminate(process_handle_id)
+            supervisor_status = action_result.status
+            supervisor_action_success = action_result.action_success
+
+        if supervisor_registered and smoke_input.supervisor_cleanup_after_launch:
+            action_result = supervisor.cleanup(process_handle_id)
+            supervisor_status = action_result.status
+            supervisor_action_success = action_result.action_success
+            supervisor_cleanup_done = (
+                action_result.status == RealExecutorProcessStatus.CLEANUP_DONE
+                and action_result.action_success
+            )
+
+        return {
+            "supervisor_enabled": True,
+            "supervisor_status": supervisor_status,
+            "supervisor_registered": supervisor_registered,
+            "supervisor_cleanup_done": supervisor_cleanup_done,
+            "supervisor_action_success": supervisor_action_success,
+        }
 
 
 __all__ = (

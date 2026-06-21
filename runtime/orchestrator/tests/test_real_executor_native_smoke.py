@@ -16,6 +16,10 @@ from app.external_executors.actual_native_smoke import (
     RealExecutorNativeSmokeInput,
     RealExecutorNativeSmokeRunner,
 )
+from app.external_executors.actual_process_supervisor import (
+    RealExecutorProcessStatus,
+    RealExecutorProcessSupervisor,
+)
 
 
 SMOKE_FILE = Path("app/external_executors/actual_native_smoke.py")
@@ -25,6 +29,8 @@ SMOKE_SCRIPT = Path("scripts/p9_real_executor_native_smoke.py")
 class _StartCountingRunner:
     def __init__(self) -> None:
         self.start_calls = 0
+        self.terminate_calls = 0
+        self.kill_calls = 0
 
     def start(
         self,
@@ -35,6 +41,12 @@ class _StartCountingRunner:
     ) -> RealExecutorNativeProcessHandle:
         self.start_calls += 1
         return RealExecutorNativeProcessHandle(process_handle_id="fake-process-handle")
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+    def kill(self) -> None:
+        self.kill_calls += 1
 
 
 def _smoke_script_module():
@@ -71,6 +83,11 @@ def test_smoke_default_fake_dry_run_does_not_start_native_process(tmp_path) -> N
     assert result.frontend_required is False
     assert result.frontend_change_allowed is False
     assert result.blocked_reasons == []
+    assert result.supervisor_enabled is False
+    assert result.supervisor_registered is False
+    assert result.supervisor_status is None
+    assert result.supervisor_cleanup_done is False
+    assert result.supervisor_action_success is None
     assert runner.start_calls == 0
 
 
@@ -153,6 +170,98 @@ def test_subprocess_smoke_can_use_injected_runner_without_real_process(tmp_path)
     assert process_runner.start_calls == 1
 
 
+def test_supervisor_managed_smoke_registers_running_status_with_injected_runner(
+    tmp_path,
+) -> None:
+    process_runner = _StartCountingRunner()
+    supervisor = RealExecutorProcessSupervisor()
+
+    result = RealExecutorNativeSmokeRunner(
+        process_runner=process_runner,
+        process_supervisor=supervisor,
+    ).run(
+        RealExecutorNativeSmokeInput(
+            runner_kind="subprocess",
+            launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+            enable_native_process=True,
+            auto_terminate=True,
+            use_supervisor=True,
+            workspace_path=tmp_path.as_posix(),
+        )
+    )
+    status = supervisor.get_status("fake-process-handle")
+
+    assert result.smoke_status == "launch_started"
+    assert result.supervisor_enabled is True
+    assert result.supervisor_registered is True
+    assert result.supervisor_status == RealExecutorProcessStatus.RUNNING
+    assert result.supervisor_cleanup_done is False
+    assert result.supervisor_action_success is None
+    assert status.status == RealExecutorProcessStatus.RUNNING
+    assert process_runner.start_calls == 1
+
+
+def test_supervisor_managed_smoke_can_terminate_after_launch(tmp_path) -> None:
+    process_runner = _StartCountingRunner()
+
+    result = RealExecutorNativeSmokeRunner(
+        process_runner=process_runner,
+        process_supervisor=RealExecutorProcessSupervisor(),
+    ).run(
+        RealExecutorNativeSmokeInput(
+            runner_kind="subprocess",
+            launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+            enable_native_process=True,
+            auto_terminate=True,
+            use_supervisor=True,
+            supervisor_terminate_after_launch=True,
+            workspace_path=tmp_path.as_posix(),
+        )
+    )
+
+    assert result.smoke_status == "launch_started"
+    assert result.supervisor_registered is True
+    assert result.supervisor_status == RealExecutorProcessStatus.TERMINATED
+    assert result.supervisor_action_success is True
+    assert process_runner.terminate_calls == 1
+
+
+def test_supervisor_managed_smoke_can_cleanup_after_launch_without_deleting_workspace(
+    tmp_path,
+) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    sentinel = workspace_path / "sentinel.txt"
+    sentinel.write_text("keep")
+    supervisor = RealExecutorProcessSupervisor()
+
+    result = RealExecutorNativeSmokeRunner(
+        process_runner=_StartCountingRunner(),
+        process_supervisor=supervisor,
+    ).run(
+        RealExecutorNativeSmokeInput(
+            runner_kind="subprocess",
+            launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+            enable_native_process=True,
+            auto_terminate=True,
+            use_supervisor=True,
+            supervisor_terminate_after_launch=True,
+            supervisor_cleanup_after_launch=True,
+            workspace_path=workspace_path.as_posix(),
+        )
+    )
+
+    assert result.smoke_status == "launch_started"
+    assert result.supervisor_registered is True
+    assert result.supervisor_status == RealExecutorProcessStatus.CLEANUP_DONE
+    assert result.supervisor_cleanup_done is True
+    assert result.supervisor_action_success is True
+    assert supervisor.get_status("fake-process-handle").status == (
+        RealExecutorProcessStatus.MISSING
+    )
+    assert sentinel.exists()
+
+
 def test_workspace_path_must_be_absolute() -> None:
     with pytest.raises(ValidationError):
         RealExecutorNativeSmokeInput(workspace_path="relative/workspace")
@@ -176,6 +285,11 @@ def test_smoke_result_safe_summary_excludes_payload_and_sensitive_fields(tmp_pat
         "frontend_required",
         "frontend_change_allowed",
         "blocked_reasons",
+        "supervisor_enabled",
+        "supervisor_status",
+        "supervisor_registered",
+        "supervisor_cleanup_done",
+        "supervisor_action_success",
     }
     for forbidden in {
         "raw_command",
@@ -295,6 +409,30 @@ def test_cli_accepts_auto_terminate_without_native_process_in_dry_run(
     assert exit_code == 0
     assert summary["smoke_status"] == "dry_run_ready"
     assert "native_smoke_requires_termination_guard" not in summary["blocked_reasons"]
+
+
+def test_cli_accepts_supervisor_options_without_native_process_in_dry_run(
+    tmp_path,
+    capsys,
+) -> None:
+    exit_code, summary = _run_smoke_script(
+        [
+            "--runner",
+            "subprocess",
+            "--use-supervisor",
+            "--supervisor-terminate-after-launch",
+            "--supervisor-cleanup-after-launch",
+            "--workspace-path",
+            tmp_path.as_posix(),
+            "--json",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert summary["smoke_status"] == "dry_run_ready"
+    assert summary["supervisor_enabled"] is True
+    assert summary["supervisor_registered"] is False
 
 
 def test_smoke_module_and_script_do_not_add_process_env_git_or_api_surface() -> None:
