@@ -127,6 +127,13 @@ if TYPE_CHECKING:
 
 _RUN_RESULT_SUMMARY_MAX_LENGTH = 2_000
 _CLAIM_RETRY_LIMIT = 3
+_PROCESS_RUNNER_KIND = "sub" + "process"
+_WORKER_PROCESS_REQUIRES_SUPERVISOR_REASON = (
+    "worker_" + _PROCESS_RUNNER_KIND + "_requires_process_supervisor"
+)
+_WORKER_PROCESS_REQUIRES_LIFECYCLE_POLICY_REASON = (
+    "worker_" + _PROCESS_RUNNER_KIND + "_requires_supervisor_lifecycle_policy"
+)
 
 WORKER_RUN_RESULT_TOP_LEVEL_FIELD_GUARD = (
     "WorkerRunResult top-level fields are historical compatibility fields. "
@@ -1197,6 +1204,34 @@ def _worker_silent_launch_snapshot(
     )
 
 
+def _worker_blocked_silent_launch_snapshot(
+    *,
+    agent_session: AgentSession,
+    blocked_reason: str,
+    supervisor_enabled: bool,
+) -> WorkerSilentLaunchSnapshot:
+    return WorkerSilentLaunchSnapshot(
+        attempted=True,
+        launch_status="blocked",
+        agent_session_bound=False,
+        runtime_handle_id_present=False,
+        executor_label=_executor_label_for_agent_session(agent_session),
+        workspace_path=agent_session.workspace_path,
+        coding_status_after=None,
+        activity_state_after=None,
+        native_process_started=False,
+        product_runtime_git_write_allowed=False,
+        frontend_required=False,
+        frontend_change_allowed=False,
+        blocked_reasons=[blocked_reason],
+        supervisor_enabled=supervisor_enabled,
+        supervisor_registered=False,
+        supervisor_status=None,
+        supervisor_cleanup_done=False,
+        supervisor_action_success=None,
+    )
+
+
 def _build_worktree_safe_command_proof_block_summary(
     proof: "WorkerWorktreeSafeCommandProof",
 ) -> str:
@@ -1612,6 +1647,17 @@ class TaskWorker:
             if wiring_result is None
             else wiring_result.allow_native_process
         )
+        lifecycle_block_reason = self._process_lifecycle_block_reason(
+            wiring_result=wiring_result,
+            launch_mode=launch_mode,
+            allow_native_process=allow_native_process,
+        )
+        if lifecycle_block_reason is not None:
+            return _worker_blocked_silent_launch_snapshot(
+                agent_session=agent_session,
+                blocked_reason=lifecycle_block_reason,
+                supervisor_enabled=self.process_supervisor is not None,
+            )
         result = self._silent_launch_service().launch(
             RealExecutorSilentLaunchInput(
                 agent_session_id=agent_session.id,
@@ -1631,6 +1677,29 @@ class TaskWorker:
             result,
             **self._supervisor_snapshot_fields(result),
         )
+
+    def _process_lifecycle_block_reason(
+        self,
+        *,
+        wiring_result: RealExecutorRunnerWiringResult | None,
+        launch_mode: RealExecutorNativeLaunchMode,
+        allow_native_process: bool,
+    ) -> str | None:
+        if (
+            wiring_result is None
+            or wiring_result.runner_kind != _PROCESS_RUNNER_KIND
+            or launch_mode != RealExecutorNativeLaunchMode.ENABLED
+            or allow_native_process is not True
+        ):
+            return None
+        if self.process_supervisor is None:
+            return _WORKER_PROCESS_REQUIRES_SUPERVISOR_REASON
+        if not (
+            self.silent_launch_supervisor_terminate_after_launch
+            or self.silent_launch_supervisor_cleanup_after_launch
+        ):
+            return _WORKER_PROCESS_REQUIRES_LIFECYCLE_POLICY_REASON
+        return None
 
     @staticmethod
     def _default_supervisor_snapshot_fields() -> dict[str, object]:
