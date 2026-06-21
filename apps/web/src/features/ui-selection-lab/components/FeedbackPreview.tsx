@@ -12,7 +12,7 @@ import {
 } from "./ui";
 
 const notices = [
-  { title: "普通提示", body: "已保存当前 UI token 选择。" },
+  { title: "普通提示", body: "已保存当前视觉选择。" },
   { title: "警告提示", body: "该样张仍是隐藏实验页，不代表正式迁移完成。" },
   { title: "失败提示", body: "执行器连接失败时使用灰阶危险提示，不使用鲜红色。" },
 ] as const;
@@ -44,7 +44,7 @@ export function FeedbackPreview() {
               打开确认弹窗样张
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="ui-lab-dialog-enter">
             <DialogHeader>
               <DialogTitle>确认下一步操作</DialogTitle>
               <DialogDescription>删除、放行、重新执行会共享同一套 Minimal Dark 弹窗层级。</DialogDescription>
@@ -84,7 +84,7 @@ export function FeedbackPreview() {
               打开运行详情抽屉
             </Button>
           </DialogTrigger>
-          <DialogContent className="left-auto right-3 top-3 h-[calc(100dvh-1.5rem)] w-[min(92vw,420px)] translate-x-0 translate-y-0 overflow-hidden rounded-[24px] p-0">
+          <DialogContent className="ui-lab-dialog-enter left-auto right-3 top-3 h-[calc(100dvh-1.5rem)] w-[min(92vw,420px)] translate-x-0 translate-y-0 overflow-hidden rounded-[24px] p-0">
             <div className="flex h-full flex-col">
               <DialogHeader className="border-b border-[#3A3A3A] p-5">
                 <DialogTitle>运行详情</DialogTitle>
@@ -99,7 +99,7 @@ export function FeedbackPreview() {
                   <div className="text-xs text-[#8A8A8A]">摘要</div>
                   <p className="mt-1 leading-6">抽屉仅作为临时详情层，不作为固定右栏，避免破坏 ChatGPT-like 两栏主体验。</p>
                 </div>
-                <div className="rounded-2xl bg-[#222222] p-3 font-mono text-xs">run_id: ui_lab_preview_001</div>
+                <div className="rounded-2xl bg-[#222222] p-3 font-mono text-xs">运行记录: ui_lab_preview_001</div>
               </div>
             </div>
           </DialogContent>

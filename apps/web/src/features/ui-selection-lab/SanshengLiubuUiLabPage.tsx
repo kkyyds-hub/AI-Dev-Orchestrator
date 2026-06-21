@@ -9,7 +9,6 @@ import {
   CircleEllipsis,
   ClipboardCheck,
   FolderKanban,
-  Gauge,
   GitBranch,
   LayoutDashboard,
   MessageSquarePlus,
@@ -20,14 +19,16 @@ import {
   Wallet,
   XCircle,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type * as React from "react";
 
 import { cn } from "../../lib/cn";
-import { ChartPreview } from "./components/ChartPreview";
-import { DataListPreview } from "./components/DataListPreview";
-import { FeedbackPreview } from "./components/FeedbackPreview";
-import { ResponsiveNotes } from "./components/ResponsiveNotes";
+import {
+  AccountSettingsModal,
+  type WorkbenchAccountAdapter,
+} from "./components/AccountSettingsModal";
+import { ComponentPlayground } from "./components/ComponentPlayground";
+import { SidebarNavItem } from "./components/SidebarNavItem";
 import {
   Avatar,
   AvatarFallback,
@@ -39,23 +40,21 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
-  ReadbackRows,
   Separator,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  Textarea,
 } from "./components/ui";
 import { ConversationMessages } from "./components/WorkbenchMockConversation";
 import { MockPageContent } from "./components/WorkbenchMockPages";
+import type {
+  WorkbenchPageAdapterMode,
+  WorkbenchPageSurfaceData,
+} from "./components/WorkbenchMockPages";
+import { WorkbenchPlanFlowCard } from "./components/WorkbenchPlanFlowCards";
 import { WorkbenchPromptBox } from "./components/WorkbenchPromptBox";
 import {
   ApprovalsModal,
@@ -66,6 +65,15 @@ import {
   RepositoryQueueModal,
 } from "./components/WorkbenchRuntimeModals";
 import {
+  WorkbenchSettingsModal,
+  type WorkbenchSettingsAdapter,
+} from "./components/WorkbenchSettingsModal";
+import {
+  WorkbenchClarificationPanel,
+  WorkbenchProjectNextStepPanel,
+  WorkbenchUserActionStrip,
+} from "./components/WorkbenchUserDecisionSurfaces";
+import {
   getDefaultMessages,
   getNewConversationWelcome,
   mockConversationMessages,
@@ -75,6 +83,7 @@ import {
   type MockMessage,
   type ProjectGroup,
 } from "./mockInteractions";
+import { applyPlanFlowAction, createInitialPlanFlowState } from "./planFlowMock";
 
 // ── Tokens ─────────────────────────────────────────────────
 
@@ -97,7 +106,7 @@ const minimalDarkTokens = {
 } as const;
 
 const workbenchShellStyle = {
-  "--lab-sidebar-width": "clamp(248px, 20.5vw, 300px)",
+  "--lab-sidebar-width": "clamp(220px, 18vw, 260px)",
 } as React.CSSProperties;
 
 function createSupervisorConversation(id: string): Conversation {
@@ -106,6 +115,41 @@ function createSupervisorConversation(id: string): Conversation {
     title: "新的 AI 主管对话",
     status: "pending",
   };
+}
+
+function resolveMainPageContext(pageKey: WorkbenchMainPageKey) {
+  switch (pageKey) {
+    case "projects":
+      return {
+        title: "项目管理",
+        subtitle: "当前项目页面",
+        status: "page",
+      };
+    case "execution":
+      return {
+        title: "执行中心",
+        subtitle: "当前项目执行流",
+        status: "page",
+      };
+    case "deliverables":
+      return {
+        title: "成果中心",
+        subtitle: "工作台页面",
+        status: "page",
+      };
+    case "repository":
+      return {
+        title: "仓库",
+        subtitle: "当前项目工作区",
+        status: "page",
+      };
+    case "governance":
+      return {
+        title: "治理",
+        subtitle: "Skill 治理 · 当前项目：营销活动分析平台",
+        status: "page",
+      };
+  }
 }
 
 // ── Lab Logo ───────────────────────────────────────────────
@@ -127,51 +171,23 @@ function LabLogo() {
   );
 }
 
-// ── Sidebar Nav Item ───────────────────────────────────────
-
-type SidebarNavItemProps = {
-  label: string;
-  icon?: React.ComponentType<{ className?: string }>;
-  active?: boolean;
-  hover?: boolean;
-  muted?: boolean;
-  badge?: string;
-  className?: string;
-  onClick?: () => void;
-};
-
-function SidebarNavItem({ label, icon: Icon, active, hover, muted, badge, className, onClick }: SidebarNavItemProps) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onClick?.();
-      }}
-      className={cn(
-        "flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-sm transition-all duration-150 active:scale-[0.99]",
-        active && "bg-[#2C2C2C] text-white",
-        hover && "bg-[#222222] text-white",
-        !active && !hover && (muted ? "text-[#5F5F5F]" : "text-[#C7C7C7]"),
-        "hover:bg-[#222222] hover:text-white",
-        className,
-      )}
-    >
-      {Icon ? <Icon className="h-4 w-4 shrink-0 text-[#8A8A8A]" /> : null}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {badge ? <Badge className="h-5 border-[#3A3A3A] bg-[#2C2C2C] text-[11px] text-white">{badge}</Badge> : null}
-    </div>
-  );
-}
-
 // ── Toast ──────────────────────────────────────────────────
 
-function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+type ToastStatus = "queued" | "processing" | "done" | "failed";
+
+const toastStatusLabel: Record<ToastStatus, string> = {
+  queued: "已排队",
+  processing: "处理中",
+  done: "已完成",
+  failed: "失败",
+};
+
+function Toast({ message, status, onClose }: { message: string; status: ToastStatus; onClose: () => void }) {
   return (
-    <div className="fixed bottom-20 left-1/2 z-[100] -translate-x-1/2 animate-[fadeIn_150ms_ease-out]">
+    <div className="fixed bottom-20 left-1/2 z-[100] -translate-x-1/2 animate-[uiLabToastLifecycle_3000ms_ease-in-out_forwards]">
       <div className="flex items-center gap-3 rounded-full border border-[#3A3A3A] bg-[#202020] px-4 py-2.5 shadow-2xl shadow-black/60">
         <Check className="h-4 w-4 text-white" />
+        <span className="text-xs text-[#8A8A8A]">{toastStatusLabel[status]}</span>
         <span className="text-sm text-white">{message}</span>
         <button className="ml-1 rounded-full p-0.5 text-[#8A8A8A] transition-colors hover:text-white" onClick={onClose}>
           <XCircle className="h-4 w-4" />
@@ -206,7 +222,7 @@ function CreateProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(92vw,440px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,440px)]">
         <DialogHeader>
           <DialogTitle>创建项目</DialogTitle>
           <DialogDescription>
@@ -254,28 +270,121 @@ function CreateProjectDialog({
   );
 }
 
-// ── Workbench Preview (Interactive) ────────────────────────
+export type WorkbenchExperienceMode = "lab" | "real";
+export type WorkbenchMainPageKey =
+  | "projects"
+  | "execution"
+  | "deliverables"
+  | "repository"
+  | "governance";
+export type WorkbenchInitialModal = "settings" | "account";
 
-function WorkbenchPreview() {
+export type WorkbenchDirectorSurfaceContext = {
+  activeConversationId: string | null;
+  activeProjectId: string | null;
+  activeProjectName: string | null;
+  topContext: {
+    title: string;
+    subtitle: string;
+    status: string;
+  };
+};
+
+export interface WorkbenchExperienceProps {
+  mode?: WorkbenchExperienceMode;
+  projectGroups?: ProjectGroup[];
+  initialMainPage?: WorkbenchMainPageKey | null;
+  initialModal?: WorkbenchInitialModal | null;
+  pageAdapterMode?: WorkbenchPageAdapterMode;
+  surfaceData?: WorkbenchPageSurfaceData;
+  settingsAdapter?: WorkbenchSettingsAdapter;
+  accountAdapter?: WorkbenchAccountAdapter;
+  topActionSlot?: React.ReactNode;
+  repositoryBindingPanel?: React.ReactNode;
+  suppressPromptBox?: boolean;
+  renderTopActionSlot?: (context: WorkbenchDirectorSurfaceContext) => React.ReactNode;
+  renderRepositoryBindingPanel?: (context: WorkbenchDirectorSurfaceContext) => React.ReactNode;
+  renderDirectorSurface?: (context: WorkbenchDirectorSurfaceContext) => React.ReactNode;
+  onNewProjectSession?: () => void;
+}
+
+// ── Workbench Experience (Interactive) ─────────────────────
+
+export function WorkbenchPreview({
+  mode = "lab",
+  projectGroups,
+  initialMainPage = null,
+  initialModal = null,
+  pageAdapterMode,
+  surfaceData,
+  settingsAdapter,
+  accountAdapter,
+  topActionSlot,
+  repositoryBindingPanel,
+  suppressPromptBox = false,
+  renderTopActionSlot,
+  renderRepositoryBindingPanel,
+  renderDirectorSurface,
+  onNewProjectSession,
+}: WorkbenchExperienceProps = {}) {
   // -- state --
-  const [activeMainPage, setActiveMainPage] = useState<string | null>(null);
+  const [activeMainPage, setActiveMainPage] = useState<WorkbenchMainPageKey | null>(
+    initialMainPage,
+  );
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; status: ToastStatus } | null>(null);
   const [conversationMessages, setConversationMessages] = useState<Record<string, MockMessage[]>>(
     mockConversationMessages,
   );
   const [welcomeMessages, setWelcomeMessages] = useState<MockMessage[]>(getDefaultMessages());
   const [topContext, setTopContext] = useState({
-    title: "新会话",
-    subtitle: "未绑定项目 · 准备构建",
-    status: "ready" as string,
+    ...(initialMainPage
+      ? resolveMainPageContext(initialMainPage)
+      : {
+          title: "新会话",
+          subtitle: "未绑定项目 · 准备构建",
+          status: "ready",
+        }),
   });
   const [moreToolsExpanded, setMoreToolsExpanded] = useState(false);
-  const [projectGroupsState, setProjectGroupsState] = useState<ProjectGroup[]>(initialProjectGroups);
+  const [projectGroupsState, setProjectGroupsState] = useState<ProjectGroup[]>(
+    projectGroups ?? initialProjectGroups,
+  );
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(initialModal === "settings");
+  const [accountSettingsOpen, setAccountSettingsOpen] = useState(initialModal === "account");
   const [nextConvId, setNextConvId] = useState(10);
+  const [planFlowState, setPlanFlowState] = useState(createInitialPlanFlowState);
+
+  useEffect(() => {
+    if (!projectGroups) return;
+    setProjectGroupsState(projectGroups);
+  }, [projectGroups]);
+
+  useEffect(() => {
+    setActiveMainPage(initialMainPage);
+    setActiveConversationId(null);
+    setMoreToolsExpanded(false);
+    setTopContext(
+      initialMainPage
+        ? resolveMainPageContext(initialMainPage)
+        : {
+            title: "新会话",
+            subtitle: "未绑定项目 · 准备构建",
+            status: "ready",
+          },
+    );
+  }, [initialMainPage]);
+
+  useEffect(() => {
+    if (initialModal === "settings") {
+      setSettingsOpen(true);
+    } else if (initialModal === "account") {
+      setAccountSettingsOpen(true);
+    }
+  }, [initialModal]);
 
   // -- derived --
   const filteredGroups = useMemo(() => {
@@ -309,18 +418,24 @@ function WorkbenchPreview() {
     () => welcomeMessages.some((message) => message.content.includes("@「")),
     [welcomeMessages],
   );
+  const directorContext: WorkbenchDirectorSurfaceContext = {
+    activeConversationId,
+    activeProjectId: activeConversation?.project.id ?? null,
+    activeProjectName: activeConversation?.project.name ?? null,
+    topContext,
+  };
 
   // -- actions --
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2500);
+  const showToast = useCallback((message: string, status: ToastStatus = "done") => {
+    setToast({ message, status });
+    setTimeout(() => setToast(null), 3000);
   }, []);
 
   const handleQueueDiscussionAction = useCallback(
     (mode: "add" | "add-and-open", title: string) => {
       const discussionMessage: MockMessage = {
         role: "assistant",
-        content: `@「${title}」\n\n已加入工作台讨论。这里会继续澄清人工确认项，并生成下一步处理建议。\n\n当前为 mock，不接真实后端。`,
+        content: `@「${title}」\n\n已加入工作台讨论。这里会继续澄清人工确认项，并生成下一步处理建议。`,
         time: "刚刚",
       };
 
@@ -338,7 +453,7 @@ function WorkbenchPreview() {
       setActiveConversationId(null);
       setTopContext({
         title: "工作台讨论",
-        subtitle: `${title} · mock`,
+        subtitle: title,
         status: "pending",
       });
     },
@@ -346,8 +461,19 @@ function WorkbenchPreview() {
   );
 
   const handleNewProjectSession = useCallback(() => {
+    if (onNewProjectSession) {
+      onNewProjectSession();
+      setActiveMainPage(null);
+      setActiveConversationId(null);
+      setTopContext({
+        title: "新项目会话",
+        subtitle: "未绑定项目 · 准备构建",
+        status: "ready",
+      });
+      return;
+    }
     setCreateProjectOpen(true);
-  }, []);
+  }, [onNewProjectSession]);
 
   const handleAddConversationToProject = useCallback(
     (projectGroup: ProjectGroup, event?: React.MouseEvent<HTMLButtonElement>) => {
@@ -417,6 +543,88 @@ function WorkbenchPreview() {
     [nextConvId, projectGroupsState, showToast],
   );
 
+  const handlePlanFeedbackChange = useCallback((feedback: string) => {
+    setPlanFlowState((prev) => applyPlanFlowAction(prev, { type: "update_feedback", feedback }));
+  }, []);
+
+  const handleRequestPlanChanges = useCallback(
+    (feedback: string) => {
+      setPlanFlowState((prev) => applyPlanFlowAction(prev, { type: "request_changes", feedback }));
+      showToast("已记录修改意见 mock");
+    },
+    [showToast],
+  );
+
+  const handleRejectPlan = useCallback(() => {
+    setPlanFlowState((prev) => applyPlanFlowAction(prev, { type: "reject_plan" }));
+    showToast("已驳回计划草案 mock");
+  }, [showToast]);
+
+  const handleConfirmPlan = useCallback(() => {
+    setPlanFlowState((prev) => applyPlanFlowAction(prev, { type: "confirm_plan" }));
+    showToast("已确认计划草案 mock");
+  }, [showToast]);
+
+  const handleCreateFormalProject = useCallback(() => {
+    const projectName = planFlowState.projectName;
+    const convId = `conv-${nextConvId}`;
+    const projectId = `proj-formal-${nextConvId}`;
+    const formalConversation: Conversation = {
+      id: convId,
+      title: "正式项目启动",
+      status: "pending",
+    };
+
+    setNextConvId((n) => n + 1);
+    setPlanFlowState((prev) => applyPlanFlowAction(prev, { type: "create_project", projectName }));
+    setProjectGroupsState((prev) => {
+      const existing = prev.find((group) => group.name === projectName);
+      if (existing) {
+        return prev.map((group) =>
+          group.id === existing.id
+            ? { ...group, conversations: [...group.conversations, formalConversation] }
+            : group,
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: projectId,
+          name: projectName,
+          conversations: [formalConversation],
+        },
+      ];
+    });
+      setConversationMessages((prev) => ({
+        ...prev,
+        [convId]: [
+          {
+            role: "assistant",
+            content: `已创建正式项目「${projectName}」。\n\n下一步可以补充仓库、团队与执行边界。`,
+            time: "刚刚",
+          },
+        ],
+      }));
+    setActiveMainPage(null);
+    setActiveConversationId(convId);
+      setTopContext({
+        title: "正式项目启动",
+        subtitle: `${projectName} · 已创建`,
+        status: "pending",
+      });
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      projectGroupsState.forEach((group) => {
+        if (group.name !== projectName) next.add(group.id);
+      });
+      next.delete(projectId);
+      const existing = projectGroupsState.find((group) => group.name === projectName);
+      if (existing) next.delete(existing.id);
+      return next;
+    });
+      showToast("已创建正式项目");
+  }, [nextConvId, planFlowState.projectName, projectGroupsState, showToast]);
+
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
   }, []);
@@ -447,29 +655,17 @@ function WorkbenchPreview() {
   );
 
   const handlePageNav = useCallback((label: string) => {
-    const pageKeyMap: Record<string, string> = {
+    const pageKeyMap: Record<string, WorkbenchMainPageKey> = {
       "项目管理": "projects",
       "执行中心": "execution",
       "成果中心": "deliverables",
       "仓库": "repository",
       "治理": "governance",
     };
-    const key = pageKeyMap[label] ?? label;
+    const key = pageKeyMap[label] ?? "projects";
     setActiveMainPage(key);
     setActiveConversationId(null);
-    setTopContext({
-      title: label,
-      subtitle: label === "项目管理"
-        ? "当前项目页面 · mock"
-        : label === "执行中心"
-          ? "当前项目执行流 · mock"
-          : label === "仓库"
-            ? "当前项目工作区"
-          : label === "治理"
-            ? "Skill 治理 · 当前项目：营销活动分析平台 · mock"
-            : "工作台页面 · mock",
-      status: "page",
-    });
+    setTopContext(resolveMainPageContext(key));
   }, []);
 
   const handlePromptSend = useCallback(
@@ -495,7 +691,7 @@ function WorkbenchPreview() {
           }
         : {
             role: "assistant",
-            content: `收到：「${text}」\n\n这是 mock 回复。当前为实验页，不连接真实 AI 执行器。你的输入已记录在本地会话状态中。`,
+            content: `收到：「${text}」\n\n我已记录这条输入，会继续整理目标和下一步建议。`,
             time: timeStr,
           };
 
@@ -508,21 +704,52 @@ function WorkbenchPreview() {
         setWelcomeMessages((prev) => [...prev, newMsg, reply]);
       }
 
-      showToast("已添加到实验会话 mock");
+      showToast("已添加到会话");
     },
     [activeConversationId, conversationMessages, welcomeMessages, showToast],
   );
+
+  const activePlanFlowCard = activeConversationId ? (
+    <div className="grid gap-5">
+      {planFlowState.stage === "draft" ? <WorkbenchClarificationPanel /> : null}
+      <WorkbenchPlanFlowCard
+        state={planFlowState}
+        defaultCollapsed
+        onFeedbackChange={handlePlanFeedbackChange}
+        onRequestChanges={handleRequestPlanChanges}
+        onReject={handleRejectPlan}
+        onConfirm={handleConfirmPlan}
+        onCreateProject={handleCreateFormalProject}
+      />
+      {planFlowState.stage === "created" ? <WorkbenchProjectNextStepPanel /> : null}
+    </div>
+  ) : null;
 
   // -- render main content --
   function renderMainContent() {
     // If a main page is selected, show mock page
     if (activeMainPage && !activeConversationId) {
-      return <MockPageContent pageKey={activeMainPage} onQueueDiscussionAction={handleQueueDiscussionAction} />;
+      return (
+        <MockPageContent
+          pageKey={activeMainPage}
+          onQueueDiscussionAction={handleQueueDiscussionAction}
+          onTaskFeedback={showToast}
+          adapterMode={pageAdapterMode ?? (mode === "real" ? "hybrid" : "mock")}
+          surfaceData={surfaceData}
+          repositoryBindingPanel={
+            renderRepositoryBindingPanel?.(directorContext) ?? repositoryBindingPanel
+          }
+        />
+      );
+    }
+
+    if (renderDirectorSurface) {
+      return renderDirectorSurface(directorContext);
     }
 
     // If a conversation is selected, show conversation (no duplicate header)
     if (activeConversation && activeConversationId) {
-      return <ConversationMessages messages={messages} />;
+      return <ConversationMessages messages={messages} planFlowCard={activePlanFlowCard} />;
     }
 
     // Show queued workbench discussion content
@@ -557,7 +784,7 @@ function WorkbenchPreview() {
 
   return (
     <section
-      data-testid="ui-lab-workbench-preview"
+      data-testid={mode === "real" ? "workbench-main-shell" : "ui-lab-workbench-preview"}
       aria-label="三省六部 Workbench Preview"
       className="h-[100dvh] min-h-[720px] w-full overflow-hidden text-white"
       style={{ ...workbenchShellStyle, backgroundColor: minimalDarkTokens.appBg }}
@@ -741,16 +968,16 @@ function WorkbenchPreview() {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setAccountSettingsOpen(true)}>
                 <User className="mr-2 h-4 w-4 text-[#C7C7C7]" />
                 账户信息
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
                 <Settings className="mr-2 h-4 w-4 text-[#C7C7C7]" />
                 工作台设置
               </DropdownMenuItem>
               <DropdownMenuSeparator className="my-1 h-px bg-[#2C2C2C]" />
-              <DropdownMenuItem className="text-[#C7C7C7]">退出 mock 菜单</DropdownMenuItem>
+              <DropdownMenuItem className="text-[#C7C7C7]">退出菜单</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </aside>
@@ -758,10 +985,13 @@ function WorkbenchPreview() {
         {/* ── Main ── */}
         <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#000000]">
           {/* Top context bar */}
-          <div className="flex h-[68px] shrink-0 items-center justify-between border-b border-[#2A2A2A] px-5 md:px-8">
+          <div className="relative z-30 flex h-[68px] shrink-0 items-center justify-between border-b border-[#2A2A2A] px-5 md:px-8">
             <div className="min-w-0 flex-1 mr-4">
               <div className="truncate text-[15px] font-semibold text-white">{topContext.title}</div>
               <div className="mt-0.5 truncate text-[13px] text-[#8A8A8A]">{topContext.subtitle}</div>
+            </div>
+            <div className="mr-3 hidden shrink-0 md:block">
+              {renderTopActionSlot?.(directorContext) ?? topActionSlot ?? <WorkbenchUserActionStrip />}
             </div>
             <Badge className="h-7 shrink-0 gap-1.5 rounded-full border-[#2A2A2A] bg-transparent px-2.5 text-[11px] text-[#C7C7C7]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#C7C7C7]" />
@@ -771,7 +1001,7 @@ function WorkbenchPreview() {
 
           {renderMainContent()}
 
-          {activeMainPage !== "projects" && activeMainPage !== "execution" && activeMainPage !== "deliverables" && activeMainPage !== "repository" && activeMainPage !== "governance" ? (
+          {!suppressPromptBox && activeMainPage !== "projects" && activeMainPage !== "execution" && activeMainPage !== "deliverables" && activeMainPage !== "repository" && activeMainPage !== "governance" ? (
             <WorkbenchPromptBox onSend={handlePromptSend} />
           ) : null}
         </main>
@@ -783,9 +1013,19 @@ function WorkbenchPreview() {
         onOpenChange={setCreateProjectOpen}
         onCreate={handleCreateProject}
       />
+      <AccountSettingsModal
+        open={accountSettingsOpen}
+        onOpenChange={setAccountSettingsOpen}
+        adapter={accountAdapter}
+      />
+      <WorkbenchSettingsModal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        adapter={settingsAdapter}
+      />
 
       {/* Toast */}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} status={toast.status} onClose={() => setToast(null)} />}
       <style>{`
         .ui-lab-sidebar-scroll {
           scrollbar-width: none;
@@ -797,222 +1037,90 @@ function WorkbenchPreview() {
           width: 0;
           height: 0;
         }
+
+        .ui-lab-page-enter {
+          animation: uiLabPageEnter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        .ui-lab-panel-enter {
+          animation: uiLabPanelEnter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        .ui-lab-popover-enter {
+          transform-origin: top right;
+          will-change: opacity, transform;
+        }
+
+        .ui-lab-dialog-enter {
+          animation: uiLabDialogEnter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        .ui-lab-detail-switch {
+          animation: uiLabDetailSwitch 150ms cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        @keyframes uiLabPageEnter {
+          from {
+            opacity: 0;
+            translate: 0 8px;
+          }
+          to {
+            opacity: 1;
+            translate: 0 0;
+          }
+        }
+
+        @keyframes uiLabPanelEnter {
+          from {
+            opacity: 0;
+            translate: 0 6px;
+          }
+          to {
+            opacity: 1;
+            translate: 0 0;
+          }
+        }
+
+        @keyframes uiLabDialogEnter {
+          from {
+            opacity: 0;
+            translate: 0 4px;
+            scale: 0.985;
+          }
+          to {
+            opacity: 1;
+            translate: 0 0;
+            scale: 1;
+          }
+        }
+
+        @keyframes uiLabDetailSwitch {
+          from {
+            opacity: 0;
+            translate: 0 4px;
+          }
+          to {
+            opacity: 1;
+            translate: 0 0;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .ui-lab-page-enter,
+          .ui-lab-panel-enter,
+          .ui-lab-popover-enter,
+          .ui-lab-dialog-enter,
+          .ui-lab-detail-switch,
+          [class*="uiLabToastLifecycle"],
+          [class*="animate-pulse"] {
+            animation-duration: 1ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 1ms !important;
+            translate: none !important;
+            scale: none !important;
+          }
+        }
       `}</style>
-    </section>
-  );
-}
-
-// ── Component Playground (updated with Interaction States) ─
-
-const tabCopy = {
-  projects: "项目与会话入口，适合承载目标、范围、阶段计划和上下文。",
-  execution: "执行状态、Agent 队列、失败恢复和人工介入会放在这里。",
-  deliverables: "沉淀文档、代码变更、审查记录与可交付证据。",
-  governance: "审批、策略、权限、成本与记忆治理的集中控制区。",
-};
-
-function ComponentRow({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="border-t border-[#2A2A2A] py-7">
-      <div className="mb-4 text-sm font-semibold text-white">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function ComponentPlayground() {
-  const [demoCollapsed, setDemoCollapsed] = useState(false);
-
-  return (
-    <section aria-label="Minimal Dark Tokens" className="bg-[#050505] px-8 py-14 text-white">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div className="text-sm font-medium text-[#8A8A8A]">Minimal Dark Tokens / 组件状态预览</div>
-            <h2 className="mt-3 text-2xl font-semibold tracking-normal text-white">三省六部 Minimal Dark Tokens</h2>
-          </div>
-          <Badge className="h-7 rounded-full">shadcn-style + Radix UI + Tailwind + lucide-react</Badge>
-        </div>
-
-        <div>
-          <ComponentRow title="Button">
-            <div className="flex flex-wrap gap-3">
-              <Button>Primary</Button>
-              <Button variant="secondary">Secondary</Button>
-              <Button variant="ghost">Ghost</Button>
-              <Button variant="destructive">Destructive muted</Button>
-            </div>
-          </ComponentRow>
-
-          <ComponentRow title="Input">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
-                <Input className="pl-10" placeholder="搜索项目、会话、任务..." />
-              </div>
-              <Input placeholder="普通输入框样式" />
-            </div>
-          </ComponentRow>
-
-          <ComponentRow title="PromptBox">
-            <div className="grid gap-3 md:grid-cols-2">
-              <Textarea className="min-h-20" placeholder="compact prompt box" />
-              <Textarea className="min-h-32" placeholder="comfortable prompt box" />
-            </div>
-          </ComponentRow>
-
-          <ComponentRow title="Sidebar row">
-            <div className="grid gap-2 md:grid-cols-4">
-              <SidebarNavItem label="normal" icon={Gauge} />
-              <SidebarNavItem label="hover" icon={Gauge} hover />
-              <SidebarNavItem label="active" icon={Gauge} active />
-              <SidebarNavItem label="with badge" icon={Gauge} badge="2" />
-            </div>
-          </ComponentRow>
-
-          <ComponentRow title="Popover / Dropdown">
-            <div className="flex flex-wrap gap-3">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="secondary">
-                    <Settings className="h-4 w-4" />
-                    用户设置菜单 mock
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem>偏好设置</DropdownMenuItem>
-                  <DropdownMenuItem>模型策略</DropdownMenuItem>
-                  <DropdownMenuItem>通知方式</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </ComponentRow>
-
-          <ComponentRow title="Dialog">
-            <div className="flex flex-wrap gap-3">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button>
-                    <ClipboardCheck className="h-4 w-4" />
-                    审批确认弹窗 mock
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>确认放行本次审批？</DialogTitle>
-                    <DialogDescription>
-                      这是组件选型实验页的 mock 弹窗，用于验证 Radix Dialog 的暗色层级、按钮区和可访问性。
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="mt-5 rounded-2xl bg-[#222222] p-3 text-sm text-[#C7C7C7]">
-                    二手交易平台 MVP / 商品发布与搜索规划 / Partial
-                  </div>
-                  <div className="mt-5 flex justify-end gap-3">
-                    <DialogClose asChild>
-                      <Button variant="secondary">取消</Button>
-                    </DialogClose>
-                    <DialogClose asChild>
-                      <Button>确认</Button>
-                    </DialogClose>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </ComponentRow>
-
-          <ComponentRow title="Tabs">
-            <Tabs defaultValue="projects">
-              <TabsList className="flex w-full justify-start overflow-x-auto">
-                <TabsTrigger value="projects">项目管理</TabsTrigger>
-                <TabsTrigger value="execution">执行中心</TabsTrigger>
-                <TabsTrigger value="deliverables">成果中心</TabsTrigger>
-                <TabsTrigger value="governance">治理</TabsTrigger>
-              </TabsList>
-              <TabsContent value="projects">{tabCopy.projects}</TabsContent>
-              <TabsContent value="execution">{tabCopy.execution}</TabsContent>
-              <TabsContent value="deliverables">{tabCopy.deliverables}</TabsContent>
-              <TabsContent value="governance">{tabCopy.governance}</TabsContent>
-            </Tabs>
-          </ComponentRow>
-
-          {/* ── INTERACTION STATES SECTION ── */}
-          <ComponentRow title="Interaction States / 交互状态预览">
-            <div className="space-y-3">
-              <div className="rounded-2xl bg-[#222222] px-4 py-3 text-sm text-white">
-                hover row — 灰色圆角背景 #222222
-              </div>
-              <div className="rounded-2xl bg-[#2C2C2C] px-4 py-3 text-sm text-white">
-                active row — 深灰圆角背景 #2A2A2A
-              </div>
-              <button className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-medium text-black transition-all active:scale-[0.98]">
-                pressed button — active:scale-[0.98]
-              </button>
-              <input
-                className="w-full rounded-full border-2 border-[#3A3A3A] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition-all focus:border-[#2C2C2C] focus:ring-2 focus:ring-white/10"
-                placeholder="focused input — border 变亮 + ring"
-                readOnly
-              />
-              <div className="flex items-center gap-3 rounded-2xl bg-[#202020] px-4 py-3 text-sm text-white shadow-2xl shadow-black/60">
-                <span className="flex items-center gap-1.5 rounded-full bg-white px-2 py-1 text-xs text-black">
-                  <Check className="h-3 w-3" />
-                  opened dialog trigger
-                </span>
-                opened dialog — #1C1C1C 背景 + 阴影
-              </div>
-
-              {/* collapsible project row demo */}
-              <div>
-                <button
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-white transition-colors hover:bg-[#222222]"
-                  onClick={() => setDemoCollapsed(!demoCollapsed)}
-                >
-                  <ChevronDown
-                    className="h-4 w-4 text-[#8A8A8A] transition-transform duration-200"
-                    style={{ transform: demoCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
-                  />
-                  collapsible project row
-                </button>
-                {!demoCollapsed && (
-                  <div className="mt-1 space-y-1 pl-7">
-                    <div className="rounded-md bg-[#2C2C2C] px-3 py-2 text-sm text-white">
-                      selected conversation row — active bg
-                    </div>
-                    <div className="rounded-md px-3 py-2 text-sm text-[#C7C7C7] transition-colors hover:bg-[#222222] hover:text-white">
-                      normal conversation row — hover bg only
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </ComponentRow>
-        </div>
-
-          <ComponentRow title="ReadbackRows">
-            <ReadbackRows
-              rows={[
-                ["运行", "running · run_7F3A"],
-                ["Git", "只读预检 · 写入关闭"],
-                ["质量闸门", "等待结果"],
-              ]}
-              records={[
-                "11:34:08 读取当前项目上下文",
-                "11:34:37 生成接入任务拆分建议",
-              ]}
-              footer="仅展示读回信息，不触发执行操作 · mock"
-            />
-          </ComponentRow>
-
-        <ChartPreview />
-        <DataListPreview />
-        <FeedbackPreview />
-        <ResponsiveNotes />
-
-        <div className="mt-8 grid gap-3 text-sm text-[#8A8A8A] md:grid-cols-3">
-          <div className="rounded-2xl px-3 py-2 hover:bg-[#222222]">源码可控：组件代码在项目内继续演进。</div>
-          <div className="rounded-2xl px-3 py-2 hover:bg-[#222222]">依赖克制：不新增更多 UI 库。</div>
-          <div className="rounded-2xl px-3 py-2 hover:bg-[#222222]">可回滚隔离：隐藏路由不影响正式页面。</div>
-        </div>
-      </div>
     </section>
   );
 }
@@ -1026,7 +1134,7 @@ export function SanshengLiubuUiLabPage() {
       <ComponentPlayground />
       <div className="border-t border-[#2A2A2A] bg-[#050505] px-8 py-6 text-center text-xs text-[#5F5F5F]">
         <XCircle className="mr-2 inline h-3.5 w-3.5" />
-        隐藏实验页：不接真实执行器、不写后端、不改正式 Workbench。
+        隐藏实验页：同一套工作台组件的 mock / preview 入口。
       </div>
     </div>
   );

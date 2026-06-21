@@ -48,7 +48,7 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
       style={{ width: "min(760px, calc(100vw - var(--lab-sidebar-width) - 64px))" }}
     >
       <div
-        className={`flex min-h-16 items-end gap-4 rounded-[24px] border bg-[#161616]/95 px-4 py-3 shadow-2xl shadow-black/70 ring-1 ring-white/[0.03] backdrop-blur-md transition-all duration-150 md:min-h-[72px] md:px-5 md:py-4 ${
+        className={`ui-lab-panel-enter flex min-h-16 items-end gap-4 rounded-[24px] border bg-[#161616]/95 px-4 py-3 shadow-2xl shadow-black/70 ring-1 ring-white/[0.03] backdrop-blur-md transition-all duration-150 md:min-h-[72px] md:px-5 md:py-4 ${
           isActive ? "border-[#3A3A3A]" : "border-[#333333]"
         }`}
       >

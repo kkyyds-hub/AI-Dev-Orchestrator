@@ -12,17 +12,171 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  background-color: #212121;
+  background-color: #000000;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  background: #212121;
+  background: #000000;
 }
 
 #root {
   min-height: 100vh;
+}
+
+@keyframes director-shell-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes director-panel-slide {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes director-status-pulse {
+  0%,
+  100% {
+    opacity: 0.58;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+.director-shell-fade {
+  animation: director-shell-fade 220ms ease-out both;
+}
+
+.director-panel-slide {
+  animation: director-panel-slide 240ms ease-out both;
+}
+
+.director-status-pulse {
+  animation: director-status-pulse 1.8s ease-in-out infinite;
+}
+
+.minimal-director-shell {
+  --director-bg: #000000;
+  --director-sidebar: #080808;
+  --director-surface: #111111;
+  --director-surface-soft: #171717;
+  --director-surface-hover: #222222;
+  --director-border: #2a2a2a;
+  --director-border-strong: #3a3a3a;
+  --director-text: #ffffff;
+  --director-text-soft: #c7c7c7;
+  --director-text-muted: #8a8a8a;
+  --director-text-disabled: #5f5f5f;
+}
+
+.minimal-director-shell [class*="text-cyan"],
+.minimal-director-shell [class*="text-amber"],
+.minimal-director-shell [class*="text-rose"],
+.minimal-director-shell [class*="text-red"],
+.minimal-director-shell [class*="text-emerald"],
+.minimal-director-shell [class*="text-green"],
+.minimal-director-shell [class*="text-sky"],
+.minimal-director-shell [class*="text-blue"],
+.minimal-director-shell [class*="text-violet"],
+.minimal-director-shell [class*="text-purple"],
+.minimal-director-shell [class*="text-[#8ea2ff]"],
+.minimal-director-shell [class*="text-[#b5c2ff]"],
+.minimal-director-shell [class*="text-[#dce3ff]"] {
+  color: var(--director-text-soft) !important;
+}
+
+.minimal-director-shell [class*="bg-cyan"],
+.minimal-director-shell [class*="bg-amber"],
+.minimal-director-shell [class*="bg-rose"],
+.minimal-director-shell [class*="bg-red"],
+.minimal-director-shell [class*="bg-emerald"],
+.minimal-director-shell [class*="bg-green"],
+.minimal-director-shell [class*="bg-sky"],
+.minimal-director-shell [class*="bg-blue"],
+.minimal-director-shell [class*="bg-violet"],
+.minimal-director-shell [class*="bg-purple"],
+.minimal-director-shell [class*="bg-[#8ea2ff]"] {
+  background: var(--director-surface) !important;
+}
+
+.minimal-director-shell [class*="border-cyan"],
+.minimal-director-shell [class*="border-amber"],
+.minimal-director-shell [class*="border-rose"],
+.minimal-director-shell [class*="border-red"],
+.minimal-director-shell [class*="border-emerald"],
+.minimal-director-shell [class*="border-green"],
+.minimal-director-shell [class*="border-sky"],
+.minimal-director-shell [class*="border-blue"],
+.minimal-director-shell [class*="border-violet"],
+.minimal-director-shell [class*="border-purple"],
+.minimal-director-shell [class*="border-[#8ea2ff]"] {
+  border-color: var(--director-border) !important;
+}
+
+.minimal-director-shell [class*="ring-cyan"],
+.minimal-director-shell [class*="ring-amber"],
+.minimal-director-shell [class*="ring-rose"],
+.minimal-director-shell [class*="ring-red"],
+.minimal-director-shell [class*="ring-emerald"],
+.minimal-director-shell [class*="ring-blue"],
+.minimal-director-shell [class*="ring-violet"] {
+  --tw-ring-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.minimal-director-shell .director-minimal-workbench aside,
+.minimal-director-shell .director-minimal-workbench article,
+.minimal-director-shell .director-minimal-workbench [class*="bg-[#1a1a1a]"],
+.minimal-director-shell .director-minimal-workbench [class*="bg-[#202020]"],
+.minimal-director-shell .director-minimal-workbench [class*="bg-[#1f1f1f]"] {
+  background-color: var(--director-surface) !important;
+  border-color: var(--director-border) !important;
+}
+
+.minimal-director-shell .director-minimal-workbench [data-testid="director-chat-entry"] {
+  background-color: #000000 !important;
+}
+
+.minimal-director-shell .director-minimal-workbench button[class*="bg-white"],
+.minimal-director-shell .director-minimal-workbench a[class*="bg-white"] {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.minimal-director-shell .director-minimal-workbench button:not([class*="bg-white"]):hover,
+.minimal-director-shell .director-minimal-workbench a:not([class*="bg-white"]):hover {
+  background-color: var(--director-surface-hover) !important;
+}
+
+.minimal-director-shell .director-minimal-workbench input,
+.minimal-director-shell .director-minimal-workbench select,
+.minimal-director-shell .director-minimal-workbench textarea {
+  background-color: var(--director-surface-soft) !important;
+  border-color: var(--director-border) !important;
+  color: var(--director-text) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .director-shell-fade,
+  .director-panel-slide,
+  .director-status-pulse {
+    animation: none;
+  }
 }
 
 /* Project domain visual governance: quiet neutral workspace, not stacked blue cards. */
@@ -111,4 +265,80 @@ body {
   border-left-color: transparent !important;
   border-right-color: transparent !important;
   border-radius: 0 !important;
+}
+
+@keyframes settingsDialogEnter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes settingsPanelExpand {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes uiLabSettingsDialogEnter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 12px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes uiLabToastLifecycle {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  8% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  86% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+.settings-dialog-enter {
+  animation: settingsDialogEnter 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-panel-expand {
+  animation: settingsPanelExpand 180ms ease-out;
+}
+
+.ui-lab-settings-dialog-motion[data-state="open"] {
+  animation: uiLabSettingsDialogEnter 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ui-lab-settings-dialog-motion[data-state="closed"] {
+  transform: translate(-50%, calc(-50% + 8px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-dialog-enter,
+  .settings-panel-expand,
+  .ui-lab-settings-dialog-motion[data-state="open"] {
+    animation: none;
+  }
 }

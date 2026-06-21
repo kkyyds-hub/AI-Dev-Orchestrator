@@ -12,6 +12,7 @@ import {
   fetchBossProjectOverview,
   fetchProjectChangePlans,
   fetchProjectDetail,
+  fetchProjectMemoryGovernanceState,
   fetchProjectMemorySnapshot,
   fetchProjectTimeline,
   fetchProjectSopTemplates,
@@ -237,6 +238,15 @@ export function useProjectMemorySnapshot(projectId: string | null) {
   return useQuery({
     queryKey: ["project-memory", projectId, "snapshot"],
     queryFn: () => fetchProjectMemorySnapshot(projectId ?? ""),
+    enabled: projectId !== null,
+    staleTime: 30_000,
+  });
+}
+
+export function useProjectMemoryGovernanceState(projectId: string | null) {
+  return useQuery({
+    queryKey: ["project-memory", projectId, "governance"],
+    queryFn: () => fetchProjectMemoryGovernanceState(projectId ?? ""),
     enabled: projectId !== null,
     staleTime: 30_000,
   });

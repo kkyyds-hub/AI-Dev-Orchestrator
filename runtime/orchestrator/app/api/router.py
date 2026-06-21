@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.api.routes.account_profile import router as account_profile_router
 from app.api.routes.agent_threads import router as agent_threads_router
 from app.api.routes.approvals import router as approvals_router
 from app.api.routes.console import router as console_router
@@ -29,6 +30,7 @@ from app.api.routes.workers import router as workers_router
 api_router = APIRouter()
 
 api_router.include_router(health_router)
+api_router.include_router(account_profile_router)
 api_router.include_router(events_router)
 api_router.include_router(executors_router)
 api_router.include_router(git_write_router)

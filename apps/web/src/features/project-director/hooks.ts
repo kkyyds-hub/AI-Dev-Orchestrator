@@ -130,6 +130,7 @@ export function useCreateProjectDirectorSession() {
 
 export function useProjectDirectorWorkbenchResume(
   input: FetchProjectDirectorWorkbenchResumeInput,
+  options?: ProjectDirectorConversationQueryOptions,
 ) {
   return useQuery({
     queryKey: [
@@ -140,6 +141,7 @@ export function useProjectDirectorWorkbenchResume(
       input.sessionId ?? null,
     ],
     queryFn: () => fetchProjectDirectorWorkbenchResume(input),
+    enabled: options?.enabled,
     retry: false,
   });
 }

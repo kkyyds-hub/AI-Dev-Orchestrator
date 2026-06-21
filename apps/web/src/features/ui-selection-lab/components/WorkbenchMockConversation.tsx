@@ -1,4 +1,5 @@
 import { Bot } from "lucide-react";
+import type * as React from "react";
 
 import type { MessageCard, MessageCardType, MockMessage } from "../mockInteractions";
 
@@ -13,7 +14,7 @@ function MessageCardBlock({ card }: { card: MessageCard }) {
   const label = cardLabelMap[card.type] ?? card.type;
 
   return (
-    <div className="mt-3 max-w-[640px] rounded-2xl border border-[#2A2A2A] bg-[#0B0B0B] p-4">
+    <div className="ui-lab-panel-enter mt-3 max-w-[640px] rounded-2xl border border-[#2A2A2A] bg-[#0B0B0B] p-4">
       {/* semantic label */}
       <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-[#8A8A8A]">
         {label}
@@ -61,11 +62,17 @@ function MessageCardBlock({ card }: { card: MessageCard }) {
 
 export function ConversationMessages({
   messages,
+  topSurface,
+  planFlowCard,
 }: {
   messages: MockMessage[];
+  topSurface?: React.ReactNode;
+  planFlowCard?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-4 pt-6 md:px-8">
+    <div className="ui-lab-page-enter flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-4 pt-6 md:px-8">
+      {topSurface ? <div className="mb-6">{topSurface}</div> : null}
+
       {messages.map((msg, i) => {
         const isAssistant = msg.role === "assistant";
 
@@ -112,7 +119,22 @@ export function ConversationMessages({
         );
       })}
 
-      {messages.length === 0 && (
+      {planFlowCard ? (
+        <div className="ui-lab-panel-enter mb-6 flex gap-3 justify-start">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#222222]">
+            <Bot className="h-4 w-4 text-[#C7C7C7]" />
+          </div>
+          <div className="min-w-0 w-full max-w-[920px]">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="text-sm font-medium text-white">AI 项目主管</span>
+              <span className="text-xs text-[#5F5F5F]">刚刚</span>
+            </div>
+            {planFlowCard}
+          </div>
+        </div>
+      ) : null}
+
+      {messages.length === 0 && !planFlowCard && (
         <div className="flex flex-1 items-center justify-center">
           <p className="text-sm text-[#8A8A8A]">暂无消息</p>
         </div>

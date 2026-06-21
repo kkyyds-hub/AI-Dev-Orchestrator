@@ -7,10 +7,11 @@ import {
   FileText,
   FolderOpen,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type * as React from "react";
 
 import {
+  Badge,
   Button,
   Dialog,
   DialogClose,
@@ -23,6 +24,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Input,
   ReadbackRows,
   Separator,
   Tabs,
@@ -32,6 +34,8 @@ import {
   Textarea,
 } from "./ui";
 import { mainPageMockContents, type MainPageContent } from "../mockInteractions";
+
+export type WorkbenchPageAdapterMode = "mock" | "real" | "hybrid";
 
 const projectScopeRows = [
   ["项目目标", "构建营销数据分析平台，支持多维度洞察与增长决策"],
@@ -112,7 +116,7 @@ type ExecutionQueueItemViewModel = {
   can_add_to_workbench: boolean;
 };
 
-type ExecutionRunViewModel = {
+export type ExecutionRunViewModel = {
   id: string;
   title: string;
   status: ExecutionRunStatus;
@@ -130,10 +134,10 @@ type ExecutionRunViewModel = {
   steps: readonly ExecutionStepViewModel[];
   evidence_tabs: readonly ExecutionEvidenceTabViewModel[];
   queue_items: readonly ExecutionQueueItemViewModel[];
-  backend_status: "mock" | "unavailable";
+  backend_status: "mock" | "real" | "unavailable";
 };
 
-type ExecutionPageViewState =
+export type ExecutionPageViewState =
   | "ready"
   | "idle"
   | "loading"
@@ -145,11 +149,11 @@ type ExecutionPageViewState =
 
 const executionRun: ExecutionRunViewModel = {
   id: "run_7F3A",
-  title: "AI 正在处理：数据接入模块联调",
+  title: "AI 正在处理：数据接入模块对接",
   status: "running",
-  status_label: "running · mock",
+  status_label: "running",
   executor_label: "Codex",
-  worker_label: "Worker 1/3",
+  worker_label: "执行单元 1/3",
   environment_label: "运行环境就绪",
   budget_label: "预算正常",
   git_write_status: "disabled",
@@ -158,7 +162,7 @@ const executionRun: ExecutionRunViewModel = {
   current_summary: "正在校验数据源连通性，并生成接入任务拆分建议。",
   safety_note: "当前仅展示处理进度，不执行提交、推送或写入操作。",
   status_rows: [
-    ["运行", "running · run_7F3A"],
+    ["运行", "进行中 · 已记录"],
     ["运行环境", "ready"],
     ["工作区", "clean"],
     ["Git", "只读预检 · 写入关闭"],
@@ -174,18 +178,18 @@ const executionRun: ExecutionRunViewModel = {
       state: "done",
       rows: [
         ["步骤", "已领取任务"],
-        ["执行器", "Worker 1 / 3"],
+        ["执行器", "执行单元 1 / 3"],
         ["领取时间", "11:32:41"],
-        ["任务", "数据接入模块联调"],
+        ["任务", "数据接入模块对接"],
         ["领取结果", "已领取并确认"],
         ["下一步", "建立执行上下文"],
       ],
       logs: [
-        "11:32:41 Worker 1 领取任务",
+        "11:32:41 执行单元 1 领取任务",
         "11:32:41 校验任务状态为 running",
         "11:32:42 准备加载项目上下文",
       ],
-      footer: "仅展示步骤读回，不触发执行操作 · mock",
+      footer: "仅展示步骤读回，不触发执行操作",
     },
     {
       id: "step_context",
@@ -203,9 +207,9 @@ const executionRun: ExecutionRunViewModel = {
       logs: [
         "11:32:43 加载项目目标与任务边界",
         "11:32:45 读取最近运行摘要",
-        "11:32:47 确认 ready_for_execution true",
+        "11:32:47 确认 上下文已就绪",
       ],
-      footer: "上下文内容来自当前项目 mock 数据，不代表真实后端响应。",
+      footer: "上下文内容来自当前项目 数据，仅供当前视图参考。",
     },
     {
       id: "step_executing",
@@ -214,8 +218,8 @@ const executionRun: ExecutionRunViewModel = {
       state: "current",
       rows: [
         ["步骤", "执行中"],
-        ["执行器", "Codex · Worker 1 / 3"],
-        ["Run ID", "run_7F3A"],
+        ["执行器", "Codex · 执行单元 1 / 3"],
+        ["运行记录", "已记录"],
         ["开始时间", "11:34:08"],
         ["当前动作", "校验数据源连通性并生成接入任务拆分建议"],
         ["下一步", "等待结果回写"],
@@ -226,7 +230,7 @@ const executionRun: ExecutionRunViewModel = {
         "11:34:19 校验数据源连接参数",
         "11:34:37 生成接入任务拆分建议",
       ],
-      footer: "仅展示当前步骤读回，不触发执行操作 · mock",
+      footer: "仅展示当前步骤读回，不触发执行操作",
     },
     {
       id: "step_writeback",
@@ -242,11 +246,11 @@ const executionRun: ExecutionRunViewModel = {
         ["风险", "暂无阻塞项"],
       ],
       logs: [
-        "等待 Worker 返回结果摘要",
+        "等待 执行单元 返回结果摘要",
         "等待质量闸门更新",
         "等待页面刷新执行读回",
       ],
-      footer: "仅展示等待状态，不执行提交、推送或写入操作 · mock",
+      footer: "仅展示等待状态，不执行提交、推送或写入操作",
     },
   ],
   evidence_tabs: [
@@ -254,47 +258,47 @@ const executionRun: ExecutionRunViewModel = {
       key: "run",
       label: "运行记录",
       title: "运行记录",
-      description: "当前任务运行摘要 · mock",
+      description: "当前任务运行摘要",
       rows: [
-        ["任务", "数据接入模块联调"],
-        ["Run ID", "run_7F3A"],
-        ["Worker", "Worker 1 / 3"],
+        ["任务", "数据接入模块对接"],
+        ["运行记录", "已记录"],
+        ["执行单元", "执行单元 1 / 3"],
         ["状态", "running"],
         ["开始时间", "11:32:41"],
         ["预计完成", "11:40 前"],
         ["模型", "Codex · gpt-5.5"],
         ["成本预估", "$0.012"],
-        ["Token", "4.8k"],
-        ["Log", "logs/runs/run_7F3A.log"],
+        ["用量", "4.8k"],
+        ["日志", "已归档"],
       ],
-      footer: "仅展示运行读回，不触发执行操作 · mock",
+      footer: "仅展示运行读回，不触发执行操作",
     },
     {
       key: "context",
       label: "上下文",
       title: "上下文",
-      description: "执行前上下文摘要 · mock",
+      description: "执行前上下文摘要",
       rows: [
         ["项目", "营销活动分析平台"],
         ["当前任务输入", "校验数据源连通性并拆分接入任务"],
         ["依赖", "无阻塞依赖"],
         ["记忆召回", "命中 3 条项目背景"],
         ["验收口径", "接入路径明确、验证命令完整、风险说明清晰"],
-        ["上下文状态", "ready_for_execution true"],
+        ["上下文状态", "上下文已就绪"],
       ],
-      footer: "上下文来自当前项目 mock 数据，不代表真实后端响应。",
+      footer: "上下文来自当前项目 数据，仅供当前视图参考。",
     },
     {
       key: "decision",
       label: "决策",
       title: "决策",
-      description: "为什么由当前执行器处理 · mock",
+      description: "为什么由当前执行器处理",
       rows: [
         ["路由结果", "选择 Codex"],
-        ["原因", "当前任务偏代码与联调，适合代码执行器处理"],
+        ["原因", "当前任务偏代码与对接，适合代码执行器处理"],
         ["未选择 DeepSeek", "本轮不是规划总结任务"],
         ["执行模式", "只读运行"],
-        ["验证模式", "mock verification"],
+        ["验证模式", "示例 verification"],
         ["下一步", "等待结果回写后进入审批 / 交付检查"],
       ],
       footer: "该回放只解释调度决策，不代表真实模型调用。",
@@ -303,7 +307,7 @@ const executionRun: ExecutionRunViewModel = {
       key: "safety",
       label: "安全",
       title: "安全",
-      description: "运行前安全边界读回 · mock",
+      description: "运行前安全边界读回",
       rows: [
         ["Runtime", "ready"],
         ["Workspace", "clean"],
@@ -323,17 +327,17 @@ const executionRun: ExecutionRunViewModel = {
       state_label: "待人工",
       title: "数据源账号确认",
       note: "需产品负责人确认",
-      description: "后续安排详情 · mock",
+      description: "后续安排详情",
       rows: [
         ["状态", "待人工"],
         ["队列位置", "1"],
         ["为什么排在后面", "当前执行任务完成后需要确认数据源账号"],
-        ["依赖", "数据接入模块联调"],
+        ["依赖", "数据接入模块对接"],
         ["下一步处理者", "产品负责人"],
         ["处理方式", "回到工作台讨论后确认"],
         ["风险", "账号未确认会阻塞后续接入验证"],
       ],
-      footer: "仅展示队列任务读回，不触发执行操作 · mock",
+      footer: "仅展示队列任务读回，不触发执行操作",
       can_add_to_workbench: true,
     },
     {
@@ -342,7 +346,7 @@ const executionRun: ExecutionRunViewModel = {
       state_label: "待执行",
       title: "指标口径确认",
       note: "等待前置事项",
-      description: "后续安排详情 · mock",
+      description: "后续安排详情",
       rows: [
         ["状态", "待执行"],
         ["队列位置", "2"],
@@ -352,26 +356,26 @@ const executionRun: ExecutionRunViewModel = {
         ["处理方式", "AI 评估后自动执行"],
         ["风险", "口径未确认会影响报表验收"],
       ],
-      footer: "仅展示队列任务读回，不触发执行操作 · mock",
+      footer: "仅展示队列任务读回，不触发执行操作",
       can_add_to_workbench: false,
     },
     {
       id: "queue_3",
       state: "queued",
       state_label: "待执行",
-      title: "可视化报表联调",
+      title: "可视化报表对接",
       note: "预计 2 个任务后进行",
-      description: "后续安排详情 · mock",
+      description: "后续安排详情",
       rows: [
         ["状态", "待执行"],
         ["队列位置", "3"],
-        ["为什么排在后面", "需要等待指标口径确认后再联调报表"],
+        ["为什么排在后面", "需要等待指标口径确认后再对接报表"],
         ["依赖", "指标口径确认"],
         ["下一步处理者", "Codex"],
         ["处理方式", "预计 2 个任务后进行"],
         ["风险", "暂无阻塞项"],
       ],
-      footer: "仅展示队列任务读回，不执行提交、推送或写入操作 · mock",
+      footer: "仅展示队列任务读回，不执行提交、推送或写入操作",
       can_add_to_workbench: false,
     },
   ],
@@ -382,7 +386,7 @@ const executionPageViewState: ExecutionPageViewState = "ready";
 
 type GovernanceSkillRecommendation = "retain" | "merge" | "observe" | "deprecate";
 
-type GovernanceSkillViewModel = {
+export type GovernanceSkillViewModel = {
   id: string;
   skill_id: string;
   skill_code: string;
@@ -414,7 +418,7 @@ type GovernanceSkillViewModel = {
   suggestion_rows: readonly (readonly [string, string])[];
 };
 
-type GovernanceSkillPageViewState =
+export type GovernanceSkillPageViewState =
   | "ready"
   | "loading"
   | "empty"
@@ -439,7 +443,7 @@ type GovernanceRoleViewModel = {
   sort_order: number;
 };
 
-type GovernanceRegistrySkill = {
+export type GovernanceRegistrySkill = {
   id: string;
   code: string;
   name: string;
@@ -461,7 +465,7 @@ type GovernanceRegistrySkill = {
   }[];
 };
 
-type GovernanceSystemRole = {
+export type GovernanceSystemRole = {
   code: string;
   name: string;
   summary: string;
@@ -471,6 +475,26 @@ type GovernanceSystemRole = {
   default_skill_slots: readonly string[];
   enabled_by_default: boolean;
   sort_order: number;
+};
+
+export type GovernanceDirectorConfigViewModel = {
+  statusLabel: string;
+  summary: string;
+  rows: readonly (readonly [string, string])[];
+  nextSteps: readonly string[];
+  warnings: readonly string[];
+};
+
+export type GovernanceMemoryViewModel = {
+  statusLabel: string;
+  summary: string;
+  rows: readonly (readonly [string, string])[];
+  latestItems: readonly {
+    id: string;
+    title: string;
+    summary: string;
+    meta: string;
+  }[];
 };
 
 type GovernancePermissionPolicy = {
@@ -513,10 +537,10 @@ const governanceSkills: readonly GovernanceSkillViewModel[] = [
       ["最近运行次数", "128"],
       ["成功次数", "121"],
       ["失败次数", "7"],
-      ["总 Token", "482,600"],
+      ["总 用量", "482,600"],
       ["预估成本", "$12.36"],
-      ["最近 Run", "run_7F3A"],
-      ["最近 Run 状态", "running"],
+      ["最近运行", "已记录"],
+      ["最近状态", "进行中"],
       ["最近摘要", "正在校验数据源连通性并生成接入任务拆分建议。"],
     ],
     version_rows: [
@@ -566,10 +590,10 @@ const governanceSkills: readonly GovernanceSkillViewModel[] = [
       ["最近运行次数", "46"],
       ["成功次数", "39"],
       ["失败次数", "7"],
-      ["总 Token", "124,800"],
+      ["总 用量", "124,800"],
       ["预估成本", "$3.42"],
-      ["最近 Run", "run_6E2B"],
-      ["最近 Run 状态", "completed"],
+      ["最近运行", "已记录"],
+      ["最近状态", "已完成"],
       ["最近摘要", "已生成数据接入阶段 4 项子任务指令。"],
     ],
     version_rows: [
@@ -619,10 +643,10 @@ const governanceSkills: readonly GovernanceSkillViewModel[] = [
       ["最近运行次数", "18"],
       ["成功次数", "16"],
       ["失败次数", "2"],
-      ["总 Token", "53,200"],
+      ["总 用量", "53,200"],
       ["预估成本", "$1.48"],
-      ["最近 Run", "run_5D1C"],
-      ["最近 Run 状态", "completed"],
+      ["最近运行", "已记录"],
+      ["最近状态", "已完成"],
       ["最近摘要", "执行中心页面状态兜底验收通过，7 个状态分支均覆盖。"],
     ],
     version_rows: [
@@ -672,7 +696,7 @@ const governanceSkills: readonly GovernanceSkillViewModel[] = [
       ["最近运行次数", "0"],
       ["成功次数", "0"],
       ["失败次数", "0"],
-      ["总 Token", "0"],
+      ["总 用量", "0"],
       ["预估成本", "$0.00"],
       ["最近 Run", "—"],
       ["最近 Run 状态", "—"],
@@ -890,10 +914,10 @@ const governanceRoles: readonly GovernanceRoleViewModel[] = [
     role_code: "engineer",
     enabled: true,
     name: "工程师",
-    summary: "负责实现、联调和变更说明",
+    summary: "负责实现、对接和变更说明",
     responsibilities: [
       "根据已确认的任务边界完成前后端实现方案拆解",
-      "说明关键实现路径、依赖关系和联调注意事项",
+      "说明关键实现路径、依赖关系和对接注意事项",
       "交付变更说明，并标出需要验证的功能点",
     ],
     input_boundary: [
@@ -902,11 +926,11 @@ const governanceRoles: readonly GovernanceRoleViewModel[] = [
       "评审者反馈的风险点和需要修正的问题",
     ],
     output_boundary: [
-      "实现方案、变更说明和联调建议",
+      "实现方案、变更说明和对接建议",
       "需要补充确认的技术问题和风险说明",
       "交付给评审者检查的实现摘要",
     ],
-    default_skill_slots: ["实现拆解", "联调说明", "变更总结"],
+    default_skill_slots: ["实现拆解", "对接说明", "变更总结"],
     custom_notes: "默认只描述实现职责定义，不展示具体执行过程。",
     sort_order: 30,
   },
@@ -986,10 +1010,10 @@ const governanceSystemRoles: readonly GovernanceSystemRole[] = [
   {
     code: "engineer",
     name: "工程师",
-    summary: "负责实现拆解、联调说明和变更总结",
+    summary: "负责实现拆解、对接说明和变更总结",
     responsibilities: [
       "根据任务边界完成实现方案拆解",
-      "说明关键实现路径、依赖关系和联调注意事项",
+      "说明关键实现路径、依赖关系和对接注意事项",
       "交付变更说明，并标出需要验证的功能点",
     ],
     input_boundary: [
@@ -998,11 +1022,11 @@ const governanceSystemRoles: readonly GovernanceSystemRole[] = [
       "评审者反馈的风险点和修正要求",
     ],
     output_boundary: [
-      "实现方案、变更说明和联调建议",
+      "实现方案、变更说明和对接建议",
       "需要补充确认的技术问题和风险说明",
       "交付给评审者检查的实现摘要",
     ],
-    default_skill_slots: ["实现拆解", "联调说明", "变更总结"],
+    default_skill_slots: ["实现拆解", "对接说明", "变更总结"],
     enabled_by_default: true,
     sort_order: 30,
   },
@@ -1030,6 +1054,31 @@ const governanceSystemRoles: readonly GovernanceSystemRole[] = [
     sort_order: 40,
   },
 ];
+
+const governanceMemory: GovernanceMemoryViewModel = {
+  statusLabel: "已记录",
+  summary: "项目记忆会把关键结论、失败模式、审批意见和交付件摘要沉淀为后续执行上下文。",
+  rows: [
+    ["记忆总数", "18"],
+    ["上下文状态", "健康"],
+    ["治理检查点", "4"],
+    ["最近整理", "已整理"],
+  ],
+  latestItems: [
+    {
+      id: "memory_conclusion_1",
+      title: "核心边界",
+      summary: "优先保证数据接入、指标口径和验收证据闭环。",
+      meta: "关键结论 · 当前阶段",
+    },
+    {
+      id: "memory_approval_1",
+      title: "审批偏好",
+      summary: "高风险仓库写入需要用户明确确认后再进入执行。",
+      meta: "审批意见 · 治理",
+    },
+  ],
+};
 
 const governancePermissionPolicies: readonly GovernancePermissionPolicy[] = [
   {
@@ -1080,7 +1129,7 @@ type DeliverableType =
   | "code_change_summary"
   | "delivery_doc";
 
-type DeliverableViewModel = {
+export type DeliverableViewModel = {
   id: string;
   project_id: string;
   title: string;
@@ -1103,11 +1152,11 @@ type DeliverableViewModel = {
   source_label: string;
   evidence_refs: string[];
   git_write_status: "disabled" | "preview_only";
-  backend_status: "mock" | "unavailable";
+  backend_status: "mock" | "real" | "unavailable";
   can_be_acceptance_evidence: boolean;
 };
 
-type DeliverablesDemoState = "ready" | "empty" | "loading" | "error" | "no_project";
+export type DeliverablesDemoState = "ready" | "empty" | "loading" | "error" | "no_project";
 
 const deliverablesItems: readonly DeliverableViewModel[] = [
   {
@@ -1123,15 +1172,15 @@ const deliverablesItems: readonly DeliverableViewModel[] = [
     version_no: 1,
     total_versions: 1,
     latest_version: true,
-    summary: "明确本阶段目标、范围与交付边界，建议先完成数据接入与指标口径确认，再进入报表联调。",
+    summary: "明确本阶段目标、范围与交付边界，建议先完成数据接入与指标口径确认，再进入报表对接。",
     content_markdown: `本成果明确了营销活动分析平台在当前阶段的目标、范围与交付边界。
 
 - 目标：建立可复用的活动数据分析全链路
-- 范围：数据接入、指标口径、报表联调、验收交付
+- 范围：数据接入、指标口径、报表对接、验收交付
 - 边界：本阶段不进行复杂模型建设
-- 建议：先完成数据源与指标口径确认，再进入报表联调
+- 建议：先完成数据源与指标口径确认，再进入报表对接
 
-当前内容仅为 mock，不连接真实后端。`,
+当前内容仅为，使用示例数据。`,
     created_by: "AI 主管",
     created_at: "今天 09:58",
     updated_at: "今天 09:58",
@@ -1166,7 +1215,7 @@ const deliverablesItems: readonly DeliverableViewModel[] = [
 
 依赖顺序：1 → 2 → 3 → 4，其中步骤 1 需人工介入。
 
-当前内容仅为 mock，不连接真实后端。`,
+当前内容仅为，使用示例数据。`,
     created_by: "AI 主管",
     created_at: "今天 10:22",
     updated_at: "今天 10:22",
@@ -1201,7 +1250,7 @@ const deliverablesItems: readonly DeliverableViewModel[] = [
 
 运行环境处于只读安全边界内，未触发 Git 写入。
 
-当前内容仅为 mock，不连接真实后端。`,
+当前内容仅为，使用示例数据。`,
     created_by: "AI 主管",
     created_at: "今天 11:16",
     updated_at: "今天 11:16",
@@ -1218,7 +1267,7 @@ const deliverablesItems: readonly DeliverableViewModel[] = [
 function cleanMockMarkdown(content: string): string {
   return content
     .split("\n")
-    .filter((line) => !line.includes("当前内容仅为 mock，不连接真实后端。"))
+    .filter((line) => !line.includes("当前内容仅为，使用示例数据。"))
     .join("\n")
     .trim();
 }
@@ -1229,84 +1278,41 @@ function formatDeliverableGitStatus(status: DeliverableViewModel["git_write_stat
 }
 
 function formatDeliverableDataStatus(status: DeliverableViewModel["backend_status"]): string {
+  if (status === "real") return "已接入";
   if (status === "mock") return "示例数据";
   return "暂不可用";
 }
 
-type RepositoryLinkedDeliverable = {
-  id: string;
-  title: string;
-  type_label: string;
+export type RepositoryPageViewState =
+  | "ready"
+  | "loading"
+  | "empty"
+  | "pending_binding"
+  | "error"
+  | "no_project"
+  | "no_permission";
+
+export type RepositoryPageViewModel = {
+  viewState: RepositoryPageViewState;
+  projectName: string;
+  repositoryName: string;
+  workspacePath: string;
+  defaultBranch: string;
+  currentBranch: string | null;
+  statusLabel: string;
   summary: string;
-  linked_files: string[];
-  can_be_acceptance_evidence: boolean;
+  readiness: string[];
+  detailItems: readonly {
+    title: string;
+    description: string;
+    rows: readonly (readonly [string, string])[];
+  }[];
 };
-
-type RepositoryBoundaryItem = {
-  id: string;
-  title: string;
-  summary: string;
-  items: string[];
-  reason: string;
-};
-
-type RepositoryPageViewState = "ready" | "loading" | "empty" | "error" | "no_project" | "no_permission";
-
-const repositoryLinkedDeliverables: readonly RepositoryLinkedDeliverable[] = [
-  {
-    id: "repo_deliv_plan",
-    title: "规划草案",
-    type_label: "规划草案",
-    summary: "明确当前阶段目标、范围与交付边界。",
-    linked_files: ["WorkbenchMockPages.tsx", "mockInteractions.ts"],
-    can_be_acceptance_evidence: true,
-  },
-  {
-    id: "repo_deliv_task_split",
-    title: "数据接入任务拆分",
-    type_label: "任务拆分",
-    summary: "将数据接入拆分为账号确认、连通性校验、字段映射和验收记录。",
-    linked_files: ["WorkbenchMockPages.tsx"],
-    can_be_acceptance_evidence: false,
-  },
-  {
-    id: "repo_deliv_run_summary",
-    title: "当前运行摘要",
-    type_label: "运行摘要",
-    summary: "记录当前处理焦点、已完成事项和后续补充验证方向。",
-    linked_files: ["SanshengLiubuUiLabPage.tsx", "WorkbenchMockPages.tsx"],
-    can_be_acceptance_evidence: false,
-  },
-];
-
-const repositoryBoundaryItems: readonly RepositoryBoundaryItem[] = [
-  {
-    id: "repo_boundary_view",
-    title: "可查看",
-    summary: "目录结构、变更草稿、关联成果、只读预览。",
-    items: ["查看文件结构", "查看变更草稿", "查看关联成果", "查看写入边界"],
-    reason: "这些内容用于理解当前项目代码空间，不改变代码或交付物。",
-  },
-  {
-    id: "repo_boundary_confirm",
-    title: "需要确认",
-    summary: "影响代码或交付物的变更，需要人工确认。",
-    items: ["确认变更草稿", "接受代码修改建议", "生成正式变更说明", "关联成果到变更记录"],
-    reason: "这些动作会影响项目交付记录或后续修改路径，需要保留确认边界。",
-  },
-  {
-    id: "repo_boundary_forbidden",
-    title: "禁止自动处理",
-    summary: "不可逆或高风险操作不得自动执行。",
-    items: ["自动提交代码", "自动推送远程仓库", "自动合并分支", "自动发布生产", "覆盖密钥或删除证据"],
-    reason: "这些动作具有不可逆影响或涉及关键资产，不能自动完成。",
-  },
-];
 
 const projectContextDialogContent = {
   task: {
     title: "任务上下文",
-    description: "展示当前项目最近任务与阻塞情况 · mock",
+    description: "展示当前项目最近任务与阻塞情况",
     metrics: [
       ["任务总数", "28"],
       ["当前阶段任务", "6"],
@@ -1318,7 +1324,7 @@ const projectContextDialogContent = {
         rows: [
           ["拆分数据接入模块任务", "进行中", "32 分钟前"],
           ["指标口径确认", "待处理", "3 小时前"],
-          ["可视化报表联调", "待开始", "1 天前"],
+          ["可视化报表对接", "待开始", "1 天前"],
         ],
       },
       {
@@ -1329,7 +1335,7 @@ const projectContextDialogContent = {
   },
   timeline: {
     title: "最近运行与时间线",
-    description: "展示最近项目事件、运行与阶段动作 · mock",
+    description: "展示最近项目事件、运行与阶段动作",
     sections: [
       {
         title: "最近事件",
@@ -1344,7 +1350,7 @@ const projectContextDialogContent = {
   },
   repository: {
     title: "仓库上下文",
-    description: "展示当前项目绑定仓库与变更会话 · mock",
+    description: "展示当前项目绑定仓库与变更会话",
     sections: [
       {
         title: "仓库",
@@ -1370,7 +1376,7 @@ const projectContextDialogContent = {
   },
   approval: {
     title: "审批与交付物",
-    description: "展示待审批项、交付物与放行检查 · mock",
+    description: "展示待审批项、交付物与放行检查",
     sections: [
       {
         title: "审批",
@@ -1384,7 +1390,7 @@ const projectContextDialogContent = {
         title: "交付物",
         rows: [
           ["指标口径说明 v1", "pending_review"],
-          ["报表联调记录 v1", "draft"],
+          ["报表对接记录 v1", "draft"],
         ],
       },
       {
@@ -1401,9 +1407,9 @@ const projectContextDialogContent = {
 
 type ProjectContextDialogKey = keyof typeof projectContextDialogContent;
 
-type ProjectStageState = "done" | "current" | "pending" | "blocked";
+export type ProjectStageState = "done" | "current" | "pending" | "blocked";
 
-type ProjectStageViewModel = {
+export type ProjectStageViewModel = {
   id: string;
   label: string;
   status_label: string;
@@ -1412,7 +1418,7 @@ type ProjectStageViewModel = {
   meta: string;
 };
 
-type ProjectContextItemViewModel = {
+export type ProjectContextItemViewModel = {
   id: string;
   label: string;
   value: string;
@@ -1420,7 +1426,7 @@ type ProjectContextItemViewModel = {
   dialogKey: ProjectContextDialogKey;
 };
 
-type ProjectOverviewViewModel = {
+export type ProjectOverviewViewModel = {
   id: string;
   name: string;
   status: "active" | "pending" | "blocked" | "archived";
@@ -1436,10 +1442,37 @@ type ProjectOverviewViewModel = {
   task_done: number;
   task_running: number;
   manual_pending: number;
-  backend_status: "mock" | "unavailable";
+  backend_status: "mock" | "real" | "unavailable";
 };
 
-type ProjectPageViewState = "ready" | "loading" | "empty" | "error" | "no_project" | "no_permission";
+export type ProjectPageViewState = "ready" | "loading" | "empty" | "error" | "no_project" | "no_permission";
+
+export type WorkbenchPageSurfaceData = {
+  projects?: {
+    viewState: ProjectPageViewState;
+    overview: ProjectOverviewViewModel | null;
+  };
+  execution?: {
+    viewState: ExecutionPageViewState;
+    run: ExecutionRunViewModel | null;
+  };
+  deliverables?: {
+    viewState: DeliverablesDemoState;
+    projectName: string;
+    deliverables: readonly DeliverableViewModel[];
+    pendingApprovalCount: number;
+  };
+  repository?: RepositoryPageViewModel;
+  governance?: {
+    viewState: GovernanceSkillPageViewState;
+    skills: readonly GovernanceSkillViewModel[];
+    registrySkills: readonly GovernanceRegistrySkill[];
+    roles: readonly GovernanceRoleViewModel[];
+    systemRoles: readonly GovernanceSystemRole[];
+    directorConfig?: GovernanceDirectorConfigViewModel | null;
+    memory?: GovernanceMemoryViewModel | null;
+  };
+};
 
 const projectOverview: ProjectOverviewViewModel = {
   id: "proj_marketing_analytics",
@@ -1497,7 +1530,7 @@ function ProjectContextDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,540px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,540px)]">
         <DialogHeader>
           <DialogTitle>{content.title}</DialogTitle>
           <DialogDescription>{content.description}</DialogDescription>
@@ -1545,39 +1578,43 @@ function ProjectContextDialog({
   );
 }
 
-function ProjectManagementMockPage() {
+function ProjectManagementMockPage({
+  data,
+}: {
+  data?: WorkbenchPageSurfaceData["projects"];
+}) {
   const [discussion, setDiscussion] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [openStageIndex, setOpenStageIndex] = useState<number | null>(null);
 
-  const projectPageViewState = "ready" as ProjectPageViewState;
-  const ov = projectOverview;
+  const projectPageViewState = data?.viewState ?? "ready";
+  const ov = data?.overview ?? projectOverview;
   const projectDiscussionDisabled = projectPageViewState !== "ready";
 
   const projectDiscussionHint =
     projectPageViewState === "ready"
-      ? "记录后，AI 主管将在工作台新会话中反馈 · mock"
+      ? "记录后，AI 主管将在工作台新会话中反馈"
       : projectPageViewState === "loading"
-        ? "正在读取项目上下文，暂不可记录 · mock"
+        ? "正在读取项目上下文，暂不可记录"
         : projectPageViewState === "error"
-          ? "读取失败，暂不可记录 · mock"
+          ? "读取失败，暂不可记录"
           : projectPageViewState === "no_permission"
-            ? "暂无权限，暂不可记录 · mock"
-            : "请选择或创建项目后再记录 · mock";
+            ? "暂无权限，暂不可记录"
+            : "请选择或创建项目后再记录";
 
   function handleRecordFeedback() {
     if (projectDiscussionDisabled || !discussion.trim()) return;
     setDiscussion("");
-    setFeedbackMessage("已记录讨论点 · 将在工作台新会话反馈 · mock");
+    setFeedbackMessage("已记录讨论点 · 将在工作台新会话反馈");
   }
 
   const openStage = openStageIndex === null ? null : ov.stages[openStageIndex];
 
   if (projectPageViewState === "loading") {
     return (
-      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[980px] flex-col">
-          <div className="text-sm text-[#8A8A8A]">正在读取项目上下文 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">正在读取项目上下文</div>
           <Separator className="mt-4" />
           <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
           <Separator className="mt-4" />
@@ -1589,7 +1626,7 @@ function ProjectManagementMockPage() {
 
   if (projectPageViewState === "empty") {
     return (
-      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
           <div className="text-sm text-[#8A8A8A]">暂无项目</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">
@@ -1602,11 +1639,11 @@ function ProjectManagementMockPage() {
 
   if (projectPageViewState === "error") {
     return (
-      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">项目上下文读取失败 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">项目上下文读取失败</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">
-            当前为模拟错误，不接真实后端。请稍后重试或回到工作台确认项目状态。
+            当前为临时错误，使用示例数据。请稍后重试或回到工作台确认项目状态。
           </div>
         </div>
       </div>
@@ -1615,7 +1652,7 @@ function ProjectManagementMockPage() {
 
   if (projectPageViewState === "no_project") {
     return (
-      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
           <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">
@@ -1628,9 +1665,9 @@ function ProjectManagementMockPage() {
 
   if (projectPageViewState === "no_permission") {
     return (
-      <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[980px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">暂无访问权限 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">暂无访问权限</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">
             你当前没有查看该项目上下文的权限。
           </div>
@@ -1640,13 +1677,13 @@ function ProjectManagementMockPage() {
   }
 
   return (
-    <div className="ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
+    <div className="ui-lab-page-enter ui-lab-project-page min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
       <div className="mx-auto flex w-full max-w-[980px] flex-col">
         <CompactPageHeader
           eyebrow="当前项目上下文"
           title={ov.name}
           meta={`${ov.status_label} · 当前阶段：${ov.current_stage} · ${ov.updated_at}`}
-          description={`构建统一的营销数据分析平台，整合多渠道数据，提供可视化洞察与增长决策支持。任务 ${ov.task_total} 项 · 已完成 ${ov.task_done} · 执行中 ${ov.task_running} · 待人工 ${ov.manual_pending}`}
+          description={`${ov.summary} 任务 ${ov.task_total} 项 · 已完成 ${ov.task_done} · 执行中 ${ov.task_running} · 待人工 ${ov.manual_pending}`}
         />
 
         <section className="mt-5 border-y border-[#2A2A2A] py-4">
@@ -1813,22 +1850,24 @@ function ProjectManagementMockPage() {
 
 function ExecutionCenterMockPage({
   onQueueDiscussionAction,
+  data,
 }: {
   onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
+  data?: WorkbenchPageSurfaceData["execution"];
 }) {
   const [activeEvidenceTab, setActiveEvidenceTab] = useState("status");
   const [queueDiscussionMessage, setQueueDiscussionMessage] = useState("");
 
-  const viewState = executionPageViewState;
-  const run = executionRun;
+  const viewState = data?.viewState ?? executionPageViewState;
+  const run = data?.run ?? executionRun;
   const displayTitle = run.title.replace(/^AI 正在处理：/, "");
-  const detailEvidenceTabs = ["context", "decision", "safety", "run"]
+  const detailEvidenceTabs = ["context", "process", "decision", "safety", "run"]
     .map((key) => run.evidence_tabs.find((item) => item.key === key))
     .filter((item): item is ExecutionEvidenceTabViewModel => Boolean(item));
 
   if (viewState === "idle") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
           <div className="text-sm text-[#8A8A8A]">暂无正在处理的任务</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">当前项目没有活跃处理事项。启动任务后，这里会展示处理进展、等待事项和后续安排。</div>
@@ -1839,9 +1878,9 @@ function ExecutionCenterMockPage({
 
   if (viewState === "loading") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col">
-          <div className="text-sm text-[#8A8A8A]">正在读取处理状态 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">正在读取处理状态</div>
           <Separator className="mt-4" />
           <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
           <Separator className="mt-4" />
@@ -1853,9 +1892,9 @@ function ExecutionCenterMockPage({
 
   if (viewState === "completed") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">当前处理已完成 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">当前处理已完成</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">执行结果已沉淀到成果中心，可继续查看交付证据。</div>
         </div>
       </div>
@@ -1864,9 +1903,9 @@ function ExecutionCenterMockPage({
 
   if (viewState === "blocked") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">处理被阻塞 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">处理被阻塞</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">当前任务需要人工补充信息后才能继续。</div>
         </div>
       </div>
@@ -1875,10 +1914,10 @@ function ExecutionCenterMockPage({
 
   if (viewState === "error") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">处理状态读取失败 · mock</div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">当前为模拟错误，不接真实后端。请稍后重试或回到工作台确认项目状态。</div>
+          <div className="text-sm text-[#8A8A8A]">处理状态读取失败</div>
+          <div className="mt-2 text-xs text-[#5F5F5F]">当前为临时错误，使用示例数据。请稍后重试或回到工作台确认项目状态。</div>
         </div>
       </div>
     );
@@ -1886,7 +1925,7 @@ function ExecutionCenterMockPage({
 
   if (viewState === "no_project") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
           <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的处理进展、等待事项和后续安排。</div>
@@ -1897,9 +1936,9 @@ function ExecutionCenterMockPage({
 
   if (viewState === "no_permission") {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col py-8">
-          <div className="text-sm text-[#8A8A8A]">暂无访问权限 · mock</div>
+          <div className="text-sm text-[#8A8A8A]">暂无访问权限</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">你当前没有查看该项目执行状态的权限。</div>
         </div>
       </div>
@@ -1907,7 +1946,7 @@ function ExecutionCenterMockPage({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
+    <div className="ui-lab-page-enter min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
       <div className="mx-auto flex w-full max-w-[1080px] flex-col">
         <CompactPageHeader
           eyebrow="当前处理"
@@ -1981,10 +2020,10 @@ function ExecutionCenterMockPage({
                         {stepContent}
                       </button>
                     </DialogTrigger>
-                    <DialogContent className="w-[min(92vw,520px)]">
+                    <DialogContent className="ui-lab-dialog-enter w-[min(92vw,520px)]">
                       <DialogHeader>
                         <DialogTitle>{step.title}</DialogTitle>
-                        <DialogDescription>{step.title}读回 · mock</DialogDescription>
+                        <DialogDescription>{step.title}读回</DialogDescription>
                       </DialogHeader>
                       <ReadbackRows rows={step.rows} records={step.logs} footer={step.footer} />
                       <div className="mt-5 flex justify-end">
@@ -2017,7 +2056,7 @@ function ExecutionCenterMockPage({
                   查看详情
                 </Button>
               </DialogTrigger>
-              <DialogContent className="w-[min(92vw,620px)]">
+              <DialogContent className="ui-lab-dialog-enter w-[min(92vw,620px)]">
                 <DialogHeader>
                   <DialogTitle>处理详情</DialogTitle>
                   <DialogDescription>仅展示详情，不触发执行操作。</DialogDescription>
@@ -2029,11 +2068,11 @@ function ExecutionCenterMockPage({
                       <TabsTrigger key={item.key} value={item.key}>{item.label}</TabsTrigger>
                     ))}
                   </TabsList>
-                  <TabsContent value="status">
-                    <ReadbackRows rows={run.status_rows} footer="仅展示状态详情，不触发执行操作 · mock" />
+                  <TabsContent value="status" className="ui-lab-detail-switch">
+                    <ReadbackRows rows={run.status_rows} footer="仅展示状态详情，不触发执行操作" />
                   </TabsContent>
                   {detailEvidenceTabs.map((item) => (
-                    <TabsContent key={item.key} value={item.key}>
+                    <TabsContent key={item.key} value={item.key} className="ui-lab-detail-switch">
                       <ReadbackRows rows={item.rows} footer={item.footer} />
                     </TabsContent>
                   ))}
@@ -2068,7 +2107,7 @@ function ExecutionCenterMockPage({
                     </span>
                   </button>
                 </DialogTrigger>
-                <DialogContent className="w-[min(92vw,520px)]">
+                <DialogContent className="ui-lab-dialog-enter w-[min(92vw,520px)]">
                   <DialogHeader>
                     <DialogTitle>{item.title}</DialogTitle>
                     <DialogDescription>{item.description}</DialogDescription>
@@ -2082,7 +2121,7 @@ function ExecutionCenterMockPage({
                             variant="secondary"
                             size="sm"
                             onClick={() => {
-                              setQueueDiscussionMessage(`已加入工作台讨论：@「${item.title}」 · mock`);
+                              setQueueDiscussionMessage(`已加入工作台讨论：@「${item.title}」`);
                               onQueueDiscussionAction?.("add", item.title);
                             }}
                           >
@@ -2100,11 +2139,11 @@ function ExecutionCenterMockPage({
                             <DialogClose asChild>
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setQueueDiscussionMessage(`已加入并前往工作台讨论：@「${item.title}」 · mock`);
+                                  setQueueDiscussionMessage(`已加入并前往工作台讨论：@「${item.title}」`);
                                   onQueueDiscussionAction?.("add-and-open", item.title);
                                 }}
                               >
-                                加入并前往工作台 · mock
+                                加入并前往工作台
                               </DropdownMenuItem>
                             </DialogClose>
                           </DropdownMenuContent>
@@ -2125,13 +2164,23 @@ function ExecutionCenterMockPage({
   );
 }
 
-function GovernanceSkillMockPage() {
+function GovernanceSkillMockPage({
+  data,
+}: {
+  data?: WorkbenchPageSurfaceData["governance"];
+}) {
+  const skillItems = data?.skills ?? governanceSkills;
+  const registrySkillItems = data?.registrySkills ?? governanceRegistrySkills;
+  const roleItems = data?.roles ?? governanceRoles;
+  const systemRoleItems = data?.systemRoles ?? governanceSystemRoles;
+  const directorConfig = data?.directorConfig ?? null;
+  const memory = data?.memory ?? governanceMemory;
   const [catalogMode, setCatalogMode] = useState<GovernanceCatalogMode>("skills");
   const [scopeMode, setScopeMode] = useState<GovernanceScopeMode>("project");
-  const [selectedSkillId, setSelectedSkillId] = useState<string>(governanceSkills[0]?.id ?? "");
-  const [selectedRegistrySkillCode, setSelectedRegistrySkillCode] = useState<string>(governanceRegistrySkills[0]?.code ?? "");
-  const [selectedRoleCode, setSelectedRoleCode] = useState<string>(governanceRoles[0]?.role_code ?? "");
-  const [selectedSystemRoleCode, setSelectedSystemRoleCode] = useState<string>(governanceSystemRoles[0]?.code ?? "");
+  const [selectedSkillId, setSelectedSkillId] = useState<string>(skillItems[0]?.id ?? "");
+  const [selectedRegistrySkillCode, setSelectedRegistrySkillCode] = useState<string>(registrySkillItems[0]?.code ?? "");
+  const [selectedRoleCode, setSelectedRoleCode] = useState<string>(roleItems[0]?.role_code ?? "");
+  const [selectedSystemRoleCode, setSelectedSystemRoleCode] = useState<string>(systemRoleItems[0]?.code ?? "");
   const [selectedPermissionId, setSelectedPermissionId] = useState<GovernancePermissionPolicy["id"]>(
     governancePermissionPolicies[0]?.id ?? "auto",
   );
@@ -2152,13 +2201,13 @@ function GovernanceSkillMockPage() {
     { author: "director", text: "建议保持三类边界稳定，只在项目阶段变化时补充具体授权项。" },
   ]);
 
-  const viewState = governanceSkillViewState;
-  const selectedSkill = governanceSkills.find((s) => s.id === selectedSkillId) ?? governanceSkills[0] ?? null;
+  const viewState = data?.viewState ?? governanceSkillViewState;
+  const selectedSkill = skillItems.find((s) => s.id === selectedSkillId) ?? skillItems[0] ?? null;
   const selectedRegistrySkill =
-    governanceRegistrySkills.find((skill) => skill.code === selectedRegistrySkillCode) ?? governanceRegistrySkills[0] ?? null;
-  const selectedRole = governanceRoles.find((role) => role.role_code === selectedRoleCode) ?? governanceRoles[0] ?? null;
+    registrySkillItems.find((skill) => skill.code === selectedRegistrySkillCode) ?? registrySkillItems[0] ?? null;
+  const selectedRole = roleItems.find((role) => role.role_code === selectedRoleCode) ?? roleItems[0] ?? null;
   const selectedSystemRole =
-    governanceSystemRoles.find((role) => role.code === selectedSystemRoleCode) ?? governanceSystemRoles[0] ?? null;
+    systemRoleItems.find((role) => role.code === selectedSystemRoleCode) ?? systemRoleItems[0] ?? null;
   const selectedPermission =
     governancePermissionPolicies.find((policy) => policy.id === selectedPermissionId) ?? governancePermissionPolicies[0] ?? null;
   const catalogLabel =
@@ -2187,17 +2236,17 @@ function GovernanceSkillMockPage() {
     setOpinionText("");
     if (catalogMode === "skills") {
       if (nextScope === "project") {
-        setSelectedSkillId(governanceSkills[0]?.id ?? "");
+        setSelectedSkillId(skillItems[0]?.id ?? "");
         setActiveTab("overview");
       } else {
-        setSelectedRegistrySkillCode(governanceRegistrySkills[0]?.code ?? "");
+        setSelectedRegistrySkillCode(registrySkillItems[0]?.code ?? "");
       }
     }
     if (catalogMode === "roles") {
       if (nextScope === "project") {
-        setSelectedRoleCode(governanceRoles[0]?.role_code ?? "");
+        setSelectedRoleCode(roleItems[0]?.role_code ?? "");
       } else {
-        setSelectedSystemRoleCode(governanceSystemRoles[0]?.code ?? "");
+        setSelectedSystemRoleCode(systemRoleItems[0]?.code ?? "");
       }
     }
   }
@@ -2205,7 +2254,7 @@ function GovernanceSkillMockPage() {
   function handleSubmitOpinion() {
     if (!selectedName || !opinionText.trim()) return;
     const userMsg = { author: "user" as const, text: opinionText.trim() };
-    const directorMsg = { author: "director" as const, text: `已记录对「${selectedName}」的治理意见，后续将作为清单维护参考 · mock` };
+    const directorMsg = { author: "director" as const, text: `已记录对「${selectedName}」的治理意见，后续将作为清单维护参考` };
     if (catalogMode === "skills") {
       setSkillOpinionMessages((prev) => [...prev, userMsg, directorMsg]);
     } else if (catalogMode === "roles") {
@@ -2218,9 +2267,9 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "loading") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
-          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台 · mock</div>
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台</div>
           <div className="mt-4 text-sm text-[#8A8A8A]">正在读取 Skill 治理状态</div>
           <Separator className="mt-4" />
           <div className="mt-4 h-4 w-3/4 rounded bg-[#1A1A1A]" />
@@ -2233,9 +2282,9 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "empty") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
-          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台 · mock</div>
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台</div>
           <div className="mt-6 text-sm text-[#8A8A8A]">暂无 Skill 绑定</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">当前项目还没有可展示的 Skill 绑定记录。</div>
         </div>
@@ -2245,9 +2294,9 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "error") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
-          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台 · mock</div>
+          <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理 · 当前项目：营销活动分析平台</div>
           <div className="mt-6 text-sm text-[#8A8A8A]">Skill 治理状态读取失败</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">请稍后重试或回到工作台确认项目状态。</div>
         </div>
@@ -2257,7 +2306,7 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "no_project") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
           <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理</div>
           <div className="mt-6 text-sm text-[#8A8A8A]">尚未选择项目</div>
@@ -2269,7 +2318,7 @@ function GovernanceSkillMockPage() {
 
   if (viewState === "no_permission") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
           <div className="text-xs font-medium tracking-[0.12em] text-[#8A8A8A]">Skill 治理</div>
           <div className="mt-6 text-sm text-[#8A8A8A]">暂无访问权限</div>
@@ -2280,7 +2329,7 @@ function GovernanceSkillMockPage() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
+    <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
         <section className="grid h-full min-h-0 flex-1 gap-7 lg:grid-cols-[1fr_0.95fr] lg:gap-8">
           <div className="flex h-full min-h-0 flex-col">
@@ -2354,10 +2403,74 @@ function GovernanceSkillMockPage() {
                 </DropdownMenu>
               ) : null}
             </div>
+            {directorConfig ? (
+              <section className="mt-4 shrink-0 border-y border-[#2A2A2A] py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-white">AI 主管配置</div>
+                    <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">
+                      {directorConfig.summary}
+                    </div>
+                  </div>
+                  <Badge className="h-6 shrink-0 rounded-full border-[#303030] bg-transparent text-[#8A8A8A]">
+                    {directorConfig.statusLabel}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {directorConfig.rows.slice(0, 4).map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <div className="text-[11px] text-[#5F5F5F]">{label}</div>
+                      <div className="mt-0.5 truncate text-xs text-[#C7C7C7]">{value}</div>
+                    </div>
+                  ))}
+                </div>
+                {directorConfig.nextSteps.length > 0 ? (
+                  <div className="mt-3 text-xs leading-5 text-[#8A8A8A]">
+                    下一步：{directorConfig.nextSteps.slice(0, 2).join("；")}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            {memory ? (
+              <section className="mt-4 shrink-0 border-y border-[#2A2A2A] py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-white">项目记忆</div>
+                    <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">
+                      {memory.summary}
+                    </div>
+                  </div>
+                  <Badge className="h-6 shrink-0 rounded-full border-[#303030] bg-transparent text-[#8A8A8A]">
+                    {memory.statusLabel}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {memory.rows.slice(0, 4).map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <div className="text-[11px] text-[#5F5F5F]">{label}</div>
+                      <div className="mt-0.5 truncate text-xs text-[#C7C7C7]">{value}</div>
+                    </div>
+                  ))}
+                </div>
+                {memory.latestItems.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {memory.latestItems.slice(0, 2).map((item) => (
+                      <div key={item.id} className="min-w-0">
+                        <div className="truncate text-xs font-medium text-[#C7C7C7]">{item.title}</div>
+                        <div className="mt-0.5 truncate text-xs leading-5 text-[#8A8A8A]">
+                          {item.summary}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-[#5F5F5F]">{item.meta}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
             <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-[#2A2A2A] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {catalogMode === "skills"
                 ? scopeMode === "project"
-                  ? governanceSkills.map((skill) => (
+                  ? skillItems.map((skill) => (
                     <button
                       key={skill.id}
                       type="button"
@@ -2383,7 +2496,7 @@ function GovernanceSkillMockPage() {
                       </div>
                     </button>
                   ))
-                  : governanceRegistrySkills.map((skill) => (
+                  : registrySkillItems.map((skill) => (
                     <button
                       key={skill.code}
                       type="button"
@@ -2406,7 +2519,7 @@ function GovernanceSkillMockPage() {
                   ))
                 : catalogMode === "roles"
                   ? scopeMode === "project"
-                    ? governanceRoles.map((role) => (
+                    ? roleItems.map((role) => (
                     <button
                       key={role.role_code}
                       type="button"
@@ -2425,7 +2538,7 @@ function GovernanceSkillMockPage() {
                       <div className="mt-1 text-xs text-[#5F5F5F]">{role.enabled ? "已启用" : "未启用"}</div>
                     </button>
                   ))
-                    : governanceSystemRoles.map((role) => (
+                    : systemRoleItems.map((role) => (
                     <button
                       key={role.code}
                       type="button"
@@ -2469,7 +2582,7 @@ function GovernanceSkillMockPage() {
             {catalogMode === "skills" ? (
               scopeMode === "project" ? (
                 selectedSkill ? (
-                <section className="flex min-h-0 flex-col overflow-hidden">
+                <section className="ui-lab-detail-switch flex min-h-0 flex-col overflow-hidden">
                   <div className="shrink-0">
                     <div className="text-base font-semibold text-white">{selectedSkill.skill_name}</div>
                     <div className="mt-1 text-xs text-[#8A8A8A]">
@@ -2487,7 +2600,7 @@ function GovernanceSkillMockPage() {
                       <TabsTrigger value="evidence">证据</TabsTrigger>
                       <TabsTrigger value="suggestion">建议</TabsTrigger>
                     </TabsList>
-                    <TabsContent value="overview" className="min-h-0 flex-1 overflow-hidden">
+                    <TabsContent value="overview" className="ui-lab-detail-switch min-h-0 flex-1 overflow-hidden">
                       <div className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         <ReadbackRows
                           compact
@@ -2501,22 +2614,18 @@ function GovernanceSkillMockPage() {
                         />
                       </div>
                     </TabsContent>
-                    <TabsContent value="evidence" className="min-h-0 flex-1 overflow-hidden">
+                    <TabsContent value="evidence" className="ui-lab-detail-switch min-h-0 flex-1 overflow-hidden">
                       <div className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         <ReadbackRows
                           compact
-                          rows={[
-                            ["最近运行", `${selectedSkill.run_count} 次`],
-                            ["成功 / 失败", `${selectedSkill.succeeded_run_count} / ${selectedSkill.failed_run_count}`],
-                            ["总 Token", selectedSkill.total_tokens.toLocaleString()],
-                            ["预估成本", `$${selectedSkill.estimated_cost.toFixed(2)}`],
-                            ["最近 Run", selectedSkill.latest_run_id ?? "—"],
-                            ["最近摘要", govShort(selectedSkill.latest_run_summary, 36)],
-                          ]}
+                          rows={selectedSkill.evidence_rows.map(([label, value]) => [
+                            label,
+                            govShort(value, 42),
+                          ])}
                         />
                       </div>
                     </TabsContent>
-                    <TabsContent value="suggestion" className="min-h-0 flex-1 overflow-hidden">
+                    <TabsContent value="suggestion" className="ui-lab-detail-switch min-h-0 flex-1 overflow-hidden">
                       <div className="h-full min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         <ReadbackRows
                           compact
@@ -2537,7 +2646,7 @@ function GovernanceSkillMockPage() {
                 </div>
               )
               ) : selectedRegistrySkill ? (
-                <section className="flex min-h-0 flex-col overflow-hidden">
+                <section className="ui-lab-detail-switch flex min-h-0 flex-col overflow-hidden">
                   <div className="shrink-0">
                     <div className="text-base font-semibold text-white">{selectedRegistrySkill.name}</div>
                     <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{selectedRegistrySkill.summary}</div>
@@ -2578,7 +2687,7 @@ function GovernanceSkillMockPage() {
             ) : catalogMode === "roles" ? (
               scopeMode === "project" ? (
                 selectedRole ? (
-                <section className="flex min-h-0 flex-col overflow-hidden">
+                <section className="ui-lab-detail-switch flex min-h-0 flex-col overflow-hidden">
                   <div className="shrink-0">
                     <div className="text-base font-semibold text-white">{selectedRole.name}</div>
                     <div className="mt-1 text-xs text-[#8A8A8A]">
@@ -2625,7 +2734,7 @@ function GovernanceSkillMockPage() {
                 </div>
               )
               ) : selectedSystemRole ? (
-                <section className="flex min-h-0 flex-col overflow-hidden">
+                <section className="ui-lab-detail-switch flex min-h-0 flex-col overflow-hidden">
                   <div className="shrink-0">
                     <div className="text-base font-semibold text-white">{selectedSystemRole.name}</div>
                     <div className="mt-1 text-xs text-[#8A8A8A]">
@@ -2666,7 +2775,7 @@ function GovernanceSkillMockPage() {
                 </div>
               )
             ) : selectedPermission ? (
-              <section className="flex min-h-0 flex-col overflow-hidden">
+              <section className="ui-lab-detail-switch flex min-h-0 flex-col overflow-hidden">
                 <div className="shrink-0">
                   <div className="text-base font-semibold text-white">{selectedPermission.title}</div>
                   <div className="mt-1 text-xs leading-5 text-[#8A8A8A]">{selectedPermission.summary}</div>
@@ -2757,24 +2866,34 @@ function GovernanceSkillMockPage() {
 
 function DeliverablesCenterMockPage({
   onQueueDiscussionAction,
+  data,
 }: {
   onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
+  data?: WorkbenchPageSurfaceData["deliverables"];
 }) {
-  const [selectedId, setSelectedId] = useState<string>(deliverablesItems[0]?.id ?? "");
+  const dataItems = data?.deliverables ?? deliverablesItems;
+  const [selectedId, setSelectedId] = useState<string>(dataItems[0]?.id ?? "");
   const [activeDetailTab, setActiveDetailTab] = useState("content");
   const [discussionText, setDiscussionText] = useState("");
   const [discussionMessage, setDiscussionMessage] = useState("");
-  const deliverablesViewState = "ready" as DeliverablesDemoState;
+  const deliverablesViewState = data?.viewState ?? "ready";
 
-  const visibleDeliverables = deliverablesViewState === "ready" ? deliverablesItems : [];
+  const visibleDeliverables = deliverablesViewState === "ready" ? dataItems : [];
   const selected = visibleDeliverables.find((d) => d.id === selectedId) ?? visibleDeliverables[0] ?? null;
   const hasDeliverables = visibleDeliverables.length > 0;
 
-  const lockedCount = deliverablesItems.filter((d) => d.status === "locked").length;
-  const pendingCount = deliverablesItems.filter((d) => d.status === "pending_review").length;
-  const totalCount = deliverablesItems.length;
+  const lockedCount = dataItems.filter((d) => d.status === "locked").length;
+  const pendingCount =
+    data?.pendingApprovalCount ?? dataItems.filter((d) => d.status === "pending_review").length;
+  const totalCount = dataItems.length;
 
   const discussionDisabled = deliverablesViewState !== "ready" || !selected;
+
+  useEffect(() => {
+    if (!dataItems.some((item) => item.id === selectedId)) {
+      setSelectedId(dataItems[0]?.id ?? "");
+    }
+  }, [dataItems, selectedId]);
 
   function handleSelectDeliverable(id: string) {
     setSelectedId(id);
@@ -2832,7 +2951,7 @@ function DeliverablesCenterMockPage({
     : [];
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
+    <div className="ui-lab-page-enter flex min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
       <style>{`
         .ui-lab-deliverables-scroll {
           scrollbar-width: none;
@@ -2847,7 +2966,7 @@ function DeliverablesCenterMockPage({
       `}</style>
       <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-1 flex-col">
         <CompactPageHeader
-          eyebrow="营销活动分析平台"
+          eyebrow={data?.projectName ?? "营销活动分析平台"}
           title="成果"
           meta={`已沉淀 ${totalCount} 项 · 待审查 ${pendingCount} 项 · 已锁定 ${lockedCount} 项`}
           description="项目成果、说明文档与验收材料"
@@ -2959,18 +3078,18 @@ function DeliverablesCenterMockPage({
                     <TabsTrigger value="versions">版本</TabsTrigger>
                     <TabsTrigger value="summary">摘要</TabsTrigger>
                   </TabsList>
-                  <TabsContent value="content">
+                  <TabsContent value="content" className="ui-lab-detail-switch">
                     <div className="mt-4 text-sm leading-6 text-[#C7C7C7] whitespace-pre-line">
                       {cleanMockMarkdown(selected.content_markdown)}
                     </div>
                   </TabsContent>
-                  <TabsContent value="evidence">
+                  <TabsContent value="evidence" className="ui-lab-detail-switch">
                     <ReadbackRows rows={evidenceRows} footer="仅展示成果来源与关联材料，不触发任何写入操作。" />
                   </TabsContent>
-                  <TabsContent value="versions">
+                  <TabsContent value="versions" className="ui-lab-detail-switch">
                     <ReadbackRows rows={versionRows} footer="仅展示版本信息，不执行修改操作。" />
                   </TabsContent>
-                  <TabsContent value="summary">
+                  <TabsContent value="summary" className="ui-lab-detail-switch">
                     <ReadbackRows rows={summaryRows} footer="仅展示成果摘要。" />
                   </TabsContent>
                 </Tabs>
@@ -2992,69 +3111,55 @@ function DeliverablesCenterMockPage({
   );
 }
 
-function RepositorySpaceMockPage() {
+function RepositorySpaceMockPage({
+  onTaskFeedback,
+  repositoryBindingPanel,
+  data,
+}: {
+  onTaskFeedback?: (message: string, status?: "queued" | "processing" | "done" | "failed") => void;
+  repositoryBindingPanel?: React.ReactNode;
+  data?: WorkbenchPageSurfaceData["repository"];
+}) {
   const [noteText, setNoteText] = useState("");
   const [noteMessage, setNoteMessage] = useState("");
   const [workspaceMessage, setWorkspaceMessage] = useState("");
-  const viewState = "ready" as RepositoryPageViewState;
+  const [existingRepositoryPath, setExistingRepositoryPath] = useState("/Users/kk/owner project/AI-Dev-Orchestrator");
+  const [newRepositoryName, setNewRepositoryName] = useState("marketing-analytics");
+  const [newRepositoryRoot, setNewRepositoryRoot] = useState("/Users/kk/AI-Workspaces");
+  const viewState = data?.viewState ?? "ready";
 
   const noteDisabled = viewState !== "ready";
-  const workspacePath = "/Users/kk/owner project/AI-Dev-Orchestrator";
-  const defaultWorkspaceRoot = "/Users/kk/AI-Workspaces";
-  const detailItems = [
+  const workspacePath = data?.workspacePath ?? "/Users/kk/owner project/AI-Dev-Orchestrator";
+  const defaultWorkspaceRoot = data?.detailItems
+    .find((item) => item.title === "工作区范围")
+    ?.rows.find((row) => row[0] === "默认工作区")?.[1] ?? "/Users/kk/AI-Workspaces";
+  const detailItems = data?.detailItems ?? [
     {
-      title: "仓库信息",
-      description: "当前项目绑定的本地仓库。",
+      title: "当前绑定",
+      description: "当前项目使用的本地仓库。",
       rows: [
         ["仓库名称", "AI-Dev-Orchestrator"],
         ["本地路径", workspacePath],
         ["默认分支", "main"],
         ["查看方式", "只读查看"],
-        ["忽略目录", ".git、node_modules、dist、build"],
       ] as const,
     },
     {
-      title: "工作区设置",
-      description: "Agent 可以使用的本地位置范围。",
+      title: "工作区范围",
+      description: "Agent 可以读取和准备变更的位置。",
       rows: [
         ["默认工作区", defaultWorkspaceRoot],
         ["允许位置", "/Users/kk/AI-Workspaces、/Users/kk/owner project"],
         ["当前路径状态", "位于允许位置内"],
-        ["设置来源", "项目设置"],
       ] as const,
     },
     {
-      title: "最近快照",
-      description: "供 Agent 分析项目结构和定位文件。",
-      rows: [
-        ["快照状态", "已刷新"],
-        ["最近刷新", "今天 14:32"],
-        ["主要目录", "apps/web、runtime、docs"],
-        ["用途", "供 Agent 分析项目结构和定位文件"],
-      ] as const,
-      actionLabel: "刷新仓库信息",
-      actionMessage: "已记录刷新仓库信息",
-    },
-    {
-      title: "变更准备",
-      description: "仓库已可分析，等待生成变更计划。",
-      rows: [
-        ["当前状态", "等待生成变更计划"],
-        ["已有关联成果", `${repositoryLinkedDeliverables.length} 项`],
-        ["变更准备", "0 项待执行"],
-        ["下一步", "让 AI 主管根据项目目标生成变更计划"],
-      ] as const,
-      actionLabel: "生成变更计划",
-      actionMessage: "已记录生成变更计划请求",
-    },
-    {
-      title: "写入边界",
+      title: "安全边界",
       description: "改变本地仓库或远程仓库前需要人工确认。",
       rows: [
         ["默认方式", "只读查看"],
         ["需要确认", "修改文件、生成变更草稿、关联成果"],
         ["禁止自动处理", "自动提交、自动推送、自动合并、自动发布"],
-        ["原因", repositoryBoundaryItems.find((item) => item.id === "repo_boundary_forbidden")?.reason ?? "这些操作会改变本地仓库或远程仓库，需要人工确认"],
       ] as const,
     },
   ];
@@ -3068,7 +3173,7 @@ function RepositorySpaceMockPage() {
 
   if (viewState === "loading") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto w-full max-w-[1080px]">
           <div className="text-sm text-[#8A8A8A]">正在读取工作区</div>
           <Separator className="mt-4" />
@@ -3079,12 +3184,40 @@ function RepositorySpaceMockPage() {
     );
   }
 
-  if (viewState === "empty") {
+  if (viewState === "empty" || viewState === "pending_binding") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
-        <div className="mx-auto w-full max-w-[1080px]">
-          <div className="text-sm text-[#8A8A8A]">暂无仓库关联</div>
-          <div className="mt-2 text-xs text-[#5F5F5F]">当前项目还没有可展示的工作区。</div>
+      <div className="ui-lab-page-enter flex min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
+          <CompactPageHeader
+            eyebrow={data?.projectName ?? "当前项目"}
+            title="工作区"
+            meta="待绑定 · 只读准备"
+            description={data?.summary ?? "当前项目还没有绑定本地仓库，可以先选择只读工作区。"}
+          />
+          <section className="min-h-0 flex-1 overflow-y-auto py-5 [scrollbar-width:none] [-ms-overflow-style:none] md:py-6 [&::-webkit-scrollbar]:hidden">
+            {repositoryBindingPanel ? (
+              <div className="mb-6">
+                {repositoryBindingPanel}
+              </div>
+            ) : null}
+            <div className="border border-[#242424] bg-[#0B0B0B] p-5">
+              <div className="text-sm text-[#C7C7C7]">暂无仓库关联</div>
+              <div className="mt-2 text-xs leading-5 text-[#8A8A8A]">
+                绑定仓库后，这里会展示仓库快照、验证基线和变更会话准备情况。
+              </div>
+              <div className="mt-4 space-y-2 text-sm leading-6">
+                {(data?.readiness ?? [
+                  "○ 等待绑定本地仓库",
+                  "○ 等待工作区检查",
+                  "○ 等待仓库快照",
+                  "○ 等待验证基线",
+                  "○ 等待生成变更会话",
+                ]).map((item) => (
+                  <div key={item} className="text-[#C7C7C7]">{item}</div>
+                ))}
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     );
@@ -3092,7 +3225,7 @@ function RepositorySpaceMockPage() {
 
   if (viewState === "error") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto w-full max-w-[1080px]">
           <div className="text-sm text-[#8A8A8A]">仓库信息读取失败</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">请稍后重试或回到工作台确认项目状态。</div>
@@ -3103,7 +3236,7 @@ function RepositorySpaceMockPage() {
 
   if (viewState === "no_project") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto w-full max-w-[1080px]">
           <div className="text-sm text-[#8A8A8A]">尚未选择项目</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">选择项目后，这里会展示该项目的工作区。</div>
@@ -3114,7 +3247,7 @@ function RepositorySpaceMockPage() {
 
   if (viewState === "no_permission") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
+      <div className="ui-lab-page-enter min-h-0 flex-1 overflow-hidden px-4 py-6 md:px-6 md:py-8 lg:px-10">
         <div className="mx-auto w-full max-w-[1080px]">
           <div className="text-sm text-[#8A8A8A]">暂无查看权限</div>
           <div className="mt-2 text-xs text-[#5F5F5F]">当前账号不能查看该项目的代码空间。</div>
@@ -3124,24 +3257,36 @@ function RepositorySpaceMockPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
+    <div className="ui-lab-page-enter flex min-h-0 flex-1 overflow-hidden px-4 py-5 md:px-6 md:py-6 lg:px-10">
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col">
         <CompactPageHeader
-          eyebrow="营销活动分析平台"
+          eyebrow={data?.projectName ?? "营销活动分析平台"}
           title="工作区"
-          meta="已就绪 · 只读查看"
-          description="当前项目的 Agent 工作位置和准备状态。"
+          meta={data ? `${data.statusLabel} · 只读查看` : "已就绪 · 只读查看"}
+          description={data?.summary ?? "当前项目的 Agent 工作位置和准备状态。"}
         />
 
         <section className="min-h-0 flex-1 overflow-y-auto border-b border-[#2A2A2A] py-5 [scrollbar-width:none] [-ms-overflow-style:none] md:py-6 [&::-webkit-scrollbar]:hidden">
+          {repositoryBindingPanel ? (
+            <div className="mb-6">
+              {repositoryBindingPanel}
+            </div>
+          ) : null}
+
           <div className="grid gap-6 border-b border-[#2A2A2A] pb-6 lg:grid-cols-[1fr_340px] lg:gap-8">
             <div className="min-w-0">
               <div className="mb-2 flex items-center gap-3">
-                <h2 className="min-w-0 flex-1 truncate text-lg font-semibold text-white">AI-Dev-Orchestrator</h2>
-                <span className="shrink-0 text-sm text-[#C7C7C7]">已就绪</span>
+                <h2 className="min-w-0 flex-1 truncate text-lg font-semibold text-white">
+                  {data?.repositoryName ?? "AI-Dev-Orchestrator"}
+                </h2>
+                <span className="shrink-0 text-sm text-[#C7C7C7]">
+                  {data?.statusLabel ?? "已就绪"}
+                </span>
               </div>
               <div className="break-all text-sm leading-6 text-[#C7C7C7]">{workspacePath}</div>
-              <div className="mt-3 text-sm text-[#8A8A8A]">本地 Git 仓库 · main · 只读查看</div>
+              <div className="mt-3 text-sm text-[#8A8A8A]">
+                本地 Git 仓库 · {data?.currentBranch ?? data?.defaultBranch ?? "main"} · 只读查看
+              </div>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-[#C7C7C7]">
                 Agent 可以基于这个仓库分析项目、生成计划和准备变更。
               </p>
@@ -3149,7 +3294,8 @@ function RepositorySpaceMockPage() {
               <div className="mt-5 flex flex-wrap gap-3">
                 <Button
                   onClick={() => {
-                    setWorkspaceMessage("已记录开始分析仓库");
+                    onTaskFeedback?.("开始分析仓库", "queued");
+                    setWorkspaceMessage("");
                     setNoteMessage("");
                   }}
                 >
@@ -3159,7 +3305,7 @@ function RepositorySpaceMockPage() {
                   <DialogTrigger asChild>
                     <Button variant="secondary">更换仓库</Button>
                   </DialogTrigger>
-                  <DialogContent className="w-[min(92vw,620px)]">
+                  <DialogContent className="ui-lab-dialog-enter w-[min(92vw,620px)]">
                     <DialogHeader>
                       <DialogTitle>连接工作区</DialogTitle>
                       <DialogDescription>
@@ -3171,10 +3317,15 @@ function RepositorySpaceMockPage() {
                       <div>
                         <h3 className="text-sm font-semibold text-white">选择已有仓库</h3>
                         <div className="mt-4 space-y-3 text-sm">
-                          <div>
-                            <div className="text-xs text-[#8A8A8A]">路径</div>
-                            <div className="mt-1 break-all leading-6 text-[#C7C7C7]">{workspacePath}</div>
-                          </div>
+                          <label className="block">
+                            <div className="mb-1.5 text-xs text-[#8A8A8A]">本地仓库路径</div>
+                            <Input
+                              data-testid="ui-lab-repository-input-existingRepositoryPath"
+                              value={existingRepositoryPath}
+                              placeholder="/Users/kk/project"
+                              onChange={(event) => setExistingRepositoryPath(event.target.value)}
+                            />
+                          </label>
                           <div className="space-y-1 text-xs leading-5 text-[#8A8A8A]">
                             <div>必须是本地 Git 仓库</div>
                             <div>必须位于允许的工作区目录内</div>
@@ -3186,7 +3337,8 @@ function RepositorySpaceMockPage() {
                             className="mt-5"
                             variant="secondary"
                             onClick={() => {
-                              setWorkspaceMessage("已记录连接工作区操作");
+                              onTaskFeedback?.("绑定已有仓库", "queued");
+                              setWorkspaceMessage("");
                               setNoteMessage("");
                             }}
                           >
@@ -3198,14 +3350,24 @@ function RepositorySpaceMockPage() {
                       <div className="border-t border-[#2A2A2A] pt-5 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
                         <h3 className="text-sm font-semibold text-white">让 AI 主管创建新仓库</h3>
                         <div className="mt-4 space-y-3 text-sm">
-                          <div>
-                            <div className="text-xs text-[#8A8A8A]">默认位置</div>
-                            <div className="mt-1 break-all leading-6 text-[#C7C7C7]">{defaultWorkspaceRoot}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-[#8A8A8A]">仓库名称</div>
-                            <div className="mt-1 text-[#C7C7C7]">marketing-analytics</div>
-                          </div>
+                          <label className="block">
+                            <div className="mb-1.5 text-xs text-[#8A8A8A]">创建位置</div>
+                            <Input
+                              data-testid="ui-lab-repository-input-newRepositoryRoot"
+                              value={newRepositoryRoot}
+                              placeholder="/Users/kk/AI-Workspaces"
+                              onChange={(event) => setNewRepositoryRoot(event.target.value)}
+                            />
+                          </label>
+                          <label className="block">
+                            <div className="mb-1.5 text-xs text-[#8A8A8A]">仓库名称</div>
+                            <Input
+                              data-testid="ui-lab-repository-input-newRepositoryName"
+                              value={newRepositoryName}
+                              placeholder="marketing-analytics"
+                              onChange={(event) => setNewRepositoryName(event.target.value)}
+                            />
+                          </label>
                           <p className="text-xs leading-5 text-[#8A8A8A]">
                             创建后会绑定到当前项目，作为 Agent 工作区。
                           </p>
@@ -3215,7 +3377,8 @@ function RepositorySpaceMockPage() {
                             className="mt-5"
                             variant="secondary"
                             onClick={() => {
-                              setWorkspaceMessage("已记录创建工作区操作");
+                              onTaskFeedback?.("创建新仓库", "queued");
+                              setWorkspaceMessage("");
                               setNoteMessage("");
                             }}
                           >
@@ -3239,13 +3402,13 @@ function RepositorySpaceMockPage() {
             <div className="border-t border-[#2A2A2A] pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
               <h2 className="text-sm font-semibold text-white">准备情况</h2>
               <div className="mt-4 space-y-2 text-sm leading-6">
-                {[
+                {(data?.readiness ?? [
                   "✓ 已绑定本地仓库",
                   "✓ 位于允许的工作区目录",
                   "✓ 已识别为 Git 仓库",
                   "✓ 仓库快照已刷新",
                   "○ 等待生成变更计划",
-                ].map((item) => (
+                ]).map((item) => (
                   <div key={item} className="text-[#C7C7C7]">{item}</div>
                 ))}
               </div>
@@ -3269,7 +3432,7 @@ function RepositorySpaceMockPage() {
                       <ChevronRight className="h-4 w-4 shrink-0 text-[#8A8A8A]" />
                     </button>
                   </DialogTrigger>
-                  <DialogContent className="w-[min(92vw,560px)]">
+                  <DialogContent className="ui-lab-dialog-enter w-[min(92vw,560px)]">
                     <DialogHeader>
                       <DialogTitle>{item.title}</DialogTitle>
                       <DialogDescription>{item.description}</DialogDescription>
@@ -3278,17 +3441,6 @@ function RepositorySpaceMockPage() {
                       <ReadbackRows rows={item.rows} />
                     </div>
                     <div className="mt-5 flex justify-end gap-3">
-                      {item.actionLabel && item.actionMessage ? (
-                        <Button
-                          variant="secondary"
-                          onClick={() => {
-                            setWorkspaceMessage(item.actionMessage);
-                            setNoteMessage("");
-                          }}
-                        >
-                          {item.actionLabel}
-                        </Button>
-                      ) : null}
                       <DialogClose asChild>
                         <Button variant="secondary">关闭</Button>
                       </DialogClose>
@@ -3339,42 +3491,102 @@ function RepositorySpaceMockPage() {
 export function MockPageContent({
   pageKey,
   onQueueDiscussionAction,
+  onTaskFeedback,
+  repositoryBindingPanel,
+  adapterMode = "mock",
+  surfaceData,
 }: {
   pageKey: string;
   onQueueDiscussionAction?: (mode: "add" | "add-and-open", title: string) => void;
+  onTaskFeedback?: (message: string, status?: "queued" | "processing" | "done" | "failed") => void;
+  repositoryBindingPanel?: React.ReactNode;
+  adapterMode?: WorkbenchPageAdapterMode;
+  surfaceData?: WorkbenchPageSurfaceData;
 }) {
+  const mockAdapterMarker = (
+    <div data-testid="workbench-page-adapter-mock" aria-hidden="true" />
+  );
+  const realAdapterMarker = (
+    <div data-testid="workbench-page-adapter-real" aria-hidden="true" />
+  );
+  const resolvedAdapterMode = resolveSurfaceAdapterMode({
+    pageKey,
+    adapterMode,
+    surfaceData,
+  });
+  const adapterMarkers = (
+    <>
+      {resolvedAdapterMode === "real" ? realAdapterMarker : mockAdapterMarker}
+    </>
+  );
+
   if (pageKey === "projects") {
-    return <ProjectManagementMockPage />;
+    return (
+      <>
+        {adapterMarkers}
+        <ProjectManagementMockPage data={surfaceData?.projects} />
+      </>
+    );
   }
 
   if (pageKey === "execution") {
-    return <ExecutionCenterMockPage onQueueDiscussionAction={onQueueDiscussionAction} />;
+    return (
+      <>
+        {adapterMarkers}
+        <ExecutionCenterMockPage
+          data={surfaceData?.execution}
+          onQueueDiscussionAction={onQueueDiscussionAction}
+        />
+      </>
+    );
   }
 
   if (pageKey === "deliverables") {
-    return <DeliverablesCenterMockPage onQueueDiscussionAction={onQueueDiscussionAction} />;
+    return (
+      <>
+        {adapterMarkers}
+        <DeliverablesCenterMockPage
+          data={surfaceData?.deliverables}
+          onQueueDiscussionAction={onQueueDiscussionAction}
+        />
+      </>
+    );
   }
 
   if (pageKey === "repository") {
-    return <RepositorySpaceMockPage />;
+    return (
+      <>
+        {adapterMarkers}
+        <RepositorySpaceMockPage
+          data={surfaceData?.repository}
+          onTaskFeedback={onTaskFeedback}
+          repositoryBindingPanel={repositoryBindingPanel}
+        />
+      </>
+    );
   }
 
   if (pageKey === "governance") {
-    return <GovernanceSkillMockPage />;
+    return (
+      <>
+        {adapterMarkers}
+        <GovernanceSkillMockPage data={surfaceData?.governance} />
+      </>
+    );
   }
 
   const content: MainPageContent | undefined = mainPageMockContents[pageKey];
 
   if (!content) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-[#8A8A8A]">
+      <div className="ui-lab-page-enter flex h-full items-center justify-center text-sm text-[#8A8A8A]">
         页面未找到
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col px-6 py-8 md:px-10 md:py-12">
+    <div className="ui-lab-page-enter flex h-full flex-col px-6 py-8 md:px-10 md:py-12">
       <h2 className="text-2xl font-semibold tracking-normal text-white">{content.title}</h2>
       <p className="mt-2 text-sm font-medium text-[#C7C7C7]">{content.subtitle}</p>
       <p className="mt-3 max-w-lg text-sm leading-6 text-[#8A8A8A]">{content.description}</p>
@@ -3393,4 +3605,31 @@ export function MockPageContent({
       </div>
     </div>
   );
+}
+
+function resolveSurfaceAdapterMode(input: {
+  pageKey: string;
+  adapterMode: WorkbenchPageAdapterMode;
+  surfaceData?: WorkbenchPageSurfaceData;
+}): "mock" | "real" {
+  if (input.adapterMode === "mock") return "mock";
+  if (input.adapterMode === "real") return "real";
+
+  if (input.pageKey === "projects") {
+    return input.surfaceData?.projects ? "real" : "mock";
+  }
+  if (input.pageKey === "execution") {
+    return input.surfaceData?.execution ? "real" : "mock";
+  }
+  if (input.pageKey === "deliverables") {
+    return input.surfaceData?.deliverables ? "real" : "mock";
+  }
+  if (input.pageKey === "repository") {
+    return input.surfaceData?.repository ? "real" : "mock";
+  }
+  if (input.pageKey === "governance") {
+    return input.surfaceData?.governance ? "real" : "mock";
+  }
+
+  return "mock";
 }

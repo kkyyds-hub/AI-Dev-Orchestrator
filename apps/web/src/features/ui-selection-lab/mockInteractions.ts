@@ -413,7 +413,7 @@ export const slimMoreTools: SlimToolEntry[] = [
     key: "cost-usage",
     label: "成本用量",
     icon: Wallet,
-    description: "Token 消耗与 API 成本统计",
+    description: "用量 消耗与 API 成本统计",
   },
   {
     key: "repo-queue",
@@ -481,11 +481,11 @@ export const mainPageMockContents: Record<string, MainPageContent> = {
   },
   "cost-usage": {
     title: "成本用量",
-    subtitle: "Token 消耗与 API 成本统计",
-    description: "查看近期 API 调用次数、Token 消耗量及预估费用。",
+    subtitle: "用量 消耗与 API 成本统计",
+    description: "查看近期 API 调用次数、用量 消耗量及预估费用。",
     items: [
-      { label: "本周消耗", description: "GPT-4o: 142K tokens / $0.71" },
-      { label: "本月累计", description: "总计 1.2M tokens / $5.84" },
+      { label: "本周消耗", description: "GPT-4o: 142K 用量 / $0.71" },
+      { label: "本月累计", description: "总计 1.2M 用量 / $5.84" },
       { label: "按项目拆分", description: "闲置二手 42% / AI 主管改造 58%" },
     ],
   },
@@ -547,7 +547,7 @@ export const gitWritePreviewMock = {
 +  <div className="mt-0.5 ...">
 -    onClick={() => { setActiveMainPage(tool.key); ... }}
 +    // open dialog instead`,
-  limitationNote: "实验页 mock：不执行真实 Git 写入。",
+  limitationNote: "实验页：不执行真实 Git 写入。",
 };
 
 // ── Quick Action Mock Content ──────────────────────────────

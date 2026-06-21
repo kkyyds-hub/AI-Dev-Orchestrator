@@ -428,6 +428,28 @@ export type ProjectMemorySnapshot = {
   latest_items: ProjectMemoryItem[];
 };
 
+export type ProjectMemoryGovernanceState = {
+  project_id: string;
+  generated_at: string;
+  checkpoint_count: number;
+  latest_checkpoint_id: string | null;
+  latest_task_id: string | null;
+  latest_run_id: string | null;
+  latest_pressure_level: string | null;
+  latest_usage_ratio: number | null;
+  latest_bad_context_detected: boolean;
+  latest_bad_context_reasons: string[];
+  latest_rolling_summary: string | null;
+  latest_compaction_applied: boolean;
+  latest_compaction_reduction_ratio: number | null;
+  latest_compaction_reason_codes: string[];
+  latest_rehydrate_at: string | null;
+  latest_rehydrate_used_checkpoint_id: string | null;
+  latest_compacted_at: string | null;
+  latest_reset_at: string | null;
+  storage_path: string | null;
+};
+
 export type ProjectMemorySearchHit = {
   score: number;
   matched_terms: string[];

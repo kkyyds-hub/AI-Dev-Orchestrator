@@ -30,6 +30,7 @@ export function useProjectRepositorySnapshot(projectId: string | null) {
     queryKey: ["repository-snapshot", projectId],
     queryFn: () => fetchProjectRepositorySnapshot(projectId ?? ""),
     enabled: projectId !== null,
+    retry: false,
   });
 }
 
@@ -91,6 +92,7 @@ export function useProjectRepositoryVerificationBaseline(projectId: string | nul
     queryKey: ["repository-verification-baseline", projectId],
     queryFn: () => fetchProjectRepositoryVerificationBaseline(projectId ?? ""),
     enabled: projectId !== null,
+    retry: false,
   });
 }
 

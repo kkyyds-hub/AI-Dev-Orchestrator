@@ -44,7 +44,7 @@ export function DashboardModal({ children }: { children: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,520px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,520px)]">
         <DialogHeader>
           <DialogTitle>数据看板</DialogTitle>
           <DialogDescription>近 7 天运行概览与成本估算</DialogDescription>
@@ -128,7 +128,7 @@ const approvalDetails: Record<string, { rows: [string, string][]; records: strin
       "12:34 等待人工确认范围",
       "12:38 当前审批仍处于待处理",
     ],
-    footer: "仅展示审批读回与本地 mock 状态，不接真实后端。",
+    footer: "仅展示审批读回与本地 状态，使用示例数据。",
   },
   "appr-2": {
     rows: [
@@ -144,7 +144,7 @@ const approvalDetails: Record<string, { rows: [string, string][]; records: strin
       "09:24 完成审查报告",
       "09:26 等待用户选择是否放行",
     ],
-    footer: "仅展示审批读回与本地 mock 状态，不接真实后端。",
+    footer: "仅展示审批读回与本地 状态，使用示例数据。",
   },
 };
 
@@ -163,10 +163,10 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="flex max-h-[min(86vh,760px)] w-[min(94vw,900px)] flex-col overflow-hidden">
+      <DialogContent className="ui-lab-dialog-enter flex max-h-[min(86vh,760px)] w-[min(94vw,900px)] flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>待审批</DialogTitle>
-          <DialogDescription>mock 审批列表，不接真实后端</DialogDescription>
+          <DialogDescription>示例 审批列表，使用示例数据</DialogDescription>
         </DialogHeader>
 
         <div className="mt-5 grid min-h-0 flex-1 gap-5 overflow-hidden lg:grid-cols-[340px_1fr]">
@@ -246,12 +246,12 @@ export function ApprovalsModal({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Right: approval detail */}
-          <div className="min-h-0 overflow-y-auto border-t border-[#2A2A2A] pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+          <div className="ui-lab-detail-switch min-h-0 overflow-y-auto border-t border-[#2A2A2A] pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
             {selectedApproval && detail ? (
               <>
                 <div>
                   <div className="text-sm font-semibold text-white">审批详情</div>
-                  <div className="mt-0.5 text-xs text-[#8A8A8A]">当前查看项 · mock</div>
+                  <div className="mt-0.5 text-xs text-[#8A8A8A]">当前查看项</div>
                 </div>
                 <div className="mt-3 border-y border-[#2A2A2A]">
                   {detail.rows.map(([label, value]) => (
@@ -354,7 +354,7 @@ const runRecordDetails: Record<string, { summary: [string, string][]; log: strin
     summary: [
       ["任务", "聊天消息持久化层"],
       ["状态", "running"],
-      ["执行器", "Codex · Worker 2 / 3"],
+      ["执行器", "Codex · 执行单元 2 / 3"],
       ["开始时间", "11:22"],
       ["耗时", "进行中"],
       ["结果", "等待执行完成"],
@@ -362,7 +362,7 @@ const runRecordDetails: Record<string, { summary: [string, string][]; log: strin
     log: `[11:22:10] run started: chat-persistence
 [11:22:15] loading project context
 [11:22:30] analyzing message schema
-[11:23:01] generating storage layer mock`,
+[11:23:01] generating storage layer`,
     safety: [
       ["Runtime", "ready"],
       ["Workspace", "clean"],
@@ -427,13 +427,13 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
 
   function handleCopyLog() {
     void navigator.clipboard?.writeText(detail.log).catch(() => undefined);
-    setCopyMessage("已复制日志摘要 · mock");
+    setCopyMessage("已复制日志摘要");
   }
 
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,540px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,540px)]">
         <DialogHeader>
           <DialogTitle>执行状态</DialogTitle>
           <DialogDescription>最近运行记录</DialogDescription>
@@ -470,7 +470,7 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
             <TabsTrigger value="log">日志</TabsTrigger>
             <TabsTrigger value="safety">安全</TabsTrigger>
           </TabsList>
-          <TabsContent value="summary">
+          <TabsContent value="summary" className="ui-lab-detail-switch">
             <div className="mt-3 border-y border-[#2A2A2A]">
               {detail.summary.map(([label, value]) => (
                 <div
@@ -483,7 +483,7 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
               ))}
             </div>
           </TabsContent>
-          <TabsContent value="log">
+          <TabsContent value="log" className="ui-lab-detail-switch">
             <div className="mt-3 rounded-2xl border border-[#2A2A2A] bg-black">
               <pre className="max-h-48 overflow-y-auto p-4 font-mono text-xs leading-6 text-[#C7C7C7]">
                 {detail.log}
@@ -498,7 +498,7 @@ export function ExecutionStatusModal({ children }: { children: React.ReactNode }
               ) : null}
             </div>
           </TabsContent>
-          <TabsContent value="safety">
+          <TabsContent value="safety" className="ui-lab-detail-switch">
             <div className="mt-3 border-y border-[#2A2A2A]">
               {detail.safety.map(([label, value]) => (
                 <div
@@ -529,10 +529,10 @@ export function CostUsageModal({ children }: { children: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,440px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,440px)]">
         <DialogHeader>
           <DialogTitle>成本用量</DialogTitle>
-          <DialogDescription>Token 消耗与 API 成本统计</DialogDescription>
+          <DialogDescription>用量 消耗与 API 成本统计</DialogDescription>
         </DialogHeader>
 
         <div className="mt-5">
@@ -545,7 +545,7 @@ export function CostUsageModal({ children }: { children: React.ReactNode }) {
           {/* Secondary metrics */}
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-[#2A2A2A] bg-[#0B0B0B] px-4 py-3">
-              <div className="text-xs text-[#8A8A8A]">今日 Token</div>
+              <div className="text-xs text-[#8A8A8A]">今日 用量</div>
               <div className="mt-1 text-[15px] font-semibold text-white">{costUsageMock.todayTokens}</div>
             </div>
             <div className="rounded-2xl border border-[#2A2A2A] bg-[#0B0B0B] px-4 py-3">
@@ -605,7 +605,7 @@ export function RepositoryQueueModal({ children }: { children: React.ReactNode }
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,460px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,460px)]">
         <DialogHeader>
           <DialogTitle>仓库队列</DialogTitle>
           <DialogDescription>待处理仓库任务与变更队列</DialogDescription>
@@ -695,7 +695,7 @@ export function GitWritePreviewModal({ children }: { children: React.ReactNode }
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,500px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,500px)]">
         <DialogHeader>
           <DialogTitle>Git 写入预览</DialogTitle>
           <DialogDescription>预览待提交的代码变更</DialogDescription>
@@ -769,7 +769,7 @@ export function CreatePlanModal({ children }: { children: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,480px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,480px)]">
         <DialogHeader>
           <DialogTitle>创建项目计划</DialogTitle>
           <DialogDescription>描述目标与约束，生成任务队列</DialogDescription>
@@ -801,7 +801,7 @@ export function CreatePlanModal({ children }: { children: React.ReactNode }) {
 
           {submitted && (
             <div className="rounded-2xl border border-[#2A2A2A] bg-black px-4 py-3 text-sm leading-6 text-[#C7C7C7]">
-              已生成 4 个任务并添加到 mock 会话。切换到「项目会话」查看。
+              已生成 4 个任务并添加到 会话。切换到「项目会话」查看。
             </div>
           )}
         </div>
@@ -818,7 +818,7 @@ export function ReviewResultModal({ children }: { children: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,500px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,500px)]">
         <DialogHeader>
           <DialogTitle>审查执行结果</DialogTitle>
           <DialogDescription>粘贴执行结果，点击审查判断 Pass / Partial</DialogDescription>
@@ -867,7 +867,7 @@ export function AdvanceNextModal({ children }: { children: React.ReactNode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="w-[min(92vw,520px)]">
+      <DialogContent className="ui-lab-dialog-enter w-[min(92vw,520px)]">
         <DialogHeader>
           <DialogTitle>推进下一步</DialogTitle>
           <DialogDescription>下一条最小执行指令预览</DialogDescription>
