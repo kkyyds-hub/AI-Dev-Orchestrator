@@ -423,6 +423,25 @@ class RealExecutorProcessAdapterReadbackResponse(BaseModel):
         return value
 
 
+class RealExecutorNoopLifecycleResponse(BaseModel):
+    session_id: str
+    lifecycle_intent: str
+    operation_status: str
+    poll_state: str
+    blocking_reasons: list[str]
+    product_runtime_git_write_allowed: bool = False
+    native_process_started: bool = False
+    api_mode: Literal["noop_lifecycle"] = "noop_lifecycle"
+    recorded_at: datetime
+
+    @field_validator("product_runtime_git_write_allowed", "native_process_started")
+    @classmethod
+    def enforce_false_runtime_flags(cls, value: bool) -> bool:
+        if value is not False:
+            raise ValueError("noop lifecycle readback must not execute native processes")
+        return value
+
+
 class InMemoryLaunchRequestRegistry:
     def __init__(self) -> None:
         self._requests: dict[str, ExecutorLaunchRequest] = {}
@@ -465,6 +484,7 @@ class InMemoryLaunchRequestRegistry:
 _runtime_service = ControlledRuntimeService()
 _launch_request_registry = InMemoryLaunchRequestRegistry()
 _real_executor_launch_readback_builder = RealExecutorLaunchReadbackBuilder()
+_real_executor_process_adapter = RealExecutorProcessAdapter()
 
 
 def get_controlled_runtime_service() -> ControlledRuntimeService:
@@ -477,6 +497,10 @@ def get_launch_request_registry() -> InMemoryLaunchRequestRegistry:
 
 def get_real_executor_launch_readback_builder() -> RealExecutorLaunchReadbackBuilder:
     return _real_executor_launch_readback_builder
+
+
+def get_real_executor_process_adapter() -> RealExecutorProcessAdapter:
+    return _real_executor_process_adapter
 
 
 router = APIRouter(prefix="/runtime", tags=["runtime"])
@@ -538,6 +562,88 @@ def build_real_executor_process_adapter_readback() -> RealExecutorProcessAdapter
         api_mode="read_only",
         created_at=_utc_now(),
     )
+
+
+@router.post(
+    "/real-executor/process-adapter-noop-sessions",
+    response_model=RealExecutorNoopLifecycleResponse,
+    summary="Create guarded real executor noop lifecycle readback session",
+)
+def create_real_executor_noop_session() -> RealExecutorNoopLifecycleResponse:
+    adapter = get_real_executor_process_adapter()
+    result = adapter.launch(
+        RealExecutorLaunchContext(
+            request_id=_new_id("process-adapter-noop-session"),
+            executor_label="codex",
+            command_summary="guarded process skeleton readback",
+            workspace_hint="registered worktree",
+            safety_boundary=_all_real_executor_gates_passed_boundary(),
+        ),
+    )
+    poll_snapshot = adapter.poll(result.session_id or "")
+    return _noop_lifecycle_response(
+        session_id=result.session_id or "",
+        lifecycle_intent=result.lifecycle_intent.value,
+        operation_status=result.status.value,
+        poll_state=poll_snapshot.poll_state.value,
+        blocking_reasons=list(result.blocking_reasons or poll_snapshot.blocking_reasons),
+        product_runtime_git_write_allowed=(
+            result.product_runtime_git_write_allowed
+            or poll_snapshot.product_runtime_git_write_allowed
+        ),
+    )
+
+
+@router.get(
+    "/real-executor/process-adapter-noop-sessions/{session_id}",
+    response_model=RealExecutorNoopLifecycleResponse,
+    summary="Read back guarded real executor noop lifecycle session",
+)
+def get_real_executor_noop_session(session_id: str) -> RealExecutorNoopLifecycleResponse:
+    poll_snapshot = get_real_executor_process_adapter().poll(session_id)
+    operation_status = (
+        "not_found"
+        if "session_not_found" in poll_snapshot.blocking_reasons
+        else "completed"
+    )
+    return _noop_lifecycle_response(
+        session_id=poll_snapshot.session_id,
+        lifecycle_intent=poll_snapshot.lifecycle_intent.value,
+        operation_status=operation_status,
+        poll_state=poll_snapshot.poll_state.value,
+        blocking_reasons=list(poll_snapshot.blocking_reasons),
+        product_runtime_git_write_allowed=poll_snapshot.product_runtime_git_write_allowed,
+    )
+
+
+@router.post(
+    "/real-executor/process-adapter-noop-sessions/{session_id}/cancel",
+    response_model=RealExecutorNoopLifecycleResponse,
+    summary="Cancel guarded real executor noop lifecycle session",
+)
+def cancel_real_executor_noop_session(session_id: str) -> RealExecutorNoopLifecycleResponse:
+    result = get_real_executor_process_adapter().cancel(session_id, "operator requested stop")
+    return _operation_lifecycle_response(session_id, result)
+
+
+@router.post(
+    "/real-executor/process-adapter-noop-sessions/{session_id}/kill",
+    response_model=RealExecutorNoopLifecycleResponse,
+    summary="Kill guarded real executor noop lifecycle session",
+)
+def kill_real_executor_noop_session(session_id: str) -> RealExecutorNoopLifecycleResponse:
+    result = get_real_executor_process_adapter().kill(session_id, "operator requested stop")
+    return _operation_lifecycle_response(session_id, result)
+
+
+@router.post(
+    "/real-executor/process-adapter-noop-sessions/{session_id}/cleanup",
+    response_model=RealExecutorNoopLifecycleResponse,
+    summary="Cleanup guarded real executor noop lifecycle session",
+)
+def cleanup_real_executor_noop_session(session_id: str) -> RealExecutorNoopLifecycleResponse:
+    result = get_real_executor_process_adapter().cleanup(session_id)
+    return _operation_lifecycle_response(session_id, result)
 
 
 @router.get(
@@ -745,6 +851,51 @@ def _all_real_executor_gates_passed_boundary() -> RealExecutorSafetyBoundary:
         audit_events_append_only=True,
         credential_exposure_blocked=True,
         environment_dump_blocked=True,
+    )
+
+
+def _operation_lifecycle_response(
+    session_id: str,
+    result,
+) -> RealExecutorNoopLifecycleResponse:
+    poll_snapshot = get_real_executor_process_adapter().poll(session_id)
+    poll_state = (
+        poll_snapshot.poll_state.value
+        if result.status.value != "not_found"
+        else "unknown"
+    )
+    return _noop_lifecycle_response(
+        session_id=result.session_id or session_id,
+        lifecycle_intent=result.lifecycle_intent.value,
+        operation_status=result.status.value,
+        poll_state=poll_state,
+        blocking_reasons=list(result.blocking_reasons or poll_snapshot.blocking_reasons),
+        product_runtime_git_write_allowed=(
+            result.product_runtime_git_write_allowed
+            or poll_snapshot.product_runtime_git_write_allowed
+        ),
+    )
+
+
+def _noop_lifecycle_response(
+    *,
+    session_id: str,
+    lifecycle_intent: str,
+    operation_status: str,
+    poll_state: str,
+    blocking_reasons: list[str],
+    product_runtime_git_write_allowed: bool,
+) -> RealExecutorNoopLifecycleResponse:
+    return RealExecutorNoopLifecycleResponse(
+        session_id=session_id,
+        lifecycle_intent=lifecycle_intent,
+        operation_status=operation_status,
+        poll_state=poll_state,
+        blocking_reasons=blocking_reasons,
+        product_runtime_git_write_allowed=product_runtime_git_write_allowed,
+        native_process_started=False,
+        api_mode="noop_lifecycle",
+        recorded_at=_utc_now(),
     )
 
 

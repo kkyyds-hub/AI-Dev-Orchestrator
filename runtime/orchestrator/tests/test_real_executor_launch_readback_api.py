@@ -7,9 +7,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.routes.runtime import (
+    cleanup_real_executor_noop_session,
     build_real_executor_launch_readback,
     build_real_executor_process_adapter_readback,
+    cancel_real_executor_noop_session,
+    create_real_executor_noop_session,
     get_real_executor_launch_readback_builder,
+    get_real_executor_noop_session,
+    kill_real_executor_noop_session,
     router,
 )
 from app.external_executors.actual_contract import (
@@ -156,6 +161,96 @@ def test_guarded_process_adapter_readback_endpoint_exists() -> None:
     endpoint_name = route.path.rsplit("/", 1)[-1]
     for forbidden in {"execute", "run", "start-native", "commit", "push", "merge"}:
         assert forbidden not in endpoint_name
+
+
+def test_guarded_noop_lifecycle_endpoints_exist_without_execution_names() -> None:
+    expected = {
+        "/runtime/real-executor/process-adapter-noop-sessions": "POST",
+        "/runtime/real-executor/process-adapter-noop-sessions/{session_id}": "GET",
+        "/runtime/real-executor/process-adapter-noop-sessions/{session_id}/cancel": "POST",
+        "/runtime/real-executor/process-adapter-noop-sessions/{session_id}/kill": "POST",
+        "/runtime/real-executor/process-adapter-noop-sessions/{session_id}/cleanup": "POST",
+    }
+
+    for path, method in expected.items():
+        matches = [route for route in router.routes if getattr(route, "path", None) == path]
+        assert len(matches) == 1
+        assert method in getattr(matches[0], "methods", set())
+        route_suffix = path.removeprefix("/runtime/real-executor/")
+        for forbidden in {"execute", "run", "start-native", "commit", "push", "merge"}:
+            assert forbidden not in route_suffix
+
+
+def test_guarded_noop_lifecycle_create_poll_cancel_kill_cleanup() -> None:
+    created = create_real_executor_noop_session()
+
+    assert created.api_mode == "noop_lifecycle"
+    assert created.operation_status == "accepted"
+    assert created.poll_state == "launch_pending"
+    assert created.product_runtime_git_write_allowed is False
+    assert created.native_process_started is False
+
+    polled = get_real_executor_noop_session(created.session_id)
+    assert polled.poll_state == "launch_pending"
+    assert polled.product_runtime_git_write_allowed is False
+    assert polled.native_process_started is False
+
+    cancelled = cancel_real_executor_noop_session(created.session_id)
+    assert cancelled.operation_status == "completed"
+    assert cancelled.poll_state == "cancelled"
+    assert cancelled.product_runtime_git_write_allowed is False
+    assert cancelled.native_process_started is False
+
+    killed = kill_real_executor_noop_session(created.session_id)
+    assert killed.operation_status == "completed"
+    assert killed.poll_state == "killed"
+    assert killed.product_runtime_git_write_allowed is False
+    assert killed.native_process_started is False
+
+    cleaned = cleanup_real_executor_noop_session(created.session_id)
+    assert cleaned.operation_status == "completed"
+    assert cleaned.poll_state == "cleaned_up"
+    assert cleaned.product_runtime_git_write_allowed is False
+    assert cleaned.native_process_started is False
+
+
+def test_guarded_noop_lifecycle_unknown_session_returns_readback_not_500() -> None:
+    response = get_real_executor_noop_session("missing-session")
+
+    assert response.operation_status == "not_found"
+    assert response.poll_state == "unknown"
+    assert "session_not_found" in response.blocking_reasons
+    assert response.product_runtime_git_write_allowed is False
+    assert response.native_process_started is False
+
+
+def test_guarded_noop_lifecycle_responses_exclude_sensitive_and_raw_output_fields() -> None:
+    created = create_real_executor_noop_session()
+    responses = [
+        created,
+        get_real_executor_noop_session(created.session_id),
+        cancel_real_executor_noop_session(created.session_id),
+        kill_real_executor_noop_session(created.session_id),
+        cleanup_real_executor_noop_session(created.session_id),
+    ]
+
+    for response in responses:
+        body = response.model_dump_json().lower()
+        for forbidden in {
+            "api_key",
+            "token",
+            "secret",
+            "bearer",
+            "sk-",
+            "password",
+            "env",
+            "stdout",
+            "stderr",
+            "raw_command",
+        }:
+            assert forbidden not in body
+        assert response.product_runtime_git_write_allowed is False
+        assert response.native_process_started is False
 
 
 def test_guarded_process_adapter_readback_defaults_to_blocked() -> None:
