@@ -114,6 +114,26 @@ def test_subprocess_enabled_without_enable_native_process_blocks_without_start(
     assert process_runner.start_calls == 0
 
 
+def test_subprocess_enabled_without_termination_guard_blocks_without_start(
+    tmp_path,
+) -> None:
+    process_runner = _StartCountingRunner()
+    result = RealExecutorNativeSmokeRunner(process_runner=process_runner).run(
+        RealExecutorNativeSmokeInput(
+            runner_kind="subprocess",
+            launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+            enable_native_process=True,
+            workspace_path=tmp_path.as_posix(),
+        )
+    )
+
+    assert result.smoke_status == "blocked"
+    assert "native_smoke_requires_termination_guard" in result.blocked_reasons
+    assert result.process_handle_id_present is False
+    assert result.agent_session_bound is False
+    assert process_runner.start_calls == 0
+
+
 def test_subprocess_smoke_can_use_injected_runner_without_real_process(tmp_path) -> None:
     process_runner = _StartCountingRunner()
     result = RealExecutorNativeSmokeRunner(process_runner=process_runner).run(
@@ -121,6 +141,7 @@ def test_subprocess_smoke_can_use_injected_runner_without_real_process(tmp_path)
             runner_kind="subprocess",
             launch_mode=RealExecutorNativeLaunchMode.ENABLED,
             enable_native_process=True,
+            auto_terminate=True,
             workspace_path=tmp_path.as_posix(),
         )
     )
@@ -235,6 +256,47 @@ def test_cli_fail_on_blocked_keeps_dry_run_ready_zero(tmp_path, capsys) -> None:
     assert summary["smoke_status"] == "dry_run_ready"
 
 
+def test_cli_subprocess_enabled_requires_termination_guard(tmp_path, capsys) -> None:
+    exit_code, summary = _run_smoke_script(
+        [
+            "--runner",
+            "subprocess",
+            "--launch-mode",
+            "enabled",
+            "--enable-native-process",
+            "--workspace-path",
+            tmp_path.as_posix(),
+            "--json",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert summary["smoke_status"] == "blocked"
+    assert "native_smoke_requires_termination_guard" in summary["blocked_reasons"]
+
+
+def test_cli_accepts_auto_terminate_without_native_process_in_dry_run(
+    tmp_path,
+    capsys,
+) -> None:
+    exit_code, summary = _run_smoke_script(
+        [
+            "--runner",
+            "subprocess",
+            "--auto-terminate",
+            "--workspace-path",
+            tmp_path.as_posix(),
+            "--json",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert summary["smoke_status"] == "dry_run_ready"
+    assert "native_smoke_requires_termination_guard" not in summary["blocked_reasons"]
+
+
 def test_smoke_module_and_script_do_not_add_process_env_git_or_api_surface() -> None:
     for path in [SMOKE_FILE, SMOKE_SCRIPT]:
         source = path.read_text()
@@ -252,6 +314,7 @@ def test_smoke_module_and_script_do_not_add_process_env_git_or_api_surface() -> 
         assert "api_key" not in source
         assert "token" not in source
         assert "secret" not in source.lower()
+        assert "pid" not in source
         assert "user_confirmed" not in source
         assert "confirmation_phrase" not in source
         assert "WorktreeCreateService" not in source

@@ -7,6 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 import subprocess
 from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -50,8 +51,22 @@ class RealExecutorNativeLaunchMode(StrEnum):
     ENABLED = "enabled"
 
 
+class RealExecutorNativeLifecycleStatus(StrEnum):
+    STARTED = "started"
+    TERMINATED = "terminated"
+    KILLED = "killed"
+    TIMEOUT_KILLED = "timeout_killed"
+
+
 class RealExecutorNativeProcessHandle(_NativeLauncherModel):
     process_handle_id: str
+    process_started: bool = True
+    process_terminated: bool = False
+    process_killed: bool = False
+    timeout_seconds: float | None = None
+    lifecycle_status: RealExecutorNativeLifecycleStatus = (
+        RealExecutorNativeLifecycleStatus.STARTED
+    )
 
     @field_validator("process_handle_id", mode="before")
     @classmethod
@@ -187,6 +202,23 @@ class FakeRealExecutorNativeRunner:
 
 
 class SubprocessRealExecutorNativeRunner:
+    def __init__(
+        self,
+        *,
+        auto_terminate: bool = False,
+        timeout_seconds: float | None = None,
+        terminate_wait_seconds: float = 0.2,
+        popen_factory: Any | None = None,
+    ) -> None:
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if terminate_wait_seconds <= 0:
+            raise ValueError("terminate_wait_seconds must be positive")
+        self.auto_terminate = auto_terminate
+        self.timeout_seconds = timeout_seconds
+        self.terminate_wait_seconds = terminate_wait_seconds
+        self._popen_factory = popen_factory or subprocess.Popen
+
     def start(
         self,
         *,
@@ -201,7 +233,7 @@ class SubprocessRealExecutorNativeRunner:
         if not Path(workspace_path).is_absolute():
             raise ValueError("workspace_path must be absolute")
 
-        process = subprocess.Popen(
+        process = self._popen_factory(
             list(argv),
             cwd=workspace_path,
             shell=False,
@@ -210,9 +242,54 @@ class SubprocessRealExecutorNativeRunner:
             stderr=subprocess.DEVNULL,
             close_fds=True,
         )
+        process_terminated = False
+        process_killed = False
+        lifecycle_status = RealExecutorNativeLifecycleStatus.STARTED
+        if self.timeout_seconds is not None:
+            try:
+                process.wait(timeout=self.timeout_seconds)
+                process_terminated = True
+                lifecycle_status = RealExecutorNativeLifecycleStatus.TERMINATED
+            except subprocess.TimeoutExpired:
+                process_terminated, process_killed, lifecycle_status = (
+                    self._terminate_or_kill(
+                        process,
+                        timeout_status=(
+                            RealExecutorNativeLifecycleStatus.TIMEOUT_KILLED
+                        ),
+                    )
+                )
+        elif self.auto_terminate:
+            process_terminated, process_killed, lifecycle_status = self._terminate_or_kill(
+                process,
+                timeout_status=RealExecutorNativeLifecycleStatus.KILLED,
+            )
         return RealExecutorNativeProcessHandle(
-            process_handle_id=f"native-process-{agent_session_id}-{process.pid}",
+            process_handle_id=f"native-process-{agent_session_id}-{uuid4().hex}",
+            process_started=True,
+            process_terminated=process_terminated,
+            process_killed=process_killed,
+            timeout_seconds=self.timeout_seconds,
+            lifecycle_status=lifecycle_status,
         )
+
+    def _terminate_or_kill(
+        self,
+        process: Any,
+        *,
+        timeout_status: RealExecutorNativeLifecycleStatus,
+    ) -> tuple[bool, bool, RealExecutorNativeLifecycleStatus]:
+        process.terminate()
+        try:
+            process.wait(timeout=self.terminate_wait_seconds)
+            return True, False, RealExecutorNativeLifecycleStatus.TERMINATED
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=self.terminate_wait_seconds)
+            except subprocess.TimeoutExpired:
+                pass
+            return True, True, timeout_status
 
 
 class RealExecutorNativeLauncher:
@@ -308,6 +385,7 @@ __all__ = (
     "FakeRealExecutorNativeRunner",
     "RealExecutorNativeLaunchDecision",
     "RealExecutorNativeLaunchInput",
+    "RealExecutorNativeLifecycleStatus",
     "RealExecutorNativeLaunchMode",
     "RealExecutorNativeLauncher",
     "RealExecutorNativeProcessHandle",

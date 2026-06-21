@@ -34,6 +34,16 @@ def _parser() -> argparse.ArgumentParser:
         default=False,
     )
     parser.add_argument(
+        "--auto-terminate",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
         "--executor",
         choices=("codex", "claude-code", "claude code"),
         default="codex",
@@ -70,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
             runner_kind=args.runner,
             launch_mode=RealExecutorNativeLaunchMode(args.launch_mode),
             enable_native_process=args.enable_native_process,
+            auto_terminate=args.auto_terminate,
+            timeout_seconds=args.timeout_seconds,
             executor_label=args.executor,
             workspace_path=Path(args.workspace_path).expanduser().resolve().as_posix(),
             product_runtime_git_write_allowed=False,

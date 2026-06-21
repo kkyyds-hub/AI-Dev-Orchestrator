@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,37 @@ def _decision(**overrides):
     return RealExecutorNativeLauncher(
         runner=FakeRealExecutorNativeRunner(process_handle_id="fake-handle-1"),
     ).decide(_ready_input(**overrides))
+
+
+class _FakeProcess:
+    def __init__(self, *, wait_raises_timeout: bool = False) -> None:
+        self.pid = 42
+        self.wait_raises_timeout = wait_raises_timeout
+        self.wait_calls: list[float | None] = []
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    def wait(self, timeout=None):
+        self.wait_calls.append(timeout)
+        if self.wait_raises_timeout:
+            raise subprocess.TimeoutExpired(cmd=("codex",), timeout=timeout)
+        return 0
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+
+
+class _FakePopenFactory:
+    def __init__(self, process: _FakeProcess) -> None:
+        self.process = process
+        self.calls: list[dict[str, object]] = []
+
+    def __call__(self, argv, **kwargs):
+        self.calls.append({"argv": argv, **kwargs})
+        return self.process
 
 
 def test_default_disabled_blocks_without_native_attempt() -> None:
@@ -166,6 +198,57 @@ def test_subprocess_runner_exists_but_is_not_used_by_default_tests() -> None:
     assert isinstance(FakeRealExecutorNativeRunner(), FakeRealExecutorNativeRunner)
 
 
+def test_subprocess_runner_auto_terminate_calls_terminate_without_exposing_pid() -> None:
+    process = _FakeProcess()
+    popen_factory = _FakePopenFactory(process)
+
+    handle = SubprocessRealExecutorNativeRunner(
+        popen_factory=popen_factory,
+        auto_terminate=True,
+    ).start(
+        argv=("codex",),
+        workspace_path="/tmp/ai-dev-orchestrator-workspace",
+        agent_session_id="agent-session-1",
+    )
+
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 0
+    assert process.wait_calls == [0.2]
+    assert handle.process_started is True
+    assert handle.process_terminated is True
+    assert handle.process_killed is False
+    assert handle.lifecycle_status == "terminated"
+    assert "42" not in handle.process_handle_id
+    assert popen_factory.calls[0]["shell"] is False
+    assert popen_factory.calls[0]["stdin"] is subprocess.DEVNULL
+    assert popen_factory.calls[0]["stdout"] is subprocess.DEVNULL
+    assert popen_factory.calls[0]["stderr"] is subprocess.DEVNULL
+    assert "env" not in popen_factory.calls[0]
+
+
+def test_subprocess_runner_timeout_kills_process_without_exposing_pid() -> None:
+    process = _FakeProcess(wait_raises_timeout=True)
+
+    handle = SubprocessRealExecutorNativeRunner(
+        popen_factory=_FakePopenFactory(process),
+        timeout_seconds=0.01,
+    ).start(
+        argv=("codex",),
+        workspace_path="/tmp/ai-dev-orchestrator-workspace",
+        agent_session_id="agent-session-1",
+    )
+
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert process.wait_calls == [0.01, 0.2, 0.2]
+    assert handle.process_started is True
+    assert handle.process_terminated is True
+    assert handle.process_killed is True
+    assert handle.timeout_seconds == 0.01
+    assert handle.lifecycle_status == "timeout_killed"
+    assert "42" not in handle.process_handle_id
+
+
 def test_subprocess_runner_source_uses_shell_false_and_no_env_reading() -> None:
     source = _source()
 
@@ -173,6 +256,7 @@ def test_subprocess_runner_source_uses_shell_false_and_no_env_reading() -> None:
     assert "shell=False" in source
     assert "os.environ" not in source
     assert "getenv" not in source
+    assert source.count("subprocess.Popen") == 1
 
 
 def test_module_and_response_exclude_sensitive_or_payload_fields() -> None:

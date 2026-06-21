@@ -20,6 +20,7 @@ from app.external_executors.actual_native_launcher import (
     FakeRealExecutorNativeRunner,
     RealExecutorNativeLaunchMode,
     RealExecutorNativeRunnerProtocol,
+    SubprocessRealExecutorNativeRunner,
 )
 from app.external_executors.actual_runner_wiring import (
     RealExecutorRunnerFactory,
@@ -54,6 +55,8 @@ class RealExecutorNativeSmokeInput(_NativeSmokeModel):
     executor_label: str = "codex"
     workspace_path: str
     agent_session_id: UUID | None = None
+    auto_terminate: bool = False
+    timeout_seconds: float | None = None
     product_runtime_git_write_allowed: bool = False
     frontend_required: bool = False
     frontend_change_allowed: bool = False
@@ -87,6 +90,13 @@ class RealExecutorNativeSmokeInput(_NativeSmokeModel):
             raise ValueError("workspace_path must not be empty")
         if not Path(value).is_absolute():
             raise ValueError("workspace_path must be absolute")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def validate_timeout_seconds(cls, value: float | None) -> float | None:
+        if value is not None and value <= 0:
+            raise ValueError("timeout_seconds must be positive")
         return value
 
     @field_validator(
@@ -144,6 +154,12 @@ class RealExecutorNativeSmokeRunner:
         try:
             repository = AgentSessionRepository(session)
             agent_session = self._agent_session(repository, smoke_input)
+            if self._requires_termination_guard(smoke_input):
+                return self._blocked_result(
+                    smoke_input,
+                    native_process_possible=False,
+                    blocked_reasons=["native_smoke_requires_termination_guard"],
+                )
             wiring_result = self._factory(smoke_input).wire(
                 self._wiring_input(smoke_input),
                 agent_session_repository=repository,
@@ -230,6 +246,11 @@ class RealExecutorNativeSmokeRunner:
             process_handle_id="smoke-fake-process-handle",
         )
         process_runner = self._process_runner
+        if process_runner is None and smoke_input.runner_kind == _PROCESS_RUNNER_KIND:
+            process_runner = SubprocessRealExecutorNativeRunner(
+                auto_terminate=smoke_input.auto_terminate,
+                timeout_seconds=smoke_input.timeout_seconds,
+            )
         return RealExecutorRunnerFactory(
             fake_runner=fake_runner,
             process_runner=process_runner,
@@ -270,6 +291,18 @@ class RealExecutorNativeSmokeRunner:
             frontend_required=False,
             frontend_change_allowed=False,
             blocked_reasons=blocked_reasons,
+        )
+
+    @staticmethod
+    def _requires_termination_guard(
+        smoke_input: RealExecutorNativeSmokeInput,
+    ) -> bool:
+        return (
+            smoke_input.runner_kind == _PROCESS_RUNNER_KIND
+            and smoke_input.launch_mode == RealExecutorNativeLaunchMode.ENABLED
+            and smoke_input.enable_native_process is True
+            and not smoke_input.auto_terminate
+            and smoke_input.timeout_seconds is None
         )
 
 
