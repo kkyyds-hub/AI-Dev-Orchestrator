@@ -95,9 +95,7 @@ class RealExecutorSilentLaunchInput(_SilentLaunchModel):
     def validate_workspace_path(self) -> "RealExecutorSilentLaunchInput":
         if self.launch_mode == RealExecutorNativeLaunchMode.DISABLED:
             return self
-        if self.workspace_path is None:
-            raise ValueError("workspace_path is required")
-        if not Path(self.workspace_path).is_absolute():
+        if self.workspace_path is not None and not Path(self.workspace_path).is_absolute():
             raise ValueError("workspace_path must be absolute")
         return self
 
@@ -144,6 +142,15 @@ class RealExecutorSilentLaunchService:
         self,
         launch_input: RealExecutorSilentLaunchInput,
     ) -> RealExecutorSilentLaunchResult:
+        if (
+            launch_input.launch_mode != RealExecutorNativeLaunchMode.DISABLED
+            and launch_input.workspace_path is None
+        ):
+            return self._blocked_result(
+                launch_input,
+                blocked_reasons=["workspace_path_missing"],
+            )
+
         native_decision = self._native_launcher.decide(
             self._native_launch_input(launch_input)
         )
@@ -191,12 +198,35 @@ class RealExecutorSilentLaunchService:
                 blocked_reasons=[],
             )
 
+        if blocked_reasons:
+            return self._blocked_result(
+                launch_input,
+                blocked_reasons=blocked_reasons,
+            )
         return RealExecutorSilentLaunchResult(
-            launch_status=(
-                "blocked"
-                if blocked_reasons
-                else native_decision.launch_status
-            ),
+            launch_status=native_decision.launch_status,
+            agent_session_bound=False,
+            runtime_handle_id=None,
+            agent_session_id=launch_input.agent_session_id,
+            executor_label=launch_input.executor_label,
+            workspace_path=launch_input.workspace_path,
+            coding_status_after=None,
+            activity_state_after=None,
+            native_process_started=False,
+            product_runtime_git_write_allowed=False,
+            frontend_required=False,
+            frontend_change_allowed=False,
+            blocked_reasons=[],
+        )
+
+    @staticmethod
+    def _blocked_result(
+        launch_input: RealExecutorSilentLaunchInput,
+        *,
+        blocked_reasons: list[str],
+    ) -> RealExecutorSilentLaunchResult:
+        return RealExecutorSilentLaunchResult(
+            launch_status="blocked",
             agent_session_bound=False,
             runtime_handle_id=None,
             agent_session_id=launch_input.agent_session_id,

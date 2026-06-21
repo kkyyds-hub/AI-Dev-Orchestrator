@@ -7,6 +7,7 @@ clean real git worktrees.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -64,6 +65,14 @@ from app.services.task_router_service import TaskRoutingDecision
 from app.services.task_state_machine_service import TaskStateMachineService
 from app.services.token_accounting_service import TokenAccountingService
 from app.services.verifier_service import VerificationResult
+from app.external_executors.actual_native_launcher import (
+    FakeRealExecutorNativeRunner,
+    RealExecutorNativeLaunchMode,
+    RealExecutorNativeLauncher,
+)
+from app.external_executors.actual_silent_launch_service import (
+    RealExecutorSilentLaunchService,
+)
 from app.workers.task_worker import (
     TaskWorker,
     WorkerRunResult,
@@ -1064,6 +1073,287 @@ class _FakeAgentConversationService:
             activity_state=activity_state,
             finished=True,
         )
+
+
+def _passing_worktree_proof(tmp_path) -> WorkerWorktreeSafeCommandProof:
+    return WorkerWorktreeSafeCommandProof(
+        ready=True,
+        source="agent_session_worktree_safe_command",
+        reason_code=None,
+        command="pwd",
+        cwd=tmp_path.as_posix(),
+        expected_workspace_path=tmp_path.as_posix(),
+        observed_pwd=tmp_path.as_posix(),
+        pwd_matches_workspace_path=True,
+        exit_code=0,
+        stdout=tmp_path.as_posix(),
+        stderr="",
+        timed_out=False,
+        read_only=True,
+        allowlisted=True,
+        uses_agent_workspace=True,
+        runs_command=True,
+    )
+
+
+def _worker_for_silent_launch(
+    *,
+    task: Task,
+    agent_session: AgentSession,
+    tmp_path,
+    launch_mode: RealExecutorNativeLaunchMode = RealExecutorNativeLaunchMode.DISABLED,
+    allow_native_process: bool = False,
+    process_handle_id: str = "fake-worker-native-handle",
+) -> tuple[TaskWorker, _FakeAgentConversationService]:
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            assert workspace_context.ready is True
+            assert workspace_context.uses_agent_workspace is True
+            return _passing_worktree_proof(tmp_path)
+
+    agent_conversation_service = _FakeAgentConversationService(agent_session)
+    return (
+        TaskWorker(
+            session=_NoopDbSession(),
+            task_repository=_FakeTaskRepository(task),
+            run_repository=_FakeRunRepository(),
+            executor_service=_FakeExecutorService(success=True),
+            verifier_service=_PassingVerifierService(),
+            budget_guard_service=_AllowingBudgetGuardService(),
+            run_logging_service=_NoopRunLoggingService(),
+            cost_estimator_service=CostEstimatorService(),
+            context_builder_service=_FakeContextBuilderService(),
+            task_router_service=_FakeTaskRouterService(task),
+            model_routing_service=_FakeModelRoutingService(),
+            prompt_registry_service=None,
+            prompt_builder_service=_FakePromptBuilderService(),
+            token_accounting_service=TokenAccountingService(),
+            task_state_machine_service=TaskStateMachineService(),
+            failure_review_service=type(
+                "_NoopFailureReviewService",
+                (),
+                {"ensure_review": lambda self, *, task, run: None},
+            )(),
+            agent_conversation_service=agent_conversation_service,
+            silent_launch_service=RealExecutorSilentLaunchService(
+                agent_session_repository=(
+                    agent_conversation_service.agent_session_repository
+                ),
+                native_launcher=RealExecutorNativeLauncher(
+                    runner=FakeRealExecutorNativeRunner(
+                        process_handle_id=process_handle_id,
+                    ),
+                ),
+            ),
+            silent_launch_mode=launch_mode,
+            silent_launch_allow_native_process=allow_native_process,
+        ),
+        agent_conversation_service,
+    )
+
+
+def _silent_launch_task() -> Task:
+    return Task(
+        project_id=uuid4(),
+        title="Worker silent launch",
+        input_summary="simulate: worker silent launch",
+        status=TaskStatus.PENDING,
+        priority=TaskPriority.NORMAL,
+        risk_level=TaskRiskLevel.NORMAL,
+        human_status=TaskHumanStatus.NONE,
+    )
+
+
+def test_worker_default_disabled_silent_launch_snapshot_does_not_bind_handle(
+    monkeypatch,
+    tmp_path,
+):
+    task = _silent_launch_task()
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+        branch_name="main",
+    )
+    proof = _passing_worktree_proof(tmp_path)
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            return proof
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+    worker, conversation_service = _worker_for_silent_launch(
+        task=task,
+        agent_session=agent_session,
+        tmp_path=tmp_path,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.execution_mode == "simulate"
+    assert result.external_executor_snapshot is not None
+    assert result.external_executor_snapshot.attempted is True
+    assert result.external_executor_snapshot.launch_status == "blocked"
+    assert "native_launch_disabled" in result.external_executor_snapshot.blocked_reasons
+    assert result.external_executor_snapshot.runtime_handle_id_present is False
+    assert result.runtime_handle_id is None
+    assert (
+        conversation_service.agent_session_repository.agent_session.runtime_handle_id
+        is None
+    )
+
+
+def test_worker_enabled_silent_launch_binds_agent_session_handle(
+    monkeypatch,
+    tmp_path,
+):
+    task = _silent_launch_task()
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+        branch_name="main",
+    )
+    proof = _passing_worktree_proof(tmp_path)
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            return proof
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+    worker, conversation_service = _worker_for_silent_launch(
+        task=task,
+        agent_session=agent_session,
+        tmp_path=tmp_path,
+        launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+        allow_native_process=True,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.execution_mode == "simulate"
+    assert result.external_executor_snapshot is not None
+    assert result.external_executor_snapshot.launch_status == "launch_started"
+    assert result.external_executor_snapshot.agent_session_bound is True
+    assert result.external_executor_snapshot.runtime_handle_id_present is True
+    assert result.external_executor_snapshot.coding_status_after == "spawning"
+    assert result.external_executor_snapshot.activity_state_after == "active"
+    assert result.external_executor_snapshot.native_process_started is True
+    assert result.external_executor_snapshot.product_runtime_git_write_allowed is False
+    assert result.external_executor_snapshot.frontend_required is False
+    assert result.external_executor_snapshot.frontend_change_allowed is False
+    assert result.runtime_handle_id == "fake-worker-native-handle"
+    assert (
+        conversation_service.agent_session_repository.agent_session.runtime_handle_id
+        == "fake-worker-native-handle"
+    )
+    assert conversation_service.agent_session_repository.agent_session.workspace_type == (
+        WorkspaceType.WORKTREE
+    )
+
+
+@pytest.mark.parametrize(
+    ("launch_mode", "workspace_path", "expected_status", "expected_reason"),
+    [
+        (
+            RealExecutorNativeLaunchMode.DRY_RUN,
+            "workspace",
+            "dry_run_ready",
+            None,
+        ),
+        (
+            RealExecutorNativeLaunchMode.ENABLED,
+            None,
+            "blocked",
+            "workspace_path_missing",
+        ),
+    ],
+)
+def test_worker_dry_run_and_missing_workspace_do_not_bind_handle_or_break_flow(
+    monkeypatch,
+    tmp_path,
+    launch_mode,
+    workspace_path,
+    expected_status,
+    expected_reason,
+):
+    task = _silent_launch_task()
+    resolved_workspace_path = (
+        tmp_path.as_posix() if workspace_path == "workspace" else None
+    )
+    agent_session = _session(
+        workspace_path=resolved_workspace_path,
+        workspace_clean=True,
+        branch_name="main",
+    )
+    proof = _passing_worktree_proof(tmp_path)
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            return proof
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+    worker, conversation_service = _worker_for_silent_launch(
+        task=task,
+        agent_session=agent_session,
+        tmp_path=tmp_path,
+        launch_mode=launch_mode,
+        allow_native_process=True,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.external_executor_snapshot is not None
+    assert result.external_executor_snapshot.launch_status == expected_status
+    assert result.external_executor_snapshot.runtime_handle_id_present is False
+    assert result.runtime_handle_id is None
+    if expected_reason is not None:
+        assert expected_reason in result.external_executor_snapshot.blocked_reasons
+    assert (
+        conversation_service.agent_session_repository.agent_session.runtime_handle_id
+        is None
+    )
+
+
+def test_worker_silent_launch_surface_does_not_add_user_confirmation_or_process_boundary():
+    source = Path("app/workers/task_worker.py").read_text()
+
+    assert "user_confirmed" not in source
+    assert "confirmation_phrase" not in source
+    assert "create_workspace" not in source
+    assert "cleanup_workspace" not in source
+    assert "WorktreeWriteCommandRunner" not in source
+    assert "os.environ" not in source
+    assert "getenv" not in source
+    assert "shell=True" not in source
+    assert "Popen" not in source
+    assert "create_subprocess" not in source
+    assert "raw_command" not in source
+    assert "api_key" not in source
+    assert "secret" not in source.lower()
+    assert not any(Path("../../apps/web").glob("**/*silent*launch*"))
 
 
 def test_worker_run_once_blocks_executor_when_worktree_safe_command_proof_fails(

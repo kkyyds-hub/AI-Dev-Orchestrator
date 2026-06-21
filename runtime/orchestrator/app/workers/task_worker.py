@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.agent_session import (
     AgentSession,
+    AgentType,
     CodingSessionActivityState,
     CodingSessionStatus,
     WorkspaceType,
@@ -50,6 +51,12 @@ from app.domain.task import (
     TaskBlockingReasonCode,
     TaskEventReason,
     TaskStatus,
+)
+from app.external_executors.actual_native_launcher import RealExecutorNativeLaunchMode
+from app.external_executors.actual_silent_launch_service import (
+    RealExecutorSilentLaunchInput,
+    RealExecutorSilentLaunchResult,
+    RealExecutorSilentLaunchService,
 )
 from app.repositories.failure_review_repository import FailureReviewRepository
 from app.repositories.project_repository import ProjectRepository
@@ -124,6 +131,25 @@ WORKER_RUN_RESULT_FUTURE_GROUPED_SNAPSHOTS = (
     "approval_snapshot",
     "cost_snapshot",
 )
+
+
+@dataclass(slots=True)
+class WorkerSilentLaunchSnapshot:
+    """Grouped worker snapshot for silent native executor launch attempts."""
+
+    attempted: bool
+    launch_status: str
+    agent_session_bound: bool
+    runtime_handle_id_present: bool
+    executor_label: str | None
+    workspace_path: str | None
+    coding_status_after: str | None
+    activity_state_after: str | None
+    native_process_started: bool
+    product_runtime_git_write_allowed: bool = False
+    frontend_required: bool = False
+    frontend_change_allowed: bool = False
+    blocked_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -231,6 +257,7 @@ class WorkerRunResult:
     runtime_launch_gate_launches_ai_runtime: bool | None = None
     runtime_launch_gate_execution_enabled: bool | None = None
     runtime_lifecycle_snapshot: RuntimeLifecycleSnapshot | None = None
+    external_executor_snapshot: WorkerSilentLaunchSnapshot | None = None
     worktree_safe_command_proof_ready: bool | None = None
     worktree_safe_command_proof_source: str | None = None
     worktree_safe_command_proof_reason_code: str | None = None
@@ -1115,6 +1142,36 @@ def build_worker_runtime_launch_dry_run(
     )
 
 
+def _executor_label_for_agent_session(agent_session: AgentSession) -> str:
+    """Resolve the internal silent launcher label without user input."""
+
+    if agent_session.agent_type == AgentType.CLAUDE_CODE:
+        return "claude-code"
+    return "codex"
+
+
+def _worker_silent_launch_snapshot(
+    result: RealExecutorSilentLaunchResult,
+) -> WorkerSilentLaunchSnapshot:
+    """Convert the service result into the grouped worker snapshot."""
+
+    return WorkerSilentLaunchSnapshot(
+        attempted=True,
+        launch_status=result.launch_status,
+        agent_session_bound=result.agent_session_bound,
+        runtime_handle_id_present=result.runtime_handle_id is not None,
+        executor_label=result.executor_label,
+        workspace_path=result.workspace_path,
+        coding_status_after=result.coding_status_after,
+        activity_state_after=result.activity_state_after,
+        native_process_started=result.native_process_started,
+        product_runtime_git_write_allowed=False,
+        frontend_required=False,
+        frontend_change_allowed=False,
+        blocked_reasons=list(result.blocked_reasons),
+    )
+
+
 def _build_worktree_safe_command_proof_block_summary(
     proof: "WorkerWorktreeSafeCommandProof",
 ) -> str:
@@ -1438,6 +1495,11 @@ class TaskWorker:
         delivery_event_audit_service: DeliveryEventAuditService | None = None,
         failure_recovery_audit_service: FailureRecoveryAuditService | None = None,
         agent_dispatch_audit_service: AgentDispatchAuditService | None = None,
+        silent_launch_service: RealExecutorSilentLaunchService | None = None,
+        silent_launch_mode: RealExecutorNativeLaunchMode = (
+            RealExecutorNativeLaunchMode.DISABLED
+        ),
+        silent_launch_allow_native_process: bool = False,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -1462,6 +1524,41 @@ class TaskWorker:
         self.delivery_event_audit_service = delivery_event_audit_service
         self.failure_recovery_audit_service = failure_recovery_audit_service
         self.agent_dispatch_audit_service = agent_dispatch_audit_service
+        self.silent_launch_service = silent_launch_service
+        self.silent_launch_mode = silent_launch_mode
+        self.silent_launch_allow_native_process = silent_launch_allow_native_process
+
+    def _silent_launch_service(self) -> RealExecutorSilentLaunchService:
+        if self.silent_launch_service is not None:
+            return self.silent_launch_service
+        return RealExecutorSilentLaunchService(
+            agent_session_repository=(
+                self.agent_conversation_service.agent_session_repository
+            ),
+        )
+
+    def _attempt_silent_launch(
+        self,
+        *,
+        agent_session: AgentSession,
+        prelaunch_ready: bool,
+    ) -> WorkerSilentLaunchSnapshot:
+        result = self._silent_launch_service().launch(
+            RealExecutorSilentLaunchInput(
+                agent_session_id=agent_session.id,
+                executor_label=_executor_label_for_agent_session(agent_session),
+                workspace_path=agent_session.workspace_path,
+                prelaunch_ready=prelaunch_ready,
+                launch_mode=self.silent_launch_mode,
+                allow_native_process=self.silent_launch_allow_native_process,
+                command_plan_redacted=True,
+                internal_auto_launch_policy_passed=True,
+                product_runtime_git_write_allowed=False,
+                frontend_required=False,
+                frontend_change_allowed=False,
+            )
+        )
+        return _worker_silent_launch_snapshot(result)
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.
@@ -1531,6 +1628,7 @@ class TaskWorker:
         runtime_launch_gate_launches_ai_runtime: bool | None = None
         runtime_launch_gate_execution_enabled: bool | None = None
         runtime_lifecycle_snapshot: RuntimeLifecycleSnapshot | None = None
+        external_executor_snapshot: WorkerSilentLaunchSnapshot | None = None
         worktree_safe_command_proof_ready: bool | None = None
         worktree_safe_command_proof_source: str | None = None
         worktree_safe_command_proof_reason_code: str | None = None
@@ -2003,6 +2101,10 @@ class TaskWorker:
                     proof=worktree_safe_command_proof,
                 )
                 if not workspace_validation.ready:
+                    external_executor_snapshot = self._attempt_silent_launch(
+                        agent_session=agent_session,
+                        prelaunch_ready=False,
+                    )
                     last_workspace_error = workspace_validation.summary
                     agent_session = (
                         self.agent_conversation_service.agent_session_repository.update_status(
@@ -2212,6 +2314,7 @@ class TaskWorker:
                             runtime_launch_gate_execution_enabled
                         ),
                         runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
+                        external_executor_snapshot=external_executor_snapshot,
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
                         ),
@@ -2314,6 +2417,10 @@ class TaskWorker:
                     )
                     return result
                 if not worktree_safe_command_proof.ready:
+                    external_executor_snapshot = self._attempt_silent_launch(
+                        agent_session=agent_session,
+                        prelaunch_ready=False,
+                    )
                     proof_block_summary = (
                         _build_worktree_safe_command_proof_block_summary(
                             worktree_safe_command_proof
@@ -2530,6 +2637,7 @@ class TaskWorker:
                             runtime_launch_gate_execution_enabled
                         ),
                         runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
+                        external_executor_snapshot=external_executor_snapshot,
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
                         ),
@@ -2650,6 +2758,10 @@ class TaskWorker:
                         snapshot=runtime_lifecycle_snapshot,
                     )
                 if not runtime_launch_gate.ready:
+                    external_executor_snapshot = self._attempt_silent_launch(
+                        agent_session=agent_session,
+                        prelaunch_ready=False,
+                    )
                     runtime_gate_block_summary = (
                         _build_runtime_launch_gate_block_summary(runtime_launch_gate)
                     )
@@ -2852,6 +2964,7 @@ class TaskWorker:
                             runtime_launch_gate_execution_enabled
                         ),
                         runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
+                        external_executor_snapshot=external_executor_snapshot,
                         worktree_safe_command_proof_ready=(
                             worktree_safe_command_proof_ready
                         ),
@@ -2953,6 +3066,10 @@ class TaskWorker:
                         result=result,
                     )
                     return result
+                external_executor_snapshot = self._attempt_silent_launch(
+                    agent_session=agent_session,
+                    prelaunch_ready=True,
+                )
             self._log_context_package(run=run, context_package=context_package)
             if run.log_path is not None and context_package.governance_checkpoint_id is not None:
                 self.run_logging_service.append_event(
@@ -3403,6 +3520,7 @@ class TaskWorker:
                     runtime_launch_gate_execution_enabled
                 ),
                 runtime_lifecycle_snapshot=runtime_lifecycle_snapshot,
+                external_executor_snapshot=external_executor_snapshot,
                 worktree_safe_command_proof_ready=worktree_safe_command_proof_ready,
                 worktree_safe_command_proof_source=worktree_safe_command_proof_source,
                 worktree_safe_command_proof_reason_code=(

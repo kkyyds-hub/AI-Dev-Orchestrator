@@ -9,7 +9,7 @@ TASK_WORKER_PATH = Path("app/workers/task_worker.py")
 WORKER_POOL_PATH = Path("app/workers/worker_pool.py")
 WORKERS_ROUTE_PATH = Path("app/api/routes/workers.py")
 
-WORKER_RUN_RESULT_TOP_LEVEL_FIELD_LIMIT = 258
+WORKER_RUN_RESULT_TOP_LEVEL_FIELD_LIMIT = 259
 EXPECTED_GROUPED_SNAPSHOTS = (
     "runtime_snapshot",
     "external_executor_snapshot",
@@ -114,7 +114,6 @@ def test_task_worker_does_not_gain_actual_executor_integration_terms() -> None:
 
     forbidden_absent_terms = {
         "RealExecutorAdapter",
-        "external_executors",
         "Codex CLI",
         "Claude Code",
         "DeepSeek CLI",
@@ -127,6 +126,9 @@ def test_task_worker_does_not_gain_actual_executor_integration_terms() -> None:
 
     assert source.count("subprocess") == 1
     assert re.search(r"\bpty\b", source) is None
+    assert "actual_silent_launch_service" in source
+    assert "actual_native_launcher" in source
+    assert "actual_prelaunch" not in source
 
 
 def test_worker_pool_and_workers_route_do_not_gain_external_executor_logic() -> None:

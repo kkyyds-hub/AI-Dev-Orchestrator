@@ -152,6 +152,16 @@ def test_enabled_blocks_when_prelaunch_is_not_ready(db_session) -> None:
     assert updated.runtime_handle_id is None
 
 
+def test_enabled_blocks_when_workspace_path_is_missing(db_session) -> None:
+    result, updated = _launch(db_session, workspace_path=None)
+
+    assert result.launch_status == "blocked"
+    assert "workspace_path_missing" in result.blocked_reasons
+    assert result.agent_session_bound is False
+    assert result.runtime_handle_id is None
+    assert updated.runtime_handle_id is None
+
+
 def test_enabled_all_ready_starts_fake_runner_and_binds_handle(db_session) -> None:
     result, updated = _launch(db_session)
 
