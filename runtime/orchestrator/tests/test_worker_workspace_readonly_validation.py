@@ -7,6 +7,7 @@ clean real git worktrees.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -68,6 +69,11 @@ from app.services.verifier_service import VerificationResult
 from app.external_executors.actual_native_launcher import (
     FakeRealExecutorNativeRunner,
     RealExecutorNativeLaunchMode,
+    RealExecutorNativeProcessHandle,
+)
+from app.external_executors.actual_process_supervisor import (
+    RealExecutorProcessStatus,
+    RealExecutorProcessSupervisor,
 )
 from app.external_executors.actual_runner_wiring import (
     RealExecutorRunnerFactory,
@@ -1106,6 +1112,10 @@ def _worker_for_silent_launch(
     allow_native_process: bool = False,
     process_handle_id: str = "fake-worker-native-handle",
     wiring_mode: RealExecutorRunnerWiringMode = RealExecutorRunnerWiringMode.FAKE,
+    process_supervisor: RealExecutorProcessSupervisor | None = None,
+    fake_runner=None,
+    supervisor_terminate_after_launch: bool = False,
+    supervisor_cleanup_after_launch: bool = False,
 ) -> tuple[TaskWorker, _FakeAgentConversationService]:
     class _PassingProofRunner:
         def run_probe(self, *, workspace_context):
@@ -1137,10 +1147,16 @@ def _worker_for_silent_launch(
                 {"ensure_review": lambda self, *, task, run: None},
             )(),
             agent_conversation_service=agent_conversation_service,
+            process_supervisor=process_supervisor,
+            silent_launch_supervisor_terminate_after_launch=(
+                supervisor_terminate_after_launch
+            ),
+            silent_launch_supervisor_cleanup_after_launch=(
+                supervisor_cleanup_after_launch
+            ),
             silent_runner_factory=RealExecutorRunnerFactory(
-                fake_runner=FakeRealExecutorNativeRunner(
-                    process_handle_id=process_handle_id,
-                ),
+                fake_runner=fake_runner
+                or FakeRealExecutorNativeRunner(process_handle_id=process_handle_id),
             ),
             silent_runner_wiring_input=RealExecutorRunnerWiringInput(
                 wiring_mode=wiring_mode,
@@ -1151,6 +1167,43 @@ def _worker_for_silent_launch(
         ),
         agent_conversation_service,
     )
+
+
+class _SupervisedFakeNativeRunner:
+    def __init__(
+        self,
+        *,
+        supervisor: RealExecutorProcessSupervisor,
+        process_handle_id: str = "supervised-worker-native-handle",
+    ) -> None:
+        self.supervisor = supervisor
+        self.process_handle_id = process_handle_id
+        self.start_calls = 0
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    def start(
+        self,
+        *,
+        argv: tuple[str, ...],
+        workspace_path: str,
+        agent_session_id: str,
+    ) -> RealExecutorNativeProcessHandle:
+        self.start_calls += 1
+        self.supervisor.register(
+            self.process_handle_id,
+            executor_label=argv[0],
+            agent_session_id=agent_session_id,
+            workspace_path=workspace_path,
+            process_adapter=self,
+        )
+        return RealExecutorNativeProcessHandle(process_handle_id=self.process_handle_id)
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+    def kill(self) -> None:
+        self.kill_calls += 1
 
 
 def _silent_launch_task() -> Task:
@@ -1204,6 +1257,11 @@ def test_worker_default_disabled_silent_launch_snapshot_does_not_bind_handle(
     assert result.external_executor_snapshot.launch_status == "blocked"
     assert "native_launch_disabled" in result.external_executor_snapshot.blocked_reasons
     assert result.external_executor_snapshot.runtime_handle_id_present is False
+    assert result.external_executor_snapshot.supervisor_enabled is False
+    assert result.external_executor_snapshot.supervisor_registered is False
+    assert result.external_executor_snapshot.supervisor_status is None
+    assert result.external_executor_snapshot.supervisor_cleanup_done is False
+    assert result.external_executor_snapshot.supervisor_action_success is None
     assert result.runtime_handle_id is None
     assert (
         conversation_service.agent_session_repository.agent_session.runtime_handle_id
@@ -1257,6 +1315,11 @@ def test_worker_enabled_silent_launch_binds_agent_session_handle(
     assert result.external_executor_snapshot.product_runtime_git_write_allowed is False
     assert result.external_executor_snapshot.frontend_required is False
     assert result.external_executor_snapshot.frontend_change_allowed is False
+    assert result.external_executor_snapshot.supervisor_enabled is False
+    assert result.external_executor_snapshot.supervisor_registered is False
+    assert result.external_executor_snapshot.supervisor_status is None
+    assert result.external_executor_snapshot.supervisor_cleanup_done is False
+    assert result.external_executor_snapshot.supervisor_action_success is None
     assert result.runtime_handle_id == "fake-worker-native-handle"
     assert (
         conversation_service.agent_session_repository.agent_session.runtime_handle_id
@@ -1264,6 +1327,124 @@ def test_worker_enabled_silent_launch_binds_agent_session_handle(
     )
     assert conversation_service.agent_session_repository.agent_session.workspace_type == (
         WorkspaceType.WORKTREE
+    )
+
+
+def test_worker_supervisor_managed_silent_launch_snapshot_registers_fake_handle(
+    monkeypatch,
+    tmp_path,
+):
+    task = _silent_launch_task()
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+        branch_name="main",
+    )
+    proof = _passing_worktree_proof(tmp_path)
+    supervisor = RealExecutorProcessSupervisor()
+    fake_runner = _SupervisedFakeNativeRunner(supervisor=supervisor)
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            return proof
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+    worker, _ = _worker_for_silent_launch(
+        task=task,
+        agent_session=agent_session,
+        tmp_path=tmp_path,
+        launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+        allow_native_process=True,
+        process_supervisor=supervisor,
+        fake_runner=fake_runner,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.external_executor_snapshot is not None
+    assert result.external_executor_snapshot.launch_status == "launch_started"
+    assert result.external_executor_snapshot.supervisor_enabled is True
+    assert result.external_executor_snapshot.supervisor_registered is True
+    assert result.external_executor_snapshot.supervisor_status == "running"
+    assert result.external_executor_snapshot.supervisor_cleanup_done is False
+    assert result.external_executor_snapshot.supervisor_action_success is None
+    assert fake_runner.start_calls == 1
+    assert supervisor.get_status(fake_runner.process_handle_id).status == (
+        RealExecutorProcessStatus.RUNNING
+    )
+    serialized_snapshot = str(asdict(result.external_executor_snapshot)).lower()
+    for forbidden in {
+        "pid",
+        "raw_command",
+        "stdout",
+        "stderr",
+        "env",
+        "api_key",
+        "token",
+        "secret",
+    }:
+        assert forbidden not in serialized_snapshot
+
+
+def test_worker_supervisor_managed_silent_launch_can_terminate_and_cleanup_snapshot(
+    monkeypatch,
+    tmp_path,
+):
+    task = _silent_launch_task()
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+        branch_name="main",
+    )
+    proof = _passing_worktree_proof(tmp_path)
+    supervisor = RealExecutorProcessSupervisor()
+    fake_runner = _SupervisedFakeNativeRunner(supervisor=supervisor)
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            return proof
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+    worker, _ = _worker_for_silent_launch(
+        task=task,
+        agent_session=agent_session,
+        tmp_path=tmp_path,
+        launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+        allow_native_process=True,
+        process_supervisor=supervisor,
+        fake_runner=fake_runner,
+        supervisor_terminate_after_launch=True,
+        supervisor_cleanup_after_launch=True,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.external_executor_snapshot is not None
+    assert result.external_executor_snapshot.launch_status == "launch_started"
+    assert result.external_executor_snapshot.supervisor_enabled is True
+    assert result.external_executor_snapshot.supervisor_registered is True
+    assert result.external_executor_snapshot.supervisor_status == "cleanup_done"
+    assert result.external_executor_snapshot.supervisor_cleanup_done is True
+    assert result.external_executor_snapshot.supervisor_action_success is True
+    assert fake_runner.terminate_calls == 1
+    assert supervisor.get_status(fake_runner.process_handle_id).status == (
+        RealExecutorProcessStatus.MISSING
     )
 
 

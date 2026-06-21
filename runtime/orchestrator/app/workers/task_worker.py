@@ -53,6 +53,10 @@ from app.domain.task import (
     TaskStatus,
 )
 from app.external_executors.actual_native_launcher import RealExecutorNativeLaunchMode
+from app.external_executors.actual_process_supervisor import (
+    RealExecutorProcessStatus,
+    RealExecutorProcessSupervisor,
+)
 from app.external_executors.actual_runner_wiring import (
     RealExecutorRunnerFactory,
     RealExecutorRunnerWiringInput,
@@ -155,6 +159,11 @@ class WorkerSilentLaunchSnapshot:
     frontend_required: bool = False
     frontend_change_allowed: bool = False
     blocked_reasons: list[str] = field(default_factory=list)
+    supervisor_enabled: bool = False
+    supervisor_registered: bool = False
+    supervisor_status: str | None = None
+    supervisor_cleanup_done: bool = False
+    supervisor_action_success: bool | None = None
 
 
 @dataclass(slots=True)
@@ -1157,6 +1166,12 @@ def _executor_label_for_agent_session(agent_session: AgentSession) -> str:
 
 def _worker_silent_launch_snapshot(
     result: RealExecutorSilentLaunchResult,
+    *,
+    supervisor_enabled: bool = False,
+    supervisor_registered: bool = False,
+    supervisor_status: str | None = None,
+    supervisor_cleanup_done: bool = False,
+    supervisor_action_success: bool | None = None,
 ) -> WorkerSilentLaunchSnapshot:
     """Convert the service result into the grouped worker snapshot."""
 
@@ -1174,6 +1189,11 @@ def _worker_silent_launch_snapshot(
         frontend_required=False,
         frontend_change_allowed=False,
         blocked_reasons=list(result.blocked_reasons),
+        supervisor_enabled=supervisor_enabled,
+        supervisor_registered=supervisor_registered,
+        supervisor_status=supervisor_status,
+        supervisor_cleanup_done=supervisor_cleanup_done,
+        supervisor_action_success=supervisor_action_success,
     )
 
 
@@ -1507,6 +1527,9 @@ class TaskWorker:
         silent_launch_allow_native_process: bool = False,
         silent_runner_factory: RealExecutorRunnerFactory | None = None,
         silent_runner_wiring_input: RealExecutorRunnerWiringInput | None = None,
+        process_supervisor: RealExecutorProcessSupervisor | None = None,
+        silent_launch_supervisor_terminate_after_launch: bool = False,
+        silent_launch_supervisor_cleanup_after_launch: bool = False,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -1536,6 +1559,13 @@ class TaskWorker:
         self.silent_launch_allow_native_process = silent_launch_allow_native_process
         self.silent_runner_factory = silent_runner_factory
         self.silent_runner_wiring_input = silent_runner_wiring_input
+        self.process_supervisor = process_supervisor
+        self.silent_launch_supervisor_terminate_after_launch = (
+            silent_launch_supervisor_terminate_after_launch
+        )
+        self.silent_launch_supervisor_cleanup_after_launch = (
+            silent_launch_supervisor_cleanup_after_launch
+        )
         self._silent_runner_wiring_result: RealExecutorRunnerWiringResult | None = None
 
     def _runner_wiring_result(self) -> RealExecutorRunnerWiringResult:
@@ -1544,7 +1574,9 @@ class TaskWorker:
                 launch_mode=self.silent_launch_mode,
                 allow_native_process=self.silent_launch_allow_native_process,
             )
-            factory = self.silent_runner_factory or RealExecutorRunnerFactory()
+            factory = self.silent_runner_factory or RealExecutorRunnerFactory(
+                process_supervisor=self.process_supervisor,
+            )
             self._silent_runner_wiring_result = factory.wire(
                 wiring_input,
                 agent_session_repository=(
@@ -1595,7 +1627,59 @@ class TaskWorker:
                 frontend_change_allowed=False,
             )
         )
-        return _worker_silent_launch_snapshot(result)
+        return _worker_silent_launch_snapshot(
+            result,
+            **self._supervisor_snapshot_fields(result),
+        )
+
+    @staticmethod
+    def _default_supervisor_snapshot_fields() -> dict[str, object]:
+        return {
+            "supervisor_enabled": False,
+            "supervisor_registered": False,
+            "supervisor_status": None,
+            "supervisor_cleanup_done": False,
+            "supervisor_action_success": None,
+        }
+
+    def _supervisor_snapshot_fields(
+        self,
+        result: RealExecutorSilentLaunchResult,
+    ) -> dict[str, object]:
+        if (
+            self.process_supervisor is None
+            or result.launch_status != "launch_started"
+            or result.runtime_handle_id is None
+        ):
+            return self._default_supervisor_snapshot_fields()
+
+        record = self.process_supervisor.get_status(result.runtime_handle_id)
+        supervisor_status = record.status
+        supervisor_registered = record.status != RealExecutorProcessStatus.MISSING
+        supervisor_action_success: bool | None = None
+        supervisor_cleanup_done = False
+
+        if supervisor_registered and self.silent_launch_supervisor_terminate_after_launch:
+            action_result = self.process_supervisor.terminate(result.runtime_handle_id)
+            supervisor_status = action_result.status
+            supervisor_action_success = action_result.action_success
+
+        if supervisor_registered and self.silent_launch_supervisor_cleanup_after_launch:
+            action_result = self.process_supervisor.cleanup(result.runtime_handle_id)
+            supervisor_status = action_result.status
+            supervisor_action_success = action_result.action_success
+            supervisor_cleanup_done = (
+                action_result.status == RealExecutorProcessStatus.CLEANUP_DONE
+                and action_result.action_success
+            )
+
+        return {
+            "supervisor_enabled": True,
+            "supervisor_registered": supervisor_registered,
+            "supervisor_status": supervisor_status.value,
+            "supervisor_cleanup_done": supervisor_cleanup_done,
+            "supervisor_action_success": supervisor_action_success,
+        }
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
         """Execute one conservative worker loop.

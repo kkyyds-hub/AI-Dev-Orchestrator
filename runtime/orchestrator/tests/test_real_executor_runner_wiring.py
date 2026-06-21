@@ -11,6 +11,9 @@ from app.external_executors.actual_native_launcher import (
     RealExecutorNativeLaunchMode,
     RealExecutorNativeProcessHandle,
 )
+from app.external_executors.actual_process_supervisor import (
+    RealExecutorProcessSupervisor,
+)
 from app.external_executors.actual_runner_wiring import (
     RealExecutorRunnerFactory,
     RealExecutorRunnerWiringInput,
@@ -155,6 +158,34 @@ def test_factory_service_can_launch_with_fake_runner_when_later_invoked(db_sessi
 
     assert launch_result.launch_status == "launch_started"
     assert launch_result.runtime_handle_id == "wired-fake"
+
+
+def test_factory_injects_process_supervisor_into_default_subprocess_runner(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _CapturedSubprocessRunner(_StartCountingRunner):
+        def __init__(self, **kwargs) -> None:
+            super().__init__()
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "app.external_executors.actual_runner_wiring.SubprocessRealExecutorNativeRunner",
+        _CapturedSubprocessRunner,
+    )
+    supervisor = RealExecutorProcessSupervisor()
+
+    RealExecutorRunnerFactory(process_supervisor=supervisor).wire(
+        RealExecutorRunnerWiringInput(
+            wiring_mode=RealExecutorRunnerWiringMode.SUBPROCESS_ENABLED,
+            launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+            allow_native_process=True,
+            executor_label="codex",
+        )
+    )
+
+    assert captured["process_supervisor"] is supervisor
 
 
 def test_forbidden_true_flags_are_rejected() -> None:

@@ -105,9 +105,11 @@ class RealExecutorRunnerFactory:
         *,
         fake_runner: RealExecutorNativeRunnerProtocol | None = None,
         process_runner: RealExecutorNativeRunnerProtocol | None = None,
+        process_supervisor: Any | None = None,
     ) -> None:
         self._fake_runner = fake_runner
         self._process_runner = process_runner
+        self._process_supervisor = process_supervisor
 
     def wire(
         self,
@@ -153,7 +155,9 @@ class RealExecutorRunnerFactory:
     ) -> RealExecutorNativeRunnerProtocol:
         if source.wiring_mode == RealExecutorRunnerWiringMode.FAKE:
             return self._fake_runner or FakeRealExecutorNativeRunner()
-        return self._process_runner or SubprocessRealExecutorNativeRunner()
+        return self._process_runner or SubprocessRealExecutorNativeRunner(
+            process_supervisor=self._process_supervisor,
+        )
 
     @staticmethod
     def _runner_kind(source: RealExecutorRunnerWiringInput) -> str:
