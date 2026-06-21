@@ -14,6 +14,10 @@ from app.external_executors.actual_native_launcher import (
     RealExecutorNativeLauncher,
     SubprocessRealExecutorNativeRunner,
 )
+from app.external_executors.actual_process_supervisor import (
+    RealExecutorProcessStatus,
+    RealExecutorProcessSupervisor,
+)
 
 
 NATIVE_LAUNCHER_FILE = Path("app/external_executors/actual_native_launcher.py")
@@ -218,7 +222,8 @@ def test_subprocess_runner_auto_terminate_calls_terminate_without_exposing_pid()
     assert handle.process_terminated is True
     assert handle.process_killed is False
     assert handle.lifecycle_status == "terminated"
-    assert "42" not in handle.process_handle_id
+    assert handle.process_handle_id != "native-process-agent-session-1-42"
+    assert not handle.process_handle_id.endswith("-42")
     assert popen_factory.calls[0]["shell"] is False
     assert popen_factory.calls[0]["stdin"] is subprocess.DEVNULL
     assert popen_factory.calls[0]["stdout"] is subprocess.DEVNULL
@@ -246,7 +251,29 @@ def test_subprocess_runner_timeout_kills_process_without_exposing_pid() -> None:
     assert handle.process_killed is True
     assert handle.timeout_seconds == 0.01
     assert handle.lifecycle_status == "timeout_killed"
-    assert "42" not in handle.process_handle_id
+    assert handle.process_handle_id != "native-process-agent-session-1-42"
+    assert not handle.process_handle_id.endswith("-42")
+
+
+def test_subprocess_runner_registers_opaque_handle_with_supervisor() -> None:
+    process = _FakeProcess()
+    supervisor = RealExecutorProcessSupervisor()
+
+    handle = SubprocessRealExecutorNativeRunner(
+        popen_factory=_FakePopenFactory(process),
+        process_supervisor=supervisor,
+    ).start(
+        argv=("codex",),
+        workspace_path="/tmp/ai-dev-orchestrator-workspace",
+        agent_session_id="agent-session-1",
+    )
+    record = supervisor.get_status(handle.process_handle_id)
+
+    assert record.status == RealExecutorProcessStatus.RUNNING
+    assert record.process_handle_id == handle.process_handle_id
+    assert record.executor_label == "codex"
+    assert record.agent_session_id == "agent-session-1"
+    assert "native-process-agent-session-1-42" not in record.model_dump_json()
 
 
 def test_subprocess_runner_source_uses_shell_false_and_no_env_reading() -> None:

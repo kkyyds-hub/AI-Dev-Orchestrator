@@ -209,6 +209,7 @@ class SubprocessRealExecutorNativeRunner:
         timeout_seconds: float | None = None,
         terminate_wait_seconds: float = 0.2,
         popen_factory: Any | None = None,
+        process_supervisor: Any | None = None,
     ) -> None:
         if timeout_seconds is not None and timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
@@ -218,6 +219,7 @@ class SubprocessRealExecutorNativeRunner:
         self.timeout_seconds = timeout_seconds
         self.terminate_wait_seconds = terminate_wait_seconds
         self._popen_factory = popen_factory or subprocess.Popen
+        self._process_supervisor = process_supervisor
 
     def start(
         self,
@@ -233,6 +235,7 @@ class SubprocessRealExecutorNativeRunner:
         if not Path(workspace_path).is_absolute():
             raise ValueError("workspace_path must be absolute")
 
+        process_handle_id = f"native-process-{agent_session_id}-{uuid4().hex}"
         process = self._popen_factory(
             list(argv),
             cwd=workspace_path,
@@ -242,6 +245,14 @@ class SubprocessRealExecutorNativeRunner:
             stderr=subprocess.DEVNULL,
             close_fds=True,
         )
+        if self._process_supervisor is not None:
+            self._process_supervisor.register(
+                process_handle_id,
+                executor_label=argv[0],
+                agent_session_id=agent_session_id,
+                workspace_path=workspace_path,
+                process_adapter=process,
+            )
         process_terminated = False
         process_killed = False
         lifecycle_status = RealExecutorNativeLifecycleStatus.STARTED
@@ -265,7 +276,7 @@ class SubprocessRealExecutorNativeRunner:
                 timeout_status=RealExecutorNativeLifecycleStatus.KILLED,
             )
         return RealExecutorNativeProcessHandle(
-            process_handle_id=f"native-process-{agent_session_id}-{uuid4().hex}",
+            process_handle_id=process_handle_id,
             process_started=True,
             process_terminated=process_terminated,
             process_killed=process_killed,
