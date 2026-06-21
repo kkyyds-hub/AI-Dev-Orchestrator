@@ -53,6 +53,11 @@ from app.domain.task import (
     TaskStatus,
 )
 from app.external_executors.actual_native_launcher import RealExecutorNativeLaunchMode
+from app.external_executors.actual_runner_wiring import (
+    RealExecutorRunnerFactory,
+    RealExecutorRunnerWiringInput,
+    RealExecutorRunnerWiringResult,
+)
 from app.external_executors.actual_silent_launch_service import (
     RealExecutorSilentLaunchInput,
     RealExecutorSilentLaunchResult,
@@ -1500,6 +1505,8 @@ class TaskWorker:
             RealExecutorNativeLaunchMode.DISABLED
         ),
         silent_launch_allow_native_process: bool = False,
+        silent_runner_factory: RealExecutorRunnerFactory | None = None,
+        silent_runner_wiring_input: RealExecutorRunnerWiringInput | None = None,
     ) -> None:
         self.session = session
         self.task_repository = task_repository
@@ -1527,15 +1534,32 @@ class TaskWorker:
         self.silent_launch_service = silent_launch_service
         self.silent_launch_mode = silent_launch_mode
         self.silent_launch_allow_native_process = silent_launch_allow_native_process
+        self.silent_runner_factory = silent_runner_factory
+        self.silent_runner_wiring_input = silent_runner_wiring_input
+        self._silent_runner_wiring_result: RealExecutorRunnerWiringResult | None = None
+
+    def _runner_wiring_result(self) -> RealExecutorRunnerWiringResult:
+        if self._silent_runner_wiring_result is None:
+            wiring_input = self.silent_runner_wiring_input or RealExecutorRunnerWiringInput(
+                launch_mode=self.silent_launch_mode,
+                allow_native_process=self.silent_launch_allow_native_process,
+            )
+            factory = self.silent_runner_factory or RealExecutorRunnerFactory()
+            self._silent_runner_wiring_result = factory.wire(
+                wiring_input,
+                agent_session_repository=(
+                    self.agent_conversation_service.agent_session_repository
+                ),
+            )
+        return self._silent_runner_wiring_result
 
     def _silent_launch_service(self) -> RealExecutorSilentLaunchService:
         if self.silent_launch_service is not None:
             return self.silent_launch_service
-        return RealExecutorSilentLaunchService(
-            agent_session_repository=(
-                self.agent_conversation_service.agent_session_repository
-            ),
-        )
+        service = self._runner_wiring_result().silent_launch_service
+        if service is None:
+            raise RuntimeError("silent launch service was not wired")
+        return service
 
     def _attempt_silent_launch(
         self,
@@ -1543,14 +1567,27 @@ class TaskWorker:
         agent_session: AgentSession,
         prelaunch_ready: bool,
     ) -> WorkerSilentLaunchSnapshot:
+        wiring_result = (
+            None if self.silent_launch_service is not None else self._runner_wiring_result()
+        )
+        launch_mode = (
+            self.silent_launch_mode
+            if wiring_result is None
+            else wiring_result.launch_mode
+        )
+        allow_native_process = (
+            self.silent_launch_allow_native_process
+            if wiring_result is None
+            else wiring_result.allow_native_process
+        )
         result = self._silent_launch_service().launch(
             RealExecutorSilentLaunchInput(
                 agent_session_id=agent_session.id,
                 executor_label=_executor_label_for_agent_session(agent_session),
                 workspace_path=agent_session.workspace_path,
                 prelaunch_ready=prelaunch_ready,
-                launch_mode=self.silent_launch_mode,
-                allow_native_process=self.silent_launch_allow_native_process,
+                launch_mode=launch_mode,
+                allow_native_process=allow_native_process,
                 command_plan_redacted=True,
                 internal_auto_launch_policy_passed=True,
                 product_runtime_git_write_allowed=False,

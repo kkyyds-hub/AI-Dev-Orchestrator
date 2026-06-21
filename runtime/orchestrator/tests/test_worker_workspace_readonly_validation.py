@@ -68,10 +68,11 @@ from app.services.verifier_service import VerificationResult
 from app.external_executors.actual_native_launcher import (
     FakeRealExecutorNativeRunner,
     RealExecutorNativeLaunchMode,
-    RealExecutorNativeLauncher,
 )
-from app.external_executors.actual_silent_launch_service import (
-    RealExecutorSilentLaunchService,
+from app.external_executors.actual_runner_wiring import (
+    RealExecutorRunnerFactory,
+    RealExecutorRunnerWiringInput,
+    RealExecutorRunnerWiringMode,
 )
 from app.workers.task_worker import (
     TaskWorker,
@@ -1104,6 +1105,7 @@ def _worker_for_silent_launch(
     launch_mode: RealExecutorNativeLaunchMode = RealExecutorNativeLaunchMode.DISABLED,
     allow_native_process: bool = False,
     process_handle_id: str = "fake-worker-native-handle",
+    wiring_mode: RealExecutorRunnerWiringMode = RealExecutorRunnerWiringMode.FAKE,
 ) -> tuple[TaskWorker, _FakeAgentConversationService]:
     class _PassingProofRunner:
         def run_probe(self, *, workspace_context):
@@ -1135,18 +1137,17 @@ def _worker_for_silent_launch(
                 {"ensure_review": lambda self, *, task, run: None},
             )(),
             agent_conversation_service=agent_conversation_service,
-            silent_launch_service=RealExecutorSilentLaunchService(
-                agent_session_repository=(
-                    agent_conversation_service.agent_session_repository
-                ),
-                native_launcher=RealExecutorNativeLauncher(
-                    runner=FakeRealExecutorNativeRunner(
-                        process_handle_id=process_handle_id,
-                    ),
+            silent_runner_factory=RealExecutorRunnerFactory(
+                fake_runner=FakeRealExecutorNativeRunner(
+                    process_handle_id=process_handle_id,
                 ),
             ),
-            silent_launch_mode=launch_mode,
-            silent_launch_allow_native_process=allow_native_process,
+            silent_runner_wiring_input=RealExecutorRunnerWiringInput(
+                wiring_mode=wiring_mode,
+                launch_mode=launch_mode,
+                allow_native_process=allow_native_process,
+                executor_label="codex",
+            ),
         ),
         agent_conversation_service,
     )
@@ -1331,6 +1332,53 @@ def test_worker_dry_run_and_missing_workspace_do_not_bind_handle_or_break_flow(
     assert result.runtime_handle_id is None
     if expected_reason is not None:
         assert expected_reason in result.external_executor_snapshot.blocked_reasons
+    assert (
+        conversation_service.agent_session_repository.agent_session.runtime_handle_id
+        is None
+    )
+
+
+def test_worker_subprocess_disabled_wiring_does_not_start_or_bind_handle(
+    monkeypatch,
+    tmp_path,
+):
+    task = _silent_launch_task()
+    agent_session = _session(
+        workspace_path=tmp_path.as_posix(),
+        workspace_clean=True,
+        branch_name="main",
+    )
+    proof = _passing_worktree_proof(tmp_path)
+
+    class _PassingProofRunner:
+        def run_probe(self, *, workspace_context):
+            return proof
+
+    monkeypatch.setattr(
+        "app.workers.worktree_safe_command.WorkerWorktreeSafeCommandProofRunner",
+        lambda: _PassingProofRunner(),
+    )
+    monkeypatch.setattr(
+        "app.workers.task_worker.event_stream_service.publish_task_updated",
+        lambda **kwargs: None,
+    )
+    worker, conversation_service = _worker_for_silent_launch(
+        task=task,
+        agent_session=agent_session,
+        tmp_path=tmp_path,
+        launch_mode=RealExecutorNativeLaunchMode.ENABLED,
+        allow_native_process=True,
+        wiring_mode=RealExecutorRunnerWiringMode.SUBPROCESS_DISABLED,
+    )
+
+    result = worker.run_once()
+
+    assert result.claimed is True
+    assert result.external_executor_snapshot is not None
+    assert result.external_executor_snapshot.launch_status == "blocked"
+    assert "native_launch_disabled" in result.external_executor_snapshot.blocked_reasons
+    assert result.external_executor_snapshot.runtime_handle_id_present is False
+    assert result.runtime_handle_id is None
     assert (
         conversation_service.agent_session_repository.agent_session.runtime_handle_id
         is None
