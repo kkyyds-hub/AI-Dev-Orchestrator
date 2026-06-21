@@ -5,6 +5,10 @@ const workbenchPageSource = readFileSync(
   new URL("../src/pages/workbench/WorkbenchPage.tsx", import.meta.url),
   "utf8",
 );
+const workbenchSettingsAdaptersSource = readFileSync(
+  new URL("../src/pages/workbench/useWorkbenchSettingsAdapters.ts", import.meta.url),
+  "utf8",
+);
 const labPageSource = readFileSync(
   new URL("../src/features/ui-selection-lab/SanshengLiubuUiLabPage.tsx", import.meta.url),
   "utf8",
@@ -15,6 +19,10 @@ const mockPagesSource = readFileSync(
 );
 const realSurfaceAdapterSource = readFileSync(
   new URL("../src/features/workbench/adapters/realWorkbenchSurfaceAdapter.ts", import.meta.url),
+  "utf8",
+);
+const realSurfaceApiSource = readFileSync(
+  new URL("../src/features/workbench/adapters/realWorkbenchSurfaceApi.ts", import.meta.url),
   "utf8",
 );
 const deliverablesHooksSource = readFileSync(
@@ -154,7 +162,9 @@ for (const endpoint of [
   const escaped = endpoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const source =
     workbenchPageSource +
+    workbenchSettingsAdaptersSource +
     realSurfaceAdapterSource +
+    realSurfaceApiSource +
     projectsApiSource +
     deliverablesHooksSource +
     deliverablesApiSource +
@@ -219,42 +229,42 @@ assert.match(
   "Formal settings surface should receive a real settings adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /testProviderConnection/,
   "Formal settings surface should connect provider test through the adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /updateWorkspaceSettings/,
   "Formal settings surface should connect workspace settings through the adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /base_url:\s*draft\.providerBaseUrl\.trim\(\)/,
   "Formal settings save should persist provider base URL through the real adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /timeout_seconds:[\s\S]*timeoutSeconds/,
   "Formal settings save should persist provider timeout through the real adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /model_preset: "custom"/,
   "Formal settings save should persist explicit model names through the real adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /economy:\s*draft\.economyModel\.trim\(\)/,
   "Formal settings save should persist the economy model through the real adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /premium:\s*draft\.premiumModel\.trim\(\)/,
   "Formal settings save should persist the premium model through the real adapter",
 );
 assert.match(
-  workbenchPageSource,
+  workbenchSettingsAdaptersSource,
   /\.\.\.\(draft\.providerApiKey\.trim\(\)[\s\S]*api_key: draft\.providerApiKey\.trim\(\)/,
   "Formal settings save should only send provider API key when the user enters a replacement key",
 );
