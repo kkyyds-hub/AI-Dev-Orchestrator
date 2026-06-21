@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -33,6 +35,24 @@ class _StartCountingRunner:
     ) -> RealExecutorNativeProcessHandle:
         self.start_calls += 1
         return RealExecutorNativeProcessHandle(process_handle_id="fake-process-handle")
+
+
+def _smoke_script_module():
+    spec = importlib.util.spec_from_file_location(
+        "p9_real_executor_native_smoke",
+        SMOKE_SCRIPT,
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_smoke_script(args: list[str], capsys):
+    exit_code = _smoke_script_module().main(args)
+    captured = capsys.readouterr()
+    return exit_code, json.loads(captured.out)
 
 
 def test_smoke_default_fake_dry_run_does_not_start_native_process(tmp_path) -> None:
@@ -159,6 +179,60 @@ def test_forbidden_flags_are_rejected(tmp_path) -> None:
                 workspace_path=tmp_path.as_posix(),
                 **{field_name: True},
             )
+
+
+def test_cli_blocked_result_returns_zero_by_default(tmp_path, capsys) -> None:
+    exit_code, summary = _run_smoke_script(
+        [
+            "--runner",
+            "subprocess",
+            "--launch-mode",
+            "enabled",
+            "--workspace-path",
+            tmp_path.as_posix(),
+            "--json",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert summary["smoke_status"] == "blocked"
+
+
+def test_cli_fail_on_blocked_returns_two_for_blocked_result(tmp_path, capsys) -> None:
+    exit_code, summary = _run_smoke_script(
+        [
+            "--runner",
+            "subprocess",
+            "--launch-mode",
+            "enabled",
+            "--workspace-path",
+            tmp_path.as_posix(),
+            "--fail-on-blocked",
+            "--json",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert summary["smoke_status"] == "blocked"
+
+
+def test_cli_fail_on_blocked_keeps_dry_run_ready_zero(tmp_path, capsys) -> None:
+    exit_code, summary = _run_smoke_script(
+        [
+            "--launch-mode",
+            "dry_run",
+            "--workspace-path",
+            tmp_path.as_posix(),
+            "--fail-on-blocked",
+            "--json",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert summary["smoke_status"] == "dry_run_ready"
 
 
 def test_smoke_module_and_script_do_not_add_process_env_git_or_api_surface() -> None:

@@ -47,6 +47,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--fail-on-blocked",
+        action="store_true",
+        default=False,
+    )
     return parser
 
 
@@ -90,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(summary, sort_keys=True))
     else:
         print(json.dumps(summary, indent=2, sort_keys=True))
+    if args.fail_on_blocked and summary["smoke_status"] == "blocked":
+        return 2
     return 0
 
 
