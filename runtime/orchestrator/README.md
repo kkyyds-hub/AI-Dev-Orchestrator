@@ -270,6 +270,45 @@ uv run --no-project --with-editable . \
 
 P13 默认 `launch_mode=dry_run`，不启动 Codex，不启动 Claude Code，不调用 Worker，不创建 Run，不修改代码，不执行产品运行时 Git 写，也不调用 worktree 写服务。`controlled_smoke` 只允许在显式 smoke flags 下进入安全闸门，必须带 `--enable-native-process --auto-terminate --timeout-seconds <n> --use-supervisor --supervisor-cleanup-after-launch`；默认 pytest 不运行真实 controlled subprocess。AI Project Director 总闭环仍为 `Partial`。
 
+### 3.6 P14 Project Director controlled subprocess lifecycle smoke
+
+默认 dry-run：
+
+```bash
+cd runtime/orchestrator
+
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p14_project_director_controlled_subprocess_smoke.py --json
+```
+
+显式 controlled subprocess smoke：
+
+```bash
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p14_project_director_controlled_subprocess_smoke.py \
+    --json \
+    --launch-mode controlled_smoke \
+    --executor codex \
+    --requested-agent-role programmer \
+    --enable-native-process \
+    --auto-terminate \
+    --timeout-seconds 2 \
+    --use-supervisor \
+    --supervisor-cleanup-after-launch
+```
+
+P14 默认 `launch_mode=dry_run`，不启动 Codex，不启动 Claude Code，不进入真实 subprocess。`controlled_smoke` 必须显式传入 executor、agent role、native process enable、auto terminate、positive timeout、supervisor 和 supervisor cleanup flags；缺任何安全参数都会 blocked，且不得启动 executor。
+
+P14 controlled subprocess smoke 复用 P12 safe Worker simulate Run 作为现有 `AgentSession` 外键，并证明 native launch started、AgentSession bound、runtime/process handle present、supervisor registered、terminate attempted、cleanup done，再把 `p14_controlled_subprocess_lifecycle_result` 写回 Project Director session message 并读回。它不以代码修改作为通过条件，不执行产品运行时 Git 写，不调用 worktree 写服务，不暴露 pid/raw command/stdout/stderr/env/token/secret/api_key。AI Project Director 总闭环仍为 `Partial`；P9 production-safe long-running executor lifecycle 只能按证据记录为 `Pass with note` 或 `Partial`。
+
 ## 4. Windows / PowerShell 旧推荐运行方式
 
 由于当前 PowerShell 执行策略可能会拦截激活脚本，推荐直接使用虚拟环境中的 `python.exe`，这样最稳定。
