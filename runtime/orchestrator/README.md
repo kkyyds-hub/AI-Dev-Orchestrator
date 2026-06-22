@@ -221,6 +221,21 @@ uv run --no-project --with-editable . \
   python scripts/p9_run_backend_runnable_smoke.py --json --runtime-dir /tmp/p9-run-smoke --keep-temp-data
 ```
 
+### 3.3 P11 Project Director evidence-to-agent API smoke
+
+```bash
+cd runtime/orchestrator
+
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p11_project_director_evidence_to_agent_api_smoke.py --json
+```
+
+这个 smoke 验证 Project Director API + session/message readback 主路径：创建 Project Director session，调用 `POST /project-director/sessions/{session_id}/evidence-to-agent/dry-run`，再读取 session messages 中的 dry-run 记录。它仍然是 dry-run only：不启动 Codex，不启动 Claude Code，不启动 Worker，不调用 external executors，不创建真实执行任务，不执行产品运行时 Git 写。AI Project Director 总闭环仍为 `Partial`。
+
 ## 4. Windows / PowerShell 旧推荐运行方式
 
 由于当前 PowerShell 执行策略可能会拦截激活脚本，推荐直接使用虚拟环境中的 `python.exe`，这样最稳定。
