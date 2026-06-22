@@ -428,6 +428,58 @@ class ProjectDirectorMessageService:
         self._message_repository.commit()
         return user_message, assistant_message
 
+    def record_evidence_to_agent_dry_run(
+        self,
+        *,
+        session_id: UUID,
+        summary: dict,
+    ) -> ProjectDirectorMessage:
+        session_obj = self._ensure_session_exists(session_id)
+        message = self._message_repository.create(
+            ProjectDirectorMessage(
+                session_id=session_id,
+                role=ProjectDirectorMessageRole.ASSISTANT,
+                content=(
+                    "已生成 evidence-to-agent dry-run 摘要。该摘要不代表执行完成；"
+                    "产品运行时 Git 写仍未开放；AI Project Director 总闭环仍为 Partial。"
+                ),
+                sequence_no=self._message_repository.get_next_sequence_no(
+                    session_id=session_id
+                ),
+                intent="evidence_to_agent_dry_run",
+                related_project_id=session_obj.project_id,
+                source=ProjectDirectorMessageSource.SYSTEM,
+                source_detail="p11_evidence_to_agent_session_dry_run",
+                suggested_actions=[
+                    {
+                        "type": "evidence_to_agent_dry_run_record",
+                        "evidence_pack_id": summary.get("evidence_pack_id"),
+                        "dry_run_status": summary.get("dry_run_status"),
+                        "composed_tasks_count": summary.get("composed_tasks_count"),
+                        "programmer_assignment_created": summary.get(
+                            "programmer_assignment_created"
+                        ),
+                        "reviewer_assignment_created": summary.get(
+                            "reviewer_assignment_created"
+                        ),
+                        "product_runtime_git_write_allowed": False,
+                        "frontend_required": False,
+                        "ai_project_director_total_loop": "Partial",
+                    }
+                ],
+                requires_confirmation=False,
+                risk_level=ProjectDirectorMessageRiskLevel.LOW,
+                forbidden_actions_detected=[
+                    "no_product_runtime_git_write",
+                    "no_worker_dispatch",
+                    "no_executor_start",
+                    "no_real_task_creation",
+                ],
+            )
+        )
+        self._message_repository.commit()
+        return message
+
     @classmethod
     def _build_challenge_seed(
         cls,

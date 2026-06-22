@@ -159,6 +159,14 @@ class EvidenceToAgentDryRunRequest(BaseModel):
     user_goal: str = Field(min_length=1, max_length=5000)
 
 
+class EvidenceToAgentDryRunSessionResponse(BaseModel):
+    dry_run_summary: dict
+    message: ProjectDirectorMessageResponse | None = None
+    product_runtime_git_write_allowed: bool = False
+    frontend_required: bool = False
+    ai_project_director_total_loop: str = "Partial"
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -332,6 +340,52 @@ def run_evidence_to_agent_dry_run(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+
+
+@router.post(
+    "/sessions/{session_id}/evidence-to-agent/dry-run",
+    response_model=EvidenceToAgentDryRunSessionResponse,
+    summary="Run evidence-to-agent dry-run and bind the result to a session message",
+)
+def run_session_evidence_to_agent_dry_run(
+    session_id: UUID,
+    request: EvidenceToAgentDryRunRequest,
+    message_service: Annotated[
+        ProjectDirectorMessageService, Depends(_get_message_service)
+    ],
+) -> EvidenceToAgentDryRunSessionResponse:
+    """Persist a safe dry-run trace message for one Project Director session."""
+
+    if not request.user_goal.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="user_goal must not be empty or whitespace-only",
+        )
+
+    try:
+        summary = ProjectDirectorEvidenceToAgentDryRunService(repo_root=REPO_ROOT).run(
+            user_goal=request.user_goal
+        )
+        message = message_service.record_evidence_to_agent_dry_run(
+            session_id=session_id,
+            summary=summary,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return EvidenceToAgentDryRunSessionResponse(
+        dry_run_summary=summary,
+        message=ProjectDirectorMessageResponse.from_domain(message),
+    )
 
 
 @router.post(
