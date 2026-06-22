@@ -236,6 +236,23 @@ uv run --no-project --with-editable . \
 
 这个 smoke 验证 Project Director API + session/message readback 主路径：创建 Project Director session，调用 `POST /project-director/sessions/{session_id}/evidence-to-agent/dry-run`，再读取 session messages 中的 dry-run 记录。它仍然是 dry-run only：不启动 Codex，不启动 Claude Code，不启动 Worker，不调用 external executors，不创建真实执行任务，不执行产品运行时 Git 写。AI Project Director 总闭环仍为 `Partial`。
 
+### 3.4 P12 Project Director confirmed dry-run task dispatch smoke
+
+```bash
+cd runtime/orchestrator
+
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p12_project_director_dry_run_task_dispatch_smoke.py --json
+```
+
+这个 smoke 验证 P11 dry-run message 到 P12 safe dry-run Task 的确认式后端闭环：创建 Project Director session，调用 `POST /project-director/sessions/{session_id}/evidence-to-agent/dry-run`，调用 `POST /project-director/sessions/{session_id}/dry-run-task-dispatch` 创建 safe dry-run Task，调用 `POST /workers/run-once` 走 Worker simulate，读取 task detail / runs，再把 Worker simulate result 绑定回 Project Director session message。
+
+P12 只允许 safe dry-run Task 和 Worker simulate。它不启动 Codex，不启动 Claude Code，不调用 external executors，不执行产品运行时 Git 写，不代表真实 executor 总闭环，也不代表长期 executor lifecycle 完成。AI Project Director 总闭环仍为 `Partial`。
+
 ## 4. Windows / PowerShell 旧推荐运行方式
 
 由于当前 PowerShell 执行策略可能会拦截激活脚本，推荐直接使用虚拟环境中的 `python.exe`，这样最稳定。
