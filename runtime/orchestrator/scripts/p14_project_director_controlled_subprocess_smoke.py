@@ -660,6 +660,15 @@ def run_smoke(runtime_data_dir: Path, args: argparse.Namespace) -> dict[str, Any
         summary["blocked_reasons"].extend(gate_blocks)
         return summary
 
+    if (
+        args.launch_mode == "controlled_smoke"
+        and not args.fake_runner
+        and not _controlled_command_available(args.executor)
+    ):
+        summary["smoke_status"] = "blocked"
+        summary["blocked_reasons"].append("executor_unavailable")
+        return summary
+
     try:
         chain = _prepare_project_director_chain(summary=summary, args=args)
     except Exception as exc:  # pragma: no cover - operator smoke evidence path.
