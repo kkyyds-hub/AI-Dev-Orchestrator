@@ -150,6 +150,9 @@ from app.services.project_director_evidence_to_agent_dry_run_service import (
 from app.services.project_director_dry_run_task_dispatch_service import (
     ProjectDirectorDryRunTaskDispatchService,
 )
+from app.domain.project_director_dry_run_task_dispatch import (
+    ProjectDirectorDryRunTaskWorkerResult,
+)
 
 
 # ── Dependencies ────────────────────────────────────────────────────
@@ -195,6 +198,37 @@ class ConfirmDryRunTaskDispatchResponse(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
+
+
+class RecordDryRunTaskWorkerResultRequest(BaseModel):
+    task_id: UUID
+    run_id: UUID | None = None
+    worker_run_once_ok: bool
+    worker_simulate_mode: bool = True
+    run_created: bool
+    run_readback_ok: bool
+    blocked_reasons: list[str] = Field(default_factory=list)
+
+
+class RecordDryRunTaskWorkerResultResponse(BaseModel):
+    session_id: UUID
+    task_id: UUID
+    run_id: UUID | None = None
+    worker_run_once_ok: bool
+    worker_simulate_mode: bool = True
+    run_created: bool
+    run_readback_ok: bool
+    safe_dry_run_task: bool = True
+    product_runtime_git_write_allowed: bool = False
+    frontend_required: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    ai_project_director_total_loop: str = "Partial"
+    p9_production_safe_long_running_executor_lifecycle: str = "Partial"
+    message_bound: bool = False
+    message: ProjectDirectorMessageResponse | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
 
 
 def _get_service(
@@ -497,6 +531,58 @@ def confirm_session_dry_run_task_dispatch(
         blocked_reasons=result.blocked_reasons,
         risks=result.risks,
         unknowns=result.unknowns,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/dry-run-task-dispatch/worker-result",
+    response_model=RecordDryRunTaskWorkerResultResponse,
+    summary="Bind one safe dry-run task Worker simulate result to the session",
+)
+def record_session_dry_run_task_worker_result(
+    session_id: UUID,
+    request: RecordDryRunTaskWorkerResultRequest,
+    message_service: Annotated[
+        ProjectDirectorMessageService, Depends(_get_message_service)
+    ],
+) -> RecordDryRunTaskWorkerResultResponse:
+    """Record a Worker simulate readback summary without starting execution."""
+
+    result = ProjectDirectorDryRunTaskWorkerResult(
+        session_id=session_id,
+        task_id=request.task_id,
+        run_id=request.run_id,
+        worker_run_once_ok=request.worker_run_once_ok,
+        worker_simulate_mode=request.worker_simulate_mode,
+        run_created=request.run_created,
+        run_readback_ok=request.run_readback_ok,
+        blocked_reasons=request.blocked_reasons,
+    )
+    try:
+        message = message_service.record_dry_run_task_worker_result(result=result)
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return RecordDryRunTaskWorkerResultResponse(
+        session_id=session_id,
+        task_id=request.task_id,
+        run_id=request.run_id,
+        worker_run_once_ok=request.worker_run_once_ok,
+        worker_simulate_mode=request.worker_simulate_mode,
+        run_created=request.run_created,
+        run_readback_ok=request.run_readback_ok,
+        message_bound=True,
+        message=ProjectDirectorMessageResponse.from_domain(message),
+        blocked_reasons=request.blocked_reasons,
     )
 
 

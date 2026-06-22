@@ -39,6 +39,9 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageRole,
     ProjectDirectorMessageSource,
 )
+from app.domain.project_director_dry_run_task_dispatch import (
+    ProjectDirectorDryRunTaskWorkerResult,
+)
 from app.domain.project_director_user_challenge import (
     UserChallengeClassifier,
     UserChallengeSeed,
@@ -474,6 +477,61 @@ class ProjectDirectorMessageService:
                     "no_worker_dispatch",
                     "no_executor_start",
                     "no_real_task_creation",
+                ],
+            )
+        )
+        self._message_repository.commit()
+        return message
+
+    def record_dry_run_task_worker_result(
+        self,
+        *,
+        result: ProjectDirectorDryRunTaskWorkerResult,
+    ) -> ProjectDirectorMessage:
+        session_obj = self._ensure_session_exists(result.session_id)
+        message = self._message_repository.create(
+            ProjectDirectorMessage(
+                session_id=result.session_id,
+                role=ProjectDirectorMessageRole.ASSISTANT,
+                content=(
+                    "Worker simulate 已完成一次 safe dry-run Task 处理并生成 Run "
+                    "readback。该结果不代表真实 executor 执行、代码写入或产品运行时 "
+                    "Git 写授权；AI Project Director 总闭环仍为 Partial。"
+                ),
+                sequence_no=self._message_repository.get_next_sequence_no(
+                    session_id=result.session_id
+                ),
+                intent="dry_run_task_worker_result",
+                related_project_id=session_obj.project_id,
+                related_task_id=result.task_id,
+                source=ProjectDirectorMessageSource.SYSTEM,
+                source_detail="p12_dry_run_task_worker_result",
+                suggested_actions=[
+                    {
+                        "type": "p12_dry_run_task_worker_result_record",
+                        "task_id": str(result.task_id),
+                        "run_id": str(result.run_id) if result.run_id else None,
+                        "worker_run_once_ok": result.worker_run_once_ok,
+                        "worker_simulate_mode": result.worker_simulate_mode,
+                        "run_created": result.run_created,
+                        "run_readback_ok": result.run_readback_ok,
+                        "safe_dry_run_task": True,
+                        "product_runtime_git_write_allowed": False,
+                        "frontend_required": False,
+                        "native_executor_started": False,
+                        "codex_started": False,
+                        "claude_code_started": False,
+                        "ai_project_director_total_loop": "Partial",
+                        "p9_production_safe_long_running_executor_lifecycle": "Partial",
+                    }
+                ],
+                requires_confirmation=False,
+                risk_level=ProjectDirectorMessageRiskLevel.LOW,
+                forbidden_actions_detected=[
+                    "no_product_runtime_git_write",
+                    "no_native_executor_start",
+                    "no_codex_start",
+                    "no_claude_code_start",
                 ],
             )
         )
