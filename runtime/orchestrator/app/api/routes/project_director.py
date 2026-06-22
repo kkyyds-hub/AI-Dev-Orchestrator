@@ -11,6 +11,7 @@ workers, call planning/apply, or write repositories.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -143,9 +144,19 @@ from app.services.project_director_setup_readiness_service import (
     ProjectDirectorSetupReadiness,
     ProjectDirectorSetupReadinessService,
 )
+from app.services.project_director_evidence_to_agent_dry_run_service import (
+    ProjectDirectorEvidenceToAgentDryRunService,
+)
 
 
 # ── Dependencies ────────────────────────────────────────────────────
+
+
+REPO_ROOT = Path(__file__).resolve().parents[5]
+
+
+class EvidenceToAgentDryRunRequest(BaseModel):
+    user_goal: str = Field(min_length=1, max_length=5000)
 
 
 def _get_service(
@@ -295,6 +306,32 @@ router = APIRouter(
     prefix="/project-director",
     tags=["project-director"],
 )
+
+
+@router.post(
+    "/evidence-to-agent/dry-run",
+    summary="Run a Project Director evidence-to-agent dry-run without execution",
+)
+def run_evidence_to_agent_dry_run(
+    request: EvidenceToAgentDryRunRequest,
+) -> dict:
+    """Return a safe evidence-to-agent dry-run summary without task creation."""
+
+    if not request.user_goal.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="user_goal must not be empty or whitespace-only",
+        )
+
+    try:
+        return ProjectDirectorEvidenceToAgentDryRunService(repo_root=REPO_ROOT).run(
+            user_goal=request.user_goal
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post(
