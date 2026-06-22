@@ -253,6 +253,23 @@ uv run --no-project --with-editable . \
 
 P12 只允许 safe dry-run Task 和 Worker simulate。它不启动 Codex，不启动 Claude Code，不调用 external executors，不执行产品运行时 Git 写，不代表真实 executor 总闭环，也不代表长期 executor lifecycle 完成。AI Project Director 总闭环仍为 `Partial`。
 
+### 3.5 P13 Project Director controlled executor lifecycle smoke
+
+```bash
+cd runtime/orchestrator
+
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p13_project_director_controlled_executor_lifecycle_smoke.py --json
+```
+
+这个 smoke 验证 P12 safe dry-run Task 到 P13 controlled executor dispatch intent 的后端 pilot：创建 Project Director session，调用 P11 evidence-to-agent dry-run，创建 P12 safe dry-run Task，调用 `POST /project-director/sessions/{session_id}/controlled-executor-dispatch` 记录 controlled executor pilot intent，再写回 `p13_controlled_executor_lifecycle_result` session message 并读回。
+
+P13 默认 `launch_mode=dry_run`，不启动 Codex，不启动 Claude Code，不调用 Worker，不创建 Run，不修改代码，不执行产品运行时 Git 写，也不调用 worktree 写服务。`controlled_smoke` 只允许在显式 smoke flags 下进入安全闸门，必须带 `--enable-native-process --auto-terminate --timeout-seconds <n> --use-supervisor --supervisor-cleanup-after-launch`；默认 pytest 不运行真实 controlled subprocess。AI Project Director 总闭环仍为 `Partial`。
+
 ## 4. Windows / PowerShell 旧推荐运行方式
 
 由于当前 PowerShell 执行策略可能会拦截激活脚本，推荐直接使用虚拟环境中的 `python.exe`，这样最稳定。
