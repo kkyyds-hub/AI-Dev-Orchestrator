@@ -32,6 +32,7 @@ P12_DISPATCH_SOURCE_DETAIL = "p12_dry_run_task_dispatch"
 P12_WORKER_RESULT_SOURCE_DETAIL = "p12_dry_run_task_worker_result"
 P13_DISPATCH_SOURCE_DETAIL = "p13_controlled_executor_dispatch"
 P13_LIFECYCLE_RESULT_SOURCE_DETAIL = "p13_controlled_executor_lifecycle_result"
+P14_LIFECYCLE_RESULT_SOURCE_DETAIL = "p14_controlled_subprocess_lifecycle_result"
 
 _P13_ALLOWED_FILES = [
     "runtime/orchestrator/app/domain/project_director_controlled_executor_dispatch.py",
@@ -249,6 +250,7 @@ class ProjectDirectorControlledExecutorDispatchService:
         self,
         *,
         result: ProjectDirectorControlledExecutorLifecycleResult,
+        source_detail: str = P13_LIFECYCLE_RESULT_SOURCE_DETAIL,
     ) -> ProjectDirectorMessage:
         """Bind one controlled lifecycle readback message to a session."""
 
@@ -258,15 +260,34 @@ class ProjectDirectorControlledExecutorDispatchService:
         if session_obj is None:
             raise ValueError(f"Project Director session {result.session_id} not found")
 
+        if source_detail not in {
+            P13_LIFECYCLE_RESULT_SOURCE_DETAIL,
+            P14_LIFECYCLE_RESULT_SOURCE_DETAIL,
+        }:
+            raise ValueError("unsupported controlled lifecycle source_detail")
+
+        action_type = (
+            "p14_controlled_subprocess_lifecycle_result_record"
+            if source_detail == P14_LIFECYCLE_RESULT_SOURCE_DETAIL
+            else "p13_controlled_executor_lifecycle_result_record"
+        )
+        content = (
+            "已记录 controlled subprocess lifecycle smoke readback。该记录说明"
+            "受控 subprocess smoke 已记录，但不代表真实代码修改完成，"
+            "也不授权产品运行时 Git 写；AI Project Director 总闭环仍为 Partial。"
+            if source_detail == P14_LIFECYCLE_RESULT_SOURCE_DETAIL
+            else (
+                "已记录 controlled executor lifecycle readback。该记录不代表"
+                "真实代码修改完成，也不授权产品运行时 Git 写；AI Project Director "
+                "总闭环仍为 Partial。"
+            )
+        )
+
         message = self._message_repository.create(
             ProjectDirectorMessage(
                 session_id=result.session_id,
                 role=ProjectDirectorMessageRole.ASSISTANT,
-                content=(
-                    "已记录 controlled executor lifecycle readback。该记录不代表"
-                    "真实代码修改完成，也不授权产品运行时 Git 写；AI Project Director "
-                    "总闭环仍为 Partial。"
-                ),
+                content=content,
                 sequence_no=self._message_repository.get_next_sequence_no(
                     session_id=result.session_id
                 ),
@@ -274,10 +295,10 @@ class ProjectDirectorControlledExecutorDispatchService:
                 related_project_id=session_obj.project_id,
                 related_task_id=result.source_task_id,
                 source=ProjectDirectorMessageSource.SYSTEM,
-                source_detail=P13_LIFECYCLE_RESULT_SOURCE_DETAIL,
+                source_detail=source_detail,
                 suggested_actions=[
                     {
-                        "type": "p13_controlled_executor_lifecycle_result_record",
+                        "type": action_type,
                         "source_task_id": str(result.source_task_id),
                         "source_message_id": str(result.source_message_id),
                         "requested_agent_role": result.requested_agent_role,

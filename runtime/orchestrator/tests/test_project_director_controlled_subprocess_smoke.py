@@ -249,6 +249,8 @@ def test_p14_controlled_smoke_with_all_safety_flags_uses_fake_runner() -> None:
     assert summary["terminate_attempted"] is True
     assert summary["cleanup_required"] is True
     assert summary["supervisor_cleanup_done"] is True
+    assert summary["p14_lifecycle_result_message_bound"] is True
+    assert summary["message_readback_ok"] is True
     assert summary["product_runtime_git_write_allowed"] is False
     assert summary["worktree_write_allowed"] is False
     assert summary["frontend_required"] is False

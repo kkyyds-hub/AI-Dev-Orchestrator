@@ -532,6 +532,115 @@ def _run_controlled_subprocess(
             summary["blocked_reasons"].append("controlled_lifecycle_incomplete")
 
 
+def _record_p14_lifecycle_result(
+    *,
+    summary: dict[str, Any],
+    session_id: str,
+    source_task_id: str,
+    source_message_id: str,
+) -> None:
+    from app.core.db import SessionLocal
+    from app.domain.project_director_controlled_executor_dispatch import (
+        ProjectDirectorControlledExecutorLifecycleResult,
+    )
+    from app.repositories.project_director_message_repository import (
+        ProjectDirectorMessageRepository,
+    )
+    from app.repositories.project_director_session_repository import (
+        ProjectDirectorSessionRepository,
+    )
+    from app.repositories.task_repository import TaskRepository
+    from app.services.project_director_controlled_executor_dispatch_service import (
+        P14_LIFECYCLE_RESULT_SOURCE_DETAIL,
+        ProjectDirectorControlledExecutorDispatchService,
+    )
+
+    db_session = SessionLocal()
+    try:
+        service = ProjectDirectorControlledExecutorDispatchService(
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            message_repository=ProjectDirectorMessageRepository(db_session),
+            task_repository=TaskRepository(db_session),
+        )
+        service.record_lifecycle_result(
+            result=ProjectDirectorControlledExecutorLifecycleResult(
+                session_id=UUID(session_id),
+                source_task_id=UUID(source_task_id),
+                source_message_id=UUID(source_message_id),
+                requested_agent_role=summary["requested_agent_role"],
+                requested_executor=summary["requested_executor"],
+                launch_mode=summary["launch_mode"],
+                native_executor_started=summary["native_executor_started"],
+                codex_started=summary["codex_started"],
+                claude_code_started=summary["claude_code_started"],
+                agent_session_bound=summary["agent_session_bound"],
+                runtime_handle_id_present=summary["runtime_handle_id_present"],
+                process_handle_id_present=summary["process_handle_id_present"],
+                supervisor_registered=summary["supervisor_registered"],
+                terminate_attempted=summary["terminate_attempted"],
+                supervisor_cleanup_done=summary["supervisor_cleanup_done"],
+                run_created=summary["run_created"],
+                real_code_modified=False,
+                git_write_performed=False,
+                p9_production_safe_long_running_executor_lifecycle=summary[
+                    "p9_production_safe_long_running_executor_lifecycle"
+                ],
+                blocked_reasons=list(summary["blocked_reasons"]),
+            ),
+            source_detail=P14_LIFECYCLE_RESULT_SOURCE_DETAIL,
+        )
+        summary["p14_lifecycle_result_message_bound"] = True
+    finally:
+        db_session.close()
+
+
+def _readback_p14_lifecycle_message(*, session_id: str) -> bool:
+    import warnings
+
+    warnings.filterwarnings(
+        "ignore",
+        message="Using `httpx` with `starlette.testclient` is deprecated.*",
+        category=Warning,
+    )
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        messages_payload = _request_json(
+            client,
+            "GET",
+            f"/project-director/sessions/{session_id}/messages",
+            200,
+        )
+    messages = messages_payload.get("messages") or []
+    return any(
+        item.get("source_detail") == "p14_controlled_subprocess_lifecycle_result"
+        and _p14_action_is_safe(item.get("suggested_actions") or [])
+        for item in messages
+    )
+
+
+def _p14_action_is_safe(actions: list[dict[str, Any]]) -> bool:
+    for action in actions:
+        if action.get("type") != "p14_controlled_subprocess_lifecycle_result_record":
+            continue
+        return (
+            action.get("launch_mode") == "controlled_smoke"
+            and action.get("agent_session_bound") is True
+            and action.get("process_handle_id_present") is True
+            and action.get("supervisor_registered") is True
+            and action.get("terminate_attempted") is True
+            and action.get("supervisor_cleanup_done") is True
+            and action.get("product_runtime_git_write_allowed") is False
+            and action.get("worktree_write_allowed") is False
+            and action.get("real_code_modified") is False
+            and action.get("git_write_performed") is False
+            and action.get("ai_project_director_total_loop") == "Partial"
+        )
+    return False
+
+
 def run_smoke(runtime_data_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
     sqlite_db_path = _configure_isolated_environment(runtime_data_dir)
     summary = _base_summary(runtime_data_dir.resolve(), sqlite_db_path.resolve())
@@ -567,6 +676,19 @@ def run_smoke(runtime_data_dir: Path, args: argparse.Namespace) -> dict[str, Any
             run_id=chain["run_id"],
             runtime_data_dir=runtime_data_dir,
         )
+        if summary["smoke_status"] == "passed_controlled_smoke":
+            _record_p14_lifecycle_result(
+                summary=summary,
+                session_id=chain["session_id"],
+                source_task_id=chain["source_task_id"],
+                source_message_id=chain["source_message_id"],
+            )
+            summary["message_readback_ok"] = _readback_p14_lifecycle_message(
+                session_id=chain["session_id"]
+            )
+            if not summary["message_readback_ok"]:
+                summary["smoke_status"] = "partial"
+                summary["blocked_reasons"].append("p14_message_readback_failed")
         return summary
 
     required_checks = (
