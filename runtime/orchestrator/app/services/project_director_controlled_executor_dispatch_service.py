@@ -111,7 +111,7 @@ class ProjectDirectorControlledExecutorDispatchService:
                 blocked_reasons.append("source_message_is_not_p12_dispatch")
 
         if source_task is not None and source_message is not None:
-            if source_task.source_draft_id != f"p12-{source_message.id}":
+            if not self._source_message_binds_task(source_message, source_task):
                 blocked_reasons.append("source_task_not_bound_to_source_message")
             if not self._is_safe_dry_run_task(source_task):
                 blocked_reasons.append("source_task_is_not_safe_dry_run")
@@ -339,12 +339,34 @@ class ProjectDirectorControlledExecutorDispatchService:
         )
 
     @staticmethod
+    def _source_message_binds_task(
+        source_message: ProjectDirectorMessage,
+        source_task: Task,
+    ) -> bool:
+        for action in source_message.suggested_actions:
+            if not isinstance(action, dict):
+                continue
+            action_type = action.get("type")
+            if (
+                action_type == "p12_dry_run_task_dispatch_record"
+                and action.get("created_task_id") == str(source_task.id)
+            ):
+                return True
+            if (
+                action_type == "p12_dry_run_task_worker_result_record"
+                and action.get("task_id") == str(source_task.id)
+            ):
+                return True
+        return False
+
+    @staticmethod
     def _result_from_plan(
         plan: ProjectDirectorControlledExecutorDispatchPlan,
         *,
         message_bound: bool,
     ) -> ProjectDirectorControlledExecutorDispatchResult:
         data: dict[str, Any] = plan.model_dump()
+        data.pop("user_confirmed", None)
         data["message_bound"] = message_bound
         return ProjectDirectorControlledExecutorDispatchResult(**data)
 

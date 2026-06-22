@@ -64,10 +64,24 @@ def _safe_p12_task(*, message_id) -> Task:
     )
 
 
+def _bind_message_to_task(
+    message: ProjectDirectorMessage,
+    task: Task,
+) -> ProjectDirectorMessage:
+    actions = list(message.suggested_actions)
+    actions[0] = {
+        **actions[0],
+        "type": "p12_dry_run_task_dispatch_record",
+        "created_task_id": str(task.id),
+    }
+    return message.model_copy(update={"suggested_actions": actions})
+
+
 def test_builds_controlled_executor_plan_from_p12_safe_dry_run_source() -> None:
     session_id = uuid4()
     message = _p12_message(session_id=session_id)
     task = _safe_p12_task(message_id=message.id)
+    message = _bind_message_to_task(message, task)
 
     plan = ProjectDirectorControlledExecutorDispatchService().build_plan_from_sources(
         session_id=session_id,
@@ -121,6 +135,7 @@ def test_controlled_executor_plan_blocks_without_user_confirmation() -> None:
     session_id = uuid4()
     message = _p12_message(session_id=session_id)
     task = _safe_p12_task(message_id=message.id)
+    message = _bind_message_to_task(message, task)
 
     plan = ProjectDirectorControlledExecutorDispatchService().build_plan_from_sources(
         session_id=session_id,
@@ -160,6 +175,7 @@ def test_controlled_executor_plan_blocks_non_safe_dry_run_source() -> None:
         acceptance_criteria=["product_runtime_git_write_allowed=false"],
         source_draft_id=f"p12-{message.id}",
     )
+    message = _bind_message_to_task(message, task)
 
     plan = ProjectDirectorControlledExecutorDispatchService().build_plan_from_sources(
         session_id=session_id,
@@ -179,6 +195,7 @@ def test_controlled_executor_plan_blocks_controlled_smoke_in_api_contract() -> N
     session_id = uuid4()
     message = _p12_message(session_id=session_id)
     task = _safe_p12_task(message_id=message.id)
+    message = _bind_message_to_task(message, task)
 
     plan = ProjectDirectorControlledExecutorDispatchService().build_plan_from_sources(
         session_id=session_id,

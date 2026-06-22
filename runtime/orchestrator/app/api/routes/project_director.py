@@ -150,6 +150,9 @@ from app.services.project_director_evidence_to_agent_dry_run_service import (
 from app.services.project_director_dry_run_task_dispatch_service import (
     ProjectDirectorDryRunTaskDispatchService,
 )
+from app.services.project_director_controlled_executor_dispatch_service import (
+    ProjectDirectorControlledExecutorDispatchService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -231,6 +234,49 @@ class RecordDryRunTaskWorkerResultResponse(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
 
 
+class ConfirmControlledExecutorDispatchRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    requested_agent_role: Literal["programmer", "reviewer"] = "programmer"
+    requested_executor: Literal["codex", "claude-code"] = "codex"
+    launch_mode: Literal["dry_run", "controlled_smoke"] = "dry_run"
+
+
+class ConfirmControlledExecutorDispatchResponse(BaseModel):
+    dispatch_status: Literal["planned", "blocked", "launched"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    requested_agent_role: Literal["programmer", "reviewer"] = "programmer"
+    requested_executor: Literal["codex", "claude-code"] = "codex"
+    launch_mode: Literal["dry_run", "controlled_smoke"] = "dry_run"
+    controlled_executor_pilot: bool = True
+    executor_backed_agent: bool = True
+    programmer_agent_allowed: bool = True
+    reviewer_agent_allowed: bool = True
+    supervisor_required: bool = True
+    auto_terminate_required: bool = True
+    cleanup_required: bool = True
+    product_runtime_git_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    frontend_required: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    agent_session_bound: bool = False
+    process_handle_id_present: bool = False
+    supervisor_registered: bool = False
+    supervisor_cleanup_done: bool = False
+    run_created: bool = False
+    ai_project_director_total_loop: str = "Partial"
+    p9_production_safe_long_running_executor_lifecycle: str = "Partial"
+    message_bound: bool = False
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -262,6 +308,16 @@ def _get_dry_run_task_dispatch_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorDryRunTaskDispatchService:
     return ProjectDirectorDryRunTaskDispatchService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_controlled_executor_dispatch_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorControlledExecutorDispatchService:
+    return ProjectDirectorControlledExecutorDispatchService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -583,6 +639,103 @@ def record_session_dry_run_task_worker_result(
         message_bound=True,
         message=ProjectDirectorMessageResponse.from_domain(message),
         blocked_reasons=request.blocked_reasons,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/controlled-executor-dispatch",
+    response_model=ConfirmControlledExecutorDispatchResponse,
+    summary="Confirm a P12 safe dry-run task for controlled executor dispatch",
+)
+def confirm_session_controlled_executor_dispatch(
+    session_id: UUID,
+    request: ConfirmControlledExecutorDispatchRequest,
+    dispatch_service: Annotated[
+        ProjectDirectorControlledExecutorDispatchService,
+        Depends(_get_controlled_executor_dispatch_service),
+    ],
+) -> ConfirmControlledExecutorDispatchResponse:
+    """Record a controlled executor pilot intent without starting execution."""
+
+    try:
+        dispatch = dispatch_service.confirm_dispatch(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            requested_agent_role=request.requested_agent_role,
+            requested_executor=request.requested_executor,
+            launch_mode=request.launch_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "user_confirmation_required" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if (
+            "source_message_not_in_session" in lowered
+            or "source_task_not_bound_to_source_message" in lowered
+            or "source_task_is_not_safe_dry_run" in lowered
+            or "source_message_is_not_p12_dispatch" in lowered
+            or "controlled_smoke_not_enabled_in_api" in lowered
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = dispatch.result
+    return ConfirmControlledExecutorDispatchResponse(
+        dispatch_status=result.dispatch_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        requested_agent_role=result.requested_agent_role,
+        requested_executor=result.requested_executor,
+        launch_mode=result.launch_mode,
+        controlled_executor_pilot=result.controlled_executor_pilot,
+        executor_backed_agent=result.executor_backed_agent,
+        programmer_agent_allowed=result.programmer_agent_allowed,
+        reviewer_agent_allowed=result.reviewer_agent_allowed,
+        supervisor_required=result.supervisor_required,
+        auto_terminate_required=result.auto_terminate_required,
+        cleanup_required=result.cleanup_required,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        frontend_required=result.frontend_required,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        agent_session_bound=result.agent_session_bound,
+        process_handle_id_present=result.process_handle_id_present,
+        supervisor_registered=result.supervisor_registered,
+        supervisor_cleanup_done=result.supervisor_cleanup_done,
+        run_created=result.run_created,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        p9_production_safe_long_running_executor_lifecycle=(
+            result.p9_production_safe_long_running_executor_lifecycle
+        ),
+        message_bound=result.message_bound,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(dispatch.message)
+            if dispatch.message is not None
+            else None
+        ),
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
     )
 
 
