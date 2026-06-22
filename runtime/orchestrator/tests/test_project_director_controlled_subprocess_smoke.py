@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Any
+import importlib.util
 
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +51,18 @@ def _run_script(*args: str) -> tuple[int, dict[str, Any]]:
     return result.returncode, json.loads(result.stdout)
 
 
+def _load_smoke_module():
+    scripts_dir = str(RUNTIME_ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    spec = importlib.util.spec_from_file_location("p14_smoke", SCRIPT_PATH)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _assert_blocked_without_launch(summary: dict[str, Any]) -> None:
     assert summary["smoke_status"] == "blocked"
     assert summary["native_executor_started"] is False
@@ -74,8 +87,11 @@ def test_p14_default_smoke_is_dry_run_and_passes() -> None:
     assert summary["smoke_status"] == "passed_dry_run"
     assert summary["launch_mode"] == "dry_run"
     assert summary["session_created"] is True
+    assert summary["project_id_present"] is True
     assert summary["p11_dry_run_message_bound"] is True
     assert summary["p12_safe_task_created"] is True
+    assert summary["p12_worker_run_once_ok"] is True
+    assert summary["p12_worker_simulate_mode"] is True
     assert summary["p13_dispatch_message_bound"] is True
     assert summary["message_readback_ok"] is True
     assert summary["native_executor_started"] is False
@@ -187,3 +203,99 @@ def test_p14_output_does_not_contain_sensitive_payload_text() -> None:
         "代码已写入",
     }:
         assert forbidden not in serialized
+
+
+def test_p14_controlled_smoke_with_all_safety_flags_uses_fake_runner() -> None:
+    returncode, summary = _run_script(
+        "--launch-mode",
+        "controlled_smoke",
+        "--executor",
+        "codex",
+        "--requested-agent-role",
+        "programmer",
+        "--enable-native-process",
+        "--auto-terminate",
+        "--timeout-seconds",
+        "2",
+        "--use-supervisor",
+        "--supervisor-cleanup-after-launch",
+        "--fake-runner",
+    )
+
+    assert returncode == 0
+    assert summary["smoke_status"] == "passed_controlled_smoke"
+    assert summary["launch_mode"] == "controlled_smoke"
+    assert summary["requested_executor"] == "codex"
+    assert summary["requested_agent_role"] == "programmer"
+    assert summary["controlled_subprocess_runner"] == "fake"
+    assert summary["session_created"] is True
+    assert summary["project_id_present"] is True
+    assert summary["p11_dry_run_message_bound"] is True
+    assert summary["p12_safe_task_created"] is True
+    assert summary["p12_worker_run_once_ok"] is True
+    assert summary["p12_worker_simulate_mode"] is True
+    assert summary["p13_dispatch_message_bound"] is True
+    assert summary["source_task_id_present"] is True
+    assert summary["source_message_id_present"] is True
+    assert summary["run_id_present"] is True
+    assert summary["native_executor_started"] is True
+    assert summary["codex_started"] is True
+    assert summary["claude_code_started"] is False
+    assert summary["agent_session_bound"] is True
+    assert summary["runtime_handle_id_present"] is True
+    assert summary["process_handle_id_present"] is True
+    assert summary["supervisor_required"] is True
+    assert summary["supervisor_registered"] is True
+    assert summary["terminate_attempted"] is True
+    assert summary["cleanup_required"] is True
+    assert summary["supervisor_cleanup_done"] is True
+    assert summary["product_runtime_git_write_allowed"] is False
+    assert summary["worktree_write_allowed"] is False
+    assert summary["frontend_required"] is False
+    assert summary["run_created"] is True
+    assert summary["run_created_by"] == "p12_worker_simulate"
+    assert summary["real_code_modified"] is False
+    assert summary["git_write_performed"] is False
+    assert summary["ai_project_director_total_loop"] == "Partial"
+    assert summary["p9_production_safe_long_running_executor_lifecycle"] == (
+        "Pass with note"
+    )
+    assert summary["blocked_reasons"] == []
+    assert _walk_keys(summary).isdisjoint(FORBIDDEN_OUTPUT_KEYS)
+
+
+def test_p14_controlled_smoke_executor_unavailable_blocks_safely(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    module = _load_smoke_module()
+    monkeypatch.setattr(module.shutil, "which", lambda _command_name: None)
+    args = module.argparse.Namespace(
+        json=True,
+        keep_temp_data=False,
+        runtime_dir=None,
+        launch_mode="controlled_smoke",
+        executor="codex",
+        requested_agent_role="programmer",
+        enable_native_process=True,
+        auto_terminate=True,
+        timeout_seconds=2.0,
+        use_supervisor=True,
+        supervisor_cleanup_after_launch=True,
+        fake_runner=False,
+    )
+
+    runtime_dir = tmp_path / "p14-unavailable"
+    runtime_dir.mkdir()
+    summary = module.run_smoke(runtime_dir, args)
+
+    assert summary["smoke_status"] == "blocked"
+    assert "executor_unavailable" in summary["blocked_reasons"]
+    assert summary["native_executor_started"] is False
+    assert summary["agent_session_bound"] is False
+    assert summary["process_handle_id_present"] is False
+    assert summary["supervisor_registered"] is False
+    assert summary["supervisor_cleanup_done"] is False
+    assert summary["product_runtime_git_write_allowed"] is False
+    assert summary["git_write_performed"] is False
+    assert _walk_keys(summary).isdisjoint(FORBIDDEN_OUTPUT_KEYS)
