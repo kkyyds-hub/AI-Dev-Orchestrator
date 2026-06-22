@@ -169,7 +169,59 @@ runtime/orchestrator/
 - 显式动作接口：`retry / pause / resume / request-human / resolve-human`
 - 非法状态动作统一返回 `HTTP 409 Conflict`
 
-## 3. 推荐运行方式
+## 3. Mac / uv 推荐运行方式
+
+在 macOS 上推荐直接用 `uv run --no-project --with-editable .` 启动后端或运行 smoke，避免依赖本机已有虚拟环境状态。
+
+### 3.1 安装 / 运行后端服务
+
+```bash
+cd runtime/orchestrator
+
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'uvicorn[standard]>=0.34,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python -m uvicorn app.main:app --reload
+```
+
+启动后可访问：
+
+- Swagger UI：`http://127.0.0.1:8000/docs`
+- 健康检查：`http://127.0.0.1:8000/health`
+
+### 3.2 P9-RUN-A 后端 runnable baseline smoke
+
+```bash
+cd runtime/orchestrator
+
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p9_run_backend_runnable_smoke.py --json
+```
+
+这个 smoke 会使用 isolated runtime data，默认创建临时目录并在结束后清理，不污染 `runtime/orchestrator/data`，也不会删除用户已有运行数据。
+
+它验证的主路径是：导入 `app.main:app`、初始化 SQLite、`GET /health`、`GET /tasks`、`POST /tasks` 创建 simulate 任务、`POST /workers/run-once`、再通过任务详情读取 run 回写结果，并输出 JSON summary。
+
+P9-RUN-A smoke 不启动 Codex，不启动 Claude Code，不调用 P9-REL 真实 executor smoke，不执行产品运行时 Git 写。P9-REL 真实 executor smoke 是单独证据；长期 executor lifecycle 仍为 `Partial`。
+
+如需保留 smoke 数据用于人工检查，可指定：
+
+```bash
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p9_run_backend_runnable_smoke.py --json --runtime-dir /tmp/p9-run-smoke --keep-temp-data
+```
+
+## 4. Windows / PowerShell 旧推荐运行方式
 
 由于当前 PowerShell 执行策略可能会拦截激活脚本，推荐直接使用虚拟环境中的 `python.exe`，这样最稳定。
 
@@ -457,7 +509,7 @@ Day 3 完成后，应用启动时会自动初始化本地数据库：
 - 数据目录：`runtime/data/db/`
 - 数据库文件：`runtime/data/db/orchestrator.db`
 
-## 4. 当前阶段刻意不做的事情
+## 5. 当前阶段刻意不做的事情
 
 为了保持当前 `V1` 最小闭环范围，目前先不引入：
 
