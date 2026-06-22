@@ -2,16 +2,32 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskDispatchPlan,
+    ProjectDirectorDryRunTaskDispatchResult,
 )
-from app.domain.project_director_message import ProjectDirectorMessage
+from app.domain.project_director_message import (
+    ProjectDirectorMessage,
+    ProjectDirectorMessageRiskLevel,
+    ProjectDirectorMessageRole,
+    ProjectDirectorMessageSource,
+)
+from app.domain.task import Task, TaskPriority, TaskRiskLevel
+from app.repositories.project_director_message_repository import (
+    ProjectDirectorMessageRepository,
+)
+from app.repositories.project_director_session_repository import (
+    ProjectDirectorSessionRepository,
+)
+from app.repositories.task_repository import TaskRepository
 
 
 P11_DRY_RUN_SOURCE_DETAIL = "p11_evidence_to_agent_session_dry_run"
+P12_DISPATCH_SOURCE_DETAIL = "p12_dry_run_task_dispatch"
 
 _DISPATCH_ALLOWED_FILES = [
     "runtime/orchestrator/app/domain/project_director_dry_run_task_dispatch.py",
@@ -37,8 +53,28 @@ _DISPATCH_TARGETED_TESTS = [
 ]
 
 
+@dataclass(frozen=True, slots=True)
+class ConfirmedDryRunTaskDispatch:
+    """Created task and session message for one confirmed P12 dispatch."""
+
+    result: ProjectDirectorDryRunTaskDispatchResult
+    task: Task | None
+    message: ProjectDirectorMessage | None
+
+
 class ProjectDirectorDryRunTaskDispatchService:
     """Build safe task dispatch drafts from P11 dry-run evidence messages."""
+
+    def __init__(
+        self,
+        *,
+        session_repository: ProjectDirectorSessionRepository | None = None,
+        message_repository: ProjectDirectorMessageRepository | None = None,
+        task_repository: TaskRepository | None = None,
+    ) -> None:
+        self._session_repository = session_repository
+        self._message_repository = message_repository
+        self._task_repository = task_repository
 
     def build_plan_from_message(
         self,
@@ -147,6 +183,124 @@ class ProjectDirectorDryRunTaskDispatchService:
             unknowns=[
                 "P11 summary does not prove product-grade long-running executor lifecycle",
             ],
+        )
+
+    def confirm_dispatch(
+        self,
+        *,
+        session_id: UUID,
+        source_message_id: UUID,
+        user_confirmed: bool,
+    ) -> ConfirmedDryRunTaskDispatch:
+        """Create one safe dry-run task from a confirmed P11 session message."""
+
+        if (
+            self._session_repository is None
+            or self._message_repository is None
+            or self._task_repository is None
+        ):
+            raise ValueError("dispatch repositories are required")
+        if not user_confirmed:
+            raise ValueError("user_confirmation_required")
+
+        session_obj = self._session_repository.get_by_id(session_id)
+        if session_obj is None:
+            raise ValueError(f"Project Director session {session_id} not found")
+
+        source_message = self._message_repository.get_by_id(source_message_id)
+        if source_message is None:
+            raise ValueError(f"Project Director message {source_message_id} not found")
+        if source_message.session_id != session_id:
+            raise ValueError("source_message_not_in_session")
+
+        plan = self.build_plan_from_message(
+            session_id=session_id,
+            source_message=source_message,
+            user_goal=session_obj.goal_text,
+        )
+        if plan.blocked_reasons:
+            raise ValueError(";".join(plan.blocked_reasons))
+
+        task = self._task_repository.create(
+            Task(
+                project_id=session_obj.project_id,
+                title=plan.task_title,
+                input_summary=plan.task_input_summary,
+                priority=TaskPriority.NORMAL,
+                acceptance_criteria=[
+                    "safe_dry_run_task=true",
+                    "worker_simulate_required=true",
+                    "product_runtime_git_write_allowed=false",
+                    "native_executor_started=false",
+                    "codex_started=false",
+                    "claude_code_started=false",
+                    "AI Project Director total loop remains Partial",
+                ],
+                risk_level=TaskRiskLevel.LOW,
+                source_draft_id=f"p12-{source_message_id}",
+            )
+        )
+
+        message = self._message_repository.create(
+            ProjectDirectorMessage(
+                session_id=session_id,
+                role=ProjectDirectorMessageRole.ASSISTANT,
+                content=(
+                    "已根据确认创建 safe dry-run Task。该 Task 仅用于 Worker "
+                    "simulate，不代表真实代码执行、Git 写入或外部 executor 启动；"
+                    "AI Project Director 总闭环仍为 Partial。"
+                ),
+                sequence_no=self._message_repository.get_next_sequence_no(
+                    session_id=session_id
+                ),
+                intent="dry_run_task_dispatch",
+                related_project_id=session_obj.project_id,
+                related_task_id=task.id,
+                source=ProjectDirectorMessageSource.SYSTEM,
+                source_detail=P12_DISPATCH_SOURCE_DETAIL,
+                suggested_actions=[
+                    {
+                        "type": "p12_dry_run_task_dispatch_record",
+                        "source_message_id": str(source_message_id),
+                        "created_task_id": str(task.id),
+                        "evidence_pack_id": plan.evidence_pack_id,
+                        "safe_dry_run_task": True,
+                        "worker_simulate_required": True,
+                        "product_runtime_git_write_allowed": False,
+                        "frontend_required": False,
+                        "native_executor_started": False,
+                        "codex_started": False,
+                        "claude_code_started": False,
+                        "worker_started": False,
+                        "ai_project_director_total_loop": "Partial",
+                    }
+                ],
+                requires_confirmation=False,
+                risk_level=ProjectDirectorMessageRiskLevel.LOW,
+                forbidden_actions_detected=[
+                    "no_product_runtime_git_write",
+                    "no_worker_dispatch_in_dispatch_api",
+                    "no_executor_start",
+                    "no_run_creation_in_dispatch_api",
+                ],
+            )
+        )
+        self._message_repository.commit()
+
+        result = ProjectDirectorDryRunTaskDispatchResult(
+            dispatch_status="dispatched",
+            session_id=session_id,
+            source_message_id=source_message_id,
+            created_task_id=task.id,
+            evidence_pack_id=plan.evidence_pack_id,
+            message_bound=True,
+            risks=plan.risks,
+            unknowns=plan.unknowns,
+        )
+        return ConfirmedDryRunTaskDispatch(
+            result=result,
+            task=task,
+            message=message,
         )
 
     @staticmethod

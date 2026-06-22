@@ -64,3 +64,24 @@ class ProjectDirectorDryRunTaskDispatchResult(DomainModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
+
+
+class ProjectDirectorDryRunTaskWorkerResult(DomainModel):
+    """Session message contract for one Worker simulate result."""
+
+    session_id: UUID
+    task_id: UUID
+    run_id: UUID | None = None
+    worker_run_once_ok: bool
+    worker_simulate_mode: bool = True
+    run_created: bool
+    run_readback_ok: bool
+    safe_dry_run_task: bool = True
+    product_runtime_git_write_allowed: bool = False
+    frontend_required: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    ai_project_director_total_loop: str = "Partial"
+    p9_production_safe_long_running_executor_lifecycle: str = "Partial"
+    blocked_reasons: list[str] = Field(default_factory=list)

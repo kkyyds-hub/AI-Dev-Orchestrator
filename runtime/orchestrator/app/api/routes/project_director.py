@@ -147,6 +147,9 @@ from app.services.project_director_setup_readiness_service import (
 from app.services.project_director_evidence_to_agent_dry_run_service import (
     ProjectDirectorEvidenceToAgentDryRunService,
 )
+from app.services.project_director_dry_run_task_dispatch_service import (
+    ProjectDirectorDryRunTaskDispatchService,
+)
 
 
 # ── Dependencies ────────────────────────────────────────────────────
@@ -165,6 +168,33 @@ class EvidenceToAgentDryRunSessionResponse(BaseModel):
     product_runtime_git_write_allowed: bool = False
     frontend_required: bool = False
     ai_project_director_total_loop: str = "Partial"
+
+
+class ConfirmDryRunTaskDispatchRequest(BaseModel):
+    source_message_id: UUID
+    user_confirmed: bool = False
+
+
+class ConfirmDryRunTaskDispatchResponse(BaseModel):
+    dispatch_status: Literal["dispatched", "blocked"]
+    session_id: UUID
+    source_message_id: UUID
+    created_task_id: UUID | None = None
+    evidence_pack_id: str | None = None
+    safe_dry_run_task: bool = True
+    worker_simulate_required: bool = True
+    product_runtime_git_write_allowed: bool = False
+    frontend_required: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    ai_project_director_total_loop: str = "Partial"
+    message_bound: bool = False
+    message: ProjectDirectorMessageResponse | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
 
 
 def _get_service(
@@ -191,6 +221,16 @@ def _get_message_service(
         session_repository=session_repo,
         message_repository=message_repo,
         context_builder=context_builder,
+    )
+
+
+def _get_dry_run_task_dispatch_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorDryRunTaskDispatchService:
+    return ProjectDirectorDryRunTaskDispatchService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
     )
 
 
@@ -385,6 +425,78 @@ def run_session_evidence_to_agent_dry_run(
     return EvidenceToAgentDryRunSessionResponse(
         dry_run_summary=summary,
         message=ProjectDirectorMessageResponse.from_domain(message),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/dry-run-task-dispatch",
+    response_model=ConfirmDryRunTaskDispatchResponse,
+    summary="Confirm a P11 dry-run message and create one safe dry-run task",
+)
+def confirm_session_dry_run_task_dispatch(
+    session_id: UUID,
+    request: ConfirmDryRunTaskDispatchRequest,
+    dispatch_service: Annotated[
+        ProjectDirectorDryRunTaskDispatchService,
+        Depends(_get_dry_run_task_dispatch_service),
+    ],
+) -> ConfirmDryRunTaskDispatchResponse:
+    """Create a safe simulate-only Task from one confirmed P11 dry-run message."""
+
+    try:
+        dispatch = dispatch_service.confirm_dispatch(
+            session_id=session_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "user_confirmation_required" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if "source_message_not_in_session" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = dispatch.result
+    return ConfirmDryRunTaskDispatchResponse(
+        dispatch_status="dispatched",
+        session_id=result.session_id,
+        source_message_id=result.source_message_id,
+        created_task_id=result.created_task_id,
+        evidence_pack_id=result.evidence_pack_id,
+        safe_dry_run_task=result.safe_dry_run_task,
+        worker_simulate_required=result.worker_simulate_required,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        frontend_required=result.frontend_required,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message_bound=result.message_bound,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(dispatch.message)
+            if dispatch.message is not None
+            else None
+        ),
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
     )
 
 
