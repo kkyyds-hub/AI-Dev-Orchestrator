@@ -165,6 +165,10 @@ class ProjectDirectorProgrammerNoWritePlanService:
         if source_task is not None and not self._is_safe_dry_run_task(source_task):
             blocked_reasons.append("source_task_is_not_p12_safe_dry_run")
 
+        if source_task is not None and source_message is not None:
+            if not self._source_message_binds_task(source_message, source_task):
+                blocked_reasons.append("source_task_not_bound_to_p15_review")
+
         if planning_mode == "controlled_no_write":
             blocked_reasons.append("controlled_no_write_not_enabled_in_api")
 
@@ -232,6 +236,24 @@ class ProjectDirectorProgrammerNoWritePlanService:
             and "codex_started=false" in criteria
             and "claude_code_started=false" in criteria
         )
+
+    @staticmethod
+    def _source_message_binds_task(
+        source_message: ProjectDirectorMessage,
+        source_task: Task,
+    ) -> bool:
+        if source_message.related_task_id == source_task.id:
+            return True
+
+        for action in source_message.suggested_actions:
+            if not isinstance(action, dict):
+                continue
+            if action.get("type") != "p15_readonly_reviewer_review_record":
+                continue
+            if action.get("source_task_id") == str(source_task.id):
+                return True
+
+        return False
 
     @classmethod
     def _affected_files_preview(

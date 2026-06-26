@@ -1000,6 +1000,7 @@ def confirm_session_programmer_no_write_plan(
         if (
             "source_message_not_in_session" in lowered
             or "source_message_is_not_p15_readonly_review" in lowered
+            or "source_task_not_bound_to_p15_review" in lowered
             or "source_task_is_not_p12_safe_dry_run" in lowered
             or "controlled_no_write_not_enabled_in_api" in lowered
         ):
