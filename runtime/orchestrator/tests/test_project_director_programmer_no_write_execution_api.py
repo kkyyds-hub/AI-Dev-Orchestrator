@@ -53,6 +53,18 @@ FORBIDDEN_OUTPUT_TEXTS = {
 
 FORBIDDEN_DIFF_PATTERNS = ["diff --git", "+++ b/", "--- a/", "@@"]
 
+ALL_APPLYABLE_DIFF_MARKERS = [
+    "diff --git",
+    "--- a/",
+    "+++ b/",
+    "@@",
+    "index ",
+    "new file mode ",
+    "deleted file mode ",
+    "rename from ",
+    "rename to ",
+]
+
 
 def _sqlite_session_factory(tmp_path):
     db_path = tmp_path / "orchestrator-p17-test.db"
@@ -314,6 +326,19 @@ def test_p17_dry_run_success(tmp_path) -> None:
         assert p16_msg_id in payload["source_plan_refs"]
         assert payload["ai_project_director_total_loop"] == "Partial"
 
+        # P18: patch_preview safety assertions
+        for line in payload.get("patch_preview", []):
+            for marker in ALL_APPLYABLE_DIFF_MARKERS:
+                assert not line.startswith(marker), (
+                    f"dry_run patch_preview leaked applyable diff marker: {marker}"
+                )
+        for step in payload.get("execution_steps", []):
+            for line in step.get("patch_preview", []):
+                for marker in ALL_APPLYABLE_DIFF_MARKERS:
+                    assert not line.startswith(marker), (
+                        f"dry_run execution_step patch_preview leaked: {marker}"
+                    )
+
         messages_response = client.get(
             f"/project-director/sessions/{session_id}/messages"
         )
@@ -371,6 +396,25 @@ def test_p17_fake_execution_success(tmp_path) -> None:
         assert len(all_patch) >= 1
         for line in all_patch:
             assert "PREVIEW ONLY" in line.upper() or "PREVIEW" in line.upper() or "no repository file" in line.lower()
+
+        # P18: patch_preview safety - no applyable diff markers in API output
+        for line in payload.get("patch_preview", []):
+            for marker in ALL_APPLYABLE_DIFF_MARKERS:
+                assert not line.startswith(marker), (
+                    f"fake_execution patch_preview leaked: {marker}"
+                )
+        for step in payload.get("execution_steps", []):
+            for line in step.get("patch_preview", []):
+                for marker in ALL_APPLYABLE_DIFF_MARKERS:
+                    assert not line.startswith(marker), (
+                        f"fake_execution step patch_preview leaked: {marker}"
+                    )
+
+        assert payload["actual_patch_applied"] is False
+        assert payload["file_write_allowed"] is False
+        assert payload["product_runtime_git_write_allowed"] is False
+        assert payload["worktree_write_allowed"] is False
+        assert payload["git_write_performed"] is False
 
         assert len(payload["implementation_notes"]) >= 1
         assert len(payload["handoff_notes"]) >= 1
@@ -726,7 +770,48 @@ def test_p17_patch_preview_is_preview_only(tmp_path) -> None:
 
         assert len(all_patch_lines) >= 1
         for line in all_patch_lines:
-            for pattern in FORBIDDEN_DIFF_PATTERNS:
-                assert not line.startswith(pattern), (
-                    f"patch_preview leaked applyable diff: {pattern}"
+            for marker in ALL_APPLYABLE_DIFF_MARKERS:
+                assert not line.startswith(marker), (
+                    f"patch_preview leaked applyable diff: {marker}"
                 )
+            # Each non-empty line should be preview-only
+            assert (
+                "PREVIEW ONLY" in line
+                or "no repository file" in line.lower()
+            ), f"patch_preview line is not preview-only: {line}"
+
+
+def test_p17_api_response_patch_preview_safety_dry_run(tmp_path) -> None:
+    """P18: verify dry_run response patch_preview contains no applyable diff markers."""
+    session_factory = _sqlite_session_factory(tmp_path)
+    app = _app(session_factory)
+
+    with TestClient(app) as client:
+        session_id, task_id, p16_msg_id, _ = _prepare_p17_chain(
+            client, session_factory
+        )
+
+        response = client.post(
+            f"/project-director/sessions/{session_id}/programmer-no-write-execution",
+            json={
+                "source_task_id": task_id,
+                "source_message_id": p16_msg_id,
+                "user_confirmed": True,
+                "execution_mode": "dry_run",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+
+        all_lines = list(payload.get("patch_preview", []))
+        for step in payload.get("execution_steps", []):
+            all_lines.extend(step.get("patch_preview", []))
+
+        for line in all_lines:
+            for marker in ALL_APPLYABLE_DIFF_MARKERS:
+                assert not line.startswith(marker)
+
+        assert payload["actual_patch_applied"] is False
+        assert payload["git_write_performed"] is False
+        assert payload["ai_project_director_total_loop"] == "Partial"

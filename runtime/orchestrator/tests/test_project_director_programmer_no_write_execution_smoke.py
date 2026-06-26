@@ -201,10 +201,15 @@ def test_p17_no_worker_task_run_creation() -> None:
 def test_p17_patch_preview_is_preview_only() -> None:
     _returncode, summary = _run_script("--execution-mode", "fake_execution")
 
-    # The smoke script does not emit patch_preview lines directly in the JSON,
-    # but we can verify through the API test. At minimum, verify
-    # actual_patch_applied is false.
     assert summary["actual_patch_applied"] is False
+    assert summary["git_write_performed"] is False
+
+    # P18: verify smoke JSON output does not contain applyable diff markers
+    serialized = json.dumps(summary, ensure_ascii=False)
+    for marker in FORBIDDEN_DIFF_PATTERNS:
+        assert marker not in serialized, (
+            f"Smoke output contains unsafe diff marker: {marker}"
+        )
 
 
 # ── 12. message_readback_ok=true ────────────────────────────────────

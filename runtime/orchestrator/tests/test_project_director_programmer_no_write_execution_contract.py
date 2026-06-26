@@ -225,3 +225,66 @@ def test_result_with_steps_excludes_sensitive_terms() -> None:
 
     for term in FORBIDDEN_SENSITIVE_TERMS:
         assert term.lower() not in serialized, f"Found forbidden term: {term}"
+
+
+# ── 6. P18: domain validator rejects unsafe patch_preview ─────────────
+
+
+def test_step_patch_preview_rejects_unsafe_marker() -> None:
+    with pytest.raises(ValueError, match="patch_preview_contains_applyable_diff_marker"):
+        ProjectDirectorProgrammerNoWriteExecutionStep(
+            step_id="p17-execution-1",
+            title="Test step",
+            summary="Test summary.",
+            patch_preview=["diff --git a/a.py b/a.py"],
+        )
+
+
+def test_result_patch_preview_rejects_unsafe_marker() -> None:
+    with pytest.raises(ValueError, match="patch_preview_contains_applyable_diff_marker"):
+        _default_result(patch_preview=["@@ -1 +1 @@"])
+
+
+def test_step_safe_preview_only_still_passes() -> None:
+    step = ProjectDirectorProgrammerNoWriteExecutionStep(
+        step_id="p17-execution-1",
+        title="Test step",
+        summary="Test summary.",
+        patch_preview=["PREVIEW ONLY: consider file.py; no repository file was modified."],
+    )
+    assert step.patch_preview == [
+        "PREVIEW ONLY: consider file.py; no repository file was modified."
+    ]
+
+
+def test_result_safe_preview_only_still_passes() -> None:
+    result = _default_result(
+        patch_preview=["PREVIEW ONLY: no repository file was modified."]
+    )
+    assert result.patch_preview == [
+        "PREVIEW ONLY: no repository file was modified."
+    ]
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "diff --git a/a.py b/a.py",
+        "--- a/a.py",
+        "+++ b/a.py",
+        "@@ -1 +1 @@",
+        "index abc123..def456",
+        "new file mode 100644",
+        "deleted file mode 100644",
+        "rename from old.py",
+        "rename to new.py",
+    ],
+)
+def test_step_patch_preview_rejects_each_unsafe_marker(marker: str) -> None:
+    with pytest.raises(ValueError, match="patch_preview_contains_applyable_diff_marker"):
+        ProjectDirectorProgrammerNoWriteExecutionStep(
+            step_id="p17-execution-1",
+            title="Test step",
+            summary="Test summary.",
+            patch_preview=[marker],
+        )
