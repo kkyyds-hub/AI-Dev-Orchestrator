@@ -156,6 +156,9 @@ from app.services.project_director_controlled_executor_dispatch_service import (
 from app.services.project_director_readonly_review_service import (
     ProjectDirectorReadonlyReviewService,
 )
+from app.services.project_director_programmer_no_write_plan_service import (
+    ProjectDirectorProgrammerNoWritePlanService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -328,6 +331,64 @@ class ConfirmReadonlyReviewResponse(BaseModel):
     unknowns: list[str] = Field(default_factory=list)
 
 
+class ConfirmProgrammerNoWritePlanRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    requested_programmer_executor: Literal["codex", "claude-code"] = "codex"
+    planning_mode: Literal["dry_run", "fake_plan", "controlled_no_write"] = "dry_run"
+
+
+class ProgrammerNoWritePlannedStepResponse(BaseModel):
+    step_id: str
+    title: str
+    summary: str
+    evidence_refs: list[str] = Field(default_factory=list)
+    affected_files_preview: list[str] = Field(default_factory=list)
+    required_targeted_tests: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
+
+
+class ConfirmProgrammerNoWritePlanResponse(BaseModel):
+    plan_status: Literal["planned", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    requested_programmer_executor: Literal["codex", "claude-code"] = "codex"
+    planning_mode: Literal["dry_run", "fake_plan", "controlled_no_write"] = "dry_run"
+    programmer_agent: bool = True
+    controlled_programmer_planning: bool = True
+    no_write_plan: bool = True
+    executor_backed_programmer_allowed: bool = True
+    product_runtime_git_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    plan_message_bound: bool = False
+    implementation_summary: str = ""
+    planned_steps: list[ProgrammerNoWritePlannedStepResponse] = Field(
+        default_factory=list
+    )
+    affected_files_preview: list[str] = Field(default_factory=list)
+    required_evidence_refs: list[str] = Field(default_factory=list)
+    required_targeted_tests: list[str] = Field(default_factory=list)
+    reviewer_feedback_refs: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] = "low"
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -379,6 +440,16 @@ def _get_readonly_review_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorReadonlyReviewService:
     return ProjectDirectorReadonlyReviewService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_programmer_no_write_plan_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorProgrammerNoWritePlanService:
+    return ProjectDirectorProgrammerNoWritePlanService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -883,6 +954,105 @@ def confirm_session_readonly_review(
         recommended_next_step=result.recommended_next_step,
         ai_project_director_total_loop=result.ai_project_director_total_loop,
         message=None,
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/programmer-no-write-plan",
+    response_model=ConfirmProgrammerNoWritePlanResponse,
+    summary="Create a programmer no-write implementation plan from P15 review",
+)
+def confirm_session_programmer_no_write_plan(
+    session_id: UUID,
+    request: ConfirmProgrammerNoWritePlanRequest,
+    plan_service: Annotated[
+        ProjectDirectorProgrammerNoWritePlanService,
+        Depends(_get_programmer_no_write_plan_service),
+    ],
+) -> ConfirmProgrammerNoWritePlanResponse:
+    """Record a structured programmer plan without execution or writes."""
+
+    try:
+        plan = plan_service.confirm_plan(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            requested_programmer_executor=request.requested_programmer_executor,
+            planning_mode=request.planning_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "user_confirmation_required" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if (
+            "source_message_not_in_session" in lowered
+            or "source_message_is_not_p15_readonly_review" in lowered
+            or "source_task_is_not_p12_safe_dry_run" in lowered
+            or "controlled_no_write_not_enabled_in_api" in lowered
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = plan.result
+    return ConfirmProgrammerNoWritePlanResponse(
+        plan_status=result.plan_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        requested_programmer_executor=result.requested_programmer_executor,
+        planning_mode=result.planning_mode,
+        programmer_agent=result.programmer_agent,
+        controlled_programmer_planning=result.controlled_programmer_planning,
+        no_write_plan=result.no_write_plan,
+        executor_backed_programmer_allowed=result.executor_backed_programmer_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        plan_message_bound=result.plan_message_bound,
+        implementation_summary=result.implementation_summary,
+        planned_steps=[
+            ProgrammerNoWritePlannedStepResponse(**step.model_dump())
+            for step in result.planned_steps
+        ],
+        affected_files_preview=result.affected_files_preview,
+        required_evidence_refs=result.required_evidence_refs,
+        required_targeted_tests=result.required_targeted_tests,
+        reviewer_feedback_refs=result.reviewer_feedback_refs,
+        risk_level=result.risk_level,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(plan.message)
+            if plan.message is not None
+            else None
+        ),
         blocked_reasons=result.blocked_reasons,
         risks=result.risks,
         unknowns=result.unknowns,
