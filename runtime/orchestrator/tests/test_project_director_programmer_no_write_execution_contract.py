@@ -170,14 +170,10 @@ def test_patch_preview_must_not_be_applyable_diff() -> None:
 def test_execution_step_patch_preview_diff_format_is_not_generated_by_service(
     diff_line: str,
 ) -> None:
-    """Document that the domain model field patch_preview is list[str] without
-    field-level content validation. The service layer generates safe PREVIEW ONLY
-    content via _patch_preview(). This test verifies that such diff patterns are
-    NOT present in the service output by checking the domain model's _patch_preview
-    static method output.
+    """This test verifies service-generated patch_preview remains preview-only.
 
-    If the domain model ever adds a field-level validator, this test can be
-    updated to assert rejection directly.
+    P18 also adds domain-level patch_preview validation; separate tests assert
+    raw applyable diff markers are rejected by Step and Result models.
     """
     from app.domain.project_director_programmer_no_write_execution import (
         ProgrammerNoWriteExecutionMode,

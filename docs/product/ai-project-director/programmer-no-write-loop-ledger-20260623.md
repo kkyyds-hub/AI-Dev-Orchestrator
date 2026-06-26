@@ -1,7 +1,7 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16 and P17 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, and P18 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
 > 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18 后续证据，避免每个小阶段新增单独 ledger。
 
@@ -160,13 +160,99 @@ No frontend entrypoint was added. P17 does not modify `apps/web/**`.
   - `--- a/`
   - `+++ b/`
   - `@@`
-- Current domain field is `list[str]`; future P18/P19 should consider adding sanitizer/validator before accepting real model-generated patch previews.
+- P18 adds domain-level `patch_preview` validation via `assert_patch_preview_safe`; raw applyable diff markers are now rejected by `ProjectDirectorProgrammerNoWriteExecutionStep` and `ProjectDirectorProgrammerNoWriteExecutionResult` field validators.
 
 ---
 
-## Current Capability After P17
+## P18 Patch Preview Sanitizer / Diff Safety Hardening
 
-P17 completes the following chain:
+### Gate
+
+- P18-Codex patch preview sanitizer implementation: Pass with note
+- P18-Mimocode sanitizer contract tests: Pass
+- P18-Mimocode P17 domain compatibility tests: Pass
+- P18-Mimocode service/API safety tests: Pass
+- P18-Mimocode smoke compatibility: Pass
+- P18 patch preview safety: Pass
+- P18 overall: Pass with note
+- AI Project Director total loop: Partial
+
+### Implemented Surface
+
+- Sanitizer domain: `runtime/orchestrator/app/domain/project_director_patch_preview_safety.py`
+- Integrated domain: `runtime/orchestrator/app/domain/project_director_programmer_no_write_execution.py`
+- Integrated service: `runtime/orchestrator/app/services/project_director_programmer_no_write_execution_service.py`
+- Tests:
+  - `runtime/orchestrator/tests/test_project_director_patch_preview_safety.py`
+  - `runtime/orchestrator/tests/test_project_director_programmer_no_write_execution_contract.py`
+  - `runtime/orchestrator/tests/test_project_director_programmer_no_write_execution_api.py`
+  - `runtime/orchestrator/tests/test_project_director_programmer_no_write_execution_smoke.py`
+
+### P18-Codex Implementation Evidence
+
+- Commit: `d155acac717234d777ab7b3c6dcdaa07ef389723`
+- Implemented reusable patch preview safety module
+- Unsafe markers covered:
+  - `diff --git`
+  - `--- a/`
+  - `+++ b/`
+  - `@@`
+  - `index`
+  - `new file mode`
+  - `deleted file mode`
+  - `rename from`
+  - `rename to`
+- Sanitizer behavior:
+  - Safe preview-only content remains unchanged
+  - Unsafe applyable diff markers are detected
+  - Unsafe raw preview is replaced with fixed `PREVIEW ONLY` placeholder
+  - Raw unsafe patch lines are not returned
+  - Domain validator rejects raw unsafe `patch_preview`
+- No tests/smoke/ledger were added by Codex
+- No `apps/web` changes
+- No `external_executors` changes
+- No `task_worker` changes
+- AI Project Director total loop remains `Partial`
+
+### P18-Mimocode Test Evidence
+
+- Commit: `94833dffc2296291976e21da7c76b67812c312ca`
+- Targeted pytest: 78 passed
+- Sanitizer contract tests: Pass
+- P17 domain compatibility tests: Pass
+- Service/API safety tests: Pass
+- Smoke compatibility: Pass
+- P17 dry_run smoke: `passed_dry_run`
+- P17 fake_execution smoke: `passed_fake_execution`
+- controlled_no_write: blocked with `controlled_no_write_not_enabled_in_api`
+- Sanitizer unsafe marker coverage: all 9 markers tested individually
+- Sanitizer removes raw unsafe diff content: yes
+- Domain rejects unsafe `patch_preview`: yes
+- API response `patch_preview`: preview-only
+- Smoke output: no unsafe diff markers
+
+### Boundary Record
+
+- Product runtime Git write remains forbidden
+- Worktree write remains forbidden
+- `file_write_allowed=false`
+- `actual_patch_applied=false`
+- Default path starts neither Codex nor Claude
+- P17/P18 does not create Task
+- P17/P18 does not create Run
+- P17/P18 does not call Worker
+- No real code modified by product path
+- No product runtime Git write performed
+- AI Project Director total loop remains `Partial`
+- P18 does not open sandbox/worktree file-write
+- P18 does not open applyable patch channel
+- P18 does not accept raw model-generated diff into preview-only channel
+
+---
+
+## Current Capability After P18
+
+P18 completes the following chain:
 
 ```text
 Project Director session
@@ -177,6 +263,7 @@ Project Director session
 -> readonly reviewer review
 -> programmer no-write implementation plan
 -> programmer no-write execution result
+-> patch preview sanitizer / diff safety hardening
 -> Project Director message readback
 ```
 
@@ -184,15 +271,23 @@ Not yet available:
 
 - Actual file modification
 - Sandbox/worktree write
-- Real diff
+- Real diff application
 - Targeted tests against changed code
 - Reviewer reviews real diff
 - Git add / commit / push / PR / merge by product runtime
 
 ## Next Step
 
-P18 should not open product runtime Git write yet.
+P19 should still not open product runtime Git write.
 
-Preferred P18: Patch preview sanitizer / diff safety hardening before any sandbox file-write.
+Recommended P19 direction: Controlled sandbox/worktree file-write design review, not implementation yet.
 
-Reason: Before accepting real model-generated patch previews, the system should block applyable diff markers from preview-only channels.
+P19 should define:
+
+- Sandbox/worktree write boundary
+- Allowed file path policy
+- Patch application safety policy
+- Rollback / cleanup strategy
+- Reviewer-before-Git-write rule
+- No product runtime Git write
+- No automatic commit / push / PR
