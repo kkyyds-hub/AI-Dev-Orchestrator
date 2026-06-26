@@ -159,6 +159,9 @@ from app.services.project_director_readonly_review_service import (
 from app.services.project_director_programmer_no_write_plan_service import (
     ProjectDirectorProgrammerNoWritePlanService,
 )
+from app.services.project_director_programmer_no_write_execution_service import (
+    ProjectDirectorProgrammerNoWriteExecutionService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -389,6 +392,73 @@ class ConfirmProgrammerNoWritePlanResponse(BaseModel):
     unknowns: list[str] = Field(default_factory=list)
 
 
+class ConfirmProgrammerNoWriteExecutionRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    requested_programmer_executor: Literal["codex", "claude-code"] = "codex"
+    execution_mode: Literal[
+        "dry_run", "fake_execution", "controlled_no_write"
+    ] = "dry_run"
+
+
+class ProgrammerNoWriteExecutionStepResponse(BaseModel):
+    step_id: str
+    title: str
+    summary: str
+    source_plan_step_ids: list[str] = Field(default_factory=list)
+    files_considered: list[str] = Field(default_factory=list)
+    patch_preview: list[str] = Field(default_factory=list)
+    tests_to_run: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
+
+
+class ConfirmProgrammerNoWriteExecutionResponse(BaseModel):
+    execution_status: Literal["planned", "executed", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    requested_programmer_executor: Literal["codex", "claude-code"] = "codex"
+    execution_mode: Literal[
+        "dry_run", "fake_execution", "controlled_no_write"
+    ] = "dry_run"
+    programmer_agent: bool = True
+    controlled_programmer_execution: bool = True
+    no_write_execution: bool = True
+    executor_backed_programmer_allowed: bool = True
+    product_runtime_git_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    execution_message_bound: bool = False
+    execution_summary: str = ""
+    execution_steps: list[ProgrammerNoWriteExecutionStepResponse] = Field(
+        default_factory=list
+    )
+    patch_preview: list[str] = Field(default_factory=list)
+    files_considered: list[str] = Field(default_factory=list)
+    tests_to_run: list[str] = Field(default_factory=list)
+    implementation_notes: list[str] = Field(default_factory=list)
+    handoff_notes: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] = "low"
+    recommended_next_step: str = ""
+    source_plan_refs: list[str] = Field(default_factory=list)
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -450,6 +520,16 @@ def _get_programmer_no_write_plan_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorProgrammerNoWritePlanService:
     return ProjectDirectorProgrammerNoWritePlanService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_programmer_no_write_execution_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorProgrammerNoWriteExecutionService:
+    return ProjectDirectorProgrammerNoWriteExecutionService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -1052,6 +1132,110 @@ def confirm_session_programmer_no_write_plan(
         message=(
             ProjectDirectorMessageResponse.from_domain(plan.message)
             if plan.message is not None
+            else None
+        ),
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/programmer-no-write-execution",
+    response_model=ConfirmProgrammerNoWriteExecutionResponse,
+    summary="Create a programmer no-write execution result from one P16 plan",
+)
+def confirm_session_programmer_no_write_execution(
+    session_id: UUID,
+    request: ConfirmProgrammerNoWriteExecutionRequest,
+    execution_service: Annotated[
+        ProjectDirectorProgrammerNoWriteExecutionService,
+        Depends(_get_programmer_no_write_execution_service),
+    ],
+) -> ConfirmProgrammerNoWriteExecutionResponse:
+    """Record a structured programmer execution result without writes."""
+
+    try:
+        execution = execution_service.confirm_execution(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            requested_programmer_executor=request.requested_programmer_executor,
+            execution_mode=request.execution_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "user_confirmation_required" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if (
+            "source_message_not_in_session" in lowered
+            or "source_message_is_not_p16_programmer_no_write_plan" in lowered
+            or "source_task_not_bound_to_p16_plan" in lowered
+            or "source_task_is_not_p12_safe_dry_run" in lowered
+            or "controlled_no_write_not_enabled_in_api" in lowered
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = execution.result
+    return ConfirmProgrammerNoWriteExecutionResponse(
+        execution_status=result.execution_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        requested_programmer_executor=result.requested_programmer_executor,
+        execution_mode=result.execution_mode,
+        programmer_agent=result.programmer_agent,
+        controlled_programmer_execution=result.controlled_programmer_execution,
+        no_write_execution=result.no_write_execution,
+        executor_backed_programmer_allowed=result.executor_backed_programmer_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        execution_message_bound=result.execution_message_bound,
+        execution_summary=result.execution_summary,
+        execution_steps=[
+            ProgrammerNoWriteExecutionStepResponse(**step.model_dump())
+            for step in result.execution_steps
+        ],
+        patch_preview=result.patch_preview,
+        files_considered=result.files_considered,
+        tests_to_run=result.tests_to_run,
+        implementation_notes=result.implementation_notes,
+        handoff_notes=result.handoff_notes,
+        risk_notes=result.risk_notes,
+        risk_level=result.risk_level,
+        recommended_next_step=result.recommended_next_step,
+        source_plan_refs=result.source_plan_refs,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(execution.message)
+            if execution.message is not None
             else None
         ),
         blocked_reasons=result.blocked_reasons,
