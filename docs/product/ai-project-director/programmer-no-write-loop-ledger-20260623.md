@@ -250,48 +250,6 @@ No frontend entrypoint was added. P17 does not modify `apps/web/**`.
 
 ---
 
-## Current Capability After P20
-
-P20 completes the following chain:
-
-```text
-Project Director session
--> evidence-to-agent dry-run
--> safe dry-run Task
--> Worker simulate / Run
--> controlled executor lifecycle evidence
--> readonly reviewer review
--> programmer no-write implementation plan
--> programmer no-write execution result
--> patch preview sanitizer / diff safety hardening
--> sandbox/worktree write design review
--> policy-only sandbox write preflight
--> Project Director message readback
-```
-
-Not yet available:
-
-- Actual file modification
-- Sandbox/worktree write
-- Real diff application
-- Targeted tests against changed code
-- Reviewer reviews real diff
-- Git add / commit / push / PR / merge by product runtime
-
-## Next Step
-
-P21 should still not open product runtime Git write.
-
-Recommended P21: Controlled sandbox/worktree write design implementation may begin only as a staged no-Git capability.
-
-Preferred P21-A: Implement sandbox/worktree write execution domain and service in `dry_run`/`fake_write` first, without actual file write.
-
-Do not jump directly to `controlled_sandbox_write`.
-Do not open product runtime Git write.
-Do not open automatic commit/push/PR/merge.
-
----
-
 ## P19 Sandbox / Worktree File-Write Design Review
 
 ### Gate
@@ -603,3 +561,43 @@ P20 should add:
 - P20 does not create Run
 - P20 does not call Worker
 - AI Project Director total loop remains `Partial`
+
+### Current Capability After P20
+
+P20 completes the following chain:
+
+```text
+Project Director session
+-> evidence-to-agent dry-run
+-> safe dry-run Task
+-> Worker simulate / Run
+-> controlled executor lifecycle evidence
+-> readonly reviewer review
+-> programmer no-write implementation plan
+-> programmer no-write execution result
+-> patch preview sanitizer / diff safety hardening
+-> sandbox/worktree write design review
+-> policy-only sandbox write preflight
+-> Project Director message readback
+```
+
+Not yet available:
+
+- Actual file modification
+- Sandbox/worktree write
+- Real diff application
+- Targeted tests against changed code
+- Reviewer reviews real diff
+- Git add / commit / push / PR / merge by product runtime
+
+### Next Step
+
+P21 should still not open product runtime Git write.
+
+Recommended P21: Controlled sandbox/worktree write execution may begin only as a staged no-Git capability.
+
+Preferred P21-A: Implement sandbox/worktree write execution domain and service in `dry_run`/`fake_write` first, without actual file write.
+
+Do not jump directly to `controlled_sandbox_write`.
+Do not open product runtime Git write.
+Do not open automatic commit/push/PR/merge.
