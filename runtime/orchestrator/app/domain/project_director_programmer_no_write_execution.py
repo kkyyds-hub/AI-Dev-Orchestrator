@@ -8,6 +8,9 @@ from uuid import UUID
 from pydantic import Field, field_validator
 
 from app.domain._base import DomainModel
+from app.domain.project_director_patch_preview_safety import (
+    assert_patch_preview_safe,
+)
 
 
 ProgrammerExecutor = Literal["codex", "claude-code"]
@@ -40,6 +43,11 @@ class ProjectDirectorProgrammerNoWriteExecutionStep(DomainModel):
     patch_preview: list[str] = Field(default_factory=list, max_length=20)
     tests_to_run: list[str] = Field(default_factory=list, max_length=20)
     risk_notes: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("patch_preview", mode="after")
+    @classmethod
+    def reject_applyable_patch_preview(cls, value: list[str]) -> list[str]:
+        return assert_patch_preview_safe(value)
 
 
 class _ProgrammerNoWriteExecutionSafetyModel(DomainModel):
@@ -111,6 +119,11 @@ class ProjectDirectorProgrammerNoWriteExecutionResult(
     blocked_reasons: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
+
+    @field_validator("patch_preview", mode="after")
+    @classmethod
+    def reject_applyable_patch_preview(cls, value: list[str]) -> list[str]:
+        return assert_patch_preview_safe(value)
 
 
 __all__ = (

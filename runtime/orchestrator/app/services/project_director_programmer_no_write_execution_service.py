@@ -12,6 +12,10 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageRole,
     ProjectDirectorMessageSource,
 )
+from app.domain.project_director_patch_preview_safety import (
+    ProjectDirectorPatchPreviewSafetyResult,
+    sanitize_patch_preview,
+)
 from app.domain.project_director_programmer_no_write_execution import (
     ProgrammerNoWriteExecutionMode,
     ProjectDirectorProgrammerNoWriteExecutionResult,
@@ -186,14 +190,23 @@ class ProjectDirectorProgrammerNoWriteExecutionService:
             tests_to_run = [
                 "Add targeted tests for P17 programmer no-write execution before enabling controlled file writes."
             ]
-        patch_preview = self._patch_preview(
+        patch_preview_safety = self._patch_preview_safety_result(
             files_considered,
             execution_mode=execution_mode,
         )
+        patch_preview = patch_preview_safety.sanitized_preview
+        for reason in patch_preview_safety.blocked_reasons:
+            if reason not in blocked_reasons:
+                blocked_reasons.append(reason)
         source_plan_refs = (
             [str(source_message.id)] if source_message is not None else []
         )
         risk_notes = self._risk_notes(execution_mode=execution_mode)
+        if patch_preview_safety.applyable_diff_detected:
+            risk_notes = [
+                *risk_notes,
+                "patch preview sanitizer removed applyable diff markers",
+            ]
         execution_steps = self._execution_steps(
             source_message=source_message,
             execution_mode=execution_mode,
@@ -202,6 +215,18 @@ class ProjectDirectorProgrammerNoWriteExecutionService:
             tests_to_run=tests_to_run,
             risk_notes=risk_notes,
         )
+        risks = [
+            "no-write execution result must not be treated as code completion",
+            "execution output must not authorize product runtime Git writes",
+            "patch preview is not an applyable patch",
+        ]
+        unknowns = [
+            "controlled no-write programmer execution is not enabled by this API",
+            "real file changes and reviewer review of a real diff remain out of scope",
+        ]
+        if patch_preview_safety.applyable_diff_detected:
+            risks.append("patch preview sanitizer removed applyable diff markers")
+            unknowns.append("unsafe raw patch preview was not returned")
 
         return ProjectDirectorProgrammerNoWriteExecutionResult(
             execution_status=(
@@ -242,15 +267,8 @@ class ProjectDirectorProgrammerNoWriteExecutionService:
             ),
             source_plan_refs=source_plan_refs,
             blocked_reasons=blocked_reasons,
-            risks=[
-                "no-write execution result must not be treated as code completion",
-                "execution output must not authorize product runtime Git writes",
-                "patch preview is not an applyable patch",
-            ],
-            unknowns=[
-                "controlled no-write programmer execution is not enabled by this API",
-                "real file changes and reviewer review of a real diff remain out of scope",
-            ],
+            risks=risks,
+            unknowns=unknowns,
         )
 
     @staticmethod
@@ -416,8 +434,34 @@ class ProjectDirectorProgrammerNoWriteExecutionService:
 
         return steps
 
-    @staticmethod
+    @classmethod
     def _patch_preview(
+        cls,
+        files_considered: list[str],
+        *,
+        execution_mode: ProgrammerNoWriteExecutionMode,
+    ) -> list[str]:
+        return cls._patch_preview_safety_result(
+            files_considered,
+            execution_mode=execution_mode,
+        ).sanitized_preview
+
+    @classmethod
+    def _patch_preview_safety_result(
+        cls,
+        files_considered: list[str],
+        *,
+        execution_mode: ProgrammerNoWriteExecutionMode,
+    ) -> ProjectDirectorPatchPreviewSafetyResult:
+        return sanitize_patch_preview(
+            cls._patch_preview_candidates(
+                files_considered,
+                execution_mode=execution_mode,
+            )
+        )
+
+    @staticmethod
+    def _patch_preview_candidates(
         files_considered: list[str],
         *,
         execution_mode: ProgrammerNoWriteExecutionMode,
