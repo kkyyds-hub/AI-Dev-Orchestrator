@@ -291,3 +291,229 @@ P19 should define:
 - Reviewer-before-Git-write rule
 - No product runtime Git write
 - No automatic commit / push / PR
+
+---
+
+## P19 Sandbox / Worktree File-Write Design Review
+
+### Gate
+
+- P19 design review: Pass
+- P19 implementation: Not started
+- Sandbox/worktree file-write: Not enabled
+- Product runtime Git write: Forbidden
+- AI Project Director total loop: Partial
+
+### Design Decision
+
+P19 does not open file write.
+
+P20 may implement controlled sandbox/worktree file-write only after this design is accepted. Product runtime Git write remains forbidden. The current P18 sanitizer protects the preview-only `patch_preview` channel; it is not a patch application system and must not become a write input by convention or by reuse.
+
+Current code review notes:
+
+- P18 added `runtime/orchestrator/app/domain/project_director_patch_preview_safety.py` and rejects raw applyable diff markers before P17 execution domain objects can carry unsafe `patch_preview`.
+- P17 execution service still produces preview-only text and keeps `actual_patch_applied=false`, `file_write_allowed=false`, `worktree_write_allowed=false`, and `product_runtime_git_write_allowed=false`.
+- Existing worktree create/cleanup services are for guarded `git worktree add` / `git worktree remove` lifecycle, not file-content modification.
+- Existing external executor surfaces continue to preserve `product_runtime_git_write_allowed=false` and do not provide product runtime Git write authorization.
+
+### Proposed Future Chain
+
+Future P20/P21 should follow this chain, without implementing it in P19:
+
+```text
+Project Director session
+-> P16 programmer no-write plan
+-> P17 no-write execution result
+-> P18 patch preview sanitizer
+-> P20 controlled sandbox/worktree file-write request
+-> allowlist path policy check
+-> sanitized patch / file operation plan
+-> sandbox/worktree write only
+-> targeted tests in sandbox/worktree
+-> P21 readonly reviewer real diff review
+-> user confirmation
+-> only then consider Git write design, still not automatic
+```
+
+### Write Boundary
+
+Future write capability must obey these boundaries:
+
+- Write only inside an approved sandbox/worktree; never write to the main repository working tree.
+- Write only explicitly allowlisted paths.
+- Deny by default:
+  - `.env`
+  - secrets
+  - keys
+  - credentials
+  - `.git/**`
+  - `node_modules/**`
+  - `dist/**`
+  - `build/**`
+  - lockfiles, unless a later stage explicitly allows them
+  - `docs/superpowers/**`
+  - `apps/web/**`, unless a later stage explicitly approves frontend work
+- Deny path traversal and escape by default:
+  - `../`
+  - absolute paths
+  - symlink escape
+- Deny binary writes by default.
+- Deny file deletion by default, unless a later stage explicitly allows deletion.
+- Deny `chmod`, `chown`, and shell-command-based writes.
+
+### Patch / File Operation Policy
+
+Future writes may accept only one of these input shapes.
+
+A. Structured file operation plan:
+
+- `path`
+- `operation: create/update`
+- `before_hash` or `expected_current_hash`
+- `content_preview_hash`
+- `reason`
+- linked P16/P17/P18 evidence refs
+
+B. Sanitized patch plan:
+
+- patch must pass sanitizer
+- patch must be parsed into structured operations before write
+- raw applyable diff must not bypass sanitizer
+- preview-only `patch_preview` must never be applied directly
+
+Required policy statements:
+
+- `patch_preview` is not patch apply input.
+- `patch_preview` cannot directly write files.
+- raw model-generated diff must not be applied directly.
+
+### Safety Gates Before Write
+
+Future P20 implementation must satisfy all of these gates before any write:
+
+1. session exists
+2. source_task exists
+3. source_message belongs to session
+4. source message is P17 no-write execution or later approved write design source
+5. source task is safe dry-run or approved sandbox task
+6. `user_confirmed=true`
+7. allowlist path policy passes
+8. patch/file operation sanitizer passes
+9. no product runtime Git write
+10. no main worktree write
+11. rollback snapshot prepared
+12. reviewer checkpoint required after write
+13. targeted tests required after write
+14. AI Project Director total loop remains Partial until UAT
+
+### Rollback / Cleanup Strategy
+
+Future sandbox/worktree write must provide rollback and cleanup before it can write:
+
+- Record `before_hash` before every sandbox/worktree write.
+- Generate one `operation_id` for every write operation.
+- Record `affected_files` for every write operation.
+- Cleanup must be able to remove temporary sandbox/worktree state.
+- Rollback must be able to restore affected files to `before_hash`.
+- If cleanup or rollback fails, enter failure recovery and block any Git write path.
+- Never automatically delete user-unconfirmed content.
+
+### Reviewer-Before-Git-Write Rule
+
+- After sandbox/worktree write, a readonly reviewer must review the real diff.
+- Reviewer result must bind to `source_task_id` and `source_message_id`.
+- Reviewer must not write files.
+- Reviewer must not execute Git write.
+- If reviewer does not pass, the flow cannot enter Git write design.
+- User confirmation record is not Git write authorization.
+- Git add / commit / push / PR / merge remains a future separate stage and must not open automatically in P19/P20.
+
+### Data Model Suggestions
+
+Future domains may include:
+
+- `ProjectDirectorSandboxWriteRequest`
+- `ProjectDirectorSandboxWriteResult`
+- `ProjectDirectorFileOperationPlan`
+- `ProjectDirectorFileOperationResult`
+- `ProjectDirectorWritePolicyCheck`
+- `ProjectDirectorRollbackSnapshot`
+
+Suggested fields:
+
+- `session_id`
+- `source_task_id`
+- `source_message_id`
+- `user_confirmed`
+- `write_mode: dry_run / fake_write / controlled_sandbox_write`
+- `allowed_paths`
+- `denied_paths`
+- `affected_files`
+- `before_hashes`
+- `after_hashes`
+- `operation_ids`
+- `rollback_available`
+- `cleanup_required`
+- `product_runtime_git_write_allowed=false`
+- `main_worktree_write_allowed=false`
+- `sandbox_write_allowed=true` only after gate
+- `actual_patch_applied=false` until controlled write phase
+- `git_write_performed=false`
+- `ai_project_director_total_loop=Partial`
+
+### API Suggestions
+
+Future endpoints may be:
+
+- `POST /project-director/sessions/{session_id}/sandbox-write-plan`
+- `POST /project-director/sessions/{session_id}/sandbox-write-execution`
+
+P19 adds no endpoint.
+
+### Test Plan Suggestions
+
+Future P20/P21 must test:
+
+- path allowlist accepts allowed paths
+- denied paths blocked
+- `../` path traversal blocked
+- absolute path blocked
+- `.git` blocked
+- `.env` blocked
+- `docs/superpowers` blocked
+- `apps/web` blocked unless explicitly allowed
+- binary write blocked
+- delete blocked by default
+- `patch_preview` cannot be used as apply input
+- raw diff cannot bypass sanitizer
+- rollback snapshot created
+- cleanup called
+- reviewer required before Git write
+- product runtime Git write remains false
+- no Task/Run/Worker unless explicitly designed
+- total loop remains Partial
+
+### Risks / Open Questions
+
+- How to represent sandbox/worktree identity safely.
+- Whether to reuse existing worktree services or create a narrower sandbox abstraction.
+- How to handle generated lockfiles.
+- How to handle formatters that touch many files.
+- How to enforce symlink escape checks.
+- How to record file hashes reliably across OS.
+- How to present diff to reviewer without exposing raw secrets.
+- When, if ever, product runtime Git write can be introduced.
+
+### Recommended P20
+
+P20 should implement policy-only sandbox write preflight, not actual file write yet.
+
+P20 should add:
+
+- path allowlist/denylist checker
+- patch/file operation plan validator
+- no-write preflight result
+- tests/smoke
+- no actual file write
+- no Git write
