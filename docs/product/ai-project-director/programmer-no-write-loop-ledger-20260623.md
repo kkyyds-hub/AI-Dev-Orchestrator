@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, and P18 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, and P20 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -250,9 +250,9 @@ No frontend entrypoint was added. P17 does not modify `apps/web/**`.
 
 ---
 
-## Current Capability After P18
+## Current Capability After P20
 
-P18 completes the following chain:
+P20 completes the following chain:
 
 ```text
 Project Director session
@@ -264,6 +264,8 @@ Project Director session
 -> programmer no-write implementation plan
 -> programmer no-write execution result
 -> patch preview sanitizer / diff safety hardening
+-> sandbox/worktree write design review
+-> policy-only sandbox write preflight
 -> Project Director message readback
 ```
 
@@ -278,19 +280,15 @@ Not yet available:
 
 ## Next Step
 
-P19 should still not open product runtime Git write.
+P21 should still not open product runtime Git write.
 
-Recommended P19 direction: Controlled sandbox/worktree file-write design review, not implementation yet.
+Recommended P21: Controlled sandbox/worktree write design implementation may begin only as a staged no-Git capability.
 
-P19 should define:
+Preferred P21-A: Implement sandbox/worktree write execution domain and service in `dry_run`/`fake_write` first, without actual file write.
 
-- Sandbox/worktree write boundary
-- Allowed file path policy
-- Patch application safety policy
-- Rollback / cleanup strategy
-- Reviewer-before-Git-write rule
-- No product runtime Git write
-- No automatic commit / push / PR
+Do not jump directly to `controlled_sandbox_write`.
+Do not open product runtime Git write.
+Do not open automatic commit/push/PR/merge.
 
 ---
 
@@ -517,3 +515,91 @@ P20 should add:
 - tests/smoke
 - no actual file write
 - no Git write
+
+---
+
+## P20 Policy-Only Sandbox Write Preflight
+
+### Gate
+
+- P20-Codex policy-only sandbox write preflight implementation: Pass with note
+- P20-Mimocode path policy tests: Pass
+- P20-Mimocode preflight contract tests: Pass
+- P20-Mimocode API tests: Pass
+- P20-Mimocode smoke tests: Pass
+- P20 policy-only no-write safety: Pass
+- P20 overall: Pass with note
+- AI Project Director total loop: Partial
+
+### Implemented Surface
+
+- Endpoint: `POST /project-director/sessions/{session_id}/sandbox-write-preflight`
+- Policy domain: `runtime/orchestrator/app/domain/project_director_sandbox_write_policy.py`
+- Preflight domain: `runtime/orchestrator/app/domain/project_director_sandbox_write_preflight.py`
+- Service: `runtime/orchestrator/app/services/project_director_sandbox_write_preflight_service.py`
+- Route: `runtime/orchestrator/app/api/routes/project_director.py`
+- Smoke: `runtime/orchestrator/scripts/p20_project_director_sandbox_write_preflight_smoke.py`
+- Tests:
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_policy.py`
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_preflight_contract.py`
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_preflight_api.py`
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_preflight_smoke.py`
+
+### P20-Codex Implementation Evidence
+
+- Commit: `70b0afe75cddfd38bd754f2af49907c4c2d81283`
+- Implemented policy-only sandbox write preflight endpoint
+- Implemented path allowlist / denylist checker
+- Implemented file operation plan validation
+- Integrated `patch_preview` safety validation
+- Added Project Director message binding with `source_detail`: `p20_sandbox_write_preflight`
+- No tests/smoke/ledger were added by Codex
+- No `apps/web` changes
+- No `external_executors` changes
+- No `task_worker` changes
+- No worktree create/cleanup/write runner changes
+- No product runtime Git write
+- No file write
+- No worktree write
+- AI Project Director total loop remains `Partial`
+
+### P20-Mimocode Test Evidence
+
+- Commit: `38e9519919582ad31b264a305a7ca558b31b555c`
+- Targeted pytest: 132 passed
+- Path policy tests: Pass
+- Preflight contract tests: Pass
+- API tests: Pass
+- Smoke tests: Pass
+- P20 dry_run smoke: `passed_dry_run`
+- P20 fake_preflight smoke: `passed_fake_preflight`
+- controlled_sandbox_write: blocked with `controlled_sandbox_write_not_enabled_in_api`
+- Path policy allowlist: all 4 default prefixes accepted
+- Denylist coverage: `.git`, `node_modules`, `dist`, `build`, `docs/superpowers`, `.env` variants, sensitive substrings, lockfiles, binary suffixes all blocked
+- apps/web behavior: blocked unless `allow_frontend=true` and `allowed_path_prefixes` includes `apps/web/`
+- unsafe `patch_preview`: blocked
+- source_task/message mismatch: blocked with `source_task_not_bound_to_p17_execution`
+- message readback: succeeded
+- operation=delete: observed as blocked; API may return 409 or 422 depending on validation path; direct policy function reports `unsupported_operation`
+
+### Boundary Record
+
+- P20 is policy-only preflight
+- P20 does not write files
+- P20 does not create worktree
+- P20 does not write worktree
+- P20 does not write main worktree
+- P20 does not apply patch
+- P20 does not perform product runtime Git write
+- `product_runtime_git_write_allowed=false`
+- `main_worktree_write_allowed=false`
+- `worktree_write_allowed=false`
+- `file_write_allowed=false`
+- `actual_patch_applied=false`
+- `real_code_modified=false`
+- `git_write_performed=false`
+- Default path starts neither Codex nor Claude
+- P20 does not create Task
+- P20 does not create Run
+- P20 does not call Worker
+- AI Project Director total loop remains `Partial`
