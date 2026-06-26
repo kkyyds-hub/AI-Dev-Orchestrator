@@ -309,6 +309,38 @@ P14 默认 `launch_mode=dry_run`，不启动 Codex，不启动 Claude Code，不
 
 P14 controlled subprocess smoke 复用 P12 safe Worker simulate Run 作为现有 `AgentSession` 外键，并证明 native launch started、AgentSession bound、runtime/process handle present、supervisor registered、terminate attempted、cleanup done，再把 `p14_controlled_subprocess_lifecycle_result` 写回 Project Director session message 并读回。它不以代码修改作为通过条件，不执行产品运行时 Git 写，不调用 worktree 写服务，不暴露 pid/raw command/stdout/stderr/env/token/secret/api_key。AI Project Director 总闭环仍为 `Partial`；P9 production-safe long-running executor lifecycle 只能按证据记录为 `Pass with note` 或 `Partial`。
 
+### 3.7 P15 Project Director readonly reviewer smoke
+
+默认 readonly review dry-run：
+
+```bash
+cd runtime/orchestrator
+
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p15_project_director_readonly_reviewer_smoke.py --json
+```
+
+deterministic fake review：
+
+```bash
+uv run --no-project --with-editable . \
+  --with 'fastapi>=0.115,<1.0' \
+  --with 'httpx>=0.28,<1.0' \
+  --with 'sqlalchemy>=2.0,<3.0' \
+  --with 'pydantic>=2.0,<3.0' \
+  python scripts/p15_project_director_readonly_reviewer_smoke.py \
+    --json \
+    --review-mode fake_review
+```
+
+P15 readonly reviewer path 通过 `POST /project-director/sessions/{session_id}/readonly-review` 把 P14 lifecycle result message 转成只读 reviewer review result，并写回 `p15_readonly_reviewer_review` session message。默认 `dry_run` 和 `fake_review` 不启动 Codex、不启动 Claude Code、不写文件、不执行产品运行时 Git 写、不调用 worktree 写服务，也不把审查结果当成代码已修改、已提交、已推送或已合并。
+
+`controlled_review` 仅在 smoke harness 中接受显式安全参数：`--enable-native-process --auto-terminate --timeout-seconds <n> --use-supervisor --supervisor-cleanup-after-launch --readonly-output-dir <isolated-dir>`。缺任何参数都会 blocked，且不得启动 executor。当前 API 层对 `review_mode=controlled_review` 返回 blocked；真实 controlled reviewer subprocess evidence 是后续 hardening，不是默认 P15 通过条件。AI Project Director 总闭环仍为 `Partial`。
+
 ## 4. Windows / PowerShell 旧推荐运行方式
 
 由于当前 PowerShell 执行策略可能会拦截激活脚本，推荐直接使用虚拟环境中的 `python.exe`，这样最稳定。
