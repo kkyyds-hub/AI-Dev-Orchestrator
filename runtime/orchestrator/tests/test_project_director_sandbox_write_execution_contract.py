@@ -7,9 +7,18 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from app.domain.project_director_message import (
+    ProjectDirectorMessage,
+    ProjectDirectorMessageRole,
+    ProjectDirectorMessageSource,
+)
 from app.domain.project_director_sandbox_write_execution import (
     ProjectDirectorSandboxWriteExecutionResult,
     ProjectDirectorSandboxWriteOperationResult,
+)
+from app.domain.task import Task
+from app.services.project_director_sandbox_write_execution_service import (
+    ProjectDirectorSandboxWriteExecutionService,
 )
 
 
@@ -46,12 +55,47 @@ def _default_operation(**overrides) -> ProjectDirectorSandboxWriteOperationResul
     base = dict(
         operation_id="p21-a-1",
         path="runtime/orchestrator/app/domain/foo.py",
-        operation="p20_preflight_accepted_path",
+        operation="update",
         execution_status="planned",
         source_preflight_path_policy_allowed=True,
+        source_preflight_operation_type="p20_preflight_accepted_path",
     )
     base.update(overrides)
     return ProjectDirectorSandboxWriteOperationResult(**base)
+
+
+def _safe_task() -> Task:
+    return Task(
+        title="safe task",
+        input_summary="SAFE DRY-RUN TASK DISPATCH ONLY",
+        acceptance_criteria=[
+            "safe_dry_run_task=true",
+            "worker_simulate_required=true",
+            "product_runtime_git_write_allowed=false",
+            "native_executor_started=false",
+            "codex_started=false",
+            "claude_code_started=false",
+        ],
+        source_draft_id="p12-test",
+    )
+
+
+def _p20_message(
+    *,
+    session_id,
+    task_id,
+    action: dict,
+) -> ProjectDirectorMessage:
+    return ProjectDirectorMessage(
+        session_id=session_id,
+        role=ProjectDirectorMessageRole.ASSISTANT,
+        content="P20 preflight",
+        sequence_no=1,
+        related_task_id=task_id,
+        source=ProjectDirectorMessageSource.SYSTEM,
+        source_detail="p20_sandbox_write_preflight",
+        suggested_actions=[action],
+    )
 
 
 # ── 1. dry_run result ─────────────────────────────────────────────────
@@ -201,7 +245,92 @@ def test_operation_result_fields() -> None:
     assert op.worktree_written is False
     assert op.git_write_performed is False
     assert op.source_preflight_path_policy_allowed is True
-    assert op.operation == "p20_preflight_accepted_path"
+    assert op.operation == "update"
+    assert op.source_preflight_operation_type == "p20_preflight_accepted_path"
+
+
+def test_service_preserves_structured_operation_intent_from_p20_action() -> None:
+    service = ProjectDirectorSandboxWriteExecutionService()
+    session_id = uuid4()
+    task = _safe_task()
+    message = _p20_message(
+        session_id=session_id,
+        task_id=task.id,
+        action={
+            "type": "p20_sandbox_write_preflight_record",
+            "source_task_id": str(task.id),
+            "preflight_status": "passed",
+            "policy_only_preflight": True,
+            "checked_operations_count": 2,
+            "blocked_operations_count": 0,
+            "blocked_reasons": [],
+            "accepted_operation_paths": [
+                "runtime/orchestrator/app/domain/new_file.py",
+                "runtime/orchestrator/app/domain/existing_file.py",
+            ],
+            "accepted_operations": [
+                {
+                    "path": "runtime/orchestrator/app/domain/new_file.py",
+                    "operation": "create",
+                },
+                {
+                    "path": "runtime/orchestrator/app/domain/existing_file.py",
+                    "operation": "update",
+                },
+            ],
+        },
+    )
+
+    result = service.build_execution_from_sources(
+        session_id=session_id,
+        source_task=task,
+        source_message=message,
+        user_confirmed=True,
+        execution_mode="dry_run",
+    )
+
+    assert result.blocked_reasons == []
+    assert [operation.operation for operation in result.operation_results] == [
+        "create",
+        "update",
+    ]
+    assert all(
+        operation.source_preflight_operation_type == "p20_preflight_accepted_path"
+        for operation in result.operation_results
+    )
+
+
+def test_service_falls_back_for_legacy_p20_action_with_paths_only() -> None:
+    service = ProjectDirectorSandboxWriteExecutionService()
+    session_id = uuid4()
+    task = _safe_task()
+    message = _p20_message(
+        session_id=session_id,
+        task_id=task.id,
+        action={
+            "type": "p20_sandbox_write_preflight_record",
+            "source_task_id": str(task.id),
+            "preflight_status": "passed",
+            "policy_only_preflight": True,
+            "checked_operations_count": 1,
+            "blocked_operations_count": 0,
+            "blocked_reasons": [],
+            "accepted_operation_paths": [
+                "runtime/orchestrator/app/domain/legacy.py",
+            ],
+        },
+    )
+
+    result = service.build_execution_from_sources(
+        session_id=session_id,
+        source_task=task,
+        source_message=message,
+        user_confirmed=True,
+        execution_mode="dry_run",
+    )
+
+    assert result.blocked_reasons == []
+    assert result.operation_results[0].operation == "p20_preflight_accepted_path"
 
 
 # ── 7. output must not contain misleading terms ──────────────────────

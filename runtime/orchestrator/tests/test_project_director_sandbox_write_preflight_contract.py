@@ -129,12 +129,20 @@ def test_result_counts_and_paths() -> None:
         checked_operations_count=3,
         allowed_operations_count=2,
         blocked_operations_count=1,
+        accepted_operations=[
+            {"path": "a.py", "operation": "create"},
+            {"path": "b.py", "operation": "update"},
+        ],
         accepted_operation_paths=["a.py", "b.py"],
         blocked_operation_paths=["c.py"],
     )
     assert result.checked_operations_count == 3
     assert result.allowed_operations_count == 2
     assert result.blocked_operations_count == 1
+    assert result.accepted_operations[0].path == "a.py"
+    assert result.accepted_operations[0].operation == "create"
+    assert result.accepted_operations[1].path == "b.py"
+    assert result.accepted_operations[1].operation == "update"
     assert result.accepted_operation_paths == ["a.py", "b.py"]
     assert result.blocked_operation_paths == ["c.py"]
 

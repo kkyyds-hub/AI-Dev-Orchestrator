@@ -512,6 +512,11 @@ class SandboxPathPolicyResultResponse(BaseModel):
     ai_project_director_total_loop: str = "Partial"
 
 
+class AcceptedSandboxWriteOperationResponse(BaseModel):
+    path: str
+    operation: Literal["create", "update"]
+
+
 class ConfirmSandboxWritePreflightResponse(BaseModel):
     preflight_status: Literal["passed", "blocked"]
     session_id: UUID
@@ -539,6 +544,9 @@ class ConfirmSandboxWritePreflightResponse(BaseModel):
     checked_operations_count: int = 0
     allowed_operations_count: int = 0
     blocked_operations_count: int = 0
+    accepted_operations: list[AcceptedSandboxWriteOperationResponse] = Field(
+        default_factory=list
+    )
     accepted_operation_paths: list[str] = Field(default_factory=list)
     blocked_operation_paths: list[str] = Field(default_factory=list)
     path_policy_results: list[SandboxPathPolicyResultResponse] = Field(
@@ -565,6 +573,7 @@ class SandboxWriteOperationResultResponse(BaseModel):
     operation_id: str
     path: str
     operation: str
+    source_preflight_operation_type: str = "p20_preflight_accepted_path"
     execution_status: Literal["planned", "simulated", "blocked"]
     source_preflight_path_policy_allowed: bool = False
     before_hash: str | None = None
@@ -1523,6 +1532,10 @@ def confirm_session_sandbox_write_preflight(
         checked_operations_count=result.checked_operations_count,
         allowed_operations_count=result.allowed_operations_count,
         blocked_operations_count=result.blocked_operations_count,
+        accepted_operations=[
+            AcceptedSandboxWriteOperationResponse(**operation.model_dump())
+            for operation in result.accepted_operations
+        ],
         accepted_operation_paths=result.accepted_operation_paths,
         blocked_operation_paths=result.blocked_operation_paths,
         path_policy_results=[

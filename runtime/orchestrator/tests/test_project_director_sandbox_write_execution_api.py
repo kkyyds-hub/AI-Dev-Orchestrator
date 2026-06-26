@@ -325,7 +325,13 @@ def _prepare_p21_chain(
             "preflight_mode": "dry_run",
             "file_operations": [
                 {
-                    "path": "runtime/orchestrator/app/domain/example.py",
+                    "path": "runtime/orchestrator/app/domain/new_example.py",
+                    "operation": "create",
+                    "reason": "test create",
+                    "patch_preview": ["PREVIEW ONLY: no repository file was modified."],
+                },
+                {
+                    "path": "runtime/orchestrator/app/domain/existing_example.py",
                     "operation": "update",
                     "reason": "test update",
                     "patch_preview": ["PREVIEW ONLY: no repository file was modified."],
@@ -379,6 +385,14 @@ def test_p21_dry_run_success(tmp_path) -> None:
         assert len(payload["operation_results"]) >= 1
         assert payload["operation_results"][0]["execution_status"] == "planned"
         assert payload["operation_results"][0]["source_preflight_path_policy_allowed"] is True
+        assert [op["operation"] for op in payload["operation_results"]] == [
+            "create",
+            "update",
+        ]
+        assert all(
+            op["source_preflight_operation_type"] == "p20_preflight_accepted_path"
+            for op in payload["operation_results"]
+        )
         assert payload["execution_message_bound"] is True
         assert payload["message"] is not None
         assert payload["message"]["source_detail"] == "p21_sandbox_write_execution"
@@ -431,8 +445,13 @@ def test_p21_fake_write_success(tmp_path) -> None:
         assert payload["dry_run_only"] is False
         assert payload["simulated_operations_count"] >= 1
         assert len(payload["operation_results"]) >= 1
+        assert [op["operation"] for op in payload["operation_results"]] == [
+            "create",
+            "update",
+        ]
         for op in payload["operation_results"]:
             assert op["execution_status"] == "simulated"
+            assert op["source_preflight_operation_type"] == "p20_preflight_accepted_path"
 
         # No-write flags
         for flag in ALL_WRITE_FLAGS:
@@ -730,6 +749,10 @@ def test_p21_message_readback(tmp_path) -> None:
         assert action["product_runtime_git_write_allowed"] is False
         assert action["file_write_allowed"] is False
         assert action["git_write_performed"] is False
+        assert [op["operation"] for op in action["operation_results"]] == [
+            "create",
+            "update",
+        ]
         assert action["ai_project_director_total_loop"] == "Partial"
 
 

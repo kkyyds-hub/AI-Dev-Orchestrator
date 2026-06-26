@@ -40,6 +40,13 @@ class ProjectDirectorFileOperationPlan(DomainModel):
         return assert_patch_preview_safe(value)
 
 
+class ProjectDirectorAcceptedSandboxWriteOperation(DomainModel):
+    """Accepted no-write operation intent from P20 path policy."""
+
+    path: str = Field(min_length=1, max_length=1_000)
+    operation: SandboxFileOperationType
+
+
 class ProjectDirectorSandboxWritePreflightRequest(DomainModel):
     """Request to evaluate a sandbox write plan without performing writes."""
 
@@ -87,6 +94,9 @@ class ProjectDirectorSandboxWritePreflightResult(DomainModel):
     path_policy_results: list[ProjectDirectorSandboxPathPolicyResult] = Field(
         default_factory=list
     )
+    accepted_operations: list[ProjectDirectorAcceptedSandboxWriteOperation] = Field(
+        default_factory=list
+    )
     accepted_operation_paths: list[str] = Field(default_factory=list)
     blocked_operation_paths: list[str] = Field(default_factory=list)
     blocked_reasons: list[str] = Field(default_factory=list)
@@ -120,6 +130,7 @@ class ProjectDirectorSandboxWritePreflightResult(DomainModel):
 
 
 __all__ = (
+    "ProjectDirectorAcceptedSandboxWriteOperation",
     "ProjectDirectorFileOperationPlan",
     "ProjectDirectorSandboxWritePreflightRequest",
     "ProjectDirectorSandboxWritePreflightResult",

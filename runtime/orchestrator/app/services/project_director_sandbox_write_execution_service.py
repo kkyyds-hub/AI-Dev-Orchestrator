@@ -161,6 +161,7 @@ class ProjectDirectorSandboxWriteExecutionService:
         source_preflight_message_bound = False
         policy_only_source_verified = False
         accepted_operation_paths: list[str] = []
+        accepted_operation_intents: list[dict[str, str]] = []
         blocked_operation_paths: list[str] = []
         checked_operations_count = 0
         source_blocked_operations_count = 0
@@ -209,6 +210,10 @@ class ProjectDirectorSandboxWriteExecutionService:
             accepted_operation_paths = self._as_string_list(
                 p20_action.get("accepted_operation_paths")
             )
+            accepted_operation_intents = self._accepted_operation_intents(
+                p20_action.get("accepted_operations"),
+                fallback_paths=accepted_operation_paths,
+            )
             blocked_operation_paths = self._as_string_list(
                 p20_action.get("blocked_operation_paths")
             )
@@ -246,7 +251,7 @@ class ProjectDirectorSandboxWriteExecutionService:
             execution_mode=execution_mode,
         )
         operation_results = self._operation_results(
-            accepted_operation_paths,
+            accepted_operation_intents,
             execution_status=operation_status,
             execution_mode=execution_mode,
         )
@@ -352,7 +357,7 @@ class ProjectDirectorSandboxWriteExecutionService:
 
     @staticmethod
     def _operation_results(
-        paths: list[str],
+        operation_intents: list[dict[str, str]],
         *,
         execution_status: SandboxWriteOperationExecutionStatus,
         execution_mode: SandboxWriteExecutionMode,
@@ -367,8 +372,9 @@ class ProjectDirectorSandboxWriteExecutionService:
         return [
             ProjectDirectorSandboxWriteOperationResult(
                 operation_id=f"p21-a-{index}",
-                path=path,
-                operation="p20_preflight_accepted_path",
+                path=operation_intent["path"],
+                operation=operation_intent["operation"],
+                source_preflight_operation_type="p20_preflight_accepted_path",
                 execution_status=execution_status,
                 source_preflight_path_policy_allowed=True,
                 notes=[
@@ -376,7 +382,7 @@ class ProjectDirectorSandboxWriteExecutionService:
                     "rollback snapshot not created because no file was written",
                 ],
             )
-            for index, path in enumerate(paths, start=1)
+            for index, operation_intent in enumerate(operation_intents, start=1)
         ]
 
     @staticmethod
@@ -503,6 +509,36 @@ class ProjectDirectorSandboxWriteExecutionService:
         if not isinstance(value, list):
             return []
         return [item for item in value if isinstance(item, str) and item.strip()]
+
+    @classmethod
+    def _accepted_operation_intents(
+        cls,
+        value: Any,
+        *,
+        fallback_paths: list[str],
+    ) -> list[dict[str, str]]:
+        structured: list[dict[str, str]] = []
+        if isinstance(value, list):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                path = item.get("path")
+                operation = item.get("operation")
+                if (
+                    isinstance(path, str)
+                    and path.strip()
+                    and operation in ("create", "update")
+                ):
+                    structured.append(
+                        {"path": path.strip(), "operation": str(operation)}
+                    )
+        if structured:
+            return structured
+
+        return [
+            {"path": path, "operation": "p20_preflight_accepted_path"}
+            for path in fallback_paths
+        ]
 
     @staticmethod
     def _dedupe(values: list[str]) -> list[str]:

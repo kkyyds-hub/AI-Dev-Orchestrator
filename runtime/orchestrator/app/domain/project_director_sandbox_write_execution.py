@@ -23,6 +23,9 @@ class ProjectDirectorSandboxWriteOperationResult(DomainModel):
     operation_id: str = Field(min_length=1, max_length=120)
     path: str = Field(min_length=1, max_length=1_000)
     operation: str = Field(min_length=1, max_length=120)
+    source_preflight_operation_type: str = Field(
+        default="p20_preflight_accepted_path", min_length=1, max_length=120
+    )
     execution_status: SandboxWriteOperationExecutionStatus
     source_preflight_path_policy_allowed: bool = False
     before_hash: str | None = Field(default=None, max_length=200)

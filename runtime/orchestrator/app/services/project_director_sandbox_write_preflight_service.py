@@ -16,6 +16,7 @@ from app.domain.project_director_sandbox_write_policy import (
     check_sandbox_path_policy,
 )
 from app.domain.project_director_sandbox_write_preflight import (
+    ProjectDirectorAcceptedSandboxWriteOperation,
     ProjectDirectorFileOperationPlan,
     ProjectDirectorSandboxWritePreflightResult,
     SandboxWritePreflightMode,
@@ -221,6 +222,14 @@ class ProjectDirectorSandboxWritePreflightService:
             for policy in path_policy_results
             if policy.allowed
         ]
+        accepted_operations = [
+            ProjectDirectorAcceptedSandboxWriteOperation(
+                path=policy.normalized_path or policy.path,
+                operation=operation.operation,
+            )
+            for operation, policy in zip(operations, path_policy_results, strict=False)
+            if policy.allowed
+        ]
         blocked_operation_paths = [
             policy.normalized_path or policy.path
             for policy in path_policy_results
@@ -239,6 +248,7 @@ class ProjectDirectorSandboxWritePreflightService:
             allowed_operations_count=len(accepted_operation_paths),
             blocked_operations_count=len(blocked_operation_paths),
             path_policy_results=path_policy_results,
+            accepted_operations=accepted_operations,
             accepted_operation_paths=accepted_operation_paths,
             blocked_operation_paths=blocked_operation_paths,
             blocked_reasons=blocked_reasons,
@@ -326,6 +336,10 @@ class ProjectDirectorSandboxWritePreflightService:
             "allowed_operations_count": result.allowed_operations_count,
             "blocked_operations_count": result.blocked_operations_count,
             "accepted_operation_paths": list(result.accepted_operation_paths),
+            "accepted_operations": [
+                operation.model_dump(mode="json")
+                for operation in result.accepted_operations
+            ],
             "blocked_operation_paths": list(result.blocked_operation_paths),
             "path_policy_results": [
                 policy.model_dump(mode="json")

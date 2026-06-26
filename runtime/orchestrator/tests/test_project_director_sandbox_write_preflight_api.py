@@ -273,11 +273,14 @@ def _prepare_p20_chain(
     return session_id, task_id, p17_message_id
 
 
-def _safe_file_operation(path: str = "runtime/orchestrator/app/domain/example.py") -> dict:
+def _safe_file_operation(
+    path: str = "runtime/orchestrator/app/domain/example.py",
+    operation: str = "update",
+) -> dict:
     return {
         "path": path,
-        "operation": "update",
-        "reason": "test update",
+        "operation": operation,
+        "reason": f"test {operation}",
         "patch_preview": ["PREVIEW ONLY: no repository file was modified."],
     }
 
@@ -318,6 +321,12 @@ def test_p20_dry_run_success(tmp_path) -> None:
         assert payload["allowed_operations_count"] == 1
         assert payload["blocked_operations_count"] == 0
         assert len(payload["accepted_operation_paths"]) == 1
+        assert payload["accepted_operations"] == [
+            {
+                "path": "runtime/orchestrator/app/domain/example.py",
+                "operation": "update",
+            }
+        ]
         assert payload["path_policy_results"][0]["allowed"] is True
 
         # Safety flags
@@ -866,4 +875,10 @@ def test_p20_message_readback(tmp_path) -> None:
         assert action["sandbox_write_allowed"] is False
         assert action["file_write_allowed"] is False
         assert action["git_write_performed"] is False
+        assert action["accepted_operations"] == [
+            {
+                "path": "runtime/orchestrator/app/domain/example.py",
+                "operation": "update",
+            }
+        ]
         assert action["ai_project_director_total_loop"] == "Partial"
