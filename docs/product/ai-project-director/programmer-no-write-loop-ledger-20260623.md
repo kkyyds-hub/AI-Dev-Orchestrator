@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, and P20 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, and P21-A evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -562,9 +562,104 @@ P20 should add:
 - P20 does not call Worker
 - AI Project Director total loop remains `Partial`
 
-### Current Capability After P20
+---
 
-P20 completes the following chain:
+## P21-A Sandbox Write Execution dry_run / fake_write
+
+### Gate
+
+- P21-A-Codex sandbox write execution dry-run/fake-write implementation: Pass with note
+- P21-A-Mimocode contract tests: Pass
+- P21-A-Mimocode API tests: Pass
+- P21-A-Mimocode smoke tests: Pass
+- P21-A dry_run/fake_write no-write safety: Pass
+- P21-A overall: Pass with note
+- AI Project Director total loop: Partial
+
+### Implemented Surface
+
+- Endpoint: `POST /project-director/sessions/{session_id}/sandbox-write-execution`
+- Domain: `runtime/orchestrator/app/domain/project_director_sandbox_write_execution.py`
+- Service: `runtime/orchestrator/app/services/project_director_sandbox_write_execution_service.py`
+- Route: `runtime/orchestrator/app/api/routes/project_director.py`
+- Smoke: `runtime/orchestrator/scripts/p21_project_director_sandbox_write_execution_smoke.py`
+- Tests:
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_execution_contract.py`
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_execution_api.py`
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_execution_smoke.py`
+
+### P21-A-Codex Implementation Evidence
+
+- Commit: `674115dc5c0348ff837e75d7b5920a91d3017c1d`
+- Commit message: `backend: add sandbox write execution dry run`
+- Implemented sandbox write execution domain/service/API
+- Supports only `dry_run` and `fake_write`
+- Blocks `controlled_sandbox_write`
+- Persists P21 Project Director message with `source_detail=p21_sandbox_write_execution`
+- Does not write files
+- Does not create worktree
+- Does not write worktree
+- Does not write main worktree
+- Does not apply patch
+- Does not perform product runtime Git write
+- Does not create Task
+- Does not create Run
+- Does not call Worker
+- Does not start Codex or Claude
+- Does not read target file content
+- AI Project Director total loop remains `Partial`
+
+### P21-A-Mimocode Test Evidence
+
+- Commit: `8b579b84ee0fb1de271b52a813e91d6958515d50`
+- Commit message: `test: add sandbox write execution coverage`
+- Contract tests: 32 passed
+- API tests: 10 passed
+- Smoke tests: 19 passed
+- Final targeted regression: 106 passed
+- dry_run smoke: `passed_dry_run`, `p21_execution_status=planned`, `p21_dry_run=passed_planned`
+- fake_write smoke: `passed_fake_write`, `p21_execution_status=simulated`, `p21_fake_write=passed_simulated`
+- `controlled_sandbox_write`: blocked with `controlled_sandbox_write_not_enabled_in_api`
+- blocked preflight: blocked via `path_policy_failed`
+- source_task/message mismatch: blocked with `source_task_not_bound_to_p20_preflight`
+- message readback: passed
+- no-write boundary: passed
+- misleading output check: passed
+- AI Project Director total loop: `Partial`
+
+### Boundary Record
+
+- `product_runtime_git_write_allowed=false`
+- `main_worktree_write_allowed=false`
+- `worktree_write_allowed=false`
+- `file_write_allowed=false`
+- `actual_patch_applied=false`
+- `real_code_modified=false`
+- `git_write_performed=false`
+- `native_executor_started=false`
+- `codex_started=false`
+- `claude_code_started=false`
+- `worker_started=false`
+- `task_created=false`
+- `run_created=false`
+- `worktree_created=false`
+- `worktree_cleaned_up=false`
+- `rollback_snapshot_created=false`
+- `cleanup_required=false`
+- `file_written=false`
+- `target_file_content_read=false`
+- `patch_applied=false`
+- Product runtime Git write remains forbidden.
+- AI Project Director total loop remains `Partial`.
+
+### Note
+
+- P21-A 当前 operation result 的 `operation` 字段统一为 `"p20_preflight_accepted_path"`，不是原始 create/update。
+- 作为 dry_run/fake_write 结果可接受。
+- 未来 P21-B 或真实 sandbox write 前，应从 P20 action 或 future operation plan 中保留原始 operation 类型。
+- P21-A 不开启真实写入能力。
+
+### Current Capability After P21-A
 
 ```text
 Project Director session
@@ -578,26 +673,18 @@ Project Director session
 -> patch preview sanitizer / diff safety hardening
 -> sandbox/worktree write design review
 -> policy-only sandbox write preflight
+-> sandbox write execution dry_run / fake_write result
 -> Project Director message readback
 ```
 
 Not yet available:
 
 - Actual file modification
-- Sandbox/worktree write
-- Real diff application
+- Controlled sandbox/worktree write
+- Worktree create/write/cleanup for P21 execution
+- Real diff generation
+- Target file content read
 - Targeted tests against changed code
-- Reviewer reviews real diff
-- Git add / commit / push / PR / merge by product runtime
-
-### Next Step
-
-P21 should still not open product runtime Git write.
-
-Recommended P21: Controlled sandbox/worktree write execution may begin only as a staged no-Git capability.
-
-Preferred P21-A: Implement sandbox/worktree write execution domain and service in `dry_run`/`fake_write` first, without actual file write.
-
-Do not jump directly to `controlled_sandbox_write`.
-Do not open product runtime Git write.
-Do not open automatic commit/push/PR/merge.
+- Readonly reviewer real diff review
+- Rollback snapshot
+- Product runtime Git add / commit / push / PR / merge
