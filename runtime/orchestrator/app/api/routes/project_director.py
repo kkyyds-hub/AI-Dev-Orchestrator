@@ -165,6 +165,9 @@ from app.services.project_director_programmer_no_write_execution_service import 
 from app.services.project_director_sandbox_write_preflight_service import (
     ProjectDirectorSandboxWritePreflightService,
 )
+from app.services.project_director_sandbox_write_execution_service import (
+    ProjectDirectorSandboxWriteExecutionService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -549,6 +552,85 @@ class ConfirmSandboxWritePreflightResponse(BaseModel):
     unknowns: list[str] = Field(default_factory=list)
 
 
+class ConfirmSandboxWriteExecutionRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    execution_mode: Literal[
+        "dry_run", "fake_write", "controlled_sandbox_write"
+    ] = "dry_run"
+
+
+class SandboxWriteOperationResultResponse(BaseModel):
+    operation_id: str
+    path: str
+    operation: str
+    execution_status: Literal["planned", "simulated", "blocked"]
+    source_preflight_path_policy_allowed: bool = False
+    before_hash: str | None = None
+    after_hash: str | None = None
+    content_preview_hash: str | None = None
+    rollback_snapshot_available: bool = False
+    cleanup_required: bool = False
+    file_written: bool = False
+    patch_applied: bool = False
+    worktree_written: bool = False
+    git_write_performed: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+
+class ConfirmSandboxWriteExecutionResponse(BaseModel):
+    execution_status: Literal["planned", "simulated", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    execution_mode: Literal[
+        "dry_run", "fake_write", "controlled_sandbox_write"
+    ] = "dry_run"
+    source_preflight_status: str | None = None
+    source_preflight_message_bound: bool = False
+    policy_only_source_verified: bool = False
+    sandbox_write_execution: bool = True
+    no_write_execution: bool = True
+    dry_run_only: bool = True
+    fake_write_only: bool = False
+    controlled_sandbox_write_enabled: bool = False
+    sandbox_write_allowed: bool = False
+    product_runtime_git_write_allowed: bool = False
+    main_worktree_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    worktree_created: bool = False
+    worktree_cleaned_up: bool = False
+    rollback_snapshot_created: bool = False
+    cleanup_required: bool = False
+    execution_message_bound: bool = False
+    checked_operations_count: int = 0
+    simulated_operations_count: int = 0
+    blocked_operations_count: int = 0
+    operation_results: list[SandboxWriteOperationResultResponse] = Field(
+        default_factory=list
+    )
+    accepted_operation_paths: list[str] = Field(default_factory=list)
+    blocked_operation_paths: list[str] = Field(default_factory=list)
+    execution_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -630,6 +712,16 @@ def _get_sandbox_write_preflight_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxWritePreflightService:
     return ProjectDirectorSandboxWritePreflightService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_write_execution_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxWriteExecutionService:
+    return ProjectDirectorSandboxWriteExecutionService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -1442,6 +1534,118 @@ def confirm_session_sandbox_write_preflight(
         message=(
             ProjectDirectorMessageResponse.from_domain(preflight.message)
             if preflight.message is not None
+            else None
+        ),
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-write-execution",
+    response_model=ConfirmSandboxWriteExecutionResponse,
+    summary="Create a P21-A dry-run/fake-write sandbox write execution result",
+)
+def confirm_session_sandbox_write_execution(
+    session_id: UUID,
+    request: ConfirmSandboxWriteExecutionRequest,
+    execution_service: Annotated[
+        ProjectDirectorSandboxWriteExecutionService,
+        Depends(_get_sandbox_write_execution_service),
+    ],
+) -> ConfirmSandboxWriteExecutionResponse:
+    """Record a no-write P21-A execution result from one P20 preflight message."""
+
+    try:
+        execution = execution_service.confirm_execution(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            execution_mode=request.execution_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if (
+            "user_confirmation_required" in lowered
+            or "source_message_not_in_session" in lowered
+            or "source_message_is_not_p20_sandbox_write_preflight" in lowered
+            or "source_task_not_bound_to_p20_preflight" in lowered
+            or "source_task_is_not_p12_safe_dry_run" in lowered
+            or "controlled_sandbox_write_not_enabled_in_api" in lowered
+            or "p20_preflight_record_missing" in lowered
+            or "source_preflight_not_passed" in lowered
+            or "source_preflight_not_policy_only" in lowered
+            or "source_preflight_has_blocked_reasons" in lowered
+            or "source_preflight_has_no_checked_operations" in lowered
+            or "source_preflight_has_blocked_operations" in lowered
+            or "accepted_operation_paths_required" in lowered
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = execution.result
+    return ConfirmSandboxWriteExecutionResponse(
+        execution_status=result.execution_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        execution_mode=result.execution_mode,
+        source_preflight_status=result.source_preflight_status,
+        source_preflight_message_bound=result.source_preflight_message_bound,
+        policy_only_source_verified=result.policy_only_source_verified,
+        sandbox_write_execution=result.sandbox_write_execution,
+        no_write_execution=result.no_write_execution,
+        dry_run_only=result.dry_run_only,
+        fake_write_only=result.fake_write_only,
+        controlled_sandbox_write_enabled=result.controlled_sandbox_write_enabled,
+        sandbox_write_allowed=result.sandbox_write_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        main_worktree_write_allowed=result.main_worktree_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        worktree_created=result.worktree_created,
+        worktree_cleaned_up=result.worktree_cleaned_up,
+        rollback_snapshot_created=result.rollback_snapshot_created,
+        cleanup_required=result.cleanup_required,
+        execution_message_bound=result.execution_message_bound,
+        checked_operations_count=result.checked_operations_count,
+        simulated_operations_count=result.simulated_operations_count,
+        blocked_operations_count=result.blocked_operations_count,
+        operation_results=[
+            SandboxWriteOperationResultResponse(**operation.model_dump())
+            for operation in result.operation_results
+        ],
+        accepted_operation_paths=result.accepted_operation_paths,
+        blocked_operation_paths=result.blocked_operation_paths,
+        execution_summary=result.execution_summary,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(execution.message)
+            if execution.message is not None
             else None
         ),
         blocked_reasons=result.blocked_reasons,
