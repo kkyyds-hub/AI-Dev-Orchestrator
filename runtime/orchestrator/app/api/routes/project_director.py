@@ -153,6 +153,9 @@ from app.services.project_director_dry_run_task_dispatch_service import (
 from app.services.project_director_controlled_executor_dispatch_service import (
     ProjectDirectorControlledExecutorDispatchService,
 )
+from app.services.project_director_readonly_review_service import (
+    ProjectDirectorReadonlyReviewService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -277,6 +280,54 @@ class ConfirmControlledExecutorDispatchResponse(BaseModel):
     unknowns: list[str] = Field(default_factory=list)
 
 
+class ConfirmReadonlyReviewRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    requested_reviewer_executor: Literal["codex", "claude-code"] = "codex"
+    review_mode: Literal["dry_run", "fake_review", "controlled_review"] = "dry_run"
+
+
+class ReadonlyReviewFindingResponse(BaseModel):
+    finding_id: str
+    severity: Literal["low", "medium", "high"]
+    title: str
+    summary: str
+    evidence_refs: list[str] = Field(default_factory=list)
+    recommended_action: str
+
+
+class ConfirmReadonlyReviewResponse(BaseModel):
+    review_status: Literal["planned", "reviewed", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    p14_lifecycle_message_id: UUID | None = None
+    requested_reviewer_executor: Literal["codex", "claude-code"] = "codex"
+    review_mode: Literal["dry_run", "fake_review", "controlled_review"] = "dry_run"
+    readonly_review: bool = True
+    reviewer_agent: bool = True
+    executor_backed_review_allowed: bool = True
+    product_runtime_git_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    review_result_message_bound: bool = False
+    review_summary: str = ""
+    review_findings: list[ReadonlyReviewFindingResponse] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] = "low"
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -318,6 +369,16 @@ def _get_controlled_executor_dispatch_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorControlledExecutorDispatchService:
     return ProjectDirectorControlledExecutorDispatchService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_readonly_review_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorReadonlyReviewService:
+    return ProjectDirectorReadonlyReviewService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -733,6 +794,95 @@ def confirm_session_controlled_executor_dispatch(
             if dispatch.message is not None
             else None
         ),
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/readonly-review",
+    response_model=ConfirmReadonlyReviewResponse,
+    summary="Create a readonly reviewer review from one P14 lifecycle message",
+)
+def confirm_session_readonly_review(
+    session_id: UUID,
+    request: ConfirmReadonlyReviewRequest,
+    review_service: Annotated[
+        ProjectDirectorReadonlyReviewService,
+        Depends(_get_readonly_review_service),
+    ],
+) -> ConfirmReadonlyReviewResponse:
+    """Record a readonly reviewer result without starting an executor."""
+
+    try:
+        review = review_service.confirm_review(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            requested_reviewer_executor=request.requested_reviewer_executor,
+            review_mode=request.review_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if "user_confirmation_required" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        if (
+            "source_message_not_in_session" in lowered
+            or "source_message_is_not_p14_lifecycle_result" in lowered
+            or "source_task_not_bound_to_p14_lifecycle" in lowered
+            or "source_task_is_not_safe_dry_run" in lowered
+            or "controlled_review_not_enabled_in_api" in lowered
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = review.result
+    return ConfirmReadonlyReviewResponse(
+        review_status=result.review_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        p14_lifecycle_message_id=result.p14_lifecycle_message_id,
+        requested_reviewer_executor=result.requested_reviewer_executor,
+        review_mode=result.review_mode,
+        readonly_review=result.readonly_review,
+        reviewer_agent=result.reviewer_agent,
+        executor_backed_review_allowed=result.executor_backed_review_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        review_result_message_bound=result.review_result_message_bound,
+        review_summary=result.review_summary,
+        review_findings=[
+            ReadonlyReviewFindingResponse(**finding.model_dump())
+            for finding in result.review_findings
+        ],
+        risk_level=result.risk_level,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=None,
         blocked_reasons=result.blocked_reasons,
         risks=result.risks,
         unknowns=result.unknowns,
