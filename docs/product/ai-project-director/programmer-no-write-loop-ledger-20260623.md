@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, P20, and P21-A evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, P21-A, and P21-B-A evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -652,14 +652,98 @@ P20 should add:
 - Product runtime Git write remains forbidden.
 - AI Project Director total loop remains `Partial`.
 
-### Note
+---
 
-- P21-A 当前 operation result 的 `operation` 字段统一为 `"p20_preflight_accepted_path"`，不是原始 create/update。
-- 作为 dry_run/fake_write 结果可接受。
-- 未来 P21-B 或真实 sandbox write 前，应从 P20 action 或 future operation plan 中保留原始 operation 类型。
-- P21-A 不开启真实写入能力。
+## P21-B-A Sandbox Write Operation Intent Preservation
 
-### Current Capability After P21-A
+### Gate
+
+- P21-B-A implementation: Pass
+- P21-B-A targeted regression: Pass
+- P21-B-A no-write boundary: Pass
+- P21-B-A process note: Accepted this time only because Codex also changed tests; future stages must split implementation and tests
+- P21-B-A overall: Pass with process note
+- AI Project Director total loop: Partial
+
+### Process Note
+
+This stage was executed by Codex and included implementation plus targeted test updates. This is accepted for P21-B-A only because the instruction allowed it before the user clarified the rule.
+
+Future stages must follow:
+
+- Codex: implementation only
+- Mimocode: tests / smoke / verification only
+- DeepSeek: docs / ledger / evidence only
+
+Do not allow Codex to write tests in future task instructions.
+
+### Implementation Evidence
+
+- Commit: `3df0add3e11edfeb91296fcf9e1d4474595c15dd`
+- Commit message: `backend: preserve sandbox write operation intent`
+- P20 preflight now records structured accepted operation intent: `accepted_operations[{path, operation}]`
+- P20 still keeps legacy: `accepted_operation_paths`
+- P20 suggested action now includes `accepted_operations`
+- P21-A execution now reads original operation intent from P20 action
+- P21-A operation result now preserves: `operation=create/update`, `source_preflight_operation_type=p20_preflight_accepted_path`
+- Legacy P20 actions with paths only still fallback to: `operation=p20_preflight_accepted_path`
+- No real write capability was added.
+
+### Modified Surface
+
+Implementation files:
+
+- `runtime/orchestrator/app/domain/project_director_sandbox_write_preflight.py`
+- `runtime/orchestrator/app/domain/project_director_sandbox_write_execution.py`
+- `runtime/orchestrator/app/services/project_director_sandbox_write_preflight_service.py`
+- `runtime/orchestrator/app/services/project_director_sandbox_write_execution_service.py`
+- `runtime/orchestrator/app/api/routes/project_director.py`
+
+Targeted test files modified in this commit:
+
+- `runtime/orchestrator/tests/test_project_director_sandbox_write_preflight_contract.py`
+- `runtime/orchestrator/tests/test_project_director_sandbox_write_preflight_api.py`
+- `runtime/orchestrator/tests/test_project_director_sandbox_write_execution_contract.py`
+- `runtime/orchestrator/tests/test_project_director_sandbox_write_execution_api.py`
+
+### Test Evidence
+
+- Targeted regression: `108 passed`
+- P20/P21 contract/API/smoke passed
+- Executed through equivalent `uv run ... pytest` because direct `pytest` was not in shell PATH
+- Smoke summary:
+  - dry_run: `passed_dry_run`
+  - fake_write: `passed_fake_write`
+  - controlled sandbox write: `blocked`
+  - no-write boundary: `passed`
+
+### Boundary Record
+
+- `controlled_sandbox_write` remains blocked
+- `product_runtime_git_write_allowed=false`
+- `main_worktree_write_allowed=false`
+- `worktree_write_allowed=false`
+- `file_write_allowed=false`
+- `actual_patch_applied=false`
+- `real_code_modified=false`
+- `git_write_performed=false`
+- `native_executor_started=false`
+- `codex_started=false`
+- `claude_code_started=false`
+- `worker_started=false`
+- `task_created=false`
+- `run_created=false`
+- `worktree_created=false`
+- `worktree_cleaned_up=false`
+- `rollback_snapshot_created=false`
+- `cleanup_required=false`
+- `file_written=false`
+- `patch_applied=false`
+- `target_file_content_read=false`
+- Product runtime Git write remains forbidden.
+- AI Project Director total loop remains `Partial`.
+
+### Current Capability After P21-B-A
 
 ```text
 Project Director session
@@ -672,8 +756,8 @@ Project Director session
 -> programmer no-write execution result
 -> patch preview sanitizer / diff safety hardening
 -> sandbox/worktree write design review
--> policy-only sandbox write preflight
--> sandbox write execution dry_run / fake_write result
+-> policy-only sandbox write preflight with structured operation intent
+-> sandbox write execution dry_run / fake_write result preserving original operation intent
 -> Project Director message readback
 ```
 
@@ -684,7 +768,7 @@ Not yet available:
 - Worktree create/write/cleanup for P21 execution
 - Real diff generation
 - Target file content read
-- Targeted tests against changed code
+- Targeted tests against actually changed code
 - Readonly reviewer real diff review
 - Rollback snapshot
 - Product runtime Git add / commit / push / PR / merge
