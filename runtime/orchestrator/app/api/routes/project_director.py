@@ -168,6 +168,9 @@ from app.services.project_director_sandbox_write_preflight_service import (
 from app.services.project_director_sandbox_write_execution_service import (
     ProjectDirectorSandboxWriteExecutionService,
 )
+from app.services.project_director_sandbox_write_design_lock_service import (
+    ProjectDirectorSandboxWriteDesignLockService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -640,6 +643,56 @@ class ConfirmSandboxWriteExecutionResponse(BaseModel):
     unknowns: list[str] = Field(default_factory=list)
 
 
+class ConfirmSandboxWriteDesignLockRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    design_lock_mode: Literal["dry_run", "fake_lock"] = "dry_run"
+
+
+class ConfirmSandboxWriteDesignLockResponse(BaseModel):
+    design_lock_status: Literal["locked", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    design_lock_mode: Literal["dry_run", "fake_lock"] = "dry_run"
+    source_execution_status: str | None = None
+    source_execution_mode: str | None = None
+    source_execution_message_bound: bool = False
+    source_operation_intent_preserved: bool = False
+    controlled_sandbox_write_design_locked: bool = False
+    controlled_sandbox_write_enabled: bool = False
+    sandbox_write_allowed: bool = False
+    product_runtime_git_write_allowed: bool = False
+    main_worktree_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    worktree_created: bool = False
+    worktree_cleaned_up: bool = False
+    rollback_snapshot_created: bool = False
+    cleanup_required: bool = False
+    required_preconditions: list[str] = Field(default_factory=list)
+    allowed_future_write_scope: list[str] = Field(default_factory=list)
+    forbidden_runtime_actions: list[str] = Field(default_factory=list)
+    failure_states: list[str] = Field(default_factory=list)
+    design_lock_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -731,6 +784,16 @@ def _get_sandbox_write_execution_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxWriteExecutionService:
     return ProjectDirectorSandboxWriteExecutionService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_write_design_lock_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxWriteDesignLockService:
+    return ProjectDirectorSandboxWriteDesignLockService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -1659,6 +1722,93 @@ def confirm_session_sandbox_write_execution(
         message=(
             ProjectDirectorMessageResponse.from_domain(execution.message)
             if execution.message is not None
+            else None
+        ),
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-write-design-lock",
+    response_model=ConfirmSandboxWriteDesignLockResponse,
+    summary="Create a P21-B controlled sandbox write design lock",
+)
+def confirm_session_sandbox_write_design_lock(
+    session_id: UUID,
+    request: ConfirmSandboxWriteDesignLockRequest,
+    design_lock_service: Annotated[
+        ProjectDirectorSandboxWriteDesignLockService,
+        Depends(_get_sandbox_write_design_lock_service),
+    ],
+) -> ConfirmSandboxWriteDesignLockResponse:
+    """Record design constraints before any real sandbox/worktree write exists."""
+
+    try:
+        design_lock = design_lock_service.confirm_design_lock(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            design_lock_mode=request.design_lock_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = design_lock.result
+    return ConfirmSandboxWriteDesignLockResponse(
+        design_lock_status=result.design_lock_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        design_lock_mode=result.design_lock_mode,
+        source_execution_status=result.source_execution_status,
+        source_execution_mode=result.source_execution_mode,
+        source_execution_message_bound=result.source_execution_message_bound,
+        source_operation_intent_preserved=result.source_operation_intent_preserved,
+        controlled_sandbox_write_design_locked=(
+            result.controlled_sandbox_write_design_locked
+        ),
+        controlled_sandbox_write_enabled=result.controlled_sandbox_write_enabled,
+        sandbox_write_allowed=result.sandbox_write_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        main_worktree_write_allowed=result.main_worktree_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        worktree_created=result.worktree_created,
+        worktree_cleaned_up=result.worktree_cleaned_up,
+        rollback_snapshot_created=result.rollback_snapshot_created,
+        cleanup_required=result.cleanup_required,
+        required_preconditions=result.required_preconditions,
+        allowed_future_write_scope=result.allowed_future_write_scope,
+        forbidden_runtime_actions=result.forbidden_runtime_actions,
+        failure_states=result.failure_states,
+        design_lock_summary=result.design_lock_summary,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(design_lock.message)
+            if design_lock.message is not None
             else None
         ),
         blocked_reasons=result.blocked_reasons,
