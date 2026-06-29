@@ -174,6 +174,9 @@ from app.services.project_director_sandbox_write_design_lock_service import (
 from app.services.project_director_sandbox_workspace_guard_service import (
     ProjectDirectorSandboxWorkspaceGuardService,
 )
+from app.services.project_director_sandbox_operation_manifest_guard_service import (
+    ProjectDirectorSandboxOperationManifestGuardService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -753,6 +756,84 @@ class ConfirmSandboxWorkspaceGuardResponse(BaseModel):
     message: ProjectDirectorMessageResponse | None = None
 
 
+class SandboxOperationManifestEntryResponse(BaseModel):
+    operation_id: str
+    path: str = ""
+    operation: str = ""
+    workspace_target_path_preview: str = ""
+    source_execution_status: str | None = None
+    source_preflight_path_policy_allowed: bool | None = None
+    path_within_workspace: bool = False
+    operation_manifest_allowed: bool = False
+    blocked_reasons: list[str] = Field(default_factory=list)
+
+
+class ConfirmSandboxOperationManifestGuardRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    manifest_mode: Literal["dry_run", "fake_manifest"] = "dry_run"
+
+
+class ConfirmSandboxOperationManifestGuardResponse(BaseModel):
+    manifest_status: Literal["manifested", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    manifest_mode: Literal["dry_run", "fake_manifest"] = "dry_run"
+    source_workspace_guard_status: str | None = None
+    source_workspace_guard_message_bound: bool = False
+    source_workspace_guard_verified: bool = False
+    source_design_lock_message_id: UUID | None = None
+    source_execution_message_id: UUID | None = None
+    workspace_path_preview: str | None = None
+    workspace_path_within_root: bool = False
+    operation_manifest_created: bool = False
+    manifest_operations_count: int = 0
+    manifest_allowed_operations_count: int = 0
+    manifest_blocked_operations_count: int = 0
+    manifest_operations: list[SandboxOperationManifestEntryResponse] = Field(
+        default_factory=list
+    )
+    allowed_operation_paths: list[str] = Field(default_factory=list)
+    blocked_operation_paths: list[str] = Field(default_factory=list)
+    workspace_created: bool = False
+    workspace_written: bool = False
+    file_written: bool = False
+    controlled_sandbox_write_enabled: bool = False
+    sandbox_write_allowed: bool = False
+    product_runtime_git_write_allowed: bool = False
+    main_worktree_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    real_diff_generated: bool = False
+    patch_applied: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    worktree_created: bool = False
+    worktree_cleaned_up: bool = False
+    rollback_snapshot_created: bool = False
+    cleanup_required: bool = False
+    target_file_content_read: bool = False
+    required_preconditions: list[str] = Field(default_factory=list)
+    allowed_future_manifest_scope: list[str] = Field(default_factory=list)
+    forbidden_manifest_actions: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    manifest_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -864,6 +945,16 @@ def _get_sandbox_workspace_guard_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxWorkspaceGuardService:
     return ProjectDirectorSandboxWorkspaceGuardService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_operation_manifest_guard_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxOperationManifestGuardService:
+    return ProjectDirectorSandboxOperationManifestGuardService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -1992,6 +2083,119 @@ def confirm_session_sandbox_workspace_guard(
         message=(
             ProjectDirectorMessageResponse.from_domain(workspace_guard.message)
             if workspace_guard.message is not None
+            else None
+        ),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-operation-manifest-guard",
+    response_model=ConfirmSandboxOperationManifestGuardResponse,
+    summary="Create a P21-C sandbox operation manifest guard",
+)
+def confirm_session_sandbox_operation_manifest_guard(
+    session_id: UUID,
+    request: ConfirmSandboxOperationManifestGuardRequest,
+    manifest_guard_service: Annotated[
+        ProjectDirectorSandboxOperationManifestGuardService,
+        Depends(_get_sandbox_operation_manifest_guard_service),
+    ],
+) -> ConfirmSandboxOperationManifestGuardResponse:
+    """Build a readonly operation manifest before any workspace/file write."""
+
+    try:
+        manifest_guard = manifest_guard_service.confirm_operation_manifest_guard(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            manifest_mode=request.manifest_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = manifest_guard.result
+    if result.manifest_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_operation_manifest_guard_blocked"
+            ),
+        )
+
+    return ConfirmSandboxOperationManifestGuardResponse(
+        manifest_status=result.manifest_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        manifest_mode=result.manifest_mode,
+        source_workspace_guard_status=result.source_workspace_guard_status,
+        source_workspace_guard_message_bound=(
+            result.source_workspace_guard_message_bound
+        ),
+        source_workspace_guard_verified=result.source_workspace_guard_verified,
+        source_design_lock_message_id=result.source_design_lock_message_id,
+        source_execution_message_id=result.source_execution_message_id,
+        workspace_path_preview=result.workspace_path_preview,
+        workspace_path_within_root=result.workspace_path_within_root,
+        operation_manifest_created=result.operation_manifest_created,
+        manifest_operations_count=result.manifest_operations_count,
+        manifest_allowed_operations_count=result.manifest_allowed_operations_count,
+        manifest_blocked_operations_count=result.manifest_blocked_operations_count,
+        manifest_operations=[
+            SandboxOperationManifestEntryResponse(**operation.model_dump())
+            for operation in result.manifest_operations
+        ],
+        allowed_operation_paths=result.allowed_operation_paths,
+        blocked_operation_paths=result.blocked_operation_paths,
+        workspace_created=result.workspace_created,
+        workspace_written=result.workspace_written,
+        file_written=result.file_written,
+        controlled_sandbox_write_enabled=result.controlled_sandbox_write_enabled,
+        sandbox_write_allowed=result.sandbox_write_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        main_worktree_write_allowed=result.main_worktree_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        real_diff_generated=result.real_diff_generated,
+        patch_applied=result.patch_applied,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        worktree_created=result.worktree_created,
+        worktree_cleaned_up=result.worktree_cleaned_up,
+        rollback_snapshot_created=result.rollback_snapshot_created,
+        cleanup_required=result.cleanup_required,
+        target_file_content_read=result.target_file_content_read,
+        required_preconditions=result.required_preconditions,
+        allowed_future_manifest_scope=result.allowed_future_manifest_scope,
+        forbidden_manifest_actions=result.forbidden_manifest_actions,
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+        manifest_summary=result.manifest_summary,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(manifest_guard.message)
+            if manifest_guard.message is not None
             else None
         ),
     )
