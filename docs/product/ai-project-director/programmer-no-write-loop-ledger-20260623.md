@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, P20, P21-A, and P21-B-A evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, and P21-B-B evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -743,7 +743,108 @@ Targeted test files modified in this commit:
 - Product runtime Git write remains forbidden.
 - AI Project Director total loop remains `Partial`.
 
-### Current Capability After P21-B-A
+---
+
+## P21-B-B Controlled Sandbox Write Design Lock
+
+### Gate
+
+- P21-B-B implementation: Pass
+- P21-B-B-R1 blocked API status fix: Pass
+- P21-B-B-Mimocode tests/smoke: Pass with note
+- P21-B-B no-write boundary: Pass
+- P21-B-B overall: Pass with note
+- AI Project Director total loop: Partial
+
+### Implementation Evidence
+
+- Implementation commit: `e2eeddf86028742ed48660c87cd736066e4bec96`
+- Commit message: `backend: add sandbox write design lock`
+- Added endpoint: `POST /project-director/sessions/{session_id}/sandbox-write-design-lock`
+- Added domain: `runtime/orchestrator/app/domain/project_director_sandbox_write_design_lock.py`
+- Added service: `runtime/orchestrator/app/services/project_director_sandbox_write_design_lock_service.py`
+- Modified route: `runtime/orchestrator/app/api/routes/project_director.py`
+- Successful design lock persists: `source_detail=p21_b_sandbox_write_design_lock`
+- Source message must be: `source_detail=p21_sandbox_write_execution`
+- `controlled_sandbox_write_design_locked=true` only means design locked for review.
+- It does not mean controlled sandbox write is enabled.
+- It does not mean file write / worktree write / patch apply / Git write is enabled.
+- AI Project Director total loop remains Partial.
+
+### R1 Fix Evidence
+
+- R1 commit: `e3cf7791e670db3f3268542ed5d2e2e2df51601d`
+- Commit message: `backend: return conflict for blocked design lock`
+- R1 changed only: `runtime/orchestrator/app/api/routes/project_director.py`
+- R1 fixed:
+  - blocked design lock now returns HTTP 409
+  - blocked design lock does not return 200 + `design_lock_status=blocked`
+  - blocked design lock does not create `ProjectDirectorMessage`
+  - locked success path still returns 200
+- R1 verification: compileall exit 0; `git diff --check` exit 0
+- No tests were changed by Codex in R1.
+
+### Mimocode Test Evidence
+
+- Mimocode commit: `86603142e679e873f03edf912f8783b28e1fd575`
+- Commit message: `test: add sandbox write design lock coverage`
+- Added files:
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_design_lock_contract.py`
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_design_lock_api.py`
+  - `runtime/orchestrator/tests/test_project_director_sandbox_write_design_lock_smoke.py`
+  - `runtime/orchestrator/scripts/p21_b_project_director_sandbox_write_design_lock_smoke.py`
+- Mimocode did not modify: `runtime/orchestrator/app/**`, `docs/**`, `apps/web/**`, `external_executors/**`, dependency / lockfile files
+- Reported targeted test results:
+  - contract: `29 passed`
+  - API: `10 passed`
+  - smoke pytest: `7 passed`
+  - smoke script: `passed`
+  - adjacent targeted regression: `154 passed`
+- Note: 29 + 10 + 7 = 46 new targeted pytest cases for design lock coverage. Do not write "46 contract tests"; contract command reported 29 passed.
+
+### Tested Behavior
+
+- dry_run design lock: HTTP 200, `design_lock_status=locked`
+- fake_write design lock: HTTP 200, `design_lock_status=locked`
+- user_confirmed=false: HTTP 409
+- non-P21 source message: HTTP 409
+- source task/message mismatch: HTTP 409
+- runtime write flag true: blocked at service level
+- operation intent missing: blocked at service level
+- blocked design lock: creates no `ProjectDirectorMessage`
+- successful design lock: creates exactly one `ProjectDirectorMessage`
+- successful design lock: creates no Task, creates no Run
+- message readback: includes `source_detail=p21_b_sandbox_write_design_lock`
+- misleading output: absent
+- smoke: uses isolated runtime data; refuses non-isolated runtime data; clears `OPENAI_API_KEY`; uses simulate override; cleans temporary runtime data
+
+### Boundary Record
+
+- `controlled_sandbox_write_enabled=false`
+- `sandbox_write_allowed=false`
+- `product_runtime_git_write_allowed=false`
+- `main_worktree_write_allowed=false`
+- `worktree_write_allowed=false`
+- `file_write_allowed=false`
+- `actual_patch_applied=false`
+- `real_code_modified=false`
+- `git_write_performed=false`
+- `native_executor_started=false`
+- `codex_started=false`
+- `claude_code_started=false`
+- `worker_started=false`
+- `task_created=false`
+- `run_created=false`
+- `worktree_created=false`
+- `worktree_cleaned_up=false`
+- `rollback_snapshot_created=false`
+- `cleanup_required=false`
+- `target_file_content_read=false`
+- real diff generation remains unavailable
+- product runtime Git write remains forbidden
+- AI Project Director total loop remains `Partial`
+
+### Current Capability After P21-B-B
 
 ```text
 Project Director session
@@ -758,10 +859,11 @@ Project Director session
 -> sandbox/worktree write design review
 -> policy-only sandbox write preflight with structured operation intent
 -> sandbox write execution dry_run / fake_write result preserving original operation intent
+-> controlled sandbox write design lock
 -> Project Director message readback
 ```
 
-Not yet available:
+### Not Yet Available
 
 - Actual file modification
 - Controlled sandbox/worktree write
@@ -772,3 +874,13 @@ Not yet available:
 - Readonly reviewer real diff review
 - Rollback snapshot
 - Product runtime Git add / commit / push / PR / merge
+
+### Process Note
+
+- Future Codex tasks must not add, modify, or delete tests.
+- Future Mimocode tasks should first inspect existing tests, helpers, fixtures, and smoke scripts.
+- If existing helper / fixture / smoke chain can be reused cleanly, reuse it.
+- If reuse would make tests unclear, fragile, or unsafe, adding a new focused test file is acceptable.
+- Do not create new test files just by habit.
+- Do not force reuse if it weakens safety boundary coverage.
+- DeepSeek should only update docs / ledger / evidence.
