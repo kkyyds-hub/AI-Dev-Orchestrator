@@ -114,6 +114,7 @@ NO_WRITE_FLAGS = (
 )
 
 FORBIDDEN_PATH_FRAGMENTS = (
+    "\\",
     "~",
     "://",
     ";",
