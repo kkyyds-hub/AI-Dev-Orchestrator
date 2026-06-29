@@ -1767,6 +1767,15 @@ def confirm_session_sandbox_write_design_lock(
         ) from exc
 
     result = design_lock.result
+    if result.design_lock_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_write_design_lock_blocked"
+            ),
+        )
+
     return ConfirmSandboxWriteDesignLockResponse(
         design_lock_status=result.design_lock_status,
         session_id=result.session_id,
