@@ -180,6 +180,9 @@ from app.services.project_director_sandbox_operation_manifest_guard_service impo
 from app.services.project_director_sandbox_workspace_creation_service import (
     ProjectDirectorSandboxWorkspaceCreationService,
 )
+from app.services.project_director_sandbox_workspace_manifest_write_service import (
+    ProjectDirectorSandboxWorkspaceManifestWriteService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -896,6 +899,66 @@ class ConfirmSandboxWorkspaceCreateResponse(BaseModel):
     message: ProjectDirectorMessageResponse | None = None
 
 
+class ConfirmSandboxWorkspaceManifestWriteRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    write_mode: Literal["internal_manifest_only"] = "internal_manifest_only"
+
+
+class ConfirmSandboxWorkspaceManifestWriteResponse(BaseModel):
+    manifest_write_status: Literal["written", "overwritten", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    write_mode: Literal["internal_manifest_only"] = "internal_manifest_only"
+    source_workspace_creation_status: str | None = None
+    source_workspace_creation_message_bound: bool = False
+    source_workspace_creation_verified: bool = False
+    workspace_path: str | None = None
+    workspace_path_within_root: bool = False
+    workspace_root: str | None = None
+    manifest_dir_path: str | None = None
+    manifest_file_path: str | None = None
+    manifest_dir_created: bool = False
+    manifest_file_written: bool = False
+    manifest_file_overwritten: bool = False
+    business_file_written: bool = False
+    target_file_content_read: bool = False
+    real_diff_generated: bool = False
+    patch_applied: bool = False
+    controlled_sandbox_write_enabled: bool = False
+    sandbox_write_allowed: bool = False
+    product_runtime_git_write_allowed: bool = False
+    main_worktree_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    worktree_created: bool = False
+    worktree_cleaned_up: bool = False
+    rollback_snapshot_created: bool = False
+    cleanup_required: bool = False
+    cleanup_hint: str = ""
+    required_preconditions: list[str] = Field(default_factory=list)
+    allowed_future_manifest_write_scope: list[str] = Field(default_factory=list)
+    forbidden_manifest_write_actions: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    manifest_write_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -1027,6 +1090,16 @@ def _get_sandbox_workspace_creation_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxWorkspaceCreationService:
     return ProjectDirectorSandboxWorkspaceCreationService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_workspace_manifest_write_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxWorkspaceManifestWriteService:
+    return ProjectDirectorSandboxWorkspaceManifestWriteService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -2375,6 +2448,116 @@ def confirm_session_sandbox_workspace_create(
         message=(
             ProjectDirectorMessageResponse.from_domain(workspace_creation.message)
             if workspace_creation.message is not None
+            else None
+        ),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-workspace-evidence-manifest",
+    response_model=ConfirmSandboxWorkspaceManifestWriteResponse,
+    summary="Write a P21-C sandbox workspace evidence manifest",
+)
+def confirm_session_sandbox_workspace_manifest_write(
+    session_id: UUID,
+    request: ConfirmSandboxWorkspaceManifestWriteRequest,
+    manifest_write_service: Annotated[
+        ProjectDirectorSandboxWorkspaceManifestWriteService,
+        Depends(_get_sandbox_workspace_manifest_write_service),
+    ],
+) -> ConfirmSandboxWorkspaceManifestWriteResponse:
+    """Write only the fixed internal evidence manifest after P21-C-C."""
+
+    try:
+        manifest_write = manifest_write_service.confirm_workspace_manifest_write(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            write_mode=request.write_mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = manifest_write.result
+    if result.manifest_write_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_workspace_manifest_write_blocked"
+            ),
+        )
+
+    return ConfirmSandboxWorkspaceManifestWriteResponse(
+        manifest_write_status=result.manifest_write_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        write_mode=result.write_mode,
+        source_workspace_creation_status=result.source_workspace_creation_status,
+        source_workspace_creation_message_bound=(
+            result.source_workspace_creation_message_bound
+        ),
+        source_workspace_creation_verified=result.source_workspace_creation_verified,
+        workspace_path=result.workspace_path,
+        workspace_path_within_root=result.workspace_path_within_root,
+        workspace_root=result.workspace_root,
+        manifest_dir_path=result.manifest_dir_path,
+        manifest_file_path=result.manifest_file_path,
+        manifest_dir_created=result.manifest_dir_created,
+        manifest_file_written=result.manifest_file_written,
+        manifest_file_overwritten=result.manifest_file_overwritten,
+        business_file_written=result.business_file_written,
+        target_file_content_read=result.target_file_content_read,
+        real_diff_generated=result.real_diff_generated,
+        patch_applied=result.patch_applied,
+        controlled_sandbox_write_enabled=(
+            result.controlled_sandbox_write_enabled
+        ),
+        sandbox_write_allowed=result.sandbox_write_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        main_worktree_write_allowed=result.main_worktree_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        worktree_created=result.worktree_created,
+        worktree_cleaned_up=result.worktree_cleaned_up,
+        rollback_snapshot_created=result.rollback_snapshot_created,
+        cleanup_required=result.cleanup_required,
+        cleanup_hint=result.cleanup_hint,
+        required_preconditions=result.required_preconditions,
+        allowed_future_manifest_write_scope=(
+            result.allowed_future_manifest_write_scope
+        ),
+        forbidden_manifest_write_actions=result.forbidden_manifest_write_actions,
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+        manifest_write_summary=result.manifest_write_summary,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(manifest_write.message)
+            if manifest_write.message is not None
             else None
         ),
     )
