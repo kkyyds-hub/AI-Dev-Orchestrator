@@ -171,6 +171,9 @@ from app.services.project_director_sandbox_write_execution_service import (
 from app.services.project_director_sandbox_write_design_lock_service import (
     ProjectDirectorSandboxWriteDesignLockService,
 )
+from app.services.project_director_sandbox_workspace_guard_service import (
+    ProjectDirectorSandboxWorkspaceGuardService,
+)
 from app.domain.project_director_dry_run_task_dispatch import (
     ProjectDirectorDryRunTaskWorkerResult,
 )
@@ -693,6 +696,63 @@ class ConfirmSandboxWriteDesignLockResponse(BaseModel):
     unknowns: list[str] = Field(default_factory=list)
 
 
+class ConfirmSandboxWorkspaceGuardRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    guard_mode: Literal["dry_run", "fake_guard"] = "dry_run"
+    requested_workspace_name: str | None = Field(default=None, max_length=200)
+
+
+class ConfirmSandboxWorkspaceGuardResponse(BaseModel):
+    guard_status: Literal["guarded", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    guard_mode: Literal["dry_run", "fake_guard"] = "dry_run"
+    source_design_lock_status: str | None = None
+    source_design_lock_message_bound: bool = False
+    source_design_lock_verified: bool = False
+    sandbox_workspace_guarded: bool = False
+    sandbox_workspace_root: str | None = None
+    sandbox_workspace_root_policy: str = ""
+    requested_workspace_name: str | None = None
+    normalized_workspace_name: str | None = None
+    workspace_path_preview: str | None = None
+    workspace_path_within_root: bool = False
+    workspace_created: bool = False
+    workspace_written: bool = False
+    controlled_sandbox_write_enabled: bool = False
+    sandbox_write_allowed: bool = False
+    product_runtime_git_write_allowed: bool = False
+    main_worktree_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    worktree_created: bool = False
+    worktree_cleaned_up: bool = False
+    rollback_snapshot_created: bool = False
+    cleanup_required: bool = False
+    required_preconditions: list[str] = Field(default_factory=list)
+    allowed_future_workspace_scope: list[str] = Field(default_factory=list)
+    forbidden_workspace_actions: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    guard_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -794,6 +854,16 @@ def _get_sandbox_write_design_lock_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxWriteDesignLockService:
     return ProjectDirectorSandboxWriteDesignLockService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_workspace_guard_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxWorkspaceGuardService:
+    return ProjectDirectorSandboxWorkspaceGuardService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -1823,6 +1893,107 @@ def confirm_session_sandbox_write_design_lock(
         blocked_reasons=result.blocked_reasons,
         risks=result.risks,
         unknowns=result.unknowns,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-workspace-guard",
+    response_model=ConfirmSandboxWorkspaceGuardResponse,
+    summary="Create a P21-C sandbox workspace root guard",
+)
+def confirm_session_sandbox_workspace_guard(
+    session_id: UUID,
+    request: ConfirmSandboxWorkspaceGuardRequest,
+    workspace_guard_service: Annotated[
+        ProjectDirectorSandboxWorkspaceGuardService,
+        Depends(_get_sandbox_workspace_guard_service),
+    ],
+) -> ConfirmSandboxWorkspaceGuardResponse:
+    """Preview an isolated workspace path before any real write capability."""
+
+    try:
+        workspace_guard = workspace_guard_service.confirm_workspace_guard(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            guard_mode=request.guard_mode,
+            requested_workspace_name=request.requested_workspace_name,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = workspace_guard.result
+    if result.guard_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_workspace_guard_blocked"
+            ),
+        )
+
+    return ConfirmSandboxWorkspaceGuardResponse(
+        guard_status=result.guard_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        guard_mode=result.guard_mode,
+        source_design_lock_status=result.source_design_lock_status,
+        source_design_lock_message_bound=result.source_design_lock_message_bound,
+        source_design_lock_verified=result.source_design_lock_verified,
+        sandbox_workspace_guarded=result.sandbox_workspace_guarded,
+        sandbox_workspace_root=result.sandbox_workspace_root,
+        sandbox_workspace_root_policy=result.sandbox_workspace_root_policy,
+        requested_workspace_name=result.requested_workspace_name,
+        normalized_workspace_name=result.normalized_workspace_name,
+        workspace_path_preview=result.workspace_path_preview,
+        workspace_path_within_root=result.workspace_path_within_root,
+        workspace_created=result.workspace_created,
+        workspace_written=result.workspace_written,
+        controlled_sandbox_write_enabled=result.controlled_sandbox_write_enabled,
+        sandbox_write_allowed=result.sandbox_write_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        main_worktree_write_allowed=result.main_worktree_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        worktree_created=result.worktree_created,
+        worktree_cleaned_up=result.worktree_cleaned_up,
+        rollback_snapshot_created=result.rollback_snapshot_created,
+        cleanup_required=result.cleanup_required,
+        required_preconditions=result.required_preconditions,
+        allowed_future_workspace_scope=result.allowed_future_workspace_scope,
+        forbidden_workspace_actions=result.forbidden_workspace_actions,
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+        guard_summary=result.guard_summary,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(workspace_guard.message)
+            if workspace_guard.message is not None
+            else None
+        ),
     )
 
 
