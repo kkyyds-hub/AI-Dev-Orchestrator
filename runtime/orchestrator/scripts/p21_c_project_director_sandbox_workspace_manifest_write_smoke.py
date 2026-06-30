@@ -1,0 +1,554 @@
+"""P21-C-D Project Director sandbox workspace evidence manifest write smoke.
+
+Uses isolated runtime data and does not start Codex, Claude Code, Worker
+subprocesses, worktree writes, file writes, patch application, or product
+runtime Git writes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import tempfile
+from typing import Any
+from uuid import UUID
+
+from p13_project_director_controlled_executor_lifecycle_smoke import (
+    DEFAULT_RUNTIME_DATA_DIR,
+)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true", help="Emit JSON summary.")
+    parser.add_argument(
+        "--keep-temp-data",
+        action="store_true",
+        help="Keep the isolated runtime data directory after the smoke finishes.",
+    )
+    parser.add_argument(
+        "--runtime-dir",
+        type=Path,
+        help="Use this isolated runtime data directory instead of a temp directory.",
+    )
+    return parser.parse_args()
+
+
+def _base_summary(runtime_data_dir: Path, sqlite_db_path: Path) -> dict[str, Any]:
+    return {
+        "smoke_status": "failed",
+        "session_created": False,
+        "session_id": None,
+        "p21_c_workspace_guard": None,
+        "p21_c_operation_manifest_guard": None,
+        "p21_c_workspace_create": None,
+        "p21_c_workspace_manifest_write": None,
+        "p21_c_workspace_manifest_write_second_call": None,
+        "p21_c_workspace_manifest_write_user_confirmed_blocked": None,
+        "p21_c_workspace_manifest_write_non_creation_source_blocked": None,
+        "p21_c_workspace_manifest_write_task_mismatch_blocked": None,
+        "p21_c_message_readback": None,
+        "isolated_runtime_data": False,
+        "workspace_path": None,
+        "workspace_exists": False,
+        "workspace_is_dir": False,
+        "manifest_file_path": None,
+        "manifest_file_exists": False,
+        "manifest_json_parseable": False,
+        "manifest_json_schema_version": None,
+        "manifest_json_no_secrets": False,
+        "workspace_has_no_business_files": False,
+        "manifest_file_written": False,
+        "manifest_file_overwritten": False,
+        "business_file_written": False,
+        "target_file_content_read": False,
+        "real_diff_generated": False,
+        "patch_applied": False,
+        "worktree_created": False,
+        "rollback_snapshot_created": False,
+        "git_write_performed": False,
+        "worker_started": False,
+        "task_created": False,
+        "run_created": False,
+        "cleanup_required": False,
+        "ai_project_director_total_loop": "Partial",
+        "blocked_reasons": [],
+        "risks": [],
+        "unknowns": [],
+        "runtime_data_dir": str(runtime_data_dir),
+        "sqlite_db_path": str(sqlite_db_path),
+    }
+
+
+def _configure_isolated_environment(runtime_data_dir: Path) -> Path:
+    sqlite_db_path = runtime_data_dir / "db" / "orchestrator.db"
+    os.environ["RUNTIME_DATA_DIR"] = str(runtime_data_dir)
+    os.environ["SQLITE_DB_PATH"] = str(sqlite_db_path)
+    os.environ["WORKER_SIMULATE_EXECUTION_OVERRIDE"] = "true"
+    os.environ.pop("OPENAI_API_KEY", None)
+    return sqlite_db_path
+
+
+def _request_json(
+    client: Any,
+    method: str,
+    path: str,
+    expected_status: int,
+    **kwargs: Any,
+) -> dict[str, Any] | list[Any]:
+    response = getattr(client, method.lower())(path, **kwargs)
+    if response.status_code != expected_status:
+        raise RuntimeError(
+            f"{method} {path} returned HTTP {response.status_code}, "
+            f"body: {response.text[:500]}"
+        )
+    return response.json()
+
+
+def _record_p14_lifecycle_result(
+    *, session_id: str, source_task_id: str, source_message_id: str, requested_executor: str,
+) -> str:
+    from app.core.db import SessionLocal
+    from app.domain.project_director_controlled_executor_dispatch import (
+        ProjectDirectorControlledExecutorLifecycleResult,
+    )
+    from app.repositories.project_director_message_repository import ProjectDirectorMessageRepository
+    from app.repositories.project_director_session_repository import ProjectDirectorSessionRepository
+    from app.repositories.task_repository import TaskRepository
+    from app.services.project_director_controlled_executor_dispatch_service import (
+        P14_LIFECYCLE_RESULT_SOURCE_DETAIL, ProjectDirectorControlledExecutorDispatchService,
+    )
+
+    db_session = SessionLocal()
+    try:
+        service = ProjectDirectorControlledExecutorDispatchService(
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            message_repository=ProjectDirectorMessageRepository(db_session),
+            task_repository=TaskRepository(db_session),
+        )
+        message = service.record_lifecycle_result(
+            result=ProjectDirectorControlledExecutorLifecycleResult(
+                session_id=UUID(session_id),
+                source_task_id=UUID(source_task_id),
+                source_message_id=UUID(source_message_id),
+                requested_agent_role="programmer",
+                requested_executor=requested_executor,
+                launch_mode="dry_run",
+                native_executor_started=False, codex_started=False, claude_code_started=False,
+                agent_session_bound=False, runtime_handle_id_present=False,
+                process_handle_id_present=False, supervisor_registered=False,
+                terminate_attempted=False, supervisor_cleanup_done=False,
+                run_created=True, real_code_modified=False, git_write_performed=False,
+                p9_production_safe_long_running_executor_lifecycle="Partial",
+            ),
+            source_detail=P14_LIFECYCLE_RESULT_SOURCE_DETAIL,
+        )
+        return str(message.id)
+    finally:
+        db_session.close()
+
+
+def _record_p15_review_result(
+    *, session_id: str, source_task_id: str, source_message_id: str,
+) -> str:
+    from app.core.db import SessionLocal
+    from app.repositories.project_director_message_repository import ProjectDirectorMessageRepository
+    from app.repositories.project_director_session_repository import ProjectDirectorSessionRepository
+    from app.repositories.task_repository import TaskRepository
+    from app.services.project_director_readonly_review_service import ProjectDirectorReadonlyReviewService
+
+    db_session = SessionLocal()
+    try:
+        service = ProjectDirectorReadonlyReviewService(
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            message_repository=ProjectDirectorMessageRepository(db_session),
+            task_repository=TaskRepository(db_session),
+        )
+        review = service.confirm_review(
+            session_id=UUID(session_id), source_task_id=UUID(source_task_id),
+            source_message_id=UUID(source_message_id), user_confirmed=True,
+            requested_reviewer_executor="codex", review_mode="fake_review",
+        )
+        return str(review.message.id)
+    finally:
+        db_session.close()
+
+
+def _record_p16_plan_result(
+    *, session_id: str, source_task_id: str, source_message_id: str,
+) -> str:
+    from app.core.db import SessionLocal
+    from app.repositories.project_director_message_repository import ProjectDirectorMessageRepository
+    from app.repositories.project_director_session_repository import ProjectDirectorSessionRepository
+    from app.repositories.task_repository import TaskRepository
+    from app.services.project_director_programmer_no_write_plan_service import ProjectDirectorProgrammerNoWritePlanService
+
+    db_session = SessionLocal()
+    try:
+        service = ProjectDirectorProgrammerNoWritePlanService(
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            message_repository=ProjectDirectorMessageRepository(db_session),
+            task_repository=TaskRepository(db_session),
+        )
+        plan = service.confirm_plan(
+            session_id=UUID(session_id), source_task_id=UUID(source_task_id),
+            source_message_id=UUID(source_message_id), user_confirmed=True,
+            requested_programmer_executor="codex", planning_mode="fake_plan",
+        )
+        return str(plan.message.id)
+    finally:
+        db_session.close()
+
+
+def _record_p17_execution_result(
+    *, session_id: str, source_task_id: str, source_message_id: str,
+) -> str:
+    from app.core.db import SessionLocal
+    from app.repositories.project_director_message_repository import ProjectDirectorMessageRepository
+    from app.repositories.project_director_session_repository import ProjectDirectorSessionRepository
+    from app.repositories.task_repository import TaskRepository
+    from app.services.project_director_programmer_no_write_execution_service import ProjectDirectorProgrammerNoWriteExecutionService
+
+    db_session = SessionLocal()
+    try:
+        service = ProjectDirectorProgrammerNoWriteExecutionService(
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            message_repository=ProjectDirectorMessageRepository(db_session),
+            task_repository=TaskRepository(db_session),
+        )
+        execution = service.confirm_execution(
+            session_id=UUID(session_id), source_task_id=UUID(source_task_id),
+            source_message_id=UUID(source_message_id), user_confirmed=True,
+            requested_programmer_executor="codex", execution_mode="fake_execution",
+        )
+        return str(execution.message.id)
+    finally:
+        db_session.close()
+
+
+def _prepare_project_director_chain(
+    *, summary: dict[str, Any],
+) -> tuple[str, str]:
+    """Build full chain through P21-C-D.
+
+    Returns (session_id, source_task_id).
+    """
+    import warnings
+    warnings.filterwarnings(
+        "ignore", message="Using `httpx` with `starlette.testclient` is deprecated.*", category=Warning,
+    )
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as client:
+        project_payload = _request_json(
+            client, "POST", "/projects", 201,
+            json={"name": "P21-C-D smoke", "summary": "P21-C-D smoke test.", "status": "active", "stage": "execution"},
+        )
+        project_id = project_payload["id"]
+
+        session_payload = _request_json(
+            client, "POST", "/project-director/sessions", 201,
+            json={"project_id": project_id, "goal_text": "P21-C-D manifest write smoke"},
+        )
+        session_id = session_payload["id"]
+        summary["session_created"] = True
+        summary["session_id"] = session_id
+
+        p11_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/evidence-to-agent/dry-run", 200,
+            json={"user_goal": "P21-C-D evidence"},
+        )
+        p11_message = p11_payload.get("message") or {}
+
+        p12_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/dry-run-task-dispatch", 200,
+            json={"source_message_id": p11_message.get("id"), "user_confirmed": True},
+        )
+        source_task_id = p12_payload.get("created_task_id")
+        p12_message = p12_payload.get("message") or {}
+        source_message_id = p12_message.get("id")
+
+        _request_json(client, "POST", "/workers/run-once", 200)
+
+        _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/controlled-executor-dispatch", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": source_message_id,
+                "user_confirmed": True, "requested_agent_role": "programmer",
+                "requested_executor": "codex", "launch_mode": "dry_run",
+            },
+        )
+
+        p14_message_id = _record_p14_lifecycle_result(
+            session_id=session_id, source_task_id=source_task_id,
+            source_message_id=source_message_id, requested_executor="codex",
+        )
+        p15_message_id = _record_p15_review_result(
+            session_id=session_id, source_task_id=source_task_id, source_message_id=p14_message_id,
+        )
+        p16_message_id = _record_p16_plan_result(
+            session_id=session_id, source_task_id=source_task_id, source_message_id=p15_message_id,
+        )
+        p17_message_id = _record_p17_execution_result(
+            session_id=session_id, source_task_id=source_task_id, source_message_id=p16_message_id,
+        )
+
+        # P20 preflight
+        p20_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-write-preflight", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": p17_message_id,
+                "user_confirmed": True, "preflight_mode": "dry_run",
+                "file_operations": [
+                    {
+                        "path": "runtime/orchestrator/app/domain/example.py",
+                        "operation": "create",
+                        "reason": "P21-C-D smoke",
+                        "patch_preview": ["PREVIEW ONLY: no repository file was modified."],
+                    },
+                ],
+            },
+        )
+        p20_message_id = p20_payload["message"]["id"]
+
+        # P21-A execution
+        p21_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-write-execution", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": p20_message_id,
+                "user_confirmed": True, "execution_mode": "dry_run",
+            },
+        )
+        p21_message_id = p21_payload["message"]["id"]
+
+        # P21-B design lock
+        lock_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-write-design-lock", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": p21_message_id,
+                "user_confirmed": True,
+            },
+        )
+        lock_message_id = lock_payload["message"]["id"]
+
+        # P21-C-A workspace guard
+        guard_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-workspace-guard", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": lock_message_id,
+                "user_confirmed": True,
+            },
+        )
+        summary["p21_c_workspace_guard"] = guard_payload.get("guard_status")
+        guard_message_id = guard_payload["message"]["id"]
+
+        # P21-C-B operation manifest guard
+        manifest_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-operation-manifest-guard", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": guard_message_id,
+                "user_confirmed": True,
+            },
+        )
+        summary["p21_c_operation_manifest_guard"] = manifest_payload.get("manifest_status")
+        manifest_message_id = manifest_payload["message"]["id"]
+
+        # P21-C-C workspace create
+        create_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-workspace-create", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": manifest_message_id,
+                "user_confirmed": True,
+            },
+        )
+        summary["p21_c_workspace_create"] = create_payload.get("creation_status")
+        create_message_id = create_payload["message"]["id"]
+
+        # P21-C-D manifest write (first call - written)
+        write_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-workspace-evidence-manifest", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": create_message_id,
+                "user_confirmed": True,
+            },
+        )
+        summary["p21_c_workspace_manifest_write"] = write_payload.get("manifest_write_status")
+        summary["workspace_path"] = write_payload.get("workspace_path")
+        summary["manifest_file_path"] = write_payload.get("manifest_file_path")
+        summary["manifest_file_written"] = write_payload.get("manifest_file_written", False)
+        summary["business_file_written"] = write_payload.get("business_file_written", False)
+        summary["target_file_content_read"] = write_payload.get("target_file_content_read", False)
+        summary["real_diff_generated"] = write_payload.get("real_diff_generated", False)
+        summary["patch_applied"] = write_payload.get("patch_applied", False)
+        summary["worktree_created"] = write_payload.get("worktree_created", False)
+        summary["rollback_snapshot_created"] = write_payload.get("rollback_snapshot_created", False)
+        summary["git_write_performed"] = write_payload.get("git_write_performed", False)
+        summary["worker_started"] = write_payload.get("worker_started", False)
+        summary["task_created"] = write_payload.get("task_created", False)
+        summary["run_created"] = write_payload.get("run_created", False)
+        summary["cleanup_required"] = write_payload.get("cleanup_required", False)
+
+        # Verify manifest file
+        manifest_path = Path(write_payload.get("manifest_file_path", ""))
+        summary["manifest_file_exists"] = manifest_path.exists() if str(manifest_path) else False
+        if manifest_path.exists():
+            try:
+                raw = manifest_path.read_text(encoding="utf-8")
+                data = json.loads(raw)
+                summary["manifest_json_parseable"] = True
+                summary["manifest_json_schema_version"] = data.get("schema_version")
+                secret_keys = ["key", "token", "base_url", "api_key", "secret"]
+                summary["manifest_json_no_secrets"] = not any(
+                    k in data for k in secret_keys
+                )
+            except (json.JSONDecodeError, OSError):
+                summary["manifest_json_parseable"] = False
+
+        # Verify workspace directory
+        ws_path = Path(write_payload.get("workspace_path", ""))
+        summary["workspace_exists"] = ws_path.exists() if str(ws_path) else False
+        summary["workspace_is_dir"] = ws_path.is_dir() if ws_path.exists() else False
+        if ws_path.exists() and ws_path.is_dir():
+            all_files = [f for f in ws_path.rglob("*") if f.is_file()]
+            summary["workspace_has_no_business_files"] = len(all_files) == 1 and all_files[0].name == "workspace-manifest.json"
+
+        # P21-C-D manifest write (second call - overwritten)
+        write2_payload = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-workspace-evidence-manifest", 200,
+            json={
+                "source_task_id": source_task_id, "source_message_id": create_message_id,
+                "user_confirmed": True,
+            },
+        )
+        summary["p21_c_workspace_manifest_write_second_call"] = write2_payload.get("manifest_write_status")
+        summary["manifest_file_overwritten"] = write2_payload.get("manifest_file_overwritten", False)
+
+        # Blocked: user_confirmed=false
+        _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-workspace-evidence-manifest", 409,
+            json={
+                "source_task_id": source_task_id, "source_message_id": create_message_id,
+                "user_confirmed": False,
+            },
+        )
+        summary["p21_c_workspace_manifest_write_user_confirmed_blocked"] = "blocked"
+
+        # Blocked: non-P21-C-C source
+        _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-workspace-evidence-manifest", 409,
+            json={
+                "source_task_id": source_task_id, "source_message_id": guard_message_id,
+                "user_confirmed": True,
+            },
+        )
+        summary["p21_c_workspace_manifest_write_non_creation_source_blocked"] = "blocked"
+
+        # Blocked: task mismatch
+        p11_b = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/evidence-to-agent/dry-run", 200,
+            json={"user_goal": "P21-C-D second evidence"},
+        )
+        p11_msg_b = p11_b.get("message") or {}
+        p12_b = _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/dry-run-task-dispatch", 200,
+            json={"source_message_id": p11_msg_b.get("id"), "user_confirmed": True},
+        )
+        task_b_id = p12_b.get("created_task_id")
+
+        _request_json(
+            client, "POST", f"/project-director/sessions/{session_id}/sandbox-workspace-evidence-manifest", 409,
+            json={
+                "source_task_id": task_b_id, "source_message_id": create_message_id,
+                "user_confirmed": True,
+            },
+        )
+        summary["p21_c_workspace_manifest_write_task_mismatch_blocked"] = "blocked"
+
+        # Message readback
+        messages_payload = _request_json(
+            client, "GET", f"/project-director/sessions/{session_id}/messages", 200,
+        )
+        messages = messages_payload.get("messages") or []
+        has_write = any(
+            item.get("source_detail") == "p21_c_sandbox_workspace_manifest_written"
+            for item in messages
+        )
+        summary["p21_c_message_readback"] = "passed" if has_write else "failed"
+
+        return session_id, source_task_id
+
+
+def run_smoke(runtime_data_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
+    sqlite_db_path = _configure_isolated_environment(runtime_data_dir)
+    summary = _base_summary(runtime_data_dir.resolve(), sqlite_db_path.resolve())
+    summary["isolated_runtime_data"] = runtime_data_dir.resolve() != DEFAULT_RUNTIME_DATA_DIR
+
+    if not summary["isolated_runtime_data"]:
+        summary["smoke_status"] = "blocked"
+        summary["blocked_reasons"].append("runtime_data_dir_must_be_isolated")
+        return summary
+
+    try:
+        _prepare_project_director_chain(summary=summary)
+    except Exception as exc:
+        summary["smoke_status"] = "failed"
+        summary["blocked_reasons"].append(type(exc).__name__)
+        return summary
+
+    required_checks = (
+        "session_created",
+        "p21_c_workspace_guard",
+        "p21_c_operation_manifest_guard",
+        "p21_c_workspace_create",
+        "p21_c_workspace_manifest_write",
+        "p21_c_workspace_manifest_write_second_call",
+        "p21_c_workspace_manifest_write_user_confirmed_blocked",
+        "p21_c_workspace_manifest_write_non_creation_source_blocked",
+        "p21_c_workspace_manifest_write_task_mismatch_blocked",
+        "p21_c_message_readback",
+        "isolated_runtime_data",
+        "manifest_file_exists",
+        "manifest_json_parseable",
+        "manifest_json_no_secrets",
+        "workspace_has_no_business_files",
+    )
+    if all(summary.get(item) for item in required_checks):
+        summary["smoke_status"] = "passed"
+    else:
+        summary["smoke_status"] = "partial"
+        summary["blocked_reasons"].append("required_smoke_check_failed")
+
+    return summary
+
+
+def main() -> int:
+    args = _parse_args()
+    temp_created = args.runtime_dir is None
+    runtime_data_dir = (
+        Path(tempfile.mkdtemp(prefix="p21-c-manifest-write-smoke-"))
+        if args.runtime_dir is None
+        else args.runtime_dir
+    ).resolve()
+    runtime_data_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        summary = run_smoke(runtime_data_dir, args)
+    finally:
+        should_cleanup = temp_created and not args.keep_temp_data
+        if should_cleanup:
+            shutil.rmtree(runtime_data_dir, ignore_errors=True)
+
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+    else:
+        print(f"P21-C-D manifest write smoke: {summary['smoke_status']}")
+
+    return 0 if summary["smoke_status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
