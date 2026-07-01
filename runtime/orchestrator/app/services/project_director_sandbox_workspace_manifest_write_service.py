@@ -283,7 +283,7 @@ class ProjectDirectorSandboxWorkspaceManifestWriteService:
         workspace_path_within_root = (
             workspace_root is not None
             and workspace_path is not None
-            and self._is_relative_to(workspace_path, workspace_root)
+            and self._is_strict_child_of(workspace_path, workspace_root)
         )
 
         if source_action is not None:
@@ -310,7 +310,10 @@ class ProjectDirectorSandboxWorkspaceManifestWriteService:
         if not workspace_path_text:
             blocked_reasons.append("workspace_path_missing")
         if not workspace_path_within_root:
-            blocked_reasons.append("workspace_path_not_within_root")
+            if workspace_root is not None and workspace_path == workspace_root:
+                blocked_reasons.append("workspace_path_must_be_workspace_subdirectory")
+            else:
+                blocked_reasons.append("workspace_path_not_within_root")
         if workspace_path is not None:
             try:
                 if not workspace_path.exists():
@@ -544,6 +547,10 @@ class ProjectDirectorSandboxWorkspaceManifestWriteService:
     @staticmethod
     def _is_relative_to(path: Path, root: Path) -> bool:
         return path == root or root in path.parents
+
+    @staticmethod
+    def _is_strict_child_of(path: Path, root: Path) -> bool:
+        return root in path.parents
 
     @staticmethod
     def _as_optional_str(value: Any) -> str | None:
