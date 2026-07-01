@@ -591,21 +591,17 @@ class TestSourceValidation:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 5. Strict workspace path note (workspace_path equals sandbox root)
+# 5. Strict workspace path (workspace_path equals sandbox root)
 # ══════════════════════════════════════════════════════════════════════
 
 
 class TestWorkspacePathEqualsSandboxRoot:
-    def test_workspace_path_equals_root_allowed_by_current_implementation(self, tmp_path) -> None:
-        """When workspace_path equals the sandbox workspace root exactly,
-        the current implementation may allow writing the manifest directly
-        under the shared sandbox root. This test documents that behavior.
-        If this passes, an R1 follow-up is needed to restrict manifest writing
-        to a subdirectory of the sandbox root."""
+    def test_workspace_path_equals_root_is_blocked(self, tmp_path) -> None:
+        """R1: workspace_path equal to sandbox root must be blocked."""
         session_id = uuid4()
         task_id = uuid4()
         from app.core.config import settings
-        ws_root = settings.runtime_data_dir / "project-director" / "sandbox-workspaces"
+        ws_root = (settings.runtime_data_dir / "project-director" / "sandbox-workspaces").resolve()
         ws_root.mkdir(parents=True, exist_ok=True)
         action = _workspace_creation_action(task_id, workspace_path=str(ws_root))
         msg = _make_message(
@@ -620,12 +616,37 @@ class TestWorkspacePathEqualsSandboxRoot:
             source_message=msg,
             user_confirmed=True,
         )
-        if result.manifest_write_status != "blocked":
-            import pytest
-            pytest.xfail(
-                "R1 needed: workspace_path equals sandbox root allows manifest write; "
-                "should be restricted to subdirectory"
-            )
+        assert result.manifest_write_status == "blocked"
+        assert "workspace_path_must_be_workspace_subdirectory" in result.blocked_reasons
+        assert result.manifest_file_written is False
+        assert result.business_file_written is False
+
+    def test_workspace_path_strict_subdirectory_still_written(self) -> None:
+        """R1: workspace_path as strict child of sandbox root still succeeds."""
+        session_id = uuid4()
+        task_id = uuid4()
+        from app.core.config import settings
+        ws_root = (settings.runtime_data_dir / "project-director" / "sandbox-workspaces").resolve()
+        ws_root.mkdir(parents=True, exist_ok=True)
+        ws = ws_root / f"pd-test-{uuid4().hex[:8]}"
+        ws.mkdir(parents=True, exist_ok=True)
+        action = _workspace_creation_action(task_id, workspace_path=str(ws))
+        msg = _make_message(
+            session_id, task_id, P21_C_SANDBOX_WORKSPACE_CREATE_SOURCE_DETAIL, action,
+        )
+        service = ProjectDirectorSandboxWorkspaceManifestWriteService()
+        result = service.build_workspace_manifest_write_from_sources(
+            session_id=session_id,
+            source_task_id=task_id,
+            source_message_id=uuid4(),
+            source_task=_safe_dry_run_task(task_id),
+            source_message=msg,
+            user_confirmed=True,
+        )
+        assert result.manifest_write_status == "written"
+        assert result.manifest_file_written is True
+        assert result.manifest_file_path is not None
+        assert result.manifest_file_path.endswith(".ai-project-director/workspace-manifest.json")
 
 
 # ══════════════════════════════════════════════════════════════════════
