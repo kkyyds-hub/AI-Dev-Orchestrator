@@ -494,13 +494,16 @@ class ProjectDirectorSandboxCandidateFileWriteService:
         candidate_written_files: list[CandidateSandboxWrittenFile] = []
         blocked_reasons = self._dedupe(blocked_reasons)
         if not blocked_reasons:
+            written_candidate_paths: list[Path] = []
             try:
                 for prepared_file in prepared_files:
                     prepared_file.target_path.parent.mkdir(parents=True, exist_ok=True)
-                    prepared_file.target_path.write_text(
-                        prepared_file.request.content,
+                    with prepared_file.target_path.open(
+                        mode="x",
                         encoding="utf-8",
-                    )
+                    ) as target_file:
+                        target_file.write(prepared_file.request.content)
+                    written_candidate_paths.append(prepared_file.target_path)
                     candidate_written_files.append(
                         CandidateSandboxWrittenFile(
                             relative_path=prepared_file.request.relative_path,
@@ -510,7 +513,13 @@ class ProjectDirectorSandboxCandidateFileWriteService:
                             content_size_bytes=prepared_file.content_size_bytes,
                         )
                     )
+            except FileExistsError:
+                self._rollback_written_candidate_files(written_candidate_paths)
+                blocked_reasons.append("candidate_file_write_failed")
+                blocked_reasons.append("candidate_file_target_already_exists")
+                candidate_written_files = []
             except OSError:
+                self._rollback_written_candidate_files(written_candidate_paths)
                 blocked_reasons.append("candidate_file_write_failed")
                 candidate_written_files = []
 
@@ -815,8 +824,8 @@ class ProjectDirectorSandboxCandidateFileWriteService:
         try:
             if target_path.parent.exists() and not target_path.parent.is_dir():
                 file_reasons.append("candidate_file_write_failed")
-            if target_path.exists() and target_path.is_dir():
-                file_reasons.append("candidate_file_write_failed")
+            if target_path.exists():
+                file_reasons.append("candidate_file_target_already_exists")
         except OSError:
             file_reasons.append("candidate_file_write_failed")
         if not file_reasons:
@@ -829,6 +838,15 @@ class ProjectDirectorSandboxCandidateFileWriteService:
             )
         )
         blocked_reasons.extend(file_reasons)
+
+    @staticmethod
+    def _rollback_written_candidate_files(written_candidate_paths: list[Path]) -> None:
+        for written_path in reversed(written_candidate_paths):
+            try:
+                if written_path.is_file():
+                    written_path.unlink()
+            except OSError:
+                continue
 
     @staticmethod
     def _content_size(content: str, file_reasons: list[str]) -> int:
