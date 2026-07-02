@@ -1,4 +1,4 @@
-"""Model-routing contract primitives shared by executor and worker services."""
+"""执行器和工作者服务共享的模型路由合同原语。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from app.domain._base import DomainModel
 
 
 class ExecutorRouteMode(StrEnum):
-    """Execution mode selected after merging task prefixes and routing policy."""
+    """合并任务前缀和路由策略后选择的执行模式。"""
 
     SHELL = "shell"
     SIMULATE = "simulate"
@@ -18,14 +18,14 @@ class ExecutorRouteMode(StrEnum):
 
 
 class ExecutorImplicitFallbackMode(StrEnum):
-    """Fallback mode reserved when provider execution is unavailable."""
+    """当提供者执行不可用时的回退模式。"""
 
     SIMULATE = "simulate"
     SHELL = "shell"
 
 
 class ExecutorRoutingTarget(DomainModel):
-    """Concrete provider target selected by the routing policy."""
+    """路由策略选择的具体提供者目标。"""
 
     provider_key: str = Field(min_length=1, max_length=50)
     model_name: str = Field(min_length=1, max_length=100)
@@ -34,7 +34,7 @@ class ExecutorRoutingTarget(DomainModel):
     @field_validator("provider_key", "model_name", "api_family")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
-        """Normalize provider-target string fields."""
+        """标准化提供者目标字符串字段。"""
 
         normalized_value = value.strip()
         if not normalized_value:
@@ -43,7 +43,7 @@ class ExecutorRoutingTarget(DomainModel):
 
 
 class ExecutorRoutingStrategyHint(DomainModel):
-    """Explainable strategy snapshot passed through execution planning."""
+    """通过执行规划传递的可解释策略快照。"""
 
     strategy_code: str = Field(min_length=1, max_length=100)
     model_tier: str | None = Field(default=None, max_length=40)
@@ -59,7 +59,7 @@ class ExecutorRoutingStrategyHint(DomainModel):
     @field_validator("selected_skill_codes", "selected_skill_names")
     @classmethod
     def normalize_string_list(cls, value: list[str]) -> list[str]:
-        """Trim and deduplicate ordered string lists."""
+        """修剪和去重有序字符串列表。"""
 
         normalized_items: list[str] = []
         seen_items: set[str] = set()
@@ -73,7 +73,7 @@ class ExecutorRoutingStrategyHint(DomainModel):
 
 
 class ExecutorModelRoutingContract(DomainModel):
-    """Serializable provider-routing contract consumed by the executor."""
+    """执行器消费的可序列化提供者路由合同。"""
 
     version: str = Field(default="day05.step1", min_length=1, max_length=40)
     primary_mode: ExecutorRouteMode = ExecutorRouteMode.PROVIDER
