@@ -1372,29 +1372,32 @@ class TestPositivePathPolicy:
 
 
 class TestPartialWriteFailure:
-    def test_multi_file_write_failure_consistency(self, monkeypatch):
-        """If multi-file write fails mid-way, check if first file lingers."""
+    def test_multi_file_write_failure_rolls_back(self, monkeypatch):
+        """R1: partial write failure rolls back already-written candidate files."""
         from app.core.config import settings
         ws_root = (settings.runtime_data_dir / "project-director" / "sandbox-workspaces").resolve()
         ws = ws_root / f"pd-test-{uuid4().hex[:8]}"
         _setup_workspace_with_manifest(ws)
+        manifest_path = ws / INTERNAL_MANIFEST_DIR_NAME / INTERNAL_MANIFEST_FILE_NAME
+        manifest_before = manifest_path.read_text(encoding="utf-8")
+
         session_id = uuid4()
         task_id = uuid4()
         service, msg_id = _build_service_with_fake_repos(
             session_id, task_id, ws, allowed_paths={"src/first.py", "src/second.py"},
         )
 
-        original_write_text = Path.write_text
+        original_open = Path.open
         call_count = 0
 
-        def failing_write_text(self, data, encoding=None):
+        def failing_open(self, *args, **kwargs):
             nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
+            if self.name == "second.py":
+                call_count += 1
                 raise OSError("Simulated write failure")
-            return original_write_text(self, data, encoding=encoding)
+            return original_open(self, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "write_text", failing_write_text)
+        monkeypatch.setattr(Path, "open", failing_open)
 
         result = service.build_candidate_files_write_from_sources(
             session_id=session_id,
@@ -1412,17 +1415,66 @@ class TestPartialWriteFailure:
         first_path = ws / "src" / "first.py"
         second_path = ws / "src" / "second.py"
 
-        if result.candidate_write_status == "blocked":
-            if first_path.exists():
-                pytest.xfail(
-                    "R1 needed: partial write failure leaves first file while result is blocked"
-                )
-            else:
-                assert not first_path.exists(), "No residual files after blocked write"
-                assert not second_path.exists()
-        else:
-            # If it somehow succeeded, that's also acceptable for this test
-            pass
+        assert result.candidate_write_status == "blocked"
+        assert "candidate_file_write_failed" in result.blocked_reasons
+        assert result.candidate_files_written_count == 0
+        assert result.candidate_business_files_written is False
+        assert result.business_file_written is False
+        assert not first_path.exists(), "First file should be rolled back"
+        assert not second_path.exists(), "Second file should not exist"
+        assert manifest_path.exists(), "Internal manifest must still exist"
+        assert manifest_path.read_text(encoding="utf-8") == manifest_before
+        assert result.manifest_file_written is False
+        assert result.target_file_content_read is False
+        assert result.real_diff_generated is False
+        assert result.patch_applied is False
+        assert result.worktree_created is False
+        assert result.git_write_performed is False
+        assert result.ai_project_director_total_loop == "Partial"
+
+
+class TestExistingTargetPath:
+    def test_existing_target_file_blocks(self):
+        """R1: writing to an already-existing target file is blocked."""
+        from app.core.config import settings
+        ws_root = (settings.runtime_data_dir / "project-director" / "sandbox-workspaces").resolve()
+        ws = ws_root / f"pd-test-{uuid4().hex[:8]}"
+        _setup_workspace_with_manifest(ws)
+
+        # Pre-create the target file
+        target = ws / "src" / "existing.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        original_content = "original content\n"
+        target.write_text(original_content, encoding="utf-8")
+
+        session_id = uuid4()
+        task_id = uuid4()
+        service, msg_id = _build_service_with_fake_repos(
+            session_id, task_id, ws, allowed_paths={"src/existing.py"},
+        )
+
+        result = service.build_candidate_files_write_from_sources(
+            session_id=session_id,
+            source_task_id=task_id,
+            source_message_id=msg_id,
+            source_task=_safe_dry_run_task(task_id),
+            source_message=service._message_repository.get_by_id(msg_id),
+            user_confirmed=True,
+            candidate_files=[
+                CandidateSandboxFileWrite(
+                    relative_path="src/existing.py",
+                    content="overwritten content",
+                    operation="create",
+                ),
+            ],
+        )
+
+        assert result.candidate_write_status == "blocked"
+        assert "candidate_file_target_already_exists" in result.blocked_reasons
+        assert target.read_text(encoding="utf-8") == original_content
+        assert result.candidate_files_written_count == 0
+        assert result.candidate_business_files_written is False
+        assert result.business_file_written is False
 
 
 # ══════════════════════════════════════════════════════════════════════
