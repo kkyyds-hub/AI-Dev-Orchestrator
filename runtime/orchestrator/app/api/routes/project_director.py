@@ -186,6 +186,9 @@ from app.services.project_director_sandbox_workspace_manifest_write_service impo
 from app.services.project_director_sandbox_candidate_file_write_service import (
     ProjectDirectorSandboxCandidateFileWriteService,
 )
+from app.services.project_director_sandbox_candidate_diff_service import (
+    ProjectDirectorSandboxCandidateDiffService,
+)
 from app.domain.project_director_sandbox_candidate_file_write import (
     CandidateSandboxFileWrite,
 )
@@ -1057,6 +1060,101 @@ class ConfirmSandboxCandidateFilesWriteResponse(BaseModel):
     message: ProjectDirectorMessageResponse | None = None
 
 
+class ConfirmSandboxCandidateDiffGenerateRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    diff_mode: Literal["readonly_unified_diff"] = "readonly_unified_diff"
+    max_diff_bytes: int = Field(default=200_000, gt=0)
+
+
+class CandidateSandboxDiffEntryResponse(BaseModel):
+    relative_path: str
+    operation: str
+    target_file_path: str
+    candidate_file_path: str
+    target_file_existed: bool
+    candidate_file_existed: bool
+    target_file_content_read: bool
+    candidate_file_content_read: bool
+    unified_diff: str
+    diff_bytes: int = 0
+
+
+class CandidateSandboxDiffBlockedFileResponse(BaseModel):
+    relative_path: str = ""
+    operation: str = ""
+    blocked_reasons: list[str] = Field(default_factory=list)
+
+
+class ConfirmSandboxCandidateDiffGenerateResponse(BaseModel):
+    diff_generation_status: Literal["generated", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    diff_mode: Literal["readonly_unified_diff"] = "readonly_unified_diff"
+    source_candidate_write_status: str | None = None
+    source_candidate_write_message_bound: bool = False
+    source_candidate_write_verified: bool = False
+    source_workspace_manifest_write_message_id: UUID | None = None
+    source_workspace_creation_message_id: UUID | None = None
+    source_operation_manifest_message_id: UUID | None = None
+    workspace_path: str | None = None
+    workspace_path_within_root: bool = False
+    workspace_root: str | None = None
+    internal_manifest_file_path: str | None = None
+    internal_manifest_verified: bool = False
+    repo_root: str | None = None
+    target_file_content_read: bool = False
+    candidate_file_content_read: bool = False
+    readonly_real_diff_generated: bool = False
+    real_diff_generated: bool = False
+    diff_bytes: int = 0
+    diff_file_count: int = 0
+    diff_entries: list[CandidateSandboxDiffEntryResponse] = Field(default_factory=list)
+    unified_diff_text: str = ""
+    candidate_files_considered_count: int = 0
+    candidate_files_diffed_count: int = 0
+    candidate_files_blocked_count: int = 0
+    candidate_diff_blocked_files: list[
+        CandidateSandboxDiffBlockedFileResponse
+    ] = Field(default_factory=list)
+    main_project_file_written: bool = False
+    sandbox_file_written: bool = False
+    manifest_file_written: bool = False
+    patch_applied: bool = False
+    controlled_sandbox_write_enabled: bool = False
+    sandbox_write_allowed: bool = False
+    product_runtime_git_write_allowed: bool = False
+    main_worktree_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    worktree_created: bool = False
+    worktree_cleaned_up: bool = False
+    rollback_snapshot_created: bool = False
+    cleanup_required: bool = False
+    cleanup_hint: str = ""
+    required_preconditions: list[str] = Field(default_factory=list)
+    allowed_future_diff_scope: list[str] = Field(default_factory=list)
+    forbidden_diff_actions: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    diff_generation_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -1208,6 +1306,17 @@ def _get_sandbox_candidate_file_write_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxCandidateFileWriteService:
     return ProjectDirectorSandboxCandidateFileWriteService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_candidate_diff_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxCandidateDiffService:
+    return ProjectDirectorSandboxCandidateDiffService(
+        repo_root=REPO_ROOT,
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -2803,6 +2912,140 @@ def confirm_session_sandbox_candidate_files_write(
         message=(
             ProjectDirectorMessageResponse.from_domain(candidate_write.message)
             if candidate_write.message is not None
+            else None
+        ),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-candidate-diff-generate",
+    response_model=ConfirmSandboxCandidateDiffGenerateResponse,
+    summary="Generate P21-C-F readonly real diff from sandbox candidate files",
+)
+def confirm_session_sandbox_candidate_diff_generate(
+    session_id: UUID,
+    request: ConfirmSandboxCandidateDiffGenerateRequest,
+    candidate_diff_service: Annotated[
+        ProjectDirectorSandboxCandidateDiffService,
+        Depends(_get_sandbox_candidate_diff_service),
+    ],
+) -> ConfirmSandboxCandidateDiffGenerateResponse:
+    """Generate a readonly unified diff after P21-C-E candidate file write."""
+
+    try:
+        candidate_diff = candidate_diff_service.confirm_candidate_diff_generation(
+            session_id=session_id,
+            source_task_id=request.source_task_id,
+            source_message_id=request.source_message_id,
+            user_confirmed=request.user_confirmed,
+            diff_mode=request.diff_mode,
+            max_diff_bytes=request.max_diff_bytes,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = candidate_diff.result
+    if result.diff_generation_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_candidate_diff_generate_blocked"
+            ),
+        )
+
+    return ConfirmSandboxCandidateDiffGenerateResponse(
+        diff_generation_status=result.diff_generation_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        diff_mode=result.diff_mode,
+        source_candidate_write_status=result.source_candidate_write_status,
+        source_candidate_write_message_bound=(
+            result.source_candidate_write_message_bound
+        ),
+        source_candidate_write_verified=result.source_candidate_write_verified,
+        source_workspace_manifest_write_message_id=(
+            result.source_workspace_manifest_write_message_id
+        ),
+        source_workspace_creation_message_id=(
+            result.source_workspace_creation_message_id
+        ),
+        source_operation_manifest_message_id=(
+            result.source_operation_manifest_message_id
+        ),
+        workspace_path=result.workspace_path,
+        workspace_path_within_root=result.workspace_path_within_root,
+        workspace_root=result.workspace_root,
+        internal_manifest_file_path=result.internal_manifest_file_path,
+        internal_manifest_verified=result.internal_manifest_verified,
+        repo_root=result.repo_root,
+        target_file_content_read=result.target_file_content_read,
+        candidate_file_content_read=result.candidate_file_content_read,
+        readonly_real_diff_generated=result.readonly_real_diff_generated,
+        real_diff_generated=result.real_diff_generated,
+        diff_bytes=result.diff_bytes,
+        diff_file_count=result.diff_file_count,
+        diff_entries=[
+            CandidateSandboxDiffEntryResponse(**item.model_dump(mode="json"))
+            for item in result.diff_entries
+        ],
+        unified_diff_text=result.unified_diff_text,
+        candidate_files_considered_count=result.candidate_files_considered_count,
+        candidate_files_diffed_count=result.candidate_files_diffed_count,
+        candidate_files_blocked_count=result.candidate_files_blocked_count,
+        candidate_diff_blocked_files=[
+            CandidateSandboxDiffBlockedFileResponse(**item.model_dump(mode="json"))
+            for item in result.candidate_diff_blocked_files
+        ],
+        main_project_file_written=result.main_project_file_written,
+        sandbox_file_written=result.sandbox_file_written,
+        manifest_file_written=result.manifest_file_written,
+        patch_applied=result.patch_applied,
+        controlled_sandbox_write_enabled=(
+            result.controlled_sandbox_write_enabled
+        ),
+        sandbox_write_allowed=result.sandbox_write_allowed,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        main_worktree_write_allowed=result.main_worktree_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        worktree_created=result.worktree_created,
+        worktree_cleaned_up=result.worktree_cleaned_up,
+        rollback_snapshot_created=result.rollback_snapshot_created,
+        cleanup_required=result.cleanup_required,
+        cleanup_hint=result.cleanup_hint,
+        required_preconditions=result.required_preconditions,
+        allowed_future_diff_scope=result.allowed_future_diff_scope,
+        forbidden_diff_actions=result.forbidden_diff_actions,
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+        diff_generation_summary=result.diff_generation_summary,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(candidate_diff.message)
+            if candidate_diff.message is not None
             else None
         ),
     )
