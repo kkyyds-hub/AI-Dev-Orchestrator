@@ -192,6 +192,9 @@ from app.services.project_director_sandbox_candidate_diff_service import (
 from app.services.project_director_sandbox_candidate_diff_review_handoff_service import (
     ProjectDirectorSandboxCandidateDiffReviewHandoffService,
 )
+from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
+    ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService,
+)
 from app.domain.project_director_sandbox_candidate_file_write import (
     CandidateSandboxFileWrite,
 )
@@ -1223,6 +1226,59 @@ class ConfirmSandboxCandidateDiffReviewHandoffResponse(BaseModel):
     message: ProjectDirectorMessageResponse | None = None
 
 
+class ConfirmSandboxCandidateDiffReviewExecutionPreflightRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+
+
+class ConfirmSandboxCandidateDiffReviewExecutionPreflightResponse(BaseModel):
+    review_execution_preflight_status: Literal["ready", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    source_handoff_message_id: UUID | None = None
+    source_diff_message_id: UUID | None = None
+    requested_reviewer_executor: Literal["codex", "claude-code"] = "codex"
+    source_handoff_verified: bool = False
+    source_diff_verified: bool = False
+    source_diff_sha256: str = ""
+    review_input_schema_version: str = "p21-c-h-a.v1"
+    review_output_schema_version: str = "p21-c-h-review-output.v1"
+    review_prompt_sha256: str = ""
+    review_prompt_bytes: int = 0
+    review_scope_paths: list[str] = Field(default_factory=list)
+    reviewer_started: bool = False
+    review_executed: bool = False
+    review_findings_generated: bool = False
+    review_verdict_generated: bool = False
+    provider_called: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    main_project_file_written: bool = False
+    sandbox_file_written: bool = False
+    manifest_file_written: bool = False
+    diff_file_written: bool = False
+    patch_applied: bool = False
+    product_runtime_git_write_allowed: bool = False
+    git_write_performed: bool = False
+    worktree_created: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    required_preconditions: list[str] = Field(default_factory=list)
+    allowed_future_review_execution_scope: list[str] = Field(default_factory=list)
+    forbidden_preflight_actions: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    review_execution_preflight_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -1395,6 +1451,16 @@ def _get_sandbox_candidate_diff_review_handoff_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxCandidateDiffReviewHandoffService:
     return ProjectDirectorSandboxCandidateDiffReviewHandoffService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_candidate_diff_review_execution_preflight_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService:
+    return ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -3235,6 +3301,113 @@ def confirm_session_sandbox_candidate_diff_review_handoff(
         message=(
             ProjectDirectorMessageResponse.from_domain(review_handoff.message)
             if review_handoff.message is not None
+            else None
+        ),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-candidate-diff-review-execution-preflight",
+    response_model=ConfirmSandboxCandidateDiffReviewExecutionPreflightResponse,
+    summary="Lock P21-C-H-A readonly reviewer execution input",
+)
+def confirm_session_sandbox_candidate_diff_review_execution_preflight(
+    session_id: UUID,
+    request: ConfirmSandboxCandidateDiffReviewExecutionPreflightRequest,
+    review_execution_preflight_service: Annotated[
+        ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService,
+        Depends(_get_sandbox_candidate_diff_review_execution_preflight_service),
+    ],
+) -> ConfirmSandboxCandidateDiffReviewExecutionPreflightResponse:
+    """Lock reviewer prompt fingerprint without starting review execution."""
+
+    try:
+        review_execution_preflight = (
+            review_execution_preflight_service.confirm_candidate_diff_review_execution_preflight(
+                session_id=session_id,
+                source_task_id=request.source_task_id,
+                source_message_id=request.source_message_id,
+                user_confirmed=request.user_confirmed,
+            )
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = review_execution_preflight.result
+    if result.review_execution_preflight_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_candidate_diff_review_execution_preflight_blocked"
+            ),
+        )
+
+    return ConfirmSandboxCandidateDiffReviewExecutionPreflightResponse(
+        review_execution_preflight_status=(
+            result.review_execution_preflight_status
+        ),
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        source_handoff_message_id=result.source_handoff_message_id,
+        source_diff_message_id=result.source_diff_message_id,
+        requested_reviewer_executor=result.requested_reviewer_executor,
+        source_handoff_verified=result.source_handoff_verified,
+        source_diff_verified=result.source_diff_verified,
+        source_diff_sha256=result.source_diff_sha256,
+        review_input_schema_version=result.review_input_schema_version,
+        review_output_schema_version=result.review_output_schema_version,
+        review_prompt_sha256=result.review_prompt_sha256,
+        review_prompt_bytes=result.review_prompt_bytes,
+        review_scope_paths=result.review_scope_paths,
+        reviewer_started=result.reviewer_started,
+        review_executed=result.review_executed,
+        review_findings_generated=result.review_findings_generated,
+        review_verdict_generated=result.review_verdict_generated,
+        provider_called=result.provider_called,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        main_project_file_written=result.main_project_file_written,
+        sandbox_file_written=result.sandbox_file_written,
+        manifest_file_written=result.manifest_file_written,
+        diff_file_written=result.diff_file_written,
+        patch_applied=result.patch_applied,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        git_write_performed=result.git_write_performed,
+        worktree_created=result.worktree_created,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        required_preconditions=result.required_preconditions,
+        allowed_future_review_execution_scope=(
+            result.allowed_future_review_execution_scope
+        ),
+        forbidden_preflight_actions=result.forbidden_preflight_actions,
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+        review_execution_preflight_summary=(
+            result.review_execution_preflight_summary
+        ),
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(
+                review_execution_preflight.message
+            )
+            if review_execution_preflight.message is not None
             else None
         ),
     )
