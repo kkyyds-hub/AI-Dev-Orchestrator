@@ -224,6 +224,14 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
         return True
 
     @staticmethod
+    def _review_scope_paths_for_blocked_result(
+        review_scope_paths: list[str],
+    ) -> list[str]:
+        if not isinstance(review_scope_paths, list):
+            return []
+        return [path for path in review_scope_paths if isinstance(path, str)]
+
+    @staticmethod
     def _blocked_result(
         *,
         requested_reviewer_executor: str,
@@ -244,7 +252,10 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
             review_prompt_verified=prompt_verified,
             review_prompt_sha256=actual_prompt_sha256,
             review_prompt_bytes=actual_prompt_bytes,
-            review_scope_paths=list(review_scope_paths),
+            review_scope_paths=(
+                ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService
+                ._review_scope_paths_for_blocked_result(review_scope_paths)
+            ),
             review_output_schema_version=review_output_schema_version,
             transport_invoked=transport_invoked,
             transport_status=transport_status,

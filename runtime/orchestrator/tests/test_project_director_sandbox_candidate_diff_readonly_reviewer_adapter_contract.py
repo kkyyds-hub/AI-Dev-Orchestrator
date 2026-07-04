@@ -236,11 +236,12 @@ class TestInvalidReviewScope:
 
     def test_non_string_scope_blocked(self) -> None:
         transport = FakeReadonlyReviewerTransport(raw_output_text=_valid_raw_output())
-        # R1 needed: adapter _blocked_result passes raw scope to domain model
-        # which rejects non-string items. The adapter should sanitize first.
-        # For now, test that the call raises (domain rejects bad scope in result).
-        with pytest.raises((ValidationError, Exception)):
-            _call_adapter(scope=["src/a.py", 123], transport=transport)
+        r = _call_adapter(scope=["src/a.py", 123], transport=transport)
+        assert r.adapter_status == "blocked"
+        assert "review_scope_paths_invalid" in r.blocked_reasons
+        assert transport.execute_calls == 0
+        assert r.review_scope_paths == ["src/a.py"]
+        assert "123" not in r.review_scope_paths
 
     def test_empty_string_scope_blocked(self) -> None:
         transport = FakeReadonlyReviewerTransport(raw_output_text=_valid_raw_output())
