@@ -189,6 +189,9 @@ from app.services.project_director_sandbox_candidate_file_write_service import (
 from app.services.project_director_sandbox_candidate_diff_service import (
     ProjectDirectorSandboxCandidateDiffService,
 )
+from app.services.project_director_sandbox_candidate_diff_review_handoff_service import (
+    ProjectDirectorSandboxCandidateDiffReviewHandoffService,
+)
 from app.domain.project_director_sandbox_candidate_file_write import (
     CandidateSandboxFileWrite,
 )
@@ -1155,6 +1158,71 @@ class ConfirmSandboxCandidateDiffGenerateResponse(BaseModel):
     message: ProjectDirectorMessageResponse | None = None
 
 
+class ConfirmSandboxCandidateDiffReviewHandoffRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+    handoff_mode: Literal["readonly_real_diff_review"] = "readonly_real_diff_review"
+    requested_reviewer_executor: Literal["codex", "claude-code"] = "codex"
+
+
+class ConfirmSandboxCandidateDiffReviewHandoffResponse(BaseModel):
+    review_handoff_status: Literal["created", "blocked"]
+    session_id: UUID
+    source_task_id: UUID | None = None
+    source_message_id: UUID | None = None
+    source_diff_message_id: UUID | None = None
+    handoff_mode: Literal["readonly_real_diff_review"] = "readonly_real_diff_review"
+    requested_reviewer_executor: Literal["codex", "claude-code"] = "codex"
+    source_diff_message_bound: bool = False
+    source_diff_verified: bool = False
+    source_diff_sha256: str = ""
+    diff_file_count: int = 0
+    diff_bytes: int = 0
+    review_scope_paths: list[str] = Field(default_factory=list)
+    target_file_content_read: bool = False
+    candidate_file_content_read: bool = False
+    readonly_real_diff_generated: bool = False
+    real_diff_generated: bool = False
+    reviewer_started: bool = False
+    review_executed: bool = False
+    review_verdict_generated: bool = False
+    review_findings_generated: bool = False
+    main_project_file_written: bool = False
+    sandbox_file_written: bool = False
+    manifest_file_written: bool = False
+    diff_file_written: bool = False
+    patch_applied: bool = False
+    product_runtime_git_write_allowed: bool = False
+    main_worktree_write_allowed: bool = False
+    worktree_write_allowed: bool = False
+    file_write_allowed: bool = False
+    actual_patch_applied: bool = False
+    real_code_modified: bool = False
+    git_write_performed: bool = False
+    native_executor_started: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+    worktree_created: bool = False
+    worktree_cleaned_up: bool = False
+    rollback_snapshot_created: bool = False
+    cleanup_required: bool = False
+    cleanup_hint: str = ""
+    required_preconditions: list[str] = Field(default_factory=list)
+    allowed_future_review_scope: list[str] = Field(default_factory=list)
+    forbidden_handoff_actions: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    review_handoff_summary: str = ""
+    recommended_next_step: str = ""
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -1317,6 +1385,16 @@ def _get_sandbox_candidate_diff_service(
 ) -> ProjectDirectorSandboxCandidateDiffService:
     return ProjectDirectorSandboxCandidateDiffService(
         repo_root=REPO_ROOT,
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_candidate_diff_review_handoff_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxCandidateDiffReviewHandoffService:
+    return ProjectDirectorSandboxCandidateDiffReviewHandoffService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -3046,6 +3124,117 @@ def confirm_session_sandbox_candidate_diff_generate(
         message=(
             ProjectDirectorMessageResponse.from_domain(candidate_diff.message)
             if candidate_diff.message is not None
+            else None
+        ),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-candidate-diff-review-handoff",
+    response_model=ConfirmSandboxCandidateDiffReviewHandoffResponse,
+    summary="Create P21-C-G readonly real diff review handoff",
+)
+def confirm_session_sandbox_candidate_diff_review_handoff(
+    session_id: UUID,
+    request: ConfirmSandboxCandidateDiffReviewHandoffRequest,
+    review_handoff_service: Annotated[
+        ProjectDirectorSandboxCandidateDiffReviewHandoffService,
+        Depends(_get_sandbox_candidate_diff_review_handoff_service),
+    ],
+) -> ConfirmSandboxCandidateDiffReviewHandoffResponse:
+    """Create a reviewer handoff record without starting review execution."""
+
+    try:
+        review_handoff = (
+            review_handoff_service.confirm_candidate_diff_review_handoff(
+                session_id=session_id,
+                source_task_id=request.source_task_id,
+                source_message_id=request.source_message_id,
+                user_confirmed=request.user_confirmed,
+                handoff_mode=request.handoff_mode,
+                requested_reviewer_executor=request.requested_reviewer_executor,
+            )
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = review_handoff.result
+    if result.review_handoff_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_candidate_diff_review_handoff_blocked"
+            ),
+        )
+
+    return ConfirmSandboxCandidateDiffReviewHandoffResponse(
+        review_handoff_status=result.review_handoff_status,
+        session_id=result.session_id,
+        source_task_id=result.source_task_id,
+        source_message_id=result.source_message_id,
+        source_diff_message_id=result.source_diff_message_id,
+        handoff_mode=result.handoff_mode,
+        requested_reviewer_executor=result.requested_reviewer_executor,
+        source_diff_message_bound=result.source_diff_message_bound,
+        source_diff_verified=result.source_diff_verified,
+        source_diff_sha256=result.source_diff_sha256,
+        diff_file_count=result.diff_file_count,
+        diff_bytes=result.diff_bytes,
+        review_scope_paths=result.review_scope_paths,
+        target_file_content_read=result.target_file_content_read,
+        candidate_file_content_read=result.candidate_file_content_read,
+        readonly_real_diff_generated=result.readonly_real_diff_generated,
+        real_diff_generated=result.real_diff_generated,
+        reviewer_started=result.reviewer_started,
+        review_executed=result.review_executed,
+        review_verdict_generated=result.review_verdict_generated,
+        review_findings_generated=result.review_findings_generated,
+        main_project_file_written=result.main_project_file_written,
+        sandbox_file_written=result.sandbox_file_written,
+        manifest_file_written=result.manifest_file_written,
+        diff_file_written=result.diff_file_written,
+        patch_applied=result.patch_applied,
+        product_runtime_git_write_allowed=result.product_runtime_git_write_allowed,
+        main_worktree_write_allowed=result.main_worktree_write_allowed,
+        worktree_write_allowed=result.worktree_write_allowed,
+        file_write_allowed=result.file_write_allowed,
+        actual_patch_applied=result.actual_patch_applied,
+        real_code_modified=result.real_code_modified,
+        git_write_performed=result.git_write_performed,
+        native_executor_started=result.native_executor_started,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        worktree_created=result.worktree_created,
+        worktree_cleaned_up=result.worktree_cleaned_up,
+        rollback_snapshot_created=result.rollback_snapshot_created,
+        cleanup_required=result.cleanup_required,
+        cleanup_hint=result.cleanup_hint,
+        required_preconditions=result.required_preconditions,
+        allowed_future_review_scope=result.allowed_future_review_scope,
+        forbidden_handoff_actions=result.forbidden_handoff_actions,
+        blocked_reasons=result.blocked_reasons,
+        risks=result.risks,
+        unknowns=result.unknowns,
+        review_handoff_summary=result.review_handoff_summary,
+        recommended_next_step=result.recommended_next_step,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(review_handoff.message)
+            if review_handoff.message is not None
             else None
         ),
     )
