@@ -74,7 +74,7 @@ def test_p21cf_no_write_flags() -> None:
     _, summary = _run_script()
     assert summary["readonly_real_diff_generated"] is True
     assert summary["real_diff_generated"] is True
-    assert summary["target_file_content_read"] is True  # service sets to generated; per-entry is False for create
+    assert summary["target_file_content_read"] is False  # create-only: no target read
     assert summary["candidate_file_content_read"] is True
     assert summary["patch_applied"] is False
     assert summary["worktree_created"] is False

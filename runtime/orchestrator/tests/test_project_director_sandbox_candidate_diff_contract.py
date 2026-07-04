@@ -469,10 +469,7 @@ class TestCreateOperationDiff:
         assert result.readonly_real_diff_generated is True
         assert result.real_diff_generated is True
         assert result.candidate_file_content_read is True
-        # NOTE: service sets target_file_content_read=generated (True) even for create.
-        # This is because the service uses a single flag for the whole result.
-        # R1 needed: per-entry target_file_content_read is correctly False for create.
-        assert result.target_file_content_read is True
+        assert result.target_file_content_read is False
         assert result.diff_file_count == 1
         assert result.diff_bytes > 0
         assert "--- a/src/new.py" in result.unified_diff_text
@@ -1049,7 +1046,127 @@ class TestNoSideEffects:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 9. Output no misleading terms
+# 9. Target read fact semantics (R2)
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestTargetReadFactSemantics:
+    def test_mixed_create_and_update_generated(self, tmp_path) -> None:
+        """Mixed create + update: target_file_content_read must be True."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        # Create one existing target (for update)
+        target = repo_root / "src" / "existing.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("old content\n", encoding="utf-8")
+        # src/new.py does NOT exist (for create)
+
+        ws = _tmp_ws_path()
+        _setup_workspace_with_manifest_and_candidates(ws, {
+            "src/new.py": "print('new')\n",
+            "src/existing.py": "updated content\n",
+        })
+        session_id = uuid4()
+        task_id = uuid4()
+        service, msg_id = _build_service(
+            session_id, task_id, ws, repo_root,
+            allowed_paths={"src/new.py", "src/existing.py"},
+            operations_by_path={"src/new.py": "create", "src/existing.py": "update"},
+        )
+
+        result = service.build_candidate_diff_from_sources(
+            session_id=session_id, source_task_id=task_id, source_message_id=msg_id,
+            source_task=_safe_dry_run_task(task_id),
+            source_message=service._message_repository.get_by_id(msg_id),
+            user_confirmed=True,
+        )
+
+        assert result.diff_generation_status == "generated"
+        assert result.target_file_content_read is True
+        assert result.candidate_file_content_read is True
+        assert result.diff_file_count == 2
+
+        # Find entries by relative_path
+        entries_by_path = {e.relative_path: e for e in result.diff_entries}
+        assert len(entries_by_path) == 2
+
+        create_entry = entries_by_path["src/new.py"]
+        assert create_entry.target_file_existed is False
+        assert create_entry.target_file_content_read is False
+        assert create_entry.candidate_file_content_read is True
+
+        update_entry = entries_by_path["src/existing.py"]
+        assert update_entry.target_file_existed is True
+        assert update_entry.target_file_content_read is True
+        assert update_entry.candidate_file_content_read is True
+
+        assert result.main_project_file_written is False
+        assert result.sandbox_file_written is False
+        assert result.manifest_file_written is False
+        assert result.patch_applied is False
+        assert result.worktree_created is False
+        assert result.git_write_performed is False
+        assert result.ai_project_director_total_loop == "Partial"
+
+    def test_blocked_before_target_read(self) -> None:
+        """user_confirmed=false blocks before any target read."""
+        service = ProjectDirectorSandboxCandidateDiffService()
+        result = service.build_candidate_diff_from_sources(
+            session_id=uuid4(), source_task_id=uuid4(), source_message_id=uuid4(),
+            source_task=None, source_message=None, user_confirmed=False,
+        )
+        assert result.diff_generation_status == "blocked"
+        assert result.target_file_content_read is False
+        assert result.readonly_real_diff_generated is False
+        assert result.real_diff_generated is False
+
+    def test_blocked_after_actual_target_read(self, tmp_path) -> None:
+        """diff_too_large blocks after target file was actually read."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        target = repo_root / "src" / "existing.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("old content\n", encoding="utf-8")
+
+        ws = _tmp_ws_path()
+        _setup_workspace_with_manifest_and_candidates(
+            ws, {"src/existing.py": "new content\n"}
+        )
+        session_id = uuid4()
+        task_id = uuid4()
+        service, msg_id = _build_service(
+            session_id, task_id, ws, repo_root,
+            allowed_paths={"src/existing.py"},
+            operations_by_path={"src/existing.py": "update"},
+        )
+
+        result = service.build_candidate_diff_from_sources(
+            session_id=session_id, source_task_id=task_id, source_message_id=msg_id,
+            source_task=_safe_dry_run_task(task_id),
+            source_message=service._message_repository.get_by_id(msg_id),
+            user_confirmed=True,
+            max_diff_bytes=1,
+        )
+
+        assert result.diff_generation_status == "blocked"
+        assert "diff_too_large" in result.blocked_reasons
+        assert result.target_file_content_read is True
+        assert result.readonly_real_diff_generated is False
+        assert result.real_diff_generated is False
+        assert result.diff_file_count == 0
+        assert result.diff_bytes == 0
+        assert result.diff_entries == []
+        assert result.unified_diff_text == ""
+        assert result.main_project_file_written is False
+        assert result.sandbox_file_written is False
+        assert result.manifest_file_written is False
+        assert result.patch_applied is False
+        assert result.worktree_created is False
+        assert result.git_write_performed is False
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 10. Output no misleading terms
 # ══════════════════════════════════════════════════════════════════════
 
 
