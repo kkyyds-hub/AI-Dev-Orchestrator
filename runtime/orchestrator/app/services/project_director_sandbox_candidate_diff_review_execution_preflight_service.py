@@ -632,7 +632,8 @@ class ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService:
             blocked_reasons.append("source_diff_write_boundary_violated")
         if diff_action.get("ai_project_director_total_loop") != "Partial":
             blocked_reasons.append("source_diff_write_boundary_violated")
-        entry_paths: list[str] = []
+        entry_scope_paths: list[str] = []
+        seen_entry_paths: set[str] = set()
         for entry in diff_entries:
             if not isinstance(entry, dict) or any(
                 field not in entry for field in SOURCE_DIFF_ENTRY_REQUIRED_FIELDS
@@ -652,8 +653,10 @@ class ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService:
                 entry_diff.encode("utf-8")
             ):
                 blocked_reasons.append("source_diff_not_generated")
-            entry_paths.append(relative_path)
-        if review_scope_paths != entry_paths:
+            if relative_path not in seen_entry_paths:
+                entry_scope_paths.append(relative_path)
+                seen_entry_paths.add(relative_path)
+        if review_scope_paths != entry_scope_paths:
             blocked_reasons.append("review_scope_paths_missing")
 
     @staticmethod
