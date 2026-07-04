@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel
 from app.domain.project_director_sandbox_candidate_diff_review_output import (
@@ -17,7 +17,10 @@ from app.domain.project_director_sandbox_candidate_diff_review_output import (
 
 
 ReadonlyReviewerAdapterStatus = Literal["validated_output", "blocked"]
-ReadonlyReviewerAdapterExecutionMode = Literal["fake_transport"]
+ReadonlyReviewerAdapterExecutionMode = Literal[
+    "fake_transport",
+    "native_capture_transport",
+]
 
 
 class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(DomainModel):
@@ -80,12 +83,6 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(DomainMod
     ai_project_director_total_loop: str = "Partial"
 
     @field_validator(
-        "real_reviewer_started",
-        "real_reviewer_executed",
-        "native_process_started",
-        "provider_called",
-        "codex_started",
-        "claude_code_started",
         "main_project_file_written",
         "sandbox_file_written",
         "manifest_file_written",
@@ -103,6 +100,38 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(DomainMod
         if value:
             raise ValueError("readonly reviewer adapter may not execute or write")
         return value
+
+    @model_validator(mode="after")
+    def validate_execution_flags(
+        self,
+    ) -> "ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult":
+        real_flags = (
+            self.real_reviewer_started,
+            self.real_reviewer_executed,
+            self.native_process_started,
+            self.provider_called,
+            self.codex_started,
+            self.claude_code_started,
+        )
+        if self.execution_mode == "fake_transport" and any(real_flags):
+            raise ValueError("readonly reviewer adapter may not execute or write")
+        if self.provider_called:
+            raise ValueError("readonly reviewer adapter may not call provider")
+        if self.codex_started and self.claude_code_started:
+            raise ValueError("readonly reviewer adapter executor flags conflict")
+        if self.execution_mode == "native_capture_transport":
+            if self.codex_started and self.requested_reviewer_executor != "codex":
+                raise ValueError("readonly reviewer adapter executor flags mismatch")
+            if (
+                self.claude_code_started
+                and self.requested_reviewer_executor != "claude-code"
+            ):
+                raise ValueError("readonly reviewer adapter executor flags mismatch")
+            if self.real_reviewer_executed and not (
+                self.real_reviewer_started and self.native_process_started
+            ):
+                raise ValueError("readonly reviewer adapter execution flags mismatch")
+        return self
 
 
 __all__ = (

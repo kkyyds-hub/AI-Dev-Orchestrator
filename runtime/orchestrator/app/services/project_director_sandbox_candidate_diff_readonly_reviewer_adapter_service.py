@@ -143,6 +143,13 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
                 transport_invoked=transport_result.transport_invoked,
                 transport_status=transport_result.transport_status,
                 transport_error_code=transport_result.transport_error_code,
+                execution_mode=transport_result.execution_mode,
+                real_reviewer_started=transport_result.real_reviewer_started,
+                real_reviewer_executed=transport_result.real_reviewer_executed,
+                native_process_started=transport_result.native_process_started,
+                provider_called=transport_result.provider_called,
+                codex_started=transport_result.codex_started,
+                claude_code_started=transport_result.claude_code_started,
                 blocked_reasons=blocked_reasons,
             )
 
@@ -158,7 +165,7 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
             blocked_reasons.append("review_output_validation_blocked")
             return ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(
                 adapter_status="blocked",
-                execution_mode="fake_transport",
+                execution_mode=transport_result.execution_mode,
                 requested_reviewer_executor=requested_reviewer_executor,
                 review_prompt_verified=prompt_verified,
                 review_prompt_sha256=actual_prompt_sha256,
@@ -179,13 +186,19 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
                     validation_result.blocked_reasons
                 ),
                 blocked_reasons=blocked_reasons,
+                real_reviewer_started=transport_result.real_reviewer_started,
+                real_reviewer_executed=transport_result.real_reviewer_executed,
+                native_process_started=transport_result.native_process_started,
+                provider_called=transport_result.provider_called,
+                codex_started=transport_result.codex_started,
+                claude_code_started=transport_result.claude_code_started,
             )
 
         # ── Validated ─────────────────────────────────────────────────
 
         return ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(
             adapter_status="validated_output",
-            execution_mode="fake_transport",
+            execution_mode=transport_result.execution_mode,
             requested_reviewer_executor=requested_reviewer_executor,
             review_prompt_verified=prompt_verified,
             review_prompt_sha256=actual_prompt_sha256,
@@ -210,6 +223,12 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
             recommended_next_step=validation_result.recommended_next_step,
             output_validation_blocked_reasons=[],
             blocked_reasons=[],
+            real_reviewer_started=transport_result.real_reviewer_started,
+            real_reviewer_executed=transport_result.real_reviewer_executed,
+            native_process_started=transport_result.native_process_started,
+            provider_called=transport_result.provider_called,
+            codex_started=transport_result.codex_started,
+            claude_code_started=transport_result.claude_code_started,
         )
 
     @staticmethod
@@ -243,11 +262,18 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
         transport_invoked: bool = False,
         transport_status: str = "",
         transport_error_code: str | None = None,
+        execution_mode: str = "fake_transport",
+        real_reviewer_started: bool = False,
+        real_reviewer_executed: bool = False,
+        native_process_started: bool = False,
+        provider_called: bool = False,
+        codex_started: bool = False,
+        claude_code_started: bool = False,
         blocked_reasons: list[str],
     ) -> ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult:
         return ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(
             adapter_status="blocked",
-            execution_mode="fake_transport",
+            execution_mode=execution_mode,
             requested_reviewer_executor=requested_reviewer_executor,
             review_prompt_verified=prompt_verified,
             review_prompt_sha256=actual_prompt_sha256,
@@ -268,6 +294,12 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService:
             findings=[],
             recommended_next_step="",
             blocked_reasons=blocked_reasons,
+            real_reviewer_started=real_reviewer_started,
+            real_reviewer_executed=real_reviewer_executed,
+            native_process_started=native_process_started,
+            provider_called=provider_called,
+            codex_started=codex_started,
+            claude_code_started=claude_code_started,
         )
 
 

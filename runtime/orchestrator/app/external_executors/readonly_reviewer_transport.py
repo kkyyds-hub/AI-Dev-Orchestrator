@@ -22,6 +22,11 @@ ReadonlyReviewerTransportStatus = Literal[
     "failed",
 ]
 
+ReadonlyReviewerTransportExecutionMode = Literal[
+    "fake_transport",
+    "native_capture_transport",
+]
+
 
 # ── Transport request ─────────────────────────────────────────────────
 
@@ -51,6 +56,13 @@ class ReadonlyReviewerTransportRawResult:
     raw_output_text: str = field(repr=False, compare=False, default="")
     transport_error_code: str | None = None
     transport_invoked: bool = False
+    execution_mode: ReadonlyReviewerTransportExecutionMode = "fake_transport"
+    real_reviewer_started: bool = False
+    real_reviewer_executed: bool = False
+    native_process_started: bool = False
+    provider_called: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
 
 
 # ── Transport protocol ────────────────────────────────────────────────
@@ -98,12 +110,20 @@ class FakeReadonlyReviewerTransport:
             raw_output_text=self._raw_output_text,
             transport_error_code=self._transport_error_code,
             transport_invoked=True,
+            execution_mode="fake_transport",
+            real_reviewer_started=False,
+            real_reviewer_executed=False,
+            native_process_started=False,
+            provider_called=False,
+            codex_started=False,
+            claude_code_started=False,
         )
 
 
 __all__ = (
     "FakeReadonlyReviewerTransport",
     "ReadonlyReviewerTransportProtocol",
+    "ReadonlyReviewerTransportExecutionMode",
     "ReadonlyReviewerTransportRawResult",
     "ReadonlyReviewerTransportRequest",
     "ReadonlyReviewerTransportStatus",
