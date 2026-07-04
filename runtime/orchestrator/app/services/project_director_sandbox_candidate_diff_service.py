@@ -667,7 +667,7 @@ class ProjectDirectorSandboxCandidateDiffService:
             internal_manifest_file_path=internal_manifest_file_text,
             internal_manifest_verified=internal_manifest_verified,
             repo_root=repo_root_text,
-            target_file_content_read=generated,
+            target_file_content_read=target_file_content_read and generated,
             candidate_file_content_read=candidate_file_content_read and generated,
             readonly_real_diff_generated=generated,
             real_diff_generated=generated,
