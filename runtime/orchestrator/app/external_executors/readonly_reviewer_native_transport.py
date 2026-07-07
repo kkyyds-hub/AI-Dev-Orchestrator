@@ -109,6 +109,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                 stdout_bytes = self._capture_stdout_bounded(
                     process=process,
                     deadline=deadline,
+                    stdin_writer=stdin_writer,
                 )
                 self._wait_for_stdin_writer(
                     stdin_writer=stdin_writer,
@@ -146,8 +147,26 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     codex_started=codex_started,
                     claude_code_started=claude_code_started,
                 )
+            except _StdinWriteFailedError:
+                self._stop_started_process(
+                    process_handle_id=process_handle_id,
+                    process=process,
+                    registered=registered,
+                    stdin_writer=stdin_writer,
+                )
+                return self._raw_result(
+                    request=request,
+                    transport_status="failed",
+                    transport_error_code="reviewer_stdin_write_failed",
+                    started=started,
+                    executed=False,
+                    codex_started=codex_started,
+                    claude_code_started=claude_code_started,
+                )
 
-            returncode = getattr(process, "returncode", None)
+            returncode = self._process_poll(process)
+            if returncode is None:
+                returncode = getattr(process, "returncode", None)
             if returncode != 0:
                 return self._raw_result(
                     request=request,
@@ -231,6 +250,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         *,
         process: Any,
         deadline: float,
+        stdin_writer: "_StdinWriterHandle",
     ) -> bytes:
         if getattr(process, "stdout", None) is None:
             raise RuntimeError("reviewer stdout pipe missing")
@@ -240,6 +260,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
             return self._capture_stdout_bounded_without_fileno(
                 process=process,
                 deadline=deadline,
+                stdin_writer=stdin_writer,
             )
 
         selector = selectors.DefaultSelector()
@@ -250,6 +271,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                 stdout_fileno=stdout_fileno,
                 selector=selector,
                 deadline=deadline,
+                stdin_writer=stdin_writer,
             )
         finally:
             selector.close()
@@ -261,6 +283,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         stdout_fileno: int,
         selector: selectors.BaseSelector,
         deadline: float,
+        stdin_writer: "_StdinWriterHandle",
     ) -> bytes:
         captured = bytearray()
         while True:
@@ -270,6 +293,11 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     cmd="readonly-reviewer-native-capture",
                     timeout=self._timeout_seconds,
                 )
+            if self._stdin_writer_failed_or_nonzero_exited(
+                process=process,
+                stdin_writer=stdin_writer,
+            ):
+                break
 
             events = selector.select(timeout=min(remaining, 0.05))
             if events:
@@ -304,6 +332,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         *,
         process: Any,
         deadline: float,
+        stdin_writer: "_StdinWriterHandle",
     ) -> bytes:
         captured = bytearray()
 
@@ -314,6 +343,11 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     cmd="readonly-reviewer-native-capture",
                     timeout=self._timeout_seconds,
                 )
+            if self._stdin_writer_failed_or_nonzero_exited(
+                process=process,
+                stdin_writer=stdin_writer,
+            ):
+                break
 
             returncode = self._process_poll(process)
             if returncode is None:
@@ -337,6 +371,19 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
             break
 
         return bytes(captured)
+
+    def _stdin_writer_failed_or_nonzero_exited(
+        self,
+        *,
+        process: Any,
+        stdin_writer: "_StdinWriterHandle",
+    ) -> bool:
+        if not stdin_writer.done.is_set() or not stdin_writer.failed:
+            return False
+        returncode = self._process_poll(process)
+        if returncode is not None and returncode != 0:
+            return True
+        raise _StdinWriteFailedError()
 
     def _start_stdin_writer(
         self,
@@ -583,6 +630,10 @@ __all__ = ("NativeReadonlyReviewerCaptureTransport",)
 
 
 class _StdoutTooLargeError(RuntimeError):
+    pass
+
+
+class _StdinWriteFailedError(RuntimeError):
     pass
 
 
