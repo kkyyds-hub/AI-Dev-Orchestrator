@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import selectors
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from app.external_executors.readonly_reviewer_transport import (
 
 
 _AGENT_SESSION_ID = "readonly-reviewer-native-capture"
+_STDIN_CHUNK_BYTES = 8192
 _STDOUT_CHUNK_BYTES = 8192
 _CLAUDE_REVIEW_INSTRUCTION = (
     "Review the content provided through stdin and return only the requested "
@@ -72,6 +74,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         started = False
         codex_started = False
         claude_code_started = False
+        stdin_writer = None
 
         try:
             process = self._popen_factory(
@@ -96,18 +99,27 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                 process_adapter=process,
             )
             registered = True
+            deadline = time.monotonic() + self._timeout_seconds
+            stdin_writer = self._start_stdin_writer(
+                process=process,
+                prompt_bytes=request.review_prompt_text.encode("utf-8"),
+            )
 
             try:
                 stdout_bytes = self._capture_stdout_bounded(
                     process=process,
-                    process_handle_id=process_handle_id,
-                    prompt_bytes=request.review_prompt_text.encode("utf-8"),
+                    deadline=deadline,
+                )
+                self._wait_for_stdin_writer(
+                    stdin_writer=stdin_writer,
+                    deadline=deadline,
                 )
             except subprocess.TimeoutExpired:
                 self._stop_started_process(
                     process_handle_id=process_handle_id,
                     process=process,
                     registered=registered,
+                    stdin_writer=stdin_writer,
                 )
                 return self._raw_result(
                     request=request,
@@ -123,6 +135,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     process_handle_id=process_handle_id,
                     process=process,
                     registered=registered,
+                    stdin_writer=stdin_writer,
                 )
                 return self._raw_result(
                     request=request,
@@ -140,6 +153,17 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     request=request,
                     transport_status="failed",
                     transport_error_code="reviewer_native_exit_nonzero",
+                    started=started,
+                    executed=False,
+                    codex_started=codex_started,
+                    claude_code_started=claude_code_started,
+                )
+
+            if stdin_writer.failed or not stdin_writer.completed:
+                return self._raw_result(
+                    request=request,
+                    transport_status="failed",
+                    transport_error_code="reviewer_stdin_write_failed",
                     started=started,
                     executed=False,
                     codex_started=codex_started,
@@ -175,6 +199,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     process_handle_id=process_handle_id,
                     process=process,
                     registered=registered,
+                    stdin_writer=stdin_writer,
                 )
                 return self._raw_result(
                     request=request,
@@ -205,17 +230,11 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         self,
         *,
         process: Any,
-        process_handle_id: str,
-        prompt_bytes: bytes,
+        deadline: float,
     ) -> bytes:
-        if getattr(process, "stdin", None) is None:
-            raise RuntimeError("reviewer stdin pipe missing")
         if getattr(process, "stdout", None) is None:
             raise RuntimeError("reviewer stdout pipe missing")
 
-        deadline = time.monotonic() + self._timeout_seconds
-        process.stdin.write(prompt_bytes)
-        process.stdin.close()
         stdout_fileno = self._stdout_fileno(process.stdout)
         if stdout_fileno is None:
             return self._capture_stdout_bounded_without_fileno(
@@ -296,6 +315,13 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     timeout=self._timeout_seconds,
                 )
 
+            returncode = self._process_poll(process)
+            if returncode is None:
+                try:
+                    process.wait(timeout=min(remaining, 0.05))
+                except subprocess.TimeoutExpired:
+                    continue
+
             chunk = process.stdout.read(
                 min(
                     _STDOUT_CHUNK_BYTES,
@@ -308,15 +334,82 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
                     raise _StdoutTooLargeError()
                 continue
 
-            returncode = self._process_poll(process)
-            if returncode is not None:
-                break
-            try:
-                process.wait(timeout=min(remaining, 0.05))
-            except subprocess.TimeoutExpired:
-                continue
+            break
 
         return bytes(captured)
+
+    def _start_stdin_writer(
+        self,
+        *,
+        process: Any,
+        prompt_bytes: bytes,
+    ) -> "_StdinWriterHandle":
+        stdin_pipe = getattr(process, "stdin", None)
+        if stdin_pipe is None:
+            raise RuntimeError("reviewer stdin pipe missing")
+        state = _StdinWriterState()
+        done = threading.Event()
+        thread = threading.Thread(
+            target=self._write_stdin,
+            kwargs={
+                "stdin_pipe": stdin_pipe,
+                "prompt_bytes": prompt_bytes,
+                "state": state,
+                "done": done,
+            },
+            daemon=True,
+        )
+        thread.start()
+        return _StdinWriterHandle(thread=thread, done=done, state=state)
+
+    def _write_stdin(
+        self,
+        *,
+        stdin_pipe: Any,
+        prompt_bytes: bytes,
+        state: "_StdinWriterState",
+        done: threading.Event,
+    ) -> None:
+        try:
+            offset = 0
+            while offset < len(prompt_bytes):
+                chunk = prompt_bytes[offset:offset + _STDIN_CHUNK_BYTES]
+                written = stdin_pipe.write(chunk)
+                if written is None:
+                    offset += len(chunk)
+                elif written > 0:
+                    offset += written
+                else:
+                    raise BrokenPipeError("stdin write made no progress")
+                flush = getattr(stdin_pipe, "flush", None)
+                if flush is not None:
+                    flush()
+            stdin_pipe.close()
+            state.completed = True
+        except Exception as exc:
+            state.failed = True
+            state.exception_type = type(exc).__name__
+        finally:
+            done.set()
+
+    def _wait_for_stdin_writer(
+        self,
+        *,
+        stdin_writer: "_StdinWriterHandle",
+        deadline: float,
+    ) -> None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(
+                cmd="readonly-reviewer-native-capture",
+                timeout=self._timeout_seconds,
+            )
+        if not stdin_writer.done.wait(timeout=remaining):
+            raise subprocess.TimeoutExpired(
+                cmd="readonly-reviewer-native-capture",
+                timeout=self._timeout_seconds,
+            )
+        stdin_writer.thread.join(timeout=min(remaining, self._terminate_wait_seconds))
 
     @staticmethod
     def _stdout_fileno(stdout_pipe: Any) -> int | None:
@@ -334,30 +427,39 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         process_handle_id: str,
         process: Any,
         registered: bool,
+        stdin_writer: "_StdinWriterHandle | None" = None,
     ) -> None:
-        self._terminate_process(
-            process_handle_id=process_handle_id,
-            process=process,
-            registered=registered,
-        )
         try:
-            process.wait(timeout=self._terminate_wait_seconds)
-        except subprocess.TimeoutExpired:
-            self._kill_process(
+            self._close_process_stdin(process)
+            self._terminate_process(
                 process_handle_id=process_handle_id,
                 process=process,
                 registered=registered,
             )
             try:
                 process.wait(timeout=self._terminate_wait_seconds)
+            except subprocess.TimeoutExpired:
+                self._kill_process(
+                    process_handle_id=process_handle_id,
+                    process=process,
+                    registered=registered,
+                )
+                try:
+                    process.wait(timeout=self._terminate_wait_seconds)
+                except Exception:
+                    pass
             except Exception:
-                pass
-        except Exception:
-            self._kill_process(
-                process_handle_id=process_handle_id,
-                process=process,
-                registered=registered,
-            )
+                self._kill_process(
+                    process_handle_id=process_handle_id,
+                    process=process,
+                    registered=registered,
+                )
+                try:
+                    process.wait(timeout=self._terminate_wait_seconds)
+                except Exception:
+                    pass
+        finally:
+            self._join_stdin_writer_bounded(stdin_writer)
 
     def _terminate_process(
         self,
@@ -366,13 +468,17 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         process: Any,
         registered: bool,
     ) -> None:
+        supervisor_terminated = False
         try:
             if registered:
-                self._process_supervisor.terminate(process_handle_id)
-            else:
-                self._call_process_method(process, "terminate")
+                result = self._process_supervisor.terminate(process_handle_id)
+                supervisor_terminated = bool(
+                    getattr(result, "action_success", False)
+                )
         except Exception:
             pass
+        if not supervisor_terminated:
+            self._call_process_method(process, "terminate")
 
     def _kill_process(
         self,
@@ -381,11 +487,30 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         process: Any,
         registered: bool,
     ) -> None:
+        supervisor_killed = False
         try:
             if registered:
-                self._process_supervisor.kill(process_handle_id)
-            else:
-                self._call_process_method(process, "kill")
+                result = self._process_supervisor.kill(process_handle_id)
+                supervisor_killed = bool(getattr(result, "action_success", False))
+        except Exception:
+            pass
+        if not supervisor_killed:
+            self._call_process_method(process, "kill")
+
+    def _join_stdin_writer_bounded(
+        self,
+        stdin_writer: "_StdinWriterHandle | None",
+    ) -> None:
+        if stdin_writer is not None:
+            stdin_writer.thread.join(timeout=self._terminate_wait_seconds)
+
+    def _close_process_stdin(self, process: Any) -> None:
+        stdin_pipe = getattr(process, "stdin", None)
+        if stdin_pipe is None:
+            return
+        try:
+            if not getattr(stdin_pipe, "closed", False):
+                stdin_pipe.close()
         except Exception:
             pass
 
@@ -459,3 +584,31 @@ __all__ = ("NativeReadonlyReviewerCaptureTransport",)
 
 class _StdoutTooLargeError(RuntimeError):
     pass
+
+
+class _StdinWriterState:
+    def __init__(self) -> None:
+        self.completed = False
+        self.failed = False
+        self.exception_type: str | None = None
+
+
+class _StdinWriterHandle:
+    def __init__(
+        self,
+        *,
+        thread: threading.Thread,
+        done: threading.Event,
+        state: _StdinWriterState,
+    ) -> None:
+        self.thread = thread
+        self.done = done
+        self._state = state
+
+    @property
+    def completed(self) -> bool:
+        return self._state.completed
+
+    @property
+    def failed(self) -> bool:
+        return self._state.failed
