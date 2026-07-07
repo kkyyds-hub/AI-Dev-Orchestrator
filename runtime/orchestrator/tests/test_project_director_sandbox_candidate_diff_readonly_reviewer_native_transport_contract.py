@@ -855,3 +855,505 @@ class TestWriteFlagsAlwaysFalse:
         for flag in WRITE_FLAGS:
             assert getattr(result, flag) is False, f"{flag} should be False"
         assert result.ai_project_director_total_loop == "Partial"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Q. Real bidirectional pipe backpressure
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _write_helper_script(path: Path, script: str) -> Path:
+    path.write_text(script)
+    return path
+
+
+def test_bidirectional_pipe_backpressure(tmp_path) -> None:
+    """Large stdin + large stdout must not deadlock."""
+    stdin_size = 1 * 1024 * 1024  # 1 MiB
+    stdout_size = 1 * 1024 * 1024  # 1 MiB
+    script = (
+        f"import sys\n"
+        f"# First write large stdout\n"
+        f"sys.stdout.buffer.write(b'O' * {stdout_size})\n"
+        f"sys.stdout.buffer.flush()\n"
+        f"# Then read all stdin\n"
+        f"_ = sys.stdin.buffer.read()\n"
+    )
+    helper = _write_helper_script(tmp_path / "bidi_helper.py", script)
+    prompt = "P" * stdin_size
+
+    sup = SpySupervisor()
+    transport = NativeReadonlyReviewerCaptureTransport(
+        workspace_path=str(tmp_path),
+        timeout_seconds=15.0,
+        max_output_bytes=stdout_size + 1024,
+        process_supervisor=sup,
+        popen_factory=lambda argv, **kw: subprocess.Popen(
+            [sys.executable, str(helper)],
+            **{k: v for k, v in kw.items() if k != "close_fds"},
+        ),
+    )
+
+    # Outer watchdog thread
+    result_holder: dict[str, Any] = {}
+
+    def _run():
+        try:
+            result_holder["result"] = transport.execute(_request(prompt=prompt))
+        except Exception as exc:
+            result_holder["error"] = exc
+
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=20.0)
+    assert not t.is_alive(), "Test deadlocked - outer watchdog triggered"
+    assert "result" in result_holder, f"Error: {result_holder.get('error')}"
+    result = result_holder["result"]
+    assert result.transport_status == "completed"
+    assert len(result.raw_output_text.encode("utf-8")) == stdout_size
+    assert result.real_reviewer_executed is True
+    assert sup.snapshot().total_records == 0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# R. Writer-block timeout
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_writer_block_timeout(tmp_path) -> None:
+    """Large stdin to a process that never reads must timeout cleanly."""
+    script = (
+        "import sys, time\n"
+        "time.sleep(30)\n"  # never reads stdin, never exits
+    )
+    helper = _write_helper_script(tmp_path / "block_helper.py", script)
+    prompt = "X" * (1024 * 1024)  # 1 MiB - exceeds pipe buffer
+
+    sup = SpySupervisor()
+    transport = NativeReadonlyReviewerCaptureTransport(
+        workspace_path=str(tmp_path),
+        timeout_seconds=1.0,
+        max_output_bytes=100_000,
+        process_supervisor=sup,
+        popen_factory=lambda argv, **kw: subprocess.Popen(
+            [sys.executable, str(helper)],
+            **{k: v for k, v in kw.items() if k != "close_fds"},
+        ),
+    )
+
+    result = transport.execute(_request(prompt=prompt))
+    assert result.transport_status == "timeout"
+    assert result.transport_error_code == "reviewer_native_timeout"
+    assert result.real_reviewer_executed is False
+    assert result.raw_output_text == ""
+    assert sup.snapshot().total_records == 0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# S. Selector writer-failure propagation
+# ══════════════════════════════════════════════════════════════════════
+
+
+class _BrokenStdinPipe:
+    """Stdin pipe that immediately raises BrokenPipeError on write."""
+    def __init__(self) -> None:
+        self.closed = False
+        self.written = b""
+
+    def write(self, data: bytes) -> int:
+        raise BrokenPipeError("stdin pipe broken")
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _NeverExitsFakeProcess:
+    """Process that stays running (poll=None) with real stdout fileno."""
+    def __init__(self) -> None:
+        self.stdin = _BrokenStdinPipe()
+        self._read_fd, self._write_fd = os.pipe()
+        # Keep write end open - stdout never closes
+        self.stdout = _NeverExitsStdout(self._read_fd)
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self) -> int | None:
+        return None
+
+    def wait(self, timeout=None) -> int:
+        time.sleep(timeout or 0.1)
+        raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 0)
+
+    def terminate(self) -> None:
+        self.terminated = True
+        try:
+            os.close(self._write_fd)
+        except OSError:
+            pass
+
+    def kill(self) -> None:
+        self.killed = True
+        try:
+            os.close(self._write_fd)
+        except OSError:
+            pass
+
+
+class _NeverExitsStdout:
+    """Stdout with real fileno but never produces data."""
+    def __init__(self, fd: int) -> None:
+        self._fd = fd
+
+    def fileno(self) -> int:
+        return self._fd
+
+    def read(self, n=-1) -> bytes:
+        return b""
+
+    def close(self) -> None:
+        pass
+
+
+def test_selector_writer_failure_propagation(tmp_path) -> None:
+    """Selector path: stdin.write raises BrokenPipeError → fast failed."""
+    process = _NeverExitsFakeProcess()
+    sup = SpySupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup, timeout=5.0)
+
+    start = time.monotonic()
+    result = transport.execute(_request())
+    elapsed = time.monotonic() - start
+
+    assert result.transport_status == "failed"
+    assert result.transport_error_code == "reviewer_stdin_write_failed"
+    assert result.real_reviewer_executed is False
+    assert result.raw_output_text == ""
+    assert elapsed < 2.0, f"Should return fast, took {elapsed:.2f}s"
+    assert process.terminated or process.killed
+    assert sup.snapshot().total_records == 0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# T. No-fileno writer-failure propagation
+# ══════════════════════════════════════════════════════════════════════
+
+
+class _NoFilenoStdout:
+    """Stdout without fileno method."""
+    def __init__(self) -> None:
+        self._closed = False
+
+    def read(self, n=-1) -> bytes:
+        return b""
+
+    def close(self) -> None:
+        self._closed = True
+
+
+class _NoFilenoFakeProcess:
+    """Process with no fileno on stdout, broken stdin."""
+    def __init__(self) -> None:
+        self.stdin = _BrokenStdinPipe()
+        self.stdout = _NoFilenoStdout()
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self) -> int | None:
+        return None
+
+    def wait(self, timeout=None) -> int:
+        time.sleep(timeout or 0.1)
+        raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 0)
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def test_no_fileno_writer_failure_propagation(tmp_path) -> None:
+    """No-fileno path: stdin.write raises BrokenPipeError → fast failed."""
+    process = _NoFilenoFakeProcess()
+    sup = SpySupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup, timeout=5.0)
+
+    start = time.monotonic()
+    result = transport.execute(_request())
+    elapsed = time.monotonic() - start
+
+    assert result.transport_status == "failed"
+    assert result.transport_error_code == "reviewer_stdin_write_failed"
+    assert result.real_reviewer_executed is False
+    assert result.raw_output_text == ""
+    assert elapsed < 2.0, f"Should return fast, took {elapsed:.2f}s"
+    assert process.terminated or process.killed
+
+
+# ══════════════════════════════════════════════════════════════════════
+# U. Non-zero exit priority over writer failure
+# ══════════════════════════════════════════════════════════════════════
+
+
+class _NonZeroExitBrokenStdinProcess:
+    """Process that exits non-zero AND has broken stdin."""
+    def __init__(self) -> None:
+        self.stdin = _BrokenStdinPipe()
+        self._read_fd, self._write_fd = os.pipe()
+        os.close(self._write_fd)  # stdout EOF immediately
+        self.stdout = _NeverExitsStdout(self._read_fd)
+        self.returncode = 7
+        self.terminated = False
+        self.killed = False
+
+    def poll(self) -> int | None:
+        return 7
+
+    def wait(self, timeout=None) -> int:
+        return 7
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def test_nonzero_exit_priority_over_writer_failure(tmp_path) -> None:
+    """Non-zero exit should take priority over stdin write failure."""
+    process = _NonZeroExitBrokenStdinProcess()
+    transport, _, _ = _transport(tmp_path, process=process)
+    result = transport.execute(_request())
+    assert result.transport_status == "failed"
+    assert result.transport_error_code == "reviewer_native_exit_nonzero"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# V. Stdout too large + writer cleanup
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_stdout_too_large_writer_cleanup(tmp_path) -> None:
+    """When stdout exceeds limit, writer thread should be joined."""
+    data = b"O" * 101
+    process = RealPipeFakeProcess(stdout_bytes=data, returncode=0)
+    sup = SpySupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup, max_output_bytes=100)
+    result = transport.execute(_request())
+    assert result.transport_status == "failed"
+    assert result.transport_error_code == "reviewer_stdout_too_large"
+    assert result.raw_output_text == ""
+    assert result.real_reviewer_executed is False
+    assert sup.cleanup_calls == 1
+    assert sup.snapshot().total_records == 0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# W. Register failure direct terminate verification
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_register_failure_direct_terminate(tmp_path) -> None:
+    """Register failure must directly call process.terminate."""
+    process = RealPipeFakeProcess(stdout_bytes=_valid_raw_output().encode("utf-8"))
+    sup = RegisterFailingSupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup)
+    result = transport.execute(_request())
+    assert result.transport_status == "failed"
+    assert result.transport_error_code == "reviewer_native_failed"
+    assert result.real_reviewer_executed is False
+    assert process.terminated is True
+    assert sup.register_calls == 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# X. Supervisor terminate fallback
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TerminateFailingSupervisor(RealExecutorProcessSupervisor):
+    """Supervisor whose terminate raises an exception."""
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_calls = 0
+        self.cleanup_calls = 0
+        self.terminate_calls = 0
+
+    def register(self, *args, **kwargs):
+        self.register_calls += 1
+        return super().register(*args, **kwargs)
+
+    def terminate(self, *args, **kwargs):
+        self.terminate_calls += 1
+        raise RuntimeError("supervisor terminate failed")
+
+    def cleanup(self, *args, **kwargs):
+        self.cleanup_calls += 1
+        return super().cleanup(*args, **kwargs)
+
+
+def test_supervisor_terminate_fallback_to_direct(tmp_path) -> None:
+    """When supervisor.terminate fails, transport falls back to process.terminate."""
+    process = RealPipeFakeProcess(stdout_bytes=b"", returncode=0, delay_stdout=10.0)
+    sup = TerminateFailingSupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup, timeout=0.3)
+    result = transport.execute(_request())
+    assert result.transport_status == "timeout"
+    assert process.terminated is True  # direct fallback was called
+    assert sup.terminate_calls >= 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Y. Supervisor kill fallback
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TerminateAndKillFailingSupervisor(RealExecutorProcessSupervisor):
+    """Supervisor whose terminate and kill both raise."""
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_calls = 0
+        self.cleanup_calls = 0
+
+    def register(self, *args, **kwargs):
+        self.register_calls += 1
+        return super().register(*args, **kwargs)
+
+    def terminate(self, *args, **kwargs):
+        raise RuntimeError("supervisor terminate failed")
+
+    def kill(self, *args, **kwargs):
+        raise RuntimeError("supervisor kill failed")
+
+    def cleanup(self, *args, **kwargs):
+        self.cleanup_calls += 1
+        return super().cleanup(*args, **kwargs)
+
+
+def test_supervisor_kill_fallback_to_direct(tmp_path) -> None:
+    """When supervisor.kill fails, transport falls back to process.kill."""
+    # Process that doesn't respond to terminate (wait keeps timing out)
+    process = RealPipeFakeProcess(stdout_bytes=b"", returncode=0, delay_stdout=10.0)
+    # Make wait after terminate also timeout
+    orig_wait = process.wait
+    call_count = [0]
+    def patched_wait(timeout=None):
+        call_count[0] += 1
+        if call_count[0] > 1:  # second wait (after terminate) also times out
+            raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 0)
+        return orig_wait(timeout=timeout)
+    process.wait = patched_wait
+
+    sup = TerminateAndKillFailingSupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup, timeout=0.3)
+    result = transport.execute(_request())
+    assert result.transport_status == "timeout"
+    assert process.killed is True  # direct fallback kill was called
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Z. Writer failure → H-B1 0 calls
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_writer_failure_no_hb1_call(tmp_path) -> None:
+    """Stdin writer failure must not call H-B1."""
+    process = _NeverExitsFakeProcess()
+    sup = SpySupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup, timeout=5.0)
+
+    class SpyHB1:
+        call_count = 0
+        def validate_raw_review_output(self, **kwargs):
+            self.call_count += 1
+            raise AssertionError("H-B1 must not be called")
+
+    spy = SpyHB1()
+    result = _call_adapter(transport, svc=ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterService(
+        output_validation_service=spy,
+    ))
+    assert result.adapter_status == "blocked"
+    assert result.transport_status == "failed"
+    assert result.transport_error_code == "reviewer_stdin_write_failed"
+    assert spy.call_count == 0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AA. Unexpected capture failure cleanup
+# ══════════════════════════════════════════════════════════════════════
+
+
+class _StdoutReadErrorProcess:
+    """Process with valid stdin/stdout fileno but whose poll always returns None
+    and wait raises a generic exception (not TimeoutExpired)."""
+    def __init__(self) -> None:
+        self.stdin = _FakeStdinPipe()
+        self._read_fd, self._write_fd = os.pipe()
+        # Keep write end open so stdout never EOFs
+        self.stdout = _NeverExitsStdout(self._read_fd)
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self) -> int | None:
+        return None
+
+    def wait(self, timeout=None) -> int:
+        # Raise a non-TimeoutExpired exception to trigger unexpected failure path
+        raise OSError("unexpected wait error")
+
+    def terminate(self) -> None:
+        self.terminated = True
+        try:
+            os.close(self._write_fd)
+        except OSError:
+            pass
+
+    def kill(self) -> None:
+        self.killed = True
+        try:
+            os.close(self._write_fd)
+        except OSError:
+            pass
+
+
+def test_unexpected_capture_failure_cleanup(tmp_path) -> None:
+    """When process.wait raises a non-TimeoutExpired exception (e.g. OSError),
+    the outer except handler catches it and returns failed with cleanup.
+    Note: in practice, the timeout mechanism may fire first if the process
+    doesn't exit. This test uses a process that produces output (so the
+    selector loop runs) but whose wait() raises OSError after poll returns non-None."""
+    # Process: writes some stdout, then poll returns 0 (exited), wait raises OSError
+    class _OSErrorWaitProcess:
+        def __init__(self) -> None:
+            self.stdin = _FakeStdinPipe()
+            self.stdout = _FakeStdoutPipe(b"some output")
+            self.returncode = 0
+            self.terminated = False
+            self.killed = False
+
+        def poll(self) -> int | None:
+            return 0  # process exited
+
+        def wait(self, timeout=None) -> int:
+            raise OSError("unexpected wait error")
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        def kill(self) -> None:
+            self.killed = True
+
+    process = _OSErrorWaitProcess()
+    sup = SpySupervisor()
+    transport, _, _ = _transport(tmp_path, process=process, supervisor=sup, timeout=5.0)
+    result = transport.execute(_request())
+    # The outer except catches OSError → reviewer_native_failed
+    assert result.transport_status == "failed"
+    assert result.real_reviewer_executed is False
+    assert process.terminated or process.killed
