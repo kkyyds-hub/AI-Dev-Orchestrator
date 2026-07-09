@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import os
 import selectors
 import subprocess
@@ -42,6 +43,7 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         process_supervisor: RealExecutorProcessSupervisor,
         popen_factory: Any,
         terminate_wait_seconds: float = 0.2,
+        claude_code_child_environment: Mapping[str, str] | None = None,
     ) -> None:
         workspace = Path(workspace_path)
         if not workspace.is_absolute():
@@ -62,6 +64,11 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         self._terminate_wait_seconds = terminate_wait_seconds
         self._process_supervisor = process_supervisor
         self._popen_factory = popen_factory
+        self._claude_code_child_environment = (
+            dict(claude_code_child_environment)
+            if claude_code_child_environment is not None
+            else None
+        )
 
     def execute(
         self,
@@ -77,15 +84,20 @@ class NativeReadonlyReviewerCaptureTransport(ReadonlyReviewerTransportProtocol):
         stdin_writer = None
 
         try:
-            process = self._popen_factory(
-                list(argv),
-                cwd=self._workspace_path,
-                shell=False,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-            )
+            popen_kwargs = {
+                "cwd": self._workspace_path,
+                "shell": False,
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.DEVNULL,
+                "close_fds": True,
+            }
+            if (
+                request.requested_reviewer_executor == "claude-code"
+                and self._claude_code_child_environment is not None
+            ):
+                popen_kwargs["env"] = dict(self._claude_code_child_environment)
+            process = self._popen_factory(list(argv), **popen_kwargs)
             started = True
             codex_started = request.requested_reviewer_executor == "codex"
             claude_code_started = (
