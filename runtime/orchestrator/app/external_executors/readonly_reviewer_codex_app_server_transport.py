@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -82,6 +83,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
         registered = False
         started = False
         reader = None
+        writer_handles: list[_StdinWriterHandle] = []
 
         try:
             process = self._popen_factory(
@@ -110,6 +112,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                     request=request,
                     process=process,
                     reader=reader,
+                    writer_handles=writer_handles,
                     deadline=deadline,
                 )
             except _TransportFailure as exc:
@@ -161,6 +164,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                     process=process,
                     registered=registered,
                     reader=reader,
+                    writer_handles=writer_handles,
                 )
             elif registered:
                 self._cleanup_supervisor(process_handle_id)
@@ -171,6 +175,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
         request: ReadonlyReviewerTransportRequest,
         process: Any,
         reader: "_StdoutReaderHandle",
+        writer_handles: list["_StdinWriterHandle"],
         deadline: float,
     ) -> str:
         self._send_jsonl_bounded(
@@ -180,6 +185,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                 "method": "initialize",
                 "params": {"clientInfo": dict(_CLIENT_INFO)},
             },
+            writer_handles=writer_handles,
             deadline=deadline,
         )
         initialize_response = self._wait_for_response(
@@ -197,6 +203,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
         self._send_jsonl_bounded(
             process=process,
             message={"method": "initialized", "params": {}},
+            writer_handles=writer_handles,
             deadline=deadline,
         )
         self._send_jsonl_bounded(
@@ -211,6 +218,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                     "serviceName": "ai_dev_orchestrator_readonly_reviewer",
                 },
             },
+            writer_handles=writer_handles,
             deadline=deadline,
         )
         thread_response = self._wait_for_response(
@@ -251,6 +259,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                         },
                     },
                 },
+                writer_handles=writer_handles,
                 deadline=deadline,
             )
             turn_response = self._wait_for_response(
@@ -300,6 +309,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                 reader=reader,
                 thread_id=thread_id,
                 thread_ephemeral=thread_ephemeral,
+                writer_handles=writer_handles,
                 deadline=deadline,
             )
             if cleanup_failure is not None:
@@ -317,6 +327,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
         reader: "_StdoutReaderHandle",
         thread_id: str,
         thread_ephemeral: bool,
+        writer_handles: list["_StdinWriterHandle"],
         deadline: float,
     ) -> "_TransportFailure | None":
         if thread_ephemeral:
@@ -329,6 +340,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                     "method": "thread/delete",
                     "params": {"threadId": thread_id},
                 },
+                writer_handles=writer_handles,
                 deadline=deadline,
             )
             cleanup_response = self._wait_for_response(
@@ -371,7 +383,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
         buffer = bytearray()
         try:
             while not state.stop_requested.is_set():
-                chunk = stdout_pipe.read(_STDOUT_CHUNK_BYTES)
+                chunk = self._read_stdout_chunk(stdout_pipe)
                 if not chunk:
                     break
                 buffer.extend(chunk)
@@ -399,6 +411,28 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
             state.done.set()
             with state.condition:
                 state.condition.notify_all()
+
+    @staticmethod
+    def _read_stdout_chunk(stdout_pipe: Any) -> bytes:
+        fileno = getattr(stdout_pipe, "fileno", None)
+        if fileno is not None:
+            try:
+                return os.read(fileno(), _STDOUT_CHUNK_BYTES)
+            except (OSError, TypeError, ValueError):
+                pass
+        read1 = getattr(stdout_pipe, "read1", None)
+        if read1 is not None:
+            chunk = read1(_STDOUT_CHUNK_BYTES)
+            if isinstance(chunk, str):
+                return chunk.encode("utf-8")
+            return chunk
+        read = getattr(stdout_pipe, "read", None)
+        if read is None:
+            return b""
+        chunk = read(_STDOUT_CHUNK_BYTES)
+        if isinstance(chunk, str):
+            return chunk.encode("utf-8")
+        return chunk
 
     def _handle_protocol_line(
         self,
@@ -497,6 +531,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
         *,
         process: Any,
         message: dict[str, Any],
+        writer_handles: list["_StdinWriterHandle"],
         deadline: float,
     ) -> None:
         stdin_pipe = getattr(process, "stdin", None)
@@ -515,10 +550,11 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
             },
             daemon=True,
         )
+        writer = _StdinWriterHandle(thread=thread, done=done, state=state)
+        writer_handles.append(writer)
         thread.start()
         remaining = deadline - time.monotonic()
         if remaining <= 0 or not done.wait(timeout=remaining):
-            thread.join(timeout=self._terminate_wait_seconds)
             raise _TransportFailure("timeout", "reviewer_native_timeout")
         thread.join(timeout=min(remaining, self._terminate_wait_seconds))
         if state.failed or not state.completed:
@@ -559,6 +595,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
         process: Any,
         registered: bool,
         reader: "_StdoutReaderHandle | None",
+        writer_handles: list["_StdinWriterHandle"],
     ) -> None:
         try:
             self._close_process_stdin(process)
@@ -593,7 +630,15 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
             if reader is not None:
                 reader.request_stop()
                 reader.thread.join(timeout=self._terminate_wait_seconds)
+            self._join_writer_handles_bounded(writer_handles)
             self._cleanup_supervisor(process_handle_id)
+
+    def _join_writer_handles_bounded(
+        self,
+        writer_handles: list["_StdinWriterHandle"],
+    ) -> None:
+        for writer in writer_handles:
+            writer.thread.join(timeout=self._terminate_wait_seconds)
 
     def _terminate_process(
         self,
@@ -781,6 +826,27 @@ class _StdinWriterState:
         self.failed = False
 
 
+class _StdinWriterHandle:
+    def __init__(
+        self,
+        *,
+        thread: threading.Thread,
+        done: threading.Event,
+        state: _StdinWriterState,
+    ) -> None:
+        self.thread = thread
+        self.done = done
+        self._state = state
+
+    @property
+    def completed(self) -> bool:
+        return self._state.completed
+
+    @property
+    def failed(self) -> bool:
+        return self._state.failed
+
+
 class _StdoutReaderState:
     def __init__(self) -> None:
         self.condition = threading.Condition()
@@ -819,7 +885,11 @@ class _StdoutReaderHandle:
         timeout_seconds: float,
     ) -> dict[str, Any] | None:
         with self._state.condition:
-            while request_id not in self._state.responses and not self._state.failed:
+            while (
+                request_id not in self._state.responses
+                and not self._state.failed
+                and not self._state.done.is_set()
+            ):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return None
@@ -833,7 +903,11 @@ class _StdoutReaderHandle:
         timeout_seconds: float,
     ) -> str | None:
         with self._state.condition:
-            while not self._state.turn_completed and not self._state.failed:
+            while (
+                not self._state.turn_completed
+                and not self._state.failed
+                and not self._state.done.is_set()
+            ):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return None
