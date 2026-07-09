@@ -214,7 +214,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                 "params": {
                     "cwd": self._workspace_path,
                     "approvalPolicy": "never",
-                    "sandbox": "readOnly",
+                    "sandbox": "read-only",
                     "serviceName": "ai_dev_orchestrator_readonly_reviewer",
                 },
             },
