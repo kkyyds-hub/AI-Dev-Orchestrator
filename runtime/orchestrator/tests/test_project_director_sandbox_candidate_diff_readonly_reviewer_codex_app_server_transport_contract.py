@@ -396,6 +396,7 @@ class TestOutboundProtocol:
         assert thread["id"] == 2
         assert thread["params"]["approvalPolicy"] == "never"
         assert thread["params"]["cwd"] == str(tmp_path)
+        assert thread["params"]["sandbox"] == "read-only"
         assert "model" not in thread["params"]
 
         # Turn/start
