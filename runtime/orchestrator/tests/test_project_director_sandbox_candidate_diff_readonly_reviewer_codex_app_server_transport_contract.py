@@ -1012,8 +1012,59 @@ class TestWriterBackpressure:
 # ══════════════════════════════════════════════════════════════════════
 
 
+class _ProcessProxy:
+    """Lightweight proxy over a real Popen that counts direct terminate/kill calls."""
+
+    def __init__(self, proc: subprocess.Popen) -> None:
+        object.__setattr__(self, "_proc", proc)
+        object.__setattr__(self, "direct_terminate_calls", 0)
+        object.__setattr__(self, "direct_kill_calls", 0)
+
+    def terminate(self) -> None:
+        object.__setattr__(self, "direct_terminate_calls", self.direct_terminate_calls + 1)
+        self._proc.terminate()
+
+    def kill(self) -> None:
+        object.__setattr__(self, "direct_kill_calls", self.direct_kill_calls + 1)
+        self._proc.kill()
+
+    def wait(self, timeout=None):
+        return self._proc.wait(timeout=timeout)
+
+    def poll(self):
+        return self._proc.poll()
+
+    @property
+    def stdin(self):
+        return self._proc.stdin
+
+    @stdin.setter
+    def stdin(self, value):
+        self._proc.stdin = value
+
+    @property
+    def stdout(self):
+        return self._proc.stdout
+
+    @property
+    def stderr(self):
+        return self._proc.stderr
+
+    @property
+    def pid(self):
+        return self._proc.pid
+
+    @property
+    def returncode(self):
+        return self._proc.returncode
+
+    def __getattr__(self, name):
+        return getattr(self._proc, name)
+
+
 class TestThreadCleanupLifecycle:
-    def _execute_with_thread_capture(self, tmp_path, script_content, *, timeout=10.0, **kwargs):
+    def _execute_with_thread_capture(self, tmp_path, script_content, *, timeout=10.0,
+                                     popen_factory=None, supervisor=None, **kwargs):
         """Execute transport while capturing all threading.Thread objects."""
         import threading as _threading
         captured_threads: list[_threading.Thread] = []
@@ -1027,13 +1078,14 @@ class TestThreadCleanupLifecycle:
         monkeypatch_ctx.setattr(_threading.Thread, "__init__", capturing_init)
         try:
             script = _write_script(tmp_path, "fake_server.py", script_content)
-            sup = SpySupervisor()
+            sup = supervisor or SpySupervisor()
+            factory = popen_factory or _popen_factory_for_script(script)
             transport = CodexAppServerReadonlyReviewerTransport(
                 workspace_path=str(tmp_path),
                 timeout_seconds=timeout,
                 max_output_bytes=100_000,
                 process_supervisor=sup,
-                popen_factory=_popen_factory_for_script(script),
+                popen_factory=factory,
             )
             result = transport.execute(_request())
             # Give threads time to finish
@@ -1069,11 +1121,22 @@ class TestThreadCleanupLifecycle:
             def close(self):
                 self.closed = True
 
-        result, threads, sup = self._execute_with_thread_capture(tmp_path, script, timeout=5.0)
-        # Override popen_factory to inject broken stdin
-        # Note: threads captured from the actual execute call
-        assert result.transport_status in ("failed", "timeout")
+        original_factory = _popen_factory_for_script(
+            _write_script(tmp_path, "fake_server_writer.py", script),
+        )
+
+        def broken_stdin_factory(argv, **kwargs):
+            proc = original_factory(argv, **kwargs)
+            proc.stdin = FakeStdin()
+            return proc
+
+        result, threads, sup = self._execute_with_thread_capture(
+            tmp_path, script, timeout=5.0, popen_factory=broken_stdin_factory,
+        )
+        assert result.transport_status == "failed"
+        assert result.transport_error_code == "reviewer_stdin_write_failed"
         assert all(not t.is_alive() for t in threads), "Threads still alive after writer failure"
+        assert sup.snapshot().total_records == 0
 
     def test_protocol_failure_threads_not_alive(self, tmp_path) -> None:
         script = _fake_app_server_script(invalid_json=True)
@@ -1110,10 +1173,30 @@ class TestSupervisorCleanup:
 
         script = _fake_app_server_script(never_read_stdin=True)
         sup = TerminateFailingSupervisor()
-        transport, _, _ = _transport(tmp_path, script, supervisor=sup, timeout=1.0)
+        proxy_holder: list[_ProcessProxy] = []
+
+        def proxy_factory(argv, **kwargs):
+            proc = subprocess.Popen(
+                [sys.executable, "-u", str(_write_script(tmp_path, "f.py", script))],
+                **{k: v for k, v in kwargs.items() if k != "close_fds"},
+            )
+            proxy = _ProcessProxy(proc)
+            proxy_holder.append(proxy)
+            return proxy
+
+        transport = CodexAppServerReadonlyReviewerTransport(
+            workspace_path=str(tmp_path),
+            timeout_seconds=1.0,
+            max_output_bytes=100_000,
+            process_supervisor=sup,
+            popen_factory=proxy_factory,
+        )
         result = transport.execute(_request())
         assert result.transport_status == "timeout"
+        assert result.transport_error_code == "reviewer_native_timeout"
         assert sup.terminate_calls >= 1, "Supervisor terminate must be attempted"
+        assert proxy_holder, "Proxy must have been created"
+        assert proxy_holder[0].direct_terminate_calls >= 1, "Direct terminate must be called on fallback"
         assert sup.snapshot().total_records == 0
 
     def test_supervisor_terminate_returns_failure_fallback(self, tmp_path) -> None:
@@ -1133,16 +1216,35 @@ class TestSupervisorCleanup:
 
         script = _fake_app_server_script(never_read_stdin=True)
         sup = TerminateReturnsFailureSupervisor()
-        transport, _, _ = _transport(tmp_path, script, supervisor=sup, timeout=1.0)
+        proxy_holder: list[_ProcessProxy] = []
+
+        def proxy_factory(argv, **kwargs):
+            proc = subprocess.Popen(
+                [sys.executable, "-u", str(_write_script(tmp_path, "f.py", script))],
+                **{k: v for k, v in kwargs.items() if k != "close_fds"},
+            )
+            proxy = _ProcessProxy(proc)
+            proxy_holder.append(proxy)
+            return proxy
+
+        transport = CodexAppServerReadonlyReviewerTransport(
+            workspace_path=str(tmp_path),
+            timeout_seconds=1.0,
+            max_output_bytes=100_000,
+            process_supervisor=sup,
+            popen_factory=proxy_factory,
+        )
         result = transport.execute(_request())
         assert result.transport_status == "timeout"
+        assert result.transport_error_code == "reviewer_native_timeout"
         assert sup.terminate_calls >= 1
+        assert proxy_holder
+        assert proxy_holder[0].direct_terminate_calls >= 1, "Direct terminate must be called on fallback"
         assert sup.snapshot().total_records == 0
 
     def test_supervisor_kill_fallback(self, tmp_path) -> None:
         """When terminate fails and wait times out, direct kill is called.
         Uses a real child process that ignores SIGTERM."""
-        # Script that traps SIGTERM and keeps running
         script_content = textwrap.dedent("""\
             import signal, time
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -1159,23 +1261,90 @@ class TestSupervisorCleanup:
                 raise RuntimeError("kill failed")
 
         sup = KillFailingSupervisor()
+        proxy_holder: list[_ProcessProxy] = []
+
+        def proxy_factory(argv, **kwargs):
+            proc = subprocess.Popen(
+                [sys.executable, "-u", str(script)],
+                **{k: v for k, v in kwargs.items() if k != "close_fds"},
+            )
+            proxy = _ProcessProxy(proc)
+            proxy_holder.append(proxy)
+            return proxy
+
         transport = CodexAppServerReadonlyReviewerTransport(
             workspace_path=str(tmp_path),
             timeout_seconds=2.0,
             max_output_bytes=100_000,
             process_supervisor=sup,
-            popen_factory=lambda argv, **kw: subprocess.Popen(
-                [sys.executable, "-u", str(script)],
-                **{k: v for k, v in kw.items() if k != "close_fds"},
-            ),
+            popen_factory=proxy_factory,
             terminate_wait_seconds=0.5,
         )
-        # The initialize will timeout because the unkillable script never responds
         result = transport.execute(_request())
-        assert result.transport_status in ("timeout", "failed")
+        assert result.transport_status == "timeout"
+        assert result.transport_error_code == "reviewer_native_timeout"
         assert sup.terminate_calls >= 1
         assert sup.kill_calls >= 1, "Kill must be attempted when terminate fails and wait times out"
+        assert proxy_holder
+        assert proxy_holder[0].direct_kill_calls >= 1, "Direct kill must be called on fallback"
         assert sup.snapshot().total_records == 0
+        assert proxy_holder[0].poll() is not None, "Child process must have exited"
+
+    def test_supervisor_kill_returns_failure_fallback(self, tmp_path) -> None:
+        """When supervisor.kill returns action_success=False, direct process.kill() is called.
+        Uses a real SIGTERM-immune child so wait actually times out."""
+        script_content = textwrap.dedent("""\
+            import signal, time
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            time.sleep(60)
+        """)
+        script = _write_script(tmp_path, "unkillable2.py", script_content)
+
+        class KillReturnsFailureSupervisor(SpySupervisor):
+            def terminate(self, *args, **kwargs):
+                self.terminate_calls += 1
+                raise RuntimeError("terminate failed")
+            def kill(self, *args, **kwargs):
+                self.kill_calls += 1
+                from app.external_executors.actual_process_supervisor import (
+                    RealExecutorProcessActionResult,
+                    RealExecutorProcessStatus,
+                )
+                return RealExecutorProcessActionResult(
+                    process_handle_id=args[0] if args else "unknown",
+                    status=RealExecutorProcessStatus.TERMINATED,
+                    action_success=False,
+                )
+
+        sup = KillReturnsFailureSupervisor()
+        proxy_holder: list[_ProcessProxy] = []
+
+        def proxy_factory(argv, **kwargs):
+            proc = subprocess.Popen(
+                [sys.executable, "-u", str(script)],
+                **{k: v for k, v in kwargs.items() if k != "close_fds"},
+            )
+            proxy = _ProcessProxy(proc)
+            proxy_holder.append(proxy)
+            return proxy
+
+        transport = CodexAppServerReadonlyReviewerTransport(
+            workspace_path=str(tmp_path),
+            timeout_seconds=2.0,
+            max_output_bytes=100_000,
+            process_supervisor=sup,
+            popen_factory=proxy_factory,
+            terminate_wait_seconds=0.5,
+        )
+        result = transport.execute(_request())
+        assert result.transport_status == "timeout"
+        assert result.transport_error_code == "reviewer_native_timeout"
+        assert sup.terminate_calls >= 1
+        assert sup.kill_calls >= 1, "Kill must be attempted when supervisor.kill returns failure"
+        assert proxy_holder
+        assert proxy_holder[0].direct_kill_calls >= 1, "Direct kill must be called when supervisor.kill returns failure"
+        assert sup.snapshot().total_records == 0
+        assert proxy_holder[0].poll() is not None, "Child process must have exited"
 
 
 # ══════════════════════════════════════════════════════════════════════
