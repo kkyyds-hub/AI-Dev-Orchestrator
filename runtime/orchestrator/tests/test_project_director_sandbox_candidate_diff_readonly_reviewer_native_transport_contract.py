@@ -258,7 +258,8 @@ class RegisterFailingSupervisor(RealExecutorProcessSupervisor):
 
 
 def _transport(tmp_path: Path, *, process=None, supervisor=None, timeout=2.0,
-               max_output_bytes=100_000, popen_factory_cls=RecordingPopenFactory):
+               max_output_bytes=100_000, popen_factory_cls=RecordingPopenFactory,
+               claude_code_child_environment=None):
     if process is None:
         process = RealPipeFakeProcess(stdout_bytes=_valid_raw_output().encode("utf-8"))
     popen_factory = popen_factory_cls(process) if popen_factory_cls is not RaisingPopenFactory else RaisingPopenFactory()
@@ -269,6 +270,7 @@ def _transport(tmp_path: Path, *, process=None, supervisor=None, timeout=2.0,
         max_output_bytes=max_output_bytes,
         process_supervisor=sup,
         popen_factory=popen_factory,
+        claude_code_child_environment=claude_code_child_environment,
     )
     return transport, popen_factory, sup
 
@@ -1357,3 +1359,133 @@ def test_unexpected_capture_failure_cleanup(tmp_path) -> None:
     assert result.transport_status == "failed"
     assert result.real_reviewer_executed is False
     assert process.terminated or process.killed
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AB. Claude child environment injection contracts
+# ══════════════════════════════════════════════════════════════════════
+
+_FAKE_CLAUDE_ENV = {
+    "ANTHROPIC_BASE_URL": "https://fake-mimo.example.com/anthropic",
+    "ANTHROPIC_AUTH_TOKEN": "sk-fake-token-not-real-12345",
+    "ANTHROPIC_MODEL": "fake-model-v1",
+    "CLAUDECODE": "",
+}
+
+
+class TestExplicitClaudeEnvironment:
+    """Contract 1: explicit claude_code_child_environment is injected into Popen."""
+
+    def test_explicit_env_injected_for_claude_code(self, tmp_path) -> None:
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=_FAKE_CLAUDE_ENV,
+        )
+        transport.execute(_request(executor="claude-code"))
+        kwargs = popen_factory.calls[0]["kwargs"]
+        assert "env" in kwargs
+        assert kwargs["env"] == _FAKE_CLAUDE_ENV
+
+    def test_explicit_env_exact_content(self, tmp_path) -> None:
+        env = {"KEY_A": "val_a", "KEY_B": "val_b", "CLAUDECODE": ""}
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=env,
+        )
+        transport.execute(_request(executor="claude-code"))
+        assert popen_factory.calls[0]["kwargs"]["env"] == {"KEY_A": "val_a", "KEY_B": "val_b", "CLAUDECODE": ""}
+
+
+class TestConstructorSnapshotIsolation:
+    """Contract 2: constructor snapshots the caller mapping; later mutations are invisible."""
+
+    def test_mutation_after_constructor_not_reflected(self, tmp_path) -> None:
+        source = {"ORIGINAL_KEY": "original_value"}
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=source,
+        )
+        source["NEW_KEY"] = "new_value"
+        source["ORIGINAL_KEY"] = "mutated_value"
+        transport.execute(_request(executor="claude-code"))
+        env = popen_factory.calls[0]["kwargs"]["env"]
+        assert env == {"ORIGINAL_KEY": "original_value"}
+        assert "NEW_KEY" not in env
+
+
+class TestLegacyNoneBehavior:
+    """Contract 3: when claude_code_child_environment is None, env key must not appear in Popen kwargs."""
+
+    def test_none_env_key_absent(self, tmp_path) -> None:
+        transport, popen_factory, _ = _transport(tmp_path)
+        transport.execute(_request(executor="claude-code"))
+        kwargs = popen_factory.calls[0]["kwargs"]
+        assert "env" not in kwargs
+
+    def test_omitted_env_key_absent(self, tmp_path) -> None:
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=None,
+        )
+        transport.execute(_request(executor="claude-code"))
+        kwargs = popen_factory.calls[0]["kwargs"]
+        assert "env" not in kwargs
+
+
+class TestCodexIsolation:
+    """Contract 4: explicit Claude environment must not leak into Codex process."""
+
+    def test_codex_env_key_absent_when_claude_env_set(self, tmp_path) -> None:
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=_FAKE_CLAUDE_ENV,
+        )
+        transport.execute(_request(executor="codex"))
+        kwargs = popen_factory.calls[0]["kwargs"]
+        assert "env" not in kwargs
+
+    def test_codex_argv_unchanged_with_claude_env(self, tmp_path) -> None:
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=_FAKE_CLAUDE_ENV,
+        )
+        transport.execute(_request(executor="codex"))
+        assert popen_factory.calls[0]["argv"] == [
+            "codex", "exec", "--ephemeral", "--sandbox", "read-only",
+            "--color", "never", "-",
+        ]
+
+
+class TestClaudeExactArgvPreservation:
+    """Contract 5: explicit Claude environment must not change the command argv."""
+
+    def test_claude_argv_unchanged_with_explicit_env(self, tmp_path) -> None:
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=_FAKE_CLAUDE_ENV,
+        )
+        transport.execute(_request(executor="claude-code"))
+        argv = popen_factory.calls[0]["argv"]
+        assert argv == [
+            "claude",
+            "-p",
+            "Review the content provided through stdin and return only "
+            "the requested final review output.",
+            "--permission-mode",
+            "plan",
+            "--no-session-persistence",
+        ]
+
+
+class TestPerExecutionEnvCopyIsolation:
+    """Contract 6: each Popen launch receives an independent env dict copy."""
+
+    def test_second_launch_not_affected_by_first_mutation(self, tmp_path) -> None:
+        env = {"KEY": "value", "CLAUDECODE": ""}
+        transport, popen_factory, _ = _transport(
+            tmp_path, claude_code_child_environment=env,
+        )
+        transport.execute(_request(executor="claude-code"))
+        first_env = popen_factory.calls[0]["kwargs"]["env"]
+        first_env["KEY"] = "mutated_in_first_call"
+        first_env["INJECTED"] = "yes"
+
+        process2 = RealPipeFakeProcess(stdout_bytes=_valid_raw_output().encode("utf-8"))
+        popen_factory.process = process2
+        transport.execute(_request(executor="claude-code"))
+        second_env = popen_factory.calls[1]["kwargs"]["env"]
+        assert second_env == {"KEY": "value", "CLAUDECODE": ""}
+        assert "INJECTED" not in second_env
