@@ -312,7 +312,7 @@ class CodexAppServerReadonlyReviewerTransport(ReadonlyReviewerTransportProtocol)
                 writer_handles=writer_handles,
                 deadline=deadline,
             )
-            if cleanup_failure is not None:
+            if failure is None and cleanup_failure is not None:
                 failure = cleanup_failure
 
         if failure is not None:
