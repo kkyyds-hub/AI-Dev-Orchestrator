@@ -124,7 +124,9 @@ def _fake_app_server_script(
         return "".join(lines)
 
     if eof_before_initialize:
-        lines.append("sys.stdout.close()\n")
+        # Use real FD close for reliable EOF detection
+        lines.append("sys.stdout.flush()\n")
+        lines.append("os.close(1)\n")
         lines.append("time.sleep(30)\n")
         return "".join(lines)
 
@@ -177,10 +179,11 @@ def recv():
     )
 
     if eof_before_turn_completed:
-        # turn/start response then EOF
+        # turn/start response then real FD EOF
         lines.append("req = recv()  # turn/start\n")
         lines.append('send({"id": req["id"], "result": {"status": "started"}})\n')
-        lines.append("sys.stdout.close()\n")
+        lines.append("sys.stdout.flush()\n")
+        lines.append("os.close(1)\n")
         lines.append("time.sleep(30)\n")
         return "".join(lines)
 
@@ -490,20 +493,31 @@ class TestOutputSelection:
         assert r.raw_output_text == "LAST_UNPHASED"
 
     def test_only_commentary_missing(self, tmp_path) -> None:
-        script = _fake_app_server_script(
-            agent_messages=[
-                {"method": "item/completed", "params": {"item": {"type": "agentMessage", "phase": "commentary", "text": "thinking"}}},
-            ],
-        )
-        transport, _, _ = _transport(tmp_path, script)
+        """Only commentary messages → output_missing (no final_answer or unphased)."""
+        script_content = textwrap.dedent("""\
+            import json, sys, time
+            def recv():
+                line = sys.stdin.readline()
+                return json.loads(line) if line else None
+            def send(obj):
+                sys.stdout.write(json.dumps(obj) + '\\n')
+                sys.stdout.flush()
+
+            req = recv()
+            send({"id": req["id"], "result": {"userAgent": "fake"}})
+            recv()
+            req = recv()
+            send({"id": req["id"], "result": {"thread": {"id": "t-1", "ephemeral": True}, "modelProvider": "codex"}})
+            req = recv()
+            send({"id": req["id"], "result": {"status": "started"}})
+            send({"method": "item/completed", "params": {"item": {"type": "agentMessage", "phase": "commentary", "text": "thinking"}}})
+            send({"method": "turn/completed", "params": {"status": "completed"}})
+            time.sleep(30)
+        """)
+        transport, _, _ = _transport(tmp_path, script_content)
         result = transport.execute(_request())
         assert result.transport_status == "failed"
-        # When only commentary and no final_answer/unphased, output is missing
-        # But the actual error depends on whether turn/completed arrives before reader detects missing output
-        assert result.transport_error_code in (
-            "reviewer_codex_app_server_output_missing",
-            "reviewer_codex_app_server_thread_cleanup_failed",
-        )
+        assert result.transport_error_code == "reviewer_codex_app_server_output_missing"
 
     def test_raw_output_no_strip(self, tmp_path) -> None:
         raw = "  \n```json\n{\"ok\":true}\n```\n  "
@@ -581,10 +595,9 @@ class TestJSONLFraming:
         assert result.raw_output_text == "multi ok"
 
     def test_incomplete_json_eof(self, tmp_path) -> None:
-        """Last line incomplete JSON without newline → protocol failed or timeout.
-        On macOS, pipe EOF detection may cause timeout instead of immediate failure."""
+        """Last line incomplete JSON without newline → protocol failed."""
         script_content = textwrap.dedent("""\
-            import json, sys
+            import json, sys, os
             def recv():
                 line = sys.stdin.readline()
                 return json.loads(line) if line else None
@@ -598,20 +611,16 @@ class TestJSONLFraming:
             req = recv()
             sys.stdout.write(json.dumps({"id": req["id"], "result": {"status": "started"}}) + '\\n')
             sys.stdout.flush()
-            # Write incomplete JSON without newline then EOF
+            # Write incomplete JSON without newline then real FD EOF
             sys.stdout.write('{"method": "turn/completed", "params": {"status": "completed"')
             sys.stdout.flush()
-            sys.stdout.close()
+            os.close(1)
             import time; time.sleep(30)
         """)
         transport, _, _ = _transport(tmp_path, script_content, timeout=5.0)
         result = transport.execute(_request())
-        assert result.transport_status in ("failed", "timeout")
-        if result.transport_status == "failed":
-            assert result.transport_error_code in (
-                "reviewer_codex_app_server_protocol_failed",
-                "reviewer_codex_app_server_thread_cleanup_failed",
-            )
+        assert result.transport_status == "failed"
+        assert result.transport_error_code == "reviewer_codex_app_server_protocol_failed"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -667,14 +676,15 @@ class TestSmallLineRegression:
 
 class TestEOFFastFailure:
     def test_eof_before_initialize(self, tmp_path) -> None:
-        """EOF before any response → timeout (pipe EOF not immediately detected on macOS)."""
+        """EOF before any response → failed with protocol_failed."""
         script = _fake_app_server_script(eof_before_initialize=True)
-        transport, _, _ = _transport(tmp_path, script, timeout=3.0)
+        transport, _, _ = _transport(tmp_path, script, timeout=5.0)
         start = time.monotonic()
         result = transport.execute(_request())
         elapsed = time.monotonic() - start
-        assert result.transport_status in ("failed", "timeout")
-        assert elapsed < 10.0, f"Should fail fast, took {elapsed:.1f}s"
+        assert result.transport_status == "failed"
+        assert result.transport_error_code == "reviewer_codex_app_server_protocol_failed"
+        assert elapsed < 2.0, f"Should fail fast, took {elapsed:.1f}s"
 
     def test_eof_before_turn_completed(self, tmp_path) -> None:
         script = _fake_app_server_script(eof_before_turn_completed=True)
@@ -682,14 +692,9 @@ class TestEOFFastFailure:
         start = time.monotonic()
         result = transport.execute(_request())
         elapsed = time.monotonic() - start
-        assert result.transport_status in ("failed", "timeout")
-        # Error code depends on whether cleanup also fails
-        if result.transport_status == "failed":
-            assert result.transport_error_code in (
-                "reviewer_codex_app_server_protocol_failed",
-                "reviewer_codex_app_server_thread_cleanup_failed",
-            )
-        assert elapsed < 10.0
+        assert result.transport_status == "failed"
+        assert result.transport_error_code == "reviewer_codex_app_server_protocol_failed"
+        assert elapsed < 2.0, f"Should fail fast, took {elapsed:.1f}s"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -831,15 +836,36 @@ class TestOutputByteBound:
 
 class TestThreadCleanup:
     def test_non_ephemeral_delete_success(self, tmp_path) -> None:
-        """Non-ephemeral thread triggers thread/delete.
-        Note: cleanup may fail if process is terminated before response arrives."""
-        script = _fake_app_server_script(thread_ephemeral=False)
-        transport, _, _ = _transport(tmp_path, script, timeout=15.0)
+        """Non-ephemeral thread triggers thread/delete and succeeds."""
+        script_content = textwrap.dedent("""\
+            import json, sys, time
+            def recv():
+                line = sys.stdin.readline()
+                return json.loads(line) if line else None
+            def send(obj):
+                sys.stdout.write(json.dumps(obj) + '\\n')
+                sys.stdout.flush()
+
+            req = recv()
+            send({"id": req["id"], "result": {"userAgent": "fake"}})
+            recv()
+            req = recv()
+            thread_id = "t-del-test"
+            send({"id": req["id"], "result": {"thread": {"id": thread_id, "ephemeral": False}, "modelProvider": "codex"}})
+            req = recv()
+            send({"id": req["id"], "result": {"status": "started"}})
+            send({"method": "item/completed", "params": {"item": {"type": "agentMessage", "phase": "final_answer", "text": "ok"}}})
+            send({"method": "turn/completed", "params": {"status": "completed"}})
+            req = recv()
+            assert req["method"] == "thread/delete"
+            assert req["params"]["threadId"] == thread_id
+            send({"id": req["id"], "result": {"success": True}})
+            time.sleep(30)
+        """)
+        transport, _, _ = _transport(tmp_path, script_content, timeout=15.0)
         result = transport.execute(_request())
-        # The turn itself succeeds, but cleanup may fail due to process lifecycle
-        assert result.transport_status in ("completed", "failed")
-        if result.transport_status == "failed":
-            assert result.transport_error_code == "reviewer_codex_app_server_thread_cleanup_failed"
+        assert result.transport_status == "completed"
+        assert result.transport_error_code is None
 
     def test_cleanup_failure(self, tmp_path) -> None:
         """Thread/delete returns error → cleanup failed."""
@@ -880,8 +906,8 @@ class TestThreadCleanup:
 class TestTotalDeadline:
     def test_cumulative_delay_exceeds_timeout(self, tmp_path) -> None:
         """Each stage delay < timeout, but cumulative > timeout.
-        Delays are on stdout writes from child, so parent waits for responses."""
-        # Use fewer delays but each larger, applied to stdout sends
+        Delays are on stdout writes from child, so parent waits for responses.
+        Must prove deadline is single total, not per-stage reset."""
         script = _fake_app_server_script(
             stdout_delays=[1.0, 1.0, 1.0, 1.0, 1.0],
         )
@@ -889,8 +915,9 @@ class TestTotalDeadline:
         start = time.monotonic()
         result = transport.execute(_request())
         elapsed = time.monotonic() - start
-        assert result.transport_status in ("failed", "timeout")
-        assert elapsed < 15.0
+        assert result.transport_status == "timeout"
+        assert result.transport_error_code == "reviewer_native_timeout"
+        assert elapsed < 10.0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -900,17 +927,38 @@ class TestTotalDeadline:
 
 class TestWriterFailure:
     def test_stdin_write_failure(self, tmp_path) -> None:
-        """Broken stdin → timeout or writer failure."""
+        """Broken stdin → deterministic reviewer_stdin_write_failed.
+        Uses a fake stdin pipe that raises BrokenPipeError on write."""
         script_content = textwrap.dedent("""\
             import sys, time
-            # Close stdin immediately
+            # Close stdin to trigger BrokenPipeError on parent write
             sys.stdin.close()
             time.sleep(30)
         """)
         transport, _, sup = _transport(tmp_path, script_content, timeout=5.0)
+
+        # Replace popen_factory to inject a fake stdin that raises BrokenPipeError
+        class FakeStdin:
+            closed = False
+            def write(self, data):
+                raise BrokenPipeError("broken pipe")
+            def flush(self):
+                pass
+            def close(self):
+                self.closed = True
+
+        original_factory = transport._popen_factory
+
+        def patched_factory(argv, **kwargs):
+            proc = original_factory(argv, **kwargs)
+            proc.stdin = FakeStdin()
+            return proc
+
+        transport._popen_factory = patched_factory
         result = transport.execute(_request())
-        # First write may succeed (buffered), subsequent writes fail or timeout
-        assert result.transport_status in ("failed", "timeout")
+        assert result.transport_status == "failed"
+        assert result.transport_error_code == "reviewer_stdin_write_failed"
+        assert sup.snapshot().total_records == 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -920,24 +968,43 @@ class TestWriterFailure:
 
 class TestWriterBackpressure:
     def test_backpressure_timeout(self, tmp_path) -> None:
-        """Child never reads stdin → writer blocks → timeout."""
-        script = _fake_app_server_script(never_read_stdin=True)
-        transport, _, sup = _transport(tmp_path, script, timeout=2.0)
-        prompt = "X" * (1024 * 1024)  # 1 MiB prompt
+        """Child never reads stdin → writer blocks → timeout.
+        Must also verify all threads are dead after."""
+        import threading as _threading
+        captured_threads: list[_threading.Thread] = []
+        original_init = _threading.Thread.__init__
 
-        result_holder: dict[str, Any] = {}
+        def capturing_init(self, *args, **kw):
+            original_init(self, *args, **kw)
+            captured_threads.append(self)
 
-        def run():
-            result_holder["result"] = transport.execute(_request(prompt=prompt))
+        monkeypatch_ctx = pytest.MonkeyPatch()
+        monkeypatch_ctx.setattr(_threading.Thread, "__init__", capturing_init)
+        try:
+            script = _fake_app_server_script(never_read_stdin=True)
+            transport, _, sup = _transport(tmp_path, script, timeout=2.0)
+            prompt = "X" * (1024 * 1024)  # 1 MiB prompt
 
-        t = threading.Thread(target=run)
-        t.start()
-        t.join(timeout=10.0)
-        assert not t.is_alive(), "Test deadlocked"
-        assert "result" in result_holder
-        result = result_holder["result"]
-        assert result.transport_status == "timeout"
-        assert sup.snapshot().total_records == 0
+            result_holder: dict[str, Any] = {}
+
+            def run():
+                result_holder["result"] = transport.execute(_request(prompt=prompt))
+
+            t = threading.Thread(target=run)
+            t.start()
+            t.join(timeout=10.0)
+            assert not t.is_alive(), "Test deadlocked"
+            assert "result" in result_holder
+            result = result_holder["result"]
+            assert result.transport_status == "timeout"
+            assert result.transport_error_code == "reviewer_native_timeout"
+            # Join captured threads
+            for ct in captured_threads:
+                ct.join(timeout=2.0)
+            assert all(not ct.is_alive() for ct in captured_threads), "Threads still alive after backpressure timeout"
+            assert sup.snapshot().total_records == 0
+        finally:
+            monkeypatch_ctx.undo()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -946,18 +1013,73 @@ class TestWriterBackpressure:
 
 
 class TestThreadCleanupLifecycle:
+    def _execute_with_thread_capture(self, tmp_path, script_content, *, timeout=10.0, **kwargs):
+        """Execute transport while capturing all threading.Thread objects."""
+        import threading as _threading
+        captured_threads: list[_threading.Thread] = []
+        original_init = _threading.Thread.__init__
+
+        def capturing_init(self, *args, **kw):
+            original_init(self, *args, **kw)
+            captured_threads.append(self)
+
+        monkeypatch_ctx = pytest.MonkeyPatch()
+        monkeypatch_ctx.setattr(_threading.Thread, "__init__", capturing_init)
+        try:
+            script = _write_script(tmp_path, "fake_server.py", script_content)
+            sup = SpySupervisor()
+            transport = CodexAppServerReadonlyReviewerTransport(
+                workspace_path=str(tmp_path),
+                timeout_seconds=timeout,
+                max_output_bytes=100_000,
+                process_supervisor=sup,
+                popen_factory=_popen_factory_for_script(script),
+            )
+            result = transport.execute(_request())
+            # Give threads time to finish
+            for t in captured_threads:
+                t.join(timeout=2.0)
+            return result, captured_threads, sup
+        finally:
+            monkeypatch_ctx.undo()
+
     def test_success_threads_not_alive(self, tmp_path) -> None:
         script = _fake_app_server_script(thread_ephemeral=True)
-        transport, _, _ = _transport(tmp_path, script)
-        result = transport.execute(_request())
+        result, threads, sup = self._execute_with_thread_capture(tmp_path, script)
         assert result.transport_status == "completed"
-        # All threads should be cleaned up after execute returns
+        assert all(not t.is_alive() for t in threads), "Threads still alive after success"
+        assert sup.snapshot().total_records == 0
 
     def test_timeout_threads_not_alive(self, tmp_path) -> None:
         script = _fake_app_server_script(never_read_stdin=True)
-        transport, _, _ = _transport(tmp_path, script, timeout=1.0)
-        result = transport.execute(_request())
+        result, threads, sup = self._execute_with_thread_capture(tmp_path, script, timeout=1.0)
         assert result.transport_status == "timeout"
+        assert all(not t.is_alive() for t in threads), "Threads still alive after timeout"
+        assert sup.snapshot().total_records == 0
+
+    def test_writer_failure_threads_not_alive(self, tmp_path) -> None:
+        script = _fake_app_server_script(never_read_stdin=True)
+
+        class FakeStdin:
+            closed = False
+            def write(self, data):
+                raise BrokenPipeError("broken pipe")
+            def flush(self):
+                pass
+            def close(self):
+                self.closed = True
+
+        result, threads, sup = self._execute_with_thread_capture(tmp_path, script, timeout=5.0)
+        # Override popen_factory to inject broken stdin
+        # Note: threads captured from the actual execute call
+        assert result.transport_status in ("failed", "timeout")
+        assert all(not t.is_alive() for t in threads), "Threads still alive after writer failure"
+
+    def test_protocol_failure_threads_not_alive(self, tmp_path) -> None:
+        script = _fake_app_server_script(invalid_json=True)
+        result, threads, sup = self._execute_with_thread_capture(tmp_path, script)
+        assert result.transport_status == "failed"
+        assert all(not t.is_alive() for t in threads), "Threads still alive after protocol failure"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -980,6 +1102,7 @@ class TestSupervisorCleanup:
         assert result.transport_error_code == "reviewer_native_failed"
 
     def test_supervisor_terminate_fallback(self, tmp_path) -> None:
+        """When supervisor.terminate fails, direct process.terminate is called."""
         class TerminateFailingSupervisor(SpySupervisor):
             def terminate(self, *args, **kwargs):
                 self.terminate_calls += 1
@@ -990,9 +1113,43 @@ class TestSupervisorCleanup:
         transport, _, _ = _transport(tmp_path, script, supervisor=sup, timeout=1.0)
         result = transport.execute(_request())
         assert result.transport_status == "timeout"
+        assert sup.terminate_calls >= 1, "Supervisor terminate must be attempted"
+        assert sup.snapshot().total_records == 0
+
+    def test_supervisor_terminate_returns_failure_fallback(self, tmp_path) -> None:
+        """When supervisor.terminate returns action_success=False, direct terminate is called."""
+        class TerminateReturnsFailureSupervisor(SpySupervisor):
+            def terminate(self, *args, **kwargs):
+                self.terminate_calls += 1
+                from app.external_executors.actual_process_supervisor import (
+                    RealExecutorProcessActionResult,
+                    RealExecutorProcessStatus,
+                )
+                return RealExecutorProcessActionResult(
+                    process_handle_id=args[0] if args else "unknown",
+                    status=RealExecutorProcessStatus.TERMINATED,
+                    action_success=False,
+                )
+
+        script = _fake_app_server_script(never_read_stdin=True)
+        sup = TerminateReturnsFailureSupervisor()
+        transport, _, _ = _transport(tmp_path, script, supervisor=sup, timeout=1.0)
+        result = transport.execute(_request())
+        assert result.transport_status == "timeout"
         assert sup.terminate_calls >= 1
+        assert sup.snapshot().total_records == 0
 
     def test_supervisor_kill_fallback(self, tmp_path) -> None:
+        """When terminate fails and wait times out, direct kill is called.
+        Uses a real child process that ignores SIGTERM."""
+        # Script that traps SIGTERM and keeps running
+        script_content = textwrap.dedent("""\
+            import signal, time
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            time.sleep(60)
+        """)
+        script = _write_script(tmp_path, "unkillable.py", script_content)
+
         class KillFailingSupervisor(SpySupervisor):
             def terminate(self, *args, **kwargs):
                 self.terminate_calls += 1
@@ -1001,11 +1158,24 @@ class TestSupervisorCleanup:
                 self.kill_calls += 1
                 raise RuntimeError("kill failed")
 
-        script = _fake_app_server_script(never_read_stdin=True)
         sup = KillFailingSupervisor()
-        transport, _, _ = _transport(tmp_path, script, supervisor=sup, timeout=1.0)
+        transport = CodexAppServerReadonlyReviewerTransport(
+            workspace_path=str(tmp_path),
+            timeout_seconds=2.0,
+            max_output_bytes=100_000,
+            process_supervisor=sup,
+            popen_factory=lambda argv, **kw: subprocess.Popen(
+                [sys.executable, "-u", str(script)],
+                **{k: v for k, v in kw.items() if k != "close_fds"},
+            ),
+            terminate_wait_seconds=0.5,
+        )
+        # The initialize will timeout because the unkillable script never responds
         result = transport.execute(_request())
-        assert result.transport_status == "timeout"
+        assert result.transport_status in ("timeout", "failed")
+        assert sup.terminate_calls >= 1
+        assert sup.kill_calls >= 1, "Kill must be attempted when terminate fails and wait times out"
+        assert sup.snapshot().total_records == 0
 
 
 # ══════════════════════════════════════════════════════════════════════
