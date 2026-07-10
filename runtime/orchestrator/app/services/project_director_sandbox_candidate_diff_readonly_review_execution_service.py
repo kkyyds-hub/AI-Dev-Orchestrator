@@ -294,7 +294,7 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
                 resolved_transport = transport_resolver(
                     preflight_evidence.requested_reviewer_executor
                 )
-            except ValueError:
+            except Exception:
                 return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
                     result=self._blocked_result(
                         requested_reviewer_executor=(
