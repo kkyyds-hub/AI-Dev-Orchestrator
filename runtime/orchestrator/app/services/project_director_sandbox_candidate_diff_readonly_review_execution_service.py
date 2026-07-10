@@ -131,6 +131,16 @@ class ReadonlyReviewerTransportResolverProtocol(Protocol):
         ...
 
 
+class ReadonlyReviewerTransportResolverFactoryProtocol(Protocol):
+    """Create a resolver only after trusted workspace evidence is recovered."""
+
+    def __call__(
+        self,
+        workspace_path: str,
+    ) -> ReadonlyReviewerTransportResolverProtocol:
+        ...
+
+
 class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
     """Execute readonly review only after persisted evidence revalidation."""
 
@@ -167,6 +177,7 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
             source_message_id=source_message_id,
             transport=transport,
             transport_resolver=None,
+            transport_resolver_factory=None,
         )
 
     def execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver(
@@ -185,6 +196,26 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
             source_message_id=source_message_id,
             transport=None,
             transport_resolver=transport_resolver,
+            transport_resolver_factory=None,
+        )
+
+    def execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver_factory(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_message_id: UUID,
+        transport_resolver_factory: ReadonlyReviewerTransportResolverFactoryProtocol,
+    ) -> ConfirmedSandboxCandidateDiffReadonlyReviewExecution:
+        """Create a workspace-bound resolver after evidence is verified."""
+
+        return self._execute_candidate_diff_readonly_review_from_preflight(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_message_id=source_message_id,
+            transport=None,
+            transport_resolver=None,
+            transport_resolver_factory=transport_resolver_factory,
         )
 
     def _execute_candidate_diff_readonly_review_from_preflight(
@@ -195,6 +226,8 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
         source_message_id: UUID,
         transport: ReadonlyReviewerTransportProtocol | None,
         transport_resolver: ReadonlyReviewerTransportResolverProtocol | None,
+        transport_resolver_factory: ReadonlyReviewerTransportResolverFactoryProtocol
+        | None,
     ) -> ConfirmedSandboxCandidateDiffReadonlyReviewExecution:
         """Rebuild preflight evidence, invoke adapter once, and persist validated output."""
 
@@ -274,6 +307,46 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
 
         resolved_transport = transport
         if resolved_transport is None:
+            if (
+                transport_resolver is None
+                and transport_resolver_factory is not None
+            ):
+                workspace_path = self._trusted_source_diff_workspace_path(
+                    source_diff_action,
+                    blocked_reasons=blocked_reasons,
+                )
+                if blocked_reasons or not workspace_path:
+                    return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
+                        result=self._blocked_result(
+                            requested_reviewer_executor=(
+                                preflight_evidence.requested_reviewer_executor
+                            ),
+                            review_scope_paths=preflight_evidence.review_scope_paths,
+                            review_output_schema_version=(
+                                preflight_evidence.review_output_schema_version
+                            ),
+                            blocked_reasons=blocked_reasons,
+                        ),
+                        message=None,
+                    )
+                try:
+                    transport_resolver = transport_resolver_factory(workspace_path)
+                except Exception:
+                    return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
+                        result=self._blocked_result(
+                            requested_reviewer_executor=(
+                                preflight_evidence.requested_reviewer_executor
+                            ),
+                            review_scope_paths=preflight_evidence.review_scope_paths,
+                            review_output_schema_version=(
+                                preflight_evidence.review_output_schema_version
+                            ),
+                            blocked_reasons=[
+                                "readonly_reviewer_transport_resolution_failed"
+                            ],
+                        ),
+                        message=None,
+                    )
             if transport_resolver is None:
                 return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
                     result=self._blocked_result(
@@ -646,6 +719,24 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
         return review_prompt_text
 
     @staticmethod
+    def _trusted_source_diff_workspace_path(
+        source_diff_action: dict[str, Any] | None,
+        *,
+        blocked_reasons: list[str],
+    ) -> str:
+        if source_diff_action is None:
+            blocked_reasons.append("source_diff_workspace_evidence_missing")
+            return ""
+        workspace_path = source_diff_action.get("workspace_path")
+        if not isinstance(workspace_path, str) or not workspace_path.strip():
+            blocked_reasons.append("source_diff_workspace_path_missing")
+            return ""
+        if source_diff_action.get("workspace_path_within_root") is not True:
+            blocked_reasons.append("source_diff_workspace_path_not_within_root")
+            return ""
+        return workspace_path
+
+    @staticmethod
     def _readonly_review_execution_action(
         *,
         session_id: UUID,
@@ -822,5 +913,6 @@ __all__ = (
     "P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE",
     "P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL",
     "ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService",
+    "ReadonlyReviewerTransportResolverFactoryProtocol",
     "ReadonlyReviewerTransportResolverProtocol",
 )
