@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, and P21-B-B evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, and P21-C evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -1066,3 +1066,372 @@ Even though P21-C-H-B2 is Closed / Pass:
 - Reviewer verdict is not human approval.
 - Product runtime Git write remains forbidden.
 - AI Project Director total loop remains Partial.
+
+---
+
+## P21-C-H-C1 Readonly Review Execution Orchestration
+
+### Gate
+
+- P21-C-H-C1-Codex: Closed / Pass
+- P21-C-H-C1-Mimocode: Closed / Pass
+- P21-C-H-C1 overall: Closed / Pass
+
+### Key Commits
+
+- `685ede7d194a0250a8914e9a8c144de9236addd5` — `backend: add readonly review execution orchestration`
+- `f647094938650c12a994fa3ffad1fede3913dc54` — `test: lock readonly review execution orchestration contracts`
+- `0adc99fae346abbe0d8408b5080ab1e1ecdcb8b8` — `test: close readonly review orchestration contract gaps`
+
+### Architecture
+
+Core chain:
+
+```text
+persisted execution preflight validation
+→ source diff evidence validation
+→ deterministic review prompt reconstruction
+→ review prompt fingerprint validation
+→ transport / resolver seam
+→ readonly reviewer Adapter
+→ persistence
+```
+
+### Boundary Record
+
+- Does not accept request-controlled executor override of persisted executor.
+- Does not accept request-controlled workspace.
+- Does not start transport before evidence validation.
+- Does not persist on failure.
+- Does not perform Git write.
+- `ai_project_director_total_loop` remains `Partial`.
+
+---
+
+## P21-C-H-C2 Deferred Readonly Reviewer Transport Resolution
+
+### Gate
+
+- P21-C-H-C2-Codex: Closed / Pass
+- P21-C-H-C2-Mimocode: Closed / Pass
+- P21-C-H-C2 overall: Closed / Pass
+
+### Key Commits
+
+- `ed860b09fbcc5781fe6bde66ef044703104a7203` — `backend: defer readonly reviewer transport resolution`
+- `479b66803fcfa6c3d41ff568e628b80f217afc21` — `backend: normalize readonly reviewer resolver failures`
+- `1b6f080fb7f01752a6e4f9afa42b02503f7b392e` — `test: lock deferred readonly reviewer transport resolution contracts`
+- `d7ff75c0e5b804ce23fd27b4af9ed94480867831` — `test: close readonly reviewer resolver contract gaps`
+
+### Architecture
+
+Core ordering:
+
+```text
+persisted evidence validation
+→ source diff validation
+→ prompt reconstruction
+→ prompt fingerprint validation
+→ resolver(persisted trusted executor)
+→ Adapter
+→ persistence
+```
+
+Legal persisted reviewer executor values: `codex`, `claude-code`.
+
+Resolver contract:
+
+- Called at most once per execution.
+- No retry. No fallback. No auto-switch.
+- Failure reason: `readonly_reviewer_transport_resolution_failed`.
+- On failure: Adapter = 0, message create = 0, commit = 0.
+
+---
+
+## P21-C-H-C3 Concrete Readonly Reviewer Transport Resolver
+
+### Gate
+
+- P21-C-H-C3-Codex: Closed / Pass
+- P21-C-H-C3-Mimocode: Closed / Pass
+- P21-C-H-C3 overall: Closed / Pass
+
+### Key Commits
+
+- `d412fc3f92479b307b37983c66d17cc4289b2c7e` — `backend: add concrete readonly reviewer transport resolver`
+- `8681c73007443514049ee5e1382d66a1afa53738` — `test: lock concrete readonly reviewer transport resolver contracts`
+
+### Resolver Mapping
+
+```text
+codex → CodexAppServerReadonlyReviewerTransport
+claude-code → NativeReadonlyReviewerCaptureTransport
+```
+
+### Boundary Record
+
+- Each legal resolve creates exactly one matching transport.
+- Does not pre-create the other transport.
+- Does not cache. Does not fallback. Does not retry. Does not auto-switch.
+- Resolver is not responsible for: process execution, process start, persistence, settings read, env read, credential read, DB evidence read, workspace inference.
+
+---
+
+## P21-C-H-C4 Trusted Workspace-Bound Production API Composition
+
+### Gate
+
+- P21-C-H-C4-A Evidence Pack: Closed / Pass with note
+- P21-C-H-C4-B: Closed / Pass with note
+- P21-C-H-C4-C Evidence Pack: Cancelled / unnecessary
+- P21-C-H-C4-D: Closed / Pass with note
+- P21-C-H-C4 overall: Closed / Pass with note
+
+Note on H-C4-C: Cancelled by AI Project Director. No further architecture investigation needed for ordinary scope; AI Project Director directly inspected latest origin/main and key code.
+
+### H-C4-B Workspace Factory Composition
+
+Production: `6a7848530a4174dfa94f9a7c350c8ff90a7bcb88` — `backend: defer readonly reviewer resolver composition to trusted workspace`
+
+Tests: `1e05e1ec97bc03dd19458feffd59556e6999c4fd` — `test: lock trusted workspace resolver composition contracts`
+
+New class: `ReadonlyReviewerTransportResolverFactory`.
+
+Architecture:
+
+```text
+Execution Service
+  completes persisted evidence / diff / prompt validation
+  ↓
+reads persisted source diff action.workspace_path
+  ↓
+confirms workspace_path_within_root is True
+  ↓
+calls Factory
+  ↓
+Factory re-validates current workspace root / workspace state
+  ↓
+creates Resolver
+```
+
+Factory is not responsible for: Popen creation, process start, provider selection, credential read, settings read, transport execution, persistence.
+
+### H-C4-D Production API Composition
+
+Production: `5df01975d29a0a659d9b3c23898f20294a3ecea9` — `backend: wire readonly reviewer execution api`
+
+Initial tests: `3eabf4a00aa4dfd0378b3a222aed33745edde2c7` — `test: lock readonly reviewer execution api composition`
+
+R1 tests: `cc22fb2cb6b83ecbc474149fe878dd7c2c9aea5a` — `test: close readonly reviewer api composition gaps`
+
+Endpoint: `POST /project-director/sessions/{session_id}/sandbox-candidate-diff-review-execution`
+
+Request fields: `source_task_id`, `source_message_id`, `user_confirmed`. Must not contain: `executor`, `workspace`, `provider`, `model`, `token`.
+
+Production lazy composition:
+
+```text
+HTTP explicit confirmation
+→ Execution Service
+→ persisted preflight validation
+→ source diff validation
+→ prompt reconstruction / fingerprint validation
+→ route-local lazy callable
+→ per-execution RealExecutorProcessSupervisor
+→ ReadonlyReviewerTransportResolverFactory
+→ Resolver
+→ persisted reviewer executor
+→ transport
+→ Adapter
+→ persistence
+```
+
+Workspace root: `settings.runtime_data_dir / "project-director" / "sandbox-workspaces"`.
+
+Config: `readonly_reviewer_timeout_seconds` (default 180, minimum 1), `readonly_reviewer_max_output_bytes` (default 262144, minimum 1).
+
+### H-C4 Test Closure Evidence
+
+R1 confirmed:
+
+- Explicit confirmation failure: Supervisor = 0, Factory constructor = 0, Factory call = 0, Popen = 0.
+- Early persisted evidence failure: Supervisor = 0, Factory constructor = 0, Factory call = 0, Popen = 0.
+- Success composition: Supervisor constructor = 1, Factory constructor = 1, Factory call = 1, Resolver call = 1, real Popen = 0 in contract test.
+- Factory exact workspace = persisted source diff action.workspace_path.
+- Request adversarial `workspace_path=/evil/path` cannot override persisted workspace.
+- HTTP mapping: `user_confirmed=false` → 409; blocked reasons → 409 with `;`.join; empty reasons → fallback message; `ValueError("not found")` → 404; other `ValueError` → 422.
+
+---
+
+## P21-C-H-C5 Real Readonly Reviewer Production API Runtime Verification
+
+### Gate
+
+- P21-C-H-C5-A: Closed / Pass with note
+- P21-C-H-C5-B: Closed / Pass with note
+- P21-C-H-C5 overall: Closed / Pass with note
+
+### H-C5-A Real Codex Evidence
+
+No repository commit.
+
+Environment recovery:
+
+```text
+legacy /usr/local/bin/codex → broken symlink (old Codex.app binary unavailable)
+→ recovered via npm install -g @openai/codex
+→ codex-cli 0.144.1
+→ supports codex app-server --listen stdio://
+```
+
+Real production smoke result:
+
+```text
+real reviewer execution = 1
+HTTP = 200
+adapter_status = validated_output
+requested_reviewer_executor = codex
+execution_mode = native_capture_transport
+transport_invoked = true
+transport_status = completed
+output_validation_status = validated
+strict_json_valid = true
+schema_valid = true
+semantics_valid = true
+evidence_scope_valid = true
+review_status = reviewed
+verdict = non_blocking_findings
+risk_level = low
+real_reviewer_started = true
+real_reviewer_executed = true
+native_process_started = true
+codex_started = true
+claude_code_started = false
+provider_called = false
+```
+
+Persistence: Task 1→1, Run 1→1, Message 18→19, message_bound = true.
+
+Safety: all no-write flags false; no raw output / workspace leakage; no new lingering app-server process.
+
+### H-C5-B Real Claude Code Evidence
+
+No repository commit.
+
+First production smoke (wrong parent environment):
+
+```text
+old gateway: BASE_URL host = anyrouter.top, MODEL = claude-opus-4-8
+→ real execution 1 time → ~180 seconds → HTTP 409, reviewer_transport_failed
+→ no persistence, no Task/Run increment, no lingering process
+```
+
+Sanitized environment probe: removed Anthropic provider env vars → 0.92 seconds fast failure → proves no backup official Claude auth available locally.
+
+Environment diagnosis:
+
+```text
+wrong old environment: anyrouter.top / claude-opus-4-8
+correct verified MiMo environment: api.xiaomimimo.com / mimo-v2.5-pro
+```
+
+Direct CLI probe (same argv shape as production transport):
+
+```text
+claude -p "Review the content..." --permission-mode plan --no-session-persistence
+duration = 8.06 seconds, exit code = 0, stdout = OK
+```
+
+Final E3 production API smoke under correct MiMo parent environment:
+
+```text
+real reviewer execution = 1
+duration = 13.70 seconds
+HTTP = 200
+adapter_status = validated_output
+requested_reviewer_executor = claude-code
+execution_mode = native_capture_transport
+transport_invoked = true
+transport_status = completed
+transport_error_code = null
+output_validation_status = validated
+strict_json_valid = true
+schema_valid = true
+semantics_valid = true
+evidence_scope_valid = true
+review_status = reviewed
+verdict = no_blocking_findings
+risk_level = low
+real_reviewer_started = true
+real_reviewer_executed = true
+native_process_started = true
+codex_started = false
+claude_code_started = true
+provider_called = false
+```
+
+Persistence: Task 1→1, Run 1→1, Message 18→19, message_bound = true.
+
+Safety: all no-write flags false; no raw output / workspace leakage; no new lingering Claude process.
+
+### Claude Environment Operational Note
+
+After H-C5 completion, local Claude Code configuration was normalized to a single MiMo provider setup. This is a local operational change, not a repository production change. No repository commit. No production code change. No project tracked file change.
+
+Target local structure:
+
+```text
+direct claude invocation
+→ ~/.claude/settings.json
+→ MiMo
+→ api.xiaomimimo.com/anthropic
+→ mimo-v2.5-pro
+```
+
+---
+
+## P21-C Final Gate
+
+### Gate
+
+- P21-C-H-B2: Closed / Pass
+- P21-C-H-C1: Closed / Pass
+- P21-C-H-C2: Closed / Pass
+- P21-C-H-C3: Closed / Pass
+- P21-C-H-C4: Closed / Pass with note
+- P21-C-H-C5: Closed / Pass with note
+- P21-C overall: Closed / Pass with note
+
+### Core Capability Conclusion
+
+```text
+controlled sandbox candidate diff
+→ persisted readonly review handoff
+→ execution preflight
+→ explicit user confirmation
+→ persisted trusted reviewer executor
+→ persisted trusted workspace
+→ current workspace revalidation
+→ real Codex / Claude Code reviewer execution
+→ strict output validation
+→ review result persistence
+```
+
+### Product Boundary Record
+
+- No automatic patch apply.
+- No product runtime git add / commit / push.
+- No automatic PR / merge.
+- No branch deletion.
+- No reset / checkout / switch / stash / rebase / tag.
+- No automatic CI trigger.
+- Reviewer verdict is not human approval.
+- User confirmation is not Git write authorization.
+- Product runtime Git write remains forbidden.
+
+### AI Project Director Total Loop
+
+- AI Project Director total loop: Partial.
+- Final UAT not yet complete.
+- Product runtime Git write still not opened.
+- Full user closure cycle not yet finished.
