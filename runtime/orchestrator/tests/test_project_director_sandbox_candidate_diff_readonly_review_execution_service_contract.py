@@ -284,13 +284,14 @@ def _blocked_adapter_result(**overrides):
 def _build_service(*, messages=None, session_exists=True, task_exists=True,
                     adapter_result=None):
     msg_repo = SpyMessageRepo(messages or {})
+    adapter = SpyAdapter(adapter_result)
     svc = ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService(
         session_repository=FakeSessionRepo(session_exists),
         message_repository=msg_repo,
         task_repository=FakeTaskRepo(task_exists),
-        adapter_service=SpyAdapter(adapter_result),
+        adapter_service=adapter,
     )
-    return svc, msg_repo
+    return svc, msg_repo, adapter
 
 
 def _call_service(svc, *, session_id=SESSION_ID, task_id=TASK_ID,
@@ -313,7 +314,7 @@ class TestHappyPath:
     def test_validated_result_and_message(self) -> None:
         preflight = _make_preflight_message()
         diff = _make_diff_message()
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        svc, msg_repo, _adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
         result = _call_service(svc)
         assert result.result.adapter_status == "validated_output"
         assert result.message is not None
@@ -396,10 +397,13 @@ class TestAdapterInvocationCount:
         assert result.message is None
 
     def test_evidence_blocked_adapter_not_called(self) -> None:
-        svc, _ = _build_service(messages={})
+        svc, msg_repo, adapter = _build_service(messages={})
         result = _call_service(svc)
         assert result.result.adapter_status == "blocked"
         assert result.message is None
+        assert len(adapter.invocations) == 0
+        assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -408,63 +412,64 @@ class TestAdapterInvocationCount:
 
 
 class TestPreflightSourceBinding:
-    def _assert_blocked_before_adapter(self, svc, msg_repo, *, reason):
+    def _assert_blocked_before_adapter(self, svc, msg_repo, adapter, *, reason):
         result = _call_service(svc)
         assert result.result.adapter_status == "blocked"
         assert reason in result.result.blocked_reasons
         assert result.message is None
+        assert len(adapter.invocations) == 0
         assert msg_repo.create_calls == []
         assert msg_repo.commit_calls == 0
 
     def test_preflight_message_missing(self) -> None:
-        svc, msg_repo = _build_service(messages={})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_preflight_message_missing")
+        svc, msg_repo, adapter = _build_service(messages={})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_preflight_message_missing")
 
     def test_preflight_session_mismatch(self) -> None:
         msg = _make_preflight_message(session_id=uuid4())
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_preflight_message_session_mismatch")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_preflight_message_session_mismatch")
 
     def test_preflight_task_mismatch(self) -> None:
         msg = _make_preflight_message(task_id=uuid4())
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_preflight_message_task_mismatch")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_preflight_message_task_mismatch")
 
     def test_wrong_source_detail(self) -> None:
         msg = _make_preflight_message(source_detail="wrong_detail")
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_message_is_not_p21_c_review_preflight")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_message_is_not_p21_c_review_preflight")
 
     def test_wrong_action_type(self) -> None:
         action = _valid_preflight_action()
         action["type"] = "wrong_type"
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="p21_c_review_execution_preflight_record_missing")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="p21_c_review_execution_preflight_record_missing")
 
     def test_action_source_task_id_mismatch(self) -> None:
         action = _valid_preflight_action(source_task_id=str(uuid4()))
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_task_not_bound_to_review_preflight")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_task_not_bound_to_review_preflight")
 
     def test_preflight_status_not_ready(self) -> None:
         action = _valid_preflight_action(review_execution_preflight_status="blocked")
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_preflight_not_ready")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_preflight_not_ready")
 
     def test_preflight_write_flag_true(self) -> None:
         action = _valid_preflight_action(reviewer_started=True)
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_preflight_write_boundary_violated")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_preflight_write_boundary_violated")
 
     def test_preflight_total_loop_not_partial(self) -> None:
         action = _valid_preflight_action(ai_project_director_total_loop="Pass")
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked_before_adapter(svc, msg_repo, reason="source_preflight_write_boundary_violated")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked_before_adapter(svc, msg_repo, adapter, reason="source_preflight_write_boundary_violated")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -473,60 +478,62 @@ class TestPreflightSourceBinding:
 
 
 class TestPreflightEvidenceIntegrity:
-    def _assert_blocked(self, svc, msg_repo, *, reason):
+    def _assert_blocked(self, svc, msg_repo, adapter, *, reason):
         result = _call_service(svc)
         assert result.result.adapter_status == "blocked"
         assert reason in result.result.blocked_reasons
+        assert len(adapter.invocations) == 0
         assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
 
     def test_invalid_executor(self) -> None:
         action = _valid_preflight_action(requested_reviewer_executor="invalid")
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="requested_reviewer_executor_invalid")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="requested_reviewer_executor_invalid")
 
     def test_missing_source_diff_message_id(self) -> None:
         action = _valid_preflight_action()
         del action["source_diff_message_id"]
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="source_diff_message_id_missing")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_message_id_missing")
 
     def test_invalid_source_diff_sha256(self) -> None:
         action = _valid_preflight_action(source_diff_sha256="not_hex")
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="source_diff_sha256_invalid")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_sha256_invalid")
 
     def test_invalid_review_prompt_sha256(self) -> None:
         action = _valid_preflight_action(review_prompt_sha256="bad")
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="review_prompt_sha256_invalid")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_prompt_sha256_invalid")
 
     def test_review_prompt_bytes_zero(self) -> None:
         action = _valid_preflight_action(review_prompt_bytes=0)
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="review_prompt_bytes_invalid")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_prompt_bytes_invalid")
 
     def test_missing_review_scope_paths(self) -> None:
         action = _valid_preflight_action(review_scope_paths=[])
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="review_scope_paths_missing")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_scope_paths_missing")
 
     def test_duplicate_review_scope_paths(self) -> None:
         action = _valid_preflight_action(review_scope_paths=["a.py", "a.py"])
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="review_scope_paths_invalid")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_scope_paths_invalid")
 
     def test_invalid_schema_version(self) -> None:
         action = _valid_preflight_action(review_output_schema_version="wrong")
         msg = _make_preflight_message(action=action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: msg})
-        self._assert_blocked(svc, msg_repo, reason="review_output_schema_version_mismatch")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: msg})
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_output_schema_version_mismatch")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -535,49 +542,51 @@ class TestPreflightEvidenceIntegrity:
 
 
 class TestSourceDiffBinding:
-    def _assert_blocked(self, svc, msg_repo, *, reason):
+    def _assert_blocked(self, svc, msg_repo, adapter, *, reason):
         result = _call_service(svc)
         assert result.result.adapter_status == "blocked"
         assert reason in result.result.blocked_reasons
+        assert len(adapter.invocations) == 0
         assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
 
     def test_diff_message_missing(self) -> None:
         preflight = _make_preflight_message()
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight})
-        self._assert_blocked(svc, msg_repo, reason="source_diff_message_missing")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight})
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_message_missing")
 
     def test_diff_session_mismatch(self) -> None:
         preflight = _make_preflight_message()
         diff = _make_diff_message(session_id=uuid4())
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
-        self._assert_blocked(svc, msg_repo, reason="source_diff_message_session_mismatch")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_message_session_mismatch")
 
     def test_diff_task_mismatch(self) -> None:
         preflight = _make_preflight_message()
         diff = _make_diff_message(task_id=uuid4())
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
-        self._assert_blocked(svc, msg_repo, reason="source_diff_message_task_mismatch")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_message_task_mismatch")
 
     def test_diff_wrong_source_detail(self) -> None:
         preflight = _make_preflight_message()
         diff = _make_diff_message(source_detail="wrong")
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
-        self._assert_blocked(svc, msg_repo, reason="source_diff_message_is_not_p21_c_candidate_diff_generated")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_message_is_not_p21_c_candidate_diff_generated")
 
     def test_diff_wrong_action_type(self) -> None:
         preflight = _make_preflight_message()
         diff_action = _valid_diff_action()
         diff_action["type"] = "wrong"
         diff = _make_diff_message(action=diff_action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
-        self._assert_blocked(svc, msg_repo, reason="p21_c_candidate_diff_generate_record_missing")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        self._assert_blocked(svc, msg_repo, adapter, reason="p21_c_candidate_diff_generate_record_missing")
 
     def test_diff_action_task_mismatch(self) -> None:
         preflight = _make_preflight_message()
         diff_action = _valid_diff_action(source_task_id=str(uuid4()))
         diff = _make_diff_message(action=diff_action)
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
-        self._assert_blocked(svc, msg_repo, reason="source_task_not_bound_to_candidate_diff")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_task_not_bound_to_candidate_diff")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -586,11 +595,13 @@ class TestSourceDiffBinding:
 
 
 class TestSourceDiffIntegrity:
-    def _assert_blocked(self, svc, msg_repo, *, reason):
+    def _assert_blocked(self, svc, msg_repo, adapter, *, reason):
         result = _call_service(svc)
         assert result.result.adapter_status == "blocked"
         assert reason in result.result.blocked_reasons
+        assert len(adapter.invocations) == 0
         assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
 
     def _build_with_diff_action(self, diff_action):
         preflight = _make_preflight_message()
@@ -598,63 +609,63 @@ class TestSourceDiffIntegrity:
         return _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
 
     def test_diff_not_generated(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(diff_generation_status="pending"))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_not_generated")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(diff_generation_status="pending"))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_not_generated")
 
     def test_readonly_not_true(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(readonly_real_diff_generated=False))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_not_generated")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(readonly_real_diff_generated=False))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_not_generated")
 
     def test_real_diff_not_generated(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(real_diff_generated=False))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_not_generated")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(real_diff_generated=False))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_not_generated")
 
     def test_write_flag_true(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(git_write_performed=True))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_write_boundary_violated")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(git_write_performed=True))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_write_boundary_violated")
 
     def test_total_loop_not_partial(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(ai_project_director_total_loop="Pass"))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_write_boundary_violated")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(ai_project_director_total_loop="Pass"))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_write_boundary_violated")
 
     def test_missing_unified_diff_text(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(unified_diff_text=""))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_not_generated")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(unified_diff_text=""))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_not_generated")
 
     def test_diff_bytes_mismatch(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(diff_bytes=999))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_bytes_mismatch")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(diff_bytes=999))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_bytes_mismatch")
 
     def test_sha256_mismatch(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(
             unified_diff_text="different content\n"
         ))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_sha256_mismatch")
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_sha256_mismatch")
 
     def test_diff_entries_missing(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(diff_entries=[]))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_entries_missing")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(diff_entries=[]))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_entries_missing")
 
     def test_diff_file_count_mismatch(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(diff_file_count=5))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_file_count_mismatch")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(diff_file_count=5))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_file_count_mismatch")
 
     def test_invalid_diff_entry(self) -> None:
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(
             diff_entries=["not_a_dict"],
         ))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_entries_invalid")
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_entries_invalid")
 
     def test_entry_diff_bytes_mismatch(self) -> None:
         entry = {"relative_path": "src/example.py", "unified_diff": UNIFIED_DIFF, "diff_bytes": 999}
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(diff_entries=[entry]))
-        self._assert_blocked(svc, msg_repo, reason="source_diff_entries_invalid")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(diff_entries=[entry]))
+        self._assert_blocked(svc, msg_repo, adapter, reason="source_diff_entries_invalid")
 
     def test_scope_path_mismatch(self) -> None:
         entry = {"relative_path": "src/other.py", "unified_diff": UNIFIED_DIFF,
                  "diff_bytes": len(UNIFIED_DIFF.encode("utf-8"))}
-        svc, msg_repo = self._build_with_diff_action(_valid_diff_action(diff_entries=[entry]))
-        self._assert_blocked(svc, msg_repo, reason="review_scope_paths_mismatch")
+        svc, msg_repo, adapter = self._build_with_diff_action(_valid_diff_action(diff_entries=[entry]))
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_scope_paths_mismatch")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -663,10 +674,11 @@ class TestSourceDiffIntegrity:
 
 
 class TestPromptFingerprint:
-    def _assert_blocked(self, svc, msg_repo, *, reason):
+    def _assert_blocked(self, svc, msg_repo, adapter, *, reason):
         result = _call_service(svc)
         assert result.result.adapter_status == "blocked"
         assert reason in result.result.blocked_reasons
+        assert len(adapter.invocations) == 0
         assert msg_repo.create_calls == []
         assert msg_repo.commit_calls == 0
 
@@ -674,15 +686,15 @@ class TestPromptFingerprint:
         action = _valid_preflight_action(review_prompt_sha256="a" * 64)
         preflight = _make_preflight_message(action=action)
         diff = _make_diff_message()
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
-        self._assert_blocked(svc, msg_repo, reason="review_prompt_sha256_mismatch")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_prompt_sha256_mismatch")
 
     def test_prompt_bytes_mismatch(self) -> None:
         action = _valid_preflight_action(review_prompt_bytes=999999)
         preflight = _make_preflight_message(action=action)
         diff = _make_diff_message()
-        svc, msg_repo = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
-        self._assert_blocked(svc, msg_repo, reason="review_prompt_bytes_mismatch")
+        svc, msg_repo, adapter = _build_service(messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        self._assert_blocked(svc, msg_repo, adapter, reason="review_prompt_bytes_mismatch")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -772,11 +784,18 @@ class TestPersistedMessage:
         assert msg.related_task_id == TASK_ID
         assert msg.requires_confirmation is False
         assert msg.risk_level == ProjectDirectorMessageRiskLevel.HIGH
-        assert "not human approval" in msg.content or "不是 human" in msg.content
-        assert "Partial" in msg.content
-        assert "approved to merge" not in msg.content.lower()
-        assert "safe to merge" not in msg.content.lower()
-        assert "production ready" not in msg.content.lower()
+        content = msg.content
+        assert "verdict" in content.lower()
+        assert "not human approval" in content or "不是 human" in content
+        assert "not Git write authorization" in content or "不是 Git write" in content
+        assert "no patch" in content.lower() or "没有应用 patch" in content
+        assert "no Git write" in content or "没有执行 Git 写" in content
+        assert "Partial" in content
+        content_lower = content.lower()
+        assert "approved to merge" not in content_lower
+        assert "safe to merge" not in content_lower
+        assert "production ready" not in content_lower
+        assert "project complete" not in content_lower
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -791,7 +810,8 @@ class TestSuggestedAction:
         "source_diff_sha256", "review_prompt_sha256", "review_prompt_bytes",
         "review_scope_paths", "review_output_schema_version",
         "adapter_status", "execution_mode", "transport_status",
-        "output_validation_status", "raw_output_sha256", "raw_output_bytes",
+        "transport_error_code", "output_validation_status",
+        "raw_output_sha256", "raw_output_bytes",
         "strict_json_valid", "schema_valid", "semantics_valid",
         "evidence_scope_valid", "review_status", "verdict", "risk_level",
         "summary", "findings", "recommended_next_step",
@@ -834,6 +854,24 @@ class TestSuggestedAction:
         assert action["review_prompt_bytes"] == PROMPT_BYTES
         assert action["review_scope_paths"] == SCOPE_PATHS
         assert action["adapter_status"] == "validated_output"
+        assert action["transport_error_code"] is None
+
+    def test_transport_error_code_propagation(self) -> None:
+        result_with_error = _validated_adapter_result(
+            transport_status="timeout",
+            transport_error_code="reviewer_native_timeout",
+        )
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        msg_repo = SpyMessageRepo({PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff})
+        svc = ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService(
+            session_repository=FakeSessionRepo(), message_repository=msg_repo,
+            task_repository=FakeTaskRepo(), adapter_service=SpyAdapter(result_with_error),
+        )
+        result = _call_service(svc)
+        action = result.message.suggested_actions[0]
+        assert action["transport_error_code"] == "reviewer_native_timeout"
+        assert action["transport_status"] == "timeout"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -857,7 +895,12 @@ class TestSecretAbsence:
         assert "ANTHROPIC_AUTH_TOKEN" not in action_str
         assert "ANTHROPIC_BASE_URL" not in action_str
         assert "API_KEY" not in action_str
-        assert "token" not in action_str.lower() or "provider_called" in action_str
+        assert "credential" not in action_str
+        assert "environment" not in action_str
+        assert "secret" not in action_str
+        forbidden_keys = {"raw_output_text", "review_prompt_text", "unified_diff_text"}
+        for key in forbidden_keys:
+            assert key not in action, f"Forbidden key present: {key}"
 
 
 # ══════════════════════════════════════════════════════════════════════
