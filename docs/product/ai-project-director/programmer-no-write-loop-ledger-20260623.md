@@ -1440,7 +1440,43 @@ controlled sandbox candidate diff
 
 ---
 
-## P21-D Stage Design — Post-Review Human Decision & Evidence Freshness Gate
+## P21-D Stage Design — Automated Review Disposition, Human Escalation & Evidence Freshness Gate
+
+### Core Product Principle
+
+P21-D is automation-first, not approval-first.
+
+The default path is not:
+
+```text
+every review result → human decision
+```
+
+The default path must be:
+
+```text
+persisted validated review result
+→ automated disposition
+→ AUTO_CONTINUE / AUTO_REWORK / ESCALATE_TO_HUMAN
+```
+
+Human involvement is exception-based.
+
+Human responsibility:
+
+- Large direction decisions
+- Major risk decisions
+- Scope changes beyond confirmed boundaries
+- Problems that cannot auto-converge
+- Human-controlled stage / milestone checkpoints
+- Future protected transitions
+
+Human is not responsible for:
+
+- Every small task
+- Every ordinary reviewer result
+- Every low-risk change
+- Every ordinary automatic rework
 
 ### Current Starting State
 
@@ -1483,33 +1519,141 @@ Persisted review result already contains and binds:
 
 Current system does not have:
 
-- explicit human decision record after review result
-- human decision binding to exact review result
+- automated disposition after review result
+- disposition binding to exact review result
 - review result fingerprint binding
+- bounded automatic rework orchestration
+- escalation trigger definition
+- human escalation package aggregation
 - decision expiry / revoke / replay protection
 - decision consumption gate
 - current diff freshness revalidation after review
 - stale review evidence invalidation
 - future pre-write guardrail eligibility result
 
+### Three Dispositions
+
+#### AUTO_CONTINUE
+
+Current review result has passed strict validation and no escalation trigger is present.
+
+System may continue automatic progression within confirmed project scope and governance boundaries.
+
+Does not require human confirmation.
+
+Does not authorize Git write.
+
+#### AUTO_REWORK
+
+Current result requires modification, but remains within confirmed scope and is an ordinary rework that can be handled automatically.
+
+System enters bounded automatic rework path.
+
+Does not by default require human confirmation.
+
+Does not authorize unlimited retry.
+
+Does not mean P21-D-A currently implements automatic rework.
+
+#### ESCALATE_TO_HUMAN
+
+Only when a clear escalation trigger is hit, an escalation package is built for human decision.
+
+Must not convert every reviewer result into human approval by default.
+
+### Reviewer Verdict Default Disposition Semantics
+
+`no_blocking_findings`:
+
+- Default: AUTO_CONTINUE
+- Unless an escalation trigger is simultaneously present.
+
+`non_blocking_findings`:
+
+- Default: record findings → AUTO_CONTINUE
+- Future governance policy may promote specific findings to AUTO_REWORK.
+- Must not default to human confirmation only because non-blocking findings exist.
+
+`changes_required`:
+
+- Default: AUTO_REWORK
+- As long as:
+  - Still within confirmed scope
+  - No high-risk escalation trigger present
+  - Bounded rework budget not exhausted
+  - No unresolvable non-convergence state
+- Must not default to human confirmation only because of a first `changes_required`.
+
+### Escalation Triggers
+
+The following conceptual triggers require human escalation when present:
+
+1. **Confirmed scope / plan expansion**: Requires expanding confirmed scope or changing large direction.
+
+2. **High-risk or protected-surface change**: Involves explicitly high-risk areas or protected operations.
+
+3. **Bounded rework budget exhausted**: Automatic rework reaches upper limit and still cannot pass.
+
+4. **Repeated non-convergence**: Multiple modification-review cycles cannot converge.
+
+5. **Trusted reviewer conflict**: If future same-target has multiple trusted reviewer results with conflicting key judgments.
+
+6. **Human-controlled stage or milestone checkpoint**: Only stages or milestones explicitly marked by governance policy as human-controlled. Must not treat ordinary task completion as milestone approval.
+
+7. **Protected future transition**: For example future entry into:
+   - product runtime Git write
+   - deployment
+   - destructive operation
+   - database migration
+   - permission / security critical change
+
+8. **Explicit governance policy escalation**: Governance policy explicitly requires human involvement.
+
+### Non-Triggers
+
+The following conditions in isolation must not default to human escalation:
+
+- One ordinary task completing
+- One reviewer result being produced
+- `no_blocking_findings`
+- `non_blocking_findings`
+- First `changes_required`
+- Ordinary low-risk code changes
+- Ordinary naming / comment / small exception handling issues
+- Automatic rework within bounded rework budget
+
 ### P21-D Final Goal
 
 ```text
 persisted validated P21-C review result
-→ explicit post-review human decision
-→ append-only persisted decision evidence
-→ decision / review / diff binding validation
-→ decision freshness validation
+→ deterministic automated disposition
+→ AUTO_CONTINUE / AUTO_REWORK / ESCALATE_TO_HUMAN
+
+AUTO_CONTINUE:
+→ persist append-only disposition evidence
+→ eligible for automatic continuation inside confirmed scope
+
+AUTO_REWORK:
+→ persist append-only disposition evidence
+→ eligible for bounded automatic rework orchestration
+
+ESCALATE_TO_HUMAN:
+→ build persisted escalation package
+→ human decision
+→ decision binding / expiry / revoke / replay protection
+
+Before entering any future protected transition:
+→ reload relevant evidence
 → current trusted workspace revalidation
 → current readonly diff regeneration
-→ reviewed diff vs current diff fingerprint comparison
+→ evidence freshness comparison
 → stale evidence rejection
-→ future pre-write guardrail eligibility
+→ protected-transition eligibility
 ```
 
-Success can only mean:
+Success can still only mean:
 
-- `gate_allows_prewrite_guardrail = true`
+- `gate_allows_protected_transition_guardrail = true`
 - `gate_allows_write = false`
 
 It must not mean: Git write authorized.
@@ -1517,14 +1661,16 @@ It must not mean: Git write authorized.
 ### P21-D Stage Split
 
 - **P21-D-A**: Stage Contract Design
-- **P21-D-B**: Human Review Decision Record
-- **P21-D-C**: Evidence Freshness Revalidation Gate
+- **P21-D-B**: Automated Review Disposition Gate
+- **P21-D-C**: Bounded Automatic Disposition Consumption
+- **P21-D-D**: Human Escalation Decision Record
+- **P21-D-E**: Protected Transition Evidence Freshness Gate
 
 P21-D-A (current task) only locks the contract.
 
-P21-D-B / P21-D-C must remain Not started.
+P21-D-B / P21-D-C / P21-D-D / P21-D-E must remain Not started.
 
-### P21-D-B Contract
+### P21-D-B Contract — Automated Review Disposition Gate
 
 1. Input must be an already-persisted P21-C readonly review execution message.
 
@@ -1539,16 +1685,20 @@ P21-D-B / P21-D-C must remain Not started.
 
    These values must be read from persisted trusted evidence.
 
-3. Legal reviewer verdict semantics:
-   - `no_blocking_findings`: allows human to decide whether to enter next pre-write guardrail.
-   - `non_blocking_findings`: allows human to decide after understanding findings whether to enter next pre-write guardrail.
-   - `changes_required`: must not enter pre-write guardrail. Can only enter rework / reject semantics.
+3. P21-D-B computes and persists exactly one of:
+   - `AUTO_CONTINUE`
+   - `AUTO_REWORK`
+   - `ESCALATE_TO_HUMAN`
 
-4. Reviewer verdict is never human decision.
+   based on reviewer verdict and escalation trigger evaluation.
 
-5. Human decision is never Git write authorization.
+4. P21-D-B itself does not start Worker, does not execute rework, does not require human.
 
-6. Human decision record must bind at minimum:
+5. Reviewer verdict is never human decision.
+
+6. Automated disposition is never Git write authorization.
+
+7. Disposition record must bind at minimum:
    - `session_id`
    - `source_task_id`
    - `source_review_message_id`
@@ -1560,15 +1710,12 @@ P21-D-B / P21-D-C must remain Not started.
    - `review_scope_paths`
    - `review_output_schema_version`
    - review result fingerprint
-   - decision id
-   - decision action
+   - disposition id
+   - disposition type (`AUTO_CONTINUE` / `AUTO_REWORK` / `ESCALATE_TO_HUMAN`)
+   - escalation trigger evaluation result (if applicable)
    - actor
    - client request id
-   - decision `created_at`
-   - decision `expires_at`
-   - decision confirmation fingerprint
-
-7. Do not persist raw human confirmation text.
+   - disposition `created_at`
 
 8. Use `ProjectDirectorMessage` append-only audit.
 
@@ -1588,17 +1735,22 @@ P21-D-B / P21-D-C must remain Not started.
     - merge
     - CI trigger
 
-### P21-D-C Contract
+### P21-D-C Contract — Bounded Automatic Disposition Consumption
 
-Consumption ordering:
+1. Consumes `AUTO_CONTINUE` and `AUTO_REWORK` dispositions.
+
+2. `AUTO_CONTINUE`: ordinary flow may proceed automatically within confirmed scope.
+
+3. `AUTO_REWORK`: enters bounded automatic rework path. Must not retry infinitely. Must stop and escalate when escalation trigger is hit.
+
+4. P21-D-C does not handle `ESCALATE_TO_HUMAN` dispositions. Those are routed to P21-D-D.
+
+5. Consumption ordering:
 
 ```text
-persisted human decision
-→ validate decision message / action type / source binding
-→ validate decision active
-→ validate not expired
-→ validate not revoked
-→ validate not previously consumed
+persisted disposition
+→ validate disposition message / type / source binding
+→ validate disposition active
 → reload exact P21-C review result
 → validate review result fingerprint
 → validate strict_json_valid
@@ -1615,36 +1767,126 @@ persisted human decision
 → regenerate current readonly diff
 → compare current diff SHA256 with reviewed diff SHA256
 → compare current diff scope with reviewed scope
-→ persist append-only revalidation / consumption evidence
-→ return pre-write guardrail eligibility
+→ persist append-only consumption evidence
+→ return continuation / rework eligibility
 ```
 
-Any critical evidence change must set `ready = false` and produce a stable blocked reason.
+6. Any critical evidence change must set `ready = false` and produce a stable blocked reason.
 
-Conceptual blocked reasons:
+7. Conceptual blocked reasons:
+   - `disposition_missing`
+   - `disposition_type_escalation_unhandled`
+   - `review_result_missing`
+   - `review_result_not_validated`
+   - `review_result_fingerprint_mismatch`
+   - `source_diff_missing`
+   - `source_diff_sha256_mismatch`
+   - `review_scope_paths_mismatch`
+   - `trusted_workspace_invalid`
+   - `current_diff_mismatch`
+   - `review_evidence_stale`
+   - `bounded_rework_budget_exhausted`
+   - `rework_non_convergence`
 
-- `decision_missing`
-- `decision_expired`
-- `decision_revoked`
-- `decision_already_consumed`
-- `review_result_missing`
-- `review_result_not_validated`
-- `review_result_fingerprint_mismatch`
-- `review_verdict_requires_changes`
-- `source_diff_missing`
-- `source_diff_sha256_mismatch`
-- `review_scope_paths_mismatch`
-- `trusted_workspace_invalid`
-- `current_diff_mismatch`
-- `review_evidence_stale`
+8. Do not define HTTP status mapping in this design phase.
 
-Do not define HTTP status mapping in this design phase.
+### P21-D-D Contract — Human Escalation Decision Record
+
+1. Only dispositions of type `ESCALATE_TO_HUMAN` may build a human escalation package.
+
+2. Human escalation package may aggregate one or multiple related task / review results.
+
+3. Future human escalation objects may target:
+   - one high-risk task
+   - one stage
+   - one milestone
+   - a group of related changes
+   - an unresolvable rework cycle
+
+4. Human escalation package must conceptually bind at minimum:
+   - escalation trigger
+   - escalation scope
+   - related task ids
+   - related review message ids
+   - unresolved blocking findings
+   - risk summary
+   - aggregate evidence fingerprint
+   - proposed human decision scope
+
+5. Human decision record must bind at minimum:
+   - escalation package id
+   - decision id
+   - decision action
+   - actor
+   - client request id
+   - decision `created_at`
+   - decision `expires_at`
+   - decision confirmation fingerprint
+
+6. Human decision is never Git write authorization.
+
+7. Do not persist raw human confirmation text.
+
+8. Use `ProjectDirectorMessage` append-only audit.
+
+9. Do not add new DB table.
+
+10. Do not create migration.
+
+11. P21-D-D must not create:
+    - Task
+    - Run
+    - Worker
+    - worktree
+    - Git write
+    - PR
+    - merge
+    - CI trigger
+
+### P21-D-E Contract — Protected Transition Evidence Freshness Gate
+
+Before entering any sensitive transition in the future, revalidates all evidence.
+
+Includes but is not limited to:
+
+- exact review evidence binding
+- aggregate escalation evidence binding
+- decision expiry
+- decision revoke
+- replay / reuse protection
+- current workspace validity
+- current diff freshness
+- stale evidence rejection
+
+P21-D-E still does not execute Git write.
+
+Consumption ordering:
+
+```text
+persisted decision + disposition evidence
+→ reload all relevant evidence
+→ validate decision active / not expired / not revoked / not previously consumed
+→ validate review result fingerprint
+→ validate strict_json_valid / schema_valid / semantics_valid / evidence_scope_valid
+→ revalidate trusted current workspace
+→ regenerate current readonly diff
+→ compare current diff SHA256 with reviewed diff SHA256
+→ compare current diff scope with reviewed scope
+→ persist append-only freshness validation evidence
+→ return protected-transition eligibility
+```
+
+Success can only mean:
+
+- `gate_allows_protected_transition_guardrail = true`
+- `gate_allows_write = false`
 
 ### Append-Only Consumption Rule
 
 - Must not modify old P21-C review message.
-- Must not overwrite old human decision message.
-- Successful consumption of human decision must add append-only revalidation / consumption evidence.
+- Must not overwrite old disposition message.
+- Must not overwrite old human escalation decision message.
+- Successful consumption must add append-only evidence.
 - Same decision must not be reused for multiple subsequent safety checks.
 
 ### Permanent Safety Boundary
@@ -1661,16 +1903,24 @@ Do not define HTTP status mapping in this design phase.
 
 Reviewer verdict is not human approval.
 
-Human decision is not Git write authorization.
+Automated disposition is not Git write authorization.
+
+Human escalation decision is not Git write authorization.
+
+AUTO_CONTINUE does not authorize Git write.
+
+AUTO_REWORK does not authorize Git write.
 
 P21-D Pass does not open product runtime Git write.
 
 ### Stage Status
 
 - P21-C: Closed / Pass with note
-- P21-D-A: Ready for AI Project Director review
+- P21-D-A-R1: Ready for AI Project Director review
 - P21-D-B: Not started
 - P21-D-C: Not started
+- P21-D-D: Not started
+- P21-D-E: Not started
 - Product runtime Git write: Forbidden
 - AI Project Director total loop: Partial
 
