@@ -6,7 +6,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -121,6 +121,16 @@ class _PersistedPreflightEvidence:
     review_output_schema_version: str
 
 
+class ReadonlyReviewerTransportResolverProtocol(Protocol):
+    """Resolve a readonly reviewer transport after executor evidence is validated."""
+
+    def __call__(
+        self,
+        requested_reviewer_executor: str,
+    ) -> ReadonlyReviewerTransportProtocol:
+        ...
+
+
 class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
     """Execute readonly review only after persisted evidence revalidation."""
 
@@ -148,6 +158,43 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
         source_task_id: UUID,
         source_message_id: UUID,
         transport: ReadonlyReviewerTransportProtocol,
+    ) -> ConfirmedSandboxCandidateDiffReadonlyReviewExecution:
+        """Legacy path: execute with a caller-provided transport."""
+
+        return self._execute_candidate_diff_readonly_review_from_preflight(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_message_id=source_message_id,
+            transport=transport,
+            transport_resolver=None,
+        )
+
+    def execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_message_id: UUID,
+        transport_resolver: ReadonlyReviewerTransportResolverProtocol,
+    ) -> ConfirmedSandboxCandidateDiffReadonlyReviewExecution:
+        """Resolve transport only after persisted evidence and prompt are verified."""
+
+        return self._execute_candidate_diff_readonly_review_from_preflight(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_message_id=source_message_id,
+            transport=None,
+            transport_resolver=transport_resolver,
+        )
+
+    def _execute_candidate_diff_readonly_review_from_preflight(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_message_id: UUID,
+        transport: ReadonlyReviewerTransportProtocol | None,
+        transport_resolver: ReadonlyReviewerTransportResolverProtocol | None,
     ) -> ConfirmedSandboxCandidateDiffReadonlyReviewExecution:
         """Rebuild preflight evidence, invoke adapter once, and persist validated output."""
 
@@ -225,6 +272,61 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
                 message=None,
             )
 
+        resolved_transport = transport
+        if resolved_transport is None:
+            if transport_resolver is None:
+                return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
+                    result=self._blocked_result(
+                        requested_reviewer_executor=(
+                            preflight_evidence.requested_reviewer_executor
+                        ),
+                        review_scope_paths=preflight_evidence.review_scope_paths,
+                        review_output_schema_version=(
+                            preflight_evidence.review_output_schema_version
+                        ),
+                        blocked_reasons=[
+                            "readonly_reviewer_transport_resolution_failed"
+                        ],
+                    ),
+                    message=None,
+                )
+            try:
+                resolved_transport = transport_resolver(
+                    preflight_evidence.requested_reviewer_executor
+                )
+            except ValueError:
+                return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
+                    result=self._blocked_result(
+                        requested_reviewer_executor=(
+                            preflight_evidence.requested_reviewer_executor
+                        ),
+                        review_scope_paths=preflight_evidence.review_scope_paths,
+                        review_output_schema_version=(
+                            preflight_evidence.review_output_schema_version
+                        ),
+                        blocked_reasons=[
+                            "readonly_reviewer_transport_resolution_failed"
+                        ],
+                    ),
+                    message=None,
+                )
+            if not isinstance(resolved_transport, ReadonlyReviewerTransportProtocol):
+                return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
+                    result=self._blocked_result(
+                        requested_reviewer_executor=(
+                            preflight_evidence.requested_reviewer_executor
+                        ),
+                        review_scope_paths=preflight_evidence.review_scope_paths,
+                        review_output_schema_version=(
+                            preflight_evidence.review_output_schema_version
+                        ),
+                        blocked_reasons=[
+                            "readonly_reviewer_transport_resolution_failed"
+                        ],
+                    ),
+                    message=None,
+                )
+
         adapter_result = self._adapter_service.validate_review_output_through_transport(
             requested_reviewer_executor=preflight_evidence.requested_reviewer_executor,
             review_prompt_text=review_prompt_text,
@@ -232,7 +334,7 @@ class ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
             expected_review_prompt_bytes=preflight_evidence.review_prompt_bytes,
             review_scope_paths=preflight_evidence.review_scope_paths,
             review_output_schema_version=preflight_evidence.review_output_schema_version,
-            transport=transport,
+            transport=resolved_transport,
         )
         if adapter_result.adapter_status == "blocked":
             return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
@@ -720,4 +822,5 @@ __all__ = (
     "P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE",
     "P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL",
     "ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService",
+    "ReadonlyReviewerTransportResolverProtocol",
 )
