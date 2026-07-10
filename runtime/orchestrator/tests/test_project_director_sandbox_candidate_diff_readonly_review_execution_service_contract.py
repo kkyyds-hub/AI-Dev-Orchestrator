@@ -1262,9 +1262,8 @@ class TestResolverSecretAbsence:
 class TestNoConcreteTransportBinding:
     def test_service_has_no_concrete_transport_imports(self) -> None:
         import inspect
-        source = inspect.getsource(
-            ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService
-        )
+        import app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service as _mod
+        source = inspect.getsource(_mod)
         assert "NativeReadonlyReviewerCaptureTransport" not in source
         assert "CodexAppServerReadonlyReviewerTransport" not in source
         assert "MiMo" not in source
