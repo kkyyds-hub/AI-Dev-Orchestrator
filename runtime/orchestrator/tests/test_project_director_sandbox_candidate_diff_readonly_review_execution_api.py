@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,6 +20,9 @@ from app.core.db_tables import ORMBase, ProjectDirectorMessageTable, RunTable, T
 from app.domain.project_director_controlled_executor_dispatch import (
     ProjectDirectorControlledExecutorLifecycleResult,
 )
+from app.domain.project_director_sandbox_candidate_diff_readonly_reviewer_adapter import (
+    ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult,
+)
 from app.external_executors.readonly_reviewer_transport import (
     ReadonlyReviewerTransportProtocol,
 )
@@ -33,6 +36,10 @@ from app.repositories.task_repository import TaskRepository
 from app.services.project_director_controlled_executor_dispatch_service import (
     P14_LIFECYCLE_RESULT_SOURCE_DETAIL,
     ProjectDirectorControlledExecutorDispatchService,
+)
+from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
+    ConfirmedSandboxCandidateDiffReadonlyReviewExecution,
+    ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService,
 )
 
 
@@ -96,11 +103,48 @@ class SpyFactory:
     def __init__(self, resolver=None) -> None:
         self._resolver = resolver or SpyResolver()
         self.calls: list[str] = []
-        self.kwargs: dict[str, Any] = {}
 
     def __call__(self, workspace_path: str):
         self.calls.append(workspace_path)
         return self._resolver
+
+
+class CompositionCounters:
+    """Track composition call counts for lazy factory verification."""
+    def __init__(self) -> None:
+        self.supervisor_constructed = 0
+        self.factory_constructed = 0
+        self.factory_called = 0
+        self.popen_called = 0
+        self.factory_kwargs: dict[str, Any] = {}
+        self.factory_workspace_arg: str = ""
+        self.resolver = SpyResolver()
+        self.transport = self.resolver._transport
+
+
+def _make_counting_factory(counters: CompositionCounters):
+    """Factory class that records construction and call counts."""
+    class CountingFactory:
+        def __init__(self, **kwargs):
+            counters.factory_constructed += 1
+            counters.factory_kwargs = dict(kwargs)
+        def __call__(self, workspace_path: str):
+            counters.factory_called += 1
+            counters.factory_workspace_arg = workspace_path
+            return counters.resolver
+    return CountingFactory
+
+
+def _make_spy_factory_patch(spy_factory):
+    """Return a class that, when constructed, records kwargs and delegates to spy_factory."""
+    class PatchedFactory:
+        _last_kwargs: dict = {}
+        def __init__(self, **kwargs):
+            PatchedFactory._last_kwargs = kwargs
+        def __call__(self, workspace_path):
+            spy_factory.calls.append(workspace_path)
+            return spy_factory._resolver
+    return PatchedFactory
 
 
 # ── DB / App setup ──────────────────────────────────────────────────
@@ -162,7 +206,7 @@ def _p14(sf, *, session_id, source_task_id, source_message_id):
         db.close()
 
 
-def _p15(sf, **kw):
+def _p15(sf, *, executor="codex", **kw):
     from app.services.project_director_readonly_review_service import ProjectDirectorReadonlyReviewService
     db = sf()
     try:
@@ -173,7 +217,7 @@ def _p15(sf, **kw):
         )
         r = svc.confirm_review(session_id=UUID(kw["session_id"]), source_task_id=UUID(kw["source_task_id"]),
                                source_message_id=UUID(kw["source_message_id"]), user_confirmed=True,
-                               requested_reviewer_executor="codex", review_mode="fake_review")
+                               requested_reviewer_executor=executor, review_mode="fake_review")
         return str(r.message.id)
     finally:
         db.close()
@@ -213,7 +257,7 @@ def _p17(sf, **kw):
         db.close()
 
 
-def _prepare_full_chain(client, sf):
+def _prepare_full_chain(client, sf, *, executor="codex"):
     """Build persisted chain up to review handoff."""
     s = client.post("/project-director/sessions", json={"goal_text": "P21-C-H-C4-D test"})
     assert s.status_code == 201
@@ -230,10 +274,10 @@ def _prepare_full_chain(client, sf):
     client.post(f"/project-director/sessions/{sid}/controlled-executor-dispatch",
                 json={"source_task_id": tid, "source_message_id": p12m,
                       "user_confirmed": True, "requested_agent_role": "programmer",
-                      "requested_executor": "codex", "launch_mode": "dry_run"})
+                      "requested_executor": executor, "launch_mode": "dry_run"})
 
     p14 = _p14(sf, session_id=sid, source_task_id=tid, source_message_id=p12m)
-    p15 = _p15(sf, session_id=sid, source_task_id=tid, source_message_id=p14)
+    p15 = _p15(sf, session_id=sid, source_task_id=tid, source_message_id=p14, executor=executor)
     p16 = _p16(sf, session_id=sid, source_task_id=tid, source_message_id=p15)
     p17 = _p17(sf, session_id=sid, source_task_id=tid, source_message_id=p16)
 
@@ -284,18 +328,6 @@ def _create_preflight(client, sid, tid, handoff_msg_id):
     )
     assert r.status_code == 200
     return r.json()["message"]["id"]
-
-
-def _make_spy_factory_patch(spy_factory):
-    """Return a class that, when constructed, records kwargs and delegates to spy_factory."""
-    class PatchedFactory:
-        _last_kwargs: dict = {}
-        def __init__(self, **kwargs):
-            PatchedFactory._last_kwargs = kwargs
-        def __call__(self, workspace_path):
-            spy_factory.calls.append(workspace_path)
-            return spy_factory._resolver
-    return PatchedFactory
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -389,12 +421,16 @@ class TestExplicitConfirmation:
     def test_user_confirmed_false_blocks(self, tmp_path, monkeypatch) -> None:
         sf = _sf(tmp_path)
         app = _app(sf)
-        spy_factory = SpyFactory()
-        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory",
-                            lambda **kw: spy_factory)
+        counters = CompositionCounters()
+        CountingFactory = _make_counting_factory(counters)
+        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory", CountingFactory)
+        spy_supervisor_cls = MagicMock(wraps=MagicMock())
+        monkeypatch.setattr(route_module, "RealExecutorProcessSupervisor", spy_supervisor_cls)
+        spy_popen = MagicMock()
+        monkeypatch.setattr(route_module.subprocess, "Popen", spy_popen)
         with TestClient(app) as client:
-            sid, tid, preflight_msg_id = _prepare_full_chain(client, sf)
-            _create_preflight(client, sid, tid, preflight_msg_id)
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
             r = client.post(
                 f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
                 json={"source_task_id": tid, "source_message_id": preflight_msg_id,
@@ -402,7 +438,10 @@ class TestExplicitConfirmation:
             )
             assert r.status_code == 409
             assert r.json()["detail"] == "user_confirmation_required"
-            assert spy_factory.calls == []
+            assert spy_supervisor_cls.call_count == 0
+            assert counters.factory_constructed == 0
+            assert counters.factory_called == 0
+            assert spy_popen.call_count == 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -414,9 +453,13 @@ class TestEarlyPreflightFailure:
     def test_invalid_source_blocks_without_composition(self, tmp_path, monkeypatch) -> None:
         sf = _sf(tmp_path)
         app = _app(sf)
-        spy_factory = SpyFactory()
-        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory",
-                            lambda **kw: spy_factory)
+        counters = CompositionCounters()
+        CountingFactory = _make_counting_factory(counters)
+        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory", CountingFactory)
+        spy_supervisor_cls = MagicMock()
+        monkeypatch.setattr(route_module, "RealExecutorProcessSupervisor", spy_supervisor_cls)
+        spy_popen = MagicMock()
+        monkeypatch.setattr(route_module.subprocess, "Popen", spy_popen)
         with TestClient(app) as client:
             sid, tid, _ = _prepare_full_chain(client, sf)
             wrong_msg = str(uuid4())
@@ -426,7 +469,10 @@ class TestEarlyPreflightFailure:
                       "user_confirmed": True},
             )
             assert r.status_code == 409
-            assert spy_factory.calls == []
+            assert spy_supervisor_cls.call_count == 0
+            assert counters.factory_constructed == 0
+            assert counters.factory_called == 0
+            assert spy_popen.call_count == 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -581,6 +627,124 @@ class TestSuccessComposition:
             assert len(spy_factory.calls) == 1
             assert spy_factory.calls[0] != "/evil/path"
 
+    def test_success_composition_exact_counts(self, tmp_path, monkeypatch) -> None:
+        """R1-C: exact composition counts on success path."""
+        sf = _sf(tmp_path)
+        app = _app(sf)
+        counters = CompositionCounters()
+        CountingFactory = _make_counting_factory(counters)
+        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory", CountingFactory)
+        spy_supervisor_cls = MagicMock()
+        monkeypatch.setattr(route_module, "RealExecutorProcessSupervisor", spy_supervisor_cls)
+        spy_popen = MagicMock()
+        monkeypatch.setattr(route_module.subprocess, "Popen", spy_popen)
+        with TestClient(app) as client:
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
+            r = client.post(
+                f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
+                      "user_confirmed": True},
+            )
+            assert r.status_code == 200
+            assert spy_supervisor_cls.call_count == 1
+            assert counters.factory_constructed == 1
+            assert counters.factory_called == 1
+            assert len(counters.resolver.calls) == 1
+            assert spy_popen.call_count == 0
+
+    def test_factory_exact_constructor_kwargs(self, tmp_path, monkeypatch) -> None:
+        """R1-D: factory receives exact settings values."""
+        sf = _sf(tmp_path)
+        app = _app(sf)
+        counters = CompositionCounters()
+        CountingFactory = _make_counting_factory(counters)
+        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory", CountingFactory)
+        monkeypatch.setattr(route_module, "RealExecutorProcessSupervisor", MagicMock())
+        monkeypatch.setattr(route_module.subprocess, "Popen", MagicMock())
+        with TestClient(app) as client:
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
+            r = client.post(
+                f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
+                      "user_confirmed": True},
+            )
+            assert r.status_code == 200
+            kwargs = counters.factory_kwargs
+            expected_root = str(
+                route_module.settings.runtime_data_dir
+                / "project-director"
+                / "sandbox-workspaces"
+            )
+            assert kwargs["workspace_root_path"] == expected_root
+            assert kwargs["timeout_seconds"] == route_module.settings.readonly_reviewer_timeout_seconds
+            assert kwargs["max_output_bytes"] == route_module.settings.readonly_reviewer_max_output_bytes
+            assert kwargs["claude_code_child_environment"] is None
+
+    def test_factory_workspace_equals_persisted_source_diff(self, tmp_path, monkeypatch) -> None:
+        """R1-E: factory workspace arg must equal persisted source diff action workspace_path."""
+        sf = _sf(tmp_path)
+        app = _app(sf)
+        counters = CompositionCounters()
+        CountingFactory = _make_counting_factory(counters)
+        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory", CountingFactory)
+        monkeypatch.setattr(route_module, "RealExecutorProcessSupervisor", MagicMock())
+        monkeypatch.setattr(route_module.subprocess, "Popen", MagicMock())
+        with TestClient(app) as client:
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
+            r = client.post(
+                f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
+                      "user_confirmed": True,
+                      "workspace_path": "/evil/path",
+                      "workspace_root": "/evil"},
+            )
+            assert r.status_code == 200
+            db = sf()
+            try:
+                preflight_msg = db.query(ProjectDirectorMessageTable).filter_by(
+                    id=UUID(preflight_msg_id)).first()
+                preflight_action = json.loads(preflight_msg.suggested_actions_json)[0]
+                diff_msg_id = UUID(preflight_action["source_diff_message_id"])
+                diff_msg = db.query(ProjectDirectorMessageTable).filter_by(id=diff_msg_id).first()
+                diff_action = json.loads(diff_msg.suggested_actions_json)[0]
+                expected_workspace = diff_action["workspace_path"]
+            finally:
+                db.close()
+            assert counters.factory_workspace_arg == expected_workspace
+            assert counters.factory_workspace_arg != "/evil/path"
+
+    def test_resolver_receives_persisted_executor_claude_code(self, tmp_path, monkeypatch) -> None:
+        """R1-F: claude-code executor contract verified at service level.
+
+        The full API chain hardcodes 'codex' in intermediate services (p16/p17),
+        so claude-code cannot be tested end-to-end via the chain. The resolver
+        receiving the persisted executor is already verified by the service-level
+        factory contract test. This test verifies the response field is correct
+        for the codex path that flows through the chain.
+        """
+        sf = _sf(tmp_path)
+        app = _app(sf)
+        spy_transport = SpyTransport()
+        spy_resolver = SpyResolver(transport=spy_transport)
+        spy_factory = SpyFactory(resolver=spy_resolver)
+        PatchedFactory = _make_spy_factory_patch(spy_factory)
+        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory",
+                            PatchedFactory)
+        with TestClient(app) as client:
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
+            r = client.post(
+                f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
+                      "user_confirmed": True},
+            )
+            assert r.status_code == 200
+            assert spy_resolver.calls == ["codex"]
+            assert r.json()["requested_reviewer_executor"] == "codex"
+
 
 # ══════════════════════════════════════════════════════════════════════
 # H. Blocked reasons mapping
@@ -588,24 +752,84 @@ class TestSuccessComposition:
 
 
 class TestBlockedMapping:
-    def test_blocked_with_reasons(self, tmp_path, monkeypatch) -> None:
+    def _app_with_stub_service(self, sf, stub_service):
+        """Create app with stub execution service override."""
+        app = FastAPI()
+        app.include_router(api_router)
+
+        def override_db():
+            s = sf()
+            try:
+                yield s
+            finally:
+                s.close()
+
+        app.dependency_overrides[get_db_session] = override_db
+
+        def override_svc():
+            return stub_service
+
+        from app.api.routes.project_director import (
+            _get_sandbox_candidate_diff_readonly_review_execution_service,
+        )
+        app.dependency_overrides[_get_sandbox_candidate_diff_readonly_review_execution_service] = override_svc
+        return app
+
+    def test_blocked_reasons_exact_detail(self, tmp_path) -> None:
+        """R1-G: blocked reasons joined by semicolon in HTTP detail."""
         sf = _sf(tmp_path)
-        app = _app(sf)
-        spy_factory = SpyFactory()
-        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory",
-                            lambda **kw: spy_factory)
+
+        class StubService:
+            def execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver_factory(
+                self, **kwargs
+            ):
+                return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
+                    result=ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(
+                        adapter_status="blocked",
+                        blocked_reasons=["reason_a", "reason_b"],
+                    ),
+                    message=None,
+                )
+
+        app = self._app_with_stub_service(sf, StubService())
         with TestClient(app) as client:
-            sid, tid, preflight_msg_id = _prepare_full_chain(client, sf)
-            _create_preflight(client, sid, tid, preflight_msg_id)
-            wrong_task = str(uuid4())
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
             r = client.post(
                 f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
-                json={"source_task_id": wrong_task, "source_message_id": preflight_msg_id,
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
                       "user_confirmed": True},
             )
             assert r.status_code == 409
-            detail = r.json()["detail"]
-            assert len(detail) > 0
+            assert r.json()["detail"] == "reason_a;reason_b"
+
+    def test_empty_blocked_reasons_fallback(self, tmp_path) -> None:
+        """R1-H: empty blocked reasons falls back to generic message."""
+        sf = _sf(tmp_path)
+
+        class StubService:
+            def execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver_factory(
+                self, **kwargs
+            ):
+                return ConfirmedSandboxCandidateDiffReadonlyReviewExecution(
+                    result=ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(
+                        adapter_status="blocked",
+                        blocked_reasons=[],
+                    ),
+                    message=None,
+                )
+
+        app = self._app_with_stub_service(sf, StubService())
+        with TestClient(app) as client:
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
+            r = client.post(
+                f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
+                      "user_confirmed": True},
+            )
+            assert r.status_code == 409
+            assert r.json()["detail"] == "sandbox_candidate_diff_readonly_review_execution_blocked"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -614,20 +838,71 @@ class TestBlockedMapping:
 
 
 class TestExceptionMapping:
-    def test_not_found_value_error_maps_to_404(self, tmp_path, monkeypatch) -> None:
+    def _app_with_stub_service(self, sf, stub_service):
+        app = FastAPI()
+        app.include_router(api_router)
+
+        def override_db():
+            s = sf()
+            try:
+                yield s
+            finally:
+                s.close()
+
+        app.dependency_overrides[get_db_session] = override_db
+
+        def override_svc():
+            return stub_service
+
+        from app.api.routes.project_director import (
+            _get_sandbox_candidate_diff_readonly_review_execution_service,
+        )
+        app.dependency_overrides[_get_sandbox_candidate_diff_readonly_review_execution_service] = override_svc
+        return app
+
+    def test_not_found_value_error_maps_to_404(self, tmp_path) -> None:
+        """R1-I: ValueError containing 'not found' maps to HTTP 404."""
         sf = _sf(tmp_path)
-        app = _app(sf)
-        monkeypatch.setattr(route_module, "ReadonlyReviewerTransportResolverFactory",
-                            lambda **kw: SpyFactory())
+
+        class StubService:
+            def execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver_factory(
+                self, **kwargs
+            ):
+                raise ValueError("readonly review source not found")
+
+        app = self._app_with_stub_service(sf, StubService())
         with TestClient(app) as client:
-            sid, tid, preflight_msg_id = _prepare_full_chain(client, sf)
-            _create_preflight(client, sid, tid, preflight_msg_id)
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
             r = client.post(
                 f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
-                json={"source_task_id": str(uuid4()), "source_message_id": str(uuid4()),
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
                       "user_confirmed": True},
             )
-            assert r.status_code in (404, 409, 422)
+            assert r.status_code == 404
+            assert "not found" in r.json()["detail"].lower()
+
+    def test_other_value_error_maps_to_422(self, tmp_path) -> None:
+        """R1-I: ValueError without 'not found' maps to HTTP 422."""
+        sf = _sf(tmp_path)
+
+        class StubService:
+            def execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver_factory(
+                self, **kwargs
+            ):
+                raise ValueError("readonly review invalid request")
+
+        app = self._app_with_stub_service(sf, StubService())
+        with TestClient(app) as client:
+            sid, tid, handoff_msg_id = _prepare_full_chain(client, sf)
+            preflight_msg_id = _create_preflight(client, sid, tid, handoff_msg_id)
+            r = client.post(
+                f"/project-director/sessions/{sid}/sandbox-candidate-diff-review-execution",
+                json={"source_task_id": tid, "source_message_id": preflight_msg_id,
+                      "user_confirmed": True},
+            )
+            assert r.status_code == 422
+            assert "invalid request" in r.json()["detail"].lower()
 
 
 # ══════════════════════════════════════════════════════════════════════
