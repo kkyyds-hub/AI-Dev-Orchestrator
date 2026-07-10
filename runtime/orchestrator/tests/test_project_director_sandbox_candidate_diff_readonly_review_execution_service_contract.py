@@ -985,3 +985,287 @@ class TestRepositoryDependency:
         )
         with pytest.raises(ValueError, match="repositories are required"):
             _call_service(svc)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# H-C2. Deferred transport resolver contracts
+# ══════════════════════════════════════════════════════════════════════
+
+
+class SpyResolver:
+    """Test-side resolver that records calls and returns a configurable transport."""
+
+    def __init__(self, transport=None, *, raise_exc=None) -> None:
+        self._transport = transport or FakeReadonlyReviewerTransport(raw_output_text="ok")
+        self._raise_exc = raise_exc
+        self.calls: list[str] = []
+
+    def __call__(self, requested_reviewer_executor: str):
+        self.calls.append(requested_reviewer_executor)
+        if self._raise_exc is not None:
+            raise self._raise_exc
+        return self._transport
+
+
+def _call_resolver_service(svc, *, session_id=SESSION_ID, task_id=TASK_ID,
+                            message_id=PREFLIGHT_MSG_ID, resolver=None):
+    resolver = resolver or SpyResolver()
+    return svc.execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver(
+        session_id=session_id,
+        source_task_id=task_id,
+        source_message_id=message_id,
+        transport_resolver=resolver,
+    )
+
+
+def _make_claude_preflight_message():
+    """Build a preflight message with claude-code executor and matching prompt."""
+    diff_text = UNIFIED_DIFF
+    diff_sha = hashlib.sha256(diff_text.encode("utf-8")).hexdigest()
+    prompt = ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService.build_readonly_review_prompt(
+        requested_reviewer_executor="claude-code",
+        source_diff_sha256=diff_sha,
+        review_scope_paths=SCOPE_PATHS,
+        unified_diff_text=diff_text,
+        review_output_schema_version=REVIEW_OUTPUT_SCHEMA_VERSION,
+    )
+    action = _valid_preflight_action(
+        requested_reviewer_executor="claude-code",
+        source_diff_sha256=diff_sha,
+        review_prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        review_prompt_bytes=len(prompt.encode("utf-8")),
+    )
+    return _make_preflight_message(action=action)
+
+
+# ── A. Evidence blocked → resolver 0 ────────────────────────────────
+
+
+class TestResolverEvidenceBlocked:
+    def test_preflight_missing_resolver_not_called(self) -> None:
+        svc, msg_repo, adapter = _build_service(messages={})
+        resolver = SpyResolver()
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert result.result.adapter_status == "blocked"
+        assert "source_preflight_message_missing" in result.result.blocked_reasons
+        assert resolver.calls == []
+        assert len(adapter.invocations) == 0
+        assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
+
+    def test_prompt_sha256_mismatch_resolver_not_called(self) -> None:
+        action = _valid_preflight_action(review_prompt_sha256="a" * 64)
+        preflight = _make_preflight_message(action=action)
+        diff = _make_diff_message()
+        svc, msg_repo, adapter = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        resolver = SpyResolver()
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert result.result.adapter_status == "blocked"
+        assert "review_prompt_sha256_mismatch" in result.result.blocked_reasons
+        assert resolver.calls == []
+        assert len(adapter.invocations) == 0
+        assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
+
+
+# ── B. Resolver success → exactly 1 ────────────────────────────────
+
+
+class TestResolverSuccessInvocation:
+    def test_resolver_called_once_adapter_called_once(self) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, msg_repo, adapter = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        sentinel = FakeReadonlyReviewerTransport(raw_output_text="ok")
+        resolver = SpyResolver(transport=sentinel)
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert len(resolver.calls) == 1
+        assert len(adapter.invocations) == 1
+        assert adapter.invocations[0]["transport"] is sentinel
+        assert result.result.adapter_status == "validated_output"
+        assert len(msg_repo.create_calls) == 1
+        assert msg_repo.commit_calls == 1
+
+
+# ── C. Resolver input from persisted executor ───────────────────────
+
+
+class TestResolverInputFromPersistedExecutor:
+    def test_codex_executor_passed_to_resolver(self) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, _, _ = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        resolver = SpyResolver()
+        _call_resolver_service(svc, resolver=resolver)
+        assert resolver.calls == ["codex"]
+
+    def test_claude_code_executor_passed_to_resolver(self) -> None:
+        preflight = _make_claude_preflight_message()
+        diff = _make_diff_message()
+        svc, _, _ = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        resolver = SpyResolver()
+        _call_resolver_service(svc, resolver=resolver)
+        assert resolver.calls == ["claude-code"]
+
+
+# ── D. Resolver exception failure ───────────────────────────────────
+
+
+class TestResolverExceptionFailure:
+    @pytest.mark.parametrize("exc", [ValueError("bad"), RuntimeError("crash")])
+    def test_resolver_exception_blocks(self, exc) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, msg_repo, adapter = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        resolver = SpyResolver(raise_exc=exc)
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert len(resolver.calls) == 1
+        assert result.result.adapter_status == "blocked"
+        assert "readonly_reviewer_transport_resolution_failed" in result.result.blocked_reasons
+        assert len(adapter.invocations) == 0
+        assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
+
+
+# ── E. Invalid resolved transport ───────────────────────────────────
+
+
+class TestResolverInvalidTransport:
+    def test_non_protocol_object_blocks(self) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, msg_repo, adapter = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        resolver = SpyResolver(transport="not_a_transport")
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert len(resolver.calls) == 1
+        assert result.result.adapter_status == "blocked"
+        assert "readonly_reviewer_transport_resolution_failed" in result.result.blocked_reasons
+        assert len(adapter.invocations) == 0
+        assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
+
+    def test_none_object_blocks(self) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, msg_repo, adapter = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+
+        class NoneResolver:
+            calls: list[str] = []
+            def __call__(self, executor):
+                NoneResolver.calls.append(executor)
+                return None
+
+        resolver = NoneResolver()
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert len(resolver.calls) == 1
+        assert result.result.adapter_status == "blocked"
+        assert "readonly_reviewer_transport_resolution_failed" in result.result.blocked_reasons
+        assert len(adapter.invocations) == 0
+
+
+# ── F. Resolver success + Adapter blocked ───────────────────────────
+
+
+class TestResolverSuccessAdapterBlocked:
+    def test_adapter_blocked_no_persist(self) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, msg_repo, adapter = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+            adapter_result=_blocked_adapter_result(),
+        )
+        resolver = SpyResolver()
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert len(resolver.calls) == 1
+        assert len(adapter.invocations) == 1
+        assert result.result.adapter_status == "blocked"
+        assert msg_repo.create_calls == []
+        assert msg_repo.commit_calls == 0
+        assert result.message is None
+
+
+# ── G. Resolver success + validated output ──────────────────────────
+
+
+class TestResolverSuccessValidated:
+    def test_validated_one_message_one_commit(self) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, msg_repo, adapter = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        resolver = SpyResolver()
+        result = _call_resolver_service(svc, resolver=resolver)
+        assert len(resolver.calls) == 1
+        assert len(adapter.invocations) == 1
+        assert result.result.adapter_status == "validated_output"
+        assert len(msg_repo.create_calls) == 1
+        assert msg_repo.commit_calls == 1
+        assert result.message is not None
+
+
+# ── H. Direct transport legacy (no resolver) ────────────────────────
+# Covered by existing TestCallerTransport.test_same_transport_reaches_adapter
+# No additional test needed; targeted regression verifies it.
+
+
+# ── I. Resolver / transport / secret absence ────────────────────────
+
+
+class TestResolverSecretAbsence:
+    def test_resolver_transport_not_in_persisted_action(self) -> None:
+        preflight = _make_preflight_message()
+        diff = _make_diff_message()
+        svc, _, _ = _build_service(
+            messages={PREFLIGHT_MSG_ID: preflight, DIFF_MSG_ID: diff},
+        )
+        sentinel_secret = "SENTINEL_SECRET_SHOULD_NOT_APPEAR_12345"
+        sentinel = FakeReadonlyReviewerTransport(raw_output_text=sentinel_secret)
+        resolver = SpyResolver(transport=sentinel)
+        result = _call_resolver_service(svc, resolver=resolver)
+        action = result.message.suggested_actions[0]
+        action_str = json.dumps(action)
+        assert "resolver" not in action
+        assert "transport" not in action
+        assert "transport_resolver" not in action
+        assert "raw_output_text" not in action
+        assert "review_prompt_text" not in action
+        assert "unified_diff_text" not in action
+        assert sentinel_secret not in action_str
+        assert "ANTHROPIC_AUTH_TOKEN" not in action_str
+        assert "ANTHROPIC_BASE_URL" not in action_str
+        assert "API_KEY" not in action_str
+        assert "credential" not in action_str
+        assert "environment" not in action_str
+        assert "raw_output_text" not in action_str
+        assert "transport_status" in action
+        assert "transport_error_code" in action
+
+
+# ── J. No concrete transport composition ────────────────────────────
+
+
+class TestNoConcreteTransportBinding:
+    def test_service_has_no_concrete_transport_imports(self) -> None:
+        import inspect
+        source = inspect.getsource(
+            ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService
+        )
+        assert "NativeReadonlyReviewerCaptureTransport" not in source
+        assert "CodexAppServerReadonlyReviewerTransport" not in source
+        assert "MiMo" not in source
+        assert "DeepSeek" not in source
