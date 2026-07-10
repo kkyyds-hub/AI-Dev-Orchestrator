@@ -11,6 +11,7 @@ workers, call planning/apply, or write repositories.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db import get_db_session
 from app.api.schemas.project_director_plan import (
     PlanVersionListResponse,
@@ -70,6 +72,12 @@ from app.domain.project_director_verification_config import (
     ProjectDirectorVerificationConfig,
     ProjectDirectorVerificationConfigItem,
     VerificationConfigStatus,
+)
+from app.external_executors.actual_process_supervisor import (
+    RealExecutorProcessSupervisor,
+)
+from app.external_executors.readonly_reviewer_transport_resolver_factory import (
+    ReadonlyReviewerTransportResolverFactory,
 )
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
@@ -194,6 +202,9 @@ from app.services.project_director_sandbox_candidate_diff_review_handoff_service
 )
 from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
     ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService,
+)
+from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
+    ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService,
 )
 from app.domain.project_director_sandbox_candidate_file_write import (
     CandidateSandboxFileWrite,
@@ -1279,6 +1290,87 @@ class ConfirmSandboxCandidateDiffReviewExecutionPreflightResponse(BaseModel):
     message: ProjectDirectorMessageResponse | None = None
 
 
+class ConfirmSandboxCandidateDiffReadonlyReviewExecutionRequest(BaseModel):
+    source_task_id: UUID
+    source_message_id: UUID
+    user_confirmed: bool = False
+
+
+class SandboxCandidateDiffReadonlyReviewFindingResponse(BaseModel):
+    finding_id: str
+    severity: Literal["low", "medium", "high"]
+    title: str
+    summary: str
+    evidence_paths: list[str] = Field(default_factory=list)
+    recommended_action: str
+
+
+class ConfirmSandboxCandidateDiffReadonlyReviewExecutionResponse(BaseModel):
+    adapter_status: Literal["validated_output", "blocked"]
+    session_id: UUID
+    source_task_id: UUID
+    source_message_id: UUID
+
+    execution_mode: Literal["fake_transport", "native_capture_transport"]
+    requested_reviewer_executor: Literal["codex", "claude-code"]
+
+    review_prompt_verified: bool = False
+    review_prompt_sha256: str = ""
+    review_prompt_bytes: int = 0
+    review_scope_paths: list[str] = Field(default_factory=list)
+    review_output_schema_version: str = ""
+
+    transport_invoked: bool = False
+    transport_status: str = ""
+    transport_error_code: str | None = None
+
+    output_validation_status: Literal["validated", "blocked"] | None = None
+    raw_output_sha256: str = ""
+    raw_output_bytes: int = 0
+    strict_json_valid: bool = False
+    schema_valid: bool = False
+    semantics_valid: bool = False
+    evidence_scope_valid: bool = False
+
+    review_status: Literal["reviewed"] | None = None
+    verdict: Literal[
+        "no_blocking_findings",
+        "non_blocking_findings",
+        "changes_required",
+    ] | None = None
+    risk_level: Literal["low", "medium", "high"] | None = None
+    summary: str = ""
+    findings: list[SandboxCandidateDiffReadonlyReviewFindingResponse] = Field(
+        default_factory=list
+    )
+    recommended_next_step: str = ""
+
+    output_validation_blocked_reasons: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+
+    real_reviewer_started: bool = False
+    real_reviewer_executed: bool = False
+    native_process_started: bool = False
+    provider_called: bool = False
+    codex_started: bool = False
+    claude_code_started: bool = False
+
+    main_project_file_written: bool = False
+    sandbox_file_written: bool = False
+    manifest_file_written: bool = False
+    diff_file_written: bool = False
+    patch_applied: bool = False
+    git_write_performed: bool = False
+    worktree_created: bool = False
+    worker_started: bool = False
+    task_created: bool = False
+    run_created: bool = False
+
+    message_bound: bool = False
+    ai_project_director_total_loop: str = "Partial"
+    message: ProjectDirectorMessageResponse | None = None
+
+
 def _get_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorService:
@@ -1461,6 +1553,16 @@ def _get_sandbox_candidate_diff_review_execution_preflight_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService:
     return ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService(
+        session_repository=ProjectDirectorSessionRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        task_repository=TaskRepository(session),
+    )
+
+
+def _get_sandbox_candidate_diff_readonly_review_execution_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService:
+    return ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService(
         session_repository=ProjectDirectorSessionRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
         task_repository=TaskRepository(session),
@@ -3408,6 +3510,142 @@ def confirm_session_sandbox_candidate_diff_review_execution_preflight(
                 review_execution_preflight.message
             )
             if review_execution_preflight.message is not None
+            else None
+        ),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/sandbox-candidate-diff-review-execution",
+    response_model=ConfirmSandboxCandidateDiffReadonlyReviewExecutionResponse,
+    summary="Execute P21-C-H readonly reviewer from persisted preflight",
+)
+def confirm_session_sandbox_candidate_diff_readonly_review_execution(
+    session_id: UUID,
+    request: ConfirmSandboxCandidateDiffReadonlyReviewExecutionRequest,
+    review_execution_service: Annotated[
+        ProjectDirectorSandboxCandidateDiffReadonlyReviewExecutionService,
+        Depends(_get_sandbox_candidate_diff_readonly_review_execution_service),
+    ],
+) -> ConfirmSandboxCandidateDiffReadonlyReviewExecutionResponse:
+    """Execute one explicitly confirmed readonly review."""
+
+    if request.user_confirmed is not True:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="user_confirmation_required",
+        )
+
+    def lazy_transport_resolver_factory(workspace_path: str):
+        process_supervisor = RealExecutorProcessSupervisor()
+        return ReadonlyReviewerTransportResolverFactory(
+            workspace_root_path=str(
+                settings.runtime_data_dir
+                / "project-director"
+                / "sandbox-workspaces"
+            ),
+            timeout_seconds=settings.readonly_reviewer_timeout_seconds,
+            max_output_bytes=settings.readonly_reviewer_max_output_bytes,
+            process_supervisor=process_supervisor,
+            popen_factory=subprocess.Popen,
+            claude_code_child_environment=None,
+        )(workspace_path)
+
+    try:
+        execution = (
+            review_execution_service
+            .execute_candidate_diff_readonly_review_from_preflight_with_transport_resolver_factory(
+                session_id=session_id,
+                source_task_id=request.source_task_id,
+                source_message_id=request.source_message_id,
+                transport_resolver_factory=lazy_transport_resolver_factory,
+            )
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    result = execution.result
+    if result.adapter_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                ";".join(result.blocked_reasons)
+                or "sandbox_candidate_diff_readonly_review_execution_blocked"
+            ),
+        )
+
+    return ConfirmSandboxCandidateDiffReadonlyReviewExecutionResponse(
+        adapter_status=result.adapter_status,
+        session_id=session_id,
+        source_task_id=request.source_task_id,
+        source_message_id=request.source_message_id,
+        execution_mode=result.execution_mode,
+        requested_reviewer_executor=result.requested_reviewer_executor,
+        review_prompt_verified=result.review_prompt_verified,
+        review_prompt_sha256=result.review_prompt_sha256,
+        review_prompt_bytes=result.review_prompt_bytes,
+        review_scope_paths=result.review_scope_paths,
+        review_output_schema_version=result.review_output_schema_version,
+        transport_invoked=result.transport_invoked,
+        transport_status=result.transport_status,
+        transport_error_code=result.transport_error_code,
+        output_validation_status=result.output_validation_status,
+        raw_output_sha256=result.raw_output_sha256,
+        raw_output_bytes=result.raw_output_bytes,
+        strict_json_valid=result.strict_json_valid,
+        schema_valid=result.schema_valid,
+        semantics_valid=result.semantics_valid,
+        evidence_scope_valid=result.evidence_scope_valid,
+        review_status=result.review_status,
+        verdict=result.verdict,
+        risk_level=result.risk_level,
+        summary=result.summary,
+        findings=[
+            SandboxCandidateDiffReadonlyReviewFindingResponse(
+                finding_id=finding.finding_id,
+                severity=finding.severity,
+                title=finding.title,
+                summary=finding.summary,
+                evidence_paths=finding.evidence_paths,
+                recommended_action=finding.recommended_action,
+            )
+            for finding in result.findings
+        ],
+        recommended_next_step=result.recommended_next_step,
+        output_validation_blocked_reasons=(
+            result.output_validation_blocked_reasons
+        ),
+        blocked_reasons=result.blocked_reasons,
+        real_reviewer_started=result.real_reviewer_started,
+        real_reviewer_executed=result.real_reviewer_executed,
+        native_process_started=result.native_process_started,
+        provider_called=result.provider_called,
+        codex_started=result.codex_started,
+        claude_code_started=result.claude_code_started,
+        main_project_file_written=result.main_project_file_written,
+        sandbox_file_written=result.sandbox_file_written,
+        manifest_file_written=result.manifest_file_written,
+        diff_file_written=result.diff_file_written,
+        patch_applied=result.patch_applied,
+        git_write_performed=result.git_write_performed,
+        worktree_created=result.worktree_created,
+        worker_started=result.worker_started,
+        task_created=result.task_created,
+        run_created=result.run_created,
+        message_bound=execution.message is not None,
+        ai_project_director_total_loop=result.ai_project_director_total_loop,
+        message=(
+            ProjectDirectorMessageResponse.from_domain(execution.message)
+            if execution.message is not None
             else None
         ),
     )

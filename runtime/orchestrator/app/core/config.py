@@ -114,6 +114,8 @@ class Settings:
     openai_api_key: str | None
     openai_base_url: str
     openai_timeout_seconds: int
+    readonly_reviewer_timeout_seconds: int
+    readonly_reviewer_max_output_bytes: int
     worker_simulate_execution_override: bool
     worker_simulate_failure_mode: str | None
 
@@ -153,6 +155,16 @@ def load_settings() -> Settings:
         openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         or "https://api.openai.com/v1",
         openai_timeout_seconds=_read_int("OPENAI_TIMEOUT_SECONDS", 120, minimum=1),
+        readonly_reviewer_timeout_seconds=_read_int(
+            "READONLY_REVIEWER_TIMEOUT_SECONDS",
+            180,
+            minimum=1,
+        ),
+        readonly_reviewer_max_output_bytes=_read_int(
+            "READONLY_REVIEWER_MAX_OUTPUT_BYTES",
+            262144,
+            minimum=1,
+        ),
         worker_simulate_execution_override=_read_bool(
             "WORKER_SIMULATE_EXECUTION_OVERRIDE",
             False,
