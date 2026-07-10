@@ -1437,3 +1437,243 @@ controlled sandbox candidate diff
 - Final UAT not yet complete.
 - Product runtime Git write still not opened.
 - Full user closure cycle not yet finished.
+
+---
+
+## P21-D Stage Design — Post-Review Human Decision & Evidence Freshness Gate
+
+### Current Starting State
+
+P21-C is Closed / Pass with note.
+
+Current available capability:
+
+```text
+controlled sandbox candidate diff
+→ persisted readonly review handoff
+→ execution preflight
+→ explicit user confirmation for reviewer execution
+→ persisted trusted reviewer executor
+→ persisted trusted workspace
+→ current workspace revalidation
+→ real Codex / Claude Code reviewer execution
+→ strict output validation
+→ review result persistence
+```
+
+P21-C's explicit user confirmation only authorizes readonly reviewer execution. It is not a human decision after review result. It is not Git write authorization.
+
+### Current Gap
+
+Persisted review result already contains and binds:
+
+- source task
+- source preflight message
+- source diff message
+- reviewer executor
+- source diff SHA256
+- review prompt SHA256
+- review scope paths
+- review output schema
+- strict validation result
+- verdict
+- risk level
+- findings
+- recommended next step
+
+Current system does not have:
+
+- explicit human decision record after review result
+- human decision binding to exact review result
+- review result fingerprint binding
+- decision expiry / revoke / replay protection
+- decision consumption gate
+- current diff freshness revalidation after review
+- stale review evidence invalidation
+- future pre-write guardrail eligibility result
+
+### P21-D Final Goal
+
+```text
+persisted validated P21-C review result
+→ explicit post-review human decision
+→ append-only persisted decision evidence
+→ decision / review / diff binding validation
+→ decision freshness validation
+→ current trusted workspace revalidation
+→ current readonly diff regeneration
+→ reviewed diff vs current diff fingerprint comparison
+→ stale evidence rejection
+→ future pre-write guardrail eligibility
+```
+
+Success can only mean:
+
+- `gate_allows_prewrite_guardrail = true`
+- `gate_allows_write = false`
+
+It must not mean: Git write authorized.
+
+### P21-D Stage Split
+
+- **P21-D-A**: Stage Contract Design
+- **P21-D-B**: Human Review Decision Record
+- **P21-D-C**: Evidence Freshness Revalidation Gate
+
+P21-D-A (current task) only locks the contract.
+
+P21-D-B / P21-D-C must remain Not started.
+
+### P21-D-B Contract
+
+1. Input must be an already-persisted P21-C readonly review execution message.
+
+2. Client must not provide or override:
+   - reviewer executor
+   - workspace path
+   - source diff SHA
+   - review prompt SHA
+   - review output
+   - verdict
+   - findings
+
+   These values must be read from persisted trusted evidence.
+
+3. Legal reviewer verdict semantics:
+   - `no_blocking_findings`: allows human to decide whether to enter next pre-write guardrail.
+   - `non_blocking_findings`: allows human to decide after understanding findings whether to enter next pre-write guardrail.
+   - `changes_required`: must not enter pre-write guardrail. Can only enter rework / reject semantics.
+
+4. Reviewer verdict is never human decision.
+
+5. Human decision is never Git write authorization.
+
+6. Human decision record must bind at minimum:
+   - `session_id`
+   - `source_task_id`
+   - `source_review_message_id`
+   - `source_preflight_message_id`
+   - `source_diff_message_id`
+   - `requested_reviewer_executor`
+   - `source_diff_sha256`
+   - `review_prompt_sha256`
+   - `review_scope_paths`
+   - `review_output_schema_version`
+   - review result fingerprint
+   - decision id
+   - decision action
+   - actor
+   - client request id
+   - decision `created_at`
+   - decision `expires_at`
+   - decision confirmation fingerprint
+
+7. Do not persist raw human confirmation text.
+
+8. Use `ProjectDirectorMessage` append-only audit.
+
+9. Do not add new DB table.
+
+10. Do not create migration.
+
+11. Do not use legacy P4-F `AgentMessage` as P21-D main persistence chain. Legacy P4-F serves only as expiry / revoke / replay / fingerprint / evidence binding mechanism reference.
+
+12. P21-D-B must not create:
+    - Task
+    - Run
+    - Worker
+    - worktree
+    - Git write
+    - PR
+    - merge
+    - CI trigger
+
+### P21-D-C Contract
+
+Consumption ordering:
+
+```text
+persisted human decision
+→ validate decision message / action type / source binding
+→ validate decision active
+→ validate not expired
+→ validate not revoked
+→ validate not previously consumed
+→ reload exact P21-C review result
+→ validate review result fingerprint
+→ validate strict_json_valid
+→ validate schema_valid
+→ validate semantics_valid
+→ validate evidence_scope_valid
+→ validate review_status = reviewed
+→ validate verdict eligibility
+→ reload exact source diff
+→ validate source diff SHA256
+→ validate ordered review scope paths
+→ validate no-write safety flags
+→ revalidate trusted current workspace
+→ regenerate current readonly diff
+→ compare current diff SHA256 with reviewed diff SHA256
+→ compare current diff scope with reviewed scope
+→ persist append-only revalidation / consumption evidence
+→ return pre-write guardrail eligibility
+```
+
+Any critical evidence change must set `ready = false` and produce a stable blocked reason.
+
+Conceptual blocked reasons:
+
+- `decision_missing`
+- `decision_expired`
+- `decision_revoked`
+- `decision_already_consumed`
+- `review_result_missing`
+- `review_result_not_validated`
+- `review_result_fingerprint_mismatch`
+- `review_verdict_requires_changes`
+- `source_diff_missing`
+- `source_diff_sha256_mismatch`
+- `review_scope_paths_mismatch`
+- `trusted_workspace_invalid`
+- `current_diff_mismatch`
+- `review_evidence_stale`
+
+Do not define HTTP status mapping in this design phase.
+
+### Append-Only Consumption Rule
+
+- Must not modify old P21-C review message.
+- Must not overwrite old human decision message.
+- Successful consumption of human decision must add append-only revalidation / consumption evidence.
+- Same decision must not be reused for multiple subsequent safety checks.
+
+### Permanent Safety Boundary
+
+- Automatic patch apply: Forbidden
+- Product runtime git add: Forbidden
+- Product runtime git commit: Forbidden
+- Product runtime git push: Forbidden
+- Automatic PR: Forbidden
+- Automatic merge: Forbidden
+- Branch deletion: Forbidden
+- Reset / checkout / switch / stash / rebase / tag: Forbidden
+- Automatic CI trigger: Forbidden
+
+Reviewer verdict is not human approval.
+
+Human decision is not Git write authorization.
+
+P21-D Pass does not open product runtime Git write.
+
+### Stage Status
+
+- P21-C: Closed / Pass with note
+- P21-D-A: Ready for AI Project Director review
+- P21-D-B: Not started
+- P21-D-C: Not started
+- Product runtime Git write: Forbidden
+- AI Project Director total loop: Partial
+
+### Future Stage Boundary
+
+Only after P21-D fully completes and passes independent Gate will AI Project Director re-inspect latest origin/main and decide whether the next stage enters future Git write design. Do not define P22. Do not name future real Git write implementation stage.
