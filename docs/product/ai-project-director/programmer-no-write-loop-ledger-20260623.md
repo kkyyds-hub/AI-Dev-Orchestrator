@@ -884,3 +884,185 @@ Project Director session
 - Do not create new test files just by habit.
 - Do not force reuse if it weakens safety boundary coverage.
 - DeepSeek should only update docs / ledger / evidence.
+
+---
+
+## P21-C-H-B2 Readonly Reviewer Production Execution Verification
+
+### Gate
+
+- P21-C-H-B2-A Transport + Adapter: Closed / Pass
+- P21-C-H-B2-B Native Reviewer Transport: Closed / Pass
+- P21-C-H-B2-C1 Real Codex Production Reviewer: Closed / Pass
+- P21-C-H-B2-C2 Real Claude Code Production Reviewer: Closed / Pass
+- P21-C-H-B2 overall: Closed / Pass
+- P21-C overall: Partial
+- AI Project Director total loop: Partial
+
+### Architecture Conclusion: Reviewer Executor Split
+
+Codex reviewer uses a dedicated Codex app-server transport (`CodexAppServerReadonlyReviewerTransport`). It does not use the failed `codex exec` path.
+
+Claude Code reviewer uses native capture transport (`NativeReadonlyReviewerCaptureTransport`). It does not use the Codex app-server architecture.
+
+### Architecture Conclusion: Provider / Executor Separation
+
+Claude Code is the executor. MiMo was the provider/model profile used in the controlled production smoke. The verified model was `mimo-v2.5-pro`.
+
+The transport now has an explicit seam to receive a resolved Claude Code child environment. The system is not locked to MiMo or to any single provider. The same seam supports DeepSeek, MiMo, or any other Anthropic-compatible provider.
+
+### Root Cause and Fix
+
+The original Claude production smoke timed out because the native transport implicitly inherited the caller's parent process environment. Different launch contexts produced different provider profiles, leading to non-deterministic behavior.
+
+This was not:
+
+- Claude Code CLI installation failure
+- MiMo incompatibility
+- Production prompt complexity
+- H-B1 schema issue
+
+The fix was to add `claude_code_child_environment: Mapping[str, str] | None` to `NativeReadonlyReviewerCaptureTransport`. The contract is:
+
+- Constructor materializes an independent snapshot of the caller mapping.
+- Explicit environment only reaches Claude Code processes.
+- `None` preserves legacy environment inheritance.
+- Codex does not receive the Claude environment.
+- Each process launch receives an independent env dict copy.
+- Transport contains no MiMo / DeepSeek-specific logic.
+
+### R1 Production Fix Evidence
+
+- Commit: `4fb439e7deccec5e0c95baae497ba5fbb8d9062c`
+- Commit message: `fix: inject claude reviewer child environment`
+- Modified file: `runtime/orchestrator/app/external_executors/readonly_reviewer_native_transport.py`
+- Only one production file changed.
+- No tests changed by Codex.
+- No provider-specific production logic added.
+- Claude argv unchanged.
+- Codex argv unchanged.
+- No profile / shell / credential file reads.
+- Product runtime Git write not added.
+- Codex reported targeted evidence: native transport contracts 50 passed, adjacent Codex app-server regression 46 passed.
+- This is executor-reported test evidence.
+
+### Mimocode Contract Evidence
+
+- Commit: `a7ea4e3452a4502478f1ace6a61ee7d9b5571c94`
+- Commit message: `test: lock claude reviewer child environment contracts`
+- Modified file: `runtime/orchestrator/tests/test_project_director_sandbox_candidate_diff_readonly_reviewer_native_transport_contract.py`
+- New contracts locked:
+
+1. Explicit Claude environment injection
+2. Exact environment content
+3. Constructor snapshot isolation
+4. Claude None / omitted legacy behavior
+5. Codex isolation (env key absent)
+6. Claude exact argv preservation
+7. Codex exact argv preservation
+8. Per-execution environment copy isolation
+
+- Test evidence: targeted native transport 59 passed, adjacent Codex app-server regression 46 passed.
+- No real profile read. No real credential. No real model/provider call. No production app changes.
+
+### CFG1 Isolated MiMo Connectivity Evidence
+
+No repository commit.
+
+```text
+cc-mimo
+→ Claude Code 2.1.205
+→ Xiaomi MiMo official Anthropic-compatible endpoint
+→ mimo-v2.5-pro
+→ one real model conversation
+→ stdout OK
+→ exit code 0
+```
+
+Boundary: one real process launch, one real model conversation, no retry, no repository file modification, no Git commit, no lingering Claude process.
+
+### Final Production Smoke Evidence
+
+Stage: P21-C-H-B2-C2-S1-R1-S1-Mimocode
+
+Classification: explicit MiMo child environment production reviewer chain fully verified.
+
+Real chain:
+
+```text
+production deterministic review prompt builder
+→ production Adapter
+→ NativeReadonlyReviewerCaptureTransport
+→ explicit resolved MiMo child environment
+→ real Claude Code process
+→ real MiMo model turn
+→ production H-B1 strict validation
+```
+
+Input:
+
+- Review scope: `src/smoke_sample.py`
+- Synthetic comment-only unified diff
+- Source diff SHA256: `f012e6878443e9eac92347d12941308e91c362a0833ee266d7ea1775dd514ba2`
+- Review prompt SHA256: `a3b61daa086bcf5c547313623f39b4b09a8875cb8aa8b6e31a1e87cc1110b92f`
+- Review prompt bytes: 2174
+
+Smoke results:
+
+- Adapter invocation count: 1
+- Transport execute count: 1
+- Real Claude process launch count: 1
+- Real model conversation count: 1
+- Codex launch count: 0
+- Direct provider HTTP request count: 0
+- Duration: 11.30 seconds
+- Timeout: false
+- `adapter_status`: `validated_output`
+- `review_prompt_verified`: true
+- `transport_invoked`: true
+- `transport_status`: `completed`
+- `transport_error_code`: null
+- `execution_mode`: `native_capture_transport`
+- `output_validation_status`: `validated`
+- `strict_json_valid`: true
+- `schema_valid`: true
+- `semantics_valid`: true
+- `evidence_scope_valid`: true
+- `review_status`: `reviewed`
+- `verdict`: `no_blocking_findings`
+- `risk_level`: `low`
+- `findings`: 0
+- `recommended_next_step`: No blocking issues. Safe to proceed.
+- `real_reviewer_started`: true
+- `real_reviewer_executed`: true
+- `native_process_started`: true
+- `provider_called`: false
+- `codex_started`: false
+- `claude_code_started`: true
+
+`provider_called=false` is the current transport result schema field value. It does not mean no real model request occurred. The real model conversation happened through the Claude Code CLI.
+
+### Safety Evidence
+
+- New lingering Claude PID count: 0
+- Workspace before / after: identical
+- Production transport sentinel: identical
+- MiMo profile: identical
+- Project files modified by smoke: no
+- Smoke commit: none
+- `runtime/orchestrator/uv.lock`: generated and removed as execution side effect
+- Root `uv.lock`: unchanged
+
+### Product Boundary Record
+
+Even though P21-C-H-B2 is Closed / Pass:
+
+- No automatic patch apply.
+- No product runtime Git add.
+- No product runtime Git commit.
+- No product runtime Git push.
+- No automatic PR.
+- No automatic merge.
+- Reviewer verdict is not human approval.
+- Product runtime Git write remains forbidden.
+- AI Project Director total loop remains Partial.
