@@ -259,7 +259,9 @@ credentials.
   including high-severity entries in the production-dependency view. Dependency
   remediation requires a separate compatibility-reviewed change. Current counts
   are in [Project Status](docs/PROJECT_STATUS.md).
-- There is no committed CI workflow, release automation, or published package.
+- The committed CI workflow validates backend compilation, focused security tests,
+  frontend build, and Markdown links, but does not run the full test suite,
+  dependency scanning, or release automation. There is no published package.
 - Authentication, authorization, multi-tenancy, and hardened remote deployment
   are not established public capabilities.
 - Native executor and reviewer integrations depend on local tools and explicit

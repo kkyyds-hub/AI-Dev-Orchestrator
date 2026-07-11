@@ -208,7 +208,8 @@ uv run --no-project --with-editable . \
 - 当前前端锁文件的 `npm audit` 存在多项报告，包括生产依赖视图中的 high 级别条目。
   依赖修复需要单独进行兼容性审查，本轮不自动升级版本。当前数量见
   [项目状态](docs/PROJECT_STATUS.md)。
-- 仓库没有已提交的 CI、发布自动化或公开软件包。
+- 已提交的 CI 工作流覆盖后端编译、聚焦安全测试、前端构建和 Markdown 链接检查，
+  但不包含完整测试套件、依赖扫描或发布自动化。没有公开软件包。
 - 身份认证、授权、多租户和加固后的远程部署尚不是已证明能力。
 - Native executor 和 reviewer 依赖本地工具与显式开关，许多测试使用 fake、dry-run
   或 controlled smoke。

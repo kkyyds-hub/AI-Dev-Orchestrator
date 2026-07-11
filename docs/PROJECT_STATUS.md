@@ -140,16 +140,17 @@ Full details: [Dependency Security Review](DEPENDENCY_SECURITY_REVIEW.md).
   is the public starting point.
 - Frontend dependencies are locked, while Python uses bounded dependency ranges
   and does not currently commit a backend lockfile.
-- There is no repository-level CI to enforce test, build, link, secret, or license
-  checks for pull requests.
+- A committed CI workflow validates backend compilation, focused security tests,
+  frontend build, and Markdown links. It does not yet enforce the full test
+  suite, dependency scanning, secret scanning, or license checks.
 
 ## Near-Term Priorities
 
 1. Reduce backend deprecation warnings and document the canonical test scopes.
 2. Triage and remediate the current frontend dependency advisories with focused
    compatibility and regression testing.
-3. Add CI for backend tests, frontend build, Markdown links, secrets, dependencies,
-   and license checks.
+3. Expand CI to cover the full backend test suite, secret scanning, dependency
+   review, and license checks.
 4. Define a reproducible backend dependency lock and supported developer matrix.
 5. Validate sandbox and reviewer boundaries with adversarial security tests.
 6. Document and test provider-specific setup without committing credentials.
