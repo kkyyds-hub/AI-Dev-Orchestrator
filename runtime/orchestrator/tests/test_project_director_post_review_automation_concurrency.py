@@ -1,9 +1,4 @@
-"""Concurrency tests for P22 Post-Review Automation Orchestrator.
-
-See P22-BUG-001 in the contract test file: the orchestrator cannot persist
-a summary on a fresh run because _disposition_action omits blocked_reasons.
-Happy-path concurrency tests are marked xfail; blocked-path tests pass.
-"""
+"""Concurrency tests for the P22 Post-Review Automation Orchestrator."""
 
 from __future__ import annotations
 

@@ -958,3 +958,35 @@ class TestRepositoryDependency:
         )
         with pytest.raises(ValueError, match="repositories are required"):
             _call_service(svc)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# P. P22-BUG-001 permanent regression lock
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestComputedDispositionActionPersistsEmptyBlockedReasons:
+    def test_computed_disposition_action_persists_empty_blocked_reasons(self) -> None:
+        action_in = _valid_review_action(
+            verdict="no_blocking_findings", risk_level="low"
+        )
+        msg = _make_source_review_message(action=action_in)
+        svc, msg_repo = _build_service(messages={SOURCE_REVIEW_MSG_ID: msg})
+        result = _call_service(svc)
+
+        assert result.message is not None
+        actions = result.message.suggested_actions
+        assert len(actions) == 1
+        action = actions[0]
+        assert "blocked_reasons" in action
+        assert action["blocked_reasons"] == []
+
+        rebuilt = ProjectDirectorSandboxCandidateDiffReviewDispositionResult.model_validate(
+            {
+                field_name: action.get(field_name)
+                for field_name
+                in ProjectDirectorSandboxCandidateDiffReviewDispositionResult.model_fields
+            }
+        )
+        assert rebuilt.disposition_status == "computed"
+        assert rebuilt.blocked_reasons == []
