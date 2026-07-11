@@ -443,26 +443,17 @@ class TestRepositoryTransactionContract:
         other_session.close()
 
     def test_blocked_return_releases_lock(self, seeded_session) -> None:
-        session = seeded_session()
-        _seed_disposition_message(session)
-        session.close()
-
-        session_a = seeded_session()
-        msg_repo_a = ProjectDirectorMessageRepository(session_a)
-        sess_repo_a = ProjectDirectorSessionRepository(session_a)
-        svc_a = ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService(
-            session_repository=sess_repo_a,
-            message_repository=msg_repo_a,
-        )
-        disposition_msg_id = uuid4()
-        _seed_disposition_message(seeded_session(), disposition_msg_id=disposition_msg_id)
-        result = svc_a.prepare_candidate_diff_review_disposition_consumption(
+        missing_source_id = uuid4()
+        svc, _, session = _make_service(seeded_session)
+        result = svc.prepare_candidate_diff_review_disposition_consumption(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
-            source_message_id=disposition_msg_id,
+            source_message_id=missing_source_id,
         )
-        assert result.result.preflight_status in ("ready", "blocked")
-        session_a.close()
+        assert result.result.preflight_status == "blocked"
+        assert "source_disposition_message_missing" in result.result.blocked_reasons
+        assert result.message is None
+        session.close()
 
         session_b = seeded_session()
         session_b.execute(text("BEGIN IMMEDIATE"))
@@ -903,23 +894,33 @@ class TestFullSessionPagination:
     def test_prior_preflight_found_beyond_first_page(self, seeded_session) -> None:
         disposition_msg_id = _seed_disposition_message(seeded_session())
 
-        sess = seeded_session()
-        for i in range(105):
-            sess.add(ProjectDirectorMessageTable(
-                id=uuid4(), session_id=SESSION_ID, role="assistant",
-                content=f"filler {i}", sequence_no=1000 + i,
-                source="system", source_detail="filler",
-            ))
-        sess.commit()
-        sess.close()
-
         svc1, _, s1 = _make_service(seeded_session)
         r1 = svc1.prepare_candidate_diff_review_disposition_consumption(
             session_id=SESSION_ID, source_task_id=TASK_ID,
             source_message_id=disposition_msg_id,
         )
         assert r1.result.preflight_status == "ready"
+        assert r1.message is not None
+        ready_preflight_id = r1.message.id
         s1.close()
+
+        filler_sess = seeded_session()
+        for i in range(105):
+            filler_sess.add(ProjectDirectorMessageTable(
+                id=uuid4(), session_id=SESSION_ID, role="assistant",
+                content=f"filler {i}", sequence_no=1000 + i,
+                source="system", source_detail="filler",
+            ))
+        filler_sess.commit()
+
+        check_repo = ProjectDirectorMessageRepository(filler_sess)
+        first_page, has_more = check_repo.list_by_session_id(
+            session_id=SESSION_ID, limit=100,
+        )
+        assert has_more is True
+        first_page_ids = {m.id for m in first_page}
+        assert ready_preflight_id not in first_page_ids
+        filler_sess.close()
 
         svc2, _, s2 = _make_service(seeded_session)
         r2 = svc2.prepare_candidate_diff_review_disposition_consumption(
@@ -927,13 +928,60 @@ class TestFullSessionPagination:
             source_message_id=disposition_msg_id,
         )
         assert r2.result.preflight_status == "blocked"
+        assert r2.result.prior_preflight_detected is True
         assert "disposition_already_preflighted" in r2.result.blocked_reasons
+        assert r2.message is None
         s2.close()
+
+        verify_sess = seeded_session()
+        count = verify_sess.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd AND suggested_actions_json LIKE :pat"
+            ),
+            {
+                "sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_CONSUMPTION_PREFLIGHT_SOURCE_DETAIL,
+                "pat": f'%"{disposition_msg_id}"%',
+            },
+        ).scalar()
+        assert count == 1
+        verify_sess.close()
 
 
 # ══════════════════════════════════════════════════════════════════════
 # K. Real concurrent competition
 # ══════════════════════════════════════════════════════════════════════
+
+
+class HoldingImmediateTransactionRepository(ProjectDirectorMessageRepository):
+    """Test-only repo: acquires BEGIN IMMEDIATE then holds until released."""
+
+    def __init__(self, session, writer_lock_acquired, release_writer):
+        super().__init__(session)
+        self._writer_lock_acquired = writer_lock_acquired
+        self._release_writer = release_writer
+
+    @contextmanager
+    def sqlite_immediate_transaction(self):
+        with super().sqlite_immediate_transaction():
+            self._writer_lock_acquired.set()
+            if not self._release_writer.wait(timeout=10):
+                raise TimeoutError("writer release timeout")
+            yield
+
+
+class AttemptSignalingRepository(ProjectDirectorMessageRepository):
+    """Test-only repo: signals before attempting BEGIN IMMEDIATE."""
+
+    def __init__(self, session, second_writer_attempted):
+        super().__init__(session)
+        self._second_writer_attempted = second_writer_attempted
+
+    @contextmanager
+    def sqlite_immediate_transaction(self):
+        self._second_writer_attempted.set()
+        with super().sqlite_immediate_transaction():
+            yield
 
 
 class TestConcurrentCompetition:
@@ -946,13 +994,18 @@ class TestConcurrentCompetition:
         disposition_msg_id = _seed_disposition_message(seed_session)
         seed_session.close()
 
-        results: list[str] = []
-        errors: list[str] = []
-        lock = threading.Lock()
+        writer_lock_acquired = threading.Event()
+        release_writer = threading.Event()
+        second_writer_attempted = threading.Event()
 
-        def worker(thread_id: int):
+        results = []
+        errors = []
+
+        def worker_a():
             session = SessionLocal()
-            msg_repo = ProjectDirectorMessageRepository(session)
+            msg_repo = HoldingImmediateTransactionRepository(
+                session, writer_lock_acquired, release_writer,
+            )
             sess_repo = ProjectDirectorSessionRepository(session)
             svc = ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService(
                 session_repository=sess_repo,
@@ -964,23 +1017,69 @@ class TestConcurrentCompetition:
                     source_task_id=TASK_ID,
                     source_message_id=disposition_msg_id,
                 )
-                with lock:
-                    results.append(result.result.preflight_status)
+                results.append(result)
             except Exception as e:
-                with lock:
-                    errors.append(f"thread-{thread_id}:{type(e).__name__}:{e}")
+                errors.append(f"thread-a:{type(e).__name__}:{e}")
             finally:
                 session.close()
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [executor.submit(worker, i) for i in range(2)]
-            for f in as_completed(futures, timeout=30):
-                f.result()
+        def worker_b():
+            session = SessionLocal()
+            msg_repo = AttemptSignalingRepository(
+                session, second_writer_attempted,
+            )
+            sess_repo = ProjectDirectorSessionRepository(session)
+            svc = ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService(
+                session_repository=sess_repo,
+                message_repository=msg_repo,
+            )
+            try:
+                result = svc.prepare_candidate_diff_review_disposition_consumption(
+                    session_id=SESSION_ID,
+                    source_task_id=TASK_ID,
+                    source_message_id=disposition_msg_id,
+                )
+                results.append(result)
+            except Exception as e:
+                errors.append(f"thread-b:{type(e).__name__}:{e}")
+            finally:
+                session.close()
 
+        t_a = threading.Thread(target=worker_a)
+        t_a.start()
+
+        if not writer_lock_acquired.wait(timeout=10):
+            raise TimeoutError("thread A did not acquire writer lock")
+
+        t_b = threading.Thread(target=worker_b)
+        t_b.start()
+
+        if not second_writer_attempted.wait(timeout=10):
+            raise TimeoutError("thread B did not attempt writer lock")
+
+        future_b_done_before_release = t_b.is_alive()
+
+        release_writer.set()
+
+        t_a.join(timeout=15)
+        t_b.join(timeout=15)
+
+        assert not t_a.is_alive(), "thread A did not finish"
+        assert not t_b.is_alive(), "thread B did not finish"
         assert len(errors) == 0, f"Unexpected errors: {errors}"
         assert len(results) == 2
-        assert "ready" in results
-        assert "blocked" in results
+        assert future_b_done_before_release, "thread B finished before writer release"
+
+        statuses = [r.result.preflight_status for r in results]
+        assert statuses.count("ready") == 1
+        assert statuses.count("blocked") == 1
+
+        ready_result = next(r for r in results if r.result.preflight_status == "ready")
+        blocked_result = next(r for r in results if r.result.preflight_status == "blocked")
+        assert ready_result.message is not None
+        assert blocked_result.message is None
+        assert blocked_result.result.prior_preflight_detected is True
+        assert "disposition_already_preflighted" in blocked_result.result.blocked_reasons
 
         verify_session = SessionLocal()
         count = verify_session.execute(
