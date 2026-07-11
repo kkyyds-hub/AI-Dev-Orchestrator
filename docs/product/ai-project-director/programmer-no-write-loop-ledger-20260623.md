@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, and P21-C evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, P21-C, P21-D-A, P21-D-B, P21-D-C1, P21-D-C2, P21-D-C3, and P21-D-D1 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C/P21-D-A/P21-D-B/P21-D-C1/P21-D-C2/P21-D-C3/P21-D-D1 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -1440,6 +1440,263 @@ controlled sandbox candidate diff
 
 ---
 
+## P21-D-A Stage Contract Design Closure
+
+### Gate
+
+- P21-D-A-R1: Closed / Pass
+- P21-D-A overall: Closed / Pass
+
+### Initial Design Commit
+
+- `59edef851007a925d3ea215cc7d1ff658c1f33d7` — `docs: define P21-D review decision freshness gate`
+
+### R1 Correction Commit
+
+- `0f2d15f2d5c282e3a0e5f5c47a884811cbaf9f26` — `docs: correct P21-D automation and human escalation design`
+
+### Core Conclusion
+
+- Default flow is automated disposition.
+- Human involvement is exception-based.
+- Reviewer verdict is not human decision.
+- AUTO_CONTINUE / AUTO_REWORK are not Git-write authorization.
+- P21-D remains split into B / C / D / E.
+
+---
+
+## P21-D-B Automated Review Disposition Gate
+
+### Gate
+
+- P21-D-B-Codex: Closed / Pass
+- P21-D-B-Mimocode: Closed / Pass
+- P21-D-B overall: Closed / Pass
+
+### Key Commits
+
+- `60c279dd9142d22aebe88a3d78268eab73627012` — `backend: add automated review disposition gate`
+- `42431cda4e003e5e45e18e000e78d6fa755d672c` — `test: lock automated review disposition gate contracts`
+
+### Capability Record
+
+```text
+exact persisted P21-C review message
+→ public review-result fingerprint revalidation
+→ deterministic disposition
+→ AUTO_CONTINUE / AUTO_REWORK / ESCALATE_TO_HUMAN
+→ append-only ProjectDirectorMessage
+```
+
+### Boundary Record
+
+- Does not consume disposition.
+- Does not start continuation.
+- Does not start rework.
+- Does not create human package.
+- Does not record human decision.
+- Does not write files.
+- Does not perform Git write.
+
+---
+
+## P21-D-C1 Atomic Disposition Consumption Preflight
+
+### Gate
+
+- P21-D-C1-Codex: Closed / Pass
+- P21-D-C1-Mimocode: Closed / Pass
+- P21-D-C1 overall: Closed / Pass
+
+### Key Commits
+
+- `b77540cbdf2338c3f4fda90ad89b41dbd8bcc856` — `backend: add disposition consumption preflight guard`
+- `3afeddbf25824a8d2f3efec305cd603da60631b1` — `backend: make disposition preflight replay guard atomic`
+- `033030616416b0084824a14078e6978b5b9a77d0` — `test: lock atomic disposition consumption preflight`
+- `6d2580bc3aaba39a3115666207788cb2bd7ccec2` — `test: harden atomic disposition preflight evidence`
+
+### Capability Record
+
+- BEGIN IMMEDIATE before evidence read.
+- Exact disposition validation.
+- Review fingerprint revalidation.
+- Source evidence binding.
+- Full paginated replay detection.
+- Append-only preflight evidence.
+- Concurrent duplicate prevention.
+
+Preflight is not consumption execution.
+
+---
+
+## P21-D-C2 Fresh Disposition Consumption
+
+### Gate
+
+- P21-D-C2-Codex: Closed / Pass
+- P21-D-C2-Mimocode: Closed / Pass
+- P21-D-C2 overall: Closed / Pass
+
+### Key Commits
+
+- `2f50a5a0aa1fab9739666463542ed643fb820eae` — `backend: add fresh disposition consumption gate`
+- `09b562e4c96a6e881875726b8c3cd9590b5d49db` — `test: lock fresh disposition consumption contracts`
+- `5a09d7a514e1e2d5032f40014b2342d2fc8874fc` — `test: close fresh disposition consumption gaps`
+
+### Capability Record
+
+- Consumes exact C1 preflight evidence.
+- Revalidates disposition / review / diff / workspace freshness.
+- Appends exactly one consumption record.
+- AUTO_CONTINUE / AUTO_REWORK eligibility only.
+- ESCALATE_TO_HUMAN remains routed to P21-D-D.
+
+### Boundary Record
+
+- Eligibility is not actual continuation / rework execution.
+- No Task / Run / Worker creation.
+- No patch apply.
+- No Git write.
+
+---
+
+## P21-D-C3 Bounded Automatic Disposition Handoff
+
+### Gate
+
+- P21-D-C3-Codex: Closed / Pass
+- P21-D-C3-Mimocode: Closed / Pass
+- P21-D-C3 overall: Closed / Pass
+- P21-D-C overall: Closed / Pass
+
+### Key Commits
+
+- `31911db1c2a8152e69838c49e8e1e4b0e21e7d6a` — `backend: add bounded disposition handoff gate`
+- `d059816ef05bb93664ec2eb44d47cb660b979a4b` — `test: lock bounded disposition handoff contracts`
+- `60f95b0c526cb2ac7221ac24a4cd1be55ff69faf` — `test: prove exact handoff evidence inheritance`
+
+### Capability Record
+
+```text
+exact consumed disposition evidence
+→ bounded continuation/rework handoff
+→ append-only handoff message
+→ exact evidence inheritance
+```
+
+### Boundary Record
+
+- Handoff prepared only.
+- Continuation not executed.
+- Rework not executed.
+- Rework budget remains bounded.
+- No Task / Run / Worker / worktree.
+- No file write.
+- No patch apply.
+- No Git write.
+
+---
+
+## P21-D-D1 Single-Source Human Escalation Package Preparation
+
+### Production Commits
+
+- `e32bd9beb55ddb730851efa40a01650d40ea69ba` — `backend: add human escalation package gate`
+- `1143cf15bea9b330f7e8cb7f34cd3b549ea2cf59` — `backend: harden human escalation package gate`
+
+Initial production static review found and R1 fixed:
+
+- Public method name mismatch.
+- Missing real Task / project binding.
+- Incomplete exact message / action binding.
+- Strict findings read before fingerprint trust.
+- Incorrect `requires_confirmation` semantics.
+
+Final public interface:
+
+```python
+prepare_human_escalation_package(
+    *,
+    session_id: UUID,
+    source_task_id: UUID,
+    source_message_id: UUID,
+)
+```
+
+### Test Commits
+
+- `d111f8a6c79056e107216e5fd6532baaf8812ce7` — `test: lock human escalation package contracts`
+- `b659a50b19c6e7077194eacad5856140bb1ee016` — `test: close human escalation package evidence gaps`
+- `8f531da62169ff8a7154affd199de9289f4338f1` — `test: isolate human escalation fingerprint evidence`
+
+Test review process:
+
+- Initial test suite had aggregate fingerprint, trust-order, false-only, replay-key and Barrier gaps.
+- R1 closed trust-order, false-only, independent replay keys and Barrier contention.
+- R2 isolated aggregate fingerprint evidence IDs and closed the final test-contract gap.
+
+### Final Gate
+
+- P21-D-D1-Codex: Closed / Pass
+- P21-D-D1-Mimocode: Closed / Pass with verification note
+- P21-D-D1 overall: Closed / Pass with verification note
+
+### Final Local Verification Evidence
+
+```text
+D1 single-file targeted pytest: 166 passed
+Adjacent targeted regression: 443 passed
+compileall: passed
+import smoke: passed
+database is locked: not observed
+```
+
+Verification note: These pytest counts are Mimocode local execution evidence. The AI Project Director independently inspected origin/main, commit scope and test source. No GitHub Actions workflow run/status was available for this direct-push commit, so do not label these results as GitHub CI.
+
+### D1 Capability Conclusion
+
+```text
+exact persisted ESCALATE_TO_HUMAN disposition
+→ validate exact D-B message/action
+→ reload exact P21-C review message
+→ public fingerprint revalidation
+→ strict evidence binding
+→ deterministic aggregate evidence fingerprint
+→ append one single-source human escalation package
+→ wait for future structured human decision
+```
+
+Contract:
+
+- Only ESCALATE_TO_HUMAN accepted.
+- Trigger exactly `["high_review_risk"]`.
+- Real Task / project binding.
+- Strict single-action metadata validation.
+- Findings trusted only after fingerprint success.
+- Full paginated replay protection.
+- BEGIN IMMEDIATE concurrency protection.
+- One package under concurrent double invocation.
+- High overall risk with no high finding is legal.
+- Aggregate fingerprint excludes package ID and creation time.
+- `requires_confirmation=true` means waiting for future structured decision.
+
+### D1 Permanent Boundary
+
+- Package creation is not human decision.
+- `requires_confirmation` is not human approval.
+- Human decision has not been recorded.
+- No raw human confirmation text exists.
+- No expiry / revoke exists.
+- No decision consumption exists.
+- No protected transition exists.
+- No continuation / rework execution starts.
+- No Task / Run / Worker / worktree is created.
+- No file is written.
+- No patch is applied.
+- No product runtime Git write is authorized.
+
+---
+
 ## P21-D Stage Design — Automated Review Disposition, Human Escalation & Evidence Freshness Gate
 
 ### Core Product Principle
@@ -1916,11 +2173,16 @@ P21-D Pass does not open product runtime Git write.
 ### Stage Status
 
 - P21-C: Closed / Pass with note
-- P21-D-A-R1: Ready for AI Project Director review
-- P21-D-B: Not started
-- P21-D-C: Not started
-- P21-D-D: Not started
+- P21-D-A: Closed / Pass
+- P21-D-B: Closed / Pass
+- P21-D-C1: Closed / Pass
+- P21-D-C2: Closed / Pass
+- P21-D-C3: Closed / Pass
+- P21-D-C overall: Closed / Pass
+- P21-D-D1: Closed / Pass with verification note
+- P21-D-D overall: Partial
 - P21-D-E: Not started
+- P21-D overall: Partial
 - Product runtime Git write: Forbidden
 - AI Project Director total loop: Partial
 
