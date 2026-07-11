@@ -33,7 +33,6 @@ from tests.test_project_director_sandbox_candidate_diff_review_human_escalation_
     _seed_review_message,
     _seed_disposition_message,
     _valid_review_action,
-    _compute_review_fingerprint_from_action,
     _d1_prepare,
 )
 from app.core.db_tables import (
@@ -488,13 +487,9 @@ def _seed_full_auto_chain(
             recommended_next_step="Rework required.",
         )
     _seed_review_message(session, action=review_action, seq_no=50)
-
-    # Compute fingerprint for the review action
-    fp = _compute_review_fingerprint_from_action(review_action)
-    _seed_disposition_message(session, fingerprint=fp, seq_no=60)
     session.close()
 
-    # D-B: compute disposition (only needs session + message repos)
+    # D-B: compute disposition via real service (creates disposition message)
     db_svc, db_sess = _make_db_service(session_local, ProjectDirectorSandboxCandidateDiffReviewDispositionService)
     db_result = db_svc.compute_candidate_diff_review_disposition(
         session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=SOURCE_REVIEW_MSG_ID,
