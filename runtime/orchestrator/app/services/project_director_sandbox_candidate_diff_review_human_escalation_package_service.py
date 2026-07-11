@@ -97,6 +97,21 @@ class PreparedSandboxCandidateDiffReviewHumanEscalationPackage:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedPersistedHumanEscalationPackageFingerprint:
+    """Pure aggregate fingerprint revalidation for one persisted D1 action."""
+
+    aggregate_evidence_fingerprint: str
+    blocked_reasons: list[str]
+    source_package_message_id: UUID | None = None
+    escalation_package_id: UUID | None = None
+    source_disposition_message_id: UUID | None = None
+    source_review_message_id: UUID | None = None
+    source_preflight_message_id: UUID | None = None
+    source_diff_message_id: UUID | None = None
+    disposition_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _ValidatedEscalationDispositionEvidence:
     disposition: ProjectDirectorSandboxCandidateDiffReviewDispositionResult
     source_review_message_id: UUID
@@ -137,6 +152,152 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         self._session_repository = session_repository
         self._message_repository = message_repository
         self._task_repository = task_repository
+
+    @classmethod
+    def revalidate_persisted_human_escalation_package_fingerprint(
+        cls,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_package_message_id: UUID,
+        source_package_action: dict[str, Any],
+    ) -> RevalidatedPersistedHumanEscalationPackageFingerprint:
+        """Recompute one D1 aggregate fingerprint without repository side effects."""
+
+        blocked_reasons: list[str] = []
+        action = source_package_action
+        if (
+            action.get("type")
+            != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_ACTION_TYPE
+        ):
+            blocked_reasons.append("human_escalation_package_action_type_invalid")
+        if action.get("schema_version") != HUMAN_ESCALATION_PACKAGE_SCHEMA_VERSION:
+            blocked_reasons.append("human_escalation_package_schema_version_mismatch")
+        if action.get("session_id") != str(session_id):
+            blocked_reasons.append("human_escalation_package_session_mismatch")
+        if action.get("source_task_id") != str(source_task_id):
+            blocked_reasons.append("human_escalation_package_task_mismatch")
+
+        domain_fields = (
+            "package_status",
+            "escalation_package_id",
+            "source_disposition_message_id",
+            "source_review_message_id",
+            "source_preflight_message_id",
+            "source_diff_message_id",
+            "disposition_id",
+            "disposition_type",
+            "disposition_reason",
+            "review_result_fingerprint",
+            "revalidated_review_result_fingerprint",
+            "aggregate_evidence_fingerprint",
+            "escalation_triggers",
+            "escalation_scope",
+            "related_task_ids",
+            "related_review_message_ids",
+            "unresolved_blocking_findings",
+            "risk_summary",
+            "proposed_human_decision_scope",
+            "source_review_validated",
+            "replay_check_completed",
+            "prior_escalation_package_detected",
+            "blocked_reasons",
+            "package_created_at",
+            "continuation_started",
+            "rework_started",
+            "human_escalation_package_created",
+            "human_decision_recorded",
+            "approval_request_created",
+            "legacy_approval_decision_created",
+            "main_project_file_written",
+            "sandbox_file_written",
+            "manifest_file_written",
+            "diff_file_written",
+            "patch_applied",
+            "git_write_performed",
+            "worktree_created",
+            "worker_started",
+            "task_created",
+            "run_created",
+            "gate_allows_write",
+            "ai_project_director_total_loop",
+        )
+        package: ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageResult | None
+        try:
+            package = ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageResult.model_validate(
+                {field_name: action.get(field_name) for field_name in domain_fields}
+            )
+        except ValidationError:
+            package = None
+            blocked_reasons.append("human_escalation_package_domain_reconstruction_invalid")
+
+        review_scope_paths = cls._review_scope_paths(action)
+        requested_reviewer_executor = action.get("requested_reviewer_executor")
+        source_diff_sha256 = action.get("source_diff_sha256")
+        review_prompt_sha256 = action.get("review_prompt_sha256")
+        review_output_schema_version = action.get("review_output_schema_version")
+        source_review_verdict = action.get("source_review_verdict")
+        source_review_risk_level = action.get("source_review_risk_level")
+        if (
+            requested_reviewer_executor not in _VALID_REVIEWER_EXECUTORS
+            or not cls._is_sha256(source_diff_sha256)
+            or not cls._is_sha256(review_prompt_sha256)
+            or review_scope_paths is None
+            or review_output_schema_version != REVIEW_OUTPUT_SCHEMA_VERSION
+            or source_review_verdict not in _VALID_REVIEW_VERDICTS
+            or source_review_risk_level not in _VALID_REVIEW_RISK_LEVELS
+        ):
+            blocked_reasons.append("human_escalation_package_fingerprint_material_invalid")
+
+        if blocked_reasons or package is None or review_scope_paths is None:
+            return RevalidatedPersistedHumanEscalationPackageFingerprint(
+                aggregate_evidence_fingerprint="",
+                blocked_reasons=cls._dedupe(blocked_reasons),
+                source_package_message_id=source_package_message_id,
+            )
+
+        canonical_payload = cls._aggregate_evidence_canonical_payload(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_disposition_message_id=package.source_disposition_message_id,
+            source_review_message_id=package.source_review_message_id,
+            source_preflight_message_id=package.source_preflight_message_id,
+            source_diff_message_id=package.source_diff_message_id,
+            disposition_id=package.disposition_id,
+            disposition_type=package.disposition_type,
+            disposition_reason=package.disposition_reason,
+            review_result_fingerprint=package.review_result_fingerprint,
+            revalidated_review_result_fingerprint=(
+                package.revalidated_review_result_fingerprint
+            ),
+            requested_reviewer_executor=requested_reviewer_executor,
+            source_diff_sha256=source_diff_sha256,
+            review_prompt_sha256=review_prompt_sha256,
+            review_scope_paths=review_scope_paths,
+            review_output_schema_version=review_output_schema_version,
+            source_review_verdict=source_review_verdict,
+            source_review_risk_level=source_review_risk_level,
+            escalation_triggers=package.escalation_triggers,
+            escalation_scope=package.escalation_scope,
+            related_task_ids=package.related_task_ids,
+            related_review_message_ids=package.related_review_message_ids,
+            unresolved_findings=package.unresolved_blocking_findings,
+            risk_summary=package.risk_summary,
+            proposed_human_decision_scope=package.proposed_human_decision_scope,
+        )
+        return RevalidatedPersistedHumanEscalationPackageFingerprint(
+            aggregate_evidence_fingerprint=cls._canonical_payload_fingerprint(
+                canonical_payload
+            ),
+            blocked_reasons=[],
+            source_package_message_id=source_package_message_id,
+            escalation_package_id=package.escalation_package_id,
+            source_disposition_message_id=package.source_disposition_message_id,
+            source_review_message_id=package.source_review_message_id,
+            source_preflight_message_id=package.source_preflight_message_id,
+            source_diff_message_id=package.source_diff_message_id,
+            disposition_id=package.disposition_id,
+        )
 
     def prepare_human_escalation_package(
         self,
@@ -818,28 +979,90 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         risk_summary: str,
         proposed_human_decision_scope: str,
     ) -> str:
-        canonical_payload = {
+        canonical_payload = ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService._aggregate_evidence_canonical_payload(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_disposition_message_id=source_disposition_message_id,
+            source_review_message_id=evidence.source_review_message_id,
+            source_preflight_message_id=evidence.source_preflight_message_id,
+            source_diff_message_id=evidence.source_diff_message_id,
+            disposition_id=evidence.disposition_id,
+            disposition_type=evidence.disposition.disposition_type,
+            disposition_reason=evidence.disposition.disposition_reason,
+            review_result_fingerprint=evidence.disposition.review_result_fingerprint,
+            revalidated_review_result_fingerprint=(
+                revalidation.review_result_fingerprint
+            ),
+            requested_reviewer_executor=evidence.requested_reviewer_executor,
+            source_diff_sha256=evidence.source_diff_sha256,
+            review_prompt_sha256=evidence.review_prompt_sha256,
+            review_scope_paths=evidence.review_scope_paths,
+            review_output_schema_version=evidence.review_output_schema_version,
+            source_review_verdict=review_evidence.output.verdict,
+            source_review_risk_level=review_evidence.output.risk_level,
+            escalation_triggers=evidence.disposition.escalation_triggers,
+            escalation_scope=escalation_scope,
+            related_task_ids=related_task_ids,
+            related_review_message_ids=related_review_message_ids,
+            unresolved_findings=unresolved_findings,
+            risk_summary=risk_summary,
+            proposed_human_decision_scope=proposed_human_decision_scope,
+        )
+        return ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService._canonical_payload_fingerprint(
+            canonical_payload
+        )
+
+    @staticmethod
+    def _aggregate_evidence_canonical_payload(
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_disposition_message_id: UUID,
+        source_review_message_id: UUID | None,
+        source_preflight_message_id: UUID | None,
+        source_diff_message_id: UUID | None,
+        disposition_id: UUID | None,
+        disposition_type: str | None,
+        disposition_reason: str,
+        review_result_fingerprint: str,
+        revalidated_review_result_fingerprint: str,
+        requested_reviewer_executor: str,
+        source_diff_sha256: str,
+        review_prompt_sha256: str,
+        review_scope_paths: list[str],
+        review_output_schema_version: str,
+        source_review_verdict: str,
+        source_review_risk_level: str,
+        escalation_triggers: list[str],
+        escalation_scope: str | None,
+        related_task_ids: list[UUID],
+        related_review_message_ids: list[UUID],
+        unresolved_findings: list[ProjectDirectorSandboxCandidateDiffReviewFinding],
+        risk_summary: str,
+        proposed_human_decision_scope: str | None,
+    ) -> dict[str, Any]:
+        return {
             "session_id": str(session_id),
             "source_task_id": str(source_task_id),
             "source_disposition_message_id": str(source_disposition_message_id),
-            "source_review_message_id": str(evidence.source_review_message_id),
-            "source_preflight_message_id": str(evidence.source_preflight_message_id),
-            "source_diff_message_id": str(evidence.source_diff_message_id),
-            "disposition_id": str(evidence.disposition_id),
-            "disposition_type": evidence.disposition.disposition_type,
-            "disposition_reason": evidence.disposition.disposition_reason,
-            "review_result_fingerprint": evidence.disposition.review_result_fingerprint,
+            "source_review_message_id": str(source_review_message_id),
+            "source_preflight_message_id": str(source_preflight_message_id),
+            "source_diff_message_id": str(source_diff_message_id),
+            "disposition_id": str(disposition_id),
+            "disposition_type": disposition_type,
+            "disposition_reason": disposition_reason,
+            "review_result_fingerprint": review_result_fingerprint,
             "revalidated_review_result_fingerprint": (
-                revalidation.review_result_fingerprint
+                revalidated_review_result_fingerprint
             ),
-            "requested_reviewer_executor": evidence.requested_reviewer_executor,
-            "source_diff_sha256": evidence.source_diff_sha256,
-            "review_prompt_sha256": evidence.review_prompt_sha256,
-            "review_scope_paths": list(evidence.review_scope_paths),
-            "review_output_schema_version": evidence.review_output_schema_version,
-            "source_review_verdict": review_evidence.output.verdict,
-            "source_review_risk_level": review_evidence.output.risk_level,
-            "escalation_triggers": list(evidence.disposition.escalation_triggers),
+            "requested_reviewer_executor": requested_reviewer_executor,
+            "source_diff_sha256": source_diff_sha256,
+            "review_prompt_sha256": review_prompt_sha256,
+            "review_scope_paths": list(review_scope_paths),
+            "review_output_schema_version": review_output_schema_version,
+            "source_review_verdict": source_review_verdict,
+            "source_review_risk_level": source_review_risk_level,
+            "escalation_triggers": list(escalation_triggers),
             "escalation_scope": escalation_scope,
             "related_task_ids": [str(task_id) for task_id in related_task_ids],
             "related_review_message_ids": [
@@ -851,6 +1074,9 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             "risk_summary": risk_summary,
             "proposed_human_decision_scope": proposed_human_decision_scope,
         }
+
+    @staticmethod
+    def _canonical_payload_fingerprint(canonical_payload: dict[str, Any]) -> str:
         canonical_json = json.dumps(
             canonical_payload,
             sort_keys=True,
@@ -1046,4 +1272,5 @@ __all__ = (
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL",
     "PreparedSandboxCandidateDiffReviewHumanEscalationPackage",
     "ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService",
+    "RevalidatedPersistedHumanEscalationPackageFingerprint",
 )
