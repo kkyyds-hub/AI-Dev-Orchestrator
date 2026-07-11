@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.5"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile backend
+        working-directory: runtime/orchestrator
+        run: uv run --no-project --with-editable . python -m compileall -q app scripts
+      - name: Focused security tests
+        working-directory: runtime/orchestrator
+        run: >
+          uv run --no-project --with-editable . --with pytest
+          pytest -q tests/test_external_executor_module_boundary.py
+          tests/test_project_director_sandbox_workspace_creation_contract.py
+          tests/test_project_director_sandbox_workspace_manifest_contract.py
+          tests/test_project_director_sandbox_candidate_file_write_contract.py
+          tests/test_project_director_sandbox_candidate_diff_review_output_validation_contract.py
+          tests/test_project_director_sandbox_candidate_diff_review_disposition_consumption_service_contract.py
+          tests/test_human_approval_gate.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Run tests
+        working-directory: apps/web
+        run: node --test
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+  repo-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trailing whitespace and conflict markers
+        run: git diff --check main...HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Markdown link check
+        run: python scripts/check_markdown_links.py
