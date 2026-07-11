@@ -71,6 +71,53 @@ _PACKAGE_FALSE_FLAGS = (
     "run_created",
     "gate_allows_write",
 )
+_DECISION_DOMAIN_FIELDS = (
+    "decision_status",
+    "decision_id",
+    "source_package_message_id",
+    "escalation_package_id",
+    "source_disposition_message_id",
+    "source_review_message_id",
+    "source_preflight_message_id",
+    "source_diff_message_id",
+    "disposition_id",
+    "aggregate_evidence_fingerprint",
+    "decision_scope",
+    "decision_action",
+    "actor_type",
+    "actor",
+    "client_request_id",
+    "decision_created_at",
+    "decision_expires_at",
+    "decision_confirmation_fingerprint",
+    "source_package_validated",
+    "aggregate_evidence_fingerprint_revalidated",
+    "replay_check_completed",
+    "prior_decision_detected",
+    "blocked_reasons",
+    "human_escalation_package_created",
+    "human_decision_recorded",
+    "decision_consumption_started",
+    "decision_consumed",
+    "decision_revoked",
+    "decision_expired",
+    "continuation_started",
+    "rework_started",
+    "approval_request_created",
+    "legacy_approval_decision_created",
+    "main_project_file_written",
+    "sandbox_file_written",
+    "manifest_file_written",
+    "diff_file_written",
+    "patch_applied",
+    "git_write_performed",
+    "worktree_created",
+    "worker_started",
+    "task_created",
+    "run_created",
+    "gate_allows_write",
+    "ai_project_director_total_loop",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +126,27 @@ class RecordedSandboxCandidateDiffReviewHumanEscalationDecision:
 
     result: ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionResult
     message: ProjectDirectorMessage | None
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedPersistedHumanEscalationDecisionFingerprint:
+    """Pure confirmation fingerprint revalidation for one persisted D2 action."""
+
+    decision_confirmation_fingerprint: str
+    blocked_reasons: list[str]
+    source_decision_message_id: UUID | None = None
+    decision_id: UUID | None = None
+    source_package_message_id: UUID | None = None
+    escalation_package_id: UUID | None = None
+    source_disposition_message_id: UUID | None = None
+    source_review_message_id: UUID | None = None
+    source_preflight_message_id: UUID | None = None
+    source_diff_message_id: UUID | None = None
+    disposition_id: UUID | None = None
+    aggregate_evidence_fingerprint: str = ""
+    decision_action: HumanEscalationDecisionAction | None = None
+    decision_created_at: datetime | None = None
+    decision_expires_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +168,94 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionService:
         self._session_repository = session_repository
         self._message_repository = message_repository
         self._task_repository = task_repository
+
+    @classmethod
+    def revalidate_persisted_human_escalation_decision_fingerprint(
+        cls,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_decision_message_id: UUID,
+        source_decision_action: dict[str, Any],
+    ) -> RevalidatedPersistedHumanEscalationDecisionFingerprint:
+        """Recompute one D2 confirmation fingerprint without repository side effects."""
+
+        blocked_reasons: list[str] = []
+        action = source_decision_action
+        if (
+            action.get("type")
+            != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_DECISION_ACTION_TYPE
+        ):
+            blocked_reasons.append("human_escalation_decision_action_type_invalid")
+        if action.get("schema_version") != HUMAN_ESCALATION_DECISION_SCHEMA_VERSION:
+            blocked_reasons.append("human_escalation_decision_schema_version_mismatch")
+        if action.get("session_id") != str(session_id):
+            blocked_reasons.append("human_escalation_decision_session_mismatch")
+        if action.get("source_task_id") != str(source_task_id):
+            blocked_reasons.append("human_escalation_decision_task_mismatch")
+
+        decision: ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionResult | None
+        try:
+            decision = ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionResult.model_validate(
+                {
+                    field_name: action.get(field_name)
+                    for field_name in _DECISION_DOMAIN_FIELDS
+                }
+            )
+        except ValidationError:
+            decision = None
+            blocked_reasons.append("human_escalation_decision_domain_reconstruction_invalid")
+        if decision is not None and (
+            action.get("actor") != decision.actor
+            or action.get("client_request_id") != decision.client_request_id
+        ):
+            blocked_reasons.append("human_escalation_decision_identity_invalid")
+        if blocked_reasons or decision is None:
+            return RevalidatedPersistedHumanEscalationDecisionFingerprint(
+                decision_confirmation_fingerprint="",
+                blocked_reasons=cls._dedupe(blocked_reasons),
+                source_decision_message_id=source_decision_message_id,
+            )
+
+        canonical_payload = cls._decision_confirmation_canonical_payload(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_package_message_id=decision.source_package_message_id,
+            escalation_package_id=decision.escalation_package_id,
+            source_disposition_message_id=decision.source_disposition_message_id,
+            source_review_message_id=decision.source_review_message_id,
+            source_preflight_message_id=decision.source_preflight_message_id,
+            source_diff_message_id=decision.source_diff_message_id,
+            disposition_id=decision.disposition_id,
+            aggregate_evidence_fingerprint=decision.aggregate_evidence_fingerprint,
+            decision_scope=decision.decision_scope,
+            decision_action=decision.decision_action,
+            actor_type=decision.actor_type,
+            actor=decision.actor,
+            client_request_id=decision.client_request_id,
+            decision_id=decision.decision_id,
+            decision_created_at=decision.decision_created_at,
+            decision_expires_at=decision.decision_expires_at,
+        )
+        return RevalidatedPersistedHumanEscalationDecisionFingerprint(
+            decision_confirmation_fingerprint=cls._canonical_payload_fingerprint(
+                canonical_payload
+            ),
+            blocked_reasons=[],
+            source_decision_message_id=source_decision_message_id,
+            decision_id=decision.decision_id,
+            source_package_message_id=decision.source_package_message_id,
+            escalation_package_id=decision.escalation_package_id,
+            source_disposition_message_id=decision.source_disposition_message_id,
+            source_review_message_id=decision.source_review_message_id,
+            source_preflight_message_id=decision.source_preflight_message_id,
+            source_diff_message_id=decision.source_diff_message_id,
+            disposition_id=decision.disposition_id,
+            aggregate_evidence_fingerprint=decision.aggregate_evidence_fingerprint,
+            decision_action=decision.decision_action,
+            decision_created_at=decision.decision_created_at,
+            decision_expires_at=decision.decision_expires_at,
+        )
 
     def record_human_escalation_decision(
         self,
@@ -592,56 +748,12 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionService:
             or action.get("source_task_id") != str(message.related_task_id)
         ):
             return None
-        domain_fields = (
-            "decision_status",
-            "decision_id",
-            "source_package_message_id",
-            "escalation_package_id",
-            "source_disposition_message_id",
-            "source_review_message_id",
-            "source_preflight_message_id",
-            "source_diff_message_id",
-            "disposition_id",
-            "aggregate_evidence_fingerprint",
-            "decision_scope",
-            "decision_action",
-            "actor_type",
-            "actor",
-            "client_request_id",
-            "decision_created_at",
-            "decision_expires_at",
-            "decision_confirmation_fingerprint",
-            "source_package_validated",
-            "aggregate_evidence_fingerprint_revalidated",
-            "replay_check_completed",
-            "prior_decision_detected",
-            "blocked_reasons",
-            "human_escalation_package_created",
-            "human_decision_recorded",
-            "decision_consumption_started",
-            "decision_consumed",
-            "decision_revoked",
-            "decision_expired",
-            "continuation_started",
-            "rework_started",
-            "approval_request_created",
-            "legacy_approval_decision_created",
-            "main_project_file_written",
-            "sandbox_file_written",
-            "manifest_file_written",
-            "diff_file_written",
-            "patch_applied",
-            "git_write_performed",
-            "worktree_created",
-            "worker_started",
-            "task_created",
-            "run_created",
-            "gate_allows_write",
-            "ai_project_director_total_loop",
-        )
         try:
             decision = ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionResult.model_validate(
-                {field_name: action.get(field_name) for field_name in domain_fields}
+                {
+                    field_name: action.get(field_name)
+                    for field_name in _DECISION_DOMAIN_FIELDS
+                }
             )
         except ValidationError:
             return None
@@ -667,29 +779,76 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionService:
         decision_created_at: datetime,
         decision_expires_at: datetime,
     ) -> str:
-        canonical_payload = {
+        canonical_payload = ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionService._decision_confirmation_canonical_payload(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_package_message_id=source_package_message_id,
+            escalation_package_id=package.escalation_package_id,
+            source_disposition_message_id=package.source_disposition_message_id,
+            source_review_message_id=package.source_review_message_id,
+            source_preflight_message_id=package.source_preflight_message_id,
+            source_diff_message_id=package.source_diff_message_id,
+            disposition_id=package.disposition_id,
+            aggregate_evidence_fingerprint=package.aggregate_evidence_fingerprint,
+            decision_scope=decision_scope,
+            decision_action=decision_action,
+            actor_type="human",
+            actor=actor,
+            client_request_id=client_request_id,
+            decision_id=decision_id,
+            decision_created_at=decision_created_at,
+            decision_expires_at=decision_expires_at,
+        )
+        return ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionService._canonical_payload_fingerprint(
+            canonical_payload
+        )
+
+    @staticmethod
+    def _decision_confirmation_canonical_payload(
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_package_message_id: UUID,
+        escalation_package_id: UUID,
+        source_disposition_message_id: UUID,
+        source_review_message_id: UUID,
+        source_preflight_message_id: UUID,
+        source_diff_message_id: UUID,
+        disposition_id: UUID,
+        aggregate_evidence_fingerprint: str,
+        decision_scope: str,
+        decision_action: HumanEscalationDecisionAction,
+        actor_type: str,
+        actor: str,
+        client_request_id: str,
+        decision_id: UUID,
+        decision_created_at: datetime,
+        decision_expires_at: datetime,
+    ) -> dict[str, Any]:
+        return {
             "schema_version": HUMAN_ESCALATION_DECISION_SCHEMA_VERSION,
             "session_id": str(session_id),
             "source_task_id": str(source_task_id),
             "source_package_message_id": str(source_package_message_id),
-            "escalation_package_id": str(package.escalation_package_id),
-            "source_disposition_message_id": str(
-                package.source_disposition_message_id
-            ),
-            "source_review_message_id": str(package.source_review_message_id),
-            "source_preflight_message_id": str(package.source_preflight_message_id),
-            "source_diff_message_id": str(package.source_diff_message_id),
-            "disposition_id": str(package.disposition_id),
-            "aggregate_evidence_fingerprint": package.aggregate_evidence_fingerprint,
+            "escalation_package_id": str(escalation_package_id),
+            "source_disposition_message_id": str(source_disposition_message_id),
+            "source_review_message_id": str(source_review_message_id),
+            "source_preflight_message_id": str(source_preflight_message_id),
+            "source_diff_message_id": str(source_diff_message_id),
+            "disposition_id": str(disposition_id),
+            "aggregate_evidence_fingerprint": aggregate_evidence_fingerprint,
             "decision_scope": decision_scope,
             "decision_action": decision_action,
-            "actor_type": "human",
+            "actor_type": actor_type,
             "actor": actor,
             "client_request_id": client_request_id,
             "decision_id": str(decision_id),
             "decision_created_at": decision_created_at.isoformat(),
             "decision_expires_at": decision_expires_at.isoformat(),
         }
+
+    @staticmethod
+    def _canonical_payload_fingerprint(canonical_payload: dict[str, Any]) -> str:
         canonical_json = json.dumps(
             canonical_payload,
             sort_keys=True,
@@ -849,4 +1008,5 @@ __all__ = (
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_DECISION_SOURCE_DETAIL",
     "ProjectDirectorSandboxCandidateDiffReviewHumanEscalationDecisionService",
     "RecordedSandboxCandidateDiffReviewHumanEscalationDecision",
+    "RevalidatedPersistedHumanEscalationDecisionFingerprint",
 )
