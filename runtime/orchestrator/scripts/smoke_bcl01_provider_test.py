@@ -114,6 +114,7 @@ def test_response_structure_keys() -> None:
         "provider_key", "configured", "base_url", "auth_valid",
         "endpoint_reachable", "api_family", "model_name", "model_usable",
         "latency_ms", "status", "error_category", "error_summary", "tested_at",
+        "provider_receipt_id",
     }
     missing = required_keys - set(result.keys())
     extra = set(result.keys()) - required_keys
@@ -127,7 +128,7 @@ def test_auth_error_via_mock() -> None:
     executor = _make_executor()
     with patch.object(
         executor,
-        "_post_json_request",
+        "_send_sdk_request",
         side_effect=OpenAIProviderExecutionError(
             category="auth_error",
             message="HTTP 401: Invalid API key",
@@ -152,7 +153,7 @@ def test_network_error_via_mock() -> None:
     executor = _make_executor()
     with patch.object(
         executor,
-        "_post_json_request",
+        "_send_sdk_request",
         side_effect=OpenAIProviderExecutionError(
             category="network_error",
             message="Network unreachable",
@@ -173,7 +174,7 @@ def test_endpoint_not_supported_via_mock() -> None:
     executor = _make_executor()
     with patch.object(
         executor,
-        "_post_json_request",
+        "_send_sdk_request",
         side_effect=OpenAIProviderExecutionError(
             category="endpoint_not_supported",
             message="HTTP 404: Not Found",
@@ -194,7 +195,7 @@ def test_responses_success() -> None:
     executor = _make_executor()
     with patch.object(
         executor,
-        "_post_json_request",
+        "_send_sdk_request",
         return_value=_RESPONSES_SUCCESS_PAYLOAD,
     ):
         result = executor.test_connectivity()
@@ -208,10 +209,10 @@ def test_responses_success() -> None:
 
 def test_chat_completions_success() -> None:
     """Mock a valid Chat Completions payload; must pass."""
-    executor = _make_executor()
+    executor = _make_executor(base_url="https://api.deepseek.com/v1")
     with patch.object(
         executor,
-        "_post_json_request",
+        "_send_sdk_request",
         return_value=_CHAT_COMPLETIONS_SUCCESS_PAYLOAD,
     ):
         result = executor.test_connectivity()
@@ -228,7 +229,7 @@ def test_invalid_response_not_passed() -> None:
     executor = _make_executor()
     with patch.object(
         executor,
-        "_post_json_request",
+        "_send_sdk_request",
         return_value=_INVALID_200_PAYLOAD,
     ):
         result = executor.test_connectivity()

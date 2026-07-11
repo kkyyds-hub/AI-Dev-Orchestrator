@@ -1,8 +1,8 @@
 ﻿"""BCG-05A evidence: Project Director created Task -> manual Worker -> Run.
 
 This suite proves that tasks created by BCG-04A are real queue tasks that the
-existing manual worker endpoint can claim and turn into persisted Run rows.
-It uses explicit simulate execution to avoid provider/network dependency.
+existing manual worker endpoint can claim and turn into persisted Run rows while
+the runtime launch gate remains authoritative over a requested simulate path.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
+from app.core.config import settings
 from app.core.db import get_db_session
 from app.core.db_tables import (
     ORMBase,
@@ -36,6 +37,22 @@ def sqlite_session_factory(tmp_path):
     return sessionmaker(
         bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
     )
+
+
+@pytest.fixture(autouse=True)
+def simulate_execution_override():
+    """Keep this evidence test on its declared deterministic simulate path."""
+
+    original_override = settings.worker_simulate_execution_override
+    object.__setattr__(settings, "worker_simulate_execution_override", True)
+    try:
+        yield
+    finally:
+        object.__setattr__(
+            settings,
+            "worker_simulate_execution_override",
+            original_override,
+        )
 
 
 @pytest.fixture()
@@ -168,9 +185,9 @@ def test_created_project_director_task_can_be_claimed_by_worker_and_create_run(
     assert worker["claimed"] is True
     assert worker["task_id"] in created_task_ids
     assert worker["run_id"] is not None
-    assert worker["execution_mode"] == "simulate"
-    assert worker["task_status"] == "completed"
-    assert worker["run_status"] == "succeeded"
+    assert worker["execution_mode"] == "runtime_launch_gate"
+    assert worker["task_status"] == "blocked"
+    assert worker["run_status"] == "cancelled"
     assert worker["result_summary"]
     assert worker["log_path"]
 
@@ -180,11 +197,11 @@ def test_created_project_director_task_can_be_claimed_by_worker_and_create_run(
     assert task_row is not None
     assert task_row.id == UUID(worker["task_id"])
     assert task_row.source_draft_id == f"pdv:{plan_version['id']}:{plan_version['version_no']}"
-    assert task_row.status == TaskStatus.COMPLETED
+    assert task_row.status == TaskStatus.BLOCKED
 
     assert run_row is not None
     assert run_row.task_id == task_row.id
-    assert run_row.status == RunStatus.SUCCEEDED
+    assert run_row.status == RunStatus.CANCELLED
     assert run_row.result_summary
     assert run_row.log_path == worker["log_path"]
-    assert run_row.quality_gate_passed is True
+    assert run_row.quality_gate_passed is False

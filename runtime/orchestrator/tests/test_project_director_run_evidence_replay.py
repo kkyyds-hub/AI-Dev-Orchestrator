@@ -1,9 +1,9 @@
-"""BCG-07A evidence: Run logs and decision history replay for PD tasks.
+"""BCG-07A evidence: blocked Run logs and decision history replay for PD tasks.
 
 This suite proves that a Project Director-created task can be replayed through
-the existing read-only run/task evidence APIs after the manual Worker finalizes
-the run.  It intentionally reuses the simulate executor to keep the proof
-deterministic and provider/network independent.
+the existing read-only run/task evidence APIs after the runtime launch gate
+finalizes the run. It intentionally requests simulate execution to prove that
+the runtime launch gate remains authoritative and provider/network independent.
 """
 
 from __future__ import annotations
@@ -37,6 +37,22 @@ def isolated_runtime_data_dir(tmp_path):
         yield runtime_data_dir
     finally:
         object.__setattr__(settings, "runtime_data_dir", original_runtime_data_dir)
+
+
+@pytest.fixture(autouse=True)
+def simulate_execution_override():
+    """Keep this evidence test on its declared deterministic simulate path."""
+
+    original_override = settings.worker_simulate_execution_override
+    object.__setattr__(settings, "worker_simulate_execution_override", True)
+    try:
+        yield
+    finally:
+        object.__setattr__(
+            settings,
+            "worker_simulate_execution_override",
+            original_override,
+        )
 
 
 @pytest.fixture()
@@ -176,21 +192,21 @@ def test_project_director_created_task_run_can_be_replayed_via_read_only_evidenc
     run_id = worker["run_id"]
     assert task_id in created_task_ids
     assert worker["claimed"] is True
-    assert worker["task_status"] == "completed"
-    assert worker["run_status"] == "succeeded"
-    assert worker["execution_mode"] == "simulate"
-    assert worker["quality_gate_passed"] is True
+    assert worker["task_status"] == "blocked"
+    assert worker["run_status"] == "cancelled"
+    assert worker["execution_mode"] == "runtime_launch_gate"
+    assert worker["quality_gate_passed"] is False
     assert worker["log_path"]
 
     task_row = db_session.get(TaskTable, UUID(task_id))
     run_row = db_session.get(RunTable, UUID(run_id))
     assert task_row is not None
     assert task_row.source_draft_id == f"pdv:{plan_version['id']}:{plan_version['version_no']}"
-    assert task_row.status == TaskStatus.COMPLETED
+    assert task_row.status == TaskStatus.BLOCKED
     assert run_row is not None
     assert run_row.task_id == task_row.id
-    assert run_row.status == RunStatus.SUCCEEDED
-    assert run_row.quality_gate_passed is True
+    assert run_row.status == RunStatus.CANCELLED
+    assert run_row.quality_gate_passed is False
 
     log_file = isolated_runtime_data_dir / worker["log_path"]
     assert log_file.exists()
@@ -200,7 +216,7 @@ def test_project_director_created_task_run_can_be_replayed_via_read_only_evidenc
     task_runs = task_runs_resp.json()
     assert [item["id"] for item in task_runs] == [run_id]
     assert task_runs[0]["log_path"] == worker["log_path"]
-    assert task_runs[0]["quality_gate_passed"] is True
+    assert task_runs[0]["quality_gate_passed"] is False
 
     logs_resp = client.get(f"/runs/{run_id}/logs?limit=200")
     assert logs_resp.status_code == 200
@@ -213,10 +229,10 @@ def test_project_director_created_task_run_can_be_replayed_via_read_only_evidenc
         "task_routed",
         "role_handoff",
         "run_claimed",
-        "context_built",
-        "execution_finished",
-        "verification_finished",
-        "cost_estimated",
+        "agent_workspace_preflight_ready",
+        "agent_runtime_launch_dry_run_blocked",
+        "agent_worktree_safe_command_proof_ready",
+        "agent_runtime_launch_gate_blocked",
         "run_finalized",
     ]:
         assert expected_event in log_events
@@ -226,20 +242,19 @@ def test_project_director_created_task_run_can_be_replayed_via_read_only_evidenc
     trace_payload = trace_resp.json()
     assert trace_payload["run_id"] == run_id
     assert trace_payload["task_id"] == task_id
-    assert trace_payload["run_status"] == "succeeded"
-    assert trace_payload["quality_gate_passed"] is True
+    assert trace_payload["run_status"] == "cancelled"
+    assert trace_payload["quality_gate_passed"] is False
     trace_events = [item["event"] for item in trace_payload["trace_items"]]
     for expected_event in [
         "task_routed",
         "role_handoff",
         "run_claimed",
-        "execution_finished",
-        "verification_finished",
+        "agent_runtime_launch_gate_blocked",
         "run_finalized",
     ]:
         assert expected_event in trace_events
     trace_stages = {item["stage"] for item in trace_payload["trace_items"]}
-    assert {"routing", "handoff", "claim", "execution", "verification", "finalize"}.issubset(
+    assert {"routing", "handoff", "claim", "runtime", "finalize"}.issubset(
         trace_stages
     )
 
@@ -249,10 +264,10 @@ def test_project_director_created_task_run_can_be_replayed_via_read_only_evidenc
     assert len(history_payload) == 1
     history_item = history_payload[0]
     assert history_item["run_id"] == run_id
-    assert history_item["status"] == "succeeded"
-    assert history_item["quality_gate_passed"] is True
-    assert history_item["failure_category"] is None
-    assert "Task and run were finalized." in history_item["headline"]
-    assert {"routing", "handoff", "claim", "execution", "verification", "finalize"}.issubset(
+    assert history_item["status"] == "cancelled"
+    assert history_item["quality_gate_passed"] is False
+    assert history_item["failure_category"] == "execution_failed"
+    assert history_item["headline"].startswith("execution_failed:")
+    assert {"routing", "handoff", "claim", "runtime", "finalize"}.issubset(
         set(history_item["stages"])
     )
