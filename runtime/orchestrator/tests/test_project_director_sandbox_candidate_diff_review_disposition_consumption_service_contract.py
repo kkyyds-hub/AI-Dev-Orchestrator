@@ -2364,6 +2364,10 @@ class TestCandidateFileFreshness:
     def test_candidate_content_smaller(self, seeded_session, fs_info) -> None:
         rel = fs_info.get("relative_path", "src/example.py")
         shorter = "tiny\n"
+        persisted_diff_bytes = len(fs_info["unified_diff_text"].encode("utf-8"))
+        expected_diff = _make_unified_diff(rel, TARGET_CONTENT, shorter)
+        assert expected_diff
+        assert len(expected_diff.encode("utf-8")) < persisted_diff_bytes
         (fs_info["workspace_path"] / rel).write_text(shorter, encoding="utf-8")
         svc, session = _make_c2_service(seeded_session, fs_info)
         result = svc.prepare_candidate_diff_review_disposition_consumption(
@@ -2373,26 +2377,30 @@ class TestCandidateFileFreshness:
         assert result.result.current_diff_regenerated is True
         assert "current_diff_mismatch" in result.result.blocked_reasons
         assert "review_evidence_stale" in result.result.blocked_reasons
+        assert "current_diff_regeneration_failed" not in result.result.blocked_reasons
         assert result.message is None
         session.close()
 
     def test_candidate_same_length_different_content(self, seeded_session, fs_info) -> None:
         rel = fs_info.get("relative_path", "src/example.py")
-        old_content = CANDIDATE_CONTENT
-        old_bytes = len(old_content.encode("utf-8"))
-        new_candidate = old_content[::-1]
-        new_bytes = len(new_candidate.encode("utf-8"))
-        assert old_content != new_candidate
-        assert old_bytes == new_bytes, f"Lengths differ: {old_bytes} vs {new_bytes}"
-        (fs_info["workspace_path"] / rel).write_text(new_candidate, encoding="utf-8")
+        original_candidate = CANDIDATE_CONTENT
+        changed_candidate = "alt content\n"
+        assert original_candidate != changed_candidate
+        assert len(original_candidate.encode("utf-8")) == len(changed_candidate.encode("utf-8"))
+        persisted_diff_bytes = len(fs_info["unified_diff_text"].encode("utf-8"))
+        expected_diff = _make_unified_diff(rel, TARGET_CONTENT, changed_candidate)
+        assert expected_diff
+        assert len(expected_diff.encode("utf-8")) <= persisted_diff_bytes
+        (fs_info["workspace_path"] / rel).write_text(changed_candidate, encoding="utf-8")
         svc, session = _make_c2_service(seeded_session, fs_info)
         result = svc.prepare_candidate_diff_review_disposition_consumption(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert result.result.current_diff_regenerated is False
-        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert result.result.current_diff_regenerated is True
+        assert "current_diff_mismatch" in result.result.blocked_reasons
         assert "review_evidence_stale" in result.result.blocked_reasons
+        assert "current_diff_regeneration_failed" not in result.result.blocked_reasons
         assert result.message is None
         session.close()
 
@@ -2419,15 +2427,23 @@ class TestMainTargetFreshness:
 
     def test_target_changed_regenerated(self, seeded_session, fs_info) -> None:
         rel = fs_info.get("relative_path", "src/example.py")
-        (fs_info["repo_root"] / rel).write_text("new target content here\n", encoding="utf-8")
+        changed_target = "alt target\n"
+        assert TARGET_CONTENT != changed_target
+        assert len(TARGET_CONTENT.encode("utf-8")) != len(changed_target.encode("utf-8"))
+        persisted_diff_bytes = len(fs_info["unified_diff_text"].encode("utf-8"))
+        expected_diff = _make_unified_diff(rel, changed_target, CANDIDATE_CONTENT)
+        assert expected_diff
+        assert len(expected_diff.encode("utf-8")) <= persisted_diff_bytes
+        (fs_info["repo_root"] / rel).write_text(changed_target, encoding="utf-8")
         svc, session = _make_c2_service(seeded_session, fs_info)
         result = svc.prepare_candidate_diff_review_disposition_consumption(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert result.result.current_diff_regenerated is False
-        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert result.result.current_diff_regenerated is True
+        assert "current_diff_mismatch" in result.result.blocked_reasons
         assert "review_evidence_stale" in result.result.blocked_reasons
+        assert "current_diff_regeneration_failed" not in result.result.blocked_reasons
         assert result.message is None
         session.close()
 
@@ -2963,7 +2979,7 @@ class TestAppendOnlyPersistence:
         assert len(action["review_result_fingerprint"]) == 64
         assert len(action["revalidated_review_result_fingerprint"]) == 64
         assert action["review_result_fingerprint"] == action["revalidated_review_result_fingerprint"]
-        assert action["review_result_fingerprint"] == fs_info["diff_sha256"] or len(action["review_result_fingerprint"]) == 64
+        assert len(action["review_result_fingerprint"]) == 64
 
         assert len(action["reviewed_diff_sha256"]) == 64
         assert len(action["persisted_source_diff_sha256"]) == 64
