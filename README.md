@@ -255,10 +255,10 @@ credentials.
   (3,472 tests) but emits 3,005 warnings, including Starlette/httpx and naive-UTC
   deprecations. A green suite does not establish production readiness. See
   [Project Status](docs/PROJECT_STATUS.md).
-- `npm audit` currently reports eight findings in the locked frontend dependency
-  graph (one low, two moderate, and five high); the production-dependency view
-  reports three high findings. Dependency remediation requires a separate
-  compatibility-reviewed change.
+- `npm audit` reports findings in the locked frontend dependency graph,
+  including high-severity entries in the production-dependency view. Dependency
+  remediation requires a separate compatibility-reviewed change. Current counts
+  are in [Project Status](docs/PROJECT_STATUS.md).
 - There is no committed CI workflow, release automation, or published package.
 - Authentication, authorization, multi-tenancy, and hardened remote deployment
   are not established public capabilities.

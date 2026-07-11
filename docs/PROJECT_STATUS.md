@@ -104,6 +104,31 @@ The affected audit entries include direct dependencies `postcss`,
 change dependency versions because dependency and compatibility changes are
 outside its scope.
 
+## Dependency Security Snapshot
+
+Snapshot taken on 2026-07-11 against this branch. These are point-in-time
+counts from the committed lockfile; they do not reflect remediation.
+
+**Frontend (`apps/web`):**
+
+| Scope | Low | Moderate | High | Critical | Total |
+| --- | --- | --- | --- | --- | --- |
+| All dependencies | 1 | 2 | 5 | 0 | 8 |
+| Production only | 0 | 0 | 3 | 0 | 3 |
+
+Production high-severity advisories:
+
+- `@remix-run/router` (and transitive `react-router`, `react-router-dom`):
+  XSS via open redirect — [GHSA-2w69-qvjg-hvjx](https://github.com/advisories/GHSA-2w69-qvjg-hvjx)
+- `picomatch`: method injection and ReDoS —
+  [GHSA-3v7f-55p6-f55p](https://github.com/advisories/GHSA-3v7f-55p6-f55p),
+  [GHSA-c2c7-rcm5-vvqj](https://github.com/advisories/GHSA-c2c7-rcm5-vvqj)
+
+The `esbuild`/`vite` moderate advisory and the `postcss` low advisory are
+dev-only. The `@babel/core` low advisory is also dev-only.
+
+Full details: [Dependency Security Review](DEPENDENCY_SECURITY_REVIEW.md).
+
 ## Known Limitations
 
 - Runtime data and saved provider configuration are local files; operators must

@@ -61,12 +61,12 @@ representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at:
 
-**[MAINTAINER: add a verified private conduct-reporting contact before public
-enforcement.]**
-
-The repository does not currently publish a verified private conduct-reporting
-email. Do not include sensitive personal details in a public Issue. Community
-leaders will respect the privacy and security of the reporter of any incident.
+Private conduct reports require a maintainer-controlled address. Until a verified
+private contact is published, do not include sensitive personal details in a
+public Issue. To request a private reporting channel, contact the repository
+owner through their [GitHub profile](https://github.com/kkyyds-hub). Do not
+invent email addresses or other contact methods that have not been confirmed by
+the maintainer.
 
 ## Enforcement Guidelines
 

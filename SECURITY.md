@@ -18,8 +18,11 @@ Do not disclose an actionable vulnerability in a public Issue, Discussion, pull
 request, commit message, or log attachment.
 
 This repository does not currently have GitHub private vulnerability reporting
-enabled, and no public maintainer security email has been verified. Until the
-maintainer enables a private channel:
+enabled, and no public maintainer security email has been verified. Enabling a
+private reporting channel is a maintainer blocker before any broader
+security-sensitive adoption or a formal Codex Security application.
+
+Until the maintainer enables a private channel:
 
 1. Do not publish exploit details or sensitive evidence.
 2. Use the public `Security concern` issue form only to request a private contact
@@ -28,9 +31,20 @@ maintainer enables a private channel:
 3. Wait for the maintainer to establish a private channel before sharing the
    technical report.
 
-Maintainer action required before broader adoption: enable **Settings > Security
-> Private vulnerability reporting** in GitHub and update this file with the
-verified channel.
+### Maintainer Enable Steps
+
+To enable private vulnerability reporting:
+
+1. Go to the repository on GitHub.
+2. Navigate to **Settings** > **Code security** > **Security advisories**.
+3. Under **Private vulnerability reporting**, toggle the setting to **Enabled**.
+4. Update this `SECURITY.md` file: replace the paragraph above with the verified
+   reporting channel (the GitHub reporting form link or a verified maintainer
+   email).
+5. Confirm the channel works by submitting a test report and acknowledging receipt.
+
+Until these steps are completed, the repository does not have a verified private
+reporting channel.
 
 Once a private report is received, the expected process is:
 
