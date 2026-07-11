@@ -100,7 +100,8 @@ otherwise.
   Git-write flows.
 - Symlink, mount, hook, and race-condition resistance has not been independently
   validated as a complete sandbox boundary.
-- The full backend test baseline currently has known failures; see
+- The backend suite currently emits thousands of deprecation warnings; warning
+  reduction and dependency compatibility remain maintenance work. See
   [Project Status](PROJECT_STATUS.md).
 - The current frontend lockfile reports npm audit findings, including high
   severity findings in the production-dependency view; no compatibility-reviewed

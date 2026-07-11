@@ -4,29 +4,30 @@ These proposals come from gaps observed in the current repository. They are not
 promises, assigned work, or evidence of existing contributors. Before starting,
 open a Feature request to confirm scope with the maintainer.
 
-## 1. Restore A Green Backend Test Baseline
+## 1. Reduce Backend Warnings And Clarify Test Scopes
 
-**Scope:** Reconcile the ten known pytest failures with current provider,
-external-executor, launch-gate, and worker behavior. Decide which contracts are
-obsolete and which behavior is a regression without weakening safety gates.
+**Scope:** Triage the current Starlette/httpx, naive UTC, and related deprecation
+warnings. Define documented full-suite, focused-contract, smoke, and live-test
+scopes without silently excluding important tests.
 
-**Expected result:** One documented canonical backend test command passes, or an
-explicitly separated legacy suite is excluded with maintainer-approved rationale.
+**Expected result:** The canonical backend suite remains green with a materially
+smaller warning count and contributors can identify which tests require external
+tools or explicit live flags.
 
 **Relevant files:**
 
-- `runtime/orchestrator/scripts/smoke_bcl01_provider_test.py`
-- `runtime/orchestrator/tests/test_external_executor_module_boundary.py`
-- `runtime/orchestrator/tests/test_project_director_run_evidence_replay.py`
-- `runtime/orchestrator/tests/test_project_director_worker_run_evidence.py`
-- current provider executor and worker implementations
+- `runtime/orchestrator/app/services/event_stream_service.py`
+- `runtime/orchestrator/pyproject.toml`
+- `runtime/orchestrator/tests/`
+- `runtime/orchestrator/scripts/`
+- public contribution and project-status documentation
 
 **Acceptance criteria:**
 
-- the intended current contract is documented;
-- each repaired test fails against the incorrect behavior it protects;
-- focused tests and the canonical full suite pass;
-- no real provider, native executor, or product-runtime Git write is required;
+- warning categories and counts are captured before changes;
+- datetime behavior remains timezone-correct and regression-tested;
+- focused tests and the canonical full suite remain green;
+- live provider/native tests stay opt-in and visibly separated;
 - [Project Status](PROJECT_STATUS.md) is updated with fresh evidence.
 
 ## 2. Add A Minimal, Non-Publishing CI Workflow

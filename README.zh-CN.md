@@ -7,8 +7,14 @@
 > **状态：Early-stage / Maintainer Preview / Experimental**
 >
 > 仓库已经包含较完整的本地控制面，以及持续扩展的受控执行与审查合同；
-> 但它尚未达到生产加固状态，完整测试基线当前并非全绿，部分真实执行器链路
+> 但它尚未达到生产加固状态，测试仍产生大量弃用警告，部分真实执行器链路
 > 仍属于 controlled smoke 或部分接入。
+
+## 项目状态
+
+仓库仍在 `main` 分支持续开发，但尚无稳定 Release 或支持通道。在维护者正式发布
+兼容性政策前，应假定 API、持久化数据和执行器合同仍可能变化。当前证据与缺口见
+[项目状态](docs/PROJECT_STATUS.md)。
 
 ## 项目是什么
 
@@ -196,8 +202,9 @@ uv run --no-project --with-editable . \
 ## 当前限制
 
 - 本仓库是维护者预览版本，不是受支持的生产服务。
-- 当前 `main` 完整后端 pytest 基线为 3,462 通过、10 失败；失败包含旧 Provider smoke
-  合同、遗留执行器边界断言和两项 Worker 流程预期。详见[项目状态](docs/PROJECT_STATUS.md)。
+- 完整后端 pytest 在本次 readiness 分支验证中为 3,472 项通过，但仍产生 3,005 个
+  warning，包括 Starlette/httpx 与 naive UTC 弃用警告。测试全绿不等于生产就绪，
+  详见[项目状态](docs/PROJECT_STATUS.md)。
 - 当前前端锁文件的 `npm audit` 报告 8 项（1 low、2 moderate、5 high）；仅生产依赖
   视图仍有 3 项 high。依赖修复需要单独进行兼容性审查，本轮不自动升级版本。
 - 仓库没有已提交的 CI、发布自动化或公开软件包。

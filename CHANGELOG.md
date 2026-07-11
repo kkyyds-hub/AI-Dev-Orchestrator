@@ -22,6 +22,9 @@ it begins publishing releases.
 
 - Moved a historical frontend structure closure report from the repository root
   to `docs/archive/` without rewriting its contents.
+- Reconciled stale provider smoke, executor-boundary, and Project Director worker
+  evidence tests with the current guarded runtime contracts; production behavior
+  is unchanged.
 
 ### Removed
 
@@ -43,7 +46,8 @@ is created by this changelog.
 
 ### Known Limitations
 
-- The complete backend test baseline has known failures.
+- The complete backend suite passes the readiness run but emits substantial
+  deprecation warnings.
 - Native executors, reviewer transports, provider calls, and product-runtime Git
   operations remain partial, environment-dependent, or guarded.
 - No production support, CI release automation, authentication, OS-level sandbox

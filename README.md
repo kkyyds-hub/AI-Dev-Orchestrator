@@ -7,9 +7,16 @@ An early-stage orchestration system for evidence-driven AI software-engineering 
 > **Status: Early-stage / Maintainer Preview / Experimental**
 >
 > The repository contains a substantial local control plane and a growing set of
-> guarded execution and review contracts. It is not production hardened, its
-> complete test baseline is not currently green, and several executor-backed
-> paths remain controlled-smoke or partial integrations.
+> guarded execution and review contracts. It is not production hardened, the
+> test suite still emits substantial deprecation warnings, and several
+> executor-backed paths remain controlled-smoke or partial integrations.
+
+## Project Status
+
+Development is active on the repository's `main` branch, but no stable release
+or support channel exists. Treat APIs, persisted data, and executor contracts as
+subject to change until a maintainer publishes a compatibility policy. Current
+evidence and gaps are tracked in [Project Status](docs/PROJECT_STATUS.md).
 
 ## What It Is
 
@@ -244,10 +251,10 @@ credentials.
 ## Current Limitations
 
 - The repository is a maintainer preview, not a supported production service.
-- The complete backend pytest baseline on the inspected `main` commit currently
-  reports 3,462 passing and 10 failing tests. Failures include older provider
-  smoke contracts, a legacy executor-boundary assertion, and two worker-flow
-  expectations. See [Project Status](docs/PROJECT_STATUS.md).
+- The complete backend pytest suite passes the verified readiness-branch run
+  (3,472 tests) but emits 3,005 warnings, including Starlette/httpx and naive-UTC
+  deprecations. A green suite does not establish production readiness. See
+  [Project Status](docs/PROJECT_STATUS.md).
 - `npm audit` currently reports eight findings in the locked frontend dependency
   graph (one low, two moderate, and five high); the production-dependency view
   reports three high findings. Dependency remediation requires a separate

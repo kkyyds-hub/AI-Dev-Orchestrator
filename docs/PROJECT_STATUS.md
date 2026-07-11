@@ -66,32 +66,31 @@ been tested.
 
 ## Current Validation Baseline
 
-On 2026-07-11, before changing public documentation, the existing backend suite
-was run from `runtime/orchestrator` with:
+On 2026-07-11, the complete backend suite was run from
+`runtime/orchestrator` with:
 
 ```bash
 ./.venv/bin/python -m pytest -q --tb=short
 ```
 
-Result: **3,462 passed, 10 failed, 3,005 warnings** in 365.18 seconds.
+Final result: **3,472 passed, 3,005 warnings** in 364.87 seconds.
 
-The failures were present without application-source changes from this branch:
+The readiness work reconciled four stale test files without changing production
+code:
 
-- seven assertions in `scripts/smoke_bcl01_provider_test.py` target an older
-  provider connectivity contract (`provider_receipt_id` and the removed
-  `_post_json_request` seam);
-- `tests/test_external_executor_module_boundary.py` expects no external executor
-  import in `task_worker.py`, while the current worker includes the later runtime
-  integration;
-- `tests/test_project_director_run_evidence_replay.py` expects completion where
-  the current launch gate blocks;
-- `tests/test_project_director_worker_run_evidence.py` expects `simulate` where
-  the current result reports `runtime_launch_gate`.
+- the legacy provider smoke now targets the current V2 SDK request seam and
+  receipt field;
+- the external-executor boundary test permits orchestration imports from the
+  dedicated package while continuing to reject direct process-launch code;
+- two Project Director evidence tests now verify that the runtime launch gate
+  remains authoritative over a requested simulate path and that blocked-run
+  evidence is persisted and replayable.
 
-This readiness branch does not repair those contracts because its scope excludes
-application behavior and test changes. Focused tests used as evidence must still
-be run and reported separately; a passing focused test does not make the complete
-baseline green.
+Focused security-control contracts also passed: **490 tests** covering real
+executor preflight, human approval, runtime audit, sandbox workspace/candidate
+write stages, read-only review execution, review output validation, and fresh
+disposition consumption. The warning count remains a maintenance concern and a
+green suite does not establish production or security assurance.
 
 The verified frontend commands completed successfully:
 
@@ -121,7 +120,7 @@ outside its scope.
 
 ## Near-Term Priorities
 
-1. Restore a green, clearly scoped backend test baseline.
+1. Reduce backend deprecation warnings and document the canonical test scopes.
 2. Triage and remediate the current frontend dependency advisories with focused
    compatibility and regression testing.
 3. Add CI for backend tests, frontend build, Markdown links, secrets, dependencies,
