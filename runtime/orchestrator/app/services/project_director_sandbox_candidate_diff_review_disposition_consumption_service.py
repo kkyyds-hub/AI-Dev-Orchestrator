@@ -320,6 +320,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService:
             source_message=source_candidate_write_message,
             user_confirmed=True,
             diff_mode="readonly_unified_diff",
+            max_diff_bytes=persisted_diff.diff_bytes,
         )
         workspace_path = current_diff.workspace_path or ""
         workspace_path_within_root = current_diff.workspace_path_within_root
