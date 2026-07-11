@@ -748,6 +748,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
             "escalation_triggers": list(result.escalation_triggers),
             "evaluated_trigger_kinds": list(result.evaluated_trigger_kinds),
             "deferred_trigger_kinds": list(result.deferred_trigger_kinds),
+            "blocked_reasons": list(result.blocked_reasons),
             "actor": "system",
             "client_request_id": None,
             "disposition_created_at": disposition_created_at.isoformat(),
