@@ -34,6 +34,7 @@ from app.repositories.project_director_message_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.repositories.task_repository import TaskRepository
 from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
     P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
     P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL,
@@ -131,11 +132,13 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         *,
         session_repository: ProjectDirectorSessionRepository | None = None,
         message_repository: ProjectDirectorMessageRepository | None = None,
+        task_repository: TaskRepository | None = None,
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
+        self._task_repository = task_repository
 
-    def prepare_candidate_diff_review_human_escalation_package(
+    def prepare_human_escalation_package(
         self,
         *,
         session_id: UUID,
@@ -144,7 +147,11 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
     ) -> PreparedSandboxCandidateDiffReviewHumanEscalationPackage:
         """Validate B/C evidence and append a package without a human decision."""
 
-        if self._session_repository is None or self._message_repository is None:
+        if (
+            self._session_repository is None
+            or self._message_repository is None
+            or self._task_repository is None
+        ):
             raise ValueError("human escalation package repositories are required")
 
         with self._message_repository.sqlite_immediate_transaction():
@@ -184,12 +191,24 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             )
 
         session_obj = self._session_repository.get_by_id(session_id)
-        if session_obj is None:
-            blocked_reasons.append("session_missing")
-
+        source_task = self._task_repository.get_by_id(source_task_id)
         source_disposition_message = self._message_repository.get_by_id(
             source_message_id
         )
+        if session_obj is None:
+            blocked_reasons.append("session_missing")
+        if source_task is None:
+            blocked_reasons.append("source_task_missing")
+        if (
+            session_obj is not None
+            and source_task is not None
+            and source_task.project_id != session_obj.project_id
+        ):
+            blocked_reasons.append("source_task_project_mismatch")
+        blocked_reasons = self._dedupe(blocked_reasons)
+        if blocked_reasons:
+            return blocked_result()
+
         disposition_action = self._source_disposition_action(
             source_disposition_message=source_disposition_message,
             session_id=session_id,
@@ -209,6 +228,16 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         source_review_message = self._message_repository.get_by_id(
             evidence.source_review_message_id
         )
+        source_review_action = self._source_review_action(
+            source_review_message=source_review_message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            blocked_reasons=blocked_reasons,
+        )
+        blocked_reasons = self._dedupe(blocked_reasons)
+        if blocked_reasons or source_review_action is None:
+            return blocked_result()
+
         revalidate_fingerprint = (
             ProjectDirectorSandboxCandidateDiffReviewDispositionService
             .revalidate_persisted_review_result_fingerprint
@@ -220,17 +249,23 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             source_review_message=source_review_message,
         )
         blocked_reasons.extend(revalidation.blocked_reasons)
-        if not revalidation.blocked_reasons:
-            if (
-                evidence.disposition.review_result_fingerprint
-                != revalidation.review_result_fingerprint
-            ):
-                blocked_reasons.append("review_result_fingerprint_mismatch")
-            if not self._review_source_binding_matches(evidence, revalidation):
-                blocked_reasons.append("disposition_source_binding_mismatch")
+        blocked_reasons = self._dedupe(blocked_reasons)
+        if blocked_reasons:
+            return blocked_result()
+
+        if (
+            evidence.disposition.review_result_fingerprint
+            != revalidation.review_result_fingerprint
+        ):
+            blocked_reasons.append("review_result_fingerprint_mismatch")
+        if not self._review_source_binding_matches(evidence, revalidation):
+            blocked_reasons.append("disposition_source_binding_mismatch")
+        blocked_reasons = self._dedupe(blocked_reasons)
+        if blocked_reasons:
+            return blocked_result()
 
         review_evidence = self._strict_review_evidence(
-            source_review_message=source_review_message,
+            source_review_action=source_review_action,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=blocked_reasons,
@@ -320,9 +355,13 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
                 role=ProjectDirectorMessageRole.ASSISTANT,
                 content=(
                     "A single-source human escalation package was prepared from "
-                    "exact persisted P21-D-B and P21-C evidence. No human decision "
-                    "was recorded, no execution was started, and no write was "
-                    "authorized. AI Project Director total loop remains Partial."
+                    "exact persisted P21-D-B and P21-C evidence and is waiting for "
+                    "a future structured human decision. No human decision has "
+                    "been recorded, no execution has started, and no file write, "
+                    "patch, or Git write has been authorized. "
+                    "requires_confirmation means only that the package awaits that "
+                    "future decision; it is not human approval or Git-write "
+                    "authorization. AI Project Director total loop remains Partial."
                 ),
                 sequence_no=self._message_repository.get_next_sequence_no(
                     session_id=session_id
@@ -342,7 +381,7 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
                         result=result,
                     )
                 ],
-                requires_confirmation=False,
+                requires_confirmation=True,
                 risk_level=ProjectDirectorMessageRiskLevel.HIGH,
                 forbidden_actions_detected=[
                     "no_human_decision",
@@ -387,18 +426,30 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             blocked_reasons.append("source_disposition_message_session_mismatch")
         if source_disposition_message.related_task_id != source_task_id:
             blocked_reasons.append("source_disposition_message_task_mismatch")
+        if source_disposition_message.role != ProjectDirectorMessageRole.ASSISTANT:
+            blocked_reasons.append("source_disposition_message_role_invalid")
         if source_disposition_message.source != ProjectDirectorMessageSource.SYSTEM:
             blocked_reasons.append("source_disposition_message_source_invalid")
+        if (
+            source_disposition_message.intent
+            != "sandbox_candidate_diff_review_disposition"
+        ):
+            blocked_reasons.append("source_disposition_message_intent_invalid")
         if source_disposition_message.requires_confirmation is not False:
             blocked_reasons.append(
                 "source_disposition_message_confirmation_contract_invalid"
             )
         if (
+            source_disposition_message.risk_level
+            != ProjectDirectorMessageRiskLevel.HIGH
+        ):
+            blocked_reasons.append("source_disposition_message_risk_level_invalid")
+        if (
             source_disposition_message.source_detail
             != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_SOURCE_DETAIL
         ):
             blocked_reasons.append("source_message_is_not_p21_d_review_disposition")
-        if not source_disposition_message.suggested_actions:
+        if len(source_disposition_message.suggested_actions) != 1:
             blocked_reasons.append("p21_d_review_disposition_record_missing")
             return None
         first_action = source_disposition_message.suggested_actions[0]
@@ -541,15 +592,14 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             source_review_risk_level=source_review_risk_level,
         )
 
-    @classmethod
-    def _strict_review_evidence(
-        cls,
+    @staticmethod
+    def _source_review_action(
         *,
         source_review_message: ProjectDirectorMessage | None,
         session_id: UUID,
         source_task_id: UUID,
         blocked_reasons: list[str],
-    ) -> _ValidatedStrictReviewEvidence | None:
+    ) -> dict[str, Any] | None:
         if source_review_message is None:
             blocked_reasons.append("source_review_message_missing")
             return None
@@ -561,10 +611,20 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             blocked_reasons.append("source_review_message_role_invalid")
         if source_review_message.source != ProjectDirectorMessageSource.SYSTEM:
             blocked_reasons.append("source_review_message_source_invalid")
+        if (
+            source_review_message.intent
+            != "sandbox_candidate_diff_readonly_review_execution"
+        ):
+            blocked_reasons.append("source_review_message_intent_invalid")
         if source_review_message.requires_confirmation is not False:
             blocked_reasons.append(
                 "source_review_message_confirmation_contract_invalid"
             )
+        if (
+            source_review_message.risk_level
+            != ProjectDirectorMessageRiskLevel.HIGH
+        ):
+            blocked_reasons.append("source_review_message_risk_level_invalid")
         if (
             source_review_message.source_detail
             != P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL
@@ -572,7 +632,7 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             blocked_reasons.append(
                 "source_message_is_not_p21_c_readonly_review_execution"
             )
-        if not source_review_message.suggested_actions:
+        if len(source_review_message.suggested_actions) != 1:
             blocked_reasons.append("p21_c_readonly_review_execution_record_missing")
             return None
         action = source_review_message.suggested_actions[0]
@@ -583,6 +643,18 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         ):
             blocked_reasons.append("p21_c_readonly_review_execution_record_missing")
             return None
+        return action
+
+    @classmethod
+    def _strict_review_evidence(
+        cls,
+        *,
+        source_review_action: dict[str, Any],
+        session_id: UUID,
+        source_task_id: UUID,
+        blocked_reasons: list[str],
+    ) -> _ValidatedStrictReviewEvidence | None:
+        action = source_review_action
 
         source_preflight_message_id = cls._uuid_from_action(
             action, "source_preflight_message_id"
