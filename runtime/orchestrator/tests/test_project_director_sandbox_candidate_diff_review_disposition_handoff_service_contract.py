@@ -164,6 +164,7 @@ def _seed_c2_consumed_message(
     disposition_type: str = "AUTO_CONTINUE",
     consumption_id: UUID | None = None,
     c2_msg_id: UUID | None = None,
+    seq_no: int = 100,
 ) -> tuple[UUID, UUID]:
     consumption_id = consumption_id or uuid4()
     c2_msg_id = c2_msg_id or uuid4()
@@ -225,7 +226,7 @@ def _seed_c2_consumed_message(
             session_id=SESSION_ID,
             role="assistant",
             content="Consumption recorded.",
-            sequence_no=100,
+            sequence_no=seq_no,
             source="system",
             source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_CONSUMED_SOURCE_DETAIL,
             suggested_actions_json=json.dumps([action]),
@@ -332,6 +333,47 @@ def _seed_handoff_message(
     )
     session.commit()
     return handoff_msg_id
+
+
+def _seed_filler_messages(
+    session: Session, start_seq: int, count: int = 105
+) -> None:
+    for i in range(count):
+        session.add(
+            ProjectDirectorMessageTable(
+                id=uuid4(),
+                session_id=SESSION_ID,
+                role="user",
+                content=f"filler-{i}",
+                sequence_no=start_seq + i,
+                source="system",
+                source_detail="filler",
+                suggested_actions_json="[]",
+                requires_confirmation=False,
+                risk_level="low",
+                related_project_id=PROJECT_ID,
+                related_task_id=TASK_ID,
+            )
+        )
+    session.commit()
+
+
+def _c3_prepare_handoff(
+    SessionLocal,
+    c2_msg_id: UUID,
+) -> tuple[UUID, int]:
+    svc, session = _make_c3_service(SessionLocal)
+    result = svc.prepare_candidate_diff_review_disposition_handoff(
+        session_id=SESSION_ID,
+        source_task_id=TASK_ID,
+        source_message_id=c2_msg_id,
+    )
+    assert result.result.handoff_status == "prepared"
+    assert result.message is not None
+    handoff_msg_id = result.message.id
+    handoff_seq_no = result.message.sequence_no
+    session.close()
+    return handoff_msg_id, handoff_seq_no
 
 
 # ── Service helper ──────────────────────────────────────────────────
@@ -1689,11 +1731,16 @@ class TestAppendOnlyPersistence:
             "role": c2_row_before.role,
             "content": c2_row_before.content,
             "sequence_no": c2_row_before.sequence_no,
+            "intent": c2_row_before.intent,
             "source": c2_row_before.source,
             "source_detail": c2_row_before.source_detail,
             "suggested_actions_json": c2_row_before.suggested_actions_json,
             "requires_confirmation": c2_row_before.requires_confirmation,
             "risk_level": c2_row_before.risk_level,
+            "related_project_id": str(c2_row_before.related_project_id),
+            "related_task_id": str(c2_row_before.related_task_id),
+            "forbidden_actions_detected_json": c2_row_before.forbidden_actions_detected_json,
+            "created_at": c2_row_before.created_at,
         }
         pre_sess.close()
 
@@ -1713,11 +1760,77 @@ class TestAppendOnlyPersistence:
         assert c2_row_after.role == c2_snapshot["role"]
         assert c2_row_after.content == c2_snapshot["content"]
         assert c2_row_after.sequence_no == c2_snapshot["sequence_no"]
+        assert c2_row_after.intent == c2_snapshot["intent"]
         assert c2_row_after.source == c2_snapshot["source"]
         assert c2_row_after.source_detail == c2_snapshot["source_detail"]
         assert c2_row_after.suggested_actions_json == c2_snapshot["suggested_actions_json"]
         assert c2_row_after.requires_confirmation == c2_snapshot["requires_confirmation"]
         assert c2_row_after.risk_level == c2_snapshot["risk_level"]
+        assert str(c2_row_after.related_project_id) == c2_snapshot["related_project_id"]
+        assert str(c2_row_after.related_task_id) == c2_snapshot["related_task_id"]
+        assert c2_row_after.forbidden_actions_detected_json == c2_snapshot["forbidden_actions_detected_json"]
+        assert c2_row_after.created_at == c2_snapshot["created_at"]
+        post_sess.close()
+
+    def test_task_and_session_unchanged(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_msg_id, _ = _seed_c2_consumed_message(session)
+        session.close()
+
+        pre_sess = SessionLocal()
+        task_before = pre_sess.get(TaskTable, TASK_ID)
+        task_snapshot = {
+            "id": str(task_before.id),
+            "project_id": str(task_before.project_id),
+            "title": task_before.title,
+            "status": task_before.status,
+            "priority": task_before.priority,
+            "input_summary": task_before.input_summary,
+            "risk_level": task_before.risk_level,
+            "human_status": task_before.human_status,
+            "source_draft_id": task_before.source_draft_id,
+            "acceptance_criteria": task_before.acceptance_criteria,
+        }
+        sess_before = pre_sess.get(ProjectDirectorSessionTable, SESSION_ID)
+        sess_snapshot = {
+            "id": str(sess_before.id),
+            "project_id": str(sess_before.project_id),
+            "goal_text": sess_before.goal_text,
+            "constraints": sess_before.constraints,
+            "status": sess_before.status,
+        }
+        pre_sess.close()
+
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_msg_id,
+        )
+        assert result.result.handoff_status == "prepared"
+        session.close()
+
+        post_sess = SessionLocal()
+        task_after = post_sess.get(TaskTable, TASK_ID)
+        assert str(task_after.id) == task_snapshot["id"]
+        assert str(task_after.project_id) == task_snapshot["project_id"]
+        assert task_after.title == task_snapshot["title"]
+        assert task_after.status == task_snapshot["status"]
+        assert task_after.priority == task_snapshot["priority"]
+        assert task_after.input_summary == task_snapshot["input_summary"]
+        assert task_after.risk_level == task_snapshot["risk_level"]
+        assert task_after.human_status == task_snapshot["human_status"]
+        assert task_after.source_draft_id == task_snapshot["source_draft_id"]
+        assert task_after.acceptance_criteria == task_snapshot["acceptance_criteria"]
+
+        sess_after = post_sess.get(ProjectDirectorSessionTable, SESSION_ID)
+        assert str(sess_after.id) == sess_snapshot["id"]
+        assert str(sess_after.project_id) == sess_snapshot["project_id"]
+        assert sess_after.goal_text == sess_snapshot["goal_text"]
+        assert sess_after.constraints == sess_snapshot["constraints"]
+        assert sess_after.status == sess_snapshot["status"]
         post_sess.close()
 
     def test_handoff_action_complete(self, db_engine) -> None:
@@ -1776,6 +1889,105 @@ class TestAppendOnlyPersistence:
         session2.close()
         session.close()
 
+    def test_c3_message_and_action_from_db(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_msg_id, consumption_id = _seed_c2_consumed_message(session)
+        session.close()
+
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_msg_id,
+        )
+        assert result.message is not None
+
+        verify = SessionLocal()
+        c3_row = verify.get(ProjectDirectorMessageTable, result.message.id)
+        assert c3_row is not None
+
+        assert c3_row.role == "assistant"
+        assert c3_row.source == "system"
+        assert c3_row.requires_confirmation is False
+        assert c3_row.risk_level == "high"
+        assert c3_row.related_project_id is not None
+        assert c3_row.related_task_id is not None
+        assert c3_row.source_detail == P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL
+        assert c3_row.created_at is not None
+
+        c3_content = c3_row.content
+        assert isinstance(c3_content, str)
+        assert len(c3_content) > 0
+
+        actions = json.loads(c3_row.suggested_actions_json)
+        assert len(actions) == 1
+        act = actions[0]
+
+        assert act["type"] == P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE
+        assert act["schema_version"] == DISPOSITION_HANDOFF_SCHEMA_VERSION
+        assert act["handoff_status"] == "prepared"
+        assert UUID(act["handoff_id"])
+        assert act["prepared_at"] is not None
+        assert act["handoff_kind"] == "automatic_continuation"
+        assert act["session_id"] == str(SESSION_ID)
+        assert act["source_task_id"] == str(TASK_ID)
+        assert act["source_consumption_message_id"] == str(c2_msg_id)
+        assert act["source_consumption_id"] == str(consumption_id)
+        assert UUID(act["source_consumption_preflight_message_id"])
+        assert UUID(act["source_disposition_message_id"])
+        assert UUID(act["source_review_message_id"])
+        assert UUID(act["source_diff_message_id"])
+        assert UUID(act["disposition_id"])
+        assert act["disposition_type"] == "AUTO_CONTINUE"
+        assert act["disposition_reason"] == "review_has_no_blocking_findings"
+
+        sha_fields = [
+            "review_result_fingerprint",
+            "revalidated_review_result_fingerprint",
+            "reviewed_diff_sha256",
+            "persisted_source_diff_sha256",
+            "current_diff_sha256",
+            "review_prompt_sha256",
+        ]
+        for field in sha_fields:
+            assert isinstance(act[field], str) and len(act[field]) == 64
+        assert act["review_result_fingerprint"] == act["revalidated_review_result_fingerprint"]
+        assert act["reviewed_diff_sha256"] == act["persisted_source_diff_sha256"] == act["current_diff_sha256"]
+        assert isinstance(act["reviewed_scope_paths"], list) and len(act["reviewed_scope_paths"]) > 0
+        assert act["reviewed_scope_paths"] == act["persisted_source_scope_paths"] == act["current_scope_paths"]
+        assert act["review_output_schema_version"] == REVIEW_OUTPUT_SCHEMA_VERSION
+        assert act["source_review_verdict"] == "no_blocking_findings"
+        assert act["source_review_risk_level"] == "low"
+        assert act["workspace_path"] == "/tmp/ws"
+        assert act["workspace_path_within_root"] is True
+        assert act["source_consumption_validated"] is True
+        assert act["replay_check_completed"] is True
+        assert act["prior_handoff_detected"] is False
+        assert act["prior_rework_handoff_count"] == 0
+        assert act["rework_attempt_number"] == 0
+        assert act["rework_attempt_limit"] == MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK
+        assert act["bounded_rework_budget_exhausted"] is False
+        assert act["rework_non_convergence_detected"] is False
+        assert act["continuation_handoff_prepared"] is True
+        assert act["rework_handoff_prepared"] is False
+        assert act["blocked_reasons"] == []
+        for flag in _HANDOFF_FALSE_FLAGS:
+            assert act[flag] is False
+        assert act["ai_project_director_total_loop"] == "Partial"
+
+        c3_count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+        ).scalar()
+        assert c3_count == 1
+
+        verify.close()
+        session.close()
+
 
 # ══════════════════════════════════════════════════════════════════════
 # 15. TestSequentialReplay
@@ -1823,120 +2035,41 @@ class TestCrossPageReplay:
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-        c2_msg_id, _ = _seed_c2_consumed_message(session, c2_msg_id=uuid4())
+        c2_msg_id, consumption_id = _seed_c2_consumed_message(session)
+        session.close()
 
-        for i in range(105):
-            session.add(
-                ProjectDirectorMessageTable(
-                    id=uuid4(),
-                    session_id=SESSION_ID,
-                    role="user",
-                    content=f"filler-{i}",
-                    sequence_no=i + 1,
-                    source="system",
-                    source_detail="filler",
-                    suggested_actions_json="[]",
-                    requires_confirmation=False,
-                    risk_level="low",
-                    related_project_id=PROJECT_ID,
-                    related_task_id=TASK_ID,
-                )
-            )
-        session.commit()
+        handoff_msg_id, handoff_seq_no = _c3_prepare_handoff(SessionLocal, c2_msg_id)
 
-        handoff_msg_id = uuid4()
-        sha = hashlib.sha256(b"handoff").hexdigest()
-        handoff_action = {
-            "type": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE,
-            "schema_version": DISPOSITION_HANDOFF_SCHEMA_VERSION,
-            "handoff_status": "prepared",
-            "handoff_id": str(uuid4()),
-            "prepared_at": datetime.now(timezone.utc).isoformat(),
-            "handoff_kind": "automatic_continuation",
-            "session_id": str(SESSION_ID),
-            "source_task_id": str(TASK_ID),
-            "source_consumption_message_id": str(c2_msg_id),
-            "source_consumption_id": str(uuid4()),
-            "source_consumption_preflight_message_id": str(uuid4()),
-            "source_disposition_message_id": str(uuid4()),
-            "source_review_message_id": str(uuid4()),
-            "source_diff_message_id": str(uuid4()),
-            "disposition_id": str(uuid4()),
-            "disposition_type": "AUTO_CONTINUE",
-            "disposition_reason": "review_has_no_blocking_findings",
-            "review_result_fingerprint": sha,
-            "revalidated_review_result_fingerprint": sha,
-            "reviewed_diff_sha256": sha,
-            "persisted_source_diff_sha256": sha,
-            "current_diff_sha256": sha,
-            "review_prompt_sha256": sha,
-            "reviewed_scope_paths": ["src/example.py"],
-            "persisted_source_scope_paths": ["src/example.py"],
-            "current_scope_paths": ["src/example.py"],
-            "review_output_schema_version": REVIEW_OUTPUT_SCHEMA_VERSION,
-            "source_review_verdict": "no_blocking_findings",
-            "source_review_risk_level": "low",
-            "workspace_path": "/tmp/ws",
-            "workspace_path_within_root": True,
-            "source_consumption_validated": True,
-            "replay_check_completed": True,
-            "prior_handoff_detected": False,
-            "prior_rework_handoff_count": 0,
-            "rework_attempt_number": 0,
-            "rework_attempt_limit": MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
-            "bounded_rework_budget_exhausted": False,
-            "rework_non_convergence_detected": False,
-            "continuation_handoff_prepared": True,
-            "rework_handoff_prepared": False,
-            "blocked_reasons": [],
-            "continuation_started": False,
-            "rework_started": False,
-            "human_escalation_package_created": False,
-            "human_decision_recorded": False,
-            "main_project_file_written": False,
-            "sandbox_file_written": False,
-            "manifest_file_written": False,
-            "diff_file_written": False,
-            "patch_applied": False,
-            "git_write_performed": False,
-            "worktree_created": False,
-            "worker_started": False,
-            "task_created": False,
-            "run_created": False,
-            "gate_allows_write": False,
-            "ai_project_director_total_loop": "Partial",
-        }
-        session.add(
-            ProjectDirectorMessageTable(
-                id=handoff_msg_id,
-                session_id=SESSION_ID,
-                role="assistant",
-                content="Prior handoff.",
-                sequence_no=999,
-                source="system",
-                source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
-                suggested_actions_json=json.dumps([handoff_action]),
-                requires_confirmation=False,
-                risk_level="high",
-                related_project_id=PROJECT_ID,
-                related_task_id=TASK_ID,
-            )
-        )
-        session.commit()
+        session = SessionLocal()
+        _seed_filler_messages(session, handoff_seq_no + 1, 105)
         session.close()
 
         svc, session = _make_c3_service(SessionLocal)
-        new_c2_msg_id, _ = _seed_c2_consumed_message(
-            session, c2_msg_id=uuid4(), consumption_id=uuid4()
-        )
-
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
             source_message_id=c2_msg_id,
         )
         assert result.result.handoff_status == "blocked"
+        assert result.result.prior_handoff_detected is True
+        assert result.result.replay_check_completed is True
         assert "handoff_already_prepared" in result.result.blocked_reasons
+        assert "bounded_rework_budget_exhausted" not in result.result.blocked_reasons
+        assert "rework_non_convergence" not in result.result.blocked_reasons
+        assert result.message is None
+
+        c3_count = session.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd "
+                "AND json_extract(suggested_actions_json, '$[0].source_consumption_message_id') = :cid"
+            ),
+            {
+                "sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
+                "cid": str(c2_msg_id),
+            },
+        ).scalar()
+        assert c3_count == 1
         session.close()
 
 
@@ -1992,38 +2125,18 @@ class TestCrossPageBudget:
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-
-        c2_msg_old, _ = _seed_c2_consumed_message(
+        c2_msg_a, _ = _seed_c2_consumed_message(
             session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
         )
-        _seed_handoff_message(
-            session,
-            source_consumption_message_id=c2_msg_old,
-            disposition_type="AUTO_REWORK",
-            rework_handoff_prepared=True,
-        )
-
-        for i in range(105):
-            session.add(
-                ProjectDirectorMessageTable(
-                    id=uuid4(),
-                    session_id=SESSION_ID,
-                    role="user",
-                    content=f"filler-{i}",
-                    sequence_no=i + 300,
-                    source="system",
-                    source_detail="filler",
-                    suggested_actions_json="[]",
-                    requires_confirmation=False,
-                    risk_level="low",
-                    related_project_id=PROJECT_ID,
-                    related_task_id=TASK_ID,
-                )
-            )
-        session.commit()
         session.close()
 
-        c2_msg_new, _ = _seed_c2_consumed_message(
+        _, handoff_seq_no = _c3_prepare_handoff(SessionLocal, c2_msg_a)
+
+        session = SessionLocal()
+        _seed_filler_messages(session, handoff_seq_no + 1, 105)
+        session.close()
+
+        c2_msg_b, _ = _seed_c2_consumed_message(
             SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
         )
 
@@ -2031,16 +2144,146 @@ class TestCrossPageBudget:
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
-            source_message_id=c2_msg_new,
+            source_message_id=c2_msg_b,
         )
         assert result.result.handoff_status == "blocked"
+        assert result.result.source_consumption_validated is True
+        assert result.result.replay_check_completed is True
+        assert result.result.prior_handoff_detected is False
+        assert result.result.prior_rework_handoff_count == 1
         assert result.result.bounded_rework_budget_exhausted is True
+        assert result.result.rework_non_convergence_detected is True
+        assert "bounded_rework_budget_exhausted" in result.result.blocked_reasons
+        assert "rework_non_convergence" in result.result.blocked_reasons
+        assert result.message is None
+
+        c3_rework_count = session.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd "
+                "AND json_extract(suggested_actions_json, '$[0].disposition_type') = 'AUTO_REWORK' "
+                "AND json_extract(suggested_actions_json, '$[0].handoff_status') = 'prepared'"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+        ).scalar()
+        assert c3_rework_count == 1
+        c3_b_count = session.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd "
+                "AND json_extract(suggested_actions_json, '$[0].source_consumption_message_id') = :cid"
+            ),
+            {
+                "sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
+                "cid": str(c2_msg_b),
+            },
+        ).scalar()
+        assert c3_b_count == 0
         session.close()
 
 
 # ══════════════════════════════════════════════════════════════════════
 # 19. TestBudgetCounting
 # ══════════════════════════════════════════════════════════════════════
+
+
+def _seed_non_matching_handoff(
+    SessionLocal,
+    *,
+    source_task_id: UUID = TASK_ID,
+    disposition_type: str = "AUTO_REWORK",
+    handoff_status: str = "prepared",
+    rework_handoff_prepared: bool = True,
+    source_detail: str = P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
+    action_type: str = P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE,
+) -> None:
+    session = SessionLocal()
+    sha = hashlib.sha256(b"other").hexdigest()
+    if action_type == P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE:
+        action: dict[str, Any] = {
+            "type": action_type,
+            "schema_version": DISPOSITION_HANDOFF_SCHEMA_VERSION,
+            "handoff_status": handoff_status,
+            "handoff_id": str(uuid4()),
+            "prepared_at": datetime.now(timezone.utc).isoformat(),
+            "handoff_kind": (
+                "automatic_continuation"
+                if disposition_type == "AUTO_CONTINUE"
+                else "bounded_automatic_rework"
+            ),
+            "session_id": str(SESSION_ID),
+            "source_task_id": str(source_task_id),
+            "source_consumption_message_id": str(uuid4()),
+            "source_consumption_id": str(uuid4()),
+            "source_consumption_preflight_message_id": str(uuid4()),
+            "source_disposition_message_id": str(uuid4()),
+            "source_review_message_id": str(uuid4()),
+            "source_diff_message_id": str(uuid4()),
+            "disposition_id": str(uuid4()),
+            "disposition_type": disposition_type,
+            "disposition_reason": "review_changes_required",
+            "review_result_fingerprint": sha,
+            "revalidated_review_result_fingerprint": sha,
+            "reviewed_diff_sha256": sha,
+            "persisted_source_diff_sha256": sha,
+            "current_diff_sha256": sha,
+            "review_prompt_sha256": sha,
+            "reviewed_scope_paths": ["src/example.py"],
+            "persisted_source_scope_paths": ["src/example.py"],
+            "current_scope_paths": ["src/example.py"],
+            "review_output_schema_version": REVIEW_OUTPUT_SCHEMA_VERSION,
+            "source_review_verdict": "changes_required",
+            "source_review_risk_level": "low",
+            "workspace_path": "/tmp/ws",
+            "workspace_path_within_root": True,
+            "source_consumption_validated": True,
+            "replay_check_completed": True,
+            "prior_handoff_detected": False,
+            "prior_rework_handoff_count": 0,
+            "rework_attempt_number": 1,
+            "rework_attempt_limit": MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
+            "bounded_rework_budget_exhausted": False,
+            "rework_non_convergence_detected": False,
+            "continuation_handoff_prepared": False,
+            "rework_handoff_prepared": rework_handoff_prepared,
+            "blocked_reasons": [],
+            "continuation_started": False,
+            "rework_started": False,
+            "human_escalation_package_created": False,
+            "human_decision_recorded": False,
+            "main_project_file_written": False,
+            "sandbox_file_written": False,
+            "manifest_file_written": False,
+            "diff_file_written": False,
+            "patch_applied": False,
+            "git_write_performed": False,
+            "worktree_created": False,
+            "worker_started": False,
+            "task_created": False,
+            "run_created": False,
+            "gate_allows_write": False,
+            "ai_project_director_total_loop": "Partial",
+        }
+    else:
+        action = {"type": action_type, "handoff_status": handoff_status}
+    session.add(
+        ProjectDirectorMessageTable(
+            id=uuid4(),
+            session_id=SESSION_ID,
+            role="assistant",
+            content="Other task handoff.",
+            sequence_no=500,
+            source="system",
+            source_detail=source_detail,
+            suggested_actions_json=json.dumps([action]),
+            requires_confirmation=False,
+            risk_level="high",
+            related_project_id=PROJECT_ID,
+            related_task_id=source_task_id,
+        )
+    )
+    session.commit()
+    session.close()
 
 
 class TestBudgetCounting:
@@ -2165,6 +2408,136 @@ class TestBudgetCounting:
         assert result.result.prior_rework_handoff_count == 0
         session.close()
 
+    def test_different_source_task_id(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        other_task_id = uuid4()
+        acceptance = json.dumps(["safe_dry_run_task=true"])
+        session.add(
+            TaskTable(
+                id=other_task_id,
+                project_id=PROJECT_ID,
+                title="Other task",
+                status="pending",
+                priority="normal",
+                input_summary="OTHER TASK",
+                risk_level="normal",
+                human_status="none",
+                source_draft_id="p12-other",
+                acceptance_criteria=acceptance,
+            )
+        )
+        session.commit()
+        session.close()
+        _seed_non_matching_handoff(SessionLocal, source_task_id=other_task_id)
+
+        new_c2, _ = _seed_c2_consumed_message(
+            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
+        )
+        assert result.result.handoff_status == "prepared"
+        assert result.result.prior_rework_handoff_count == 0
+        session.close()
+
+    def test_auto_continue_disposition(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        session.commit()
+        session.close()
+        _seed_non_matching_handoff(SessionLocal, disposition_type="AUTO_CONTINUE")
+
+        new_c2, _ = _seed_c2_consumed_message(
+            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
+        )
+        assert result.result.handoff_status == "prepared"
+        assert result.result.prior_rework_handoff_count == 0
+        session.close()
+
+    def test_blocked_action_status(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        session.commit()
+        session.close()
+        _seed_non_matching_handoff(SessionLocal, handoff_status="blocked")
+
+        new_c2, _ = _seed_c2_consumed_message(
+            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
+        )
+        assert result.result.handoff_status == "prepared"
+        assert result.result.prior_rework_handoff_count == 0
+        session.close()
+
+    def test_rework_not_prepared(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        session.commit()
+        session.close()
+        _seed_non_matching_handoff(SessionLocal, rework_handoff_prepared=False)
+
+        new_c2, _ = _seed_c2_consumed_message(
+            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
+        )
+        assert result.result.handoff_status == "prepared"
+        assert result.result.prior_rework_handoff_count == 0
+        session.close()
+
+    def test_wrong_c3_source_detail(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        session.commit()
+        session.close()
+        _seed_non_matching_handoff(SessionLocal, source_detail="wrong_c3_source_detail")
+
+        new_c2, _ = _seed_c2_consumed_message(
+            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
+        )
+        assert result.result.handoff_status == "prepared"
+        assert result.result.prior_rework_handoff_count == 0
+        session.close()
+
+    def test_wrong_c3_action_type(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        session.commit()
+        session.close()
+        _seed_non_matching_handoff(SessionLocal, action_type="wrong_action_type")
+
+        new_c2, _ = _seed_c2_consumed_message(
+            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
+        )
+        assert result.result.handoff_status == "prepared"
+        assert result.result.prior_rework_handoff_count == 0
+        session.close()
+
 
 # ══════════════════════════════════════════════════════════════════════
 # 20. TestAutoContinueAfterRework
@@ -2200,7 +2573,14 @@ class TestAutoContinueAfterRework:
         )
         assert result.result.handoff_status == "prepared"
         assert result.result.disposition_type == "AUTO_CONTINUE"
+        assert result.result.handoff_kind == "automatic_continuation"
+        assert result.result.prior_rework_handoff_count == 1
         assert result.result.continuation_handoff_prepared is True
+        assert result.result.rework_handoff_prepared is False
+        assert result.result.bounded_rework_budget_exhausted is False
+        assert result.result.rework_non_convergence_detected is False
+        assert result.result.blocked_reasons == []
+        assert result.message is not None
         session.close()
 
 
@@ -2344,15 +2724,22 @@ class TestConcurrentSameConsumption:
         assert prepared_result.message is not None
         assert blocked_result.message is None
         assert blocked_result.result.prior_handoff_detected is True
+        assert blocked_result.result.replay_check_completed is True
         assert "handoff_already_prepared" in blocked_result.result.blocked_reasons
+        assert "bounded_rework_budget_exhausted" not in blocked_result.result.blocked_reasons
+        assert "rework_non_convergence" not in blocked_result.result.blocked_reasons
 
         verify_session = SessionLocal()
         count = verify_session.execute(
             text(
                 "SELECT COUNT(*) FROM project_director_messages "
-                "WHERE source_detail = :sd"
+                "WHERE source_detail = :sd "
+                "AND json_extract(suggested_actions_json, '$[0].source_consumption_message_id') = :cid"
             ),
-            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+            {
+                "sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
+                "cid": str(c2_msg_id),
+            },
         ).scalar()
         assert count == 1
         verify_session.execute(text("BEGIN IMMEDIATE"))
@@ -2466,9 +2853,53 @@ class TestConcurrentReworkConsumptions:
         assert statuses.count("prepared") == 1
         assert statuses.count("blocked") == 1
 
+        prepared_result = next(r for r in results if r.result.handoff_status == "prepared")
         blocked_result = next(r for r in results if r.result.handoff_status == "blocked")
+
+        assert prepared_result.result.handoff_kind == "bounded_automatic_rework"
+        assert prepared_result.result.rework_attempt_number == 1
+        assert prepared_result.result.rework_attempt_limit == 1
+        assert prepared_result.message is not None
+
+        assert blocked_result.result.source_consumption_validated is True
+        assert blocked_result.result.replay_check_completed is True
+        assert blocked_result.result.prior_handoff_detected is False
+        assert blocked_result.result.prior_rework_handoff_count == 1
         assert blocked_result.result.bounded_rework_budget_exhausted is True
+        assert blocked_result.result.rework_non_convergence_detected is True
         assert "bounded_rework_budget_exhausted" in blocked_result.result.blocked_reasons
+        assert "rework_non_convergence" in blocked_result.result.blocked_reasons
+        assert blocked_result.message is None
+
+        verify = SessionLocal()
+        rework_count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd "
+                "AND json_extract(suggested_actions_json, '$[0].disposition_type') = 'AUTO_REWORK' "
+                "AND json_extract(suggested_actions_json, '$[0].handoff_status') = 'prepared'"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+        ).scalar()
+        assert rework_count == 1
+        r1_count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd "
+                "AND json_extract(suggested_actions_json, '$[0].rework_attempt_number') = 1"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+        ).scalar()
+        assert r1_count == 1
+        total_c3 = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+        ).scalar()
+        assert total_c3 == 1
+        verify.close()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -2564,6 +2995,59 @@ class TestLockRelease:
         verify.commit()
         verify.close()
 
+    def test_replay_blocked_releases_lock(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_msg_id, _ = _seed_c2_consumed_message(session)
+        session.close()
+
+        _c3_prepare_handoff(SessionLocal, c2_msg_id)
+
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_msg_id,
+        )
+        assert result.result.handoff_status == "blocked"
+        assert result.result.prior_handoff_detected is True
+        session.close()
+
+        verify = SessionLocal()
+        verify.execute(text("BEGIN IMMEDIATE"))
+        verify.commit()
+        verify.close()
+
+    def test_budget_blocked_releases_lock(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_a, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        c2_b, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        session.close()
+
+        _c3_prepare_handoff(SessionLocal, c2_a)
+
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_b,
+        )
+        assert result.result.handoff_status == "blocked"
+        assert result.result.bounded_rework_budget_exhausted is True
+        session.close()
+
+        verify = SessionLocal()
+        verify.execute(text("BEGIN IMMEDIATE"))
+        verify.commit()
+        verify.close()
+
 
 # ══════════════════════════════════════════════════════════════════════
 # 24. TestNoSideEffects
@@ -2621,4 +3105,75 @@ class TestNoSideEffects:
             text("SELECT COUNT(*) FROM runs")
         ).scalar()
         assert run_count == 0
+        post_sess.close()
+
+    def test_task_and_run_count_unchanged_after_replay_blocked(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_msg_id, _ = _seed_c2_consumed_message(session)
+        session.close()
+
+        _c3_prepare_handoff(SessionLocal, c2_msg_id)
+
+        pre_sess = SessionLocal()
+        task_count_before = pre_sess.execute(
+            text("SELECT COUNT(*) FROM tasks")
+        ).scalar()
+        run_count_before = pre_sess.execute(
+            text("SELECT COUNT(*) FROM runs")
+        ).scalar()
+        pre_sess.close()
+
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_msg_id,
+        )
+        assert result.result.handoff_status == "blocked"
+        assert result.result.prior_handoff_detected is True
+        session.close()
+
+        post_sess = SessionLocal()
+        assert post_sess.execute(text("SELECT COUNT(*) FROM tasks")).scalar() == task_count_before
+        assert post_sess.execute(text("SELECT COUNT(*) FROM runs")).scalar() == run_count_before
+        post_sess.close()
+
+    def test_task_and_run_count_unchanged_after_budget_blocked(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_a, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        c2_b, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        )
+        session.close()
+
+        _c3_prepare_handoff(SessionLocal, c2_a)
+
+        pre_sess = SessionLocal()
+        task_count_before = pre_sess.execute(
+            text("SELECT COUNT(*) FROM tasks")
+        ).scalar()
+        run_count_before = pre_sess.execute(
+            text("SELECT COUNT(*) FROM runs")
+        ).scalar()
+        pre_sess.close()
+
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_b,
+        )
+        assert result.result.handoff_status == "blocked"
+        assert result.result.bounded_rework_budget_exhausted is True
+        session.close()
+
+        post_sess = SessionLocal()
+        assert post_sess.execute(text("SELECT COUNT(*) FROM tasks")).scalar() == task_count_before
+        assert post_sess.execute(text("SELECT COUNT(*) FROM runs")).scalar() == run_count_before
         post_sess.close()
