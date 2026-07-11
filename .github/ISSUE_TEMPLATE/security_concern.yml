@@ -1,0 +1,41 @@
+name: Security concern
+description: Discuss non-sensitive hardening or request a private reporting channel.
+title: "[Security]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not disclose a vulnerability here.** Read SECURITY.md. This public form is only for non-sensitive hardening ideas or for asking the maintainer to establish a private channel. Do not include exploit steps, affected secret values, private paths, payloads, or evidence that enables abuse.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type of concern
+      options:
+        - Non-sensitive security hardening proposal
+        - Request for a private vulnerability reporting channel
+        - Security documentation correction
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Public-safe summary
+      description: Describe the topic without actionable vulnerability details.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: General area
+      description: Name only the broad area, such as executor boundaries, provider credentials, review freshness, or dependency policy.
+    validations:
+      required: true
+  - type: checkboxes
+    id: disclosure
+    attributes:
+      label: Disclosure confirmation
+      options:
+        - label: I read SECURITY.md.
+          required: true
+        - label: This form contains no secrets, personal data, private repository content, exploit instructions, or actionable vulnerability evidence.
+          required: true

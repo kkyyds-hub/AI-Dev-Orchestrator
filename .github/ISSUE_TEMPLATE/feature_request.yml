@@ -1,0 +1,68 @@
+name: Feature request
+description: Propose a scoped improvement grounded in the current architecture.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user or maintainer problem first. A proposal is not a commitment or roadmap guarantee.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and audience
+      description: Who needs this, and what current limitation does it address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe observable behavior and the smallest useful scope.
+    validations:
+      required: true
+  - type: dropdown
+    id: maturity
+    attributes:
+      label: Expected maturity
+      options:
+        - Documentation or contributor experience
+        - Experimental or dry-run capability
+        - Guarded runtime capability
+        - Existing capability hardening
+    validations:
+      required: true
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Relevant architecture and files
+      description: Identify existing services, routes, tests, or web features this should extend.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and trust-boundary impact
+      description: Discuss commands, writes, Git, credentials, providers, evidence, review, approval, and rollback where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Observable result ...
+        - [ ] Negative case ...
+        - [ ] Documentation ...
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing Issues, pull requests, and OPEN_SOURCE_BACKLOG.md.
+          required: true
+        - label: I have not described this proposal as already implemented.
+          required: true
