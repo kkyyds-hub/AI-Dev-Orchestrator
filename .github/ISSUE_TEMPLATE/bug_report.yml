@@ -1,0 +1,79 @@
+name: Bug report
+description: Report a reproducible defect in current repository behavior.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a defect. Do not include secrets, private data, or vulnerability details. Security vulnerabilities belong in the process described by SECURITY.md.
+  - type: input
+    id: revision
+    attributes:
+      label: Repository revision
+      description: Provide the commit SHA or branch where the problem occurs.
+      placeholder: 60f95b0c...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Backend API or service
+        - Worker or executor
+        - Review, approval, or evidence gate
+        - Web control surface
+        - Documentation or setup
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: List exact commands or actions using redacted, non-sensitive data.
+      placeholder: |
+        1. Run ...
+        2. Call ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and evidence
+      description: Add concise redacted output. Do not attach runtime databases, credentials, private repository content, or exploit details.
+      render: shell
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python, uv, Node.js, npm, and relevant local executor versions.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing Issues and pull requests.
+          required: true
+        - label: I removed secrets, personal data, private URLs, and vulnerability details.
+          required: true
+        - label: This is reproducible behavior, not an unsupported claim about a planned feature.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security policy
+    url: https://github.com/kkyyds-hub/AI-Dev-Orchestrator/blob/main/SECURITY.md
+    about: Read the reporting policy before sharing any security information.
+  - name: Open-source contribution backlog
+    url: https://github.com/kkyyds-hub/AI-Dev-Orchestrator/blob/main/docs/OPEN_SOURCE_BACKLOG.md
+    about: Review contribution-ready tasks before proposing overlapping work.
