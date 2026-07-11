@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -96,7 +94,7 @@ _DISPOSITION_FALSE_FLAGS = [
 
 _ESCALATION_FALSE_FLAGS = [
     f for f in _DISPOSITION_FALSE_FLAGS if f != "human_escalation_package_created"
-]
+] + ["approval_request_created", "legacy_approval_decision_created"]
 
 
 # ── Test database helpers ───────────────────────────────────────────
@@ -299,6 +297,9 @@ def _seed_disposition_message(
     fingerprint: str | None = None,
     action_overrides: dict[str, Any] | None = None,
     seq_no: int = 60,
+    source_diff_sha256: str | None = None,
+    review_prompt_sha256: str | None = None,
+    review_scope_paths: list[str] | None = None,
 ) -> UUID:
     disposition_msg_id = disposition_msg_id or DISPOSITION_MSG_ID
     review_action = _valid_review_action()
@@ -307,6 +308,9 @@ def _seed_disposition_message(
             review_action,
             source_review_message_id=review_msg_id,
         )
+    diff_sha = source_diff_sha256 or _DIFF_SHA256
+    prompt_sha = review_prompt_sha256 or _PROMPT_SHA256
+    scope = review_scope_paths or ["src/example.py"]
     action: dict[str, Any] = {
         "type": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_ACTION_TYPE,
         "schema_version": REVIEW_DISPOSITION_SCHEMA_VERSION,
@@ -317,9 +321,9 @@ def _seed_disposition_message(
         "source_preflight_message_id": str(PREFLIGHT_MSG_ID),
         "source_diff_message_id": str(DIFF_MSG_ID),
         "requested_reviewer_executor": "codex",
-        "source_diff_sha256": _DIFF_SHA256,
-        "review_prompt_sha256": _PROMPT_SHA256,
-        "review_scope_paths": ["src/example.py"],
+        "source_diff_sha256": diff_sha,
+        "review_prompt_sha256": prompt_sha,
+        "review_scope_paths": list(scope),
         "review_output_schema_version": REVIEW_OUTPUT_SCHEMA_VERSION,
         "review_result_fingerprint": fingerprint,
         "disposition_id": str(DISPOSITION_ID),
@@ -704,6 +708,9 @@ class TestFalseOnlyFlags:
         kwargs = _valid_prepared_kwargs(**{flag: True})
         with pytest.raises(ValueError, match="human escalation package may not"):
             ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageResult(**kwargs)
+
+    def test_exactly_16_false_only_fields(self) -> None:
+        assert len(_ESCALATION_FALSE_FLAGS) == 16
 
     def test_total_loop_must_be_partial(self) -> None:
         kwargs = _valid_prepared_kwargs(ai_project_director_total_loop="Full")
@@ -2096,6 +2103,111 @@ class TestStrictFindings:
 
 
 # ══════════════════════════════════════════════════════════════════════
+# 13b. TestStrictFindingsTrustOrder
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestStrictFindingsTrustOrder:
+    def test_review_message_tampered_strict_never_called(self, db_engine, monkeypatch) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        _seed_review_message(session)
+        _seed_disposition_message(session)
+        row = session.get(ProjectDirectorMessageTable, SOURCE_REVIEW_MSG_ID)
+        action = json.loads(row.suggested_actions_json)[0]
+        action["source_diff_sha256"] = hashlib.sha256(b"tampered").hexdigest()
+        row.suggested_actions_json = json.dumps([action])
+        session.commit()
+        session.close()
+
+        strict_spy_called = False
+
+        def _spy_strict_review_evidence(cls, **kwargs):
+            nonlocal strict_spy_called
+            strict_spy_called = True
+            raise AssertionError("_strict_review_evidence should not be called")
+
+        monkeypatch.setattr(
+            ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService,
+            "_strict_review_evidence",
+            classmethod(lambda cls, **kwargs: _spy_strict_review_evidence(cls, **kwargs)),
+        )
+
+        svc, session = _make_d1_service(SessionLocal)
+        result = svc.prepare_human_escalation_package(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=DISPOSITION_MSG_ID,
+        )
+        assert result.result.package_status == "blocked"
+        assert "review_result_fingerprint_mismatch" in result.result.blocked_reasons
+        assert result.message is None
+        assert not strict_spy_called
+        session.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 0
+        verify.close()
+
+    def test_disposition_fingerprint_mismatch_strict_never_called(
+        self, db_engine, monkeypatch
+    ) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        _seed_review_message(session)
+        _seed_disposition_message(
+            session,
+            action_overrides={"source_diff_sha256": hashlib.sha256(b"other").hexdigest()},
+        )
+        session.close()
+
+        strict_spy_called = False
+
+        def _spy_strict_review_evidence(cls, **kwargs):
+            nonlocal strict_spy_called
+            strict_spy_called = True
+            raise AssertionError("_strict_review_evidence should not be called")
+
+        monkeypatch.setattr(
+            ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService,
+            "_strict_review_evidence",
+            classmethod(lambda cls, **kwargs: _spy_strict_review_evidence(cls, **kwargs)),
+        )
+
+        svc, session = _make_d1_service(SessionLocal)
+        result = svc.prepare_human_escalation_package(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=DISPOSITION_MSG_ID,
+        )
+        assert result.result.package_status == "blocked"
+        assert "disposition_source_binding_mismatch" in result.result.blocked_reasons
+        assert result.message is None
+        assert not strict_spy_called
+        session.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 0
+        verify.close()
+
+
+# ══════════════════════════════════════════════════════════════════════
 # 14. TestAggregateFingerprint
 # ══════════════════════════════════════════════════════════════════════
 
@@ -2138,45 +2250,127 @@ class TestAggregateFingerprint:
         engine1.dispose()
         engine2.dispose()
 
-    def test_different_evidence_different_fp(self, db_engine) -> None:
-        SessionLocal = _make_session_factory(db_engine)
-        session = SessionLocal()
-        _seed_base_records(session)
-        _seed_review_message(session)
-        _seed_disposition_message(session)
-        session.close()
+    @pytest.mark.parametrize(
+        "label,action_override,binding_override",
+        [
+            (
+                "disposition_reason",
+                {},
+                {"disposition_reason": "sandbox_scope_conflict_requires_human_escalation"},
+            ),
+            (
+                "source_diff_sha256",
+                {"source_diff_sha256": hashlib.sha256(b"other diff").hexdigest()},
+                {"source_diff_sha256": hashlib.sha256(b"other diff").hexdigest()},
+            ),
+            (
+                "review_prompt_sha256",
+                {"review_prompt_sha256": hashlib.sha256(b"other prompt").hexdigest()},
+                {"review_prompt_sha256": hashlib.sha256(b"other prompt").hexdigest()},
+            ),
+            (
+                "review_scope_paths",
+                {"review_scope_paths": ["src/other.py"]},
+                {"review_scope_paths": ["src/other.py"]},
+            ),
+            (
+                "summary_and_risk_summary",
+                {"summary": "Different risk review summary."},
+                {},
+            ),
+            (
+                "add_high_finding",
+                {
+                    "findings": [
+                        {
+                            "finding_id": "F1",
+                            "severity": "high",
+                            "title": "Critical vulnerability found",
+                            "summary": "Critical security vulnerability in authentication module",
+                            "evidence_paths": ["src/auth.py"],
+                            "recommended_action": "Fix immediately",
+                        },
+                        {
+                            "finding_id": "F2",
+                            "severity": "high",
+                            "title": "SQL injection",
+                            "summary": "SQL injection in query builder",
+                            "evidence_paths": ["src/db.py"],
+                            "recommended_action": "Fix immediately",
+                        },
+                    ],
+                },
+                {},
+            ),
+        ],
+        ids=[
+            "disposition_reason",
+            "source_diff_sha256",
+            "review_prompt_sha256",
+            "review_scope_paths",
+            "summary_and_risk_summary",
+            "add_high_finding",
+        ],
+    )
+    def test_different_evidence_different_fp(
+        self, tmp_path, label, action_override, binding_override
+    ) -> None:
+        db1 = str(tmp_path / f"baseline_{label}.db")
+        db2 = str(tmp_path / f"changed_{label}.db")
+        engine1 = _make_test_engine(db1)
+        engine2 = _make_test_engine(db2)
+        SL1 = _make_session_factory(engine1)
+        SL2 = _make_session_factory(engine2)
 
-        svc1, s1 = _make_d1_service(SessionLocal)
-        r1 = svc1.prepare_human_escalation_package(
-            session_id=SESSION_ID, source_task_id=TASK_ID,
-            source_message_id=DISPOSITION_MSG_ID,
-        )
+        review_msg_id1 = uuid4()
+        disp_msg_id1 = uuid4()
+        review_msg_id2 = uuid4()
+        disp_msg_id2 = uuid4()
+
+        s1 = SL1()
+        _seed_base_records(s1)
+        _seed_review_message(s1, review_msg_id=review_msg_id1)
+        _seed_disposition_message(s1, disposition_msg_id=disp_msg_id1, review_msg_id=review_msg_id1)
         s1.close()
 
-        SessionLocal2 = _make_session_factory(db_engine)
-        session2 = SessionLocal2()
-        alt_action = _valid_review_action(
-            review_scope_paths=["src/different.py"],
+        svc1, sess1 = _make_d1_service(SL1)
+        r1 = svc1.prepare_human_escalation_package(
+            session_id=SESSION_ID, source_task_id=TASK_ID,
+            source_message_id=disp_msg_id1,
         )
-        _seed_review_message(session2, review_msg_id=uuid4(), action=alt_action, seq_no=500)
-        fp = _compute_review_fingerprint_from_action(alt_action)
-        _seed_disposition_message(
-            session2,
-            disposition_msg_id=uuid4(),
-            review_msg_id=uuid4(),
-            fingerprint=fp,
-            seq_no=501,
-        )
-        session2.close()
+        assert r1.result.package_status == "prepared"
+        sess1.close()
 
-        svc2, s2 = _make_d1_service(SessionLocal2)
+        s2 = SL2()
+        _seed_base_records(s2)
+        changed_action = _valid_review_action(**action_override)
+        _seed_review_message(s2, review_msg_id=review_msg_id2, action=changed_action)
+        fp2 = _compute_review_fingerprint_from_action(
+            changed_action, source_review_message_id=review_msg_id2,
+        )
+        _seed_disposition_message(
+            s2,
+            disposition_msg_id=disp_msg_id2,
+            review_msg_id=review_msg_id2,
+            fingerprint=fp2,
+            source_diff_sha256=changed_action.get("source_diff_sha256"),
+            review_prompt_sha256=changed_action.get("review_prompt_sha256"),
+            review_scope_paths=changed_action.get("review_scope_paths"),
+            action_overrides=binding_override,
+        )
+        s2.close()
+
+        svc2, sess2 = _make_d1_service(SL2)
         r2 = svc2.prepare_human_escalation_package(
             session_id=SESSION_ID, source_task_id=TASK_ID,
-            source_message_id=uuid4(),
+            source_message_id=disp_msg_id2,
         )
-        if r2.result.package_status == "prepared":
-            assert r1.result.aggregate_evidence_fingerprint != r2.result.aggregate_evidence_fingerprint
-        s2.close()
+        assert r2.result.package_status == "prepared"
+        sess2.close()
+
+        assert r1.result.aggregate_evidence_fingerprint != r2.result.aggregate_evidence_fingerprint
+        engine1.dispose()
+        engine2.dispose()
 
     def test_fp_is_sha256(self, db_engine) -> None:
         SessionLocal = _make_session_factory(db_engine)
@@ -2312,7 +2506,103 @@ class TestCrossPageReplay:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 17. TestConcurrentDoubleCall
+# 16b. TestIndependentReplayKeys
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestIndependentReplayKeys:
+    def test_disposition_id_only_replay(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        _seed_review_message(session)
+        _seed_disposition_message(session)
+        session.close()
+
+        pkg_msg_id, pkg_seq_no = _d1_prepare(SessionLocal)
+
+        d2_msg_id = uuid4()
+        session = SessionLocal()
+        _seed_disposition_message(session, disposition_msg_id=d2_msg_id, seq_no=70)
+        pkg_row = session.get(ProjectDirectorMessageTable, pkg_msg_id)
+        pkg_action = json.loads(pkg_row.suggested_actions_json)[0]
+        pkg_action["source_disposition_message_id"] = str(uuid4())
+        pkg_action["disposition_id"] = str(DISPOSITION_ID)
+        pkg_action["related_review_message_ids"] = [str(uuid4())]
+        pkg_row.suggested_actions_json = json.dumps([pkg_action])
+        session.commit()
+        session.close()
+
+        svc, sess = _make_d1_service(SessionLocal)
+        result = svc.prepare_human_escalation_package(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=d2_msg_id,
+        )
+        assert result.result.package_status == "blocked"
+        assert result.result.prior_escalation_package_detected is True
+        sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 1
+        verify.close()
+
+    def test_related_review_message_ids_only_replay(self, db_engine) -> None:
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        _seed_review_message(session)
+        _seed_disposition_message(session)
+        session.close()
+
+        pkg_msg_id, pkg_seq_no = _d1_prepare(SessionLocal)
+
+        current_review_msg_id = SOURCE_REVIEW_MSG_ID
+        current_disp_msg_id = uuid4()
+
+        session = SessionLocal()
+        pkg_row = session.get(ProjectDirectorMessageTable, pkg_msg_id)
+        pkg_action = json.loads(pkg_row.suggested_actions_json)[0]
+        pkg_action["source_disposition_message_id"] = str(uuid4())
+        pkg_action["disposition_id"] = str(uuid4())
+        pkg_action["related_review_message_ids"] = [str(current_review_msg_id)]
+        pkg_row.suggested_actions_json = json.dumps([pkg_action])
+        session.commit()
+        session.close()
+
+        session = SessionLocal()
+        _seed_filler_messages(session, pkg_seq_no + 1, 105)
+        session.close()
+
+        svc, sess = _make_d1_service(SessionLocal)
+        result = svc.prepare_human_escalation_package(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=DISPOSITION_MSG_ID,
+        )
+        assert result.result.package_status == "blocked"
+        assert result.result.prior_escalation_package_detected is True
+        sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 1
+        verify.close()
+
+
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -2775,3 +3065,83 @@ class TestAppendOnlyAndNoSideEffects:
         assert r.gate_allows_write is False
         assert r.ai_project_director_total_loop == "Partial"
         session.close()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 20. TestBarrierRealContention
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestBarrierRealContention:
+    def test_barrier_two_threads_one_prepared_one_blocked(self, tmp_path) -> None:
+        db_path = str(tmp_path / "barrier.db")
+        engine = _make_test_engine(db_path)
+        SessionLocal = _make_session_factory(engine)
+
+        session = SessionLocal()
+        _seed_base_records(session)
+        _seed_review_message(session)
+        _seed_disposition_message(session)
+        session.close()
+
+        barrier = threading.Barrier(2, timeout=30)
+        results: list = []
+        errors: list = []
+
+        def worker(worker_id: int):
+            try:
+                sess = SessionLocal()
+                msg_repo = ProjectDirectorMessageRepository(sess)
+                sess_repo = ProjectDirectorSessionRepository(sess)
+                task_repo = TaskRepository(sess)
+                svc = ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService(
+                    session_repository=sess_repo,
+                    message_repository=msg_repo,
+                    task_repository=task_repo,
+                )
+                barrier.wait()
+                result = svc.prepare_human_escalation_package(
+                    session_id=SESSION_ID,
+                    source_task_id=TASK_ID,
+                    source_message_id=DISPOSITION_MSG_ID,
+                )
+                results.append((worker_id, result))
+                sess.close()
+            except Exception as e:
+                errors.append(f"worker-{worker_id}:{type(e).__name__}:{e}")
+
+        t1 = threading.Thread(target=worker, args=(1,))
+        t2 = threading.Thread(target=worker, args=(2,))
+        t1.start()
+        t2.start()
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+
+        assert not t1.is_alive(), "thread 1 did not finish"
+        assert not t2.is_alive(), "thread 2 did not finish"
+        assert len(errors) == 0, f"Unexpected errors: {errors}"
+        assert len(results) == 2
+
+        statuses = [r.result.package_status for _, r in results]
+        assert statuses.count("prepared") == 1
+        assert statuses.count("blocked") == 1
+
+        blocked_result = next(r for _, r in results if r.result.package_status == "blocked")
+        assert blocked_result.result.prior_escalation_package_detected is True
+        assert blocked_result.result.replay_check_completed is True
+        assert blocked_result.message is None
+
+        prepared_result = next(r for _, r in results if r.result.package_status == "prepared")
+        assert prepared_result.message is not None
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 1
+        verify.close()
+        engine.dispose()
