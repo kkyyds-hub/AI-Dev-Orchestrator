@@ -759,6 +759,7 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
             action_type=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE,
             schema_version=DISPOSITION_HANDOFF_SCHEMA_VERSION,
+            expected_requires_confirmation=False,
             blocked_reason="source_automatic_handoff_invalid",
             blocked_reasons=blocked_reasons,
         )
@@ -788,6 +789,7 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_CONSUMED_SOURCE_DETAIL,
             action_type=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_CONSUMPTION_ACTION_TYPE,
             schema_version=DISPOSITION_CONSUMPTION_SCHEMA_VERSION,
+            expected_requires_confirmation=False,
             blocked_reason="source_automatic_consumption_invalid",
             blocked_reasons=blocked_reasons,
         )
@@ -903,6 +905,7 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_DECISION_CONSUMPTION_SOURCE_DETAIL,
             action_type=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_DECISION_CONSUMPTION_ACTION_TYPE,
             schema_version=HUMAN_ESCALATION_DECISION_CONSUMPTION_SCHEMA_VERSION,
+            expected_requires_confirmation=False,
             blocked_reason="source_human_consumption_invalid",
             blocked_reasons=blocked_reasons,
         )
@@ -959,6 +962,7 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_DECISION_SOURCE_DETAIL,
             action_type=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_DECISION_ACTION_TYPE,
             schema_version=HUMAN_ESCALATION_DECISION_SCHEMA_VERSION,
+            expected_requires_confirmation=False,
             blocked_reason="source_human_decision_invalid",
             blocked_reasons=blocked_reasons,
         )
@@ -1007,6 +1011,7 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL,
             action_type=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_ACTION_TYPE,
             schema_version=HUMAN_ESCALATION_PACKAGE_SCHEMA_VERSION,
+            expected_requires_confirmation=True,
             blocked_reason="source_human_package_invalid",
             blocked_reasons=blocked_reasons,
         )
@@ -1363,6 +1368,7 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
         source_detail: str,
         action_type: str,
         schema_version: str,
+        expected_requires_confirmation: bool,
         blocked_reason: str,
         blocked_reasons: list[str],
     ) -> dict[str, Any] | None:
@@ -1375,7 +1381,7 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             or message.source != ProjectDirectorMessageSource.SYSTEM
             or message.intent != intent
             or message.source_detail != source_detail
-            or message.requires_confirmation is not False
+            or message.requires_confirmation is not expected_requires_confirmation
             or message.risk_level != ProjectDirectorMessageRiskLevel.HIGH
             or len(message.suggested_actions) != 1
         ):
