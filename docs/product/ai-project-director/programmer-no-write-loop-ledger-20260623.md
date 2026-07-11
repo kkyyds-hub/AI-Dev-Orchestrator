@@ -1701,7 +1701,7 @@ Contract:
 
 ### Production Commit
 
-- `9c1cdfdd60cc8440b21fe58bf18b0dfb96fd176b` — `backend: add structured human escalation decision`
+- `9c1cdfdd60cc8440b21fe58bf18b0dfb96fd176b` — `backend: add human escalation decision record`
 
 ### Core Capability
 
@@ -2356,7 +2356,9 @@ It must not mean: Git write authorized.
 - **P21-D-D**: Human Escalation Decision Record
 - **P21-D-E**: Protected Transition Evidence Freshness Gate
 
-P21-D-A locked the contract. P21-D-B through P21-D-E are now Closed / Pass.
+P21-D-A (current task) only locks the contract.
+
+P21-D-B / P21-D-C / P21-D-D / P21-D-E must remain Not started.
 
 ### P21-D-B Contract — Automated Review Disposition Gate
 
@@ -2600,6 +2602,10 @@ AUTO_CONTINUE does not authorize Git write.
 AUTO_REWORK does not authorize Git write.
 
 P21-D Pass does not open product runtime Git write.
+
+Decision consumption is not transition execution.
+
+APPROVE_CONTINUE does not authorize Git write.
 
 ### Stage Status
 
