@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import threading
@@ -168,7 +169,9 @@ def _seed_c2_consumed_message(
 ) -> tuple[UUID, UUID]:
     consumption_id = consumption_id or uuid4()
     c2_msg_id = c2_msg_id or uuid4()
-    sha = hashlib.sha256(b"test").hexdigest()
+    review_fingerprint_sha = "a" * 64
+    diff_sha = "b" * 64
+    review_prompt_sha = "c" * 64
     scope = ["src/example.py"]
     action: dict[str, Any] = {
         "type": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_CONSUMPTION_ACTION_TYPE,
@@ -189,12 +192,12 @@ def _seed_c2_consumed_message(
             if disposition_type == "AUTO_CONTINUE"
             else "review_changes_required_within_automatic_rework_boundary"
         ),
-        "review_result_fingerprint": sha,
-        "revalidated_review_result_fingerprint": sha,
-        "reviewed_diff_sha256": sha,
-        "persisted_source_diff_sha256": sha,
-        "current_diff_sha256": sha,
-        "review_prompt_sha256": sha,
+        "review_result_fingerprint": review_fingerprint_sha,
+        "revalidated_review_result_fingerprint": review_fingerprint_sha,
+        "reviewed_diff_sha256": diff_sha,
+        "persisted_source_diff_sha256": diff_sha,
+        "current_diff_sha256": diff_sha,
+        "review_prompt_sha256": review_prompt_sha,
         "reviewed_scope_paths": list(scope),
         "persisted_source_scope_paths": list(scope),
         "current_scope_paths": list(scope),
@@ -1409,7 +1412,7 @@ class TestC2DomainReconstruction:
         sess = SessionLocal()
         row = sess.get(ProjectDirectorMessageTable, c2_msg_id)
         action = json.loads(row.suggested_actions_json)[0]
-        action["current_diff_sha256"] = "b" * 64
+        action["current_diff_sha256"] = "f" * 64
         row.suggested_actions_json = json.dumps([action])
         sess.commit()
         sess.close()
@@ -1838,6 +1841,9 @@ class TestAppendOnlyPersistence:
         session = SessionLocal()
         _seed_base_records(session)
         c2_msg_id, consumption_id = _seed_c2_consumed_message(session)
+
+        c2_row = session.get(ProjectDirectorMessageTable, c2_msg_id)
+        source_action = copy.deepcopy(json.loads(c2_row.suggested_actions_json)[0])
         session.close()
 
         svc, session = _make_c3_service(SessionLocal)
@@ -1877,6 +1883,62 @@ class TestAppendOnlyPersistence:
 
         assert action["ai_project_director_total_loop"] == "Partial"
 
+        assert action["handoff_id"] == str(result.result.handoff_id)
+        assert action["prepared_at"] == result.result.prepared_at.isoformat()
+        assert action["handoff_kind"] == result.result.handoff_kind
+        assert action["handoff_status"] == result.result.handoff_status
+        prepared_at = datetime.fromisoformat(action["prepared_at"])
+        assert prepared_at.tzinfo is not None
+        assert prepared_at.utcoffset() is not None
+
+        assert action["source_consumption_id"] == source_action["consumption_id"]
+        assert action["source_consumption_preflight_message_id"] == source_action["source_consumption_preflight_message_id"]
+        assert action["source_disposition_message_id"] == source_action["source_disposition_message_id"]
+        assert action["source_review_message_id"] == source_action["source_review_message_id"]
+        assert action["source_diff_message_id"] == source_action["source_diff_message_id"]
+        assert action["disposition_id"] == source_action["disposition_id"]
+        assert action["source_consumption_message_id"] == str(c2_msg_id)
+        assert action["session_id"] == source_action["session_id"] == str(SESSION_ID)
+        assert action["source_task_id"] == source_action["source_task_id"] == str(TASK_ID)
+        for uuid_key in [
+            "source_consumption_id",
+            "source_consumption_preflight_message_id",
+            "source_disposition_message_id",
+            "source_review_message_id",
+            "source_diff_message_id",
+            "disposition_id",
+        ]:
+            assert UUID(action[uuid_key])
+
+        assert action["disposition_type"] == source_action["disposition_type"]
+        assert action["disposition_reason"] == source_action["disposition_reason"]
+        assert action["review_result_fingerprint"] == source_action["review_result_fingerprint"] == "a" * 64
+        assert action["revalidated_review_result_fingerprint"] == source_action["revalidated_review_result_fingerprint"] == "a" * 64
+        assert action["reviewed_diff_sha256"] == source_action["reviewed_diff_sha256"] == "b" * 64
+        assert action["persisted_source_diff_sha256"] == source_action["persisted_source_diff_sha256"] == "b" * 64
+        assert action["current_diff_sha256"] == source_action["current_diff_sha256"] == "b" * 64
+        assert action["review_prompt_sha256"] == source_action["review_prompt_sha256"] == "c" * 64
+        assert action["reviewed_scope_paths"] == source_action["reviewed_scope_paths"]
+        assert action["persisted_source_scope_paths"] == source_action["persisted_source_scope_paths"]
+        assert action["current_scope_paths"] == source_action["current_scope_paths"]
+        assert action["review_output_schema_version"] == source_action["review_output_schema_version"]
+        assert action["source_review_verdict"] == source_action["source_review_verdict"]
+        assert action["source_review_risk_level"] == source_action["source_review_risk_level"]
+        assert action["workspace_path"] == source_action["workspace_path"]
+        assert action["workspace_path_within_root"] == source_action["workspace_path_within_root"]
+
+        assert action["source_consumption_validated"] is True
+        assert action["replay_check_completed"] is True
+        assert action["prior_handoff_detected"] is False
+        assert action["prior_rework_handoff_count"] == 0
+        assert action["rework_attempt_number"] == 0
+        assert action["rework_attempt_limit"] == 1
+        assert action["continuation_handoff_prepared"] is True
+        assert action["rework_handoff_prepared"] is False
+        assert action["blocked_reasons"] == []
+        assert action["bounded_rework_budget_exhausted"] is False
+        assert action["rework_non_convergence_detected"] is False
+
         session2 = SessionLocal()
         count = session2.execute(
             text(
@@ -1894,6 +1956,9 @@ class TestAppendOnlyPersistence:
         session = SessionLocal()
         _seed_base_records(session)
         c2_msg_id, consumption_id = _seed_c2_consumed_message(session)
+
+        c2_row = session.get(ProjectDirectorMessageTable, c2_msg_id)
+        source_action = copy.deepcopy(json.loads(c2_row.suggested_actions_json)[0])
         session.close()
 
         svc, session = _make_c3_service(SessionLocal)
@@ -1904,6 +1969,57 @@ class TestAppendOnlyPersistence:
         )
         assert result.message is not None
 
+        message = result.message
+        assert message.id == result.message.id
+        assert message.session_id == SESSION_ID
+        assert message.role == ProjectDirectorMessageRole.ASSISTANT
+        assert message.source == ProjectDirectorMessageSource.SYSTEM
+        assert message.requires_confirmation is False
+        assert message.risk_level == ProjectDirectorMessageRiskLevel.HIGH
+        assert message.related_project_id == PROJECT_ID
+        assert message.related_task_id == TASK_ID
+        assert message.intent == "sandbox_candidate_diff_review_disposition_handoff"
+        assert message.source_detail == P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL
+        assert len(message.suggested_actions) == 1
+        assert message.created_at.tzinfo is not None
+        assert message.created_at.utcoffset() is not None
+
+        content_lower = message.content.lower()
+        assert "prepared only" in content_lower
+        assert "no continuation or rework execution" in content_lower
+        assert "no task" in content_lower
+        assert ", run," in content_lower
+        assert ", worker," in content_lower
+        assert "worktree was created" in content_lower
+        assert "no file" in content_lower
+        assert "no patch" in content_lower
+        assert "no git write" in content_lower
+        assert "total loop remains partial" in content_lower
+        assert "continuation completed" not in content_lower
+        assert "rework started" not in content_lower
+        assert "task created" not in content_lower
+        assert "worker dispatched" not in content_lower
+        assert "write authorized" not in content_lower
+
+        forbidden = message.forbidden_actions_detected
+        for required in [
+            "no_continuation_start",
+            "no_rework_start",
+            "no_human_escalation_package",
+            "no_human_decision",
+            "no_workspace_write",
+            "no_main_project_file_write",
+            "no_manifest_write",
+            "no_diff_file_write",
+            "no_patch_apply",
+            "no_product_runtime_git_write",
+            "no_worker_dispatch",
+            "no_task_creation",
+            "no_run_creation",
+            "no_worktree_creation",
+        ]:
+            assert required in forbidden
+
         verify = SessionLocal()
         c3_row = verify.get(ProjectDirectorMessageTable, result.message.id)
         assert c3_row is not None
@@ -1912,14 +2028,24 @@ class TestAppendOnlyPersistence:
         assert c3_row.source == "system"
         assert c3_row.requires_confirmation is False
         assert c3_row.risk_level == "high"
-        assert c3_row.related_project_id is not None
-        assert c3_row.related_task_id is not None
+        assert c3_row.related_project_id == PROJECT_ID
+        assert c3_row.related_task_id == TASK_ID
         assert c3_row.source_detail == P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL
         assert c3_row.created_at is not None
+        assert c3_row.intent == "sandbox_candidate_diff_review_disposition_handoff"
 
-        c3_content = c3_row.content
-        assert isinstance(c3_content, str)
-        assert len(c3_content) > 0
+        repo_msg = ProjectDirectorMessageRepository(verify).get_by_id(result.message.id)
+        assert repo_msg is not None
+        assert repo_msg.id == result.message.id
+        assert repo_msg.session_id == SESSION_ID
+        assert repo_msg.role == ProjectDirectorMessageRole.ASSISTANT
+        assert repo_msg.source == ProjectDirectorMessageSource.SYSTEM
+        assert repo_msg.requires_confirmation is False
+        assert repo_msg.risk_level == ProjectDirectorMessageRiskLevel.HIGH
+        assert repo_msg.related_project_id == PROJECT_ID
+        assert repo_msg.related_task_id == TASK_ID
+        assert repo_msg.created_at.tzinfo is not None
+        assert repo_msg.created_at.utcoffset() is not None
 
         actions = json.loads(c3_row.suggested_actions_json)
         assert len(actions) == 1
@@ -1943,45 +2069,72 @@ class TestAppendOnlyPersistence:
         assert act["disposition_type"] == "AUTO_CONTINUE"
         assert act["disposition_reason"] == "review_has_no_blocking_findings"
 
-        sha_fields = [
-            "review_result_fingerprint",
-            "revalidated_review_result_fingerprint",
-            "reviewed_diff_sha256",
-            "persisted_source_diff_sha256",
-            "current_diff_sha256",
-            "review_prompt_sha256",
-        ]
-        for field in sha_fields:
-            assert isinstance(act[field], str) and len(act[field]) == 64
-        assert act["review_result_fingerprint"] == act["revalidated_review_result_fingerprint"]
-        assert act["reviewed_diff_sha256"] == act["persisted_source_diff_sha256"] == act["current_diff_sha256"]
-        assert isinstance(act["reviewed_scope_paths"], list) and len(act["reviewed_scope_paths"]) > 0
-        assert act["reviewed_scope_paths"] == act["persisted_source_scope_paths"] == act["current_scope_paths"]
-        assert act["review_output_schema_version"] == REVIEW_OUTPUT_SCHEMA_VERSION
-        assert act["source_review_verdict"] == "no_blocking_findings"
-        assert act["source_review_risk_level"] == "low"
-        assert act["workspace_path"] == "/tmp/ws"
-        assert act["workspace_path_within_root"] is True
+        assert act["handoff_id"] == str(result.result.handoff_id)
+        assert act["prepared_at"] == result.result.prepared_at.isoformat()
+        assert act["handoff_kind"] == result.result.handoff_kind
+        assert act["handoff_status"] == result.result.handoff_status
+        prepared_at = datetime.fromisoformat(act["prepared_at"])
+        assert prepared_at.tzinfo is not None
+        assert prepared_at.utcoffset() is not None
+
+        assert act["source_consumption_id"] == source_action["consumption_id"]
+        assert act["source_consumption_preflight_message_id"] == source_action["source_consumption_preflight_message_id"]
+        assert act["source_disposition_message_id"] == source_action["source_disposition_message_id"]
+        assert act["source_review_message_id"] == source_action["source_review_message_id"]
+        assert act["source_diff_message_id"] == source_action["source_diff_message_id"]
+        assert act["disposition_id"] == source_action["disposition_id"]
+        assert act["source_consumption_message_id"] == str(c2_msg_id)
+        assert act["session_id"] == source_action["session_id"] == str(SESSION_ID)
+        assert act["source_task_id"] == source_action["source_task_id"] == str(TASK_ID)
+        for uuid_key in [
+            "source_consumption_id",
+            "source_consumption_preflight_message_id",
+            "source_disposition_message_id",
+            "source_review_message_id",
+            "source_diff_message_id",
+            "disposition_id",
+        ]:
+            assert UUID(act[uuid_key])
+
+        assert act["disposition_type"] == source_action["disposition_type"]
+        assert act["disposition_reason"] == source_action["disposition_reason"]
+        assert act["review_result_fingerprint"] == source_action["review_result_fingerprint"] == "a" * 64
+        assert act["revalidated_review_result_fingerprint"] == source_action["revalidated_review_result_fingerprint"] == "a" * 64
+        assert act["reviewed_diff_sha256"] == source_action["reviewed_diff_sha256"] == "b" * 64
+        assert act["persisted_source_diff_sha256"] == source_action["persisted_source_diff_sha256"] == "b" * 64
+        assert act["current_diff_sha256"] == source_action["current_diff_sha256"] == "b" * 64
+        assert act["review_prompt_sha256"] == source_action["review_prompt_sha256"] == "c" * 64
+        assert act["reviewed_scope_paths"] == source_action["reviewed_scope_paths"]
+        assert act["persisted_source_scope_paths"] == source_action["persisted_source_scope_paths"]
+        assert act["current_scope_paths"] == source_action["current_scope_paths"]
+        assert act["review_output_schema_version"] == source_action["review_output_schema_version"]
+        assert act["source_review_verdict"] == source_action["source_review_verdict"]
+        assert act["source_review_risk_level"] == source_action["source_review_risk_level"]
+        assert act["workspace_path"] == source_action["workspace_path"]
+        assert act["workspace_path_within_root"] == source_action["workspace_path_within_root"]
+
         assert act["source_consumption_validated"] is True
         assert act["replay_check_completed"] is True
         assert act["prior_handoff_detected"] is False
         assert act["prior_rework_handoff_count"] == 0
         assert act["rework_attempt_number"] == 0
         assert act["rework_attempt_limit"] == MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK
-        assert act["bounded_rework_budget_exhausted"] is False
-        assert act["rework_non_convergence_detected"] is False
         assert act["continuation_handoff_prepared"] is True
         assert act["rework_handoff_prepared"] is False
         assert act["blocked_reasons"] == []
+        assert act["bounded_rework_budget_exhausted"] is False
+        assert act["rework_non_convergence_detected"] is False
+
         for flag in _HANDOFF_FALSE_FLAGS:
             assert act[flag] is False
         assert act["ai_project_director_total_loop"] == "Partial"
 
         c3_count = verify.execute(
             text(
-                "SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE json_extract(suggested_actions_json, '$[0].source_consumption_message_id') = :cid"
             ),
-            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+            {"cid": str(c2_msg_id)},
         ).scalar()
         assert c3_count == 1
 
