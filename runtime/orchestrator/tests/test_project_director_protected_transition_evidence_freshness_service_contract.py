@@ -1400,79 +1400,168 @@ class TestHumanPathSuccess:
 
 
 class TestConfirmationStrictNegative:
-    """Verify that wrong requires_confirmation values are blocked."""
+    """Verify that wrong requires_confirmation values are blocked at E layer."""
 
-    def test_d1_package_requires_confirmation_false_blocked(self, db_engine: Any) -> None:
-        """D1 package with requires_confirmation=false blocks at D2."""
+    def test_d1_package_false_blocks_at_e(self, db_engine: Any) -> None:
+        """D1 package requires_confirmation=false → E blocked with source_human_package_invalid."""
         SessionLocal = _make_session_factory(db_engine)
-        session = SessionLocal()
-        _seed_base_records(session)
-        _seed_candidate_write_message(session, seq_no=30)
-        _seed_diff_message(session, seq_no=35)
-        _seed_review_message(session, seq_no=50)
-        _seed_disposition_message(session, seq_no=60)
-        session.close()
+        consumption_msg_id = _seed_full_human_chain(SessionLocal)
 
-        pkg_msg_id, _ = _d1_prepare(SessionLocal)
-
-        # Tamper D1 package to require_confirmation=false
+        # Find D1 package message via D4 action
         session = SessionLocal()
-        row = session.get(ProjectDirectorMessageTable, pkg_msg_id)
-        row.requires_confirmation = False
+        d4_row = session.get(ProjectDirectorMessageTable, consumption_msg_id)
+        d4_action = json.loads(d4_row.suggested_actions_json)[0]
+        pkg_msg_id = UUID(d4_action["source_package_message_id"])
+
+        # Tamper D1 package to requires_confirmation=false
+        pkg_row = session.get(ProjectDirectorMessageTable, pkg_msg_id)
+        pkg_row.requires_confirmation = False
         session.commit()
         session.close()
 
-        # D2 checks requires_confirmation is True on D1 package, so it blocks.
-        d2_svc, d2_sess = _make_d2_service(SessionLocal)
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        d2_result = d2_svc.record_human_escalation_decision(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=pkg_msg_id,
-            decision_action="APPROVE_CONTINUE", actor="tester", client_request_id="neg-test-1",
-            decision_expires_at=expires_at,
+        # Call E directly
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
         )
-        assert d2_result.result.decision_status == "blocked"
-        assert "source_package_confirmation_contract_invalid" in d2_result.result.blocked_reasons
-        d2_sess.close()
+        assert e_result.result.freshness_status == "blocked"
+        assert "source_human_package_invalid" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
 
-    def test_d2_decision_requires_confirmation_true_blocked(self, db_engine: Any) -> None:
-        """D2 decision with requires_confirmation=true should be blocked by D3."""
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 0
+        verify.close()
+
+    def test_d2_decision_true_blocks_at_e(self, db_engine: Any) -> None:
+        """D2 decision requires_confirmation=true → E blocked with source_human_decision_invalid."""
         SessionLocal = _make_session_factory(db_engine)
+        consumption_msg_id = _seed_full_human_chain(SessionLocal)
+
+        # Find D2 decision message via D4 action
         session = SessionLocal()
-        _seed_base_records(session)
-        _seed_candidate_write_message(session, seq_no=30)
-        _seed_diff_message(session, seq_no=35)
-        _seed_review_message(session, seq_no=50)
-        _seed_disposition_message(session, seq_no=60)
-        session.close()
-
-        pkg_msg_id, _ = _d1_prepare(SessionLocal)
-
-        d2_svc, d2_sess = _make_d2_service(SessionLocal)
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        d2_result = d2_svc.record_human_escalation_decision(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=pkg_msg_id,
-            decision_action="APPROVE_CONTINUE", actor="tester", client_request_id="neg-test-2",
-            decision_expires_at=expires_at,
-        )
-        assert d2_result.result.decision_status == "recorded"
-        d2_msg_id = d2_result.message.id
-        d2_sess.close()
+        d4_row = session.get(ProjectDirectorMessageTable, consumption_msg_id)
+        d4_action = json.loads(d4_row.suggested_actions_json)[0]
+        d2_msg_id = UUID(d4_action["source_decision_message_id"])
 
         # Tamper D2 to requires_confirmation=true
-        session = SessionLocal()
-        row = session.get(ProjectDirectorMessageTable, d2_msg_id)
-        row.requires_confirmation = True
+        d2_row = session.get(ProjectDirectorMessageTable, d2_msg_id)
+        d2_row.requires_confirmation = True
         session.commit()
         session.close()
 
-        # D3 checks requires_confirmation is False, so tampering to True will block D3.
-        d3_svc, d3_sess = _make_d3_service(SessionLocal)
-        d3_result = d3_svc.prepare_human_escalation_decision_consumption_preflight(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=d2_msg_id,
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
         )
-        assert d3_result.result.preflight_status == "blocked"
-        assert "source_decision_confirmation_contract_invalid" in d3_result.result.blocked_reasons
-        d3_sess.close()
+        assert e_result.result.freshness_status == "blocked"
+        assert "source_human_decision_invalid" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 0
+        verify.close()
+
+    def test_d4_consumption_true_blocks_at_e(self, db_engine: Any) -> None:
+        """D4 consumption requires_confirmation=true → E blocked with source_human_consumption_invalid."""
+        SessionLocal = _make_session_factory(db_engine)
+        consumption_msg_id = _seed_full_human_chain(SessionLocal)
+
+        # Tamper D4 (the E source) to requires_confirmation=true
+        session = SessionLocal()
+        d4_row = session.get(ProjectDirectorMessageTable, consumption_msg_id)
+        d4_row.requires_confirmation = True
+        session.commit()
+        session.close()
+
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
+        )
+        assert e_result.result.freshness_status == "blocked"
+        assert "source_human_consumption_invalid" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 0
+        verify.close()
+
+    def test_c2_consumption_true_blocks_at_e(self, db_engine: Any) -> None:
+        """C2 consumption requires_confirmation=true → E blocked with source_automatic_consumption_invalid."""
+        SessionLocal = _make_session_factory(db_engine)
+        c3_msg_id = _seed_full_auto_chain(SessionLocal)
+
+        # Find C2 message via C3 action
+        session = SessionLocal()
+        c3_row = session.get(ProjectDirectorMessageTable, c3_msg_id)
+        c3_action = json.loads(c3_row.suggested_actions_json)[0]
+        c2_msg_id = UUID(c3_action["source_consumption_message_id"])
+
+        # Tamper C2 to requires_confirmation=true
+        c2_row = session.get(ProjectDirectorMessageTable, c2_msg_id)
+        c2_row.requires_confirmation = True
+        session.commit()
+        session.close()
+
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=c3_msg_id,
+        )
+        assert e_result.result.freshness_status == "blocked"
+        assert "source_automatic_consumption_invalid" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 0
+        verify.close()
+
+    def test_c3_handoff_true_blocks_at_e(self, db_engine: Any) -> None:
+        """C3 handoff requires_confirmation=true → E blocked with source_automatic_handoff_invalid."""
+        SessionLocal = _make_session_factory(db_engine)
+        c3_msg_id = _seed_full_auto_chain(SessionLocal)
+
+        # Tamper C3 (the E source) to requires_confirmation=true
+        session = SessionLocal()
+        c3_row = session.get(ProjectDirectorMessageTable, c3_msg_id)
+        c3_row.requires_confirmation = True
+        session.commit()
+        session.close()
+
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=c3_msg_id,
+        )
+        assert e_result.result.freshness_status == "blocked"
+        assert "source_automatic_handoff_invalid" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 0
+        verify.close()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1645,6 +1734,25 @@ class TestAutomaticPathSuccess:
         assert e_result.result.source_disposition_message_id == db_msg_id
         assert e_result.result.source_review_message_id == SOURCE_REVIEW_MSG_ID
         assert e_result.result.source_diff_message_id == DIFF_MSG_ID
+
+        # Review fingerprint binding
+        assert e_result.result.review_result_fingerprint != ""
+        assert e_result.result.revalidated_review_result_fingerprint == e_result.result.review_result_fingerprint
+
+        # Diff SHA binding (all three must match)
+        assert e_result.result.reviewed_diff_sha256 == _DIFF_SHA256
+        assert e_result.result.persisted_source_diff_sha256 == _DIFF_SHA256
+        assert e_result.result.current_diff_sha256 == _DIFF_SHA256
+
+        # Ordered scope binding (all three must match)
+        assert e_result.result.reviewed_scope_paths == ["src/example.py"]
+        assert e_result.result.persisted_source_scope_paths == ["src/example.py"]
+        assert e_result.result.current_scope_paths == ["src/example.py"]
+
+        # Workspace binding
+        assert e_result.result.workspace_path == _WORKSPACE_PATH
+        assert e_result.result.workspace_path_within_root is True
+
         e_sess.close()
 
     def test_auto_no_write_flags(self, db_engine: Any) -> None:
@@ -2116,6 +2224,150 @@ class TestFingerprintIsolation:
         assert fp1.freshness_evidence_fingerprint == fp2.freshness_evidence_fingerprint
 
 
+# ── Prior E helpers for replay testing ──────────────────────────────
+
+
+def _build_prior_e_action(
+    *,
+    session_id: UUID,
+    source_task_id: UUID,
+    transition_message_id: UUID,
+    transition_record_id: UUID,
+    review_message_id: UUID,
+    review_msg_id: UUID,
+    validated_at: datetime,
+) -> dict[str, Any]:
+    """Build a structurally valid prior E action for replay testing."""
+    fp = hashlib.sha256(b"prior_e_freshness").hexdigest()
+    review_fp = hashlib.sha256(b"prior_review_fp").hexdigest()
+    diff_sha = _DIFF_SHA256
+
+    action: dict[str, Any] = {
+        "type": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_ACTION_TYPE,
+        "schema_version": PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SCHEMA_VERSION,
+        "session_id": str(session_id),
+        "source_task_id": str(source_task_id),
+        "freshness_status": "ready",
+        "freshness_validation_id": str(uuid4()),
+        "source_transition_message_id": str(transition_message_id),
+        "source_transition_record_id": str(transition_record_id),
+        "transition_authority": "HUMAN_ESCALATION_DECISION",
+        "transition_kind": "CONTINUE_GUARDRAIL",
+        "validated_at": validated_at.isoformat(),
+        "source_handoff_message_id": None,
+        "handoff_id": None,
+        "source_disposition_consumption_message_id": None,
+        "disposition_consumption_id": None,
+        "source_disposition_message_id": None,
+        "disposition_id": None,
+        "disposition_type": None,
+        "source_human_consumption_message_id": str(uuid4()),
+        "human_consumption_id": str(uuid4()),
+        "source_decision_message_id": str(uuid4()),
+        "decision_id": str(uuid4()),
+        "source_package_message_id": str(uuid4()),
+        "escalation_package_id": str(uuid4()),
+        "decision_action": "APPROVE_CONTINUE",
+        "decision_expires_at": (validated_at + timedelta(hours=1)).isoformat(),
+        "source_review_message_id": str(review_message_id),
+        "source_diff_message_id": str(DIFF_MSG_ID),
+        "review_result_fingerprint": review_fp,
+        "revalidated_review_result_fingerprint": review_fp,
+        "reviewed_diff_sha256": diff_sha,
+        "persisted_source_diff_sha256": diff_sha,
+        "current_diff_sha256": diff_sha,
+        "reviewed_scope_paths": ["src/example.py"],
+        "persisted_source_scope_paths": ["src/example.py"],
+        "current_scope_paths": ["src/example.py"],
+        "workspace_path": _WORKSPACE_PATH,
+        "workspace_path_within_root": True,
+        "aggregate_evidence_fingerprint": hashlib.sha256(b"prior_agg_fp").hexdigest(),
+        "revalidated_aggregate_evidence_fingerprint": hashlib.sha256(b"prior_agg_fp").hexdigest(),
+        "decision_confirmation_fingerprint": hashlib.sha256(b"prior_dcf").hexdigest(),
+        "revalidated_decision_confirmation_fingerprint": hashlib.sha256(b"prior_dcf").hexdigest(),
+        "decision_consumption_evidence_fingerprint": hashlib.sha256(b"prior_cef").hexdigest(),
+        "revalidated_decision_consumption_evidence_fingerprint": hashlib.sha256(b"prior_cef").hexdigest(),
+        "source_transition_validated": True,
+        "source_review_validated": True,
+        "review_result_fingerprint_revalidated": True,
+        "source_diff_revalidated": True,
+        "current_workspace_revalidated": True,
+        "current_diff_regenerated": True,
+        "ordered_scope_revalidated": True,
+        "aggregate_evidence_fingerprint_revalidated": True,
+        "decision_fingerprint_revalidated": True,
+        "decision_consumption_fingerprint_revalidated": True,
+        "decision_not_expired_at_freshness_check": True,
+        "decision_not_revoked_after_consumption": True,
+        "single_decision_consumption_validated": True,
+        "evidence_fresh": True,
+        "replay_check_completed": True,
+        "prior_freshness_validation_detected": False,
+        "continuation_guardrail_eligible": True,
+        "bounded_rework_guardrail_eligible": False,
+        "gate_allows_protected_transition_guardrail": True,
+        "gate_allows_write": False,
+        "freshness_evidence_fingerprint": fp,
+        "blocked_reasons": [],
+        "continuation_started": False,
+        "rework_started": False,
+        "approval_request_created": False,
+        "legacy_approval_decision_created": False,
+        "main_project_file_written": False,
+        "sandbox_file_written": False,
+        "manifest_file_written": False,
+        "diff_file_written": False,
+        "patch_applied": False,
+        "git_write_performed": False,
+        "worktree_created": False,
+        "worker_started": False,
+        "task_created": False,
+        "run_created": False,
+        "ai_project_director_total_loop": "Partial",
+    }
+
+    # Compute the real fingerprint using the public seam
+    revalidation = (
+        ProjectDirectorProtectedTransitionEvidenceFreshnessService
+        .revalidate_persisted_protected_transition_freshness_fingerprint(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_freshness_message_id=uuid4(),
+            source_freshness_action=action,
+        )
+    )
+    if not revalidation.blocked_reasons:
+        action["freshness_evidence_fingerprint"] = revalidation.freshness_evidence_fingerprint
+
+    return action
+
+
+def _persist_prior_e_message(
+    session: Session,
+    action: dict[str, Any],
+    seq_no: int,
+) -> None:
+    """Persist a structurally valid prior E message for replay testing."""
+    session.add(
+        ProjectDirectorMessageTable(
+            id=uuid4(),
+            session_id=SESSION_ID,
+            role="assistant",
+            content="Prior freshness validation.",
+            sequence_no=seq_no,
+            intent="protected_transition_evidence_freshness",
+            source="system",
+            source_detail=P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL,
+            suggested_actions_json=json.dumps([action]),
+            requires_confirmation=False,
+            risk_level="high",
+            related_project_id=PROJECT_ID,
+            related_task_id=TASK_ID,
+        )
+    )
+    session.commit()
+
+
 # ══════════════════════════════════════════════════════════════════════
 # 10. TestReplayAndPagination
 # ══════════════════════════════════════════════════════════════════════
@@ -2197,94 +2449,166 @@ class TestReplayAndPagination:
         assert count == 1
         verify.close()
 
-    def test_three_replay_keys(self, db_engine: Any) -> None:
-        """Three independent replay keys: transition_message_id,
-        transition_record_id, and review_message_id."""
+    def test_replay_by_transition_message_id_only(self, db_engine: Any) -> None:
+        """Replay detected when only source_transition_message_id matches."""
         SessionLocal = _make_session_factory(db_engine)
         consumption_msg_id = _seed_full_human_chain(SessionLocal)
 
-        svc1, s1 = _make_e_service(SessionLocal)
-        r1 = svc1.prepare_protected_transition_evidence_freshness_gate(
+        # Get review message ID from D1 package via D4→D2→D1 chain
+        session = SessionLocal()
+        d4_row = session.get(ProjectDirectorMessageTable, consumption_msg_id)
+        d4_action = json.loads(d4_row.suggested_actions_json)[0]
+        d2_msg_id = UUID(d4_action["source_decision_message_id"])
+        d2_row = session.get(ProjectDirectorMessageTable, d2_msg_id)
+        d2_action = json.loads(d2_row.suggested_actions_json)[0]
+        pkg_msg_id = UUID(d2_action["source_package_message_id"])
+        pkg_row = session.get(ProjectDirectorMessageTable, pkg_msg_id)
+        pkg_action = json.loads(pkg_row.suggested_actions_json)[0]
+        current_review_msg_id = UUID(pkg_action["source_review_message_id"])
+
+        # Build a prior E action with matching transition_message_id but different record/review IDs
+        now = datetime.now(timezone.utc)
+        prior_action = _build_prior_e_action(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
-            source_message_id=consumption_msg_id,
+            transition_message_id=consumption_msg_id,  # MATCH
+            transition_record_id=uuid4(),  # DIFFERENT
+            review_message_id=uuid4(),  # DIFFERENT
+            review_msg_id=current_review_msg_id,
+            validated_at=now,
         )
-        assert r1.result.freshness_status == "ready"
-        s1.close()
+        _persist_prior_e_message(session, prior_action, seq_no=9000)
+        session.close()
 
-        svc2, s2 = _make_e_service(SessionLocal)
-        r2 = svc2.prepare_protected_transition_evidence_freshness_gate(
+        # Call E on the same source
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
+        )
+        assert e_result.result.freshness_status == "blocked"
+        assert e_result.result.prior_freshness_validation_detected is True
+        assert "protected_transition_freshness_already_validated" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 1  # Only the prior, not a new one
+        verify.close()
+
+    def test_replay_by_transition_record_id_only(self, db_engine: Any) -> None:
+        """Replay detected when only source_transition_record_id matches."""
+        SessionLocal = _make_session_factory(db_engine)
+        consumption_msg_id = _seed_full_human_chain(SessionLocal)
+
+        # First call E to get the record_id
+        svc0, s0 = _make_e_service(SessionLocal)
+        r0 = svc0.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
+        )
+        assert r0.result.freshness_status == "ready"
+        record_id = r0.result.source_transition_record_id
+        s0.close()
+
+        # Remove the E message we just created so we can test with a prior
+        session = SessionLocal()
+        session.execute(
+            text("DELETE FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        )
+        session.commit()
+
+        # Build prior E with matching record_id but different transition/review message IDs
+        d4_row = session.get(ProjectDirectorMessageTable, consumption_msg_id)
+        d4_action = json.loads(d4_row.suggested_actions_json)[0]
+        d2_msg_id = UUID(d4_action["source_decision_message_id"])
+        d2_row = session.get(ProjectDirectorMessageTable, d2_msg_id)
+        d2_action = json.loads(d2_row.suggested_actions_json)[0]
+        pkg_msg_id = UUID(d2_action["source_package_message_id"])
+        pkg_row = session.get(ProjectDirectorMessageTable, pkg_msg_id)
+        pkg_action = json.loads(pkg_row.suggested_actions_json)[0]
+        current_review_msg_id = UUID(pkg_action["source_review_message_id"])
+
+        now = datetime.now(timezone.utc)
+        prior_action = _build_prior_e_action(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
-            source_message_id=consumption_msg_id,
+            transition_message_id=uuid4(),  # DIFFERENT
+            transition_record_id=record_id,  # MATCH
+            review_message_id=uuid4(),  # DIFFERENT
+            review_msg_id=current_review_msg_id,
+            validated_at=now,
         )
-        assert r2.result.freshness_status == "blocked"
-        assert r2.result.prior_freshness_validation_detected is True
-        s2.close()
+        _persist_prior_e_message(session, prior_action, seq_no=9000)
+        session.close()
 
-    def test_replay_source_transition_message_id(self, db_engine: Any) -> None:
-        """Replay detected via source_transition_message_id."""
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
+        )
+        assert e_result.result.freshness_status == "blocked"
+        assert e_result.result.prior_freshness_validation_detected is True
+        assert "protected_transition_freshness_already_validated" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
+
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 1
+        verify.close()
+
+    def test_replay_by_review_message_id_only(self, db_engine: Any) -> None:
+        """Replay detected when only source_review_message_id matches."""
         SessionLocal = _make_session_factory(db_engine)
         consumption_msg_id = _seed_full_human_chain(SessionLocal)
 
-        svc, s1 = _make_e_service(SessionLocal)
-        r1 = svc.prepare_protected_transition_evidence_freshness_gate(
+        session = SessionLocal()
+        d4_row = session.get(ProjectDirectorMessageTable, consumption_msg_id)
+        d4_action = json.loads(d4_row.suggested_actions_json)[0]
+        d2_msg_id = UUID(d4_action["source_decision_message_id"])
+        d2_row = session.get(ProjectDirectorMessageTable, d2_msg_id)
+        d2_action = json.loads(d2_row.suggested_actions_json)[0]
+        pkg_msg_id = UUID(d2_action["source_package_message_id"])
+        pkg_row = session.get(ProjectDirectorMessageTable, pkg_msg_id)
+        pkg_action = json.loads(pkg_row.suggested_actions_json)[0]
+        current_review_msg_id = UUID(pkg_action["source_review_message_id"])
+
+        now = datetime.now(timezone.utc)
+        prior_action = _build_prior_e_action(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            transition_message_id=uuid4(),  # DIFFERENT
+            transition_record_id=uuid4(),  # DIFFERENT
+            review_message_id=current_review_msg_id,  # MATCH
+            review_msg_id=current_review_msg_id,
+            validated_at=now,
+        )
+        _persist_prior_e_message(session, prior_action, seq_no=9000)
+        session.close()
+
+        e_svc, e_sess = _make_e_service(SessionLocal)
+        e_result = e_svc.prepare_protected_transition_evidence_freshness_gate(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
         )
-        assert r1.result.freshness_status == "ready"
-        s1.close()
+        assert e_result.result.freshness_status == "blocked"
+        assert e_result.result.prior_freshness_validation_detected is True
+        assert "protected_transition_freshness_already_validated" in e_result.result.blocked_reasons
+        assert e_result.message is None
+        e_sess.close()
 
-        # Second call with same source -> blocked
-        svc2, s2 = _make_e_service(SessionLocal)
-        r2 = svc2.prepare_protected_transition_evidence_freshness_gate(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
-        )
-        assert r2.result.freshness_status == "blocked"
-        assert r2.result.prior_freshness_validation_detected is True
-        assert r2.message is None
-        s2.close()
-
-    def test_replay_source_transition_record_id(self, db_engine: Any) -> None:
-        """Replay detected via source_transition_record_id (handoff_id)."""
-        SessionLocal = _make_session_factory(db_engine)
-        consumption_msg_id = _seed_full_human_chain(SessionLocal)
-
-        svc, s1 = _make_e_service(SessionLocal)
-        r1 = svc.prepare_protected_transition_evidence_freshness_gate(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
-        )
-        assert r1.result.freshness_status == "ready"
-        record_id = r1.result.source_transition_record_id
-        s1.close()
-
-        # Verify that the same source_transition_record_id triggers replay.
-        svc2, s2 = _make_e_service(SessionLocal)
-        r2 = svc2.prepare_protected_transition_evidence_freshness_gate(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
-        )
-        assert r2.result.freshness_status == "blocked"
-        assert r2.result.prior_freshness_validation_detected is True
-        s2.close()
-
-    def test_replay_source_review_message_id(self, db_engine: Any) -> None:
-        """Replay detected via source_review_message_id."""
-        SessionLocal = _make_session_factory(db_engine)
-        consumption_msg_id = _seed_full_human_chain(SessionLocal)
-
-        svc, s1 = _make_e_service(SessionLocal)
-        r1 = svc.prepare_protected_transition_evidence_freshness_gate(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
-        )
-        assert r1.result.freshness_status == "ready"
-        s1.close()
-
-        svc2, s2 = _make_e_service(SessionLocal)
-        r2 = svc2.prepare_protected_transition_evidence_freshness_gate(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=consumption_msg_id,
-        )
-        assert r2.result.freshness_status == "blocked"
-        assert r2.result.prior_freshness_validation_detected is True
-        s2.close()
+        verify = SessionLocal()
+        count = verify.execute(
+            text("SELECT COUNT(*) FROM project_director_messages WHERE source_detail = :sd"),
+            {"sd": P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 1
+        verify.close()
 
 
 # ══════════════════════════════════════════════════════════════════════
