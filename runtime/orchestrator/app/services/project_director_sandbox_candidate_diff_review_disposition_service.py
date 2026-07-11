@@ -86,6 +86,23 @@ class ComputedSandboxCandidateDiffReviewDisposition:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedPersistedReviewResultFingerprint:
+    """Pure revalidation result for one exact persisted P21-C review message."""
+
+    review_result_fingerprint: str
+    blocked_reasons: list[str]
+    source_preflight_message_id: UUID | None = None
+    source_diff_message_id: UUID | None = None
+    requested_reviewer_executor: str = ""
+    source_diff_sha256: str = ""
+    review_prompt_sha256: str = ""
+    review_scope_paths: list[str] | None = None
+    review_output_schema_version: str = ""
+    verdict: str = ""
+    risk_level: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class _ValidatedReviewEvidence:
     source_preflight_message_id: UUID
     source_diff_message_id: UUID
@@ -119,6 +136,56 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
+
+    @classmethod
+    def revalidate_persisted_review_result_fingerprint(
+        cls,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_message_id: UUID,
+        source_review_message: ProjectDirectorMessage | None,
+    ) -> RevalidatedPersistedReviewResultFingerprint:
+        """Rebuild the D-B fingerprint without persistence or disposition work."""
+
+        blocked_reasons: list[str] = []
+        review_action = cls._source_review_action(
+            source_review_message=source_review_message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            blocked_reasons=blocked_reasons,
+        )
+        evidence = cls._validated_review_evidence(
+            review_action,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            blocked_reasons=blocked_reasons,
+        )
+        stable_blocked_reasons = cls._dedupe(blocked_reasons)
+        if stable_blocked_reasons or evidence is None:
+            return RevalidatedPersistedReviewResultFingerprint(
+                review_result_fingerprint="",
+                blocked_reasons=stable_blocked_reasons,
+            )
+
+        return RevalidatedPersistedReviewResultFingerprint(
+            review_result_fingerprint=cls._review_result_fingerprint(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=source_review_message_id,
+                evidence=evidence,
+            ),
+            blocked_reasons=[],
+            source_preflight_message_id=evidence.source_preflight_message_id,
+            source_diff_message_id=evidence.source_diff_message_id,
+            requested_reviewer_executor=evidence.requested_reviewer_executor,
+            source_diff_sha256=evidence.source_diff_sha256,
+            review_prompt_sha256=evidence.review_prompt_sha256,
+            review_scope_paths=list(evidence.review_scope_paths),
+            review_output_schema_version=evidence.review_output_schema_version,
+            verdict=evidence.verdict,
+            risk_level=evidence.risk_level,
+        )
 
     def compute_candidate_diff_review_disposition(
         self,
@@ -612,5 +679,6 @@ __all__ = (
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_ACTION_TYPE",
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_SOURCE_DETAIL",
     "ProjectDirectorSandboxCandidateDiffReviewDispositionService",
+    "RevalidatedPersistedReviewResultFingerprint",
     "REVIEW_DISPOSITION_SCHEMA_VERSION",
 )
