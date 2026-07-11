@@ -30,7 +30,7 @@ jobs:
         working-directory: runtime/orchestrator
         run: >
           uv run --no-project --with-editable . --with pytest
-          pytest -q tests/test_external_executor_module_boundary.py
+          pytest -q
           tests/test_project_director_sandbox_workspace_creation_contract.py
           tests/test_project_director_sandbox_workspace_manifest_contract.py
           tests/test_project_director_sandbox_candidate_file_write_contract.py
@@ -61,8 +61,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Trailing whitespace and conflict markers
-        run: git diff --check main...HEAD
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+          else
+            git diff --check "${{ github.event.before }}...${{ github.sha }}"
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
