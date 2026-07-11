@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, P21-C, P21-D-A, P21-D-B, P21-D-C1, P21-D-C2, P21-D-C3, P21-D-D1, P21-D-D2, P21-D-D3, P21-D-D4, and P21-D-E evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, P21-C, P21-D-A, P21-D-B, P21-D-C1, P21-D-C2, P21-D-C3, P21-D-D1, P21-D-D2, P21-D-D3, P21-D-D4, P21-D-E, and P22 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C/P21-D-A/P21-D-B/P21-D-C1/P21-D-C2/P21-D-C3/P21-D-D1/P21-D-D2/P21-D-D3/P21-D-D4/P21-D-E 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C/P21-D-A/P21-D-B/P21-D-C1/P21-D-C2/P21-D-C3/P21-D-D1/P21-D-D2/P21-D-D3/P21-D-D4/P21-D-E/P22 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -2629,3 +2629,170 @@ APPROVE_CONTINUE does not authorize Git write.
 ### Future Stage Boundary
 
 P21-D is now Closed / Pass. This does not authorize product runtime Git write. The next stage must be decided by AI Project Director after re-inspecting the latest origin/main. Do not define P22. Do not name a future real Git write implementation stage. Do not claim Git write is now authorized.
+
+---
+
+## P22 Post-Review Automation Orchestrator
+
+### Gate
+
+- P22-A initial design: Closed / Pass
+- P22-A-R1 replay design hardening: Closed / Pass
+- P22-B production implementation: Closed / Pass after R1
+- P22-C verification: Closed / Pass with verification note
+- P22 overall: Closed / Pass with verification note
+- Product runtime Git write: Forbidden
+- AI Project Director total loop: Partial
+
+### Key Commits
+
+- `efba3b475bbaee5c811ce4443ff2591e01f438ca` — `docs: design p22 post-review automation orchestrator`
+- `1f57734cf5351567dc4e1205f887de8a013c5cd9` — `docs: harden p22 orchestrator replay design`
+- `3939285dd21251baece9e8901fa6335b7b961d63` — `backend: add post-review automation orchestrator`
+- `8662de039b7adc85bd01b86ce8da3f6418d948a7` — `test: verify post-review automation orchestrator`
+- `3a22170233fc5354e59aef3118fd8f7af42fa2d8` — `backend: fix p22 disposition replay evidence`
+- `02cafc5a738392a52080b753f5df889612db36e8` — `test: reverify p22 disposition replay fix`
+- `9aeae7bd467018862e7cce75b9ed7b94a63809dd` — `test: repair p22 freshness auto-chain fixture`
+
+### Implemented Capability
+
+Persisted P21-C readonly review result → P22 unified post-review orchestration entry point → D-B deterministic disposition.
+
+Automatic path:
+
+```text
+AUTO_CONTINUE / AUTO_REWORK
+→ D-B
+→ C1 atomic consumption preflight
+→ C2 disposition consumption
+→ C3 bounded handoff
+→ E freshness gate
+→ ready_for_future_transition
+```
+
+Human escalation path:
+
+```text
+ESCALATE_TO_HUMAN
+→ D-B
+→ D1 human escalation package
+→ waiting_for_human
+→ stop
+```
+
+`ready_for_future_transition` is guardrail readiness for a future transition. It does not execute continuation. It does not execute rework. `waiting_for_human` does not mean a human decision has been recorded. P22 has no real transition executor.
+
+### Replay and Evidence Contract
+
+- read-before-invoke
+- full paginated scan
+- strict source / session / task / message / action / schema binding
+- only valid evidence may be adopted
+- corrupted, missing, or conflicting evidence fails closed
+- D-B uses SQLite `BEGIN IMMEDIATE` to protect replay / create
+- P22 summary uses append-only `ProjectDirectorMessage`
+- sequential replay returns existing evidence
+- concurrent orchestration ultimately accepts only the single valid chain and summary
+- blocked path does not call subsequent steps
+
+The multi-step chain does not run inside a single global database transaction.
+
+### P22-BUG-001 Record
+
+Initial D-B persisted action omitted `blocked_reasons`. P22 reconstructed all D-B DomainModel fields with `action.get(field_name)`. The missing field became `None` and failed strict Pydantic reconstruction. Fresh successful orchestration therefore could not persist a valid P22 summary.
+
+Fix (`3a221702`): `_disposition_action` now persists `"blocked_reasons": list(result.blocked_reasons)`. Computed disposition persists `[]`.
+
+This is not a fingerprint algorithm change.
+
+### Test Fixture Regression Record
+
+After the production fix, seven freshness adjacent tests initially returned `review_disposition_replay_conflict`.
+
+Root cause: freshness test helper manually pre-seeded an old incomplete D-B action, then invoked the real D-B service. The old action lacked `blocked_reasons` and failed strict replay reconstruction.
+
+Fix (`9aeae7bd`): removed manual D-B disposition pre-seeding and allowed the real D-B service to create the disposition evidence.
+
+This was a test fixture / production contract mismatch. No fingerprint algorithm was changed. No replay validation was relaxed. No production code was modified. No xfail, xpass, or skip was used.
+
+### Verification Evidence
+
+```text
+P22 core verification:
+92 passed
+0 failed
+0 xfailed
+0 xpassed
+
+D-B + P22 combined:
+183 passed
+0 failed
+0 xfailed
+0 xpassed
+
+P22-C-R2 original failing nodes:
+7 passed
+
+Full E freshness:
+112 passed
+
+Adjacent D-B/C1/C2/C3/D1/E regression:
+710 passed
+0 failed
+0 xfailed
+0 xpassed
+
+Final P22 core rerun:
+183 passed
+0 failed
+0 xfailed
+0 xpassed
+```
+
+One Pydantic deprecation warning was observed (accessing `model_fields` on instance). This is not a test failure.
+
+Verification note: These pytest counts are Mimocode local execution evidence. The AI Project Director independently inspected origin/main, commit scope, production fix, test fixture correction, and test source. No GitHub Actions workflow run/status was available for the direct-push commits. These results must not be labeled as GitHub CI.
+
+### Permanent Boundary Record
+
+```text
+continuation_started = false
+rework_started = false
+human_decision_recorded = false
+task_created = false
+run_created = false
+worker_started = false
+worktree_created = false
+main_project_file_written = false
+sandbox_file_written = false
+manifest_file_written = false
+diff_file_written = false
+patch_applied = false
+git_write_performed = false
+gate_allows_write = false
+product_runtime_git_write_allowed = false
+ai_project_director_total_loop = Partial
+```
+
+No new API. No frontend. No DB migration. No Task / Run / Worker. No real continuation. No real rework. No automatic patch apply. No product runtime git add / commit / push. No PR / merge / branch mutation. No automatic CI trigger.
+
+### Final Stage Status
+
+```text
+P22-A: Closed / Pass
+P22-B: Closed / Pass
+P22-C: Closed / Pass with verification note
+P22 overall: Closed / Pass with verification note
+
+AUTO_CONTINUE real execution: Not started
+AUTO_REWORK real execution: Not started
+Human decision recording in P22: Not started
+Product runtime Git write: Forbidden
+AI Project Director total loop: Partial
+```
+
+### Future Boundary
+
+P22 closure does not authorize actual continuation, actual rework, patch application, Task/Run/Worker creation, or Git write.
+
+The next stage must be selected by the AI Project Director after independently re-inspecting the latest origin/main.
