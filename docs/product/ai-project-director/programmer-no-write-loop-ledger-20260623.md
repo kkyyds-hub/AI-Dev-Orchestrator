@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, P21-C, P21-D-A, P21-D-B, P21-D-C1, P21-D-C2, P21-D-C3, and P21-D-D1 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, P21-C, P21-D-A, P21-D-B, P21-D-C1, P21-D-C2, P21-D-C3, P21-D-D1, P21-D-D2, P21-D-D3, P21-D-D4, and P21-D-E evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C/P21-D-A/P21-D-B/P21-D-C1/P21-D-C2/P21-D-C3/P21-D-D1 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C/P21-D-A/P21-D-B/P21-D-C1/P21-D-C2/P21-D-C3/P21-D-D1/P21-D-D2/P21-D-D3/P21-D-D4/P21-D-E 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -1697,6 +1697,439 @@ Contract:
 
 ---
 
+## P21-D-D2 Structured Human Escalation Decision Record
+
+### Production Commit
+
+- `9c1cdfdd60cc8440b21fe58bf18b0dfb96fd176b` — `backend: add structured human escalation decision`
+
+### Core Capability
+
+```text
+input: exact D1 human escalation package
+accepts structured action only:
+  APPROVE_CONTINUE
+  REQUEST_REWORK
+  REJECT
+records append-only ProjectDirectorMessage
+actor_type=human
+does not save raw human confirmation text
+does not create ApprovalRequest
+does not create legacy ApprovalDecision
+does not consume decision
+does not execute transition
+```
+
+### Decision Confirmation Fingerprint
+
+```text
+canonical JSON
+sorted keys
+compact separators (",",":")
+UTF-8
+SHA-256
+shared canonical builder between creation and public pure revalidation seam
+```
+
+### Public Seam
+
+```python
+revalidate_persisted_human_escalation_decision_fingerprint(
+    *,
+    session_id: UUID,
+    source_task_id: UUID,
+    source_decision_message_id: UUID,
+    source_decision_action: dict[str, Any],
+)
+```
+
+### Test Evidence
+
+```text
+D2 contract tests: 127 passed
+real Barrier concurrency:
+  one recorded
+  one blocked
+  one D2 message
+three independent replay keys covered
+100+ message pagination covered
+```
+
+### Gate
+
+- P21-D-D2-Codex: Closed / Pass — static review
+- P21-D-D2-Mimocode: Closed / Pass with verification note
+- P21-D-D2 overall: Closed / Pass with verification note
+
+---
+
+## P21-D-D3 Human Decision Lifecycle — Revoke and Consumption Preflight
+
+### Production Commit
+
+- `c778085932ebd9d1d637817b419f5012673734dd` — `backend: add human decision lifecycle guard`
+
+### Public Methods
+
+```python
+revoke_human_escalation_decision(
+    *,
+    session_id: UUID,
+    source_task_id: UUID,
+    source_message_id: UUID,
+    actor: str,
+    client_request_id: str,
+)
+
+prepare_human_escalation_decision_consumption_preflight(
+    *,
+    session_id: UUID,
+    source_task_id: UUID,
+    source_message_id: UUID,
+    evaluated_at: datetime | None = None,
+)
+```
+
+### Capability Record
+
+```text
+revocation status: revoked / blocked
+preflight status: ready / blocked
+
+APPROVE_CONTINUE → continuation eligible
+REQUEST_REWORK → rework eligible
+REJECT → terminal rejection preflight
+
+evaluated_at >= decision_expires_at → blocked
+revoked decision → blocked
+already consumed decision → blocked
+append-only revocation
+no automatic expiry message
+```
+
+### Test Evidence
+
+```text
+D3 contract tests: 64 passed
+revoke Barrier:
+  one revoked
+  one blocked
+  one revocation
+preflight Barrier:
+  one ready
+  one blocked
+  one ready preflight
+expiry equality boundary covered
+pagination and malformed history fail-closed covered
+```
+
+### Gate
+
+- P21-D-D3-Codex: Closed / Pass — static review
+- P21-D-D3-Mimocode: Closed / Pass with verification note
+- P21-D-D3 overall: Closed / Pass with verification note
+
+---
+
+## P21-D-D4 Atomic Human Decision Consumption
+
+### Production Commit
+
+- `0e6b3e9ecc4485a81966f683cdc6f40d602cf4b5` — `backend: add atomic human decision consumption`
+
+### Public Methods
+
+```python
+consume_human_escalation_decision(
+    *,
+    session_id: UUID,
+    source_task_id: UUID,
+    source_message_id: UUID,
+    consumed_at: datetime | None = None,
+)
+
+revalidate_persisted_human_escalation_decision_consumption_fingerprint(...)
+```
+
+### Transition Mapping
+
+```text
+APPROVE_CONTINUE → CONTINUE_GUARDRAIL
+REQUEST_REWORK → BOUNDED_REWORK_GUARDRAIL
+REJECT → TERMINAL_REJECTION
+```
+
+`TERMINAL_REJECTION` does not open protected transition. `CONTINUE_GUARDRAIL` and `BOUNDED_REWORK_GUARDRAIL` are guardrail eligibility only — neither actually starts continuation or rework.
+
+### Atomicity
+
+```text
+full flow inside SQLite BEGIN IMMEDIATE
+reloads D3 preflight and D2 decision
+revalidates decision fingerprint
+rechecks expiry, revocation, prior consumption
+concurrent consumption of same decision produces exactly one D4 record
+```
+
+### Test Evidence
+
+```text
+D4 contract tests: 59 passed
+real Barrier:
+  one consumed
+  one blocked
+  one D4 consumption
+no database is locked leak
+```
+
+### Gate
+
+- P21-D-D4-Codex: Closed / Pass — static review
+- P21-D-D4-Mimocode: Closed / Pass with verification note
+- P21-D-D4 overall: Closed / Pass with verification note
+- P21-D-D overall: Closed / Pass with verification note
+
+---
+
+## P21-D-E Unified Protected Transition Evidence Freshness Gate
+
+### Production Commits
+
+- `c4dbc26215842b6a8ac943f9057034c8bf3fdb6a` — `backend: add protected transition freshness gate`
+- `9f98c8b512f23d00aa4cb0412b8d5c00ddba4bfa` — `backend: align freshness gate package confirmation`
+
+### R1 Production Fix
+
+Initial E shared `_exact_action()` with hardcoded `requires_confirmation=false`. But the D1 package legitimate contract is `requires_confirmation=true`. This caused the real D1→D2→D3→D4→E human chain to be incorrectly blocked.
+
+R1 added `expected_requires_confirmation` per source type:
+
+```text
+C3 handoff: false
+C2 consumption: false
+D4 consumption: false
+D2 decision: false
+D1 package: true
+```
+
+### Public Methods
+
+```python
+prepare_protected_transition_evidence_freshness_gate(
+    *,
+    session_id: UUID,
+    source_task_id: UUID,
+    source_message_id: UUID,
+    validated_at: datetime | None = None,
+)
+
+revalidate_persisted_protected_transition_freshness_fingerprint(...)
+```
+
+### Dual Path
+
+Automatic:
+
+```text
+P21-C review
+→ D-B disposition
+→ C1 preflight
+→ C2 consumption
+→ C3 handoff
+→ E freshness
+```
+
+Human:
+
+```text
+D1 package
+→ D2 decision
+→ D3 preflight
+→ D4 consumption
+→ E freshness
+```
+
+### Automatic Mapping
+
+```text
+AUTO_CONTINUE → CONTINUE_GUARDRAIL
+AUTO_REWORK → BOUNDED_REWORK_GUARDRAIL
+```
+
+### Human Mapping
+
+```text
+APPROVE_CONTINUE → CONTINUE_GUARDRAIL
+REQUEST_REWORK → BOUNDED_REWORK_GUARDRAIL
+REJECT → blocked:
+  terminal_rejection_has_no_protected_transition
+```
+
+### E Revalidation Scope
+
+```text
+exact source transition metadata
+Task / session / project binding
+P21-C review fingerprint
+strict JSON / schema / semantics / evidence scope
+source diff
+trusted current workspace
+current readonly diff
+reviewed / persisted / current diff SHA equality
+reviewed / persisted / current ordered scope equality
+human decision expiry
+post-consumption revocation
+single D4 consumption
+replay keys
+```
+
+### Success Contract
+
+```text
+evidence_fresh=true
+gate_allows_protected_transition_guardrail=true
+gate_allows_write=false
+continuation_started=false
+rework_started=false
+```
+
+Freshness Gate does not execute transitions.
+
+### Test Commits
+
+- `b7153bab4f5ba385222904ec569dd5e5a1470a1a` — `test: verify unified review decision freshness chain`
+- `f4c6d17aacc8bbc9bac1084a213d4433de851a32` — `test: verify freshness confirmation and automatic path`
+- `ddb5168ee772951001b31f0454f3c729159a4d32` — `test: close freshness evidence verification gaps`
+
+### Test Review Process
+
+Initial unified test (b7153bab):
+
+```text
+D2/D3/D4 test evidence passed independent review.
+Initial E test was invalid:
+  success fixture modified D1 package requires_confirmation from true to false
+  no real automatic D-B→C1→C2→C3→E service chain
+  automatic Barrier claim did not match actual test
+```
+
+E test R1 (f4c6d17a):
+
+```text
+removed D1 success fixture tampering
+used untouched D1 package
+added real D-B→C1→C2→C3→E automatic chain
+added human and automatic threading.Barrier concurrency tests
+```
+
+Remaining gaps at R1:
+
+```text
+five confirmation errors not all directly verified at E layer
+three replay keys not truly independent
+automatic path full evidence binding assertions incomplete
+```
+
+E test R2 (ddb5168e):
+
+```text
+five confirmation errors all directly blocked at E layer
+three replay keys each match only one key
+prior E passes Domain and public fingerprint seam
+automatic path补齐 review fingerprint, three diff SHA, three ordered scope, workspace binding
+```
+
+### Final Local Verification Evidence
+
+```text
+E targeted: 112 passed
+D2/D3/D4/E unified: 362 passed
+Adjacent regression: 959 passed
+compileall: passed
+import smoke: passed
+database is locked: not observed
+```
+
+Verification note: These pytest counts are Mimocode local execution evidence. The AI Project Director independently inspected origin/main, commit scope and test source. No GitHub Actions workflow run/status was available for these direct-push commits, so do not label these results as GitHub CI.
+
+### Confirmation Strict Negative Verification
+
+All five confirmation errors directly verified at E layer:
+
+```text
+D1 package requires_confirmation=false
+  → source_human_package_invalid
+  → E message count=0
+
+D2 decision requires_confirmation=true
+  → source_human_decision_invalid
+  → E message count=0
+
+D4 consumption requires_confirmation=true
+  → source_human_consumption_invalid
+  → E message count=0
+
+C2 consumption requires_confirmation=true
+  → source_automatic_consumption_invalid
+  → E message count=0
+
+C3 handoff requires_confirmation=true
+  → source_automatic_handoff_invalid
+  → E message count=0
+```
+
+### Independent Replay Key Verification
+
+Three truly independent tests:
+
+```text
+test_replay_by_transition_message_id_only:
+  prior.source_transition_message_id == current
+  prior.source_transition_record_id != current
+  prior.source_review_message_id != current
+  → blocked, prior_freshness_validation_detected=true
+
+test_replay_by_transition_record_id_only:
+  prior.source_transition_message_id != current
+  prior.source_transition_record_id == current
+  prior.source_review_message_id != current
+  → blocked, prior_freshness_validation_detected=true
+
+test_replay_by_review_message_id_only:
+  prior.source_transition_message_id != current
+  prior.source_transition_record_id != current
+  prior.source_review_message_id == current
+  → blocked, prior_freshness_validation_detected=true
+```
+
+Each prior E constructed via public `revalidate_persisted_protected_transition_freshness_fingerprint` seam, passes Domain reconstruction and fingerprint revalidation.
+
+### Automatic Path Source Binding
+
+```text
+source_transition_message_id == C3 message.id
+source_transition_record_id == C3 handoff_id
+source_handoff_message_id == C3 message.id
+source_disposition_consumption_message_id == C2 message.id
+disposition_consumption_id == C2 consumption_id
+source_disposition_message_id == D-B message.id
+source_review_message_id == P21-C review message.id
+source_diff_message_id == P21-C bound diff message.id
+review_result_fingerprint matches revalidated
+reviewed_diff_sha256 == persisted_source_diff_sha256 == current_diff_sha256
+reviewed_scope_paths == persisted_source_scope_paths == current_scope_paths
+workspace_path == trusted workspace
+workspace_path_within_root == true
+```
+
+### Gate
+
+- P21-D-E-Codex: Closed / Pass — static review
+- P21-D-E-Mimocode: Closed / Pass with verification note
+- P21-D-E overall: Closed / Pass with verification note
+
+---
+
 ## P21-D Stage Design — Automated Review Disposition, Human Escalation & Evidence Freshness Gate
 
 ### Core Product Principle
@@ -1923,9 +2356,7 @@ It must not mean: Git write authorized.
 - **P21-D-D**: Human Escalation Decision Record
 - **P21-D-E**: Protected Transition Evidence Freshness Gate
 
-P21-D-A (current task) only locks the contract.
-
-P21-D-B / P21-D-C / P21-D-D / P21-D-E must remain Not started.
+P21-D-A locked the contract. P21-D-B through P21-D-E are now Closed / Pass.
 
 ### P21-D-B Contract — Automated Review Disposition Gate
 
@@ -2180,12 +2611,15 @@ P21-D Pass does not open product runtime Git write.
 - P21-D-C3: Closed / Pass
 - P21-D-C overall: Closed / Pass
 - P21-D-D1: Closed / Pass with verification note
-- P21-D-D overall: Partial
-- P21-D-E: Not started
-- P21-D overall: Partial
+- P21-D-D2: Closed / Pass with verification note
+- P21-D-D3: Closed / Pass with verification note
+- P21-D-D4: Closed / Pass with verification note
+- P21-D-D overall: Closed / Pass with verification note
+- P21-D-E: Closed / Pass with verification note
+- P21-D overall: Closed / Pass with verification note
 - Product runtime Git write: Forbidden
 - AI Project Director total loop: Partial
 
 ### Future Stage Boundary
 
-Only after P21-D fully completes and passes independent Gate will AI Project Director re-inspect latest origin/main and decide whether the next stage enters future Git write design. Do not define P22. Do not name future real Git write implementation stage.
+P21-D is now Closed / Pass. This does not authorize product runtime Git write. The next stage must be decided by AI Project Director after re-inspecting the latest origin/main. Do not define P22. Do not name a future real Git write implementation stage. Do not claim Git write is now authorized.
