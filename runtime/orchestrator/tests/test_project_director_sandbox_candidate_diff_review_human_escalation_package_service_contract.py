@@ -2322,36 +2322,45 @@ class TestAggregateFingerprint:
         SL1 = _make_session_factory(engine1)
         SL2 = _make_session_factory(engine2)
 
-        review_msg_id1 = uuid4()
-        disp_msg_id1 = uuid4()
-        review_msg_id2 = uuid4()
-        disp_msg_id2 = uuid4()
+        # Fixed IDs shared across both databases for this case.
+        case_review_msg_id = uuid4()
+        case_disp_msg_id = uuid4()
 
+        # ── baseline ──
         s1 = SL1()
         _seed_base_records(s1)
-        _seed_review_message(s1, review_msg_id=review_msg_id1)
-        _seed_disposition_message(s1, disposition_msg_id=disp_msg_id1, review_msg_id=review_msg_id1)
+        _seed_review_message(s1, review_msg_id=case_review_msg_id)
+        _seed_disposition_message(
+            s1,
+            disposition_msg_id=case_disp_msg_id,
+            review_msg_id=case_review_msg_id,
+        )
         s1.close()
 
         svc1, sess1 = _make_d1_service(SL1)
         r1 = svc1.prepare_human_escalation_package(
             session_id=SESSION_ID, source_task_id=TASK_ID,
-            source_message_id=disp_msg_id1,
+            source_message_id=case_disp_msg_id,
         )
         assert r1.result.package_status == "prepared"
         sess1.close()
 
+        # ── changed ──
         s2 = SL2()
         _seed_base_records(s2)
         changed_action = _valid_review_action(**action_override)
-        _seed_review_message(s2, review_msg_id=review_msg_id2, action=changed_action)
+        _seed_review_message(
+            s2,
+            review_msg_id=case_review_msg_id,
+            action=changed_action,
+        )
         fp2 = _compute_review_fingerprint_from_action(
-            changed_action, source_review_message_id=review_msg_id2,
+            changed_action, source_review_message_id=case_review_msg_id,
         )
         _seed_disposition_message(
             s2,
-            disposition_msg_id=disp_msg_id2,
-            review_msg_id=review_msg_id2,
+            disposition_msg_id=case_disp_msg_id,
+            review_msg_id=case_review_msg_id,
             fingerprint=fp2,
             source_diff_sha256=changed_action.get("source_diff_sha256"),
             review_prompt_sha256=changed_action.get("review_prompt_sha256"),
@@ -2363,12 +2372,38 @@ class TestAggregateFingerprint:
         svc2, sess2 = _make_d1_service(SL2)
         r2 = svc2.prepare_human_escalation_package(
             session_id=SESSION_ID, source_task_id=TASK_ID,
-            source_message_id=disp_msg_id2,
+            source_message_id=case_disp_msg_id,
         )
         assert r2.result.package_status == "prepared"
         sess2.close()
 
-        assert r1.result.aggregate_evidence_fingerprint != r2.result.aggregate_evidence_fingerprint
+        # ── mandatory identity assertions ──
+        assert r1.result.package_status == "prepared"
+        assert r2.result.package_status == "prepared"
+
+        assert r1.result.source_disposition_message_id == (
+            r2.result.source_disposition_message_id
+        )
+        assert r1.result.source_review_message_id == (
+            r2.result.source_review_message_id
+        )
+        assert r1.result.source_preflight_message_id == (
+            r2.result.source_preflight_message_id
+        )
+        assert r1.result.source_diff_message_id == (
+            r2.result.source_diff_message_id
+        )
+        assert r1.result.disposition_id == r2.result.disposition_id
+
+        assert r1.result.escalation_package_id != (
+            r2.result.escalation_package_id
+        )
+
+        # The whole point: different evidence must produce different fingerprint.
+        assert r1.result.aggregate_evidence_fingerprint != (
+            r2.result.aggregate_evidence_fingerprint
+        )
+
         engine1.dispose()
         engine2.dispose()
 
