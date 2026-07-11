@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import json
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.db_tables import ProjectDirectorMessageTable
@@ -24,6 +26,24 @@ class ProjectDirectorMessageRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    @contextmanager
+    def sqlite_immediate_transaction(self) -> Iterator[None]:
+        """Hold a SQLite write reservation from the first transactional read."""
+
+        if self._session.in_transaction():
+            raise ValueError("sqlite immediate transaction requires an idle session")
+        if self._session.get_bind().dialect.name != "sqlite":
+            raise ValueError("sqlite immediate transaction requires SQLite")
+
+        try:
+            self._session.execute(text("BEGIN IMMEDIATE"))
+            yield
+        except BaseException:
+            self._session.rollback()
+            raise
+        else:
+            self._session.commit()
 
     def create(self, message: ProjectDirectorMessage) -> ProjectDirectorMessage:
         row = ProjectDirectorMessageTable(

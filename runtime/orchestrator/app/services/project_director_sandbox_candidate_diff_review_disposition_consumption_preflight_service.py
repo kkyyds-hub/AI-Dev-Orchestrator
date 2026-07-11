@@ -132,6 +132,20 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightSe
                 "disposition consumption preflight repositories are required"
             )
 
+        with self._message_repository.sqlite_immediate_transaction():
+            return self._prepare_candidate_diff_review_disposition_consumption(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_message_id=source_message_id,
+            )
+
+    def _prepare_candidate_diff_review_disposition_consumption(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_message_id: UUID,
+    ) -> PreparedSandboxCandidateDiffReviewDispositionConsumptionPreflight:
         blocked_reasons: list[str] = []
         session_obj = self._session_repository.get_by_id(session_id)
         if session_obj is None:
@@ -271,7 +285,6 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightSe
                 ],
             )
         )
-        self._message_repository.commit()
         return PreparedSandboxCandidateDiffReviewDispositionConsumptionPreflight(
             result=result,
             message=message,
