@@ -971,16 +971,18 @@ class HoldingImmediateTransactionRepository(ProjectDirectorMessageRepository):
 
 
 class AttemptSignalingRepository(ProjectDirectorMessageRepository):
-    """Test-only repo: signals before attempting BEGIN IMMEDIATE."""
+    """Test-only repo: signals before and after entering BEGIN IMMEDIATE."""
 
-    def __init__(self, session, second_writer_attempted):
+    def __init__(self, session, second_writer_attempted, second_writer_entered):
         super().__init__(session)
         self._second_writer_attempted = second_writer_attempted
+        self._second_writer_entered = second_writer_entered
 
     @contextmanager
     def sqlite_immediate_transaction(self):
         self._second_writer_attempted.set()
         with super().sqlite_immediate_transaction():
+            self._second_writer_entered.set()
             yield
 
 
@@ -997,6 +999,8 @@ class TestConcurrentCompetition:
         writer_lock_acquired = threading.Event()
         release_writer = threading.Event()
         second_writer_attempted = threading.Event()
+        second_writer_entered = threading.Event()
+        worker_b_completed = threading.Event()
 
         results = []
         errors = []
@@ -1026,7 +1030,7 @@ class TestConcurrentCompetition:
         def worker_b():
             session = SessionLocal()
             msg_repo = AttemptSignalingRepository(
-                session, second_writer_attempted,
+                session, second_writer_attempted, second_writer_entered,
             )
             sess_repo = ProjectDirectorSessionRepository(session)
             svc = ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService(
@@ -1044,6 +1048,7 @@ class TestConcurrentCompetition:
                 errors.append(f"thread-b:{type(e).__name__}:{e}")
             finally:
                 session.close()
+                worker_b_completed.set()
 
         t_a = threading.Thread(target=worker_a)
         t_a.start()
@@ -1057,18 +1062,25 @@ class TestConcurrentCompetition:
         if not second_writer_attempted.wait(timeout=10):
             raise TimeoutError("thread B did not attempt writer lock")
 
-        future_b_done_before_release = t_b.is_alive()
+        assert not second_writer_entered.wait(timeout=0.25), (
+            "thread B entered SQLite immediate transaction while A still holds lock"
+        )
+        assert not worker_b_completed.is_set(), (
+            "thread B completed before writer release"
+        )
 
         release_writer.set()
 
         t_a.join(timeout=15)
         t_b.join(timeout=15)
 
+        assert second_writer_entered.wait(timeout=0), (
+            "thread B never entered SQLite immediate transaction after A released"
+        )
         assert not t_a.is_alive(), "thread A did not finish"
         assert not t_b.is_alive(), "thread B did not finish"
         assert len(errors) == 0, f"Unexpected errors: {errors}"
         assert len(results) == 2
-        assert future_b_done_before_release, "thread B finished before writer release"
 
         statuses = [r.result.preflight_status for r in results]
         assert statuses.count("ready") == 1
