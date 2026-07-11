@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
+
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
     ProjectDirectorMessageRiskLevel,
@@ -199,6 +201,22 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         if self._session_repository is None or self._message_repository is None:
             raise ValueError("review disposition repositories are required")
 
+        with self._message_repository.sqlite_immediate_transaction():
+            return self._compute_candidate_diff_review_disposition(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_message_id=source_message_id,
+            )
+
+    def _compute_candidate_diff_review_disposition(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_message_id: UUID,
+    ) -> ComputedSandboxCandidateDiffReviewDisposition:
+        """在同一 immediate transaction 内完成校验、防重与创建。"""
+
         blocked_reasons: list[str] = []
         session_obj = self._session_repository.get_by_id(session_id)
         source_review_message = self._message_repository.get_by_id(
@@ -240,6 +258,19 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         disposition_type, disposition_reason, escalation_triggers = (
             self._calculate_disposition(evidence)
         )
+        replay = self._existing_disposition_for_exact_review(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_message_id,
+            review_result_fingerprint=review_result_fingerprint,
+            evidence=evidence,
+            disposition_type=disposition_type,
+            disposition_reason=disposition_reason,
+            escalation_triggers=escalation_triggers,
+        )
+        if replay is not None:
+            return replay
+
         result = ProjectDirectorSandboxCandidateDiffReviewDispositionResult(
             disposition_status="computed",
             disposition_type=disposition_type,
@@ -302,11 +333,170 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
                 created_at=disposition_created_at,
             )
         )
-        self._message_repository.commit()
         return ComputedSandboxCandidateDiffReviewDisposition(
             result=result,
             message=message,
         )
+
+    def _existing_disposition_for_exact_review(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_message_id: UUID,
+        review_result_fingerprint: str,
+        evidence: _ValidatedReviewEvidence,
+        disposition_type: ReviewDispositionType,
+        disposition_reason: str,
+        escalation_triggers: list[str],
+    ) -> ComputedSandboxCandidateDiffReviewDisposition | None:
+        """分页扫描并采用唯一合法的同链 D-B disposition。"""
+
+        matched: list[
+            tuple[
+                ProjectDirectorSandboxCandidateDiffReviewDispositionResult,
+                ProjectDirectorMessage,
+            ]
+        ] = []
+        conflict_detected = False
+        before_message_id: UUID | None = None
+
+        while True:
+            messages, has_more = self._message_repository.list_by_session_id(
+                session_id=session_id,
+                limit=100,
+                before_message_id=before_message_id,
+            )
+            for message in messages:
+                if (
+                    message.source_detail
+                    != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_SOURCE_DETAIL
+                ):
+                    continue
+                action = self._single_action(message)
+                if action is None:
+                    if message.related_task_id == source_task_id:
+                        conflict_detected = True
+                    continue
+                action_review_message_id = action.get("source_review_message_id")
+                if action_review_message_id is None:
+                    if message.related_task_id == source_task_id:
+                        conflict_detected = True
+                    continue
+                if action_review_message_id != str(source_review_message_id):
+                    continue
+                result = self._trusted_replayed_disposition(
+                    message=message,
+                    action=action,
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_review_message_id=source_review_message_id,
+                    review_result_fingerprint=review_result_fingerprint,
+                    evidence=evidence,
+                    disposition_type=disposition_type,
+                    disposition_reason=disposition_reason,
+                    escalation_triggers=escalation_triggers,
+                )
+                if result is None:
+                    conflict_detected = True
+                else:
+                    matched.append((result, message))
+            if not has_more or not messages:
+                break
+            before_message_id = messages[0].id
+
+        if conflict_detected or len(matched) > 1:
+            return ComputedSandboxCandidateDiffReviewDisposition(
+                result=self._blocked_result(
+                    source_review_message_id=source_review_message_id,
+                    blocked_reasons=["review_disposition_replay_conflict"],
+                ),
+                message=None,
+            )
+        if matched:
+            result, message = matched[0]
+            return ComputedSandboxCandidateDiffReviewDisposition(
+                result=result,
+                message=message,
+            )
+        return None
+
+    @staticmethod
+    def _single_action(message: ProjectDirectorMessage) -> dict[str, Any] | None:
+        if len(message.suggested_actions) != 1:
+            return None
+        action = message.suggested_actions[0]
+        return action if isinstance(action, dict) else None
+
+    @staticmethod
+    def _trusted_replayed_disposition(
+        *,
+        message: ProjectDirectorMessage,
+        action: dict[str, Any],
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_message_id: UUID,
+        review_result_fingerprint: str,
+        evidence: _ValidatedReviewEvidence,
+        disposition_type: ReviewDispositionType,
+        disposition_reason: str,
+        escalation_triggers: list[str],
+    ) -> ProjectDirectorSandboxCandidateDiffReviewDispositionResult | None:
+        """严格重建 D-B domain，任何绑定异常均视为 replay conflict。"""
+
+        if (
+            message.session_id != session_id
+            or message.role != ProjectDirectorMessageRole.ASSISTANT
+            or message.source != ProjectDirectorMessageSource.SYSTEM
+            or message.intent != "sandbox_candidate_diff_review_disposition"
+            or message.related_task_id != source_task_id
+            or message.risk_level != ProjectDirectorMessageRiskLevel.HIGH
+            or action.get("type")
+            != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_ACTION_TYPE
+            or action.get("schema_version") != REVIEW_DISPOSITION_SCHEMA_VERSION
+            or action.get("session_id") != str(session_id)
+            or action.get("source_task_id") != str(source_task_id)
+            or action.get("source_review_message_id")
+            != str(source_review_message_id)
+            or action.get("review_result_fingerprint")
+            != review_result_fingerprint
+            or action.get("source_preflight_message_id")
+            != str(evidence.source_preflight_message_id)
+            or action.get("source_diff_message_id")
+            != str(evidence.source_diff_message_id)
+            or action.get("requested_reviewer_executor")
+            != evidence.requested_reviewer_executor
+            or action.get("source_diff_sha256") != evidence.source_diff_sha256
+            or action.get("review_prompt_sha256") != evidence.review_prompt_sha256
+            or action.get("review_scope_paths") != evidence.review_scope_paths
+            or action.get("review_output_schema_version")
+            != evidence.review_output_schema_version
+            or action.get("source_review_verdict") != evidence.verdict
+            or action.get("source_review_risk_level") != evidence.risk_level
+        ):
+            return None
+        try:
+            UUID(str(action.get("disposition_id")))
+            result = ProjectDirectorSandboxCandidateDiffReviewDispositionResult.model_validate(
+                {
+                    field_name: action.get(field_name)
+                    for field_name in ProjectDirectorSandboxCandidateDiffReviewDispositionResult.model_fields
+                }
+            )
+        except (ValidationError, ValueError, TypeError):
+            return None
+        if (
+            result.disposition_status != "computed"
+            or result.source_review_message_id != source_review_message_id
+            or result.review_result_fingerprint != review_result_fingerprint
+            or result.disposition_type != disposition_type
+            or result.disposition_reason != disposition_reason
+            or result.escalation_triggers != escalation_triggers
+            or result.evaluated_trigger_kinds != EVALUATED_TRIGGER_KINDS
+            or result.deferred_trigger_kinds != DEFERRED_TRIGGER_KINDS
+        ):
+            return None
+        return result
 
     @staticmethod
     def _source_review_action(
