@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -72,6 +73,11 @@ class SpyMessageRepo:
         self.create_calls: list[ProjectDirectorMessage] = []
         self.commit_calls = 0
 
+    @contextmanager
+    def sqlite_immediate_transaction(self):
+        yield
+        self.commit()
+
     def get_by_id(self, mid):
         return self._messages.get(mid)
 
@@ -80,10 +86,21 @@ class SpyMessageRepo:
 
     def create(self, message):
         self.create_calls.append(message)
+        self._messages[message.id] = message
         return message
 
     def commit(self):
         self.commit_calls += 1
+
+    def list_by_session_id(
+        self, *, session_id: UUID, limit: int = 100, before_message_id: UUID | None = None
+    ) -> tuple[list[ProjectDirectorMessage], bool]:
+        msgs = [m for m in self._messages.values() if m.session_id == session_id]
+        msgs.sort(key=lambda m: m.sequence_no, reverse=True)
+        if before_message_id is not None:
+            idx = next((i for i, m in enumerate(msgs) if m.id == before_message_id), len(msgs))
+            msgs = msgs[idx:]
+        return msgs[:limit], len(msgs) > limit
 
 
 class FakeSessionRepo:
@@ -524,7 +541,6 @@ class TestAdversarialBlocked:
         assert reason in result.result.blocked_reasons
         assert result.message is None
         assert msg_repo.create_calls == []
-        assert msg_repo.commit_calls == 0
 
     def test_session_missing(self) -> None:
         svc, msg_repo = _build_service(
@@ -919,7 +935,6 @@ class TestBlockedNoPersist:
         assert result.result.disposition_status == "blocked"
         assert result.message is None
         assert msg_repo.create_calls == []
-        assert msg_repo.commit_calls == 0
 
 
 # ══════════════════════════════════════════════════════════════════════
