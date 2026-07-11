@@ -178,54 +178,59 @@ Once a step succeeds, its message is persisted. Recovery reads the existing mess
 
 ## 8. Unified Result Contract
 
+Uses project-standard `DomainModel` (Pydantic) with `Literal`, `Field`, `field_validator`, `model_validator`.
+
 ```python
-@dataclass(frozen=True, slots=True)
-class ProjectDirectorPostReviewAutomationResult:
-    orchestration_status: Literal[
-        "ready_for_future_transition",
-        "waiting_for_human",
-        "blocked",
-    ]
+OrchestrationStatus = Literal[
+    "ready_for_future_transition",
+    "waiting_for_human",
+    "blocked",
+]
+OrchestrationRoute = Literal[
+    "automatic_continuation",
+    "bounded_automatic_rework",
+    "human_escalation",
+    "none",
+]
+
+class ProjectDirectorPostReviewAutomationResult(DomainModel):
+    orchestration_status: OrchestrationStatus
     orchestration_id: UUID
-    route: Literal[
-        "automatic_continuation",
-        "bounded_automatic_rework",
-        "human_escalation",
-        "none",
-    ]
+    route: OrchestrationRoute
     current_step: str
 
     # Exact source evidence IDs
     source_review_message_id: UUID
-    source_disposition_message_id: UUID | None
-    source_consumption_preflight_message_id: UUID | None
-    source_consumption_message_id: UUID | None
-    source_handoff_message_id: UUID | None
-    source_freshness_message_id: UUID | None
-    source_human_escalation_package_message_id: UUID | None
+    source_disposition_message_id: UUID | None = None
+    source_consumption_preflight_message_id: UUID | None = None
+    source_consumption_message_id: UUID | None = None
+    source_handoff_message_id: UUID | None = None
+    source_freshness_message_id: UUID | None = None
+    source_human_escalation_package_message_id: UUID | None = None
 
     # Disposition details
-    disposition_type: str | None
-    handoff_kind: str | None
-    transition_kind: str | None
-    transition_authority: str | None
+    disposition_type: str | None = None
+    handoff_kind: str | None = None
+    transition_kind: str | None = None
+    transition_authority: str | None = None
 
     # Freshness gate results
-    evidence_fresh: bool
-    gate_allows_protected_transition_guardrail: bool
+    evidence_fresh: bool = False
+    gate_allows_protected_transition_guardrail: bool = False
 
     # Human path
-    waiting_for_human: bool
+    waiting_for_human: bool = False
+    human_escalation_package_created: bool = False
 
     # Recovery
-    replay_check_completed: bool
-    resumed_from_existing_evidence: bool
+    replay_check_completed: bool = False
+    resumed_from_existing_evidence: bool = False
 
     # Blocked
-    blocked_reasons: list[str]
+    blocked_reasons: list[str] = Field(default_factory=list)
 
     # Timestamps
-    created_at: datetime
+    created_at: datetime | None = None
 
     # False flags (permanent)
     continuation_started: bool = False
@@ -242,7 +247,54 @@ class ProjectDirectorPostReviewAutomationResult:
     patch_applied: bool = False
     git_write_performed: bool = False
     gate_allows_write: bool = False
-    ai_project_director_total_loop: str = "Partial"
+    product_runtime_git_write_allowed: bool = False
+    ai_project_director_total_loop: str = Field(default="Partial")
+```
+
+### Validators
+
+- `ready_for_future_transition` must have C3 and E bindings, `evidence_fresh=True`, `gate_allows_protected_transition_guardrail=True`.
+- `waiting_for_human` must have D1 binding, `human_escalation_package_created=True`.
+- `blocked` must have non-empty `blocked_reasons`.
+- Automatic route must NOT have `source_human_escalation_package_message_id`.
+- Human route must NOT have C1/C2/C3/E bindings.
+- Success states must have all required exact IDs populated.
+- All false flags must be `False`.
+- `ai_project_director_total_loop` must be `"Partial"`.
+- `route` must be consistent with `disposition_type`.
+
+### False flags by path
+
+Automatic path:
+```text
+human_escalation_package_created = false
+product_runtime_git_write_allowed = false
+```
+
+Human escalation success path:
+```text
+human_escalation_package_created = true
+human_decision_recorded = false
+product_runtime_git_write_allowed = false
+```
+
+All paths:
+```text
+continuation_started = false
+rework_started = false
+task_created = false
+run_created = false
+worker_started = false
+worktree_created = false
+main_project_file_written = false
+sandbox_file_written = false
+manifest_file_written = false
+diff_file_written = false
+patch_applied = false
+git_write_performed = false
+gate_allows_write = false
+product_runtime_git_write_allowed = false
+ai_project_director_total_loop = "Partial"
 ```
 
 ## 9. Append-Only Message Contract
@@ -311,7 +363,7 @@ Before calling each sub-service, the orchestrator searches for an existing trust
 For each step S in [D-B, C1, C2, C3, E, D1]:
   1. Search session messages for source_detail matching S
   2. Check if any message binds to the same source_review_message_id chain
-  3. Validate action type, schema version, binding IDs
+  3. Validate action type, schema version, binding IDs, DomainModel reconstruction
   4. If found and valid: skip invocation, use existing message
   5. If not found: invoke S
   6. If found but invalid: fail-closed with conflicting_existing_orchestration_evidence
@@ -332,6 +384,20 @@ E:    source_detail == freshness_validated, source matches C3 or D4
 D1:   source_detail == package_prepared, action.source_disposition_message_id matches
 ```
 
+### Duplicate blocked adoption
+
+When a sub-service returns a duplicate/replay blocked reason (e.g., `already_preflighted`, `already_consumed`, `handoff_already_prepared`, `human_escalation_package_already_created`, `prior_freshness_validation_detected`), the orchestrator must NOT immediately treat this as a business blocked. Instead:
+
+```text
+Sub-service returns duplicate/replay blocked
+→ Orchestrator re-reads the corresponding exact persisted message
+→ Validates action type, schema version, source binding, DomainModel reconstruction
+→ If unique and valid: adopt existing message, continue to next step
+→ If invalid or multiple conflicting: fail-closed
+```
+
+Ordinary safety blocked reasons (e.g., `source_review_message_missing`, `review_result_fingerprint_mismatch`) must still cause immediate stop. Only duplicate/replay reasons trigger adoption.
+
 ### Conflict resolution
 
 - Multiple valid messages for the same step → fail-closed with `conflicting_existing_orchestration_evidence`
@@ -342,25 +408,89 @@ D1:   source_detail == package_prepared, action.source_disposition_message_id ma
 
 Two concurrent orchestrator calls for the same review:
 - First to complete creates the orchestration summary message.
-- Second finds the existing summary and returns it (replay detection).
+- Second finds the existing summary and returns it (legitimate idempotent replay).
 - If neither has completed, the sub-services' own `sqlite_immediate_transaction` prevents duplicate step messages.
+- D-B is an exception: see §11b.
+
+## 11b. D-B Replay-Safe Hardening
+
+### Current gap
+
+D-B `compute_candidate_diff_review_disposition()` currently does NOT use `sqlite_immediate_transaction()` and has no prior disposition replay guard. Two concurrent calls for the same review can produce two disposition messages.
+
+### Required P22-B modification
+
+Modify `runtime/orchestrator/app/services/project_director_sandbox_candidate_diff_review_disposition_service.py`:
+
+1. `compute_candidate_diff_review_disposition()` must use `sqlite_immediate_transaction()`.
+2. Remove standalone `message_repository.commit()` inside the method.
+3. Within the same immediate transaction:
+   - Read and validate source review.
+   - Compute `review_result_fingerprint`.
+   - Scan existing D-B dispositions in the same session.
+   - Use exact key to identify same-chain disposition: `session_id`, `source_task_id`, `source_review_message_id`, `review_result_fingerprint`.
+   - No existing record → create one disposition.
+   - One unique valid record → return existing message/result.
+   - Multiple or conflicting → fail-closed.
+4. Do NOT change disposition computation logic.
+5. Do NOT change AUTO_CONTINUE / AUTO_REWORK / ESCALATE_TO_HUMAN mapping.
+6. Do NOT add Task, Run, Worker, or write capability.
+
+### D-B replay identification fields
+
+If the existing D-B domain result is not modified, the following fields exist only in the P22 unified result:
+
+```text
+replay_check_completed: bool
+resumed_from_existing_evidence: bool
+```
 
 ## 12. Concurrency and Replay
 
 ### Sub-service concurrency
 
-Each sub-service uses `sqlite_immediate_transaction()` which provides SQLite-level write serialization. Two concurrent calls to the same sub-service with the same input will produce exactly one success and one blocked.
+C1, C2, C3, D1, E use `sqlite_immediate_transaction()` with built-in duplicate guards. D-B requires P22-B hardening (see §11b).
 
 ### Orchestrator concurrency
 
-The orchestrator does not add its own transaction wrapper. It relies on:
+The orchestrator does NOT wrap all sub-services in one outer transaction. It relies on:
 1. Sub-service transactions for each step.
-2. The orchestration summary message creation as the final atomic write.
-3. The summary message's replay detection (same source_review_message_id → blocked).
+2. The orchestration summary message creation as a separate atomic write (see §13).
+3. Legitimate idempotent replay for the summary (see below).
 
-### Replay key
+### Legitimate idempotent replay
 
-The orchestration summary message uses `source_review_message_id` as the primary replay key. A second orchestration for the same review is blocked with `post_review_orchestration_replay_conflict`.
+When the orchestrator finds exactly one existing orchestration summary that satisfies ALL of:
+- Same `session_id`
+- Same `source_task_id`
+- Same `source_review_message_id`
+- Correct action type and schema version
+- Route and status are legal
+- Exact source bindings are consistent
+- DomainModel reconstruction succeeds
+- False flags are legal
+
+Then:
+```text
+Return the existing result
+Do NOT create a new summary
+Do NOT re-invoke any sub-service
+orchestration_status保持原值
+replay_check_completed = true
+resumed_from_existing_evidence = true
+```
+
+This is NOT blocked.
+
+### Replay conflict
+
+`post_review_orchestration_replay_conflict` is returned ONLY when:
+- Multiple summaries found for the same review
+- Summary action cannot be reconstructed
+- Session / task / review binding inconsistency
+- Source evidence IDs inconsistency
+- Fingerprint or route inconsistency
+- Summary status inconsistent with persisted step chain
 
 ## 13. Transaction Boundary
 
@@ -376,22 +506,49 @@ Each sub-service already uses `sqlite_immediate_transaction()`. Nesting would re
 
 ```text
 Orchestrator:
-  for each step:
-    invoke sub-service (sub-service manages its own transaction)
-    if blocked: stop, return blocked
-  create orchestration summary message (own transaction)
-  return result
+  1. Check for existing legitimate summary (see §12)
+     → found: return existing result
+  2. For each step:
+       invoke sub-service (sub-service manages its own transaction)
+       if blocked: stop, persist blocked summary, return blocked
+  3. Create orchestration summary (own sqlite_immediate_transaction)
+  4. Return result
 ```
 
 Each sub-service call is independent. If the orchestrator crashes after C2 but before C3, the next invocation will find the existing C1 and C2 messages and resume from C3.
 
-### Summary message timing
+### Summary atomic anti-duplicate
 
-The summary message is written after all steps complete (success) or immediately after a blocked step. It captures the final state.
+The orchestration summary uses its own `sqlite_immediate_transaction()`. Within this single transaction:
 
-### Blocked summary persistence
+```text
+Scan existing summaries for same (session_id, source_task_id, source_review_message_id)
+→ One unique valid summary: return existing result (legitimate replay)
+→ No summary: create one
+→ Multiple or conflicting: fail-closed
+```
 
-Blocked orchestration results are persisted as summary messages with `orchestration_status="blocked"`. This prevents silent failures.
+This must be atomic. Do NOT use:
+```text
+query outside transaction → exit transaction → create
+```
+
+### Summary replay key
+
+At minimum: `session_id`, `source_task_id`, `source_review_message_id`. May additionally include `route` and final transition message ID.
+
+### Domain blocked summary persistence
+
+Blocked orchestration results from legitimate sub-service business failures ARE persisted as summary messages with `orchestration_status="blocked"`. This prevents silent failures and enables idempotent replay of blocked results.
+
+### Runtime exception handling
+
+Database exceptions, encoding exceptions, and unexpected exceptions must NOT:
+- Be fabricated as trusted business blocked evidence
+- Generate虚假 blocked summary messages
+- Be silently swallowed
+
+Instead: transaction rolls back, exception propagates upward. Subsequent retry recovers through existing step messages.
 
 ### Sub-service success, summary failure
 
@@ -495,6 +652,14 @@ runtime/orchestrator/app/domain/project_director_post_review_automation.py
 runtime/orchestrator/app/services/project_director_post_review_automation_service.py
 ```
 
+### Allowed modifications
+
+```text
+runtime/orchestrator/app/services/project_director_sandbox_candidate_diff_review_disposition_service.py
+```
+
+Only for D-B replay-safe hardening (see §11b): add `sqlite_immediate_transaction`, prior disposition scan, replay guard. Do NOT change disposition computation logic.
+
 ### Allowed modifications (if needed for imports)
 
 ```text
@@ -523,7 +688,7 @@ Only if the project uses these export files. Otherwise do not modify.
 
 ### Acceptance criteria for P22-B
 
-1. `ProjectDirectorPostReviewAutomationResult` domain model passes Pydantic validation.
+1. `ProjectDirectorPostReviewAutomationResult` DomainModel passes Pydantic validation.
 2. `ProjectDirectorPostReviewAutomationService` constructs with all injected dependencies.
 3. `orchestrate_post_review` method exists with correct signature.
 4. Automatic path (AUTO_CONTINUE) chains D-B → C1 → C2 → C3 → E and returns `ready_for_future_transition`.
@@ -535,6 +700,16 @@ Only if the project uses these export files. Otherwise do not modify.
 10. No Task/Run/Worker/worktree/file/Git write.
 11. `compileall` passes.
 12. Import smoke passes.
+13. D-B is idempotent for the same exact review chain.
+14. D-B concurrent calls do not produce two dispositions.
+15. Legitimate repeated orchestration returns existing summary, not blocked.
+16. Summary scan + create is atomic within one `sqlite_immediate_transaction`.
+17. Duplicate blocked from sub-services can be resolved via exact persisted evidence adoption.
+18. Multiple or conflicting evidence fails closed.
+19. Runtime exceptions do not generate虚假 blocked summary.
+20. DomainModel validates route, status, binding, and false flags.
+21. Human path correctly expresses `human_escalation_package_created=True`.
+22. All paths maintain `product_runtime_git_write_allowed=False`.
 
 ## 18. P22-C Mimo Test Plan
 
@@ -599,6 +774,48 @@ review → ESCALATE_TO_HUMAN → D1 → waiting_for_human
 | Conflicting evidence | `conflicting_existing_orchestration_evidence` |
 | Concurrent calls | One success, one blocked or replay |
 
+### D-B replay
+
+| Scenario | Expected |
+|----------|----------|
+| D-B sequential replay | Returns existing disposition |
+| D-B concurrent replay | One success, one adoption or blocked |
+
+### Summary replay
+
+| Scenario | Expected |
+|----------|----------|
+| Summary sequential replay | Returns existing summary |
+| Summary concurrent replay | One success, one adoption or blocked |
+| Legitimate existing summary | Returns existing result |
+| Multiple summary conflict | `post_review_orchestration_replay_conflict` |
+| Corrupted summary action | `post_review_orchestration_replay_conflict` |
+
+### Duplicate blocked adoption
+
+| Scenario | Expected |
+|----------|----------|
+| D-B duplicate blocked | Adopt existing, continue |
+| C1 duplicate blocked | Adopt existing, continue |
+| C2 duplicate blocked | Adopt existing, continue |
+| C3 duplicate blocked | Adopt existing, continue |
+| D1 duplicate blocked | Adopt existing, continue |
+| E duplicate blocked | Adopt existing, continue |
+| Ordinary safety blocked | Immediate stop, no adoption |
+
+### Runtime exception handling
+
+| Scenario | Expected |
+|----------|----------|
+| Runtime exception | No虚假 blocked summary, exception propagates |
+
+### Result field verification
+
+| Scenario | Expected |
+|----------|----------|
+| Human path | `human_escalation_package_created=True` |
+| All paths | `product_runtime_git_write_allowed=False` |
+
 ### Permanent boundary verification
 
 All success and blocked scenarios verify:
@@ -661,7 +878,8 @@ ai_project_director_total_loop = "Partial"
 ## Status
 
 ```text
-P22-A design: complete candidate, awaiting AI Project Director review
+P22-A original design review: Partial
+P22-A-R1 design correction: complete candidate, awaiting AI Project Director review
 P22-B implementation: Not started
 P22-C tests: Not started
 AUTO_CONTINUE real execution: Not started
