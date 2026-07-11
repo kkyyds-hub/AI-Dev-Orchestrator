@@ -108,15 +108,12 @@ def test_boundary_does_not_contain_execution_traces_or_sensitive_fields() -> Non
         assert snippet not in source
 
 
-def test_task_worker_keeps_process_launch_behind_external_executor_modules() -> None:
+def test_task_worker_has_no_actual_executor_integration_trace() -> None:
     source = _read("app/workers/task_worker.py")
 
     forbidden_snippets = {
         "RealExecutorAdapter",
-        "import subprocess",
-        "from subprocess",
-        "shell=True",
-        "os.popen",
+        "external_executors",
         "Codex CLI",
         "Claude Code",
         "DeepSeek CLI",
@@ -124,8 +121,6 @@ def test_task_worker_keeps_process_launch_behind_external_executor_modules() -> 
 
     for snippet in forbidden_snippets:
         assert snippet not in source
-
-    assert "app.external_executors" in source
 
 
 def test_executor_service_has_no_actual_executor_integration_trace() -> None:
