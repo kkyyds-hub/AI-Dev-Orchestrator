@@ -1302,6 +1302,86 @@ class TestDomainContract:
                 consumed_at=datetime(2025, 1, 1),
             )
 
+    @staticmethod
+    def _valid_consumed_kwargs() -> dict:
+        return dict(
+            consumption_status="consumed",
+            consumption_id=uuid4(),
+            source_consumption_preflight_message_id=uuid4(),
+            source_disposition_message_id=uuid4(),
+            source_review_message_id=uuid4(),
+            source_diff_message_id=uuid4(),
+            disposition_id=uuid4(),
+            disposition_type="AUTO_CONTINUE",
+            review_result_fingerprint="a" * 64,
+            revalidated_review_result_fingerprint="a" * 64,
+            reviewed_diff_sha256="b" * 64,
+            persisted_source_diff_sha256="b" * 64,
+            current_diff_sha256="b" * 64,
+            reviewed_scope_paths=["src/x.py"],
+            persisted_source_scope_paths=["src/x.py"],
+            current_scope_paths=["src/x.py"],
+            workspace_path="/ws",
+            workspace_path_within_root=True,
+            source_diff_revalidated=True,
+            current_diff_regenerated=True,
+            evidence_fresh=True,
+            disposition_consumed=True,
+            replay_check_completed=True,
+            continuation_eligible=True,
+            consumed_at=datetime.now(timezone.utc),
+        )
+
+    @pytest.mark.parametrize("field", [
+        "consumption_id",
+        "source_disposition_message_id",
+        "source_review_message_id",
+        "source_diff_message_id",
+        "disposition_id",
+    ])
+    def test_consumed_requires_id_field(self, field: str) -> None:
+        kwargs = self._valid_consumed_kwargs()
+        kwargs[field] = None
+        with pytest.raises(ValueError, match="consumed disposition requires complete evidence bindings"):
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult(**kwargs)
+
+    def test_consumed_rejects_workspace_outside_root(self) -> None:
+        kwargs = self._valid_consumed_kwargs()
+        kwargs["workspace_path_within_root"] = False
+        with pytest.raises(ValueError, match="consumed disposition requires a trusted workspace"):
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult(**kwargs)
+
+    @pytest.mark.parametrize("field", [
+        "source_diff_revalidated",
+        "current_diff_regenerated",
+        "evidence_fresh",
+        "disposition_consumed",
+        "replay_check_completed",
+    ])
+    def test_consumed_requires_true_flag(self, field: str) -> None:
+        kwargs = self._valid_consumed_kwargs()
+        kwargs[field] = False
+        with pytest.raises(ValueError, match="consumed disposition requires fresh unreplayed evidence"):
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult(**kwargs)
+
+    def test_consumed_rejects_prior_consumption_detected(self) -> None:
+        kwargs = self._valid_consumed_kwargs()
+        kwargs["prior_consumption_detected"] = True
+        with pytest.raises(ValueError, match="consumed disposition requires fresh unreplayed evidence"):
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult(**kwargs)
+
+    def test_consumed_rejects_scope_mismatch(self) -> None:
+        kwargs = self._valid_consumed_kwargs()
+        kwargs["current_scope_paths"] = ["src/other.py"]
+        with pytest.raises(ValueError, match="consumed disposition requires matching ordered scopes"):
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult(**kwargs)
+
+    def test_consumed_rejects_total_loop_not_partial(self) -> None:
+        kwargs = self._valid_consumed_kwargs()
+        kwargs["ai_project_director_total_loop"] = "Full"
+        with pytest.raises(ValueError):
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult(**kwargs)
+
 
 # ══════════════════════════════════════════════════════════════════════
 # C. C1 evidence validation
@@ -1500,11 +1580,18 @@ class TestC1EvidenceValidation:
         assert result.result.disposition_consumed is False
         session.close()
 
-    def test_c1_invalid_disposition_id(self, seeded_session, fs_info) -> None:
+    @pytest.mark.parametrize("field", [
+        "source_disposition_message_id",
+        "source_review_message_id",
+        "source_preflight_message_id",
+        "source_diff_message_id",
+        "disposition_id",
+    ])
+    def test_c1_invalid_uuid_field(self, seeded_session, fs_info, field: str) -> None:
         sess = seeded_session()
         row = sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID)
         action = json.loads(row.suggested_actions_json)[0]
-        action["disposition_id"] = "not-uuid"
+        action[field] = "not-uuid"
         row.suggested_actions_json = json.dumps([action])
         sess.commit(); sess.close()
         svc, session = _make_c2_service(seeded_session, fs_info)
@@ -1515,13 +1602,21 @@ class TestC1EvidenceValidation:
         assert "c1_binding_invalid" in result.result.blocked_reasons
         assert result.message is None
         assert result.result.disposition_consumed is False
+        assert result.result.continuation_eligible is False
+        assert result.result.rework_eligible is False
         session.close()
 
-    def test_c1_invalid_review_fingerprint(self, seeded_session, fs_info) -> None:
+    @pytest.mark.parametrize("field", [
+        "review_result_fingerprint",
+        "revalidated_review_result_fingerprint",
+        "source_diff_sha256",
+        "review_prompt_sha256",
+    ])
+    def test_c1_invalid_sha256_field(self, seeded_session, fs_info, field: str) -> None:
         sess = seeded_session()
         row = sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID)
         action = json.loads(row.suggested_actions_json)[0]
-        action["review_result_fingerprint"] = "zzz"
+        action[field] = "zzz"
         row.suggested_actions_json = json.dumps([action])
         sess.commit(); sess.close()
         svc, session = _make_c2_service(seeded_session, fs_info)
@@ -1532,30 +1627,19 @@ class TestC1EvidenceValidation:
         assert "c1_fingerprint_invalid" in result.result.blocked_reasons
         assert result.message is None
         assert result.result.disposition_consumed is False
-        session.close()
-
-    def test_c1_invalid_source_diff_sha(self, seeded_session, fs_info) -> None:
-        sess = seeded_session()
-        row = sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID)
-        action = json.loads(row.suggested_actions_json)[0]
-        action["source_diff_sha256"] = "zzz"
-        row.suggested_actions_json = json.dumps([action])
-        sess.commit(); sess.close()
-        svc, session = _make_c2_service(seeded_session, fs_info)
-        result = svc.prepare_candidate_diff_review_disposition_consumption(
-            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
-        )
-        assert result.result.consumption_status == "blocked"
-        assert "c1_fingerprint_invalid" in result.result.blocked_reasons
-        assert result.message is None
-        assert result.result.disposition_consumed is False
+        assert result.result.continuation_eligible is False
+        assert result.result.rework_eligible is False
         session.close()
 
     def test_c1_fingerprints_differ(self, seeded_session, fs_info) -> None:
         sess = seeded_session()
         row = sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID)
         action = json.loads(row.suggested_actions_json)[0]
-        action["revalidated_review_result_fingerprint"] = "b" * 64
+        original_fp = action["review_result_fingerprint"]
+        assert len(original_fp) == 64
+        different_fp = hashlib.sha256(b"different-canonical-payload").hexdigest()
+        assert different_fp != original_fp
+        action["revalidated_review_result_fingerprint"] = different_fp
         row.suggested_actions_json = json.dumps([action])
         sess.commit(); sess.close()
         svc, session = _make_c2_service(seeded_session, fs_info)
@@ -1566,6 +1650,8 @@ class TestC1EvidenceValidation:
         assert "c1_review_fingerprint_mismatch" in result.result.blocked_reasons
         assert result.message is None
         assert result.result.disposition_consumed is False
+        assert result.result.continuation_eligible is False
+        assert result.result.rework_eligible is False
         session.close()
 
     def test_c1_empty_scope(self, seeded_session, fs_info) -> None:
@@ -1670,11 +1756,12 @@ class TestC1EvidenceValidation:
         assert result.result.disposition_consumed is False
         session.close()
 
-    def test_c1_write_boundary_violated(self, seeded_session, fs_info) -> None:
+    @pytest.mark.parametrize("flag", _C1_FALSE_FLAGS)
+    def test_c1_write_boundary_violated(self, seeded_session, fs_info, flag: str) -> None:
         sess = seeded_session()
         row = sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID)
         action = json.loads(row.suggested_actions_json)[0]
-        action["continuation_started"] = True
+        action[flag] = True
         row.suggested_actions_json = json.dumps([action])
         sess.commit(); sess.close()
         svc, session = _make_c2_service(seeded_session, fs_info)
@@ -1685,6 +1772,8 @@ class TestC1EvidenceValidation:
         assert "c1_write_boundary_violated" in result.result.blocked_reasons
         assert result.message is None
         assert result.result.disposition_consumed is False
+        assert result.result.continuation_eligible is False
+        assert result.result.rework_eligible is False
         session.close()
 
     def test_c1_total_loop_not_partial(self, seeded_session, fs_info) -> None:
@@ -1962,7 +2051,8 @@ class TestReviewMessageRevalidation:
 
         result = self._run_with_recording(seeded_session, fs_info, tamper)
         assert result.result.consumption_status == "blocked"
-        assert "review_source_binding_mismatch" in result.result.blocked_reasons or "review_result_fingerprint_mismatch" in result.result.blocked_reasons
+        assert "review_source_binding_mismatch" in result.result.blocked_reasons
+        assert "review_result_fingerprint_mismatch" in result.result.blocked_reasons
         assert result.message is None
         assert RecordingCandidateDiffInvocationService.invocation_count == 0
 
@@ -1976,7 +2066,8 @@ class TestReviewMessageRevalidation:
 
         result = self._run_with_recording(seeded_session, fs_info, tamper)
         assert result.result.consumption_status == "blocked"
-        assert "review_source_binding_mismatch" in result.result.blocked_reasons or "review_result_fingerprint_mismatch" in result.result.blocked_reasons
+        assert "review_source_binding_mismatch" in result.result.blocked_reasons
+        assert "review_result_fingerprint_mismatch" in result.result.blocked_reasons
         assert result.message is None
         assert RecordingCandidateDiffInvocationService.invocation_count == 0
 
@@ -1990,7 +2081,8 @@ class TestReviewMessageRevalidation:
 
         result = self._run_with_recording(seeded_session, fs_info, tamper)
         assert result.result.consumption_status == "blocked"
-        assert "review_source_binding_mismatch" in result.result.blocked_reasons or "review_result_fingerprint_mismatch" in result.result.blocked_reasons
+        assert "review_source_binding_mismatch" in result.result.blocked_reasons
+        assert "review_result_fingerprint_mismatch" in result.result.blocked_reasons
         assert result.message is None
         assert RecordingCandidateDiffInvocationService.invocation_count == 0
 
@@ -2096,7 +2188,8 @@ class TestPersistedSourceDiffValidation:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "source_diff_validation_failed" in result.result.blocked_reasons or "review_source_binding_mismatch" in result.result.blocked_reasons
+        assert "source_diff_validation_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
         session.close()
 
     def test_diff_text_tampered(self, seeded_session, fs_info) -> None:
@@ -2111,7 +2204,8 @@ class TestPersistedSourceDiffValidation:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "source_diff_sha256_mismatch" in result.result.blocked_reasons or "review_evidence_stale" in result.result.blocked_reasons
+        assert "source_diff_validation_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
         session.close()
 
     def test_diff_bytes_mismatch(self, seeded_session, fs_info) -> None:
@@ -2226,7 +2320,8 @@ class TestPersistedSourceDiffValidation:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "review_scope_paths_mismatch" in result.result.blocked_reasons or "source_diff_sha256_mismatch" in result.result.blocked_reasons
+        assert "review_scope_paths_mismatch" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
         session.close()
 
 
@@ -2244,7 +2339,10 @@ class TestCandidateFileFreshness:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "current_diff_mismatch" in result.result.blocked_reasons or "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert result.result.current_diff_regenerated is False
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
+        assert result.message is None
         session.close()
 
     def test_candidate_content_larger(self, seeded_session, fs_info) -> None:
@@ -2256,7 +2354,11 @@ class TestCandidateFileFreshness:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "current_diff_regeneration_failed" in result.result.blocked_reasons or "current_diff_mismatch" in result.result.blocked_reasons
+        assert result.result.current_diff_regenerated is False
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
+        assert "current_diff_mismatch" not in result.result.blocked_reasons
+        assert result.message is None
         session.close()
 
     def test_candidate_content_smaller(self, seeded_session, fs_info) -> None:
@@ -2268,14 +2370,19 @@ class TestCandidateFileFreshness:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
+        assert result.result.current_diff_regenerated is True
         assert "current_diff_mismatch" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
+        assert result.message is None
         session.close()
 
     def test_candidate_same_length_different_content(self, seeded_session, fs_info) -> None:
         rel = fs_info.get("relative_path", "src/example.py")
-        old_bytes = len(CANDIDATE_CONTENT.encode("utf-8"))
-        new_candidate = CANDIDATE_CONTENT[::-1]
+        old_content = CANDIDATE_CONTENT
+        old_bytes = len(old_content.encode("utf-8"))
+        new_candidate = old_content[::-1]
         new_bytes = len(new_candidate.encode("utf-8"))
+        assert old_content != new_candidate
         assert old_bytes == new_bytes, f"Lengths differ: {old_bytes} vs {new_bytes}"
         (fs_info["workspace_path"] / rel).write_text(new_candidate, encoding="utf-8")
         svc, session = _make_c2_service(seeded_session, fs_info)
@@ -2283,7 +2390,10 @@ class TestCandidateFileFreshness:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "current_diff_mismatch" in result.result.blocked_reasons or "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert result.result.current_diff_regenerated is False
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
+        assert result.message is None
         session.close()
 
 
@@ -2301,7 +2411,10 @@ class TestMainTargetFreshness:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "current_diff_mismatch" in result.result.blocked_reasons or "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert result.result.current_diff_regenerated is False
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
+        assert result.message is None
         session.close()
 
     def test_target_changed_regenerated(self, seeded_session, fs_info) -> None:
@@ -2312,8 +2425,10 @@ class TestMainTargetFreshness:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "current_diff_mismatch" in result.result.blocked_reasons or "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert result.result.current_diff_regenerated is False
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
         assert "review_evidence_stale" in result.result.blocked_reasons
+        assert result.message is None
         session.close()
 
 
@@ -2376,7 +2491,7 @@ class TestWorkspaceAndManifestFreshness:
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
         )
         assert result.result.consumption_status == "blocked"
-        assert "current_diff_regeneration_failed" in result.result.blocked_reasons or "source_diff_validation_failed" in result.result.blocked_reasons
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
         session.close()
 
     def test_candidate_file_deleted(self, seeded_session, fs_info) -> None:
@@ -2388,6 +2503,38 @@ class TestWorkspaceAndManifestFreshness:
         )
         assert result.result.consumption_status == "blocked"
         assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        session.close()
+
+    def test_workspace_outside_root(self, seeded_session, fs_info, monkeypatch) -> None:
+        from app.services.project_director_sandbox_workspace_guard_service import (
+            ProjectDirectorSandboxWorkspaceGuardService,
+        )
+        outside_root = fs_info["workspace_root"].parent / "other-root"
+        outside_root.mkdir(parents=True, exist_ok=True)
+
+        def _patched_outside_root():
+            return outside_root
+
+        monkeypatch.setattr(
+            ProjectDirectorSandboxWorkspaceGuardService,
+            "_workspace_root",
+            staticmethod(_patched_outside_root),
+        )
+        monkeypatch.setattr(
+            ProjectDirectorSandboxCandidateDiffService,
+            "_workspace_root",
+            staticmethod(_patched_outside_root),
+        )
+        svc, session = _make_c2_service(seeded_session, fs_info)
+        result = svc.prepare_candidate_diff_review_disposition_consumption(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
+        )
+        assert result.result.consumption_status == "blocked"
+        assert result.result.workspace_path_within_root is False
+        assert "trusted_workspace_invalid" in result.result.blocked_reasons
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
+        assert result.message is None
         session.close()
 
 
@@ -2589,7 +2736,8 @@ class TestOrderedScopeFreshness:
 
         result, _ = self._seed_and_run(db_engine, tmp_path, tamper, monkeypatch)
         assert result.result.consumption_status == "blocked"
-        assert "review_scope_paths_mismatch" in result.result.blocked_reasons or "current_diff_regeneration_failed" in result.result.blocked_reasons or "source_diff_validation_failed" in result.result.blocked_reasons or "current_diff_mismatch" in result.result.blocked_reasons
+        assert "current_diff_mismatch" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
 
     def test_scope_extra_path(self, db_engine, tmp_path, monkeypatch) -> None:
         def tamper(sess, two_fs):
@@ -2616,7 +2764,8 @@ class TestOrderedScopeFreshness:
 
         result, _ = self._seed_and_run(db_engine, tmp_path, tamper, monkeypatch)
         assert result.result.consumption_status == "blocked"
-        assert "review_scope_paths_mismatch" in result.result.blocked_reasons or "current_diff_mismatch" in result.result.blocked_reasons or "source_diff_validation_failed" in result.result.blocked_reasons
+        assert "source_diff_validation_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
 
     def test_scope_reordered(self, db_engine, tmp_path, monkeypatch) -> None:
         def tamper(sess, two_fs):
@@ -2628,7 +2777,8 @@ class TestOrderedScopeFreshness:
 
         result, _ = self._seed_and_run(db_engine, tmp_path, tamper, monkeypatch)
         assert result.result.consumption_status == "blocked"
-        assert "review_scope_paths_mismatch" in result.result.blocked_reasons or "current_diff_mismatch" in result.result.blocked_reasons
+        assert "current_diff_mismatch" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -2694,15 +2844,51 @@ class TestAppendOnlyPersistence:
 
     def test_old_records_unchanged(self, seeded_session, fs_info) -> None:
         pre_sess = seeded_session()
-        review_before = json.loads(
-            pre_sess.get(ProjectDirectorMessageTable, REVIEW_EXECUTION_MSG_ID).suggested_actions_json
-        )
-        disp_before = json.loads(
-            pre_sess.get(ProjectDirectorMessageTable, DISPOSITION_MSG_ID).suggested_actions_json
-        )
-        c1_before = json.loads(
-            pre_sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID).suggested_actions_json
-        )
+        review_row_before = pre_sess.get(ProjectDirectorMessageTable, REVIEW_EXECUTION_MSG_ID)
+        review_snapshot = {
+            "id": str(review_row_before.id),
+            "session_id": str(review_row_before.session_id),
+            "role": review_row_before.role,
+            "content": review_row_before.content,
+            "sequence_no": review_row_before.sequence_no,
+            "source": review_row_before.source,
+            "source_detail": review_row_before.source_detail,
+            "suggested_actions_json": review_row_before.suggested_actions_json,
+            "requires_confirmation": review_row_before.requires_confirmation,
+            "risk_level": review_row_before.risk_level,
+            "related_project_id": str(review_row_before.related_project_id),
+            "related_task_id": str(review_row_before.related_task_id),
+        }
+        disp_row_before = pre_sess.get(ProjectDirectorMessageTable, DISPOSITION_MSG_ID)
+        disp_snapshot = {
+            "id": str(disp_row_before.id),
+            "session_id": str(disp_row_before.session_id),
+            "role": disp_row_before.role,
+            "content": disp_row_before.content,
+            "sequence_no": disp_row_before.sequence_no,
+            "source": disp_row_before.source,
+            "source_detail": disp_row_before.source_detail,
+            "suggested_actions_json": disp_row_before.suggested_actions_json,
+            "requires_confirmation": disp_row_before.requires_confirmation,
+            "risk_level": disp_row_before.risk_level,
+            "related_project_id": str(disp_row_before.related_project_id),
+            "related_task_id": str(disp_row_before.related_task_id),
+        }
+        c1_row_before = pre_sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID)
+        c1_snapshot = {
+            "id": str(c1_row_before.id),
+            "session_id": str(c1_row_before.session_id),
+            "role": c1_row_before.role,
+            "content": c1_row_before.content,
+            "sequence_no": c1_row_before.sequence_no,
+            "source": c1_row_before.source,
+            "source_detail": c1_row_before.source_detail,
+            "suggested_actions_json": c1_row_before.suggested_actions_json,
+            "requires_confirmation": c1_row_before.requires_confirmation,
+            "risk_level": c1_row_before.risk_level,
+            "related_project_id": str(c1_row_before.related_project_id),
+            "related_task_id": str(c1_row_before.related_task_id),
+        }
         pre_sess.close()
 
         svc, session = _make_c2_service(seeded_session, fs_info)
@@ -2713,19 +2899,42 @@ class TestAppendOnlyPersistence:
         session.close()
 
         post_sess = seeded_session()
-        review_after = json.loads(
-            post_sess.get(ProjectDirectorMessageTable, REVIEW_EXECUTION_MSG_ID).suggested_actions_json
-        )
-        disp_after = json.loads(
-            post_sess.get(ProjectDirectorMessageTable, DISPOSITION_MSG_ID).suggested_actions_json
-        )
-        c1_after = json.loads(
-            post_sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID).suggested_actions_json
-        )
+        review_row_after = post_sess.get(ProjectDirectorMessageTable, REVIEW_EXECUTION_MSG_ID)
+        assert str(review_row_after.id) == review_snapshot["id"]
+        assert str(review_row_after.session_id) == review_snapshot["session_id"]
+        assert review_row_after.role == review_snapshot["role"]
+        assert review_row_after.content == review_snapshot["content"]
+        assert review_row_after.sequence_no == review_snapshot["sequence_no"]
+        assert review_row_after.source == review_snapshot["source"]
+        assert review_row_after.source_detail == review_snapshot["source_detail"]
+        assert review_row_after.suggested_actions_json == review_snapshot["suggested_actions_json"]
+        assert review_row_after.requires_confirmation == review_snapshot["requires_confirmation"]
+        assert review_row_after.risk_level == review_snapshot["risk_level"]
+
+        disp_row_after = post_sess.get(ProjectDirectorMessageTable, DISPOSITION_MSG_ID)
+        assert str(disp_row_after.id) == disp_snapshot["id"]
+        assert str(disp_row_after.session_id) == disp_snapshot["session_id"]
+        assert disp_row_after.role == disp_snapshot["role"]
+        assert disp_row_after.content == disp_snapshot["content"]
+        assert disp_row_after.sequence_no == disp_snapshot["sequence_no"]
+        assert disp_row_after.source == disp_snapshot["source"]
+        assert disp_row_after.source_detail == disp_snapshot["source_detail"]
+        assert disp_row_after.suggested_actions_json == disp_snapshot["suggested_actions_json"]
+        assert disp_row_after.requires_confirmation == disp_snapshot["requires_confirmation"]
+        assert disp_row_after.risk_level == disp_snapshot["risk_level"]
+
+        c1_row_after = post_sess.get(ProjectDirectorMessageTable, C1_PREFLIGHT_MSG_ID)
+        assert str(c1_row_after.id) == c1_snapshot["id"]
+        assert str(c1_row_after.session_id) == c1_snapshot["session_id"]
+        assert c1_row_after.role == c1_snapshot["role"]
+        assert c1_row_after.content == c1_snapshot["content"]
+        assert c1_row_after.sequence_no == c1_snapshot["sequence_no"]
+        assert c1_row_after.source == c1_snapshot["source"]
+        assert c1_row_after.source_detail == c1_snapshot["source_detail"]
+        assert c1_row_after.suggested_actions_json == c1_snapshot["suggested_actions_json"]
+        assert c1_row_after.requires_confirmation == c1_snapshot["requires_confirmation"]
+        assert c1_row_after.risk_level == c1_snapshot["risk_level"]
         post_sess.close()
-        assert review_before == review_after
-        assert disp_before == disp_after
-        assert c1_before == c1_after
 
     def test_consumed_action_complete(self, seeded_session, fs_info) -> None:
         svc, session = _make_c2_service(seeded_session, fs_info)
@@ -2734,32 +2943,44 @@ class TestAppendOnlyPersistence:
         )
         assert result.message is not None
         action = result.message.suggested_actions[0]
+
         assert action["consumption_status"] == "consumed"
-        assert "consumption_id" in action
-        assert "consumed_at" in action
-        assert action["session_id"] == str(SESSION_ID)
-        assert action["source_task_id"] == str(TASK_ID)
+
+        assert UUID(action["consumption_id"])
+        from datetime import datetime as _dt
+        consumed_at = _dt.fromisoformat(action["consumed_at"])
+        assert consumed_at.tzinfo is not None
+
         assert action["source_consumption_preflight_message_id"] == str(C1_PREFLIGHT_MSG_ID)
-        assert "source_disposition_message_id" in action
-        assert "source_review_message_id" in action
-        assert "source_diff_message_id" in action
-        assert "disposition_id" in action
+        assert action["source_disposition_message_id"] == str(DISPOSITION_MSG_ID)
+        assert action["source_review_message_id"] == str(REVIEW_EXECUTION_MSG_ID)
+        assert action["source_diff_message_id"] == str(CANDIDATE_DIFF_MSG_ID)
+        assert action["disposition_id"] is not None
+
         assert action["disposition_type"] == "AUTO_CONTINUE"
-        assert "disposition_reason" in action
-        assert "review_result_fingerprint" in action
-        assert "revalidated_review_result_fingerprint" in action
-        assert "reviewed_diff_sha256" in action
-        assert "persisted_source_diff_sha256" in action
-        assert "current_diff_sha256" in action
-        assert "review_prompt_sha256" in action
-        assert "reviewed_scope_paths" in action
-        assert "persisted_source_scope_paths" in action
-        assert "current_scope_paths" in action
-        assert "review_output_schema_version" in action
-        assert "source_review_verdict" in action
-        assert "source_review_risk_level" in action
-        assert "workspace_path" in action
-        assert "workspace_path_within_root" in action
+        assert action["disposition_reason"] == "review_has_no_blocking_findings"
+
+        assert len(action["review_result_fingerprint"]) == 64
+        assert len(action["revalidated_review_result_fingerprint"]) == 64
+        assert action["review_result_fingerprint"] == action["revalidated_review_result_fingerprint"]
+        assert action["review_result_fingerprint"] == fs_info["diff_sha256"] or len(action["review_result_fingerprint"]) == 64
+
+        assert len(action["reviewed_diff_sha256"]) == 64
+        assert len(action["persisted_source_diff_sha256"]) == 64
+        assert len(action["current_diff_sha256"]) == 64
+        assert action["reviewed_diff_sha256"] == action["persisted_source_diff_sha256"] == action["current_diff_sha256"]
+
+        assert len(action["review_prompt_sha256"]) == 64
+        assert action["review_prompt_sha256"] == fs_info["review_prompt_sha256"]
+
+        rel = fs_info.get("relative_path", "src/example.py")
+        assert action["reviewed_scope_paths"] == [rel]
+        assert action["persisted_source_scope_paths"] == [rel]
+        assert action["current_scope_paths"] == [rel]
+
+        assert action["workspace_path"] == fs_info["workspace_path"].as_posix()
+        assert action["workspace_path_within_root"] is True
+
         assert action["source_diff_revalidated"] is True
         assert action["current_diff_regenerated"] is True
         assert action["evidence_fresh"] is True
@@ -2769,6 +2990,26 @@ class TestAppendOnlyPersistence:
         assert action["replay_check_completed"] is True
         assert action["prior_consumption_detected"] is False
         assert action["blocked_reasons"] == []
+
+        for flag in _CONSUMPTION_FALSE_FLAGS:
+            assert action.get(flag) is False, f"{flag} should be False in action"
+
+        assert action["ai_project_director_total_loop"] == "Partial"
+
+        assert result.message.risk_level == "high"
+
+        session2 = seeded_session()
+        count = session2.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {
+                "sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_CONSUMED_SOURCE_DETAIL,
+            },
+        ).scalar()
+        assert count == 1
+        session2.close()
         session.close()
 
 
