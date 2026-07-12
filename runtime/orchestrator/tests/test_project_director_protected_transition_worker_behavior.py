@@ -654,6 +654,7 @@ class TestTaskWorkerReservedExecution:
         ("dispatch_status", "", "reserved_run_routing_metadata_invalid"),
         ("dispatch_status", None, "reserved_run_routing_metadata_invalid"),
     ])
+    # strategy_code is stored inside strategy_decision_json, tested separately below
     def test_run_reserved_once_blocks_when_routing_metadata_invalid(self, tmp_path, field, value, reason):
         """Blocks with reserved_run_routing_metadata_invalid for missing routing fields."""
         engine = make_test_engine(str(tmp_path / "test.db"))
@@ -756,12 +757,83 @@ class TestTaskWorkerReservedExecution:
         session.close()
         engine.dispose()
 
+    def test_run_reserved_once_blocks_when_strategy_code_empty(self, tmp_path):
+        """Blocks with reserved_run_routing_metadata_invalid when strategy_code is empty."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = _create_running_task_run(sf)
+
+        s = sf()
+        run = s.get(RunTable, ctx["run_id"])
+        import json as _json
+        sd = _json.loads(run.strategy_decision_json)
+        sd["strategy_code"] = ""
+        run.strategy_decision_json = _json.dumps(sd)
+        s.commit()
+        s.close()
+
+        task_repo, run_repo, session = _make_task_repos(sf, ctx)
+        worker = make_task_worker(session, task_repo=task_repo, run_repo=run_repo)
+        spy = SpySharedExecutionHelper()
+        spy.install(worker)
+
+        result = worker.run_reserved_once(task_id=ctx["task_id"], run_id=ctx["run_id"])
+        assert result.claimed is False
+        assert result.message == "reserved_run_routing_metadata_invalid"
+        assert spy.call_count == 0
+
+        spy.restore(worker)
+        session.close()
+        engine.dispose()
+
+    def test_run_reserved_once_blocks_when_strategy_code_none(self, tmp_path):
+        """Blocks with reserved_run_routing_metadata_invalid when strategy_code is None."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = _create_running_task_run(sf)
+
+        s = sf()
+        run = s.get(RunTable, ctx["run_id"])
+        import json as _json
+        sd = _json.loads(run.strategy_decision_json)
+        sd["strategy_code"] = None
+        run.strategy_decision_json = _json.dumps(sd)
+        s.commit()
+        s.close()
+
+        task_repo, run_repo, session = _make_task_repos(sf, ctx)
+        worker = make_task_worker(session, task_repo=task_repo, run_repo=run_repo)
+        spy = SpySharedExecutionHelper()
+        spy.install(worker)
+
+        result = worker.run_reserved_once(task_id=ctx["task_id"], run_id=ctx["run_id"])
+        assert result.claimed is False
+        assert result.message == "reserved_run_routing_metadata_invalid"
+        assert spy.call_count == 0
+
+        spy.restore(worker)
+        session.close()
+        engine.dispose()
+
     def test_run_reserved_once_reuses_exact_task_and_run_and_enters_shared_execution_seam(self, tmp_path):
-        """Exact success: enters shared execution seam with correct snapshot."""
+        """Exact success: enters shared execution seam with correct snapshot.
+
+        Verifies no side effects: no new Run created, Task ID unchanged,
+        Run count unchanged, exploding run creation spies not triggered.
+        """
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
         ctx = _create_running_task_run(sf)
         task_repo, run_repo, session = _make_task_repos(sf, ctx)
+
+        # Record before state
+        before_task = task_repo.get_by_id(ctx["task_id"])
+        before_task_id = before_task.id
+        before_task_status = before_task.status
+        before_runs = run_repo.list_by_task_id(ctx["task_id"])
+        before_run_count = len(before_runs)
+        before_run = run_repo.get_by_id(ctx["run_id"])
+        before_run_status = before_run.status
 
         worker = make_task_worker(session, task_repo=task_repo, run_repo=run_repo)
         spy = SpySharedExecutionHelper()
@@ -776,6 +848,16 @@ class TestTaskWorkerReservedExecution:
         assert spy.call_count == 1
         assert spy.calls[0]["task_id"] == ctx["task_id"]
         assert spy.calls[0]["run_id"] == ctx["run_id"]
+
+        # After state: no side effects
+        after_task = task_repo.get_by_id(ctx["task_id"])
+        assert after_task.id == before_task_id
+        assert after_task.status == before_task_status
+        after_runs = run_repo.list_by_task_id(ctx["task_id"])
+        assert len(after_runs) == before_run_count
+        after_run = run_repo.get_by_id(ctx["run_id"])
+        assert after_run.id == ctx["run_id"]
+        assert after_run.status == before_run_status
 
         # Snapshot verification
         snap = result.reserved_run_execution_snapshot
@@ -798,22 +880,63 @@ class TestTaskWorkerReservedExecution:
         session.close()
         engine.dispose()
 
-    def test_run_once_and_run_reserved_once_use_same_shared_execution_helper(self, tmp_path):
-        """Both run_once and run_reserved_once enter _execute_running_task_run."""
+    def test_run_reserved_once_does_not_call_route_claim_or_create_run(self, tmp_path):
+        """Reserved path must not route, claim, or create Run."""
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
         ctx = _create_running_task_run(sf)
         task_repo, run_repo, session = _make_task_repos(sf, ctx)
 
-        # For run_once, we need a working router
+        # Replace run_repo methods with exploding spies
+        orig_add = run_repo.add_running_run_no_event
+        orig_create = run_repo.create_running_run
+        run_repo.add_running_run_no_event = lambda **kw: (_ for _ in ()).throw(AssertionError("must not call add_running_run_no_event"))
+        run_repo.create_running_run = lambda **kw: (_ for _ in ()).throw(AssertionError("must not call create_running_run"))
+
+        worker = make_task_worker(session, task_repo=task_repo, run_repo=run_repo)
+        spy = SpySharedExecutionHelper()
+        spy.install(worker)
+
+        result = worker.run_reserved_once(task_id=ctx["task_id"], run_id=ctx["run_id"])
+        assert spy.call_count == 1
+        assert snap_is_valid(result.reserved_run_execution_snapshot)
+
+        spy.restore(worker)
+        run_repo.add_running_run_no_event = orig_add
+        run_repo.create_running_run = orig_create
+        session.close()
+        engine.dispose()
+
+    def test_run_once_and_run_reserved_once_use_same_shared_execution_helper(self, tmp_path):
+        """Both run_once and run_reserved_once enter _execute_running_task_run.
+
+        Uses two isolated SQLite fixtures to independently verify each entry point.
+        """
         from app.domain.project_role import ProjectRoleCode
-        from app.domain.run import RunStrategyDecision
-        from app.services.task_readiness_service import TaskReadinessResult
-        from app.services.task_router_service import TaskRoutingCandidate
+        from app.domain.run import RunStrategyDecision, RunRoutingScoreItem
+
+        # ── Fixture A: run_once with pending task ──
+        engine_a = make_test_engine(str(tmp_path / "test_a.db"))
+        sf_a = make_session_factory(engine_a)
+        s_a = sf_a()
+        pid_a = uuid4()
+        tid_a = uuid4()
+        s_a.add(ProjectTable(id=pid_a, name="TestA", summary="A", status="active", stage="intake"))
+        s_a.flush()
+        s_a.add(TaskTable(
+            id=tid_a, project_id=pid_a, title="TaskA", status="pending",
+            priority="normal", input_summary="SAFE DRY-RUN TASK DISPATCH ONLY",
+            risk_level="normal", human_status="none", source_draft_id="p12",
+            acceptance_criteria=json.dumps(["safe_dry_run_task=true"]),
+        ))
+        s_a.commit()
+        task_repo_a = TaskRepository(s_a)
+        run_repo_a = RunRepository(s_a)
 
         class _FakeRouterForRunOnce:
             def route_next_task(self, **kwargs):
-                task = task_repo.get_by_id(ctx["task_id"])
+                task = task_repo_a.get_by_id(tid_a)
+                from app.domain.project_role import ProjectRoleCode as PRC
                 return type("D", (), {
                     "selected_task": task,
                     "message": "ok",
@@ -822,28 +945,73 @@ class TestTaskWorkerReservedExecution:
                     "budget_strategy_code": "normal",
                     "budget_strategy_summary": "Normal",
                     "candidates": [],
+                    "routing_score": 1.0,
+                    "route_reason": "test",
+                    "routing_score_breakdown": [],
+                    "project_stage": None,
+                    "owner_role_code": PRC.ARCHITECT,
+                    "upstream_role_code": None,
+                    "downstream_role_code": None,
+                    "dispatch_status": "dispatched",
+                    "handoff_reason": "test",
+                    "model_name": "test-model",
+                    "model_tier": None,
+                    "selected_skill_codes": (),
+                    "selected_skill_names": (),
+                    "strategy_code": "normal",
+                    "strategy_summary": "Normal",
+                    "strategy_reasons": [],
+                    "strategy_decision": None,
                 })()
 
-        worker = make_task_worker(
-            session, task_repo=task_repo, run_repo=run_repo,
+        worker_a = make_task_worker(
+            s_a, task_repo=task_repo_a, run_repo=run_repo_a,
             task_router_service=_FakeRouterForRunOnce(),
         )
-        spy = SpySharedExecutionHelper()
-        spy.install(worker)
+        spy_a = SpySharedExecutionHelper()
+        spy_a.install(worker_a)
 
-        # Call run_reserved_once first
-        r1 = worker.run_reserved_once(
-            task_id=ctx["task_id"],
-            run_id=ctx["run_id"],
-        )
-        assert spy.call_count == 1
+        r_a = worker_a.run_once()
+        assert spy_a.call_count == 1, f"run_once should enter shared helper once, got {spy_a.call_count}"
+        assert spy_a.calls[0]["task_id"] == tid_a
+        spy_a.restore(worker_a)
+        s_a.close()
+        engine_a.dispose()
 
-        # Both used the same _execute_running_task_run
-        assert spy.calls[0]["task_id"] == ctx["task_id"]
+        # ── Fixture B: run_reserved_once with running task ──
+        engine_b = make_test_engine(str(tmp_path / "test_b.db"))
+        sf_b = make_session_factory(engine_b)
+        ctx_b = _create_running_task_run(sf_b)
+        task_repo_b, run_repo_b, session_b = _make_task_repos(sf_b, ctx_b)
 
-        spy.restore(worker)
-        session.close()
-        engine.dispose()
+        worker_b = make_task_worker(session_b, task_repo=task_repo_b, run_repo=run_repo_b)
+        spy_b = SpySharedExecutionHelper()
+        spy_b.install(worker_b)
+
+        r_b = worker_b.run_reserved_once(task_id=ctx_b["task_id"], run_id=ctx_b["run_id"])
+        assert spy_b.call_count == 1, f"run_reserved_once should enter shared helper once, got {spy_b.call_count}"
+        assert spy_b.calls[0]["task_id"] == ctx_b["task_id"]
+        spy_b.restore(worker_b)
+        session_b.close()
+        engine_b.dispose()
+
+
+def snap_is_valid(snap) -> bool:
+    """Check that a reserved snapshot has valid structure."""
+    return (
+        snap is not None
+        and snap.source == "p23_d2_exact_reserved_run"
+        and snap.reserved_run_execution_requested is True
+        and snap.exact_binding_validated is True
+        and snap.task_routed is False
+        and snap.task_claimed_in_this_cycle is False
+        and snap.run_created_in_this_cycle is False
+        and snap.budget_rechecked is True
+        and snap.existing_run_reused is True
+        and snap.shared_execution_seam_used is True
+        and snap.product_runtime_git_write_allowed is False
+        and snap.blocked_reasons == []
+    )
 
 
 def _make_task_repos(sf, ctx):

@@ -886,7 +886,14 @@ class TestB2InvocationBehavior:
         engine.dispose()
 
     def test_b2_rejects_tampered_claim_run_without_worker_call(self, tmp_path):
-        """Tampered claim with wrong run_id → replay conflict, Worker never called."""
+        """Tampered claim with wrong run_id → fail-closed conflict, Worker never called.
+
+        Steps:
+        1. Create durable claim via outcome persistence failure seam (claim exists, no outcome).
+        2. Tamper persisted claim action run_id via real ORM.
+        3. Retry with exploding Worker.
+        4. Assert worker_invocation_claim_replay_conflict, no Worker call.
+        """
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
         ctx = prepare_valid_b1_reservation(
@@ -900,13 +907,20 @@ class TestB2InvocationBehavior:
         task_repo = ctx["task_repo"]
         run_repo = ctx["run_repo"]
 
-        task_id = ids["task_id"]
-        run_id = ctx["d1_result"].result.run_id
+        # Step 1: Create claim via outcome persistence failure
+        original_create = msg_repo.create
+        def fail_outcome(message):
+            sd = getattr(message, "source_detail", "")
+            if sd == P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL:
+                raise RuntimeError("Outcome persistence failure")
+            return original_create(message)
+        msg_repo.create = fail_outcome
 
-        # First: create a valid claim+outcome
         fake_worker1 = FakeTaskWorker(
             session=msg_repo._session,
-            result=_make_fake_worker_result(task_id=task_id, run_id=run_id),
+            result=_make_fake_worker_result(
+                task_id=ids["task_id"], run_id=ctx["d1_result"].result.run_id,
+            ),
         )
         b2_svc1, _ = _make_b2_service(
             sf,
@@ -919,21 +933,29 @@ class TestB2InvocationBehavior:
             source_task_id=ids["task_id"],
             source_message_id=b1_result.message.id,
         )
-        assert r1.outcome.outcome_status == "returned"
+        assert "worker_outcome_persistence_failed_recovery_required" in r1.blocked_reasons
+        msg_repo._session.rollback()
 
-        # Now tamper with the claim message in DB
-        claim_msgs = get_messages_by_source_detail(
-            msg_repo, ids["session_id"],
-            P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
-        )
-        assert len(claim_msgs) == 1
-        claim_msg = claim_msgs[0]
-        action = claim_msg.suggested_actions[0]
-        action["run_id"] = str(uuid4())  # tamper
-        claim_msg.suggested_actions = [action]
+        claims_before, outcomes_before = _count_invocation_messages(msg_repo, ids["session_id"])
+        assert claims_before == 1
+        assert outcomes_before == 0
+
+        # Step 2: Tamper claim run_id via real ORM table
+        from app.core.db_tables import ProjectDirectorMessageTable as MsgTable
+        orm_msgs = msg_repo._session.query(MsgTable).filter(
+            MsgTable.session_id == ids["session_id"],
+            MsgTable.source_detail == P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ).all()
+        assert len(orm_msgs) == 1
+        orm_msg = orm_msgs[0]
+        raw_actions = json.loads(orm_msg.suggested_actions_json)
+        raw_actions[0]["run_id"] = str(uuid4())  # tamper
+        orm_msg.suggested_actions_json = json.dumps(raw_actions)
         msg_repo._session.commit()
 
-        # Try to invoke again with exploding Worker
+        # Step 3: Retry with exploding Worker
+        msg_repo.create = original_create
+
         class _ExplodingWorker:
             session = msg_repo._session
             def run_reserved_once(self, **kwargs):
@@ -946,18 +968,221 @@ class TestB2InvocationBehavior:
             fake_worker=_ExplodingWorker(), d1_svc=ctx["d1_svc"],
         )
 
-        # The tampered claim should be detected as invalid
-        # B2 scans history and finds invalid claim → conflict
-        # But since we already have outcome, it replays outcome
-        # The key test is that the exploding Worker is never called
         r2 = b2_svc2.invoke_reserved_protected_transition_worker(
             session_id=ids["session_id"],
             source_task_id=ids["task_id"],
             source_message_id=b1_result.message.id,
         )
-        # The outcome replay should still work because outcome binds to claim
-        # But the tampered claim means the history scan finds invalid claim
-        # This depends on whether the outcome still binds correctly
-        # Either way, Worker must not be called
+
+        # Step 4: Fail-closed — tampered claim invalidates fingerprint → invalid_claim → conflict
+        assert "worker_invocation_claim_replay_conflict" in r2.blocked_reasons
+        assert r2.outcome is None
+
+        claims_after, outcomes_after = _count_invocation_messages(msg_repo, ids["session_id"])
+        assert claims_after == 1
+        assert outcomes_after == 0
+
+        engine.dispose()
+
+    @pytest.mark.parametrize("field,tamper_value", [
+        ("source_reservation_fingerprint", "b" * 64),
+        ("source_reservation_token", "tampered-token-value"),
+    ])
+    def test_b2_rejects_tampered_claim_reservation_binding_without_worker_call(self, tmp_path, field, tamper_value):
+        """Tampered reservation fingerprint or token → fail-closed conflict, Worker never called.
+
+        Steps:
+        1. Create durable claim via outcome persistence failure seam.
+        2. Tamper persisted claim action field via real ORM.
+        3. Retry with exploding Worker.
+        4. Assert worker_invocation_claim_replay_conflict.
+        """
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = prepare_valid_b1_reservation(
+            sf,
+            session_id=uuid4(), task_id=uuid4(), project_id=uuid4(),
+        )
+
+        ids = ctx["ids"]
+        b1_result = ctx["b1_result"]
+        msg_repo = ctx["msg_repo"]
+        task_repo = ctx["task_repo"]
+        run_repo = ctx["run_repo"]
+
+        # Step 1: Create claim via outcome persistence failure
+        original_create = msg_repo.create
+        def fail_outcome(message):
+            sd = getattr(message, "source_detail", "")
+            if sd == P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL:
+                raise RuntimeError("Outcome persistence failure")
+            return original_create(message)
+        msg_repo.create = fail_outcome
+
+        fake_worker1 = FakeTaskWorker(
+            session=msg_repo._session,
+            result=_make_fake_worker_result(
+                task_id=ids["task_id"], run_id=ctx["d1_result"].result.run_id,
+            ),
+        )
+        b2_svc1, _ = _make_b2_service(
+            sf,
+            msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
+            agent_sess_repo=ctx["agent_sess_repo"], b1_svc=ctx["b1_svc"],
+            fake_worker=fake_worker1, d1_svc=ctx["d1_svc"],
+        )
+        r1 = b2_svc1.invoke_reserved_protected_transition_worker(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=b1_result.message.id,
+        )
+        assert "worker_outcome_persistence_failed_recovery_required" in r1.blocked_reasons
+        msg_repo._session.rollback()
+
+        claims_before, outcomes_before = _count_invocation_messages(msg_repo, ids["session_id"])
+        assert claims_before == 1
+        assert outcomes_before == 0
+
+        # Step 2: Tamper via real ORM table
+        from app.core.db_tables import ProjectDirectorMessageTable as MsgTable
+        orm_msgs = msg_repo._session.query(MsgTable).filter(
+            MsgTable.session_id == ids["session_id"],
+            MsgTable.source_detail == P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ).all()
+        assert len(orm_msgs) == 1
+        orm_msg = orm_msgs[0]
+        raw_actions = json.loads(orm_msg.suggested_actions_json)
+        raw_actions[0][field] = tamper_value
+        orm_msg.suggested_actions_json = json.dumps(raw_actions)
+        msg_repo._session.commit()
+
+        # Step 3: Retry with exploding Worker
+        msg_repo.create = original_create
+
+        class _ExplodingWorker:
+            session = msg_repo._session
+            def run_reserved_once(self, **kwargs):
+                raise AssertionError("must not call Worker on conflict")
+
+        b2_svc2, _ = _make_b2_service(
+            sf,
+            msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
+            agent_sess_repo=ctx["agent_sess_repo"], b1_svc=ctx["b1_svc"],
+            fake_worker=_ExplodingWorker(), d1_svc=ctx["d1_svc"],
+        )
+
+        r2 = b2_svc2.invoke_reserved_protected_transition_worker(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=b1_result.message.id,
+        )
+
+        # Step 4: Fail-closed conflict
+        assert "worker_invocation_claim_replay_conflict" in r2.blocked_reasons
+        assert r2.outcome is None
+
+        claims_after, outcomes_after = _count_invocation_messages(msg_repo, ids["session_id"])
+        assert claims_after == 1
+        assert outcomes_after == 0
+
+        engine.dispose()
+
+    def test_b2_records_not_invoked_when_final_current_revalidation_fails_after_claim(self, tmp_path):
+        """Real B2 not_invoked: Phase 1 current allowed → claim → Phase 2 current blocked → not_invoked.
+
+        Wraps real B1 service's revalidate_current_protected_transition_worker_start_reservation
+        with call count: 1st call returns allowed, 2nd call returns blocked.
+        """
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = prepare_valid_b1_reservation(
+            sf,
+            session_id=uuid4(), task_id=uuid4(), project_id=uuid4(),
+        )
+
+        ids = ctx["ids"]
+        b1_result = ctx["b1_result"]
+        msg_repo = ctx["msg_repo"]
+        task_repo = ctx["task_repo"]
+        run_repo = ctx["run_repo"]
+        b1_svc = ctx["b1_svc"]
+
+        # Wrap B1's revalidate_current method with call-count logic
+        orig_revalidate = b1_svc.revalidate_current_protected_transition_worker_start_reservation
+        call_count = [0]
+
+        def scripted_revalidate(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: return allowed (used by _claim_or_replay)
+                return orig_revalidate(*args, **kwargs)
+            else:
+                # Second call: return blocked (final current revalidation in Phase 2)
+                from app.services.project_director_protected_transition_worker_start_reservation_service import (
+                    RevalidatedCurrentProtectedTransitionWorkerStartReservation,
+                )
+                return RevalidatedCurrentProtectedTransitionWorkerStartReservation(
+                    result=b1_result.result,
+                    message=b1_result.message,
+                    task=task_repo.get_by_id(ids["task_id"]),
+                    run=run_repo.get_by_id(ctx["d1_result"].result.run_id),
+                    current_freshness=None,
+                    budget_decision=None,
+                    blocked_reasons=["source_task_not_running"],
+                )
+
+        b1_svc.revalidate_current_protected_transition_worker_start_reservation = scripted_revalidate
+
+        fake_worker = FakeTaskWorker(session=msg_repo._session)
+        b2_svc, _ = _make_b2_service(
+            sf,
+            msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
+            agent_sess_repo=ctx["agent_sess_repo"], b1_svc=b1_svc,
+            fake_worker=fake_worker, d1_svc=ctx["d1_svc"],
+        )
+
+        r1 = b2_svc.invoke_reserved_protected_transition_worker(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=b1_result.message.id,
+        )
+
+        # Claim created, outcome is not_invoked
+        assert r1.outcome is not None
+        assert r1.outcome.outcome_status == "not_invoked"
+        assert r1.outcome.worker_call_attempted is False
+        assert r1.outcome.worker_returned is False
+        assert r1.outcome.worker_raised is False
+        assert len(fake_worker.run_reserved_once_calls) == 0
+
+        claims1, outcomes1 = _count_invocation_messages(msg_repo, ids["session_id"])
+        assert claims1 == 1
+        assert outcomes1 == 1
+
+        first_claim_id = r1.claim.claim_id
+        first_outcome_id = r1.outcome.outcome_id
+
+        # Rollback lingering transaction before replay
+        msg_repo._session.rollback()
+
+        # Replay: same outcome, Worker still not called
+        fake_worker2 = FakeTaskWorker(session=msg_repo._session)
+        b2_svc2, _ = _make_b2_service(
+            sf,
+            msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
+            agent_sess_repo=ctx["agent_sess_repo"], b1_svc=b1_svc,
+            fake_worker=fake_worker2, d1_svc=ctx["d1_svc"],
+        )
+
+        r2 = b2_svc2.invoke_reserved_protected_transition_worker(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=b1_result.message.id,
+        )
+
+        assert r2.claim.claim_id == first_claim_id
+        assert r2.outcome.outcome_id == first_outcome_id
+        assert r2.resumed_from_existing_outcome is True
+        assert len(fake_worker2.run_reserved_once_calls) == 0
 
         engine.dispose()
