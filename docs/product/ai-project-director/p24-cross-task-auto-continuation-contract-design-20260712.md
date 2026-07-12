@@ -1,9 +1,9 @@
-# P24-A: Cross-Task AUTO_CONTINUE Execution Contract Design
+# P24-A-R1: Cross-Task AUTO_CONTINUE Completion Authority Contract Refinement
 
 ## 1. Status and Decision
 
 ```text
-P24-A scope: design contract only
+P24-A-R1 scope: completion authority and completion policy contract refinement only
 Production code: not changed
 Tests: not changed and not run
 Product runtime Git write: forbidden
@@ -70,23 +70,23 @@ flowchart LR
     K --> L["durable invocation outcome"]
 ```
 
-## 3. Source Completion Evidence Contract
+## 3. Source Completion Authority, Policy, and Evidence Contract
 
 ### 3.1 Current repository conclusion
 
 The repository does **not** currently expose a single reliable `source_completion_evidence` suitable for P24. The following values are explicitly insufficient on their own:
 
 ```text
-P23 continuation_started = true
+P23 or P24 continuation_started = true
 Worker was called
-Worker returned an object
+Worker returned an in-memory object
 Run was created
 Task entered running
 Task.status = completed without an exact successful Run binding
-Run.status = succeeded without the matching Task and completion policy
+Run.status = succeeded without the matching Task and immutable completion policy
 ```
 
-The strongest existing partial tuple is:
+The strongest existing execution-success tuple is:
 
 ```text
 Task.id = source_task_id
@@ -101,28 +101,285 @@ Run.finished_at is not null
 Run.quality_gate_passed = true
 Run.failure_category is null
 
-P23 invocation outcome.run_id = source_success_run_id
-P23 invocation outcome.source_task_id = source_task_id
-P23 invocation outcome.outcome_status = returned
-P23 invocation outcome.worker_result_contract_valid = true
-P23 invocation outcome.human_recovery_required = false
-P23 invocation outcome.blocked_reasons = []
-P23 invocation outcome.worker_reported_git_write_activity = false
+durable Worker outcome.task_id = source_task_id
+durable Worker outcome.run_id = source_success_run_id
+durable Worker outcome.outcome_status = returned
+durable Worker outcome.worker_result_contract_valid = true
+durable Worker outcome.human_recovery_required = false
+durable Worker outcome.blocked_reasons = []
+durable Worker outcome.worker_reported_git_write_activity = false
 ```
 
-Even this tuple lacks an explicit completion-policy result for deliverable publication and human approval. The current Worker may create a `pending_approval` record after Task/Run success, and creation failure is swallowed. Therefore P24 must not start from this tuple directly.
+This tuple must be reconstructed from persisted rows and append-only messages. It cannot be read from a Worker return value. It still needs an immutable completion-policy snapshot and the exact evidence required by that policy.
 
-### 3.2 New minimum seam
+### 3.2 General execution authority lineage
 
-P24-B must introduce `ProjectDirectorSourceTaskCompletionEvidence` as an immutable DomainModel persisted in an append-only `ProjectDirectorMessage`. It is a derived, auditable completion certificate, not a mutable Task field.
+Completion evidence is authority-neutral. It does not require a P23 outcome specifically. P24-B introduces:
 
-Suggested message metadata:
+```text
+SourceExecutionAuthorityKind = {
+  p23_protected_transition,
+  p24_cross_task_continuation
+}
+
+ProjectDirectorSourceExecutionAuthorityResolver
+SourceExecutionAuthoritySnapshot
+```
+
+Resolver input:
+
+```text
+authority_kind
+authority_record_id
+source_task_id
+source_run_id
+```
+
+Unified immutable snapshot fields:
+
+```text
+schema_version
+authority_kind
+authority_id
+authority_fingerprint
+
+reservation_id
+reservation_fingerprint
+claim_id
+claim_fingerprint
+outcome_id
+outcome_schema_version
+outcome_fingerprint
+
+task_id
+run_id
+outcome_status
+worker_result_contract_valid
+recovery_required
+blocked_reasons
+worker_reported_git_write_activity
+product_runtime_git_write_allowed
+
+source_review_id
+source_review_outcome
+source_transition_evidence_ids
+```
+
+The resolver dispatches to a strict adapter by `authority_kind`:
+
+| Authority kind | Adapter | Required persisted lineage |
+|---|---|---|
+| `p23_protected_transition` | `P23ProtectedTransitionExecutionAuthorityAdapter` | P23 D1 exact source Task/Run record, B1 reservation, B2 claim, B2 outcome, and their fingerprints |
+| `p24_cross_task_continuation` | `P24CrossTaskExecutionAuthorityAdapter` | P24 continuation/package authority, exact next Task/Run record, P24 reservation, P24 claim, P24 outcome, and their fingerprints |
+
+Both adapters must:
+
+1. Load every authority/reservation/claim/outcome record from persistence and strictly reconstruct its declared schema.
+2. Verify the authority, reservation, claim, and outcome form one unbroken lineage.
+3. Verify every record binds the exact input Task and Run.
+4. Require one durable outcome with `outcome_status=returned`, `worker_result_contract_valid=true`, `recovery_required=false`, empty blocked reasons, and no product runtime Git activity.
+5. Require `product_runtime_git_write_allowed=false` throughout.
+6. Reload the exact Task and Run from their repositories after reconstructing the authority; never accept the Worker's in-memory return value as completion.
+7. Fail closed on missing, duplicate, malformed, unsupported-version, fingerprint-mismatched, or cross-authority records.
+
+P23 compatibility aliases may be present for audit:
+
+```text
+source_p23_invocation_outcome_id: UUID | null
+source_p24_invocation_outcome_id: UUID | null
+```
+
+They are not the general decision fields. The decision uses `source_execution_authority_kind`, `source_execution_authority_id`, and the unified outcome identity.
+
+### 3.3 Completion policy repository fact decision
+
+The current repository has useful policy **inputs**, but no trustworthy Task-scoped record that immutably decides all four completion axes.
+
+| Axis | Existing facts | What they can prove | What they cannot prove |
+|---|---|---|---|
+| Review | P21-C validated review output has `review_status=reviewed` and verdicts `no_blocking_findings`, `non_blocking_findings`, `changes_required`; P21-D disposition binds its fingerprint | An exact persisted review happened and its result | Whether review is required for an arbitrary P24 Task, or that absence means not required |
+| Verification | Confirmed `ProjectDirectorVerificationConfig` contains mechanisms and evidence requirements | Confirmed plan-level verification intent | Which mechanism is mandatory for one exact Task; absence/empty config cannot prove not required |
+| Delivery | Confirmed plan has `deliverable_boundaries`; Deliverable rows can bind a source Task/Run | Expected plan-level artifacts and an actual persisted artifact version | A Task-specific required/not-required decision; absence cannot prove not required; no `publish_completed` signal exists |
+| Approval | `ApprovalRequest` has `pending_approval`, `approved`, `rejected`, `changes_requested`; Worker best-effort creates pending approval after successful Run | State of an exact deliverable-version approval request | Whether approval is required for the Task; no row cannot prove not required |
+| Human confirmation | P4-F `HumanApprovalRecord` has fingerprint and expiry | Approval of `git_add_commit_preview` only | It cannot authorize a completion policy because its scope/action enum is delivery-Git specific |
+
+Confirmed repository-binding and agent-team configs remain required scope/role inputs, but they do not decide any completion axis. Task acceptance criteria and confirmed plan acceptance criteria are evidence inputs, not a substitute for an explicit policy decision.
+
+Therefore P24 chooses one explicit solution: a new append-only policy proposal, an exact policy decision/confirmation record, and an immutable confirmed snapshot. P24-B may not invent, default, or silently normalize any core policy axis.
+
+Policy-source resolution order is explicit and fail closed:
+
+1. An exact immutable, Task-scoped confirmed requirement record would be authoritative if the repository had one; the current repository has none for any of the four axes.
+2. Therefore, for P24 v1, the new `ProjectDirectorTaskCompletionPolicyDecision` is the only record allowed to decide `required` versus `not_required`, and its immutable confirmed snapshot is the only authority consumed by completion evidence.
+3. Confirmed plan version, exact Task acceptance criteria, confirmed verification config, confirmed repository-binding config, confirmed agent-team config, deliverable boundaries, approval workflow records, and exact human-confirmation evidence are ordered proposal inputs and later satisfaction evidence. They may justify a proposed `required` value or prove that a required axis was satisfied, but they cannot independently decide `not_required` or override the Task-scoped decision.
+4. Mutable Task fields, missing/empty config, missing Deliverable/Approval rows, and pending/rejected configs have no policy authority. Conflicting same-priority inputs or any missing confirmation leave the axis `unresolved`.
+
+For review the trusted terminal evidence is the exact persisted P21-C-style validated review plus its disposition/fingerprint; for verification it is exact successful evidence matching the confirmed verification mechanism; for delivery it is an exact Task/Run-bound persisted deliverable version of the kind named by policy; for approval it is an exact `approved` request for that required deliverable version. These records satisfy a `required` axis only after the policy decision made it required. For every axis, only the new owner decision with non-empty reason evidence can prove `not_required`.
+
+### 3.4 Completion policy proposal and confirmation seam
+
+#### Proposal record
+
+`ProjectDirectorTaskCompletionPolicyProposal` is append-only:
+
+```text
+source_detail = p24_task_completion_policy_proposed
+intent = task_completion_policy_proposal
+action type = p24_task_completion_policy_proposal_record
+schema_version = p24-b-completion-policy-proposal.v1
+related_plan_version_id = exact confirmed plan
+related_project_id = exact project
+related_task_id = exact Task
+```
+
+`prepare_task_completion_policy_proposal()` accepts only exact plan/creation-record/Task IDs. It loads the confirmed plan and confirmed configs, snapshots all relevant source IDs/fingerprints, and proposes each axis as `required` only where the source is explicit and Task-applicable. With the current schemas, plan-level review/verification/delivery/approval facts are not sufficiently Task-specific, so the affected axis remains `unresolved`. It never proposes `not_required` from absence.
+
+Proposal idempotency key:
+
+```text
+sha256(canonical_json({
+  schema_version: "p24-policy-proposal-replay.v1",
+  action: "propose_task_completion_policy",
+  session_id,
+  project_id,
+  plan_version_id,
+  task_creation_record_id,
+  task_id,
+  policy_source_bundle_fingerprint
+}))
+```
+
+The proposal is created/replayed under `BEGIN IMMEDIATE`. Changed source facts create a conflict or an explicit new proposal; they never mutate an existing proposal.
+
+#### Policy decision record
+
+`ProjectDirectorTaskCompletionPolicyDecision` is a new append-only, Task-scoped human/owner governance record. Existing P4-F Git-preview approvals cannot be reused.
+
+```text
+source_detail = p24_task_completion_policy_decided
+intent = task_completion_policy_decision
+action type = p24_task_completion_policy_decision_record
+schema_version = p24-b-completion-policy-decision.v1
+
+decision_id
+decision_fingerprint
+proposal_id
+session_id
+project_id
+plan_version_id
+task_creation_record_id
+task_id
+review_requirement
+verification_requirement
+delivery_requirement
+approval_requirement
+axis_reason_codes
+confirmed_source_evidence_ids
+decided_by
+client_request_id
+created_at
+product_runtime_git_write_allowed = false
+```
+
+All four requirements must be explicitly selected as `required` or `not_required`. `unresolved` cannot be confirmed. Every `not_required` choice requires a non-empty reason code and exact human decision evidence. Every `required` choice identifies the acceptable evidence kind and terminal result. Reused `client_request_id`, mismatched proposal, or malformed fingerprint fails closed.
+
+Decision idempotency key:
+
+```text
+(proposal_id, client_request_id, action=decide_task_completion_policy)
+```
+
+The decision and confirmed snapshot are appended in one `BEGIN IMMEDIATE` transaction after full lineage revalidation. P24-B exposes the domain/service entry only; it adds no API and cannot self-confirm on behalf of the user/owner.
+
+### 3.5 Immutable completion policy snapshot
+
+`ProjectDirectorTaskCompletionPolicySnapshot` is the only policy authority accepted by completion evidence.
+
+```text
+schema_version
+completion_policy_id
+completion_policy_version
+completion_policy_fingerprint
+completion_policy_status
+created_at
+
+session_id
+project_id
+plan_version_id
+task_creation_record_id
+task_id
+
+source_proposal_id
+source_decision_id
+supersedes_completion_policy_id
+
+review_requirement
+verification_requirement
+delivery_requirement
+approval_requirement
+
+review_policy_source
+verification_policy_source
+delivery_policy_source
+approval_policy_source
+
+review_policy_evidence_ids
+verification_policy_evidence_ids
+delivery_policy_evidence_ids
+approval_policy_evidence_ids
+
+required_terminal_task_status
+required_terminal_run_status
+required_quality_gate_result
+required_review_terminal_results
+required_verification_evidence_kinds
+required_delivery_evidence_kinds
+required_approval_terminal_results
+
+human_confirmation_required
+human_confirmation_evidence_id
+
+product_runtime_git_write_allowed
+forbidden_actions
+```
+
+Requirement values are:
+
+```text
+required
+not_required
+unresolved
+```
+
+Proposal/blocked snapshots may contain `unresolved` for audit. Only `completion_policy_status=confirmed`, with all four axes in `{required, not_required}`, an exact policy decision, `human_confirmation_required=true`, and matching confirmation evidence may authorize completion evidence. Version 1 starts at `1`; any change creates a new snapshot ID/version/fingerprint and links `supersedes_completion_policy_id`. Old completion evidence always replays against its original snapshot.
+
+Fingerprint covers all semantic fields except `completion_policy_fingerprint`. Replay key:
+
+```text
+(source_proposal_id, source_decision_id, completion_policy_version,
+ action=confirm_task_completion_policy)
+```
+
+#### Axis satisfaction rules
+
+| Axis | `required` | `not_required` | `unresolved` |
+|---|---|---|---|
+| Review | Exact persisted review ID must bind the authority Task/Run or its declared candidate evidence; validation status is valid and verdict is in the policy's passing set (normally `no_blocking_findings` or `non_blocking_findings`) | Review ID may be null only because the confirmed snapshot and decision explicitly say not required | Fail closed |
+| Verification | Exact Run verification evidence must match policy mechanism/evidence IDs, succeed, and quality gate must be true | Verification evidence may be absent only because the confirmed decision says not required; null `verification_mode` alone is irrelevant | Fail closed |
+| Delivery | Exact source Task/Run-bound Deliverable and version must satisfy the policy's declared terminal evidence kind; current v1 can use `deliverable_version_persisted`, not nonexistent `publish_completed` | No Deliverable may be required only by explicit confirmed decision | Fail closed |
+| Approval | Exact approval for the required deliverable version must be `approved`; pending/rejected/changes-requested blocks | No Approval row is acceptable only with explicit confirmed decision | Fail closed |
+
+This seam has a real positive path: explicit proposal -> owner decision for all four axes -> confirmed immutable snapshot -> persisted authority outcome and Task/Run success -> required-axis evidence (or explicitly confirmed not-required axes) -> completion evidence. It is not an always-blocked placeholder.
+
+### 3.6 General completion evidence model
+
+P24-B introduces `ProjectDirectorSourceTaskCompletionEvidence` as an immutable DomainModel persisted in an append-only `ProjectDirectorMessage`. It is a derived completion certificate, not a mutable Task field.
 
 ```text
 source_detail = p24_source_task_completion_evidence_recorded
 intent = cross_task_source_completion_evidence
 action type = p24_source_task_completion_evidence_record
-schema_version = p24-b-completion.v1
+schema_version = p24-b-completion.v2
 related_plan_version_id = exact plan version
 related_project_id = exact project
 related_task_id = source Task
@@ -143,10 +400,24 @@ task_creation_record_id
 source_task_id
 source_success_run_id
 
-source_p23_invocation_outcome_id
-source_review_id
-source_review_outcome
+source_execution_authority_kind
+source_execution_authority_id
+source_execution_authority_fingerprint
+source_worker_start_reservation_id
+source_worker_invocation_claim_id
+source_worker_invocation_outcome_id
+source_worker_outcome_schema_version
+source_worker_outcome_fingerprint
+
+source_p23_invocation_outcome_id: UUID | null
+source_p24_invocation_outcome_id: UUID | null
+source_review_id: UUID | null
+source_review_outcome: string | null
 source_transition_evidence_ids
+
+completion_policy_id
+completion_policy_version
+completion_policy_fingerprint
 
 task_status
 task_human_status
@@ -155,22 +426,22 @@ run_status
 run_finished_at
 run_quality_gate_passed
 run_failure_category_absent
+
+review_requirement
+review_evidence_ids
 verification_requirement
-verification_evidence
+verification_evidence_ids
+delivery_requirement
+deliverable_id: UUID | null
+deliverable_version_id: UUID | null
+approval_requirement
+approval_id: UUID | null
+approval_status: string | null
 
 agent_session_id
 agent_session_status
 agent_session_phase
 runtime_terminal
-
-delivery_requirement
-deliverable_id
-deliverable_version_id
-delivery_status
-approval_requirement
-approval_id
-approval_status
-
 pending_human_approval_absent
 recovery_required
 worker_reported_git_write_activity
@@ -178,32 +449,57 @@ product_runtime_git_write_allowed
 blocked_reasons
 ```
 
-### 3.3 Issuance predicate
+`source_review_id` and `source_review_outcome` are conditional: required policy needs an exact passing review; not-required policy permits null; unresolved policy blocks. `source_p23_invocation_outcome_id` and `source_p24_invocation_outcome_id` are optional audit aliases, with exactly one populated according to authority kind.
 
-The evidence resolver may issue `completion_status=confirmed` only when all applicable predicates are true:
+### 3.7 Issuance predicate
 
-1. The persisted Task and exact persisted Run satisfy the partial tuple above.
-2. The P23 invocation outcome binds the same Task and Run, has a valid exact reserved-run snapshot, reports no recovery, and contains no blocked reason.
-3. If an AgentSession exists for the Run, it is `completed`, phase is `finalized`, its Task/Run binding matches, and no active runtime state remains. Missing or multiple conflicting sessions fail closed.
-4. Verification policy is explicit. `required` needs persisted passing verification evidence; `not_required` must come from a persisted confirmed policy and must not be inferred merely because `Run.verification_mode` is null.
-5. Delivery policy is explicit. If delivery is required, the exact Run-bound deliverable/version exists and is in its required terminal state.
-6. Approval policy is explicit. If approval is required, the exact deliverable version has `ApprovalStatus.APPROVED`. `PENDING_APPROVAL`, `REJECTED`, or `CHANGES_REQUESTED` blocks issuance. If approval is not required, a confirmed policy must say so; absence of an approval row is not proof of `not_required`.
-7. No pending Task human state, no P23 recovery flag, no active Run/AgentSession for the source completion, and no detected product runtime Git activity exist.
-8. `product_runtime_git_write_allowed=false` is fixed.
+The evidence resolver may issue `completion_status=confirmed` only when all predicates are true:
 
-The current repository lacks the explicit verification/delivery/approval completion-policy record needed by predicates 4-6. P24-B must add the smallest persisted policy/result seam or bind an existing confirmed policy where one is unambiguous. Until then the resolver returns `source_completion_evidence_missing` or `source_completion_policy_unresolved`, persists a blocked audit result if appropriate, and never starts the next Task.
+1. Resolve a valid unified execution authority snapshot for either P23 or P24, with exact Task/Run lineage and no recovery, blocked reason, or Git activity.
+2. Reload the persisted Task and exact Run and require the execution-success tuple in section 3.1.
+3. Load the exact immutable completion policy by ID/version and verify its fingerprint, confirmed status, proposal/decision lineage, and same session/project/confirmed plan/creation record/Task.
+4. Evaluate review, verification, delivery, and approval independently against the frozen policy. Every axis must be satisfied according to `required` or explicitly confirmed `not_required`; any `unresolved` blocks.
+5. If an AgentSession exists for the Run, it is `completed`, phase is `finalized`, its Task/Run binding matches, and no active runtime state remains. Missing or multiple conflicting sessions fail closed.
+6. No pending Task human state, pending required approval, active Run/AgentSession, authority recovery flag, or detected product runtime Git activity exists.
+7. `product_runtime_git_write_allowed=false` is fixed in authority, policy, and evidence.
 
-### 3.4 Identity, fingerprint, and replay
+The completion fingerprint covers authority kind/ID/fingerprint, outcome schema/fingerprint, policy ID/version/fingerprint, Task/Run terminal facts, and all axis evidence IDs/results. It never reinterprets historical evidence using current mutable plan/config/Task state.
+
+### 3.8 Identity, replay, and multi-hop continuation
 
 Stable completion identity:
 
 ```text
-(plan_version_id, source_task_id, source_success_run_id, action=source_task_completion)
+(plan_version_id,
+ source_task_id,
+ source_success_run_id,
+ source_execution_authority_kind,
+ source_execution_authority_id,
+ completion_policy_id,
+ completion_policy_version,
+ action=source_task_completion)
 ```
 
-The resolver runs inside `BEGIN IMMEDIATE`, scans the complete session history, strictly reconstructs candidate messages, and either returns one exact existing evidence record or creates one. Multiple records, malformed records, or a changed semantic fingerprint produce `source_completion_evidence_conflict` and require human recovery.
+The resolver runs inside `BEGIN IMMEDIATE`, scans complete history, strictly reconstructs authority/policy/evidence, and returns one exact existing record or creates one. Multiple records, malformed history, a policy identity mismatch, or changed authority/policy fingerprint produces `source_completion_evidence_conflict` and requires human recovery. Replay loads the original policy snapshot; it does not re-run policy inference from current configs.
 
-The SHA-256 fingerprint covers canonical JSON for all semantic fields, including the evidence ID and all bound evidence IDs, but excluding only `completion_fingerprint` and replay-only response flags. Objects use sorted keys, UUIDs use canonical lowercase text, datetimes use UTC RFC 3339, ordered plan arrays preserve order, and set-like path/action arrays are normalized and sorted.
+The SHA-256 fingerprint uses canonical JSON: sorted object keys, canonical lowercase UUIDs, UTC RFC 3339 datetimes, preserved plan order, and normalized set-like arrays. It covers all semantic fields including evidence ID and bound IDs, excluding only `completion_fingerprint` and replay-only response flags.
+
+The schema supports continuous progression, not a single cross-task jump:
+
+```mermaid
+flowchart LR
+    T1["Task 1"] --> P23["P23 durable outcome"]
+    P23 --> E1["completion evidence 1"]
+    E1 --> T2["P24 starts Task 2"]
+    T2 --> O2["P24 durable outcome"]
+    O2 --> E2["completion evidence 2"]
+    E2 --> T3["P24 starts Task 3"]
+    T3 --> O3["P24 durable outcome"]
+    O3 --> E3["completion evidence 3"]
+    E3 --> X["plan_queue_exhausted"]
+```
+
+Task 1 may use `p23_protected_transition`. Tasks 2 and later use `p24_cross_task_continuation`. Both adapters return the same `SourceExecutionAuthoritySnapshot`, and all Tasks use the same completion-policy and completion-evidence schemas. P24 therefore supports an arbitrary confirmed queue length subject to per-Task policy and readiness gates.
 
 ## 4. Confirmed Plan Lineage Contract
 
@@ -330,8 +626,20 @@ task_creation_record_id
 source_task_id
 source_run_id
 source_completion_evidence_id
-source_review_id
-source_review_outcome
+source_execution_authority_kind
+source_execution_authority_id
+source_execution_authority_fingerprint
+source_worker_start_reservation_id
+source_worker_invocation_claim_id
+source_worker_invocation_outcome_id
+source_worker_outcome_schema_version
+source_worker_outcome_fingerprint
+completion_policy_id
+completion_policy_version
+completion_policy_fingerprint
+review_requirement
+source_review_id: UUID | null
+source_review_outcome: string | null
 source_transition_evidence_ids
 
 next_task_id
@@ -369,6 +677,9 @@ forbidden_actions
 
 | Package data | Trusted source | Rejection rule |
 |---|---|---|
+| Source execution authority | Completion evidence's exact unified P23/P24 authority kind, ID, outcome identity/schema/fingerprint | Missing, unsupported, Task/Run-mismatched, or fingerprint-divergent authority blocks |
+| Source completion policy | Completion evidence's exact immutable confirmed policy ID/version/fingerprint | Current config must not reinterpret the frozen source policy; identity/fingerprint mismatch blocks |
+| Source review | Frozen completion policy plus completion evidence | `required` needs the exact passing review ID/outcome; `not_required` requires both fields null; `unresolved` blocks |
 | Plan/task identity and order | Confirmed plan + strict creation record + persisted next Task | Any mismatch blocks |
 | Task title/input/owner/priority/dependencies | Persisted next Task, cross-checked by index against `proposed_tasks[next_index]` | Missing role or divergent lineage blocks |
 | Confirmed scope | Confirmed plan `project_scope`, deliverable boundaries, and next ProposedTask description | Empty or contradictory scope blocks |
@@ -437,13 +748,17 @@ source_run_id
 source_completion_evidence_id
 plan_version_id
 task_creation_record_id
-next_task_id
-instruction_package_id
+next_task_id: UUID | null
+instruction_package_id: UUID | null
 
-exact_run_id
-worker_reservation_id
-worker_invocation_claim_id
-worker_outcome_id
+exact_run_id: UUID | null
+worker_reservation_id: UUID | null
+worker_invocation_claim_id: UUID | null
+worker_outcome_id: UUID | null
+
+new_task_created
+run_created
+worker_called
 
 status
 blocked_reasons
@@ -475,6 +790,22 @@ worker_returned
 worker_failed
 recovery_required
 ```
+
+Field nullability and branch rules are normative:
+
+| Field group | Always required | `next_task_resolved` / prepared branch | Worker stages | `plan_queue_exhausted` |
+|---|---:|---:|---:|---:|
+| `record_id`, `continuation_id`, replay key, source Task/Run/evidence, plan/creation lineage, status, Git boundary | Yes | Yes | Yes | Yes |
+| `next_task_id`, `instruction_package_id` | No | Required before `prepared`/`next_task_reserved` is returned | Preserved unchanged | Must be null |
+| `exact_run_id` | No | Null before Run creation, then required | Required | Must be null |
+| `worker_reservation_id` | No | Null before reservation, then required | Required from reservation onward | Must be null |
+| `worker_invocation_claim_id` | No | Null before claim | Required from claim onward | Must be null |
+| `worker_outcome_id` | No | Null before outcome | Required only after durable outcome | Must be null |
+| `new_task_created` | Yes | Always false because P24 reuses an existing Task | Always false | Must be false |
+| `run_created` | Yes | False before Run, true only after exact Run commit | True | Must be false |
+| `worker_called` | Yes | False before the external call boundary | True only when the call was attempted | Must be false |
+
+No nullable next-task field may be populated on exhaustion, and no absent package/Run/outcome may be represented by a synthetic UUID.
 
 `worker_started` means only that the external call boundary was crossed. It is not next-task completion. Completion of that next Task must later produce its own `ProjectDirectorSourceTaskCompletionEvidence`, which may trigger the following continuation.
 
@@ -516,6 +847,7 @@ The same key must always replay:
 
 ```text
 same continuation_id
+same terminal record_id when plan_queue_exhausted
 same next_task_id
 same instruction_package_id
 same exact_run_id, once created
@@ -562,7 +894,10 @@ The next Task is never skipped because it is blocked.
 
 | Service | Input / output | Reads | Writes / transaction | Errors and replay |
 |---|---|---|---|---|
-| `ProjectDirectorSourceCompletionEvidenceResolver` | exact P23 outcome ID, source Task/Run -> confirmed or blocked completion evidence | Task, Run, AgentSession, deliverable, approval, plan lineage, P23 messages, completion policy | One append-only evidence message under `BEGIN IMMEDIATE`; no Task/Run mutation | Full-history replay; missing policy/evidence fails closed |
+| `ProjectDirectorSourceExecutionAuthorityResolver` | authority kind/record ID + exact source Task/Run -> unified immutable authority snapshot | P23 or P24 authority, reservation, claim, outcome, Task, Run | Read-only strict reconstruction; no mutation | Unsupported kind, broken lineage, schema/fingerprint mismatch, or Task/Run mismatch fails closed |
+| `P23ProtectedTransitionExecutionAuthorityAdapter` | P23 authority lineage -> unified snapshot | Persisted P23 D1/B1/B2 messages plus Task/Run | Read-only | Preserves P23 wire IDs/replay; no P23 semantic change |
+| `P24CrossTaskExecutionAuthorityAdapter` | P24 continuation/package/Run/invocation lineage -> unified snapshot | Persisted P24 records plus Task/Run | Read-only | P24 outcome must satisfy the same snapshot contract; malformed/incomplete lineage blocks |
+| `ProjectDirectorSourceCompletionEvidenceResolver` | unified authority snapshot + immutable completion policy snapshot -> confirmed or blocked completion evidence | Task, Run, AgentSession, review, verification, deliverable, approval, plan lineage, authority/policy messages | One append-only evidence message under `BEGIN IMMEDIATE`; no Task/Run mutation | Full-history replay against original policy; missing/unresolved/mismatched policy or authority fails closed |
 | `ProjectDirectorConfirmedPlanQueueResolver` | completion evidence -> plan/creation record/source index/exact next Task or exhausted | strict plan, raw creation record, all queue Tasks | Read-only; caller ends read transaction before external work | Deterministic and replayable; malformed/ambiguous lineage blocks |
 | `ProjectDirectorNextTaskInstructionPackageBuilder` | resolved queue + confirmed configs + exact strategy -> immutable package | plan, Task, configs, RepositoryWorkspace, confirmation evidence | One package message under `BEGIN IMMEDIATE` | Same semantic input replays package; divergence blocks or requires explicit supersession |
 | `ProjectDirectorCrossTaskContinuationRecordService` | idempotency key + state transition -> root/event record | full P24 history and bound messages | Append-only records under `BEGIN IMMEDIATE`; validates predecessor and monotonic sequence | Same state replays; forks/conflicts require recovery |
@@ -586,27 +921,34 @@ sequenceDiagram
     participant W as Exact Worker Invocation Service
     participant TW as TaskWorker
 
-    C->>E: resolve(source Task, exact source Run, P23 outcome)
+    C->>E: resolve(authority kind/record, source Task, exact source Run, policy ID/version)
+    E->>E: reconstruct generic P23/P24 authority and frozen policy
     E->>E: BEGIN IMMEDIATE; revalidate; append evidence; COMMIT
     E-->>C: completion_evidence_id
     C->>Q: resolve exact next Task
     Q-->>C: next Task or plan_queue_exhausted
-    C->>P: prepare package and continuation root
-    P->>P: BEGIN IMMEDIATE; scan replay; append package/root; COMMIT
-    P-->>C: package_id, continuation_id
-    C->>D: reserve exact next Task
-    D->>D: BEGIN IMMEDIATE; revalidate; CAS claim; create exact Run; append event; COMMIT
-    D-->>C: exact_run_id
-    Note over D,C: publish Task/Run events only after commit
-    C->>W: prepare Worker reservation
-    W->>W: BEGIN IMMEDIATE; revalidate; append reservation; COMMIT
-    C->>W: invoke exact reservation
-    W->>W: BEGIN IMMEDIATE; append unique claim; COMMIT
-    W->>TW: run_reserved_once(next_task_id, exact_run_id)
-    Note over W,TW: no P24 write transaction held across call
-    TW-->>W: Worker result or exception
-    W->>W: BEGIN IMMEDIATE; revalidate; append outcome; COMMIT
-    W-->>C: durable outcome or recovery_required
+    alt plan_queue_exhausted
+        C->>P: record terminal exhaustion
+        P->>P: BEGIN IMMEDIATE; revalidate evidence/plan/replay; append one exhausted root/event; COMMIT
+        P-->>C: same continuation_id, record_id, exhausted result
+    else exact next Task resolved
+        C->>P: prepare package and continuation root
+        P->>P: BEGIN IMMEDIATE; scan replay; append package/root; COMMIT
+        P-->>C: package_id, continuation_id
+        C->>D: reserve exact next Task
+        D->>D: BEGIN IMMEDIATE; revalidate; CAS claim; create exact Run; append event; COMMIT
+        D-->>C: exact_run_id
+        Note over D,C: publish Task/Run events only after commit
+        C->>W: prepare Worker reservation
+        W->>W: BEGIN IMMEDIATE; revalidate; append reservation; COMMIT
+        C->>W: invoke exact reservation
+        W->>W: BEGIN IMMEDIATE; append unique claim; COMMIT
+        W->>TW: run_reserved_once(next_task_id, exact_run_id)
+        Note over W,TW: no P24 write transaction held across call
+        TW-->>W: Worker result or exception
+        W->>W: BEGIN IMMEDIATE; revalidate; append outcome; COMMIT
+        W-->>C: durable outcome or recovery_required
+    end
 ```
 
 `ProjectDirectorMessageRepository.create()` only flushes. The enclosing immediate transaction owns commit/rollback. Task and Run console events must follow the P23-D1 pattern: publish only after the transaction commits. No event may announce a Run, reservation, claim, or outcome that rolled back.
@@ -634,7 +976,8 @@ If any step fails, the transaction rolls back Task claim, Run creation, and the 
 ### 11.1 Required phase model
 
 ```text
-Phase A: completion evidence and package/root persistence
+Phase A1: generic authority/policy validation and completion evidence persistence
+Phase A2: queue revalidation plus either package/root persistence or one terminal exhausted root/event
 Phase B: exact Task claim + exact Run + continuation event (atomic)
 Phase C: Worker start reservation persistence
 Phase D: invocation claim persistence (commit-before-call)
@@ -651,7 +994,11 @@ sequenceDiagram
     participant W as Worker Boundary
 
     R->>S: load by stable idempotency key
-    alt no root/claim exists
+    alt terminal exhausted root/event exists
+        S-->>R: replay same continuation_id, record_id, and exhausted result
+    else completion evidence exists, final queue Task, no root
+        S-->>R: revalidate under BEGIN IMMEDIATE; append one exhausted root/event
+    else no root/claim exists and a next Task exists
         S-->>R: continue from last committed phase
     else root and exact Run exist, no reservation
         S-->>R: reuse exact Run; create reservation
@@ -671,6 +1018,8 @@ sequenceDiagram
 | Crash/duplicate point | Persisted fact | Automatic behavior |
 |---|---|---|
 | Duplicate call before any root | No root | One caller creates root under immediate lock; other replays it |
+| Crash after completion evidence commit, before exhaustion root | Completion evidence only | Revalidate evidence/plan under a later immediate transaction; append one exhausted root/event |
+| Concurrent final-Task exhaustion calls | Serialized evidence/plan/history scan | One terminal exhausted root/event; all callers replay the same `continuation_id` and `record_id` |
 | Concurrent calls during root/package creation | Serialized history scan | One package/root; all callers receive same IDs |
 | Crash after package/root commit | Package and `prepared` root exist | Resume exact readiness; no duplicate package |
 | Crash during Task claim/Run creation before commit | Nothing from transaction is durable | Safe to repeat Phase B |
@@ -689,11 +1038,11 @@ The at-most-once guarantee is an invocation-authority guarantee: a durable claim
 
 | Input state | Required durable evidence | Continue? | Result | Create Run? | Call Worker? | Human? |
 |---|---|---:|---|---:|---:|---:|
-| Worker merely started/returned | P23 outcome lacks completion evidence | No | `source_completion_evidence_missing` | No | No | Maybe |
+| Worker merely started/returned | P23/P24 outcome lacks completion evidence | No | `source_completion_evidence_missing` | No | No | Maybe |
 | Task completed but Run missing/mismatched | No exact success binding | No | `source_completion_evidence_invalid` | No | No | Yes |
 | Task completed, exact Run succeeded, quality gate passed, approval policy unresolved | Partial success only | No | `source_completion_policy_unresolved` | No | No | Yes |
 | Exact success plus pending approval | Exact approval `pending_approval` | No | `human_intervention_required` | No | No | Yes |
-| Exact success plus recovery flag | P23 outcome `human_recovery_required=true` or claim without outcome | No | `recovery_required` | No | No | Yes |
+| Exact success plus recovery flag | P23/P24 authority has `recovery_required=true` or claim without outcome | No | `recovery_required` | No | No | Yes |
 | Valid completion, malformed/mismatched lineage | Completion evidence plus invalid plan facts | No | `plan_lineage_invalid` | No | No | Yes |
 | Valid completion, source absent from queue | Strict creation record | No | `source_task_not_in_plan_queue` | No | No | Yes |
 | Valid completion, source is final queue Task | Strict queue with no next index | No | `plan_queue_exhausted` | No | No | No |
@@ -730,6 +1079,12 @@ When the source Task is the last ID in the strict ordered queue, append/replay o
 
 ```text
 status = plan_queue_exhausted
+next_task_id = null
+instruction_package_id = null
+exact_run_id = null
+worker_reservation_id = null
+worker_invocation_claim_id = null
+worker_outcome_id = null
 new_task_created = false
 run_created = false
 worker_called = false
@@ -737,6 +1092,10 @@ product_runtime_git_write_allowed = false
 ```
 
 No instruction package for a nonexistent next Task is required. The event still binds completion evidence, plan, creation record, source Task/Run, and queue length for audit.
+
+The completion evidence is committed first in its own issuance transaction. After that commit, the coordinator opens a subsequent `BEGIN IMMEDIATE`, reloads the exact evidence and its frozen authority/policy fingerprints, revalidates confirmed plan lineage and the final queue index, scans the complete continuation history by the stable idempotency key, and appends exactly one terminal exhausted root/event if none exists. Completion evidence and exhaustion are therefore not falsely described as one atomic write, while the exhaustion first-writer decision is atomic.
+
+Replay with the same idempotency key must return the same `continuation_id`, terminal `record_id`, and `plan_queue_exhausted` result. It must not build a package, allocate next-task/Run/Worker identities, or append a second exhausted record. A duplicate, divergent, malformed, or fingerprint-mismatched exhausted history returns `continuation_replay_conflict` and requires recovery.
 
 Possible later actions include project-level acceptance, final summary, human confirmation, or phase closure. P24 does not start any of them automatically.
 
@@ -764,7 +1123,7 @@ ExactWorkerInvocationService
 CanonicalAuditFingerprint helper
 ```
 
-Each generic primitive receives an immutable authority envelope containing target Task, exact Run where applicable, authority kind (`p23_source_transition` or `p24_cross_task_continuation`), authority record/package ID, fingerprint, and fixed Git boundary. Thin P23 adapters map existing P23 models without changing their wire payloads or replay keys. P24 adapters use P24 models.
+Each generic primitive receives an immutable authority envelope containing target Task, exact Run where applicable, authority kind (`p23_protected_transition` or `p24_cross_task_continuation`), authority record/package ID, fingerprint, and fixed Git boundary. Thin P23 adapters map existing P23 models without changing their wire payloads or replay keys. P24 adapters use P24 models.
 
 ### 15.2 Forbidden compatibility changes
 
@@ -799,7 +1158,19 @@ claim without outcome remains recovery_required
 source_completion_evidence_missing
 source_completion_evidence_invalid
 source_completion_evidence_conflict
+source_execution_authority_missing
+source_execution_authority_kind_unsupported
+source_execution_authority_task_run_mismatch
+source_execution_authority_schema_mismatch
+source_execution_authority_fingerprint_mismatch
 source_completion_policy_unresolved
+source_completion_policy_missing
+source_completion_policy_identity_mismatch
+source_completion_policy_fingerprint_mismatch
+source_review_policy_unresolved
+source_verification_policy_unresolved
+source_delivery_policy_unresolved
+source_approval_policy_unresolved
 source_task_not_completed
 source_run_not_succeeded
 source_quality_gate_not_passed
@@ -868,7 +1239,17 @@ Blocked responses include stable codes and safe summaries, never raw prompt, env
 Mimo must later cover at least:
 
 ```text
-valid exact source completion issuance
+P23 protected-transition outcome -> generic authority snapshot -> completion evidence
+P24 cross-task outcome -> generic authority snapshot -> completion evidence
+Task 1 -> Task 2 -> Task 3 -> plan_queue_exhausted multi-hop simulation
+authority kind/record with Task mismatch or Run mismatch
+authority schema mismatch and authority fingerprint mismatch
+completion policy identity mismatch and completion policy fingerprint change
+review required with passing review / not_required with null review / unresolved fail closed
+verification required with passing evidence / not_required with no evidence / unresolved fail closed
+delivery required with exact deliverable version / not_required with no deliverable / unresolved fail closed
+approval required with approved exact version / not_required with no approval / unresolved fail closed
+policy replay uses original immutable snapshot after mutable config changes
 Task completed but Run mismatched
 quality gate false/null
 pending/rejected/changes-requested approval
@@ -878,6 +1259,9 @@ strict pdv parsing and every lineage mismatch
 malformed task_ids_json (including silently-droppable UUID)
 duplicate task_ids and task_count mismatch
 source middle/last/not-in-queue
+exhausted has null next_task_id/instruction_package_id/exact_run_id/reservation/claim/outcome IDs
+exhausted has false new_task_created/run_created/worker_called flags
+same exhausted key replays same continuation_id/record_id/result without a second record
 next Task missing, blocked, dependency blocked, budget blocked
 confirmed vs pending role/skill/repository/verification configs
 allowed path escape and source-review-scope leakage rejection
@@ -899,12 +1283,18 @@ The delivery order is production code first, then Mimo writes and runs the unifi
 
 ### P24-B: Source completion evidence and domain contracts
 
-**Goal:** Add immutable completion evidence, strict issuance predicate, and explicit verification/delivery/approval completion-policy seam.
+**Goal:** Add generic P23/P24 execution-authority reconstruction, immutable Task completion-policy proposal/decision/snapshot contracts, immutable completion evidence, and strict replay/conflict handling.
 
 **Expected files:**
 
 ```text
+runtime/orchestrator/app/domain/project_director_source_execution_authority.py
+runtime/orchestrator/app/domain/project_director_task_completion_policy.py
 runtime/orchestrator/app/domain/project_director_source_task_completion_evidence.py
+runtime/orchestrator/app/services/project_director_source_execution_authority_resolver.py
+runtime/orchestrator/app/services/project_director_p23_execution_authority_adapter.py
+runtime/orchestrator/app/services/project_director_p24_execution_authority_adapter.py (domain adapter interface/strict contract; real P24 outcome producer remains P24-E)
+runtime/orchestrator/app/services/project_director_task_completion_policy_service.py
 runtime/orchestrator/app/services/project_director_source_completion_evidence_service.py
 runtime/orchestrator/app/repositories/project_director_message_repository.py (only if a bounded strict query helper is needed)
 runtime/orchestrator/app/repositories/deliverable_repository.py (read-only exact Run helper if missing)
@@ -914,11 +1304,11 @@ runtime/orchestrator/app/repositories/agent_session_repository.py (read-only exa
 
 **Forbidden:** next-Task resolution, Task/Run creation, Worker call, API/frontend, tests, product runtime Git write.
 
-**Transaction:** one immediate transaction for completion replay scan and append; no external side effect.
+**Transaction:** append-only policy proposal; owner decision plus confirmed policy snapshot in one immediate transaction; completion replay scan and append in a separate immediate transaction; no external side effect.
 
-**Acceptance:** current gap is closed with an immutable evidence ID; partial Task/Run or unresolved approval policy fails closed; same exact source completion replays.
+**Acceptance:** one P23 adapter and one P24 adapter interface produce the unified snapshot contract; a real confirmed policy path can issue an immutable evidence ID; partial authority/Task/Run, any unresolved axis, or authority/policy identity/fingerprint conflict fails closed; same exact authority/policy/source completion replays the same evidence.
 
-**Dependency:** P23 durable outcome and existing Task/Run finalization.
+**Dependency:** P23 durable outcome and existing Task/Run finalization. P24-B must not wait for P24-E to avoid P23-only coupling: it defines the P24 adapter/domain input now, while P24-E later produces the concrete P24 outcome.
 
 ### P24-C: Confirmed plan exact next-Task resolver
 
@@ -983,7 +1373,7 @@ runtime/orchestrator/app/services/project_director_protected_transition_* (thin 
 
 **Transaction:** atomic exact claim/Run/event; separate reservation; claim-before-call; call outside transaction; outcome transaction; post-commit events.
 
-**Acceptance:** exact next Task only, one Run, one reservation, one claim, at-most-once Worker call, same-input replay, and unchanged P23 source-task behavior.
+**Acceptance:** exact next Task only, one Run, one reservation, one claim, at-most-once Worker call, same-input replay, and unchanged P23 source-task behavior. The durable P24 outcome must expose every field needed by `SourceExecutionAuthoritySnapshot`: authority/reservation/claim/outcome identities and fingerprints, exact Task/Run, outcome schema/status, contract-valid flag, recovery/blocked state, Git activity, and fixed false Git boundary, so the completed Task can authorize the following hop.
 
 **Dependency:** P24-D package/root and all earlier stages.
 
@@ -1011,7 +1401,7 @@ runtime/orchestrator/app/services/project_director_protected_transition_* (thin 
 
 **Transaction:** tests must verify real commit/replay/event boundaries with isolated data.
 
-**Acceptance:** targeted tests and required regression commands pass; `git diff --check` passes; P23 remains source-task-only; P24 Gate is proposed to the independent AI Project Director, not self-closed.
+**Acceptance:** the section 17 matrix passes, including P23- and P24-origin evidence, three-Task multi-hop, every policy axis in required/not-required/unresolved states, authority/policy mismatch and fingerprint conflicts, exhausted null/false fields, and exhausted stable replay; required regressions pass; `git diff --check` passes; P23 remains source-task-only; P24 Gate is proposed to the independent AI Project Director, not self-closed.
 
 **Dependency:** all production stages P24-B through P24-F complete.
 
@@ -1038,6 +1428,12 @@ product_runtime_git_write_allowed = false
 [x] Current reliable completion signal assessed from code
 [x] Existing signal judged insufficient and minimum new seam defined
 [x] continuation_started explicitly rejected as completion
+[x] Completion evidence accepts both P23 and P24 execution authority kinds
+[x] Unified authority resolver/snapshot and strict P23/P24 adapters defined
+[x] Task 1 -> Task 2 -> Task 3 multi-hop authority lineage defined
+[x] Append-only policy proposal, owner decision, and immutable confirmed snapshot defined
+[x] Review/verification/delivery/approval use required/not_required/unresolved and fail closed
+[x] Evidence/package bind completion policy ID, version, fingerprint, and authority-neutral outcome identity
 [x] Confirmed plan lineage and strict task_ids validation defined
 [x] Exact next Task comes only from task_ids[index + 1]
 [x] route_next_task() forbidden
@@ -1047,11 +1443,12 @@ product_runtime_git_write_allowed = false
 [x] Stable idempotency key and concurrency contract defined
 [x] claim-before-call, commit-before-side-effect, outcome-after-return defined
 [x] Crash/replay/recovery matrix defined
-[x] plan_queue_exhausted defined with false side-effect flags
+[x] plan_queue_exhausted null fields, false side-effect flags, separate transaction, and stable record replay defined
 [x] Service and transaction boundaries defined
 [x] P23 reusable seams and compatibility prohibitions defined
-[x] Production-first P24-B through P24-F and Mimo P24-G split defined
+[x] P24-B generic authority/policy/evidence, P24-E outcome contract, and P24-G R1 matrix synchronized
 [x] No unresolved core semantic placeholder remains
+[x] product_runtime_git_write_allowed=false remains invariant
 ```
 
-P24-A may be proposed for independent review after this document is committed. It must not self-declare P24-A or the overall P24 program Closed.
+P24-A-R1 may be proposed for independent review after this document is committed. It must not self-declare P24-A-R1, P24, or the AI Project Director total loop Closed; the total loop remains `Partial` pending independent Gate review and later implementation/UAT evidence.
