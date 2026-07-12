@@ -764,19 +764,26 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
         self,
         result: ProjectDirectorProtectedTransitionDispatchConsumptionResult,
     ) -> None:
-        task = self._task_repository.get_by_id(result.source_task_id)
-        run = self._run_repository.get_by_id(result.run_id)
-        if task is None or task.status != TaskStatus.RUNNING:
-            raise ValueError("Committed source task is not running")
-        if run is None or run.task_id != result.source_task_id:
-            raise ValueError("Committed run binding is invalid")
+        session = self._message_repository._session
+        try:
+            task = self._task_repository.get_by_id(result.source_task_id)
+            run = self._run_repository.get_by_id(result.run_id)
+            if task is None or task.status != TaskStatus.RUNNING:
+                raise ValueError("Committed source task is not running")
+            if run is None or run.task_id != result.source_task_id:
+                raise ValueError("Committed run binding is invalid")
 
-        event_stream_service.publish_task_updated(
-            task=task,
-            reason=TaskEventReason.CLAIMED,
-            previous_status=TaskStatus(result.task_status_before),
-        )
-        self._run_repository.publish_created(run)
+            event_stream_service.publish_task_updated(
+                task=task,
+                reason=TaskEventReason.CLAIMED,
+                previous_status=TaskStatus(result.task_status_before),
+            )
+            self._run_repository.publish_created(run)
+        finally:
+            # D1 is committed; close the read-only post-commit lookup autobegin
+            # so the shared Session is idle for B1.
+            if session.in_transaction():
+                session.rollback()
 
     def _scan_consumption_history(
         self,
