@@ -24,7 +24,7 @@ from app.domain.project_director_protected_transition_dispatch_consumption_prefl
     ProjectDirectorProtectedTransitionDispatchConsumptionPreflightResult,
 )
 from app.domain.run import Run, RunStatus
-from app.domain.task import Task, TaskHumanStatus, TaskStatus
+from app.domain.task import Task, TaskEventReason, TaskHumanStatus, TaskStatus
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
 )
@@ -34,6 +34,7 @@ from app.repositories.project_director_session_repository import (
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.budget_guard_service import BudgetGuardDecision, BudgetGuardService
+from app.services.event_stream_service import event_stream_service
 from app.services.project_director_protected_transition_dispatch_consumption_preflight_service import (
     ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService,
 )
@@ -119,7 +120,7 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
 
         try:
             with self._message_repository.sqlite_immediate_transaction():
-                return self._consume_protected_transition_dispatch_preflight(
+                outcome = self._consume_protected_transition_dispatch_preflight(
                     session_id=session_id,
                     source_task_id=source_task_id,
                     source_message_id=source_message_id,
@@ -130,6 +131,18 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
                 reasons=[*exc.reasons, "atomic_consumption_rolled_back"],
                 values=exc.values,
             )
+
+        if (
+            outcome.result.consumption_status == "reserved_for_worker_start"
+            and not outcome.result.resumed_from_existing_consumption
+        ):
+            try:
+                self._publish_committed_reservation(outcome.result)
+            except Exception:
+                # 提交后的 SSE 仅作尽力通知，失败不能推翻已提交的 D1 证据。
+                pass
+
+        return outcome
 
     def _consume_protected_transition_dispatch_preflight(
         self,
@@ -428,7 +441,7 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
         source_task_id: UUID,
         routing: TaskRoutingCandidate,
     ) -> Run:
-        return self._run_repository.create_running_run(
+        return self._run_repository.add_running_run_no_event(
             task_id=source_task_id,
             model_name=routing.model_name,
             route_reason=routing.route_reason,
@@ -441,6 +454,24 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
             handoff_reason=routing.handoff_reason,
             dispatch_status=routing.dispatch_status,
         )
+
+    def _publish_committed_reservation(
+        self,
+        result: ProjectDirectorProtectedTransitionDispatchConsumptionResult,
+    ) -> None:
+        task = self._task_repository.get_by_id(result.source_task_id)
+        run = self._run_repository.get_by_id(result.run_id)
+        if task is None or task.status != TaskStatus.RUNNING:
+            raise ValueError("Committed source task is not running")
+        if run is None or run.task_id != result.source_task_id:
+            raise ValueError("Committed run binding is invalid")
+
+        event_stream_service.publish_task_updated(
+            task=task,
+            reason=TaskEventReason.CLAIMED,
+            previous_status=TaskStatus(result.task_status_before),
+        )
+        self._run_repository.publish_created(run)
 
     def _scan_consumption_history(
         self,

@@ -60,7 +60,83 @@ class RunRepository:
     ) -> Run:
         """Create a new running `Run` placeholder for the worker cycle."""
 
-        run = Run(
+        run = self.add_running_run_no_event(
+            task_id=task_id,
+            model_name=model_name,
+            route_reason=route_reason,
+            routing_score=routing_score,
+            routing_score_breakdown=routing_score_breakdown,
+            strategy_decision=strategy_decision,
+            owner_role_code=owner_role_code,
+            upstream_role_code=upstream_role_code,
+            downstream_role_code=downstream_role_code,
+            handoff_reason=handoff_reason,
+            dispatch_status=dispatch_status,
+        )
+        self.publish_created(run)
+        return run
+
+    def add_running_run_no_event(
+        self,
+        *,
+        task_id: UUID,
+        model_name: str | None = None,
+        route_reason: str | None = None,
+        routing_score: float | None = None,
+        routing_score_breakdown: list[RunRoutingScoreItem] | None = None,
+        strategy_decision: RunStrategyDecision | None = None,
+        owner_role_code: ProjectRoleCode | None = None,
+        upstream_role_code: ProjectRoleCode | None = None,
+        downstream_role_code: ProjectRoleCode | None = None,
+        handoff_reason: str | None = None,
+        dispatch_status: str | None = None,
+    ) -> Run:
+        """创建并 flush running Run，但不提交或发布事件。"""
+
+        run = self._build_running_run(
+            task_id=task_id,
+            model_name=model_name,
+            route_reason=route_reason,
+            routing_score=routing_score,
+            routing_score_breakdown=routing_score_breakdown,
+            strategy_decision=strategy_decision,
+            owner_role_code=owner_role_code,
+            upstream_role_code=upstream_role_code,
+            downstream_role_code=downstream_role_code,
+            handoff_reason=handoff_reason,
+            dispatch_status=dispatch_status,
+        )
+        run_row = self._to_row(run)
+        self.session.add(run_row)
+        self.session.flush()
+        return self._to_domain(run_row)
+
+    def publish_created(self, run: Run) -> None:
+        """发布已创建 Run 的控制台事件。"""
+
+        event_stream_service.publish_run_updated(
+            run=run,
+            reason=RunEventReason.CREATED,
+        )
+
+    @staticmethod
+    def _build_running_run(
+        *,
+        task_id: UUID,
+        model_name: str | None,
+        route_reason: str | None,
+        routing_score: float | None,
+        routing_score_breakdown: list[RunRoutingScoreItem] | None,
+        strategy_decision: RunStrategyDecision | None,
+        owner_role_code: ProjectRoleCode | None,
+        upstream_role_code: ProjectRoleCode | None,
+        downstream_role_code: ProjectRoleCode | None,
+        handoff_reason: str | None,
+        dispatch_status: str | None,
+    ) -> Run:
+        """构造 running Run 领域对象。"""
+
+        return Run(
             task_id=task_id,
             status=RunStatus.RUNNING,
             model_name=model_name,
@@ -76,7 +152,10 @@ class RunRepository:
             started_at=utc_now(),
         )
 
-        run_row = RunTable(
+    def _to_row(self, run: Run) -> RunTable:
+        """将新 Run 转换为待持久化的 ORM row。"""
+
+        return RunTable(
             id=run.id,
             task_id=run.task_id,
             status=run.status,
@@ -117,15 +196,6 @@ class RunRepository:
             quality_gate_passed=run.quality_gate_passed,
             created_at=run.created_at,
         )
-
-        self.session.add(run_row)
-        self.session.flush()
-        persisted_run = self._to_domain(run_row)
-        event_stream_service.publish_run_updated(
-            run=persisted_run,
-            reason=RunEventReason.CREATED,
-        )
-        return persisted_run
 
     def get_by_id(self, run_id: UUID) -> Run | None:
         """Return a run by ID, if it exists."""
