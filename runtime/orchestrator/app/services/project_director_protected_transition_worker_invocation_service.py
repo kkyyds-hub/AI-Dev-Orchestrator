@@ -88,6 +88,17 @@ class InvokedProjectDirectorProtectedTransitionWorker:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedPersistedProtectedTransitionWorkerInvocation:
+    """Strict historical reconstruction of one exact persisted B2 lineage."""
+
+    claim: ProjectDirectorProtectedTransitionWorkerInvocationClaimResult | None
+    claim_message: ProjectDirectorMessage | None
+    outcome: ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult | None
+    outcome_message: ProjectDirectorMessage | None
+    blocked_reasons: list[str]
+
+
+@dataclass(frozen=True, slots=True)
 class _InvocationHistory:
     claims: list[
         tuple[
@@ -197,6 +208,136 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
                     "worker_outcome_persistence_failed_recovery_required"
                 ],
             )
+
+    def revalidate_persisted_protected_transition_worker_invocation(
+        self,
+        *,
+        source_outcome_message_id: UUID,
+        source_task_id: UUID,
+        source_run_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionWorkerInvocation:
+        """Rebuild B2 claim/outcome history without current-state eligibility gates."""
+
+        outcome_message = self._message_repository.get_by_id(
+            source_outcome_message_id
+        )
+        if outcome_message is None:
+            return self._persisted_invocation_blocked(
+                "source_invocation_outcome_missing"
+            )
+        project_id = outcome_message.related_project_id
+        if (
+            project_id is None
+            or outcome_message.related_task_id != source_task_id
+        ):
+            return self._persisted_invocation_blocked(
+                "source_invocation_task_run_mismatch",
+                outcome_message=outcome_message,
+            )
+        outcome = self._trusted_outcome(
+            message=outcome_message,
+            session_id=outcome_message.session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        if outcome is None:
+            reason = self._persisted_outcome_invalid_reason(outcome_message)
+            return self._persisted_invocation_blocked(
+                reason,
+                outcome_message=outcome_message,
+            )
+        if outcome.run_id != source_run_id:
+            return self._persisted_invocation_blocked(
+                "source_invocation_task_run_mismatch",
+                outcome=outcome,
+                outcome_message=outcome_message,
+            )
+
+        claim_message = self._message_repository.get_by_id(
+            outcome.source_claim_message_id
+        )
+        claim = self._trusted_claim(
+            message=claim_message,
+            session_id=outcome.session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        if claim is None:
+            reason = self._persisted_claim_invalid_reason(claim_message)
+            return self._persisted_invocation_blocked(
+                reason,
+                claim_message=claim_message,
+                outcome=outcome,
+                outcome_message=outcome_message,
+            )
+        if claim.run_id != source_run_id or not self._outcome_binds_claim(
+            outcome=outcome,
+            claim=claim,
+        ):
+            return self._persisted_invocation_blocked(
+                "source_invocation_lineage_invalid",
+                claim=claim,
+                claim_message=claim_message,
+                outcome=outcome,
+                outcome_message=outcome_message,
+            )
+
+        history = self._scan_history(
+            session_id=outcome.session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        matching_claims = [
+            item for item in history.claims if item[0].claim_id == claim.claim_id
+        ]
+        reservation_claims = [
+            item
+            for item in history.claims
+            if item[0].source_reservation_message_id
+            == claim.source_reservation_message_id
+        ]
+        run_claims = [
+            item for item in history.claims if item[0].run_id == source_run_id
+        ]
+        claim_outcomes = [
+            item
+            for item in history.outcomes
+            if item[0].source_claim_id == claim.claim_id
+        ]
+        reservation_outcomes = [
+            item
+            for item in history.outcomes
+            if item[0].source_reservation_message_id
+            == claim.source_reservation_message_id
+        ]
+        run_outcomes = [
+            item for item in history.outcomes if item[0].run_id == source_run_id
+        ]
+        if (
+            history.invalid_claim
+            or history.invalid_outcome
+            or len(matching_claims) != 1
+            or len(reservation_claims) != 1
+            or len(run_claims) != 1
+            or len(claim_outcomes) != 1
+            or len(reservation_outcomes) != 1
+            or len(run_outcomes) != 1
+            or claim_outcomes[0][1].id != source_outcome_message_id
+        ):
+            return self._persisted_invocation_blocked(
+                "source_invocation_lineage_invalid",
+                claim=claim,
+                claim_message=claim_message,
+                outcome=outcome,
+                outcome_message=outcome_message,
+            )
+        return RevalidatedPersistedProtectedTransitionWorkerInvocation(
+            claim=claim,
+            claim_message=claim_message,
+            outcome=outcome,
+            outcome_message=outcome_message,
+            blocked_reasons=[],
+        )
 
     def _claim_or_replay(
         self,
@@ -1064,6 +1205,81 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
             "no_ci_trigger",
         ]
 
+    def _persisted_outcome_invalid_reason(
+        self,
+        message: ProjectDirectorMessage,
+    ) -> str:
+        action = self._single_action(message)
+        if (
+            not action
+            or action.get("type")
+            != P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_ACTION_TYPE
+            or action.get("schema_version")
+            != PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SCHEMA_VERSION
+        ):
+            return "source_invocation_schema_mismatch"
+        try:
+            model = ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult
+            outcome = model.model_validate(
+                {
+                    name: action.get(name)
+                    for name in model.model_fields
+                }
+            )
+        except ValidationError:
+            return "source_invocation_schema_mismatch"
+        if outcome.outcome_fingerprint != self._outcome_fingerprint(outcome):
+            return "source_invocation_fingerprint_mismatch"
+        return "source_invocation_schema_mismatch"
+
+    def _persisted_claim_invalid_reason(
+        self,
+        message: ProjectDirectorMessage | None,
+    ) -> str:
+        if message is None:
+            return "source_invocation_lineage_invalid"
+        action = self._single_action(message)
+        if (
+            not action
+            or action.get("type")
+            != P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_ACTION_TYPE
+            or action.get("schema_version")
+            != PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SCHEMA_VERSION
+        ):
+            return "source_invocation_schema_mismatch"
+        try:
+            model = ProjectDirectorProtectedTransitionWorkerInvocationClaimResult
+            claim = model.model_validate(
+                {
+                    name: action.get(name)
+                    for name in model.model_fields
+                }
+            )
+        except ValidationError:
+            return "source_invocation_schema_mismatch"
+        if claim.claim_fingerprint != self._claim_fingerprint(claim):
+            return "source_invocation_fingerprint_mismatch"
+        return "source_invocation_schema_mismatch"
+
+    @staticmethod
+    def _persisted_invocation_blocked(
+        reason: str,
+        *,
+        claim: ProjectDirectorProtectedTransitionWorkerInvocationClaimResult
+        | None = None,
+        claim_message: ProjectDirectorMessage | None = None,
+        outcome: ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult
+        | None = None,
+        outcome_message: ProjectDirectorMessage | None = None,
+    ) -> RevalidatedPersistedProtectedTransitionWorkerInvocation:
+        return RevalidatedPersistedProtectedTransitionWorkerInvocation(
+            claim=claim,
+            claim_message=claim_message,
+            outcome=outcome,
+            outcome_message=outcome_message,
+            blocked_reasons=[reason],
+        )
+
     @staticmethod
     def _blocked(reasons: list[str]) -> InvokedProjectDirectorProtectedTransitionWorker:
         return InvokedProjectDirectorProtectedTransitionWorker(
@@ -1108,4 +1324,5 @@ __all__ = (
     "PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SCHEMA_VERSION",
     "PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SCHEMA_VERSION",
     "ProjectDirectorProtectedTransitionWorkerInvocationService",
+    "RevalidatedPersistedProtectedTransitionWorkerInvocation",
 )
