@@ -1,9 +1,9 @@
 # Programmer No-Write Loop Ledger - 2026-06-23
 
 > This ledger is the single backfill ledger for the programmer no-write loop.
-> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, P21-C, P21-D-A, P21-D-B, P21-D-C1, P21-D-C2, P21-D-C3, P21-D-D1, P21-D-D2, P21-D-D3, P21-D-D4, P21-D-E, and P22 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
+> It records P16, P17, P18, P19, P20, P21-A, P21-B-A, P21-B-B, P21-C, P21-D-A, P21-D-B, P21-D-C1, P21-D-C2, P21-D-C3, P21-D-D1, P21-D-D2, P21-D-D3, P21-D-D4, P21-D-E, P22, and P23 evidence in one place to avoid one-ledger-per-stage documentation sprawl.
 >
-> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C/P21-D-A/P21-D-B/P21-D-C1/P21-D-C2/P21-D-C3/P21-D-D1/P21-D-D2/P21-D-D3/P21-D-D4/P21-D-E/P22 后续证据，避免每个小阶段新增单独 ledger。
+> 本文件是 programmer no-write loop 的统一总账，用于回填 P16/P17/P18/P19/P20/P21-A/P21-B-A/P21-B-B/P21-C/P21-D-A/P21-D-B/P21-D-C1/P21-D-C2/P21-D-C3/P21-D-D1/P21-D-D2/P21-D-D3/P21-D-D4/P21-D-E/P22/P23 后续证据，避免每个小阶段新增单独 ledger。
 
 ---
 
@@ -2794,5 +2794,283 @@ AI Project Director total loop: Partial
 ### Future Boundary
 
 P22 closure does not authorize actual continuation, actual rework, patch application, Task/Run/Worker creation, or Git write.
+
+The next stage must be selected by the AI Project Director after independently re-inspecting the latest origin/main.
+
+---
+
+## P23 Protected Transition Execution and Exact Worker Invocation
+
+### Gate
+
+- P23-A contract design: Closed / Pass
+- P23-B dispatch intent: Closed / Pass
+- P23-C consumption preflight: Closed / Pass
+- P23-D1 atomic consumption: Closed / Pass
+- P23-D2-A exact reserved Worker seam: Closed / Pass
+- P23-D2-B1 Worker start reservation: Closed / Pass
+- P23-D2-B2 Worker invocation and durable outcome: Closed / Pass
+- P23-D3 auto-advance coordinator: Closed / Pass
+- P23-E verification: Closed / Pass with verification note
+- P23 overall: Closed / Pass with verification note
+- Product runtime Git write: Forbidden
+- AI Project Director total loop: Partial
+
+### Key Commits
+
+- `8314d9eba91db3669399ed22b005101a7d46bbec` — `docs: design p23 protected transition dispatch`
+- `703ddd643a4dc9eb94d921f1d0068bffe5debbb1` — `backend: add protected transition dispatch intent`
+- `a25ef6b6dbec29cb4ee426e972e335f4f4e22b85` — `backend: add protected transition consumption preflight`
+- `2909421eaaa017280882e09857dbbc205dc9329b` — `backend: consume protected transition dispatch atomically`
+- `6684c4c8e6391bf4500bfabecd5f1b23b4b76bea` — `backend: defer p23 d1 events until commit`
+- `b5febcb73976e051f05c2da3ccc29554b806c7ce` — `backend: add exact reserved run worker seam`
+- `96681815a9635cd07bb7d2fe8c28519a2f8938c9` — `backend: reserve protected transition worker start`
+- `ccc66b1f017d9f131de31c9418fc97281d0e8836` — `backend: harden p23 reservation lineage uniqueness`
+- `cc58376b8fc9285fe857dbe5cc7190c09984fed9` — `backend: invoke reserved protected transition worker`
+- `1ca3e5f5fc0cf66eedb6d3c93780a973ae0e0ab2` — `backend: bind p23 worker outcome to reservation`
+- `84b545b5c5e12ec03130ee23d7d914ace9731118` — `backend: add protected transition auto advance coordinator`
+- `cef78273e25fcbed25afa3c5e9ed6272dd5855d9` — `backend: resume p23 auto advance from persisted chain`
+- `425b024399c8fa4873f62dffedb7a25b9dab848d` — `backend: fix p23 d3 p22 summary identity`
+- `259b9223375cff8bddead15f1becafdf40dd3e75` — `backend: close p23 d1 post-commit transaction`
+- `d2c271af3dd0061576ba5095317ee85f1e036e3c` — `test: close p23 d3 replay and recovery gaps`
+- `42d32527981001bfe115c1145a04788522184e5e` — `test: verify p23 concurrency and full regression`
+- `3ebe3594383a7bdd583fb0934617c5588c9b9165` — `test: tighten p23 concurrency and full suite evidence`
+- `02433a81d232c00c8bbac0ba4732d10e2a53608a` — `test: align worker result guardrails with p23 snapshot`
+
+### Implemented Capability
+
+Automatic path:
+
+```text
+persisted P21-C review
+→ P22 ready_for_future_transition
+→ P23-B dispatch intent
+→ P23-C current consumption preflight
+→ P23-D1 atomic source Task claim and exact Run creation
+→ P23-D2-B1 exact Worker start reservation
+→ P23-D2-B2 durable invocation claim
+→ TaskWorker.run_reserved_once(exact task_id, exact run_id)
+→ durable returned / raised / not_invoked outcome
+→ D3 terminal result
+```
+
+AUTO_CONTINUE:
+
+```text
+source Task continues through its exact reserved Run
+continuation_started = true only in durable Worker outcome
+```
+
+AUTO_REWORK:
+
+```text
+same source Task enters bounded rework
+rework_started = true only in durable Worker outcome
+```
+
+P23 does not create new business Tasks. P23 does not use TaskRouter to select other Tasks. D1 creates and binds one exact Run. Worker can only consume the B1-bound exact Task/Run. B2 claim is persisted before Worker call. Outcome is persisted after Worker returns, raises, or final current check blocks.
+
+### Transaction and Replay Contract
+
+- P23-B / P23-C / D1 / B1 / B2 all use persisted append-only evidence.
+- D1 Task mutation + Run creation + D1 message belong to the same atomic transaction.
+- D1 events are published only after commit.
+- B1 reservation binds exact D1 message, Task, Run, fingerprint, and token.
+- B2 durable claim is committed before Worker call.
+- B2 outcome binds exact claim, reservation, and Run.
+- D3 first checks persisted evidence, then decides whether to call the creation entry point.
+- Complete outcome replay does not re-run current checks.
+- Complete outcome replay does not re-call Worker.
+- Existing claim without outcome returns `recovery_required`; Worker is not retried.
+
+### Concurrency Contract
+
+D1 same-source concurrency:
+
+```text
+one D1 message
+one Run
+one first-created
+one persisted replay
+```
+
+B1 same-source concurrency:
+
+```text
+one reservation message
+identical reservation ID / token / fingerprint
+one first-created
+one persisted replay
+```
+
+B2 same-source concurrency:
+
+```text
+one claim
+one outcome
+Worker called exactly once
+competing call returns recovery/in-progress when claim exists but outcome is not yet complete
+```
+
+D3 same-source concurrency:
+
+```text
+complete P22/P23 evidence each exactly one
+one Run
+Worker called exactly once
+completed replay returns original full evidence IDs
+```
+
+Completed outcome three-thread replay:
+
+```text
+all reuse original evidence
+Worker not called
+```
+
+### Defect Records
+
+#### P23-BUG-002
+
+Problem: D1 published Task/Run events before transaction commit.
+
+Risk: External observers could see non-durable-committed state.
+
+Fix: `6684c4c8` — events deferred until after D1 commit.
+
+#### P23-BUG-003
+
+Problem: B1 persisted reservation lineage uniqueness validation was insufficient.
+
+Fix: `ccc66b1f` — strengthened same-Run / same-D1 / same-reservation unique binding and conflict rejection.
+
+#### P23-BUG-004
+
+Problem: B2 claim/outcome binding to B1 reservation was insufficient.
+
+Fix: `1ca3e5f5` — claim/outcome strictly bind reservation message, reservation identity, and Run.
+
+#### P23-BUG-005
+
+Problem: When a complete durable outcome existed, D3 replay could still pass through current-sensitive prepare/revalidation, causing terminal Task/Run or existing AgentSession to block legitimate replay.
+
+Fix: `cef78273` — D3 prioritizes recovery from persisted P23-C, D1, B1, and B2 outcome to reconstruct the full chain.
+
+#### P23-BUG-006
+
+Problem: D3 incorrectly required P22 summary message ID to equal P22 `orchestration_id`.
+
+Root cause: These are different identities.
+
+Fix: `425b0243` — removed incorrect equality; downstream lineage uses exact persisted `p22.message.id`.
+
+#### P23-BUG-007
+
+Problem: D1 post-commit Task/Run lookup triggered SQLAlchemy autobegin; the shared Session was not restored to idle, and subsequent B1 `Session.begin()` raised `InvalidRequestError`.
+
+Fix: `259b9223` — D1 post-commit event lookup closes the read-only autobegin transaction in a `finally` block.
+
+### Verification Evidence
+
+```text
+D3 behavioral/replay suite:
+12 passed
+
+P23 D1-B2 adjacent regression:
+95 passed
+
+P22 adjacent regression:
+92 passed
+
+P23 concurrency suite:
+5 passed
+
+P23 concurrency stability:
+3 rounds × 5 passed
+
+P23 targeted total:
+112 passed
+
+WorkerRunResult guardrail:
+8 passed
+
+Correct-cwd full suite:
+4194 passed
+3 failed
+```
+
+The three failures are:
+
+1. external executor module boundary contract debt
+2. Project Director run evidence replay integration debt
+3. Project Director Worker run evidence integration debt
+
+All three tests fail on the P22 final baseline `54af386` with the same core assertions. P23 baseline-relative regression count = 0.
+
+### Verification Note
+
+All pytest counts are Mimocode local execution evidence.
+
+The AI Project Director independently verified:
+
+- latest origin/main
+- commit scope
+- production/test boundary
+- D3 behavioral/replay test source
+- concurrency tests with independent Session and shared Worker counter
+- WorkerRunResult guardrail backfill
+- P22 baseline comparison using the same test and code baseline
+
+No GitHub Actions workflow run/status was available. These results must not be labeled as GitHub CI.
+
+### Permanent Boundary Record
+
+```text
+new_business_task_created = false
+source_task_only = true
+exact_run_created = true
+worker_invocation_claimed_before_call = true
+worker_invocation_at_most_once = true
+outcome_append_only = true
+
+automatic_patch_apply = false
+product_runtime_git_add = false
+product_runtime_git_commit = false
+product_runtime_git_push = false
+product_runtime_pr_open = false
+product_runtime_merge = false
+product_runtime_git_write_allowed = false
+
+AI Project Director total loop = Partial
+```
+
+P23 allows source Task status to enter `running`. P23 allows creating an exact Run. P23 allows calling the exact reserved Worker seam through B2. This does not equal authorization for product runtime Git write. P23 verification did not start a real provider, native executor, or network. Tests did not perform real workspace / file / patch writes.
+
+### Final Stage Status
+
+```text
+P23-A: Closed / Pass
+P23-B: Closed / Pass
+P23-C: Closed / Pass
+P23-D1: Closed / Pass
+P23-D2-A: Closed / Pass
+P23-D2-B1: Closed / Pass
+P23-D2-B2: Closed / Pass
+P23-D3: Closed / Pass
+P23-E: Closed / Pass with verification note
+P23 overall: Closed / Pass with verification note
+
+P23 baseline-relative regression count: 0
+Known pre-P23 full-suite debt: 3 tests
+
+Product runtime Git write: Forbidden
+AI Project Director total loop: Partial
+```
+
+### Future Boundary
+
+P23 closure does not authorize product runtime Git write, automatic patch application, git add, git commit, git push, PR creation, merge, or automatic CI triggering.
+
+It does not close the complete AI Project Director product loop.
 
 The next stage must be selected by the AI Project Director after independently re-inspecting the latest origin/main.
