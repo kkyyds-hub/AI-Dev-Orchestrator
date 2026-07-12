@@ -9,10 +9,12 @@ TASK_WORKER_PATH = Path("app/workers/task_worker.py")
 WORKER_POOL_PATH = Path("app/workers/worker_pool.py")
 WORKERS_ROUTE_PATH = Path("app/api/routes/workers.py")
 
-WORKER_RUN_RESULT_TOP_LEVEL_FIELD_LIMIT = 259
+# P23-D2 adds one approved grouped snapshot field; this is not a new flat capability field.
+WORKER_RUN_RESULT_TOP_LEVEL_FIELD_LIMIT = 260
 EXPECTED_GROUPED_SNAPSHOTS = (
     "runtime_snapshot",
     "external_executor_snapshot",
+    "reserved_run_execution_snapshot",
     "delivery_snapshot",
     "approval_snapshot",
     "cost_snapshot",
