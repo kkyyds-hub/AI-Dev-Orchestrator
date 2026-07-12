@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -656,3 +657,157 @@ def make_b1_service(
         budget_guard_service=FakeBudgetGuardService(session=session, allowed=budget_allowed),
     )
     return b1_svc, session, msg_repo, task_repo, run_repo, agent_sess_repo
+
+
+# ── Event Spy ────────────────────────────────────────────────────────
+
+
+class EventSpy:
+    """Intercept event_stream_service.publish_task_updated and RunRepository.publish_created.
+
+    Each callback opens a new SQLAlchemy Session against the same SQLite file
+    to verify that committed state is visible at event time.
+    """
+
+    def __init__(self, session_factory):
+        self._sf = session_factory
+        self.task_events: list[dict[str, Any]] = []
+        self.run_events: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+        self._task_event_count = 0
+        self._run_event_count = 0
+
+    @property
+    def task_event_count(self) -> int:
+        with self._lock:
+            return self._task_event_count
+
+    @property
+    def run_event_count(self) -> int:
+        with self._lock:
+            return self._run_event_count
+
+    def on_task_updated(self, *, task, reason, previous_status=None):
+        """Called in place of event_stream_service.publish_task_updated."""
+        with self._lock:
+            self._task_event_count += 1
+            # Open a new session to verify committed state
+            s = self._sf()
+            from app.core.db_tables import TaskTable, RunTable, ProjectDirectorMessageTable
+            from app.domain.task import TaskStatus
+            from app.services.project_director_protected_transition_dispatch_consumption_service import (
+                P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
+            )
+            observed_task = s.get(TaskTable, task.id)
+            observed_task_status = observed_task.status if observed_task else None
+            runs = s.query(RunTable).filter(RunTable.task_id == task.id).all()
+            run_count = len(runs)
+            d1_msgs = (
+                s.query(ProjectDirectorMessageTable)
+                .filter(
+                    ProjectDirectorMessageTable.session_id == task.session_id
+                    if hasattr(task, "session_id") else True,
+                    ProjectDirectorMessageTable.source_detail == P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
+                )
+                .all()
+            )
+            d1_count = len(d1_msgs)
+            s.close()
+            self.task_events.append({
+                "task_id": str(task.id),
+                "observed_task_status": observed_task_status,
+                "observed_run_count": run_count,
+                "observed_d1_count": d1_count,
+            })
+
+    def on_run_created(self, *, run, reason):
+        """Called in place of RunRepository.publish_created."""
+        with self._lock:
+            self._run_event_count += 1
+            s = self._sf()
+            from app.core.db_tables import RunTable, ProjectDirectorMessageTable
+            from app.services.project_director_protected_transition_dispatch_consumption_service import (
+                P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
+            )
+            observed_run = s.get(RunTable, run.id)
+            run_exists = observed_run is not None
+            d1_msgs = (
+                s.query(ProjectDirectorMessageTable)
+                .filter(
+                    ProjectDirectorMessageTable.source_detail == P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
+                )
+                .all()
+            )
+            d1_count = len(d1_msgs)
+            s.close()
+            self.run_events.append({
+                "run_id": str(run.id),
+                "run_exists": run_exists,
+                "observed_d1_count": d1_count,
+            })
+
+    def install(self, d1_service, run_repository):
+        """Monkey-patch the D1 service and run repository to intercept events."""
+        self._orig_publish = d1_service._publish_committed_reservation
+        self._orig_publish_created = run_repository.publish_created
+
+        def spy_publish(result):
+            task = d1_service._task_repository.get_by_id(result.source_task_id)
+            run = d1_service._run_repository.get_by_id(result.run_id)
+            if task is None or run is None:
+                return
+            self.on_task_updated(task=task, reason="claimed", previous_status=result.task_status_before)
+            self.on_run_created(run=run, reason="created")
+
+        d1_service._publish_committed_reservation = spy_publish
+        run_repository.publish_created = lambda run: None  # suppress double publish
+
+    def restore(self, d1_service, run_repository):
+        """Restore original methods."""
+        if hasattr(self, "_orig_publish"):
+            d1_service._publish_committed_reservation = self._orig_publish
+        if hasattr(self, "_orig_publish_created"):
+            run_repository.publish_created = self._orig_publish_created
+
+
+# ── Exploding Spies for B1 Persisted Finder ──────────────────────────
+
+
+class ExplodingFreshnessService:
+    """Raises AssertionError if any current-check method is called."""
+
+    def __init__(self, *, session=None, msg_repo=None, task_repo=None):
+        self._session = session
+        self._message_repository = msg_repo or type("R", (), {"_session": session})()
+        self._task_repository = task_repo or type("R", (), {"session": session})()
+
+    def revalidate_current_automatic_transition_evidence_from_persisted_freshness(self, **kwargs):
+        raise AssertionError("persisted finder must not call current freshness check")
+
+    def revalidate_persisted_protected_transition_evidence_freshness(self, **kwargs):
+        raise AssertionError("persisted finder must not call persisted freshness revalidation")
+
+
+class ExplodingBudgetGuardService:
+    """Raises AssertionError if evaluate_before_execution is called."""
+
+    def __init__(self, session=None):
+        self._db_session = session
+
+    def evaluate_before_execution(self, *args, **kwargs):
+        raise AssertionError("persisted finder must not call budget check")
+
+
+class ExplodingAgentSessionRepository:
+    """Raises AssertionError if get_by_run_id is called."""
+
+    def __init__(self, session=None):
+        self.session = session
+        self._called = False
+
+    def get_by_run_id(self, run_id):
+        self._called = True
+        raise AssertionError("persisted finder must not call AgentSession absence lookup")
+
+    def get_by_id(self, sid):
+        return None

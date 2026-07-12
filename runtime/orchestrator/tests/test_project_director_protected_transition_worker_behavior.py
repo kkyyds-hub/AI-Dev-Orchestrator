@@ -26,10 +26,16 @@ from app.services.project_director_protected_transition_dispatch_consumption_ser
 )
 from app.services.project_director_protected_transition_worker_start_reservation_service import (
     P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
+    ProjectDirectorProtectedTransitionWorkerStartReservationService,
 )
 from tests.p23_test_support import (
     DIFF_SHA256,
     _FINGERPRINT,
+    ExplodingAgentSessionRepository,
+    ExplodingBudgetGuardService,
+    ExplodingFreshnessService,
+    FakeBudgetGuardService,
+    FakeFreshnessService,
     make_b1_service,
     make_d1_service,
     make_repos,
@@ -346,7 +352,13 @@ class TestB1ReservationBehavior:
         engine.dispose()
 
     def test_b1_persisted_finder_recovers_reservation_after_task_run_terminal(self, tmp_path):
-        """B1 persisted finder can recover reservation even after Task/Run become terminal."""
+        """B1 persisted finder can recover reservation even after Task/Run become terminal.
+
+        Uses exploding spies to prove the persisted finder does NOT call:
+        - current freshness revalidation
+        - budget evaluation
+        - AgentSession absence lookup
+        """
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
         ctx = _create_d1_success(sf)
@@ -354,13 +366,16 @@ class TestB1ReservationBehavior:
         ids = ctx["ids"]
         d1_msg_id = ctx["d1_result"].message.id
         d1_run_id = ctx["d1_result"].result.run_id
+        msg_repo = ctx["msg_repo"]
+        task_repo = ctx["task_repo"]
+        run_repo = ctx["run_repo"]
 
-        # Create reservation
-        b1_svc, session, msg_repo, task_repo, run_repo, agent_sess_repo = make_b1_service(
+        # Create reservation with normal service
+        b1_svc, session, _, _, _, _ = make_b1_service(
             sf,
-            msg_repo=ctx["msg_repo"],
-            task_repo=ctx["task_repo"],
-            run_repo=ctx["run_repo"],
+            msg_repo=msg_repo,
+            task_repo=task_repo,
+            run_repo=run_repo,
             d1_service=ctx["d1_svc"],
         )
         r1 = b1_svc.prepare_protected_transition_worker_start_reservation(
@@ -375,27 +390,41 @@ class TestB1ReservationBehavior:
         # Move Task/Run to terminal state
         task_repo.set_status(ids["task_id"], TaskStatus.COMPLETED)
         run_repo.finish_run(d1_run_id, status=RunStatus.SUCCEEDED, result_summary="test")
-        ctx["msg_repo"]._session.commit()
+        msg_repo._session.commit()
 
-        # Finder should still work (immutable revalidation)
-        b1_svc2, session2, msg_repo2, task_repo2, run_repo2, agent_sess_repo2 = make_b1_service(
-            sf,
-            msg_repo=ctx["msg_repo"],
-            task_repo=ctx["task_repo"],
-            run_repo=ctx["run_repo"],
-            d1_service=ctx["d1_svc"],
+        # Now create B1 service with exploding spies for finder
+        session2 = msg_repo._session
+        sess_repo2 = ProjectDirectorSessionRepository(session2)
+        exploding_freshness = ExplodingFreshnessService(
+            session=session2, msg_repo=msg_repo, task_repo=task_repo,
+        )
+        exploding_budget = ExplodingBudgetGuardService(session=session2)
+        exploding_agent_sess = ExplodingAgentSessionRepository(session=session2)
+
+        # Create a D1 service that shares the same repos (needed for shared session check)
+        d1_svc_for_finder = ctx["d1_svc"]
+
+        b1_finder_svc = ProjectDirectorProtectedTransitionWorkerStartReservationService(
+            session_repository=sess_repo2,
+            message_repository=msg_repo,
+            task_repository=task_repo,
+            run_repository=run_repo,
+            agent_session_repository=exploding_agent_sess,
+            dispatch_consumption_service=d1_svc_for_finder,
+            freshness_service=exploding_freshness,
+            budget_guard_service=exploding_budget,
         )
 
-        found = b1_svc2.find_persisted_protected_transition_worker_start_reservation(
+        found = b1_finder_svc.find_persisted_protected_transition_worker_start_reservation(
             session_id=ids["session_id"],
             source_task_id=ids["task_id"],
             source_consumption_message_id=d1_msg_id,
         )
 
-        assert found.result is not None
+        assert found.result is not None, "persisted finder must return existing reservation"
         assert found.result.reservation_id == reservation_msg_id
         assert found.message.id == reservation_msg_id
-        assert found.blocked_reasons == []
+        assert found.blocked_reasons == [], f"unexpected blocked reasons: {found.blocked_reasons}"
+        assert exploding_agent_sess._called is False, "persisted finder must not check AgentSession absence"
 
-        session2.close()
         engine.dispose()

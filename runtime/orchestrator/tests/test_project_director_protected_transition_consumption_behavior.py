@@ -26,6 +26,7 @@ from app.services.project_director_protected_transition_dispatch_consumption_ser
 )
 from tests.p23_test_support import (
     DIFF_SHA256,
+    EventSpy,
     make_d1_service,
     make_repos,
     make_session_factory,
@@ -199,6 +200,8 @@ class TestD1ConsumptionBehavior:
             sf, preflight_svc=preflight_svc,
             msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
         )
+        spy = EventSpy(sf)
+        spy.install(d1_svc, run_repo)
 
         result = d1_svc.consume_protected_transition_dispatch_preflight(
             session_id=ids["session_id"],
@@ -209,8 +212,11 @@ class TestD1ConsumptionBehavior:
         # Should be blocked due to rollback
         assert result.result.consumption_status == "blocked"
 
+        # No phantom events
+        assert spy.task_event_count == 0, "rollback must not publish task events"
+        assert spy.run_event_count == 0, "rollback must not publish run events"
+
         # Verify rollback: task should be back to original state
-        session2 = sf()
         task = task_repo.get_by_id(ids["task_id"])
         assert task.status == TaskStatus.PENDING
 
@@ -226,9 +232,9 @@ class TestD1ConsumptionBehavior:
         assert d1_count == 0
 
         # Restore
+        spy.restore(d1_svc, run_repo)
         run_repo.add_running_run_no_event = original_add
         session.close()
-        session2.close()
         engine.dispose()
 
     def test_d1_rolls_back_when_consumption_message_creation_fails(self, tmp_path):
@@ -251,7 +257,6 @@ class TestD1ConsumptionBehavior:
 
         # Monkey-patch msg_repo to fail on create
         original_create = msg_repo.create
-        call_count = [0]
 
         def failing_create(message):
             # Let preflight/intent creates through, fail on D1 consumption create
@@ -265,6 +270,8 @@ class TestD1ConsumptionBehavior:
             sf, preflight_svc=preflight_svc,
             msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
         )
+        spy = EventSpy(sf)
+        spy.install(d1_svc, run_repo)
 
         result = d1_svc.consume_protected_transition_dispatch_preflight(
             session_id=ids["session_id"],
@@ -273,6 +280,10 @@ class TestD1ConsumptionBehavior:
         )
 
         assert result.result.consumption_status == "blocked"
+
+        # No phantom events
+        assert spy.task_event_count == 0, "rollback must not publish task events"
+        assert spy.run_event_count == 0, "rollback must not publish run events"
 
         # Verify rollback
         task = task_repo.get_by_id(ids["task_id"])
@@ -287,6 +298,7 @@ class TestD1ConsumptionBehavior:
         )
         assert d1_count == 0
 
+        spy.restore(d1_svc, run_repo)
         msg_repo.create = original_create
         session.close()
         engine.dispose()
@@ -309,11 +321,14 @@ class TestD1ConsumptionBehavior:
         )
         session.close()
 
-        # First call - should succeed
+        # First call with event spy
         d1_svc, session, msg_repo, task_repo, run_repo = make_d1_service(
             sf, preflight_svc=preflight_svc,
             msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
         )
+        spy = EventSpy(sf)
+        spy.install(d1_svc, run_repo)
+
         r1 = d1_svc.consume_protected_transition_dispatch_preflight(
             session_id=ids["session_id"],
             source_task_id=ids["task_id"],
@@ -321,11 +336,29 @@ class TestD1ConsumptionBehavior:
         )
         assert r1.result.consumption_status == "reserved_for_worker_start"
 
-        # Verify committed state
-        task = task_repo.get_by_id(ids["task_id"])
-        assert task.status == TaskStatus.RUNNING
-        run = run_repo.get_by_id(r1.result.run_id)
-        assert run is not None
+        # Verify events were published after commit
+        assert spy.task_event_count >= 1, "task event must be published on first success"
+        assert spy.run_event_count >= 1, "run event must be published on first success"
+        # Verify event callbacks saw committed state
+        for te in spy.task_events:
+            assert te["observed_task_status"] == TaskStatus.RUNNING.value, (
+                f"event callback must see committed task: {te}"
+            )
+            assert te["observed_run_count"] >= 1, (
+                f"event callback must see committed run: {te}"
+            )
+            assert te["observed_d1_count"] >= 1, (
+                f"event callback must see committed D1 message: {te}"
+            )
+        for re in spy.run_events:
+            assert re["run_exists"] is True, (
+                f"event callback must see committed run: {re}"
+            )
+            assert re["observed_d1_count"] >= 1, (
+                f"event callback must see committed D1 message: {re}"
+            )
+
+        spy.restore(d1_svc, run_repo)
         session.close()
 
         # Second call (replay) - should not create new events
@@ -333,6 +366,9 @@ class TestD1ConsumptionBehavior:
             sf, preflight_svc=preflight_svc,
             msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
         )
+        spy2 = EventSpy(sf)
+        spy2.install(d1_svc2, run_repo2)
+
         r2 = d1_svc2.consume_protected_transition_dispatch_preflight(
             session_id=ids["session_id"],
             source_task_id=ids["task_id"],
@@ -340,6 +376,12 @@ class TestD1ConsumptionBehavior:
         )
         assert r2.result.resumed_from_existing_consumption is True
         assert r2.message.id == r1.message.id
+
+        # Replay must not publish new events
+        assert spy2.task_event_count == 0, "replay must not publish task events"
+        assert spy2.run_event_count == 0, "replay must not publish run events"
+
+        spy2.restore(d1_svc2, run_repo2)
         session2.close()
         engine.dispose()
 
@@ -361,15 +403,20 @@ class TestD1ConsumptionBehavior:
         )
         session.close()
 
-        # Monkey-patch event_stream_service to fail
-        from app.services import event_stream_service as ess
-        original_publish = ess.event_stream_service.publish_task_updated
-        ess.event_stream_service.publish_task_updated = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("SSE failure"))
-
         d1_svc, session, msg_repo, task_repo, run_repo = make_d1_service(
             sf, preflight_svc=preflight_svc,
             msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
         )
+
+        # Install spy that fails after recording the attempt
+        publish_attempt_count = [0]
+        original_publish = d1_svc._publish_committed_reservation
+
+        def failing_publish(result):
+            publish_attempt_count[0] += 1
+            raise RuntimeError("SSE failure")
+
+        d1_svc._publish_committed_reservation = failing_publish
 
         result = d1_svc.consume_protected_transition_dispatch_preflight(
             session_id=ids["session_id"],
@@ -379,6 +426,7 @@ class TestD1ConsumptionBehavior:
 
         # D1 should still succeed (SSE failure is caught)
         assert result.result.consumption_status == "reserved_for_worker_start"
+        assert publish_attempt_count[0] >= 1, "publisher must be called at least once"
 
         # Database should still have committed state
         task = task_repo.get_by_id(ids["task_id"])
@@ -393,7 +441,7 @@ class TestD1ConsumptionBehavior:
         )
         assert d1_count == 1
 
-        ess.event_stream_service.publish_task_updated = original_publish
+        d1_svc._publish_committed_reservation = original_publish
         session.close()
         engine.dispose()
 
