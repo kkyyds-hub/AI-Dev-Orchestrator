@@ -212,6 +212,137 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
             blocked_reasons=[],
         )
 
+    def revalidate_persisted_only_protected_transition_dispatch_consumption_preflight(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_preflight_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight:
+        """Purely revalidate persisted P23-C evidence after D1 changed Task state."""
+
+        message = self._message_repository.get_by_id(source_preflight_message_id)
+        if message is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=None,
+                blocked_reasons=["source_preflight_missing"],
+            )
+        if message.session_id != session_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_session_mismatch"],
+            )
+        if message.related_task_id != source_task_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_task_mismatch"],
+            )
+
+        session_obj = self._session_repository.get_by_id(session_id)
+        if (
+            session_obj is None
+            or session_obj.project_id is None
+            or message.related_project_id != session_obj.project_id
+        ):
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_project_mismatch"],
+            )
+        persisted = self._trusted_preflight(
+            message=message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=session_obj.project_id,
+        )
+        if persisted is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_invalid"],
+            )
+        if persisted.preflight_status != "ready":
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=persisted,
+                message=message,
+                blocked_reasons=["source_preflight_not_ready"],
+            )
+
+        intent_revalidation = self._dispatch_intent_service.revalidate_persisted_protected_transition_dispatch_intent(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_intent_message_id=persisted.source_intent_message_id,
+        )
+        intent = intent_revalidation.result
+        if intent_revalidation.blocked_reasons or intent is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=persisted,
+                message=message,
+                blocked_reasons=["source_evidence_chain_invalid"],
+            )
+        exact_bindings = (
+            (persisted.project_id, intent.project_id),
+            (persisted.target_task_id, intent.target_task_id),
+            (persisted.source_dispatch_intent_id, intent.dispatch_intent_id),
+            (
+                persisted.source_dispatch_intent_fingerprint,
+                intent.dispatch_intent_fingerprint,
+            ),
+            (persisted.source_p22_summary_message_id, intent.source_p22_summary_message_id),
+            (persisted.source_review_message_id, intent.source_review_message_id),
+            (persisted.source_freshness_message_id, intent.source_freshness_message_id),
+            (persisted.disposition_type, intent.disposition_type),
+            (persisted.dispatch_kind, intent.dispatch_kind),
+            (persisted.target_task_strategy, intent.target_task_strategy),
+            (persisted.review_result_fingerprint, intent.review_result_fingerprint),
+            (
+                persisted.review_semantic_fingerprint,
+                intent.review_semantic_fingerprint,
+            ),
+            (
+                persisted.persisted_freshness_evidence_fingerprint,
+                intent.freshness_evidence_fingerprint,
+            ),
+            (persisted.reviewed_diff_sha256, intent.source_diff_sha256),
+            (persisted.reviewed_scope_paths, intent.review_scope_paths),
+            (persisted.workspace_path, intent.workspace_path),
+            (persisted.workspace_path_within_root, intent.workspace_path_within_root),
+            (persisted.rework_attempt_index, intent.rework_attempt_index),
+            (persisted.rework_attempt_limit, intent.rework_attempt_limit),
+        )
+        if any(left != right for left, right in exact_bindings):
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=persisted,
+                message=message,
+                blocked_reasons=["source_evidence_chain_invalid"],
+            )
+
+        history = self._scan_preflight_history(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=session_obj.project_id,
+        )
+        exact_matches = [
+            item
+            for item in history.valid_preflights
+            if item[1].id == source_preflight_message_id
+            and item[0].source_intent_message_id == persisted.source_intent_message_id
+        ]
+        if history.invalid or len(exact_matches) != 1:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=persisted,
+                message=message,
+                blocked_reasons=["dispatch_consumption_preflight_replay_conflict"],
+            )
+        return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+            result=persisted,
+            message=message,
+            blocked_reasons=[],
+        )
+
     def _prepare_protected_transition_dispatch_consumption_preflight(
         self,
         *,

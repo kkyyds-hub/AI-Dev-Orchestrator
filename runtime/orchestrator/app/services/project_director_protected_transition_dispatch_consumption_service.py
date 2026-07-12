@@ -64,6 +64,17 @@ class ConsumedProjectDirectorProtectedTransitionDispatch:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedPersistedProtectedTransitionDispatchConsumption:
+    """Pure revalidation of one exact persisted D1 consumption."""
+
+    result: ProjectDirectorProtectedTransitionDispatchConsumptionResult | None
+    message: ProjectDirectorMessage | None
+    task: Task | None
+    run: Run | None
+    blocked_reasons: list[str]
+
+
+@dataclass(frozen=True, slots=True)
 class _ConsumptionHistory:
     valid_consumptions: list[
         tuple[
@@ -143,6 +154,193 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
                 pass
 
         return outcome
+
+    def revalidate_persisted_protected_transition_dispatch_consumption(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_consumption_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionDispatchConsumption:
+        """Revalidate immutable D1 evidence without opening a transaction or writing."""
+
+        message = self._message_repository.get_by_id(source_consumption_message_id)
+        if message is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=None,
+                message=None,
+                task=None,
+                run=None,
+                blocked_reasons=["source_consumption_missing"],
+            )
+        if message.session_id != session_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=None,
+                message=message,
+                task=None,
+                run=None,
+                blocked_reasons=["source_consumption_session_mismatch"],
+            )
+        if message.related_task_id != source_task_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=None,
+                message=message,
+                task=None,
+                run=None,
+                blocked_reasons=["source_consumption_task_mismatch"],
+            )
+
+        session_obj = self._session_repository.get_by_id(session_id)
+        task = self._task_repository.get_by_id(source_task_id)
+        project_id = session_obj.project_id if session_obj is not None else None
+        if task is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=None,
+                message=message,
+                task=None,
+                run=None,
+                blocked_reasons=["source_task_missing"],
+            )
+        if (
+            session_obj is None
+            or project_id is None
+            or message.related_project_id != project_id
+            or task.project_id != project_id
+        ):
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=None,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["source_consumption_project_mismatch"],
+            )
+
+        result = self._trusted_consumption(
+            message=message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        if result is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=None,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["source_consumption_invalid"],
+            )
+        if result.consumption_status != "reserved_for_worker_start":
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=result,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["source_consumption_not_reserved"],
+            )
+
+        preflight_revalidation = self._preflight_service.revalidate_persisted_only_protected_transition_dispatch_consumption_preflight(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_preflight_message_id=result.source_preflight_message_id,
+        )
+        preflight = preflight_revalidation.result
+        if preflight_revalidation.blocked_reasons or preflight is None:
+            reasons = (
+                ["source_evidence_chain_invalid"]
+                if "source_evidence_chain_invalid"
+                in preflight_revalidation.blocked_reasons
+                else ["source_preflight_invalid"]
+            )
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=result,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=reasons,
+            )
+        exact_bindings = (
+            (result.source_preflight_id, preflight.preflight_id),
+            (result.source_preflight_fingerprint, preflight.preflight_fingerprint),
+            (result.source_intent_message_id, preflight.source_intent_message_id),
+            (result.source_dispatch_intent_id, preflight.source_dispatch_intent_id),
+            (
+                result.source_dispatch_intent_fingerprint,
+                preflight.source_dispatch_intent_fingerprint,
+            ),
+            (result.source_p22_summary_message_id, preflight.source_p22_summary_message_id),
+            (result.source_review_message_id, preflight.source_review_message_id),
+            (result.source_freshness_message_id, preflight.source_freshness_message_id),
+            (result.disposition_type, preflight.disposition_type),
+            (result.dispatch_kind, preflight.dispatch_kind),
+            (result.target_task_strategy, preflight.target_task_strategy),
+            (result.review_result_fingerprint, preflight.review_result_fingerprint),
+            (
+                result.review_semantic_fingerprint,
+                preflight.review_semantic_fingerprint,
+            ),
+            (result.current_freshness_fingerprint, preflight.current_freshness_fingerprint),
+            (result.source_diff_sha256, preflight.current_diff_sha256),
+            (result.review_scope_paths, preflight.current_scope_paths),
+            (result.workspace_path, preflight.workspace_path),
+            (result.workspace_path_within_root, preflight.workspace_path_within_root),
+            (result.rework_attempt_index, preflight.rework_attempt_index),
+            (result.rework_attempt_limit, preflight.rework_attempt_limit),
+        )
+        if any(left != right for left, right in exact_bindings):
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=result,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["source_evidence_chain_invalid"],
+            )
+
+        run = self._run_repository.get_by_id(result.run_id)
+        if run is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=result,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["reserved_run_missing"],
+            )
+        if run.task_id != source_task_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=result,
+                message=message,
+                task=task,
+                run=run,
+                blocked_reasons=["reserved_run_task_mismatch"],
+            )
+
+        history = self._scan_consumption_history(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        exact_matches = [
+            item
+            for item in history.valid_consumptions
+            if item[1].id == source_consumption_message_id
+            and item[0].source_preflight_message_id == result.source_preflight_message_id
+            and item[0].source_intent_message_id == result.source_intent_message_id
+        ]
+        if history.invalid_reasons or len(exact_matches) != 1:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                result=result,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["source_consumption_replay_conflict"],
+            )
+
+        return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+            result=result,
+            message=message,
+            task=task,
+            run=run,
+            blocked_reasons=[],
+        )
 
     def _consume_protected_transition_dispatch_preflight(
         self,
@@ -887,4 +1085,5 @@ __all__ = (
     "PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SCHEMA_VERSION",
     "ConsumedProjectDirectorProtectedTransitionDispatch",
     "ProjectDirectorProtectedTransitionDispatchConsumptionService",
+    "RevalidatedPersistedProtectedTransitionDispatchConsumption",
 )
