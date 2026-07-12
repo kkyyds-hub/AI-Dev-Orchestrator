@@ -244,6 +244,16 @@ class TaskRouterService:
             strategy_decision=selected_candidate.strategy_decision,
         )
 
+    def evaluate_exact_task_for_dispatch(
+        self,
+        *,
+        task: Task,
+    ) -> TaskRoutingCandidate:
+        """只评估调用方指定的 exact task，不选择或修改其他任务。"""
+
+        budget_snapshot = self.budget_guard_service.build_budget_snapshot()
+        return self._evaluate_task(task, budget_snapshot=budget_snapshot)
+
     def _evaluate_task(
         self,
         task: Task,

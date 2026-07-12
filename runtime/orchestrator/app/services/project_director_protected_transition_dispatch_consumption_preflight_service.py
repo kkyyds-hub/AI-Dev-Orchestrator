@@ -66,6 +66,17 @@ class PreparedProjectDirectorProtectedTransitionDispatchConsumptionPreflight:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight:
+    """对一条已持久化 P23-C 前置检查的纯重验结果。"""
+
+    result: (
+        ProjectDirectorProtectedTransitionDispatchConsumptionPreflightResult | None
+    )
+    message: ProjectDirectorMessage | None
+    blocked_reasons: list[str]
+
+
+@dataclass(frozen=True, slots=True)
 class _PreflightHistory:
     valid_preflights: list[
         tuple[
@@ -114,7 +125,92 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
                 session_id=session_id,
                 source_task_id=source_task_id,
                 source_message_id=source_message_id,
+                persist_ready=True,
             )
+
+    def revalidate_persisted_protected_transition_dispatch_consumption_preflight(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_preflight_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight:
+        """在调用方事务内纯重验 exact persisted P23-C 前置检查。"""
+
+        message = self._message_repository.get_by_id(source_preflight_message_id)
+        if message is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=None,
+                blocked_reasons=["source_preflight_missing"],
+            )
+        if message.session_id != session_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_session_mismatch"],
+            )
+        if message.related_task_id != source_task_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_task_mismatch"],
+            )
+        session_obj = self._session_repository.get_by_id(session_id)
+        if session_obj is None or message.related_project_id != session_obj.project_id:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_project_mismatch"],
+            )
+        persisted = self._trusted_preflight(
+            message=message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=session_obj.project_id,
+        )
+        if persisted is None:
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=None,
+                message=message,
+                blocked_reasons=["source_preflight_invalid"],
+            )
+        if persisted.preflight_status != "ready":
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=persisted,
+                message=message,
+                blocked_reasons=["source_preflight_not_ready"],
+            )
+
+        evaluated = self._prepare_protected_transition_dispatch_consumption_preflight(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_message_id=persisted.source_intent_message_id,
+            persist_ready=False,
+        )
+        if evaluated.result.preflight_status != "ready":
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=persisted,
+                message=message,
+                blocked_reasons=list(evaluated.result.blocked_reasons),
+            )
+        if (
+            evaluated.result.preflight_id != source_preflight_message_id
+            or evaluated.result.preflight_fingerprint
+            != persisted.preflight_fingerprint
+        ):
+            return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                result=persisted,
+                message=message,
+                blocked_reasons=[
+                    "dispatch_consumption_preflight_replay_conflict"
+                ],
+            )
+        return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+            result=persisted,
+            message=message,
+            blocked_reasons=[],
+        )
 
     def _prepare_protected_transition_dispatch_consumption_preflight(
         self,
@@ -122,6 +218,7 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
         session_id: UUID,
         source_task_id: UUID,
         source_message_id: UUID,
+        persist_ready: bool,
     ) -> PreparedProjectDirectorProtectedTransitionDispatchConsumptionPreflight:
         validated_at = datetime.now(timezone.utc)
         blocked_reasons: list[str] = []
@@ -315,6 +412,11 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
                     ],
                     values=values,
                 )
+            if not persist_ready:
+                return PreparedProjectDirectorProtectedTransitionDispatchConsumptionPreflight(
+                    result=candidate,
+                    message=None,
+                )
             replayed = ProjectDirectorProtectedTransitionDispatchConsumptionPreflightResult.model_validate(
                 {
                     **candidate.model_dump(),
@@ -324,6 +426,12 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
             return PreparedProjectDirectorProtectedTransitionDispatchConsumptionPreflight(
                 result=replayed,
                 message=existing_message,
+            )
+
+        if not persist_ready:
+            return PreparedProjectDirectorProtectedTransitionDispatchConsumptionPreflight(
+                result=candidate,
+                message=None,
             )
 
         action = candidate.model_dump(mode="json")
@@ -770,4 +878,5 @@ __all__ = (
     "PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_PREFLIGHT_SCHEMA_VERSION",
     "PreparedProjectDirectorProtectedTransitionDispatchConsumptionPreflight",
     "ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService",
+    "RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight",
 )
