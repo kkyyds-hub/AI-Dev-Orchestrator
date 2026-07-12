@@ -73,6 +73,7 @@ from app.services.task_state_machine_service import (
     TaskStateTransition,
 )
 from app.workers.task_worker import (
+    TaskWorker,
     WorkerReservedRunExecutionSnapshot,
     WorkerRunResult,
 )
@@ -195,6 +196,44 @@ class _FakeAction:
 @dataclass
 class _FakeRetryStatus:
     retry_limit_reached: bool = False
+    max_task_retries: int = 3
+    execution_attempts: int = 0
+    retries_used: int = 0
+    retries_remaining: int = 3
+
+
+@dataclass
+class _FakeBudgetSnapshot:
+    daily_budget_usd: float = 100.0
+    daily_cost_used: float = 0.0
+    daily_cost_remaining: float = 100.0
+    daily_usage_ratio: float = 0.0
+    daily_budget_exceeded: bool = False
+    daily_window_started_at: Any = None
+    session_budget_usd: float = 100.0
+    session_cost_used: float = 0.0
+    session_cost_remaining: float = 100.0
+    session_usage_ratio: float = 0.0
+    session_budget_exceeded: bool = False
+    session_started_at: Any = None
+    max_task_retries: int = 3
+    strategy_code: str = "normal"
+    strategy_label: str = "Normal"
+    strategy_summary: str = "Normal execution"
+    preferred_model_tier: str = "standard"
+    budget_blocked_runs_daily: int = 0
+    budget_blocked_runs_session: int = 0
+    budget_policy_source: str = "test"
+    per_run_budget_usd: float = 0.0
+    estimated_run_cost_usd: float = 0.0
+
+    @property
+    def pressure_level(self):
+        return _FakePressure()
+
+    @property
+    def suggested_action(self):
+        return _FakeAction()
 
 
 @dataclass
@@ -202,6 +241,8 @@ class FakeBudgetDecision:
     allowed: bool = True
     strategy_code: str = "normal"
     budget_policy_source: str = "test"
+    summary: str | None = None
+    failure_category: Any = None
 
     @property
     def pressure_level(self):
@@ -214,6 +255,10 @@ class FakeBudgetDecision:
     @property
     def retry_status(self):
         return _FakeRetryStatus()
+
+    @property
+    def budget(self):
+        return _FakeBudgetSnapshot()
 
 
 class FakeBudgetGuardService:
@@ -350,7 +395,7 @@ class FakeFreshnessService:
 
 class FakeIntentService:
     """Deterministic fake that returns consistent IDs and fingerprints."""
-    def __init__(self, session=None, *, intent_id=None, p22_summary_id=None, review_id=None, freshness_id=None, project_id=None):
+    def __init__(self, session=None, *, intent_id=None, p22_summary_id=None, review_id=None, freshness_id=None, project_id=None, disposition_type="AUTO_CONTINUE", dispatch_kind="auto_continue"):
         self._message_repository = type("R", (), {"_session": session})()
         self._task_repository = type("R", (), {"session": session})()
         self._intent_id = intent_id or uuid4()
@@ -358,9 +403,14 @@ class FakeIntentService:
         self._review_id = review_id or uuid4()
         self._freshness_id = freshness_id or uuid4()
         self._project_id = project_id
+        self._disposition_type = disposition_type
+        self._dispatch_kind = dispatch_kind
 
     def revalidate_persisted_protected_transition_dispatch_intent(self, **kwargs):
         pid = self._project_id or kwargs.get("project_id")
+        transition_kind = "CONTINUE_GUARDRAIL" if self._disposition_type == "AUTO_CONTINUE" else "BOUNDED_REWORK_GUARDRAIL"
+        target_strategy = "source_task_continue" if self._dispatch_kind == "auto_continue" else "source_task_rework"
+        rework_index = 0
         return type("R", (), {
             "result": type("I", (), {
                 "intent_status": "prepared",
@@ -372,9 +422,9 @@ class FakeIntentService:
                 "source_p22_summary_message_id": self._p22_summary_id,
                 "source_review_message_id": self._review_id,
                 "source_freshness_message_id": self._freshness_id,
-                "disposition_type": "AUTO_CONTINUE",
-                "dispatch_kind": "auto_continue",
-                "target_task_strategy": "source_task_continue",
+                "disposition_type": self._disposition_type,
+                "dispatch_kind": self._dispatch_kind,
+                "target_task_strategy": target_strategy,
                 "review_result_fingerprint": _FINGERPRINT,
                 "review_semantic_fingerprint": _FINGERPRINT,
                 "freshness_evidence_fingerprint": _FINGERPRINT,
@@ -382,9 +432,9 @@ class FakeIntentService:
                 "review_scope_paths": ["src/example.py"],
                 "workspace_path": WORKSPACE_PATH,
                 "workspace_path_within_root": True,
-                "rework_attempt_index": 0,
+                "rework_attempt_index": rework_index,
                 "rework_attempt_limit": 3,
-                "transition_kind": "CONTINUE_GUARDRAIL",
+                "transition_kind": transition_kind,
                 "transition_authority": "AUTOMATED_DISPOSITION",
                 "source_freshness_validated_at": datetime.now(timezone.utc),
                 "blocked_reasons": [],
@@ -478,6 +528,8 @@ def prepare_valid_preflight(
     p22_summary_id: UUID | None = None,
     review_id: UUID | None = None,
     freshness_id: UUID | None = None,
+    disposition_type: str = "AUTO_CONTINUE",
+    dispatch_kind: str = "auto_continue",
 ) -> tuple[UUID, Any, Any, Any, Any, Any]:
     """Create a real persisted P23-C preflight using real service with deterministic fakes.
 
@@ -496,6 +548,7 @@ def prepare_valid_preflight(
         session_id=session_id, task_id=task_id, project_id=project_id,
         intent_id=intent_id, p22_summary_id=p22_summary_id,
         review_id=review_id, freshness_id=freshness_id,
+        disposition_type=disposition_type, dispatch_kind=dispatch_kind,
     )
 
     # Create deterministic fakes
@@ -504,6 +557,7 @@ def prepare_valid_preflight(
         intent_id=intent_id, p22_summary_id=p22_summary_id,
         review_id=review_id, freshness_id=freshness_id,
         project_id=project_id,
+        disposition_type=disposition_type, dispatch_kind=dispatch_kind,
     )
     intent_svc._message_repository = msg_repo
     intent_svc._task_repository = task_repo
@@ -811,3 +865,213 @@ class ExplodingAgentSessionRepository:
 
     def get_by_id(self, sid):
         return None
+
+
+# ── TaskWorker Helpers ───────────────────────────────────────────────
+
+
+class SpySharedExecutionHelper:
+    """Intercepts _execute_running_task_run on a TaskWorker instance."""
+
+    def __init__(self):
+        self.call_count = 0
+        self.calls: list[dict[str, Any]] = []
+        self._orig = None
+
+    def install(self, worker: Any) -> None:
+        self._orig = worker._execute_running_task_run
+
+        def spy(*, task, run, routing_decision, reserved_snapshot):
+            self.call_count += 1
+            self.calls.append({
+                "task_id": task.id,
+                "run_id": run.id,
+                "reserved_snapshot": reserved_snapshot,
+            })
+            # Return a minimal valid result without entering real execution
+            return WorkerRunResult(
+                claimed=True,
+                message="spy-executed",
+                execution_mode="spy",
+                route_reason=run.route_reason,
+                routing_score=run.routing_score,
+                model_name=run.model_name,
+                strategy_code=run.strategy_decision.strategy_code if run.strategy_decision else None,
+                dispatch_status=run.dispatch_status,
+                reserved_run_execution_snapshot=reserved_snapshot,
+            )
+
+        worker._execute_running_task_run = spy
+
+    def restore(self, worker: Any) -> None:
+        if self._orig is not None:
+            worker._execute_running_task_run = self._orig
+
+
+class ExplodingTaskRouterService:
+    """Raises AssertionError if route_next_task is called."""
+
+    def route_next_task(self, **kwargs):
+        raise AssertionError("reserved path must not call route_next_task")
+
+
+class ExplodingRunCreationService:
+    """Raises if Run creation methods are called."""
+
+    def add_running_run_no_event(self, **kwargs):
+        raise AssertionError("reserved path must not create Run")
+
+    def create_running_run(self, **kwargs):
+        raise AssertionError("reserved path must not create Run")
+
+
+class SpyAgentConversationService:
+    """Minimal fake for AgentConversationService used by TaskWorker."""
+
+    def __init__(self, session=None, agent_session_repository=None):
+        self.agent_session_repository = agent_session_repository or type("R", (), {
+            "session": session,
+            "get_by_run_id": lambda self, rid: None,
+            "get_by_id": lambda self, sid: None,
+        })()
+
+    def start_session(self, **kwargs):
+        raise AssertionError("spy should not reach start_session")
+
+    def record_execution_started(self, **kwargs):
+        raise AssertionError("spy should not reach record_execution_started")
+
+
+def make_task_worker(
+    session,
+    *,
+    task_repo,
+    run_repo,
+    agent_sess_repo=None,
+    budget_guard_service=None,
+    task_router_service=None,
+):
+    """Create a real TaskWorker with real repos and minimal fakes for external services."""
+    from app.services.agent_conversation_service import AgentConversationService
+    from app.services.cost_estimator_service import CostEstimatorService
+    from app.services.context_builder_service import ContextBuilderService
+    from app.services.executor_service import ExecutorService
+    from app.services.failure_review_service import FailureReviewService
+    from app.services.model_routing_service import ModelRoutingService
+    from app.services.prompt_builder_service import PromptBuilderService
+    from app.services.run_logging_service import RunLoggingService
+    from app.services.token_accounting_service import TokenAccountingService
+    from app.services.verifier_service import VerifierService
+
+    if agent_sess_repo is None:
+        agent_sess_repo = AgentSessionRepository(session)
+    if budget_guard_service is None:
+        budget_guard_service = FakeBudgetGuardService(session=session)
+    if task_router_service is None:
+        task_router_service = ExplodingTaskRouterService()
+
+    agent_conv = SpyAgentConversationService(
+        session=session, agent_session_repository=agent_sess_repo,
+    )
+
+    worker = TaskWorker(
+        session=session,
+        task_repository=task_repo,
+        run_repository=run_repo,
+        executor_service=type("F", (), {"execute": lambda s, **kw: None})(),
+        verifier_service=type("F", (), {"verify": lambda s, **kw: None})(),
+        budget_guard_service=budget_guard_service,
+        run_logging_service=type("F", (), {
+            "append_event": lambda s, **kw: None,
+            "append_role_handoff_event": lambda s, **kw: None,
+            "initialize_run_log": lambda s, **kw: f"/tmp/test-log-{kw.get('run_id', 'x')}.jsonl",
+        })(),
+        cost_estimator_service=CostEstimatorService(),
+        context_builder_service=type("F", (), {
+            "build_context_package": lambda s, **kw: type("P", (), {"context_items": []})(),
+            "build_agent_thread_context_seed": lambda s, **kw: None,
+        })(),
+        task_router_service=task_router_service,
+        model_routing_service=type("F", (), {"resolve": lambda s, **kw: None})(),
+        prompt_registry_service=None,
+        prompt_builder_service=type("F", (), {"build": lambda s, **kw: None})(),
+        token_accounting_service=TokenAccountingService(),
+        task_state_machine_service=TaskStateMachineService(),
+        failure_review_service=type("F", (), {"ensure_review": lambda s, **kw: None})(),
+        agent_conversation_service=agent_conv,
+    )
+    return worker
+
+
+def prepare_valid_b1_reservation(
+    session_local,
+    *,
+    session_id: UUID,
+    task_id: UUID,
+    project_id: UUID,
+    disposition_type: str = "AUTO_CONTINUE",
+    dispatch_kind: str = "auto_continue",
+):
+    """Create a full D1→B1 chain and return all references.
+
+    Returns dict with: sf, session, msg_repo, task_repo, run_repo, agent_sess_repo,
+    d1_svc, b1_svc, ids, preflight_msg_id, d1_result, b1_result.
+    """
+    ids = {"session_id": session_id, "task_id": task_id, "project_id": project_id}
+
+    # Seed base records first (project, task, session)
+    s = session_local()
+    seed_base_records(
+        s,
+        project_id=project_id, session_id=session_id, task_id=task_id,
+        task_status="pending",
+    )
+    s.close()
+
+    preflight_msg_id, session, msg_repo, task_repo, run_repo, preflight_svc = (
+        prepare_valid_preflight(
+            session_local,
+            session_id=session_id, task_id=task_id, project_id=project_id,
+            disposition_type=disposition_type, dispatch_kind=dispatch_kind,
+        )
+    )
+    agent_sess_repo = AgentSessionRepository(session)
+    session.close()
+
+    d1_svc, session, msg_repo, task_repo, run_repo = make_d1_service(
+        session_local, preflight_svc=preflight_svc,
+        msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
+    )
+    d1_result = d1_svc.consume_protected_transition_dispatch_preflight(
+        session_id=session_id, source_task_id=task_id,
+        source_message_id=preflight_msg_id,
+    )
+    assert d1_result.result.consumption_status == "reserved_for_worker_start"
+    session.close()
+
+    b1_svc, session, msg_repo, task_repo, run_repo, agent_sess_repo = make_b1_service(
+        session_local,
+        msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
+        d1_service=d1_svc,
+    )
+    b1_result = b1_svc.prepare_protected_transition_worker_start_reservation(
+        session_id=session_id, source_task_id=task_id,
+        source_message_id=d1_result.message.id,
+    )
+    assert b1_result.result.reservation_status == "reserved"
+    session.close()
+
+    return {
+        "sf": session_local,
+        "session": session,
+        "msg_repo": msg_repo,
+        "task_repo": task_repo,
+        "run_repo": run_repo,
+        "agent_sess_repo": agent_sess_repo,
+        "d1_svc": d1_svc,
+        "b1_svc": b1_svc,
+        "ids": ids,
+        "preflight_msg_id": preflight_msg_id,
+        "d1_result": d1_result,
+        "b1_result": b1_result,
+    }
