@@ -128,6 +128,51 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
                 persist_ready=True,
             )
 
+    def find_persisted_only_protected_transition_dispatch_consumption_preflight(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_intent_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight:
+        """Find one exact P23-C lineage without rerunning current checks."""
+
+        with self._message_repository._session.begin():
+            session_obj = self._session_repository.get_by_id(session_id)
+            project_id = (
+                session_obj.project_id if session_obj is not None else None
+            )
+            history = self._scan_preflight_history(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                project_id=project_id,
+            )
+            matches = [
+                item
+                for item in history.valid_preflights
+                if item[0].source_intent_message_id
+                == source_intent_message_id
+            ]
+            if history.invalid or len(matches) > 1:
+                return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                    result=None,
+                    message=None,
+                    blocked_reasons=[
+                        "dispatch_consumption_preflight_replay_conflict"
+                    ],
+                )
+            if not matches:
+                return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
+                    result=None,
+                    message=None,
+                    blocked_reasons=[],
+                )
+            return self.revalidate_persisted_only_protected_transition_dispatch_consumption_preflight(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_preflight_message_id=matches[0][1].id,
+            )
+
     def revalidate_persisted_protected_transition_dispatch_consumption_preflight(
         self,
         *,

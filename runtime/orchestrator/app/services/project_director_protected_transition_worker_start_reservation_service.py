@@ -150,6 +150,80 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
                 source_message_id=source_message_id,
             )
 
+    def find_persisted_protected_transition_worker_start_reservation(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_consumption_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionWorkerStartReservation:
+        """Find one exact B1 lineage without rerunning current eligibility."""
+
+        with self._message_repository._session.begin():
+            session_obj = self._session_repository.get_by_id(session_id)
+            project_id = (
+                session_obj.project_id if session_obj is not None else None
+            )
+            if project_id is None:
+                return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                    result=None,
+                    message=None,
+                    task=None,
+                    run=None,
+                    blocked_reasons=[],
+                )
+            history = self._scan_reservation_history(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                project_id=project_id,
+            )
+            matches = [
+                item
+                for item in history.valid_reservations
+                if item[0].source_consumption_message_id
+                == source_consumption_message_id
+            ]
+            source_consumption = self._dispatch_consumption_service.revalidate_persisted_protected_transition_dispatch_consumption(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_consumption_message_id=source_consumption_message_id,
+            )
+            target_run_id = (
+                source_consumption.result.run_id
+                if not source_consumption.blocked_reasons
+                and source_consumption.result is not None
+                else None
+            )
+            run_conflicts = [
+                item
+                for item in history.valid_reservations
+                if target_run_id is not None
+                and item[0].run_id == target_run_id
+                and item[0].source_consumption_message_id
+                != source_consumption_message_id
+            ]
+            if history.invalid or len(matches) > 1 or run_conflicts:
+                return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                    result=None,
+                    message=None,
+                    task=None,
+                    run=None,
+                    blocked_reasons=["source_reservation_lineage_conflict"],
+                )
+            if not matches:
+                return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                    result=None,
+                    message=None,
+                    task=None,
+                    run=None,
+                    blocked_reasons=[],
+                )
+            return self.revalidate_persisted_protected_transition_worker_start_reservation(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_reservation_message_id=matches[0][1].id,
+            )
+
     def revalidate_persisted_protected_transition_worker_start_reservation(
         self,
         *,

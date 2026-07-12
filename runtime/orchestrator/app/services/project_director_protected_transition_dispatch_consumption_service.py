@@ -155,6 +155,90 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
 
         return outcome
 
+    def find_persisted_protected_transition_dispatch_consumption(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_preflight_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionDispatchConsumption:
+        """Find one exact D1 lineage without consuming the preflight again."""
+
+        with self._message_repository._session.begin():
+            session_obj = self._session_repository.get_by_id(session_id)
+            project_id = (
+                session_obj.project_id if session_obj is not None else None
+            )
+            if project_id is None:
+                return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                    result=None,
+                    message=None,
+                    task=None,
+                    run=None,
+                    blocked_reasons=[],
+                )
+            history = self._scan_consumption_history(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                project_id=project_id,
+            )
+            preflight_message = self._message_repository.get_by_id(
+                source_preflight_message_id
+            )
+            source_intent_message_id = (
+                self._source_intent_id_from_preflight_message(
+                    preflight_message
+                )
+            )
+            matches = [
+                item
+                for item in history.valid_consumptions
+                if item[0].source_preflight_message_id
+                == source_preflight_message_id
+            ]
+            intent_conflicts = [
+                item
+                for item in history.valid_consumptions
+                if source_intent_message_id is not None
+                and item[0].source_intent_message_id
+                == source_intent_message_id
+                and item[0].source_preflight_message_id
+                != source_preflight_message_id
+            ]
+            preflight_conflicts = [
+                item
+                for item in matches
+                if source_intent_message_id is not None
+                and item[0].source_intent_message_id
+                != source_intent_message_id
+            ]
+            if (
+                history.invalid_reasons
+                or len(matches) > 1
+                or intent_conflicts
+                or preflight_conflicts
+            ):
+                return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                    result=None,
+                    message=None,
+                    task=None,
+                    run=None,
+                    blocked_reasons=["source_consumption_replay_conflict"],
+                )
+            if not matches:
+                return RevalidatedPersistedProtectedTransitionDispatchConsumption(
+                    result=None,
+                    message=None,
+                    task=None,
+                    run=None,
+                    blocked_reasons=[],
+                )
+            return self.revalidate_persisted_protected_transition_dispatch_consumption(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_consumption_message_id=matches[0][1].id,
+            )
+
     def revalidate_persisted_protected_transition_dispatch_consumption(
         self,
         *,

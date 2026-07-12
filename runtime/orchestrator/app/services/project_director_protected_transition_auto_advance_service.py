@@ -142,11 +142,25 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
             state["source_dispatch_intent_message_id"] = intent.message.id
 
             state["current_step"] = "dispatch_consumption_preflight"
-            preflight = self._dispatch_consumption_preflight_service.prepare_protected_transition_dispatch_consumption_preflight(
+            preflight = self._dispatch_consumption_preflight_service.find_persisted_only_protected_transition_dispatch_consumption_preflight(
                 session_id=session_id,
                 source_task_id=source_task_id,
-                source_message_id=intent.message.id,
+                source_intent_message_id=intent.message.id,
             )
+            if preflight.blocked_reasons:
+                return self._blocked(
+                    state,
+                    current_step="dispatch_consumption_preflight",
+                    reasons=preflight.blocked_reasons,
+                )
+            if preflight.result is None and preflight.message is None:
+                preflight = self._dispatch_consumption_preflight_service.prepare_protected_transition_dispatch_consumption_preflight(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_message_id=intent.message.id,
+                )
+            else:
+                self._merge_replay_from_value(state, True)
             self._merge_common_result(state, preflight.result)
             self._merge_replay(
                 state, preflight.result, "resumed_from_existing_preflight"
@@ -163,11 +177,25 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
             )
 
             state["current_step"] = "dispatch_consumption"
-            consumption = self._dispatch_consumption_service.consume_protected_transition_dispatch_preflight(
+            consumption = self._dispatch_consumption_service.find_persisted_protected_transition_dispatch_consumption(
                 session_id=session_id,
                 source_task_id=source_task_id,
-                source_message_id=preflight.message.id,
+                source_preflight_message_id=preflight.message.id,
             )
+            if consumption.blocked_reasons:
+                return self._blocked(
+                    state,
+                    current_step="dispatch_consumption",
+                    reasons=consumption.blocked_reasons,
+                )
+            if consumption.result is None and consumption.message is None:
+                consumption = self._dispatch_consumption_service.consume_protected_transition_dispatch_preflight(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_message_id=preflight.message.id,
+                )
+            else:
+                self._merge_replay_from_value(state, True)
             self._merge_common_result(state, consumption.result)
             self._merge_replay(
                 state, consumption.result, "resumed_from_existing_consumption"
@@ -192,11 +220,25 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
             d1_completed = True
 
             state["current_step"] = "worker_start_reservation"
-            reservation = self._worker_start_reservation_service.prepare_protected_transition_worker_start_reservation(
+            reservation = self._worker_start_reservation_service.find_persisted_protected_transition_worker_start_reservation(
                 session_id=session_id,
                 source_task_id=source_task_id,
-                source_message_id=consumption.message.id,
+                source_consumption_message_id=consumption.message.id,
             )
+            if reservation.blocked_reasons:
+                return self._blocked(
+                    state,
+                    current_step="worker_start_reservation",
+                    reasons=reservation.blocked_reasons,
+                )
+            if reservation.result is None and reservation.message is None:
+                reservation = self._worker_start_reservation_service.prepare_protected_transition_worker_start_reservation(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_message_id=consumption.message.id,
+                )
+            else:
+                self._merge_replay_from_value(state, True)
             self._merge_common_result(state, reservation.result)
             self._merge_replay(
                 state, reservation.result, "resumed_from_existing_reservation"
