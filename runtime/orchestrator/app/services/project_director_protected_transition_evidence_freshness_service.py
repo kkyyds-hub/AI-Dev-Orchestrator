@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -128,6 +128,28 @@ class RevalidatedPersistedProtectedTransitionFreshnessFingerprint:
     source_review_message_id: UUID | None = None
     source_diff_message_id: UUID | None = None
     validated_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedCurrentProtectedTransitionEvidenceFreshness:
+    """从 exact persisted E 证据重新计算当前只读 freshness。"""
+
+    freshness_status: Literal["ready", "blocked"]
+    source_freshness_message_id: UUID
+    source_transition_message_id: UUID | None
+    source_review_message_id: UUID | None
+    source_diff_message_id: UUID | None
+    persisted_freshness_evidence_fingerprint: str
+    current_freshness_fingerprint: str
+    reviewed_diff_sha256: str
+    current_diff_sha256: str
+    reviewed_scope_paths: list[str]
+    current_scope_paths: list[str]
+    workspace_path: str
+    workspace_path_within_root: bool
+    review_result_fingerprint: str
+    validated_at: datetime
+    blocked_reasons: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +293,310 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             source_review_message_id=result.source_review_message_id,
             source_diff_message_id=result.source_diff_message_id,
             validated_at=result.validated_at,
+        )
+
+    def revalidate_current_automatic_transition_evidence_from_persisted_freshness(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_freshness_message_id: UUID,
+    ) -> RevalidatedCurrentProtectedTransitionEvidenceFreshness:
+        """不持久化地重建 E 证据，并重新生成当前 readonly diff。"""
+
+        if (
+            self._session_repository is None
+            or self._message_repository is None
+            or self._task_repository is None
+            or self._review_handoff_service is None
+            or self._candidate_diff_service is None
+        ):
+            raise ValueError("protected transition freshness dependencies required")
+
+        validated_at = datetime.now(timezone.utc)
+        blocked_reasons: list[str] = []
+        persisted: ProjectDirectorProtectedTransitionEvidenceFreshnessResult | None = None
+        evidence: _TransitionEvidence | None = None
+        persisted_fingerprint = ""
+        reviewed_diff_sha256 = ""
+        current_diff_sha256 = ""
+        reviewed_scope_paths: list[str] = []
+        current_scope_paths: list[str] = []
+        workspace_path = ""
+        workspace_path_within_root = False
+        review_result_fingerprint = ""
+
+        session_obj = self._session_repository.get_by_id(session_id)
+        source_task = self._task_repository.get_by_id(source_task_id)
+        freshness_message = self._message_repository.get_by_id(
+            source_freshness_message_id
+        )
+        if session_obj is None or source_task is None:
+            blocked_reasons.append("source_freshness_invalid")
+        elif source_task.project_id != session_obj.project_id:
+            blocked_reasons.append("source_freshness_invalid")
+
+        freshness_action: dict[str, Any] | None = None
+        if session_obj is not None and source_task is not None:
+            freshness_action = self._exact_action(
+                message=freshness_message,
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_project_id=session_obj.project_id,
+                role=ProjectDirectorMessageRole.ASSISTANT,
+                intent="protected_transition_evidence_freshness",
+                source_detail=P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL,
+                action_type=P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_ACTION_TYPE,
+                schema_version=PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SCHEMA_VERSION,
+                expected_requires_confirmation=False,
+                blocked_reason="source_freshness_invalid",
+                blocked_reasons=blocked_reasons,
+            )
+        if freshness_action is not None:
+            try:
+                persisted = self._domain_from_action(
+                    ProjectDirectorProtectedTransitionEvidenceFreshnessResult,
+                    freshness_action,
+                )
+            except ValidationError:
+                blocked_reasons.append("source_freshness_invalid")
+            revalidation = self.revalidate_persisted_protected_transition_freshness_fingerprint(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_freshness_message_id=source_freshness_message_id,
+                source_freshness_action=freshness_action,
+            )
+            blocked_reasons.extend(revalidation.blocked_reasons)
+            persisted_fingerprint = revalidation.freshness_evidence_fingerprint
+
+        if persisted is not None:
+            reviewed_diff_sha256 = persisted.reviewed_diff_sha256
+            reviewed_scope_paths = list(persisted.reviewed_scope_paths)
+            workspace_path = persisted.workspace_path
+            workspace_path_within_root = persisted.workspace_path_within_root
+            review_result_fingerprint = persisted.review_result_fingerprint
+            if (
+                persisted.freshness_status != "ready"
+                or persisted.transition_authority != "AUTOMATED_DISPOSITION"
+                or persisted.transition_kind
+                not in ("CONTINUE_GUARDRAIL", "BOUNDED_REWORK_GUARDRAIL")
+                or persisted.freshness_evidence_fingerprint
+                != persisted_fingerprint
+                or not persisted.evidence_fresh
+                or not persisted.gate_allows_protected_transition_guardrail
+                or persisted.gate_allows_write
+            ):
+                blocked_reasons.append("source_freshness_invalid")
+
+        transition_message = None
+        if persisted is not None:
+            transition_message = self._message_repository.get_by_id(
+                persisted.source_transition_message_id
+            )
+        if (
+            persisted is not None
+            and session_obj is not None
+            and transition_message is not None
+        ):
+            evidence = self._automatic_transition_evidence(
+                source_message=transition_message,
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_project_id=session_obj.project_id,
+                blocked_reasons=blocked_reasons,
+            )
+        elif persisted is not None:
+            blocked_reasons.append("source_freshness_invalid")
+
+        if persisted is not None and evidence is not None:
+            exact_bindings = (
+                (persisted.source_transition_record_id, evidence.source_transition_record_id),
+                (persisted.transition_authority, evidence.authority),
+                (persisted.transition_kind, evidence.transition_kind),
+                (persisted.source_review_message_id, evidence.source_review_message_id),
+                (persisted.source_diff_message_id, evidence.source_diff_message_id),
+                (persisted.source_handoff_message_id, evidence.source_handoff_message_id),
+                (persisted.handoff_id, evidence.handoff_id),
+                (
+                    persisted.source_disposition_consumption_message_id,
+                    evidence.source_disposition_consumption_message_id,
+                ),
+                (persisted.disposition_consumption_id, evidence.disposition_consumption_id),
+                (persisted.source_disposition_message_id, evidence.source_disposition_message_id),
+                (persisted.disposition_id, evidence.disposition_id),
+                (persisted.disposition_type, evidence.disposition_type),
+                (persisted.review_result_fingerprint, evidence.review_result_fingerprint),
+                (persisted.reviewed_diff_sha256, evidence.reviewed_diff_sha256),
+                (persisted.reviewed_scope_paths, evidence.reviewed_scope_paths),
+            )
+            if any(left != right for left, right in exact_bindings):
+                blocked_reasons.append("source_freshness_invalid")
+
+        review_revalidation: RevalidatedPersistedReviewResultFingerprint | None = None
+        source_review_message = None
+        if evidence is not None:
+            source_review_message = self._message_repository.get_by_id(
+                evidence.source_review_message_id
+            )
+            if not self._review_message_metadata_valid(
+                message=source_review_message,
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_project_id=session_obj.project_id if session_obj else None,
+            ):
+                blocked_reasons.append("source_freshness_invalid")
+            review_revalidation = ProjectDirectorSandboxCandidateDiffReviewDispositionService.revalidate_persisted_review_result_fingerprint(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=evidence.source_review_message_id,
+                source_review_message=source_review_message,
+            )
+            blocked_reasons.extend(review_revalidation.blocked_reasons)
+            if (
+                review_revalidation.review_result_fingerprint
+                != evidence.review_result_fingerprint
+                or not self._review_binding_matches(evidence, review_revalidation)
+            ):
+                blocked_reasons.append("source_freshness_invalid")
+
+        persisted_diff = None
+        source_diff_message = None
+        if evidence is not None and source_task is not None and review_revalidation is not None:
+            source_diff_message = self._message_repository.get_by_id(
+                evidence.source_diff_message_id
+            )
+            if (
+                source_diff_message is None
+                or source_diff_message.session_id != session_id
+                or source_diff_message.related_project_id != source_task.project_id
+                or source_diff_message.related_task_id != source_task_id
+            ):
+                blocked_reasons.append("source_freshness_invalid")
+            else:
+                persisted_diff = self._review_handoff_service.build_candidate_diff_review_handoff_from_sources(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_message_id=evidence.source_diff_message_id,
+                    source_task=source_task,
+                    source_message=source_diff_message,
+                    user_confirmed=True,
+                    handoff_mode="readonly_real_diff_review",
+                    requested_reviewer_executor=review_revalidation.requested_reviewer_executor,
+                )
+                if (
+                    persisted_diff.review_handoff_status != "created"
+                    or not persisted_diff.source_diff_verified
+                    or persisted_diff.source_diff_sha256 != reviewed_diff_sha256
+                    or list(persisted_diff.review_scope_paths) != reviewed_scope_paths
+                ):
+                    blocked_reasons.append("source_freshness_invalid")
+
+        if persisted_diff is not None and source_diff_message is not None and source_task is not None:
+            source_diff_action = source_diff_message.suggested_actions[0]
+            source_candidate_write_message_id = self._uuid_from_action(
+                source_diff_action,
+                "source_message_id",
+            )
+            persisted_workspace_path = source_diff_action.get("workspace_path")
+            candidate_write_message = (
+                self._message_repository.get_by_id(source_candidate_write_message_id)
+                if source_candidate_write_message_id is not None
+                else None
+            )
+            if (
+                source_candidate_write_message_id is None
+                or candidate_write_message is None
+                or candidate_write_message.session_id != session_id
+                or candidate_write_message.related_task_id != source_task_id
+                or candidate_write_message.related_project_id != source_task.project_id
+            ):
+                blocked_reasons.append("source_freshness_invalid")
+            else:
+                current_diff = self._candidate_diff_service.build_candidate_diff_from_sources(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_message_id=source_candidate_write_message_id,
+                    source_task=source_task,
+                    source_message=candidate_write_message,
+                    user_confirmed=True,
+                    diff_mode="readonly_unified_diff",
+                    max_diff_bytes=persisted_diff.diff_bytes,
+                )
+                workspace_path = current_diff.workspace_path or ""
+                workspace_path_within_root = current_diff.workspace_path_within_root
+                current_diff_sha256 = hashlib.sha256(
+                    current_diff.unified_diff_text.encode("utf-8")
+                ).hexdigest()
+                current_scope_paths = [
+                    entry.relative_path for entry in current_diff.diff_entries
+                ]
+                if (
+                    current_diff.diff_generation_status != "generated"
+                    or not current_diff.readonly_real_diff_generated
+                    or not current_diff.real_diff_generated
+                    or not current_diff.source_candidate_write_verified
+                    or current_diff.workspace_path != persisted_workspace_path
+                    or current_diff.workspace_path != persisted.workspace_path
+                    or not current_diff.workspace_path_within_root
+                ):
+                    blocked_reasons.append("current_workspace_invalid")
+                if current_diff_sha256 != reviewed_diff_sha256:
+                    blocked_reasons.append("current_diff_mismatch")
+                if current_scope_paths != reviewed_scope_paths:
+                    blocked_reasons.append("current_scope_mismatch")
+
+        blocked_reasons = self._dedupe(blocked_reasons)
+        current_fingerprint = self._canonical_payload_fingerprint(
+            {
+                "session_id": str(session_id),
+                "source_task_id": str(source_task_id),
+                "source_freshness_message_id": str(source_freshness_message_id),
+                "source_transition_message_id": str(
+                    persisted.source_transition_message_id if persisted else None
+                ),
+                "source_review_message_id": str(
+                    persisted.source_review_message_id if persisted else None
+                ),
+                "source_diff_message_id": str(
+                    persisted.source_diff_message_id if persisted else None
+                ),
+                "transition_kind": persisted.transition_kind if persisted else None,
+                "transition_authority": (
+                    persisted.transition_authority if persisted else None
+                ),
+                "review_result_fingerprint": review_result_fingerprint,
+                "persisted_freshness_evidence_fingerprint": persisted_fingerprint,
+                "reviewed_diff_sha256": reviewed_diff_sha256,
+                "current_diff_sha256": current_diff_sha256,
+                "reviewed_scope_paths": reviewed_scope_paths,
+                "current_scope_paths": current_scope_paths,
+                "workspace_path": workspace_path,
+                "workspace_path_within_root": workspace_path_within_root,
+            }
+        )
+        return RevalidatedCurrentProtectedTransitionEvidenceFreshness(
+            freshness_status="blocked" if blocked_reasons else "ready",
+            source_freshness_message_id=source_freshness_message_id,
+            source_transition_message_id=(
+                persisted.source_transition_message_id if persisted else None
+            ),
+            source_review_message_id=(
+                persisted.source_review_message_id if persisted else None
+            ),
+            source_diff_message_id=(
+                persisted.source_diff_message_id if persisted else None
+            ),
+            persisted_freshness_evidence_fingerprint=persisted_fingerprint,
+            current_freshness_fingerprint=current_fingerprint,
+            reviewed_diff_sha256=reviewed_diff_sha256,
+            current_diff_sha256=current_diff_sha256,
+            reviewed_scope_paths=reviewed_scope_paths,
+            current_scope_paths=current_scope_paths,
+            workspace_path=workspace_path,
+            workspace_path_within_root=workspace_path_within_root,
+            review_result_fingerprint=review_result_fingerprint,
+            validated_at=validated_at,
+            blocked_reasons=blocked_reasons,
         )
 
     def _prepare_protected_transition_evidence_freshness_gate(
@@ -1760,5 +2086,6 @@ __all__ = (
     "PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SCHEMA_VERSION",
     "PreparedProjectDirectorProtectedTransitionEvidenceFreshness",
     "ProjectDirectorProtectedTransitionEvidenceFreshnessService",
+    "RevalidatedCurrentProtectedTransitionEvidenceFreshness",
     "RevalidatedPersistedProtectedTransitionFreshnessFingerprint",
 )
