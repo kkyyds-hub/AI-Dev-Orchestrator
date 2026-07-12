@@ -362,25 +362,51 @@ def _prepare_through_b1(sf, *, session_id, task_id, project_id):
     return b1_msg_id, run_id
 
 
-def _make_gated_worker():
-    """Create a worker that blocks on first call until released."""
-    counter = {"n": 0}
-    worker_entered = threading.Event()
-    release_worker = threading.Event()
+class SharedGatedWorkerController:
+    """Thread-safe gated Worker that blocks on first call until released."""
 
-    def gated_run_reserved_once(*, task_id, run_id):
-        counter["n"] += 1
-        if counter["n"] == 1:
-            worker_entered.set()
-            release_worker.wait(timeout=10)
-            # Use independent session to update task/run
-            # (the caller's session is the one B2 uses internally)
-            return make_d3_worker_result(
-                task_id=task_id, run_id=run_id, disposition_type="AUTO_CONTINUE",
+    def __init__(self, *, session_factory):
+        self._session_factory = session_factory
+        self._lock = threading.Lock()
+        self.call_count = 0
+        self.worker_entered = threading.Event()
+        self.release_worker = threading.Event()
+
+    def run_reserved_once(self, *, task_id, run_id):
+        with self._lock:
+            self.call_count += 1
+            current_call = self.call_count
+
+        if current_call != 1:
+            raise AssertionError(
+                f"Worker called more than once: {current_call}"
             )
-        raise AssertionError(f"Worker called a second time (call #{counter['n']})")
 
-    return gated_run_reserved_once, counter, worker_entered, release_worker
+        self.worker_entered.set()
+        assert self.release_worker.wait(timeout=10)
+
+        session = self._session_factory()
+        try:
+            TaskRepository(session).set_status(task_id, TaskStatus.COMPLETED)
+            RunRepository(session).finish_run(
+                run_id, status=RunStatus.SUCCEEDED, result_summary="done",
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        return make_d3_worker_result(
+            task_id=task_id, run_id=run_id, disposition_type="AUTO_CONTINUE",
+        )
+
+    def make_adapter(self):
+        """Create a FakeTaskWorker adapter wired to this controller."""
+        adapter = FakeTaskWorker()
+        adapter.run_reserved_once = self.run_reserved_once
+        adapter.run_once = lambda **kw: (_ for _ in ()).throw(
+            AssertionError("run_once must not be called")
+        )
+        return adapter
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -527,6 +553,15 @@ class TestB1Concurrency:
         assert results[0].result.reservation_fingerprint == results[1].result.reservation_fingerprint
         assert results[0].result.run_id == results[1].result.run_id
 
+        # Replay flags
+        flags = [r.result.resumed_from_existing_reservation for r in results]
+        assert sorted(flags) == [False, True]
+
+        # Both have valid reservation status
+        for r in results:
+            assert r.result.reservation_status == "reserved"
+            assert r.result.worker_start_reserved is True
+
         s.close()
         engine.dispose()
 
@@ -550,16 +585,13 @@ class TestB2Concurrency:
 
         b1_msg_id, run_id = _prepare_through_b1(sf, session_id=session_id, task_id=task_id, project_id=project_id)
 
-        # Gated worker for thread A
-        gated_fn, counter, worker_entered, release_worker = _make_gated_worker()
-        gated_worker = FakeTaskWorker()
-        gated_worker.run_reserved_once = gated_fn
+        # Shared controller: both threads use same Worker logic
+        controller = SharedGatedWorkerController(session_factory=sf)
+        adapter_a = controller.make_adapter()
+        adapter_b = controller.make_adapter()
 
-        # Thread A stack with gated worker
-        stack_a = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id, fake_worker=gated_worker)
-
-        # Thread B stack with default worker (should not be called)
-        stack_b = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id)
+        stack_a = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id, fake_worker=adapter_a)
+        stack_b = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id, fake_worker=adapter_b)
 
         result_a = [None]
         result_b = [None]
@@ -576,7 +608,7 @@ class TestB2Concurrency:
 
         def thread_b():
             try:
-                worker_entered.wait(timeout=10)
+                controller.worker_entered.wait(timeout=10)
                 result_b[0] = stack_b["b2_svc"].invoke_reserved_protected_transition_worker(
                     session_id=session_id, source_task_id=task_id, source_message_id=b1_msg_id,
                 )
@@ -587,44 +619,53 @@ class TestB2Concurrency:
         with ThreadPoolExecutor(max_workers=2) as pool:
             fa = pool.submit(thread_a)
             fb = pool.submit(thread_b)
-            # Wait for thread B to return first (it should see claim exists)
             fb.result(timeout=15)
-            # Now release the worker in thread A
-            release_worker.set()
+            controller.release_worker.set()
             fa.result(timeout=15)
 
         assert len(errors) == 0, f"Thread errors: {errors}"
 
-        # Thread A should have returned outcome
+        # Thread A: full outcome
         assert result_a[0] is not None
         assert result_a[0].outcome is not None
+        assert result_a[0].outcome.outcome_status == "returned"
+        assert result_a[0].outcome.worker_call_attempted is True
+        assert result_a[0].outcome.worker_returned is True
+        assert result_a[0].outcome.worker_raised is False
+        assert result_a[0].outcome.human_recovery_required is False
+        assert result_a[0].blocked_reasons == []
 
-        # Thread B should have returned recovery/in-progress (claim exists, no outcome yet)
+        # Thread B: claim exists, no outcome yet
         assert result_b[0] is not None
-        # Thread B sees claim exists but outcome may not be committed yet
+        assert result_b[0].claim is not None
+        assert result_b[0].claim_message is not None
+        assert result_b[0].outcome is None
+        assert result_b[0].outcome_message is None
+        assert result_b[0].claim.claim_id == result_a[0].claim.claim_id
+        assert result_b[0].blocked_reasons == ["worker_invocation_in_progress_or_recovery_required"]
 
-        # Database assertions
+        # Database
         s = sf()
         msg_repo = ProjectDirectorMessageRepository(s)
+        assert count_messages_by_source_detail(msg_repo, session_id, P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL) == 1
+        assert count_messages_by_source_detail(msg_repo, session_id, P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL) == 1
 
-        claim_count = count_messages_by_source_detail(msg_repo, session_id, P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL)
-        outcome_count = count_messages_by_source_detail(msg_repo, session_id, P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL)
-        assert claim_count == 1
-        assert outcome_count == 1
+        task = TaskRepository(s).get_by_id(task_id)
+        assert task.status == TaskStatus.COMPLETED
+        run = RunRepository(s).get_by_id(run_id)
+        assert run.status == RunStatus.SUCCEEDED
 
-        # Worker called exactly once
-        assert counter["n"] == 1
+        assert controller.call_count == 1
 
         # Third call: replay
         stack_c = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id)
         result_c = stack_c["b2_svc"].invoke_reserved_protected_transition_worker(
             session_id=session_id, source_task_id=task_id, source_message_id=b1_msg_id,
         )
-        assert result_c.outcome is not None
-        assert result_c.resumed_from_existing_outcome is True
         assert result_c.claim_message.id == result_a[0].claim_message.id
         assert result_c.outcome_message.id == result_a[0].outcome_message.id
-        assert counter["n"] == 1  # Worker still only called once
+        assert result_c.resumed_from_existing_outcome is True
+        assert controller.call_count == 1
         stack_c["session"].close()
 
         s.close()
@@ -648,13 +689,13 @@ class TestD3Concurrency:
         review_msg_id = _seed_p21_c_review_chain(s, session_id=session_id, task_id=task_id, project_id=project_id)
         s.close()
 
-        # Gated worker
-        gated_fn, counter, worker_entered, release_worker = _make_gated_worker()
-        gated_worker = FakeTaskWorker()
-        gated_worker.run_reserved_once = gated_fn
+        # Shared controller
+        controller = SharedGatedWorkerController(session_factory=sf)
+        adapter_a = controller.make_adapter()
+        adapter_b = controller.make_adapter()
 
-        stack_a = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id, fake_worker=gated_worker)
-        stack_b = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id)
+        stack_a = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id, fake_worker=adapter_a)
+        stack_b = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id, fake_worker=adapter_b)
 
         result_a = [None]
         result_b = [None]
@@ -671,7 +712,7 @@ class TestD3Concurrency:
 
         def thread_b():
             try:
-                worker_entered.wait(timeout=10)
+                controller.worker_entered.wait(timeout=10)
                 result_b[0] = stack_b["d3_svc"].advance_post_review_protected_transition(
                     session_id=session_id, source_task_id=task_id, source_review_message_id=review_msg_id,
                 )
@@ -683,17 +724,35 @@ class TestD3Concurrency:
             fa = pool.submit(thread_a)
             fb = pool.submit(thread_b)
             fb.result(timeout=15)
-            release_worker.set()
+            controller.release_worker.set()
             fa.result(timeout=15)
 
         assert len(errors) == 0, f"Thread errors: {errors}"
 
-        # Thread A should have completed
-        assert result_a[0] is not None
+        # Thread A: full success
         assert result_a[0].auto_advance_status == "worker_returned"
+        assert result_a[0].current_step == "worker_invocation_outcome"
+        assert result_a[0].worker_outcome_status == "returned"
+        assert result_a[0].human_recovery_required is False
 
-        # Thread B may return recovery_required (claim exists, no outcome yet)
-        assert result_b[0] is not None
+        first_ids = {
+            "p22": result_a[0].source_p22_summary_message_id,
+            "intent": result_a[0].source_dispatch_intent_message_id,
+            "preflight": result_a[0].source_dispatch_consumption_preflight_message_id,
+            "d1": result_a[0].source_dispatch_consumption_message_id,
+            "b1": result_a[0].source_worker_start_reservation_message_id,
+            "claim": result_a[0].source_worker_invocation_claim_message_id,
+            "outcome": result_a[0].source_worker_invocation_outcome_message_id,
+        }
+        first_run_id = result_a[0].run_id
+
+        # Thread B: recovery_required
+        assert result_b[0].auto_advance_status == "recovery_required"
+        assert result_b[0].current_step == "worker_invocation_outcome"
+        assert result_b[0].human_recovery_required is True
+        assert "worker_invocation_in_progress_or_recovery_required" in result_b[0].blocked_reasons
+        assert result_b[0].source_worker_invocation_claim_message_id == first_ids["claim"]
+        assert result_b[0].source_worker_invocation_outcome_message_id is None
 
         # Database: exactly one of each evidence
         s = sf()
@@ -701,9 +760,8 @@ class TestD3Concurrency:
         for sd, count in counts.items():
             assert count == 1, f"Expected 1 for {sd}, got {count}"
 
-        runs = RunRepository(s).list_by_task_id(task_id)
-        assert len(runs) == 1
-        assert counter["n"] == 1
+        assert len(RunRepository(s).list_by_task_id(task_id)) == 1
+        assert controller.call_count == 1
 
         # Third call: replay
         stack_c = _make_independent_stack(sf, session_id=session_id, task_id=task_id, project_id=project_id)
@@ -712,8 +770,18 @@ class TestD3Concurrency:
         )
         assert result_c.auto_advance_status == "worker_returned"
         assert result_c.resumed_from_existing_evidence is True
-        assert result_c.run_id == result_a[0].run_id
-        assert counter["n"] == 1
+        second_ids = {
+            "p22": result_c.source_p22_summary_message_id,
+            "intent": result_c.source_dispatch_intent_message_id,
+            "preflight": result_c.source_dispatch_consumption_preflight_message_id,
+            "d1": result_c.source_dispatch_consumption_message_id,
+            "b1": result_c.source_worker_start_reservation_message_id,
+            "claim": result_c.source_worker_invocation_claim_message_id,
+            "outcome": result_c.source_worker_invocation_outcome_message_id,
+        }
+        assert second_ids == first_ids
+        assert result_c.run_id == first_run_id
+        assert controller.call_count == 1
         stack_c["session"].close()
 
         s.close()
