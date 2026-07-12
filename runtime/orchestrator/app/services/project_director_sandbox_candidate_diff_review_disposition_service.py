@@ -228,6 +228,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         project_id: UUID,
         source_task_id: UUID,
         source_disposition_message_id: UUID,
+        source_review_message: ProjectDirectorMessage,
     ) -> RevalidatedPersistedReviewDisposition:
         """Rebuild one exact P21-D record without append, flush, or commit."""
 
@@ -257,6 +258,33 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
                 disposition_message_created_at=None,
                 blocked_reasons=self._dedupe(blocked_reasons),
             )
+
+        review_revalidation = self.revalidate_persisted_review_result_fingerprint(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_review_message.id,
+            source_review_message=source_review_message,
+        )
+        review_evidence_blocked_reasons: list[str] = []
+        review_action = self._source_review_action(
+            source_review_message=source_review_message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            blocked_reasons=review_evidence_blocked_reasons,
+        )
+        validated_review_evidence = self._validated_review_evidence(
+            review_action,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            blocked_reasons=review_evidence_blocked_reasons,
+        )
+        if (
+            source_review_message.related_project_id != project_id
+            or review_revalidation.blocked_reasons
+            or review_evidence_blocked_reasons
+            or validated_review_evidence is None
+        ):
+            blocked_reasons.append("review_disposition_source_review_invalid")
 
         if (
             message.id != source_disposition_message_id
@@ -357,6 +385,40 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
             or result.review_result_fingerprint != review_result_fingerprint
         ):
             blocked_reasons.append("review_disposition_result_invalid")
+
+        if validated_review_evidence is not None:
+            if (
+                source_review_message_id != source_review_message.id
+                or review_result_fingerprint
+                != review_revalidation.review_result_fingerprint
+                or source_preflight_message_id
+                != review_revalidation.source_preflight_message_id
+                or source_diff_message_id
+                != review_revalidation.source_diff_message_id
+                or source_diff_sha256 != review_revalidation.source_diff_sha256
+                or action.get("review_output_schema_version")
+                != review_revalidation.review_output_schema_version
+                or action.get("source_review_verdict")
+                != review_revalidation.verdict
+                or action.get("source_review_risk_level")
+                != review_revalidation.risk_level
+            ):
+                blocked_reasons.append("review_disposition_source_review_mismatch")
+
+            expected_type, expected_reason, expected_triggers = (
+                self._calculate_disposition(validated_review_evidence)
+            )
+            if (
+                result is None
+                or result.disposition_type != expected_type
+                or result.disposition_reason != expected_reason
+                or result.escalation_triggers != expected_triggers
+                or result.evaluated_trigger_kinds != EVALUATED_TRIGGER_KINDS
+                or result.deferred_trigger_kinds != DEFERRED_TRIGGER_KINDS
+            ):
+                blocked_reasons.append(
+                    "review_disposition_deterministic_result_mismatch"
+                )
 
         return RevalidatedPersistedReviewDisposition(
             disposition_message_id=source_disposition_message_id,

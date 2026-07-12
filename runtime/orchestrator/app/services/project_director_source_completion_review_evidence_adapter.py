@@ -208,6 +208,7 @@ class ProjectDirectorSourceCompletionReviewEvidenceAdapter:
                 project_id=project_id,
                 source_task_id=source_task_id,
                 source_disposition_message_id=disposition_message.id,
+                source_review_message=review_message,
             )
         )
         if disposition.blocked_reasons:
