@@ -686,6 +686,15 @@ class TestD3AutoAdvanceBehavior:
         assert result.resumed_from_existing_evidence is True
         assert result.source_worker_start_reservation_message_id == original_b1_id
 
+        # Direct field assertion via revalidate_persisted
+        persisted_reval = ctx["b1_svc"].revalidate_persisted_protected_transition_worker_start_reservation(
+            session_id=sid, source_task_id=tid, source_reservation_message_id=original_b1_id,
+        )
+        assert persisted_reval.result is not None
+        assert persisted_reval.result.reservation_id == original_reservation_id
+        assert persisted_reval.result.reservation_token == original_token
+        assert persisted_reval.result.reservation_fingerprint == original_fingerprint
+
         b1_count2 = count_messages_by_source_detail(
             ctx["msg_repo"], sid,
             P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
