@@ -244,11 +244,18 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
         )
         claim_ids = {item[0].claim_id for item in claims}
         cross_outcome_conflict = any(
-            item[0].source_claim_id in claim_ids
-            and (
-                item[0].source_reservation_message_id
+            (
+                item[0].source_claim_id in claim_ids
+                and (
+                    item[0].source_reservation_message_id
+                    != source_reservation_message_id
+                    or item[0].run_id != reservation.run_id
+                )
+            )
+            or (
+                item[0].run_id == reservation.run_id
+                and item[0].source_reservation_message_id
                 != source_reservation_message_id
-                or item[0].run_id != reservation.run_id
             )
             for item in history.outcomes
         )
@@ -261,7 +268,14 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
                 return self._blocked(["worker_invocation_outcome_replay_conflict"])
             claim, claim_message = claims[0]
             outcome, outcome_message = outcomes[0]
+            if not self._claim_binds_reservation(
+                claim=claim,
+                reservation=reservation,
+            ):
+                return self._blocked(["worker_invocation_claim_replay_conflict"])
             if not self._outcome_binds_claim(outcome=outcome, claim=claim):
+                return self._blocked(["worker_invocation_outcome_replay_conflict"])
+            if outcome.run_id != reservation.run_id:
                 return self._blocked(["worker_invocation_outcome_replay_conflict"])
             replayed = ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult.model_validate(
                 {**outcome.model_dump(), "resumed_from_existing_outcome": True}
@@ -276,10 +290,9 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
             )
         if claims:
             claim, claim_message = claims[0]
-            if (
-                claim.source_reservation_message_id
-                != source_reservation_message_id
-                or claim.run_id != reservation.run_id
+            if not self._claim_binds_reservation(
+                claim=claim,
+                reservation=reservation,
             ):
                 return self._blocked(["worker_invocation_claim_replay_conflict"])
             return InvokedProjectDirectorProtectedTransitionWorker(
@@ -337,7 +350,14 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
             source_task_id=claim.source_task_id,
             project_id=claim.project_id,
         )
-        if trusted_claim is None or trusted_claim != claim:
+        if (
+            trusted_claim is None
+            or trusted_claim != claim
+            or not self._claim_binds_reservation(
+                claim=trusted_claim,
+                reservation=persisted.result,
+            )
+        ):
             return self._blocked(["worker_invocation_claim_replay_conflict"])
 
         history = self._scan_history(
@@ -345,13 +365,44 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
             source_task_id=claim.source_task_id,
             project_id=claim.project_id,
         )
-        matching_claims = [item for item in history.claims if item[0].claim_id == claim.claim_id]
+        matching_claims = [
+            item for item in history.claims if item[0].claim_id == claim.claim_id
+        ]
+        reservation_claims = [
+            item
+            for item in history.claims
+            if item[0].source_reservation_message_id == persisted.result.reservation_id
+        ]
+        run_claims = [
+            item for item in history.claims if item[0].run_id == persisted.result.run_id
+        ]
         matching_outcomes = [
             item for item in history.outcomes if item[0].source_claim_id == claim.claim_id
         ]
-        if history.invalid_claim or len(matching_claims) != 1:
+        conflicting_outcomes = [
+            item
+            for item in history.outcomes
+            if (
+                item[0].source_reservation_message_id
+                == persisted.result.reservation_id
+                or item[0].run_id == persisted.result.run_id
+            )
+            and item[0].source_claim_id != claim.claim_id
+        ]
+        if (
+            history.invalid_claim
+            or len(matching_claims) != 1
+            or len(reservation_claims) != 1
+            or len(run_claims) != 1
+            or reservation_claims[0][0].claim_id != claim.claim_id
+            or run_claims[0][0].claim_id != claim.claim_id
+        ):
             return self._blocked(["worker_invocation_claim_replay_conflict"])
-        if history.invalid_outcome or len(matching_outcomes) > 1:
+        if (
+            history.invalid_outcome
+            or len(matching_outcomes) > 1
+            or conflicting_outcomes
+        ):
             return self._blocked(["worker_invocation_outcome_replay_conflict"])
         if matching_outcomes:
             outcome, outcome_message = matching_outcomes[0]
@@ -835,6 +886,57 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
         return cls._canonical_fingerprint(payload)
 
     @staticmethod
+    def _claim_binds_reservation(
+        *,
+        claim: ProjectDirectorProtectedTransitionWorkerInvocationClaimResult,
+        reservation: ProjectDirectorProtectedTransitionWorkerStartReservationResult,
+    ) -> bool:
+        """Bind every immutable claim lineage field to one exact B1 reservation."""
+
+        return all(
+            (
+                claim.session_id == reservation.session_id,
+                claim.project_id == reservation.project_id,
+                claim.source_task_id == reservation.source_task_id,
+                claim.target_task_id == reservation.target_task_id,
+                claim.run_id == reservation.run_id,
+                claim.source_reservation_message_id == reservation.reservation_id,
+                claim.source_reservation_id == reservation.reservation_id,
+                claim.source_reservation_fingerprint
+                == reservation.reservation_fingerprint,
+                claim.source_reservation_token == reservation.reservation_token,
+                claim.source_consumption_message_id
+                == reservation.source_consumption_message_id,
+                claim.source_consumption_fingerprint
+                == reservation.source_consumption_fingerprint,
+                claim.source_preflight_message_id
+                == reservation.source_preflight_message_id,
+                claim.source_intent_message_id
+                == reservation.source_intent_message_id,
+                claim.source_freshness_message_id
+                == reservation.source_freshness_message_id,
+                claim.disposition_type == reservation.disposition_type,
+                claim.dispatch_kind == reservation.dispatch_kind,
+                claim.target_task_strategy == reservation.target_task_strategy,
+                claim.review_result_fingerprint
+                == reservation.review_result_fingerprint,
+                claim.review_semantic_fingerprint
+                == reservation.review_semantic_fingerprint,
+                claim.current_freshness_fingerprint
+                == reservation.reservation_current_freshness_fingerprint,
+                claim.current_diff_sha256 == reservation.current_diff_sha256,
+                claim.current_scope_paths == reservation.current_scope_paths,
+                claim.workspace_path == reservation.workspace_path,
+                claim.workspace_path_within_root
+                == reservation.workspace_path_within_root,
+                claim.rework_attempt_index == reservation.rework_attempt_index,
+                claim.rework_attempt_limit == reservation.rework_attempt_limit,
+                claim.budget_guard_allowed,
+                not claim.retry_limit_reached,
+            )
+        )
+
+    @staticmethod
     def _outcome_binds_claim(
         *,
         outcome: ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult,
@@ -842,11 +944,20 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
     ) -> bool:
         return all(
             (
+                outcome.session_id == claim.session_id,
+                outcome.project_id == claim.project_id,
+                outcome.source_task_id == claim.source_task_id,
+                outcome.source_claim_message_id == claim.claim_id,
                 outcome.source_claim_id == claim.claim_id,
                 outcome.source_claim_fingerprint == claim.claim_fingerprint,
                 outcome.source_claim_token == claim.claim_token,
                 outcome.source_reservation_message_id == claim.source_reservation_message_id,
                 outcome.source_reservation_fingerprint == claim.source_reservation_fingerprint,
+                outcome.source_consumption_message_id
+                == claim.source_consumption_message_id,
+                outcome.disposition_type == claim.disposition_type,
+                outcome.dispatch_kind == claim.dispatch_kind,
+                outcome.target_task_strategy == claim.target_task_strategy,
                 outcome.run_id == claim.run_id,
             )
         )
