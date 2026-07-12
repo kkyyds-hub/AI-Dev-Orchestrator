@@ -68,6 +68,12 @@ class SourceExecutionAuthoritySnapshot(DomainModel):
     worker_reported_git_write_activity: bool
     product_runtime_git_write_allowed: bool
 
+    worker_quality_gate_passed: bool | None = None
+    task_status_after: str | None = Field(default=None, max_length=100)
+    run_status_after: str | None = Field(default=None, max_length=100)
+    agent_session_id: UUID | None = None
+    agent_session_status: str | None = Field(default=None, max_length=100)
+
     source_review_id: UUID | None = None
     source_review_outcome: str | None = Field(default=None, max_length=100)
     source_transition_evidence_ids: list[UUID]

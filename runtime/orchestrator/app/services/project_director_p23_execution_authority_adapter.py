@@ -225,6 +225,11 @@ class P23ProtectedTransitionExecutionAuthorityAdapter:
                 blocked_reasons=[],
                 worker_reported_git_write_activity=False,
                 product_runtime_git_write_allowed=False,
+                worker_quality_gate_passed=outcome.worker_quality_gate_passed,
+                task_status_after=outcome.task_status_after,
+                run_status_after=outcome.run_status_after,
+                agent_session_id=outcome.agent_session_id,
+                agent_session_status=outcome.agent_session_status,
                 source_review_id=consumption.source_review_message_id,
                 source_review_outcome=self._source_review_outcome(
                     consumption.source_review_message_id
