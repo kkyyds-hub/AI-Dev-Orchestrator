@@ -165,52 +165,56 @@ class ProjectDirectorTaskCompletionPolicyService:
                     task_id=task_id,
                 )
                 source_bundle = self._build_source_bundle(lineage)
-                replay_key = self._fingerprint(
-                    {
-                        "schema_version": TASK_COMPLETION_POLICY_PROPOSAL_SCHEMA_VERSION,
-                        "action": "prepare_task_completion_policy_proposal",
-                        "session_id": session_id,
-                        "project_id": project_id,
-                        "plan_version_id": plan_version_id,
-                        "task_creation_record_id": task_creation_record_id,
-                        "task_id": task_id,
-                        "policy_source_bundle_fingerprint": source_bundle.bundle_fingerprint,
-                    }
+                replay_key = self._build_proposal_replay_key(
+                    session_id=session_id,
+                    project_id=project_id,
+                    plan_version_id=plan_version_id,
+                    task_creation_record_id=task_creation_record_id,
+                    task_id=task_id,
+                    policy_source_bundle_fingerprint=source_bundle.bundle_fingerprint,
                 )
 
                 history = self._load_policy_history(session_id)
-                replay_candidates = [
-                    proposal
-                    for _, proposal in history.proposals
-                    if proposal.proposal_replay_key == replay_key
-                ]
-                if len(replay_candidates) > 1:
+                task_proposals = self._validated_task_proposal_chain(
+                    history,
+                    task_id=task_id,
+                )
+                requested_lineage = (
+                    session_id,
+                    project_id,
+                    plan_version_id,
+                    task_creation_record_id,
+                    task_id,
+                )
+                if (
+                    task_proposals
+                    and self._proposal_semantic_identity(task_proposals[0][1])[:5]
+                    != requested_lineage
+                ):
                     raise _Blocked("completion_policy_proposal_replay_conflict")
-                if replay_candidates:
-                    replayed = replay_candidates[0]
-                    if (
-                        replayed.session_id != session_id
-                        or replayed.project_id != project_id
-                        or replayed.plan_version_id != plan_version_id
-                        or replayed.task_creation_record_id != task_creation_record_id
-                        or replayed.task_id != task_id
-                        or replayed.policy_source_bundle_fingerprint
-                        != source_bundle.bundle_fingerprint
-                    ):
+                semantic_candidates = [
+                    proposal
+                    for _, proposal in task_proposals
+                    if self._proposal_semantic_identity(proposal)
+                    == (
+                        *requested_lineage,
+                        source_bundle.bundle_fingerprint,
+                    )
+                ]
+                if len(semantic_candidates) > 1:
+                    raise _Blocked("completion_policy_proposal_replay_conflict")
+                if semantic_candidates:
+                    replayed = semantic_candidates[0]
+                    if replayed.proposal_replay_key != replay_key:
                         raise _Blocked("completion_policy_proposal_replay_conflict")
                     return ProjectDirectorTaskCompletionPolicyResult(
                         status="proposal_replayed",
                         proposal=replayed,
                     )
 
-                previous = [
-                    (message.sequence_no, proposal)
-                    for message, proposal in history.proposals
-                    if proposal.task_id == task_id
-                ]
                 supersedes_proposal_id = (
-                    max(previous, key=lambda item: item[0])[1].proposal_id
-                    if previous
+                    task_proposals[-1][1].proposal_id
+                    if task_proposals
                     else None
                 )
                 proposal_id = uuid4()
@@ -328,6 +332,10 @@ class ProjectDirectorTaskCompletionPolicyService:
                 )
                 history = self._load_policy_history(proposal.session_id)
                 self._require_proposal_unique(history, proposal)
+                self._validated_task_proposal_chain(
+                    history,
+                    task_id=proposal.task_id,
+                )
                 request = self._decision_request_payload(
                     proposal=proposal,
                     review_requirement=review_requirement,
@@ -469,6 +477,7 @@ class ProjectDirectorTaskCompletionPolicyService:
                     **snapshot_payload,
                     completion_policy_fingerprint=self._fingerprint(snapshot_payload),
                 )
+                self._require_snapshot_lineage(snapshot, decision, proposal)
                 self._append_policy_message(
                     record=decision,
                     record_id=decision.decision_id,
@@ -758,6 +767,18 @@ class ProjectDirectorTaskCompletionPolicyService:
             != proposal.proposal_fingerprint
         ):
             raise _Blocked("completion_policy_proposal_fingerprint_mismatch")
+        expected_replay_key = self._build_proposal_replay_key(
+            session_id=proposal.session_id,
+            project_id=proposal.project_id,
+            plan_version_id=proposal.plan_version_id,
+            task_creation_record_id=proposal.task_creation_record_id,
+            task_id=proposal.task_id,
+            policy_source_bundle_fingerprint=(
+                proposal.policy_source_bundle_fingerprint
+            ),
+        )
+        if proposal.proposal_replay_key != expected_replay_key:
+            raise _Blocked("completion_policy_proposal_replay_conflict")
         self._require_message_lineage(message, proposal)
         return proposal
 
@@ -827,6 +848,89 @@ class ProjectDirectorTaskCompletionPolicyService:
         self._require_message_lineage(message, snapshot)
         return snapshot
 
+    def _validated_task_proposal_chain(
+        self,
+        history: _PolicyHistory,
+        *,
+        task_id: UUID,
+    ) -> list[
+        tuple[ProjectDirectorMessage, ProjectDirectorTaskCompletionPolicyProposal]
+    ]:
+        proposals = sorted(
+            [
+                item
+                for item in history.proposals
+                if item[1].task_id == task_id
+            ],
+            key=lambda item: item[0].sequence_no,
+        )
+        proposal_ids: set[UUID] = set()
+        sequence_numbers: set[int] = set()
+        semantic_identities: set[tuple[UUID, UUID, UUID, UUID, UUID, str]] = set()
+        expected_lineage = None
+        if proposals:
+            expected_lineage = (
+                proposals[0][1].session_id,
+                proposals[0][1].project_id,
+                proposals[0][1].plan_version_id,
+                proposals[0][1].task_creation_record_id,
+                proposals[0][1].task_id,
+            )
+        for index, (message, proposal) in enumerate(proposals):
+            expected_parent = proposals[index - 1][1].proposal_id if index else None
+            semantic_identity = self._proposal_semantic_identity(proposal)
+            if (
+                message.sequence_no in sequence_numbers
+                or proposal.proposal_id in proposal_ids
+                or proposal.proposal_id == proposal.supersedes_proposal_id
+                or proposal.supersedes_proposal_id != expected_parent
+                or semantic_identity[:5] != expected_lineage
+                or semantic_identity in semantic_identities
+            ):
+                raise _Blocked("completion_policy_proposal_replay_conflict")
+            proposal_ids.add(proposal.proposal_id)
+            sequence_numbers.add(message.sequence_no)
+            semantic_identities.add(semantic_identity)
+        return proposals
+
+    @staticmethod
+    def _proposal_semantic_identity(
+        proposal: ProjectDirectorTaskCompletionPolicyProposal,
+    ) -> tuple[UUID, UUID, UUID, UUID, UUID, str]:
+        return (
+            proposal.session_id,
+            proposal.project_id,
+            proposal.plan_version_id,
+            proposal.task_creation_record_id,
+            proposal.task_id,
+            proposal.policy_source_bundle_fingerprint,
+        )
+
+    def _build_proposal_replay_key(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        plan_version_id: UUID,
+        task_creation_record_id: UUID,
+        task_id: UUID,
+        policy_source_bundle_fingerprint: str,
+    ) -> str:
+        return self._fingerprint(
+            {
+                "schema_version": TASK_COMPLETION_POLICY_PROPOSAL_SCHEMA_VERSION,
+                "action": "prepare_task_completion_policy_proposal",
+                "session_id": session_id,
+                "project_id": project_id,
+                "plan_version_id": plan_version_id,
+                "task_creation_record_id": task_creation_record_id,
+                "task_id": task_id,
+                "policy_source_bundle_fingerprint": (
+                    policy_source_bundle_fingerprint
+                ),
+            }
+        )
+
     def _validated_task_snapshot_chain(
         self,
         history: _PolicyHistory,
@@ -862,8 +966,8 @@ class ProjectDirectorTaskCompletionPolicyService:
             self._require_snapshot_lineage(snapshot, decisions[0], proposals[0])
         return snapshots
 
-    @staticmethod
     def _require_snapshot_lineage(
+        self,
         snapshot: ProjectDirectorTaskCompletionPolicySnapshot,
         decision: ProjectDirectorTaskCompletionPolicyDecision,
         proposal: ProjectDirectorTaskCompletionPolicyProposal,
@@ -875,14 +979,73 @@ class ProjectDirectorTaskCompletionPolicyService:
             "task_creation_record_id",
             "task_id",
         )
+        expected_axis_evidence_ids = list(
+            dict.fromkeys(
+                [
+                    *decision.confirmed_source_evidence_ids,
+                    decision.decision_id,
+                ]
+            )
+        )
+        requirements_match = (
+            snapshot.review_requirement == decision.review_requirement
+            and snapshot.verification_requirement
+            == decision.verification_requirement
+            and snapshot.delivery_requirement == decision.delivery_requirement
+            and snapshot.approval_requirement == decision.approval_requirement
+        )
+        terminal_evidence_matches = (
+            snapshot.required_review_terminal_results
+            == decision.review_acceptable_evidence_kinds
+            and snapshot.required_verification_evidence_kinds
+            == decision.verification_acceptable_evidence_kinds
+            and snapshot.required_delivery_evidence_kinds
+            == decision.delivery_acceptable_evidence_kinds
+            and snapshot.required_approval_terminal_results
+            == decision.approval_acceptable_terminal_results
+        )
+        policy_sources_match = all(
+            value == _POLICY_SOURCE
+            for value in (
+                snapshot.review_policy_source,
+                snapshot.verification_policy_source,
+                snapshot.delivery_policy_source,
+                snapshot.approval_policy_source,
+            )
+        )
+        policy_evidence_matches = all(
+            values == expected_axis_evidence_ids
+            for values in (
+                snapshot.review_policy_evidence_ids,
+                snapshot.verification_policy_evidence_ids,
+                snapshot.delivery_policy_evidence_ids,
+                snapshot.approval_policy_evidence_ids,
+            )
+        )
+        forbidden_actions = self._forbidden_actions()
         if (
             snapshot.source_decision_fingerprint != decision.decision_fingerprint
             or snapshot.source_proposal_fingerprint != proposal.proposal_fingerprint
+            or snapshot.source_decision_id != decision.decision_id
+            or snapshot.source_proposal_id != proposal.proposal_id
             or decision.proposal_id != proposal.proposal_id
             or decision.proposal_fingerprint != proposal.proposal_fingerprint
             or any(getattr(snapshot, field) != getattr(decision, field) for field in shared)
             or any(getattr(decision, field) != getattr(proposal, field) for field in shared)
             or snapshot.plan_version_no != proposal.plan_version_no
+            or not requirements_match
+            or not terminal_evidence_matches
+            or not policy_sources_match
+            or not policy_evidence_matches
+            or snapshot.human_confirmation_required is not True
+            or snapshot.human_confirmation_evidence_id != decision.decision_id
+            or snapshot.required_terminal_task_status != "completed"
+            or snapshot.required_terminal_run_status != "succeeded"
+            or snapshot.required_quality_gate_result is not True
+            or snapshot.product_runtime_git_write_allowed is not False
+            or proposal.forbidden_actions != forbidden_actions
+            or decision.forbidden_actions != forbidden_actions
+            or snapshot.forbidden_actions != forbidden_actions
         ):
             raise _Blocked("completion_policy_snapshot_lineage_invalid")
 
@@ -896,6 +1059,8 @@ class ProjectDirectorTaskCompletionPolicyService:
         intent: str,
         requires_confirmation: bool,
     ) -> None:
+        if record.forbidden_actions != self._forbidden_actions():
+            raise _Blocked("completion_policy_git_boundary_violation")
         action = {"type": action_type, **record.model_dump(mode="json")}
         self._message_repository.create(
             ProjectDirectorMessage(
@@ -915,7 +1080,7 @@ class ProjectDirectorTaskCompletionPolicyService:
                 suggested_actions=[action],
                 requires_confirmation=requires_confirmation,
                 risk_level=ProjectDirectorMessageRiskLevel.HIGH,
-                forbidden_actions_detected=[],
+                forbidden_actions_detected=list(record.forbidden_actions),
                 created_at=record.created_at,
             )
         )
@@ -950,8 +1115,19 @@ class ProjectDirectorTaskCompletionPolicyService:
             raise _Blocked("completion_policy_git_boundary_violation")
         return action
 
-    @staticmethod
-    def _require_message_lineage(message: ProjectDirectorMessage, record: Any) -> None:
+    def _require_message_lineage(
+        self,
+        message: ProjectDirectorMessage,
+        record: Any,
+    ) -> None:
+        expected_forbidden_actions = self._forbidden_actions()
+        if (
+            record.forbidden_actions != expected_forbidden_actions
+            or not set(record.forbidden_actions).issubset(
+                set(message.forbidden_actions_detected)
+            )
+        ):
+            raise _Blocked("completion_policy_git_boundary_violation")
         if (
             message.session_id != record.session_id
             or message.related_plan_version_id != record.plan_version_id
