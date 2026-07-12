@@ -24,7 +24,7 @@ from app.domain.project_director_protected_transition_worker_start_reservation i
     ProjectDirectorProtectedTransitionWorkerStartReservationResult,
 )
 from app.domain.run import Run, RunStatus
-from app.domain.task import TaskHumanStatus, TaskStatus
+from app.domain.task import Task, TaskHumanStatus, TaskStatus
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
@@ -62,6 +62,40 @@ class PreparedProjectDirectorProtectedTransitionWorkerStartReservation:
 
     result: ProjectDirectorProtectedTransitionWorkerStartReservationResult
     message: ProjectDirectorMessage | None
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedPersistedProtectedTransitionWorkerStartReservation:
+    """Immutable revalidation of one exact persisted B1 reservation."""
+
+    result: ProjectDirectorProtectedTransitionWorkerStartReservationResult | None
+    message: ProjectDirectorMessage | None
+    task: Task | None
+    run: Run | None
+    blocked_reasons: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedCurrentProtectedTransitionWorkerStartReservation:
+    """Current execution eligibility for one immutable B1 reservation."""
+
+    result: ProjectDirectorProtectedTransitionWorkerStartReservationResult | None
+    message: ProjectDirectorMessage | None
+    task: Task | None
+    run: Run | None
+    current_freshness: RevalidatedCurrentProtectedTransitionEvidenceFreshness | None
+    budget_decision: BudgetGuardDecision | None
+    blocked_reasons: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class _CurrentReservationEvaluation:
+    task: Task | None
+    run: Run | None
+    current_freshness: RevalidatedCurrentProtectedTransitionEvidenceFreshness | None
+    budget_decision: BudgetGuardDecision | None
+    values: dict[str, Any]
+    blocked_reasons: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +150,258 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
                 source_message_id=source_message_id,
             )
 
+    def revalidate_persisted_protected_transition_worker_start_reservation(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_reservation_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionWorkerStartReservation:
+        """Rebuild immutable B1 evidence without checking current eligibility."""
+
+        message = self._message_repository.get_by_id(source_reservation_message_id)
+        if message is None:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=None,
+                message=None,
+                task=None,
+                run=None,
+                blocked_reasons=["source_reservation_missing"],
+            )
+        if message.session_id != session_id:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=None,
+                message=message,
+                task=None,
+                run=None,
+                blocked_reasons=["source_reservation_session_mismatch"],
+            )
+        if message.related_task_id != source_task_id:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=None,
+                message=message,
+                task=None,
+                run=None,
+                blocked_reasons=["source_reservation_task_mismatch"],
+            )
+
+        session_obj = self._session_repository.get_by_id(session_id)
+        task = self._task_repository.get_by_id(source_task_id)
+        project_id = session_obj.project_id if session_obj is not None else None
+        if task is None:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=None,
+                message=message,
+                task=None,
+                run=None,
+                blocked_reasons=["source_task_missing"],
+            )
+        if (
+            session_obj is None
+            or project_id is None
+            or message.related_project_id != project_id
+            or task.project_id != project_id
+        ):
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=None,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["source_reservation_project_mismatch"],
+            )
+
+        result = self._trusted_reservation(
+            message=message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        if result is None or result.reservation_token is None:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=None,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["source_reservation_invalid"],
+            )
+
+        d1 = self._dispatch_consumption_service.revalidate_persisted_protected_transition_dispatch_consumption(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_consumption_message_id=result.source_consumption_message_id,
+        )
+        consumption = d1.result
+        if d1.blocked_reasons or consumption is None:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=result,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=(
+                    ["source_evidence_chain_invalid"]
+                    if "source_evidence_chain_invalid" in d1.blocked_reasons
+                    else ["source_consumption_invalid"]
+                ),
+            )
+        expected_values = self._values_from_consumption(consumption)
+        immutable_bindings = (
+            (result.project_id, expected_values["project_id"]),
+            (result.target_task_id, expected_values["target_task_id"]),
+            (result.run_id, expected_values["run_id"]),
+            (result.source_consumption_id, expected_values["source_consumption_id"]),
+            (
+                result.source_consumption_fingerprint,
+                expected_values["source_consumption_fingerprint"],
+            ),
+            (result.source_preflight_message_id, expected_values["source_preflight_message_id"]),
+            (result.source_intent_message_id, expected_values["source_intent_message_id"]),
+            (
+                result.source_p22_summary_message_id,
+                expected_values["source_p22_summary_message_id"],
+            ),
+            (result.source_review_message_id, expected_values["source_review_message_id"]),
+            (
+                result.source_freshness_message_id,
+                expected_values["source_freshness_message_id"],
+            ),
+            (result.disposition_type, expected_values["disposition_type"]),
+            (result.dispatch_kind, expected_values["dispatch_kind"]),
+            (result.target_task_strategy, expected_values["target_task_strategy"]),
+            (
+                result.review_result_fingerprint,
+                expected_values["review_result_fingerprint"],
+            ),
+            (
+                result.review_semantic_fingerprint,
+                expected_values["review_semantic_fingerprint"],
+            ),
+            (
+                result.d1_current_freshness_fingerprint,
+                expected_values["d1_current_freshness_fingerprint"],
+            ),
+            (result.source_diff_sha256, expected_values["source_diff_sha256"]),
+            (result.review_scope_paths, expected_values["review_scope_paths"]),
+            (result.workspace_path, expected_values["workspace_path"]),
+            (
+                result.workspace_path_within_root,
+                expected_values["workspace_path_within_root"],
+            ),
+            (result.rework_attempt_index, expected_values["rework_attempt_index"]),
+            (result.rework_attempt_limit, expected_values["rework_attempt_limit"]),
+        )
+        if any(left != right for left, right in immutable_bindings):
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=result,
+                message=message,
+                task=task,
+                run=d1.run,
+                blocked_reasons=["source_evidence_chain_invalid"],
+            )
+
+        run = self._run_repository.get_by_id(result.run_id)
+        if run is None:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=result,
+                message=message,
+                task=task,
+                run=None,
+                blocked_reasons=["reserved_run_missing"],
+            )
+        if run.task_id != source_task_id:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=result,
+                message=message,
+                task=task,
+                run=run,
+                blocked_reasons=["reserved_run_task_mismatch"],
+            )
+
+        history = self._scan_reservation_history(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        exact = [item for item in history.valid_reservations if item[1].id == message.id]
+        consumption_conflicts = [
+            item
+            for item in history.valid_reservations
+            if item[0].source_consumption_message_id
+            == result.source_consumption_message_id
+            and item[1].id != message.id
+        ]
+        run_conflicts = [
+            item
+            for item in history.valid_reservations
+            if item[0].run_id == result.run_id and item[1].id != message.id
+        ]
+        if history.invalid or len(exact) != 1 or consumption_conflicts or run_conflicts:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=result,
+                message=message,
+                task=task,
+                run=run,
+                blocked_reasons=["source_reservation_lineage_conflict"],
+            )
+        return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+            result=result,
+            message=message,
+            task=task,
+            run=run,
+            blocked_reasons=[],
+        )
+
+    def revalidate_current_protected_transition_worker_start_reservation(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_reservation_message_id: UUID,
+    ) -> RevalidatedCurrentProtectedTransitionWorkerStartReservation:
+        """Revalidate immutable B1 evidence plus current execution eligibility."""
+
+        persisted = self.revalidate_persisted_protected_transition_worker_start_reservation(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_reservation_message_id=source_reservation_message_id,
+        )
+        if persisted.blocked_reasons or persisted.result is None:
+            return RevalidatedCurrentProtectedTransitionWorkerStartReservation(
+                result=persisted.result,
+                message=persisted.message,
+                task=persisted.task,
+                run=persisted.run,
+                current_freshness=None,
+                budget_decision=None,
+                blocked_reasons=list(persisted.blocked_reasons),
+            )
+        d1 = self._dispatch_consumption_service.revalidate_persisted_protected_transition_dispatch_consumption(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_consumption_message_id=persisted.result.source_consumption_message_id,
+        )
+        if d1.blocked_reasons or d1.result is None:
+            return RevalidatedCurrentProtectedTransitionWorkerStartReservation(
+                result=persisted.result,
+                message=persisted.message,
+                task=persisted.task,
+                run=persisted.run,
+                current_freshness=None,
+                budget_decision=None,
+                blocked_reasons=["source_consumption_invalid"],
+            )
+        current = self._evaluate_current_reservation_eligibility(
+            consumption=d1.result,
+        )
+        return RevalidatedCurrentProtectedTransitionWorkerStartReservation(
+            result=persisted.result,
+            message=persisted.message,
+            task=current.task,
+            run=current.run,
+            current_freshness=current.current_freshness,
+            budget_decision=current.budget_decision,
+            blocked_reasons=list(current.blocked_reasons),
+        )
+
     def _prepare_protected_transition_worker_start_reservation(
         self,
         *,
@@ -144,8 +430,6 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
             source_consumption_message_id=source_message_id,
         )
         consumption = d1_revalidation.result
-        task = d1_revalidation.task
-        run = d1_revalidation.run
         if d1_revalidation.blocked_reasons or consumption is None:
             return self._blocked(
                 reasons=(
@@ -155,91 +439,15 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
                 values=values,
             )
         values.update(self._values_from_consumption(consumption))
-
-        if task is None:
-            return self._blocked(reasons=["source_task_missing"], values=values)
-        if task.id != source_task_id or task.project_id != project_id:
-            return self._blocked(
-                reasons=["source_task_scope_mismatch"],
-                values=values,
-            )
-        values.update(
-            {
-                "task_status": task.status.value,
-                "task_human_status": task.human_status.value,
-            }
+        current = self._evaluate_current_reservation_eligibility(
+            consumption=consumption,
         )
-        if task.status != TaskStatus.RUNNING:
-            return self._blocked(
-                reasons=["source_task_not_running"],
-                values=values,
-            )
-        if task.human_status in {
-            TaskHumanStatus.REQUESTED,
-            TaskHumanStatus.IN_PROGRESS,
-        } or task.paused_reason:
-            return self._blocked(
-                reasons=["human_escalation_required"],
-                values=values,
-            )
-
+        values.update(current.values)
+        if current.blocked_reasons:
+            return self._blocked(reasons=current.blocked_reasons, values=values)
+        run = current.run
         if run is None:
             return self._blocked(reasons=["reserved_run_missing"], values=values)
-        values.update(
-            {
-                "run_id": run.id,
-                "run_status": run.status.value,
-                "run_started_at": run.started_at,
-                "run_routing_metadata_valid": self._routing_metadata_valid(run),
-            }
-        )
-        if run.id != consumption.run_id or run.task_id != source_task_id:
-            return self._blocked(
-                reasons=["reserved_run_task_mismatch"],
-                values=values,
-            )
-        if run.status != RunStatus.RUNNING or run.started_at is None:
-            return self._blocked(
-                reasons=["reserved_run_not_running"],
-                values=values,
-            )
-        if not self._routing_metadata_valid(run):
-            return self._blocked(
-                reasons=["reserved_run_routing_metadata_invalid"],
-                values=values,
-            )
-
-        current_freshness = self._freshness_service.revalidate_current_automatic_transition_evidence_from_persisted_freshness(
-            session_id=session_id,
-            source_task_id=source_task_id,
-            source_freshness_message_id=consumption.source_freshness_message_id,
-        )
-        values.update(self._freshness_values(current_freshness))
-        freshness_reasons = self._freshness_blocked_reasons(
-            consumption=consumption,
-            current=current_freshness,
-        )
-        if freshness_reasons:
-            return self._blocked(reasons=freshness_reasons, values=values)
-
-        budget = self._budget_guard_service.evaluate_before_execution(
-            source_task_id,
-            project_id=project_id,
-        )
-        values.update(self._budget_values(budget))
-        if not budget.allowed:
-            reasons = ["budget_guard_blocked"]
-            if budget.retry_status.retry_limit_reached:
-                reasons.append("retry_limit_reached")
-            return self._blocked(reasons=reasons, values=values)
-
-        agent_session = self._agent_session_repository.get_by_run_id(run.id)
-        values["agent_session_absent"] = agent_session is None
-        if agent_session is not None:
-            return self._blocked(
-                reasons=["reserved_run_agent_session_already_exists"],
-                values=values,
-            )
 
         history = self._scan_reservation_history(
             session_id=session_id,
@@ -306,6 +514,92 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
         return PreparedProjectDirectorProtectedTransitionWorkerStartReservation(
             result=reservation,
             message=message,
+        )
+
+    def _evaluate_current_reservation_eligibility(
+        self,
+        *,
+        consumption: ProjectDirectorProtectedTransitionDispatchConsumptionResult,
+    ) -> _CurrentReservationEvaluation:
+        """Evaluate the one shared B1/B2 current eligibility contract."""
+
+        values: dict[str, Any] = {}
+        reasons: list[str] = []
+        task = self._task_repository.get_by_id(consumption.source_task_id)
+        run = self._run_repository.get_by_id(consumption.run_id)
+        if task is None:
+            reasons.append("source_task_missing")
+        else:
+            values.update(
+                task_status=task.status.value,
+                task_human_status=task.human_status.value,
+            )
+            if task.id != consumption.source_task_id or task.project_id != consumption.project_id:
+                reasons.append("source_task_scope_mismatch")
+            if task.status != TaskStatus.RUNNING:
+                reasons.append("source_task_not_running")
+            if task.human_status in {
+                TaskHumanStatus.REQUESTED,
+                TaskHumanStatus.IN_PROGRESS,
+            } or task.paused_reason:
+                reasons.append("human_escalation_required")
+
+        if run is None:
+            reasons.append("reserved_run_missing")
+        else:
+            routing_valid = self._routing_metadata_valid(run)
+            values.update(
+                run_id=run.id,
+                run_status=run.status.value,
+                run_started_at=run.started_at,
+                run_routing_metadata_valid=routing_valid,
+            )
+            if run.id != consumption.run_id or run.task_id != consumption.source_task_id:
+                reasons.append("reserved_run_task_mismatch")
+            if run.status != RunStatus.RUNNING or run.started_at is None:
+                reasons.append("reserved_run_not_running")
+            if not routing_valid:
+                reasons.append("reserved_run_routing_metadata_invalid")
+
+        current_freshness = self._freshness_service.revalidate_current_automatic_transition_evidence_from_persisted_freshness(
+            session_id=consumption.session_id,
+            source_task_id=consumption.source_task_id,
+            source_freshness_message_id=consumption.source_freshness_message_id,
+        )
+        values.update(self._freshness_values(current_freshness))
+        reasons.extend(
+            self._freshness_blocked_reasons(
+                consumption=consumption,
+                current=current_freshness,
+            )
+        )
+
+        budget = self._budget_guard_service.evaluate_before_execution(
+            consumption.source_task_id,
+            project_id=consumption.project_id,
+        )
+        values.update(self._budget_values(budget))
+        if not budget.allowed:
+            reasons.append("budget_guard_blocked")
+        if budget.retry_status.retry_limit_reached:
+            reasons.append("retry_limit_reached")
+
+        agent_session = (
+            self._agent_session_repository.get_by_run_id(run.id)
+            if run is not None
+            else None
+        )
+        values["agent_session_absent"] = agent_session is None
+        if agent_session is not None:
+            reasons.append("reserved_run_agent_session_already_exists")
+
+        return _CurrentReservationEvaluation(
+            task=task,
+            run=run,
+            current_freshness=current_freshness,
+            budget_decision=budget,
+            values=values,
+            blocked_reasons=list(dict.fromkeys(reasons)),
         )
 
     def _scan_reservation_history(
@@ -728,4 +1022,6 @@ __all__ = (
     "PROTECTED_TRANSITION_WORKER_START_RESERVATION_SCHEMA_VERSION",
     "PreparedProjectDirectorProtectedTransitionWorkerStartReservation",
     "ProjectDirectorProtectedTransitionWorkerStartReservationService",
+    "RevalidatedCurrentProtectedTransitionWorkerStartReservation",
+    "RevalidatedPersistedProtectedTransitionWorkerStartReservation",
 )
