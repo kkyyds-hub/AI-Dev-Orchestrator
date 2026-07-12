@@ -41,12 +41,20 @@ SourceTaskCompletionBlockedReason = Literal[
     "source_completion_run_missing",
     "source_completion_task_run_mismatch",
     "source_completion_task_not_completed",
+    "source_completion_task_human_state_pending",
+    "source_completion_task_paused",
     "source_completion_run_not_succeeded",
+    "source_completion_run_not_finished",
+    "source_completion_run_quality_gate_missing",
+    "source_completion_run_quality_gate_failed",
+    "source_completion_run_failure_category_present",
     "source_completion_terminal_state_mismatch",
     "source_completion_quality_gate_missing",
     "source_completion_quality_gate_failed",
+    "source_completion_quality_gate_mismatch",
     "source_completion_agent_session_missing",
     "source_completion_agent_session_mismatch",
+    "source_completion_agent_session_conflict",
     "source_completion_review_evidence_adapter_unavailable",
     "source_completion_verification_evidence_kind_unsupported",
     "source_completion_delivery_evidence_adapter_unavailable",
@@ -99,13 +107,20 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     completion_policy_fingerprint: str = Field(min_length=64, max_length=64)
 
     terminal_task_status: Literal["completed"] = "completed"
+    terminal_task_human_status: Literal["none", "resolved"]
+    task_paused_reason_absent: Literal[True] = True
     terminal_run_status: Literal["succeeded"] = "succeeded"
+    run_finished_at: datetime
+    run_quality_gate_passed: Literal[True] = True
+    run_failure_category_absent: Literal[True] = True
     quality_gate_passed: Literal[True] = True
 
     authority_task_status_after: str = Field(min_length=1, max_length=100)
     authority_run_status_after: str = Field(min_length=1, max_length=100)
     authority_agent_session_id: UUID | None = None
     authority_agent_session_status: str | None = Field(default=None, max_length=100)
+    agent_session_phase: str | None = Field(default=None, max_length=100)
+    runtime_terminal: Literal[True] = True
 
     review_requirement: SourceTaskCompletionAxisRequirement
     review_satisfaction_status: SourceTaskCompletionAxisSatisfactionStatus
@@ -131,12 +146,12 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     product_runtime_git_write_allowed: Literal[False] = False
     forbidden_actions: list[str]
 
-    @field_validator("created_at", mode="after")
+    @field_validator("created_at", "run_finished_at", mode="after")
     @classmethod
-    def normalize_created_at(cls, value: datetime) -> datetime:
+    def normalize_datetime(cls, value: datetime) -> datetime:
         normalized = ensure_utc_datetime(value)
         if normalized is None:
-            raise ValueError("completion evidence created_at is required")
+            raise ValueError("completion evidence datetime is required")
         return normalized
 
     @field_validator(
@@ -193,10 +208,16 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
             elif status != "satisfied":
                 raise ValueError("required axes must be satisfied")
         if self.authority_agent_session_id is None:
-            if self.authority_agent_session_status is not None:
-                raise ValueError("agent-session status requires an exact session ID")
-        elif not self.authority_agent_session_status:
-            raise ValueError("agent-session ID requires its durable status")
+            if (
+                self.authority_agent_session_status is not None
+                or self.agent_session_phase is not None
+            ):
+                raise ValueError("agent-session facts require an exact session ID")
+        elif (
+            not self.authority_agent_session_status
+            or not self.agent_session_phase
+        ):
+            raise ValueError("agent-session ID requires durable terminal facts")
         if (
             not self.forbidden_actions
             or len(self.forbidden_actions) != len(set(self.forbidden_actions))

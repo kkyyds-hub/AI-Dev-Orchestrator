@@ -12,7 +12,11 @@ from uuid import UUID, uuid4
 from pydantic import ValidationError
 
 from app.domain._base import utc_now
-from app.domain.agent_session import AgentSessionPhase, AgentSessionStatus
+from app.domain.agent_session import (
+    AgentSession,
+    AgentSessionPhase,
+    AgentSessionStatus,
+)
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
     ProjectDirectorMessageRiskLevel,
@@ -32,7 +36,7 @@ from app.domain.project_director_task_completion_policy import (
     ProjectDirectorTaskCompletionPolicySnapshot,
 )
 from app.domain.run import Run, RunStatus
-from app.domain.task import Task, TaskStatus
+from app.domain.task import Task, TaskHumanStatus, TaskStatus
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
@@ -75,6 +79,7 @@ class _ValidatedInputs:
     policy: ProjectDirectorTaskCompletionPolicySnapshot
     task: Task
     run: Run
+    agent_session: AgentSession | None
     axes: dict[str, _AxisEvidence]
 
 
@@ -314,19 +319,48 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             raise _Blocked("source_completion_task_run_mismatch")
         if task.status != TaskStatus.COMPLETED:
             raise _Blocked("source_completion_task_not_completed")
+        if task.human_status not in {
+            TaskHumanStatus.NONE,
+            TaskHumanStatus.RESOLVED,
+        }:
+            raise _Blocked("source_completion_task_human_state_pending")
+        if task.paused_reason is not None:
+            raise _Blocked("source_completion_task_paused")
         if run.status != RunStatus.SUCCEEDED:
             raise _Blocked("source_completion_run_not_succeeded")
+        if run.finished_at is None:
+            raise _Blocked("source_completion_run_not_finished")
+        if run.failure_category is not None:
+            raise _Blocked("source_completion_run_failure_category_present")
 
         if authority.task_status_after != TaskStatus.COMPLETED.value:
             raise _Blocked("source_completion_terminal_state_mismatch")
         if authority.run_status_after != RunStatus.SUCCEEDED.value:
             raise _Blocked("source_completion_terminal_state_mismatch")
+        quality_gate_reasons: list[SourceTaskCompletionBlockedReason] = []
+        if run.quality_gate_passed is None:
+            quality_gate_reasons.append(
+                "source_completion_run_quality_gate_missing"
+            )
+        elif run.quality_gate_passed is not True:
+            quality_gate_reasons.append(
+                "source_completion_run_quality_gate_failed"
+            )
         if authority.worker_quality_gate_passed is None:
-            raise _Blocked("source_completion_quality_gate_missing")
-        if authority.worker_quality_gate_passed is not True:
-            raise _Blocked("source_completion_quality_gate_failed")
+            quality_gate_reasons.append("source_completion_quality_gate_missing")
+        elif authority.worker_quality_gate_passed is not True:
+            quality_gate_reasons.append("source_completion_quality_gate_failed")
+        if (
+            run.quality_gate_passed is not None
+            and authority.worker_quality_gate_passed is not None
+            and run.quality_gate_passed
+            != authority.worker_quality_gate_passed
+        ):
+            quality_gate_reasons.append("source_completion_quality_gate_mismatch")
+        if quality_gate_reasons:
+            raise _Blocked(*quality_gate_reasons)
 
-        self._validate_agent_session(
+        agent_session = self._validate_agent_session(
             authority=authority,
             source_task_id=source_task_id,
             source_run_id=source_run_id,
@@ -337,6 +371,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             policy=policy,
             task=task,
             run=run,
+            agent_session=agent_session,
             axes=axes,
         )
 
@@ -346,18 +381,23 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
         authority: SourceExecutionAuthoritySnapshot,
         source_task_id: UUID,
         source_run_id: UUID,
-    ) -> None:
-        if authority.agent_session_id is None:
+    ) -> AgentSession | None:
+        agent_sessions = self._agent_session_repository.list_by_run_id(
+            source_run_id
+        )
+        if len(agent_sessions) > 1:
+            raise _Blocked("source_completion_agent_session_conflict")
+        if not agent_sessions:
+            if authority.agent_session_id is not None:
+                raise _Blocked("source_completion_agent_session_missing")
             if authority.agent_session_status is not None:
                 raise _Blocked("source_completion_agent_session_mismatch")
-            return
-        agent_session = self._agent_session_repository.get_by_id(
-            authority.agent_session_id
-        )
-        if agent_session is None:
-            raise _Blocked("source_completion_agent_session_missing")
+            return None
+        agent_session = agent_sessions[0]
         if (
-            agent_session.task_id != source_task_id
+            authority.agent_session_id is None
+            or authority.agent_session_id != agent_session.id
+            or agent_session.task_id != source_task_id
             or agent_session.run_id != source_run_id
             or agent_session.project_id != authority.project_id
             or authority.agent_session_status != AgentSessionStatus.COMPLETED.value
@@ -366,6 +406,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             or agent_session.status.value != authority.agent_session_status
         ):
             raise _Blocked("source_completion_agent_session_mismatch")
+        return agent_session
 
     def _evaluate_axes(
         self,
@@ -446,12 +487,23 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             "completion_policy_version": policy.completion_policy_version,
             "completion_policy_fingerprint": policy.completion_policy_fingerprint,
             "terminal_task_status": TaskStatus.COMPLETED.value,
+            "terminal_task_human_status": validated.task.human_status.value,
+            "task_paused_reason_absent": validated.task.paused_reason is None,
             "terminal_run_status": RunStatus.SUCCEEDED.value,
+            "run_finished_at": validated.run.finished_at,
+            "run_quality_gate_passed": validated.run.quality_gate_passed,
+            "run_failure_category_absent": validated.run.failure_category is None,
             "quality_gate_passed": True,
             "authority_task_status_after": authority.task_status_after,
             "authority_run_status_after": authority.run_status_after,
             "authority_agent_session_id": authority.agent_session_id,
             "authority_agent_session_status": authority.agent_session_status,
+            "agent_session_phase": (
+                validated.agent_session.current_phase.value
+                if validated.agent_session is not None
+                else None
+            ),
+            "runtime_terminal": True,
             "completion_status": "completed",
             "product_runtime_git_write_allowed": False,
             "forbidden_actions": self._forbidden_actions(),

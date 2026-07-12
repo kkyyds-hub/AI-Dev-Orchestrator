@@ -118,6 +118,18 @@ class AgentSessionRepository:
             return None
         return self._to_domain(row)
 
+    def list_by_run_id(self, run_id: UUID) -> list[AgentSession]:
+        """Return every session for one exact run in deterministic order."""
+
+        statement = (
+            select(AgentSessionTable)
+            .where(AgentSessionTable.run_id == run_id)
+            .order_by(AgentSessionTable.started_at.asc(), AgentSessionTable.id.asc())
+        )
+        with self.session.no_autoflush:
+            rows = self.session.execute(statement).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     def list_by_project_id(
         self,
         *,
