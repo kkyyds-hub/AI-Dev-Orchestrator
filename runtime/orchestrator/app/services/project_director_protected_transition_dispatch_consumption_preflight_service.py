@@ -325,13 +325,20 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
             source_task_id=source_task_id,
             project_id=session_obj.project_id,
         )
-        exact_matches = [
+        lineage_matches = [
             item
             for item in history.valid_preflights
-            if item[1].id == source_preflight_message_id
-            and item[0].source_intent_message_id == persisted.source_intent_message_id
+            if item[0].source_intent_message_id
+            == persisted.source_intent_message_id
         ]
-        if history.invalid or len(exact_matches) != 1:
+        if (
+            history.invalid
+            or len(lineage_matches) != 1
+            or lineage_matches[0][1].id != source_preflight_message_id
+            or lineage_matches[0][0].preflight_id != persisted.preflight_id
+            or lineage_matches[0][0].preflight_fingerprint
+            != persisted.preflight_fingerprint
+        ):
             return RevalidatedPersistedProtectedTransitionDispatchConsumptionPreflight(
                 result=persisted,
                 message=message,

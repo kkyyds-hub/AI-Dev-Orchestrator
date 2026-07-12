@@ -318,14 +318,37 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionService:
             source_task_id=source_task_id,
             project_id=project_id,
         )
-        exact_matches = [
+        exact_lineage_matches = [
             item
             for item in history.valid_consumptions
-            if item[1].id == source_consumption_message_id
-            and item[0].source_preflight_message_id == result.source_preflight_message_id
+            if item[0].source_preflight_message_id
+            == result.source_preflight_message_id
             and item[0].source_intent_message_id == result.source_intent_message_id
         ]
-        if history.invalid_reasons or len(exact_matches) != 1:
+        preflight_conflicts = [
+            item
+            for item in history.valid_consumptions
+            if item[0].source_preflight_message_id
+            == result.source_preflight_message_id
+            and item[0].source_intent_message_id != result.source_intent_message_id
+        ]
+        intent_conflicts = [
+            item
+            for item in history.valid_consumptions
+            if item[0].source_intent_message_id == result.source_intent_message_id
+            and item[0].source_preflight_message_id
+            != result.source_preflight_message_id
+        ]
+        if (
+            history.invalid_reasons
+            or len(exact_lineage_matches) != 1
+            or exact_lineage_matches[0][1].id != source_consumption_message_id
+            or exact_lineage_matches[0][0].consumption_id != result.consumption_id
+            or exact_lineage_matches[0][0].consumption_fingerprint
+            != result.consumption_fingerprint
+            or preflight_conflicts
+            or intent_conflicts
+        ):
             return RevalidatedPersistedProtectedTransitionDispatchConsumption(
                 result=result,
                 message=message,

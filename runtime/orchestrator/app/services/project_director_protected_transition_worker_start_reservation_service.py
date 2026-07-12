@@ -252,7 +252,24 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
             if item[0].source_consumption_message_id == source_message_id
             and item[0].run_id == run.id
         ]
-        if history.invalid or len(replay_matches) > 1:
+        consumption_conflicts = [
+            item
+            for item in history.valid_reservations
+            if item[0].source_consumption_message_id == source_message_id
+            and item[0].run_id != run.id
+        ]
+        run_conflicts = [
+            item
+            for item in history.valid_reservations
+            if item[0].run_id == run.id
+            and item[0].source_consumption_message_id != source_message_id
+        ]
+        if (
+            history.invalid
+            or len(replay_matches) > 1
+            or consumption_conflicts
+            or run_conflicts
+        ):
             return self._blocked(
                 reasons=["worker_start_reservation_replay_conflict"],
                 values=values,
