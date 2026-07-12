@@ -15,7 +15,10 @@ from app.domain._base import utc_now
 from app.domain.agent_session import (
     AgentSession,
     AgentSessionPhase,
+    AgentSessionReviewStatus,
     AgentSessionStatus,
+    CodingSessionActivityState,
+    CodingSessionStatus,
 )
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
@@ -406,6 +409,34 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             or agent_session.status.value != authority.agent_session_status
         ):
             raise _Blocked("source_completion_agent_session_mismatch")
+        if agent_session.review_status != AgentSessionReviewStatus.REVIEW_PASSED:
+            raise _Blocked("source_completion_agent_session_review_pending")
+        if agent_session.finished_at is None:
+            raise _Blocked("source_completion_agent_session_not_finished")
+        if (
+            agent_session.coding_status
+            in {
+                CodingSessionStatus.SPAWNING,
+                CodingSessionStatus.WORKING,
+                CodingSessionStatus.IDLE,
+                CodingSessionStatus.NEEDS_INPUT,
+                CodingSessionStatus.STUCK,
+            }
+            or agent_session.activity_state
+            in {
+                CodingSessionActivityState.ACTIVE,
+                CodingSessionActivityState.READY,
+                CodingSessionActivityState.IDLE,
+                CodingSessionActivityState.WAITING_INPUT,
+                CodingSessionActivityState.BLOCKED,
+            }
+        ):
+            raise _Blocked("source_completion_runtime_active")
+        if (
+            agent_session.coding_status != CodingSessionStatus.COMPLETED
+            or agent_session.activity_state != CodingSessionActivityState.EXITED
+        ):
+            raise _Blocked("source_completion_runtime_terminal_unproven")
         return agent_session
 
     def _evaluate_axes(
@@ -502,6 +533,31 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
                 validated.agent_session.current_phase.value
                 if validated.agent_session is not None
                 else None
+            ),
+            "agent_session_review_status": (
+                validated.agent_session.review_status.value
+                if validated.agent_session is not None
+                else None
+            ),
+            "agent_session_finished_at": (
+                validated.agent_session.finished_at
+                if validated.agent_session is not None
+                else None
+            ),
+            "agent_coding_status": (
+                validated.agent_session.coding_status.value
+                if validated.agent_session is not None
+                else None
+            ),
+            "agent_activity_state": (
+                validated.agent_session.activity_state.value
+                if validated.agent_session is not None
+                else None
+            ),
+            "runtime_handle_recorded": (
+                validated.agent_session.runtime_handle_id is not None
+                if validated.agent_session is not None
+                else False
             ),
             "runtime_terminal": True,
             "completion_status": "completed",

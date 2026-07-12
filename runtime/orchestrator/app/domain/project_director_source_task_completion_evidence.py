@@ -55,6 +55,10 @@ SourceTaskCompletionBlockedReason = Literal[
     "source_completion_agent_session_missing",
     "source_completion_agent_session_mismatch",
     "source_completion_agent_session_conflict",
+    "source_completion_agent_session_not_finished",
+    "source_completion_agent_session_review_pending",
+    "source_completion_runtime_active",
+    "source_completion_runtime_terminal_unproven",
     "source_completion_review_evidence_adapter_unavailable",
     "source_completion_verification_evidence_kind_unsupported",
     "source_completion_delivery_evidence_adapter_unavailable",
@@ -120,6 +124,11 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     authority_agent_session_id: UUID | None = None
     authority_agent_session_status: str | None = Field(default=None, max_length=100)
     agent_session_phase: str | None = Field(default=None, max_length=100)
+    agent_session_review_status: str | None
+    agent_session_finished_at: datetime | None
+    agent_coding_status: str | None
+    agent_activity_state: str | None
+    runtime_handle_recorded: bool
     runtime_terminal: Literal[True] = True
 
     review_requirement: SourceTaskCompletionAxisRequirement
@@ -153,6 +162,11 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
         if normalized is None:
             raise ValueError("completion evidence datetime is required")
         return normalized
+
+    @field_validator("agent_session_finished_at", mode="after")
+    @classmethod
+    def normalize_optional_datetime(cls, value: datetime | None) -> datetime | None:
+        return ensure_utc_datetime(value)
 
     @field_validator(
         "source_completion_evidence_fingerprint",
@@ -211,11 +225,21 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
             if (
                 self.authority_agent_session_status is not None
                 or self.agent_session_phase is not None
+                or self.agent_session_review_status is not None
+                or self.agent_session_finished_at is not None
+                or self.agent_coding_status is not None
+                or self.agent_activity_state is not None
+                or self.runtime_handle_recorded
             ):
                 raise ValueError("agent-session facts require an exact session ID")
         elif (
-            not self.authority_agent_session_status
-            or not self.agent_session_phase
+            self.authority_agent_session_status != "completed"
+            or self.agent_session_phase != "finalized"
+            or self.agent_session_review_status != "review_passed"
+            or self.agent_session_finished_at is None
+            or self.agent_coding_status != "completed"
+            or self.agent_activity_state != "exited"
+            or self.runtime_terminal is not True
         ):
             raise ValueError("agent-session ID requires durable terminal facts")
         if (
