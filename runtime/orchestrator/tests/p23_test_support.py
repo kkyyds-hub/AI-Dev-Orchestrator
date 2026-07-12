@@ -1075,3 +1075,482 @@ def prepare_valid_b1_reservation(
         "d1_result": d1_result,
         "b1_result": b1_result,
     }
+
+
+# ── D3 Full-Stack Helpers ────────────────────────────────────────────
+
+from app.services.project_director_sandbox_candidate_diff_review_disposition_service import (
+    ProjectDirectorSandboxCandidateDiffReviewDispositionService,
+    P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_candidate_diff_review_disposition_consumption_preflight_service import (
+    ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService,
+)
+from app.services.project_director_sandbox_candidate_diff_review_disposition_consumption_service import (
+    ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService,
+)
+from app.services.project_director_sandbox_candidate_diff_review_disposition_handoff_service import (
+    ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService,
+)
+from app.services.project_director_sandbox_candidate_diff_review_human_escalation_package_service import (
+    ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService,
+)
+from app.services.project_director_protected_transition_evidence_freshness_service import (
+    ProjectDirectorProtectedTransitionEvidenceFreshnessService,
+)
+from app.services.project_director_post_review_automation_service import (
+    ProjectDirectorPostReviewAutomationService,
+    P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL,
+)
+from app.services.project_director_protected_transition_worker_invocation_service import (
+    ProjectDirectorProtectedTransitionWorkerInvocationService,
+    P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+    P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
+    P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
+    P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
+    REVIEW_OUTPUT_SCHEMA_VERSION,
+)
+from app.services.project_director_protected_transition_dispatch_intent_service import (
+    P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+)
+from app.services.project_director_protected_transition_dispatch_consumption_preflight_service import (
+    P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_PREFLIGHT_SOURCE_DETAIL,
+)
+from app.services.project_director_protected_transition_dispatch_consumption_service import (
+    P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
+)
+from app.services.project_director_protected_transition_worker_start_reservation_service import (
+    P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
+)
+from app.services.project_director_protected_transition_auto_advance_service import (
+    ProjectDirectorProtectedTransitionAutoAdvanceService,
+)
+
+
+_SHA256 = lambda data: hashlib.sha256(data).hexdigest()
+_DIFF_SHA256 = _SHA256(b"diff content")
+_PROMPT_SHA256 = _SHA256(b"prompt content")
+_RAW_OUTPUT_SHA256 = _SHA256(b"raw output")
+_WORKSPACE_PATH = "/tmp/test-workspace-p23-d3"
+
+
+def _valid_review_action_d3(
+    *,
+    verdict: str = "no_blocking_findings",
+    risk_level: str = "low",
+    session_id: UUID | None = None,
+    task_id: UUID | None = None,
+) -> dict[str, Any]:
+    action: dict[str, Any] = {
+        "type": P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
+        "session_id": str(session_id or uuid4()),
+        "source_task_id": str(task_id or uuid4()),
+        "source_preflight_message_id": str(uuid4()),
+        "source_diff_message_id": str(uuid4()),
+        "requested_reviewer_executor": "codex",
+        "source_diff_sha256": _DIFF_SHA256,
+        "review_prompt_sha256": _PROMPT_SHA256,
+        "review_scope_paths": ["src/example.py"],
+        "review_output_schema_version": REVIEW_OUTPUT_SCHEMA_VERSION,
+        "adapter_status": "validated_output",
+        "output_validation_status": "validated",
+        "raw_output_sha256": _RAW_OUTPUT_SHA256,
+        "strict_json_valid": True,
+        "schema_valid": True,
+        "semantics_valid": True,
+        "evidence_scope_valid": True,
+        "review_status": "reviewed",
+        "verdict": verdict,
+        "risk_level": risk_level,
+        "summary": "Review completed.",
+        "findings": [],
+        "recommended_next_step": "Proceed.",
+        "workspace_path": _WORKSPACE_PATH,
+        "workspace_path_within_root": True,
+        "diff_generation_status": "generated",
+        "readonly_real_diff_generated": True,
+        "real_diff_generated": True,
+        "diff_bytes": 100,
+        "diff_file_count": 1,
+        "unified_diff_text": "diff content",
+        "diff_entries": [{"relative_path": "src/example.py", "unified_diff": "diff content", "operation": "update"}],
+        "ai_project_director_total_loop": "Partial",
+    }
+    for flag in [
+        "main_project_file_written", "sandbox_file_written", "manifest_file_written",
+        "diff_file_written", "patch_applied", "git_write_performed",
+        "worktree_created", "worker_started", "task_created", "run_created",
+    ]:
+        action[flag] = False
+    return action
+
+
+def _seed_p21_c_review_chain(
+    session: Session,
+    *,
+    session_id: UUID,
+    task_id: UUID,
+    project_id: UUID,
+    review_msg_id: UUID | None = None,
+    verdict: str = "no_blocking_findings",
+    risk_level: str = "low",
+    seq_no: int = 50,
+) -> UUID:
+    """Seed P21-C review message + candidate write + diff messages."""
+    review_msg_id = review_msg_id or uuid4()
+    write_msg_id = uuid4()
+    diff_msg_id = uuid4()
+
+    # Candidate write message
+    write_action = {
+        "type": "p21_c_sandbox_candidate_files_write_record",
+        "session_id": str(session_id),
+        "source_task_id": str(task_id),
+        "workspace_path": _WORKSPACE_PATH,
+    }
+    session.add(
+        ProjectDirectorMessageTable(
+            id=write_msg_id, session_id=session_id, role="assistant",
+            content="Candidate files written.", sequence_no=30,
+            intent="sandbox_candidate_files_write",
+            source="system", source_detail="p21_c_sandbox_candidate_files_write_executed",
+            suggested_actions_json=json.dumps([write_action]),
+            requires_confirmation=False, risk_level="high",
+            related_project_id=project_id, related_task_id=task_id,
+        )
+    )
+
+    # Diff message
+    diff_action = {
+        "type": "p21_c_sandbox_candidate_diff_record",
+        "session_id": str(session_id),
+        "source_task_id": str(task_id),
+        "source_message_id": str(write_msg_id),
+        "workspace_path": _WORKSPACE_PATH,
+        "workspace_path_within_root": True,
+        "diff_generation_status": "generated",
+        "readonly_real_diff_generated": True,
+        "real_diff_generated": True,
+        "diff_file_count": 1,
+        "diff_bytes": 100,
+        "unified_diff_text": "diff content",
+        "diff_entries": [{"relative_path": "src/example.py", "unified_diff": "diff content"}],
+    }
+    for flag in [
+        "main_project_file_written", "sandbox_file_written", "manifest_file_written",
+        "diff_file_written", "patch_applied", "git_write_performed",
+        "worktree_created", "worker_started", "task_created", "run_created",
+    ]:
+        diff_action[flag] = False
+    session.add(
+        ProjectDirectorMessageTable(
+            id=diff_msg_id, session_id=session_id, role="assistant",
+            content="Candidate diff generated.", sequence_no=35,
+            intent="sandbox_candidate_diff",
+            source="system", source_detail="p21_c_sandbox_candidate_diff_generated",
+            suggested_actions_json=json.dumps([diff_action]),
+            requires_confirmation=False, risk_level="high",
+            related_project_id=project_id, related_task_id=task_id,
+        )
+    )
+
+    # Review message - use the actual diff message ID
+    action = _valid_review_action_d3(
+        verdict=verdict, risk_level=risk_level,
+        session_id=session_id, task_id=task_id,
+    )
+    action["source_diff_message_id"] = str(diff_msg_id)
+    action["source_preflight_message_id"] = str(write_msg_id)
+    session.add(
+        ProjectDirectorMessageTable(
+            id=review_msg_id, session_id=session_id, role="assistant",
+            content="Readonly review executed.", sequence_no=seq_no,
+            intent="sandbox_candidate_diff_readonly_review_execution",
+            source="system",
+            source_detail=P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL,
+            suggested_actions_json=json.dumps([action]),
+            requires_confirmation=False, risk_level="high",
+            related_project_id=project_id, related_task_id=task_id,
+        )
+    )
+    session.commit()
+    return review_msg_id
+
+
+class _StubHandoff:
+    def build_candidate_diff_review_handoff_from_sources(self, **kw: Any) -> Any:
+        return type("H", (), {
+            "review_handoff_status": "created",
+            "source_diff_verified": True,
+            "source_diff_sha256": _DIFF_SHA256,
+            "review_scope_paths": ["src/example.py"],
+            "diff_bytes": 100,
+        })()
+
+
+class _StubDiff:
+    def build_candidate_diff_from_sources(self, **kw: Any) -> Any:
+        return type("D", (), {
+            "diff_generation_status": "generated",
+            "source_candidate_write_verified": True,
+            "readonly_real_diff_generated": True,
+            "real_diff_generated": True,
+            "workspace_path": _WORKSPACE_PATH,
+            "workspace_path_within_root": True,
+            "unified_diff_text": "diff content",
+            "diff_entries": [type("E", (), {"relative_path": "src/example.py", "unified_diff": "diff content"})()],
+            "diff_bytes": 12,
+            "diff_file_count": 1,
+        })()
+
+
+def _make_p22_service(session, msg_repo, sess_repo, task_repo):
+    """Create a real P22 service with all real sub-services."""
+    return ProjectDirectorPostReviewAutomationService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        disposition_service=ProjectDirectorSandboxCandidateDiffReviewDispositionService(
+            session_repository=sess_repo, message_repository=msg_repo,
+        ),
+        preflight_service=ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService(
+            session_repository=sess_repo, message_repository=msg_repo,
+        ),
+        consumption_service=ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService(
+            session_repository=sess_repo, message_repository=msg_repo,
+            task_repository=task_repo,
+            review_handoff_service=_StubHandoff(),
+            candidate_diff_service=_StubDiff(),
+        ),
+        handoff_service=ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService(
+            session_repository=sess_repo, message_repository=msg_repo,
+            task_repository=task_repo,
+        ),
+        human_escalation_package_service=ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService(
+            session_repository=sess_repo, message_repository=msg_repo,
+            task_repository=task_repo,
+        ),
+        freshness_service=ProjectDirectorProtectedTransitionEvidenceFreshnessService(
+            session_repository=sess_repo, message_repository=msg_repo,
+            task_repository=task_repo,
+            review_handoff_service=_StubHandoff(),
+            candidate_diff_service=_StubDiff(),
+        ),
+    )
+
+
+def make_real_d3_stack(
+    session_local,
+    *,
+    session_id: UUID,
+    task_id: UUID,
+    project_id: UUID,
+    verdict: str = "no_blocking_findings",
+    risk_level: str = "low",
+    disposition_type: str = "AUTO_CONTINUE",
+    dispatch_kind: str = "auto_continue",
+    fake_worker=None,
+):
+    """Build a full D3 stack with real services and shared repositories.
+
+    Returns dict with all services, repos, IDs, and the fake worker.
+    """
+    # Seed base records
+    s = session_local()
+    seed_base_records(
+        s,
+        project_id=project_id, session_id=session_id, task_id=task_id,
+        task_status="pending",
+    )
+    review_msg_id = _seed_p21_c_review_chain(
+        s,
+        session_id=session_id, task_id=task_id, project_id=project_id,
+        verdict=verdict, risk_level=risk_level,
+    )
+    s.close()
+
+    # Create shared repos
+    session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
+
+    # P22 service
+    p22_svc = _make_p22_service(session, msg_repo, sess_repo, task_repo)
+
+    # P23-B intent service
+    freshness_svc = ProjectDirectorProtectedTransitionEvidenceFreshnessService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        review_handoff_service=_StubHandoff(),
+        candidate_diff_service=_StubDiff(),
+    )
+    intent_svc = ProjectDirectorProtectedTransitionDispatchIntentService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+    )
+
+    # P23-C preflight service - use real intent service for D3 stack
+    preflight_svc = ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        dispatch_intent_service=intent_svc,
+        freshness_service=freshness_svc,
+        task_readiness_service=FakeTaskReadinessService(),
+        task_state_machine_service=FakeTaskStateMachineService(),
+        budget_guard_service=FakeBudgetGuardService(session=session),
+    )
+
+    # D1 service
+    d1_svc = ProjectDirectorProtectedTransitionDispatchConsumptionService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        run_repository=run_repo,
+        preflight_service=preflight_svc,
+        task_readiness_service=FakeTaskReadinessService(),
+        task_state_machine_service=FakeTaskStateMachineService(),
+        task_router_service=FakeTaskRouterService(),
+        budget_guard_service=FakeBudgetGuardService(session=session),
+    )
+
+    # B1 service
+    b1_svc = ProjectDirectorProtectedTransitionWorkerStartReservationService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        run_repository=run_repo,
+        agent_session_repository=agent_sess_repo,
+        dispatch_consumption_service=d1_svc,
+        freshness_service=freshness_svc,
+        budget_guard_service=FakeBudgetGuardService(session=session),
+    )
+
+    # B2 service
+    if fake_worker is None:
+        fake_worker = FakeTaskWorker(session=session)
+    else:
+        fake_worker.session = session
+    b2_svc = ProjectDirectorProtectedTransitionWorkerInvocationService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        run_repository=run_repo,
+        agent_session_repository=agent_sess_repo,
+        worker_start_reservation_service=b1_svc,
+        freshness_service=freshness_svc,
+        task_worker=fake_worker,
+    )
+
+    # D3 service
+    d3_svc = ProjectDirectorProtectedTransitionAutoAdvanceService(
+        post_review_automation_service=p22_svc,
+        dispatch_intent_service=intent_svc,
+        dispatch_consumption_preflight_service=preflight_svc,
+        dispatch_consumption_service=d1_svc,
+        worker_start_reservation_service=b1_svc,
+        worker_invocation_service=b2_svc,
+    )
+
+    return {
+        "session": session,
+        "msg_repo": msg_repo,
+        "sess_repo": sess_repo,
+        "task_repo": task_repo,
+        "run_repo": run_repo,
+        "agent_sess_repo": agent_sess_repo,
+        "p22_svc": p22_svc,
+        "intent_svc": intent_svc,
+        "preflight_svc": preflight_svc,
+        "d1_svc": d1_svc,
+        "b1_svc": b1_svc,
+        "b2_svc": b2_svc,
+        "d3_svc": d3_svc,
+        "fake_worker": fake_worker,
+        "session_id": session_id,
+        "task_id": task_id,
+        "project_id": project_id,
+        "review_msg_id": review_msg_id,
+    }
+
+
+class FakeTaskWorker:
+    """Fake TaskWorker for B2/D3 tests. Records calls and returns controlled results."""
+
+    def __init__(self, *, session=None, result=None, exception=None):
+        self.session = session
+        self._result = result
+        self._exception = exception
+        self.run_reserved_once_calls: list[dict] = []
+        self.run_once_calls: list[dict] = []
+        self._call_lock = threading.Lock()
+
+    def run_reserved_once(self, *, task_id, run_id):
+        with self._call_lock:
+            self.run_reserved_once_calls.append({"task_id": task_id, "run_id": run_id})
+        if self._exception:
+            raise self._exception
+        return self._result
+
+    def run_once(self, *, project_id=None):
+        with self._call_lock:
+            self.run_once_calls.append({"project_id": project_id})
+        return None
+
+
+def make_d3_worker_result(
+    *,
+    task_id: UUID,
+    run_id: UUID,
+    disposition_type: str = "AUTO_CONTINUE",
+    git_activity: bool = False,
+    contract_valid: bool = True,
+):
+    """Build a valid WorkerRunResult with reserved snapshot for D3 tests."""
+    snapshot = WorkerReservedRunExecutionSnapshot(
+        source="p23_d2_exact_reserved_run" if contract_valid else "invalid_source",
+        exact_task_id=task_id if contract_valid else uuid4(),
+        exact_run_id=run_id if contract_valid else uuid4(),
+        reserved_run_execution_requested=contract_valid,
+        exact_binding_validated=contract_valid,
+        task_routed=not contract_valid,
+        task_claimed_in_this_cycle=not contract_valid,
+        run_created_in_this_cycle=not contract_valid,
+        budget_rechecked=contract_valid,
+        existing_run_reused=contract_valid,
+        shared_execution_seam_used=contract_valid,
+        product_runtime_git_write_allowed=not contract_valid,
+        blocked_reasons=[],
+    )
+    result = WorkerRunResult(
+        claimed=True,
+        message="fake worker executed",
+        execution_mode="fake",
+        result_summary="fake execution",
+        reserved_run_execution_snapshot=snapshot,
+    )
+    if git_activity:
+        from dataclasses import replace
+        result = replace(result, git_diff_dry_run_runs_write_git=True)
+    return result
+
+
+def count_p23_evidence(msg_repo, session_id):
+    """Count all P22/P23 evidence messages."""
+    msgs, _ = msg_repo.list_by_session_id(session_id=session_id, limit=500)
+    counts = {}
+    for sd in [
+        P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL,
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+        P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_PREFLIGHT_SOURCE_DETAIL,
+        P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
+        P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
+        P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+    ]:
+        counts[sd] = sum(1 for m in msgs if m.source_detail == sd)
+    return counts
