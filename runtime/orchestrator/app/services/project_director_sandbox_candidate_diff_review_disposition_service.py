@@ -77,6 +77,18 @@ _SOURCE_REVIEW_FALSE_FLAGS = (
     "task_created",
     "run_created",
 )
+_DISPOSITION_FORBIDDEN_ACTIONS = [
+    "no_continuation_start",
+    "no_rework_start",
+    "no_human_escalation_package",
+    "no_human_decision",
+    "no_patch_apply",
+    "no_product_runtime_git_write",
+    "no_worker_dispatch",
+    "no_task_creation",
+    "no_run_creation",
+    "no_worktree_creation",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +114,26 @@ class RevalidatedPersistedReviewResultFingerprint:
     review_output_schema_version: str = ""
     verdict: str = ""
     risk_level: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedPersistedReviewDisposition:
+    """Pure reconstruction of one exact persisted P21-D disposition message."""
+
+    disposition_message_id: UUID
+    disposition_id: UUID | None
+    source_review_message_id: UUID | None
+    source_preflight_message_id: UUID | None
+    source_diff_message_id: UUID | None
+    review_result_fingerprint: str
+    source_diff_sha256: str
+    review_output_schema_version: str
+    source_review_verdict: str
+    source_review_risk_level: str
+    disposition_status: str
+    disposition_type: str | None
+    disposition_message_created_at: datetime | None
+    blocked_reasons: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +219,166 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
             review_output_schema_version=evidence.review_output_schema_version,
             verdict=evidence.verdict,
             risk_level=evidence.risk_level,
+        )
+
+    def revalidate_persisted_review_disposition(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_disposition_message_id: UUID,
+    ) -> RevalidatedPersistedReviewDisposition:
+        """Rebuild one exact P21-D record without append, flush, or commit."""
+
+        blocked_reasons: list[str] = []
+        if self._message_repository is None:
+            blocked_reasons.append("review_disposition_repository_missing")
+            message = None
+        else:
+            message = self._message_repository.get_by_id(
+                source_disposition_message_id
+            )
+        if message is None:
+            blocked_reasons.append("review_disposition_message_missing")
+            return RevalidatedPersistedReviewDisposition(
+                disposition_message_id=source_disposition_message_id,
+                disposition_id=None,
+                source_review_message_id=None,
+                source_preflight_message_id=None,
+                source_diff_message_id=None,
+                review_result_fingerprint="",
+                source_diff_sha256="",
+                review_output_schema_version="",
+                source_review_verdict="",
+                source_review_risk_level="",
+                disposition_status="",
+                disposition_type=None,
+                disposition_message_created_at=None,
+                blocked_reasons=self._dedupe(blocked_reasons),
+            )
+
+        if (
+            message.id != source_disposition_message_id
+            or message.session_id != session_id
+            or message.related_project_id != project_id
+            or message.related_task_id != source_task_id
+            or message.role != ProjectDirectorMessageRole.ASSISTANT
+            or message.source != ProjectDirectorMessageSource.SYSTEM
+            or message.intent != "sandbox_candidate_diff_review_disposition"
+            or message.source_detail
+            != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_SOURCE_DETAIL
+            or message.requires_confirmation
+            or message.risk_level != ProjectDirectorMessageRiskLevel.HIGH
+            or message.forbidden_actions_detected != _DISPOSITION_FORBIDDEN_ACTIONS
+        ):
+            blocked_reasons.append("review_disposition_message_invalid")
+
+        action = self._single_action(message)
+        if (
+            action is None
+            or action.get("type")
+            != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_ACTION_TYPE
+            or action.get("schema_version") != REVIEW_DISPOSITION_SCHEMA_VERSION
+            or action.get("session_id") != str(session_id)
+            or action.get("source_task_id") != str(source_task_id)
+        ):
+            blocked_reasons.append("review_disposition_action_invalid")
+            action = action or {}
+
+        disposition_id = self._uuid_from_action(action, "disposition_id")
+        source_review_message_id = self._uuid_from_action(
+            action, "source_review_message_id"
+        )
+        source_preflight_message_id = self._uuid_from_action(
+            action, "source_preflight_message_id"
+        )
+        source_diff_message_id = self._uuid_from_action(
+            action, "source_diff_message_id"
+        )
+        if any(
+            value is None
+            for value in (
+                disposition_id,
+                source_review_message_id,
+                source_preflight_message_id,
+                source_diff_message_id,
+            )
+        ):
+            blocked_reasons.append("review_disposition_binding_invalid")
+
+        review_result_fingerprint = action.get("review_result_fingerprint")
+        source_diff_sha256 = action.get("source_diff_sha256")
+        if not self._is_sha256(review_result_fingerprint):
+            blocked_reasons.append("review_disposition_fingerprint_invalid")
+            review_result_fingerprint = ""
+        if not self._is_sha256(source_diff_sha256):
+            blocked_reasons.append("review_disposition_diff_invalid")
+            source_diff_sha256 = ""
+
+        disposition_created_at: datetime | None = None
+        raw_created_at = action.get("disposition_created_at")
+        if isinstance(raw_created_at, str):
+            try:
+                disposition_created_at = datetime.fromisoformat(
+                    raw_created_at.replace("Z", "+00:00")
+                ).astimezone(timezone.utc)
+            except ValueError:
+                disposition_created_at = None
+        if (
+            disposition_created_at is None
+            or disposition_created_at != message.created_at
+            or action.get("actor") != "system"
+            or action.get("client_request_id") is not None
+            or action.get("ai_project_director_total_loop") != "Partial"
+        ):
+            blocked_reasons.append("review_disposition_metadata_invalid")
+
+        try:
+            result = (
+                ProjectDirectorSandboxCandidateDiffReviewDispositionResult.model_validate(
+                    {
+                        field_name: action.get(field_name)
+                        for field_name in ProjectDirectorSandboxCandidateDiffReviewDispositionResult.model_fields
+                    }
+                )
+            )
+        except (ValidationError, ValueError, TypeError):
+            result = None
+            blocked_reasons.append("review_disposition_result_invalid")
+
+        disposition_status = action.get("disposition_status")
+        disposition_type = action.get("disposition_type")
+        if (
+            result is None
+            or result.disposition_status != disposition_status
+            or result.disposition_type != disposition_type
+            or result.source_review_message_id != source_review_message_id
+            or result.review_result_fingerprint != review_result_fingerprint
+        ):
+            blocked_reasons.append("review_disposition_result_invalid")
+
+        return RevalidatedPersistedReviewDisposition(
+            disposition_message_id=source_disposition_message_id,
+            disposition_id=disposition_id,
+            source_review_message_id=source_review_message_id,
+            source_preflight_message_id=source_preflight_message_id,
+            source_diff_message_id=source_diff_message_id,
+            review_result_fingerprint=review_result_fingerprint,
+            source_diff_sha256=source_diff_sha256,
+            review_output_schema_version=str(
+                action.get("review_output_schema_version") or ""
+            ),
+            source_review_verdict=str(action.get("source_review_verdict") or ""),
+            source_review_risk_level=str(
+                action.get("source_review_risk_level") or ""
+            ),
+            disposition_status=str(disposition_status or ""),
+            disposition_type=(
+                str(disposition_type) if disposition_type is not None else None
+            ),
+            disposition_message_created_at=disposition_created_at,
+            blocked_reasons=self._dedupe(blocked_reasons),
         )
 
     def compute_candidate_diff_review_disposition(
@@ -870,6 +1062,7 @@ __all__ = (
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_ACTION_TYPE",
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_SOURCE_DETAIL",
     "ProjectDirectorSandboxCandidateDiffReviewDispositionService",
+    "RevalidatedPersistedReviewDisposition",
     "RevalidatedPersistedReviewResultFingerprint",
     "REVIEW_DISPOSITION_SCHEMA_VERSION",
 )

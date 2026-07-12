@@ -29,6 +29,9 @@ from app.domain.project_director_message import (
 from app.domain.project_director_source_execution_authority import (
     SourceExecutionAuthoritySnapshot,
 )
+from app.domain.project_director_source_completion_review_evidence import (
+    ProjectDirectorSourceCompletionReviewEvidence,
+)
 from app.domain.project_director_source_task_completion_evidence import (
     ProjectDirectorSourceTaskCompletionEvidence,
     SOURCE_TASK_COMPLETION_EVIDENCE_SCHEMA_VERSION,
@@ -48,6 +51,12 @@ from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.project_director_source_execution_authority_resolver import (
     ProjectDirectorSourceExecutionAuthorityResolver,
+)
+from app.services.project_director_source_completion_review_evidence_adapter import (
+    ProjectDirectorSourceCompletionReviewEvidenceAdapter,
+)
+from app.services.project_director_sandbox_candidate_diff_review_disposition_service import (
+    ProjectDirectorSandboxCandidateDiffReviewDispositionService,
 )
 from app.services.project_director_task_completion_policy_service import (
     ProjectDirectorTaskCompletionPolicyService,
@@ -84,6 +93,7 @@ class _ValidatedInputs:
     run: Run
     agent_session: AgentSession | None
     axes: dict[str, _AxisEvidence]
+    completion_review: ProjectDirectorSourceCompletionReviewEvidence | None
 
 
 class _Blocked(Exception):
@@ -108,6 +118,8 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
         task_repository: TaskRepository,
         run_repository: RunRepository,
         agent_session_repository: AgentSessionRepository,
+        completion_review_evidence_adapter: ProjectDirectorSourceCompletionReviewEvidenceAdapter
+        | None = None,
     ) -> None:
         self._authority_resolver = authority_resolver
         self._completion_policy_service = completion_policy_service
@@ -115,6 +127,17 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
         self._task_repository = task_repository
         self._run_repository = run_repository
         self._agent_session_repository = agent_session_repository
+        self._completion_review_evidence_adapter = (
+            completion_review_evidence_adapter
+            or ProjectDirectorSourceCompletionReviewEvidenceAdapter(
+                message_repository=message_repository,
+                review_disposition_service=(
+                    ProjectDirectorSandboxCandidateDiffReviewDispositionService(
+                        message_repository=message_repository
+                    )
+                ),
+            )
+        )
         self._require_shared_session()
 
     def issue_source_task_completion_evidence(
@@ -125,6 +148,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
         source_task_id: UUID,
         source_run_id: UUID,
         completion_policy_id: UUID,
+        review_evidence_ids: list[UUID] | None = None,
     ) -> SourceTaskCompletionEvidenceResult:
         """Append or replay evidence after rebuilding every persisted authority."""
 
@@ -136,6 +160,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
                     source_task_id=source_task_id,
                     source_run_id=source_run_id,
                     completion_policy_id=completion_policy_id,
+                    review_evidence_ids=review_evidence_ids,
                 )
                 replay_key = self._build_replay_key(
                     authority=validated.authority,
@@ -225,6 +250,11 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
                 source_task_id=source_task_id,
                 source_run_id=source_run_id,
                 completion_policy_id=evidence.completion_policy_id,
+                review_evidence_ids=(
+                    list(evidence.review_evidence_ids)
+                    if evidence.review_requirement == "required"
+                    else None
+                ),
             )
             replay_key = self._build_replay_key(
                 authority=validated.authority,
@@ -275,6 +305,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
         source_task_id: UUID,
         source_run_id: UUID,
         completion_policy_id: UUID,
+        review_evidence_ids: list[UUID] | None,
     ) -> _ValidatedInputs:
         authority_result = self._authority_resolver.resolve(
             authority_kind=authority_kind,
@@ -368,7 +399,12 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             source_task_id=source_task_id,
             source_run_id=source_run_id,
         )
-        axes = self._evaluate_axes(policy=policy, authority=authority)
+        axes, completion_review = self._evaluate_axes(
+            policy=policy,
+            authority=authority,
+            source_run_finished_at=run.finished_at,
+            review_evidence_ids=review_evidence_ids,
+        )
         return _ValidatedInputs(
             authority=authority,
             policy=policy,
@@ -376,6 +412,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             run=run,
             agent_session=agent_session,
             axes=axes,
+            completion_review=completion_review,
         )
 
     def _validate_agent_session(
@@ -444,11 +481,19 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
         *,
         policy: ProjectDirectorTaskCompletionPolicySnapshot,
         authority: SourceExecutionAuthoritySnapshot,
-    ) -> dict[str, _AxisEvidence]:
+        source_run_finished_at: datetime,
+        review_evidence_ids: list[UUID] | None,
+    ) -> tuple[
+        dict[str, _AxisEvidence],
+        ProjectDirectorSourceCompletionReviewEvidence | None,
+    ]:
         axes: dict[str, _AxisEvidence] = {}
+        completion_review: ProjectDirectorSourceCompletionReviewEvidence | None = None
         for axis in ("review", "verification", "delivery", "approval"):
             requirement = getattr(policy, f"{axis}_requirement")
             if requirement == "not_required":
+                if axis == "review" and review_evidence_ids:
+                    raise _Blocked("source_completion_review_evidence_conflict")
                 axes[axis] = _AxisEvidence(
                     requirement=requirement,
                     satisfaction_status="not_required_by_policy",
@@ -459,9 +504,30 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             if requirement != "required":
                 raise _Blocked("source_completion_axis_unsatisfied")
             if axis == "review":
-                raise _Blocked(
-                    "source_completion_review_evidence_adapter_unavailable"
+                resolution = self._completion_review_evidence_adapter.resolve_required_completion_review(
+                    session_id=authority.session_id,
+                    project_id=authority.project_id,
+                    source_task_id=authority.task_id,
+                    source_run_id=authority.run_id,
+                    source_run_finished_at=source_run_finished_at,
+                    declared_review_evidence_ids=list(review_evidence_ids or []),
+                    allowed_review_terminal_results=(
+                        policy.required_review_terminal_results
+                    ),
                 )
+                if resolution.snapshot is None or resolution.blocked_reasons:
+                    raise _Blocked(*resolution.blocked_reasons)
+                completion_review = resolution.snapshot
+                axes[axis] = _AxisEvidence(
+                    requirement=requirement,
+                    satisfaction_status="satisfied",
+                    evidence_kind=completion_review.review_evidence_kind,
+                    evidence_ids=[
+                        completion_review.review_message_id,
+                        completion_review.disposition_message_id,
+                    ],
+                )
+                continue
             if axis == "delivery":
                 raise _Blocked(
                     "source_completion_delivery_evidence_adapter_unavailable"
@@ -483,7 +549,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
                 evidence_kind=_WORKER_QUALITY_GATE_EVIDENCE_KIND,
                 evidence_ids=[authority.outcome_id],
             )
-        return axes
+        return axes, completion_review
 
     def _build_evidence(
         self,
@@ -517,6 +583,41 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             "completion_policy_id": policy.completion_policy_id,
             "completion_policy_version": policy.completion_policy_version,
             "completion_policy_fingerprint": policy.completion_policy_fingerprint,
+            "source_completion_review_id": (
+                validated.completion_review.review_message_id
+                if validated.completion_review is not None
+                else None
+            ),
+            "source_completion_review_result_fingerprint": (
+                validated.completion_review.review_result_fingerprint
+                if validated.completion_review is not None
+                else None
+            ),
+            "source_completion_review_verdict": (
+                validated.completion_review.review_verdict
+                if validated.completion_review is not None
+                else None
+            ),
+            "source_completion_review_disposition_id": (
+                validated.completion_review.disposition_id
+                if validated.completion_review is not None
+                else None
+            ),
+            "source_completion_review_disposition_type": (
+                validated.completion_review.disposition_type
+                if validated.completion_review is not None
+                else None
+            ),
+            "source_completion_review_diff_id": (
+                validated.completion_review.source_diff_message_id
+                if validated.completion_review is not None
+                else None
+            ),
+            "source_completion_review_diff_sha256": (
+                validated.completion_review.source_diff_sha256
+                if validated.completion_review is not None
+                else None
+            ),
             "terminal_task_status": TaskStatus.COMPLETED.value,
             "terminal_task_human_status": validated.task.human_status.value,
             "task_paused_reason_absent": validated.task.paused_reason is None,
@@ -829,6 +930,8 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             self._task_repository,
             self._run_repository,
             self._agent_session_repository,
+            self._completion_review_evidence_adapter._message_repository,
+            self._completion_review_evidence_adapter._review_disposition_service._message_repository,
             self._completion_policy_service._message_repository,
             self._completion_policy_service._plan_version_repository,
             self._completion_policy_service._task_creation_repository,

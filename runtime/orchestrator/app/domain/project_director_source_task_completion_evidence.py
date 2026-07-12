@@ -60,6 +60,21 @@ SourceTaskCompletionBlockedReason = Literal[
     "source_completion_runtime_active",
     "source_completion_runtime_terminal_unproven",
     "source_completion_review_evidence_adapter_unavailable",
+    "source_completion_review_evidence_missing",
+    "source_completion_review_evidence_id_invalid",
+    "source_completion_review_evidence_conflict",
+    "source_completion_review_message_invalid",
+    "source_completion_review_fingerprint_mismatch",
+    "source_completion_review_diff_invalid",
+    "source_completion_review_terminal_result_unsupported",
+    "source_completion_review_verdict_not_allowed",
+    "source_completion_review_changes_required",
+    "source_completion_review_disposition_missing",
+    "source_completion_review_disposition_invalid",
+    "source_completion_review_disposition_not_continue",
+    "source_completion_review_disposition_fingerprint_mismatch",
+    "source_completion_review_stale_for_run",
+    "source_completion_review_timeline_invalid",
     "source_completion_verification_evidence_kind_unsupported",
     "source_completion_delivery_evidence_adapter_unavailable",
     "source_completion_approval_evidence_adapter_unavailable",
@@ -135,6 +150,15 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     review_satisfaction_status: SourceTaskCompletionAxisSatisfactionStatus
     review_evidence_kind: str = Field(min_length=1, max_length=100)
     review_evidence_ids: list[UUID]
+    source_completion_review_id: UUID | None
+    source_completion_review_result_fingerprint: str | None = Field(
+        max_length=64
+    )
+    source_completion_review_verdict: str | None = Field(max_length=100)
+    source_completion_review_disposition_id: UUID | None
+    source_completion_review_disposition_type: str | None = Field(max_length=100)
+    source_completion_review_diff_id: UUID | None
+    source_completion_review_diff_sha256: str | None = Field(max_length=64)
 
     verification_requirement: SourceTaskCompletionAxisRequirement
     verification_satisfaction_status: SourceTaskCompletionAxisSatisfactionStatus
@@ -182,6 +206,17 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
             raise ValueError("completion evidence hashes must be lowercase SHA-256")
         return value
 
+    @field_validator(
+        "source_completion_review_result_fingerprint",
+        "source_completion_review_diff_sha256",
+        mode="after",
+    )
+    @classmethod
+    def require_optional_sha256(cls, value: str | None) -> str | None:
+        if value is not None and not _LOWER_HEX_SHA256.fullmatch(value):
+            raise ValueError("completion review hashes must be lowercase SHA-256")
+        return value
+
     @model_validator(mode="after")
     def validate_completion_evidence(self) -> "ProjectDirectorSourceTaskCompletionEvidence":
         axis_values = (
@@ -221,6 +256,28 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
                     raise ValueError("not-required axes require owner policy evidence")
             elif status != "satisfied":
                 raise ValueError("required axes must be satisfied")
+        review_facts = (
+            self.source_completion_review_id,
+            self.source_completion_review_result_fingerprint,
+            self.source_completion_review_verdict,
+            self.source_completion_review_disposition_id,
+            self.source_completion_review_disposition_type,
+            self.source_completion_review_diff_id,
+            self.source_completion_review_diff_sha256,
+        )
+        if self.review_requirement == "not_required":
+            if any(value is not None for value in review_facts):
+                raise ValueError("not-required review may not freeze review facts")
+        elif (
+            any(value is None for value in review_facts)
+            or self.review_evidence_kind
+            != "validated_candidate_diff_review_auto_continue"
+            or self.source_completion_review_verdict
+            not in {"no_blocking_findings", "non_blocking_findings"}
+            or self.source_completion_review_disposition_type != "AUTO_CONTINUE"
+            or self.review_evidence_ids[0] != self.source_completion_review_id
+        ):
+            raise ValueError("required review requires exact passing review facts")
         if self.authority_agent_session_id is None:
             if (
                 self.authority_agent_session_status is not None
