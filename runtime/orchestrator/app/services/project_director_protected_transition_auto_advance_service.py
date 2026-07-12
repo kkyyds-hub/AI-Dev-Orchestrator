@@ -88,10 +88,11 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
             if p22.message is not None:
                 state["source_p22_summary_message_id"] = p22.message.id
 
+            # P22 already revalidated this summary. Its orchestration identity is
+            # not the persisted message ID; downstream lineage uses p22.message.id.
             if p22_result.orchestration_status == "waiting_for_human":
                 if (
                     p22.message is None
-                    or p22.message.id != p22_result.orchestration_id
                     or p22_result.route != "human_escalation"
                 ):
                     return self._blocked(
@@ -114,7 +115,6 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
                 )
             if (
                 p22.message is None
-                or p22.message.id != p22_result.orchestration_id
                 or p22_result.route
                 not in ("automatic_continuation", "bounded_automatic_rework")
             ):
