@@ -1,4 +1,4 @@
-"""Behavior tests for P23 TaskWorker reserved seam and B2 invocation."""
+"""Real behavioral tests for P23-D1 atomic dispatch consumption and B1 reservation."""
 
 from __future__ import annotations
 
@@ -9,14 +9,9 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from app.core.db_tables import ORMBase
-from app.domain.project_director_protected_transition_worker_invocation import (
-    ProjectDirectorProtectedTransitionWorkerInvocationClaimResult,
-    ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult,
-)
-from app.domain.project_director_protected_transition_worker_start_reservation import (
-    ProjectDirectorProtectedTransitionWorkerStartReservationResult,
-)
+from app.core.db_tables import ORMBase, AgentSessionTable
+from app.domain.run import RunStatus
+from app.domain.task import TaskStatus
 from app.repositories.agent_session_repository import AgentSessionRepository
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
@@ -26,504 +21,381 @@ from app.repositories.project_director_session_repository import (
 )
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
-from app.services.project_director_protected_transition_worker_invocation_service import (
-    ProjectDirectorProtectedTransitionWorkerInvocationService,
+from app.services.project_director_protected_transition_dispatch_consumption_service import (
+    P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
 )
 from app.services.project_director_protected_transition_worker_start_reservation_service import (
-    ProjectDirectorProtectedTransitionWorkerStartReservationService,
-)
-from app.workers.task_worker import (
-    WorkerReservedRunExecutionSnapshot,
-    WorkerRunResult,
+    P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
 )
 from tests.p23_test_support import (
     DIFF_SHA256,
-    WORKSPACE_PATH,
-    FakeBudgetDecision,
-    FakeCurrentReservation,
-    FakeFreshnessResult,
-    SpyTaskWorker,
-    count_messages_by_source_detail,
-    get_messages_by_source_detail,
-    make_fake_worker_result,
+    _FINGERPRINT,
+    make_b1_service,
+    make_d1_service,
     make_repos,
-    make_run_record,
-    make_test_engine,
     make_session_factory,
+    make_test_engine,
+    prepare_valid_preflight,
     seed_base_records,
-    seed_review_message,
-    valid_review_action,
+    count_messages_by_source_detail,
 )
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Helpers
+# Helper: Create full D1 success chain
 # ══════════════════════════════════════════════════════════════════════
 
 
-class FakeFreshnessService:
-    def __init__(self, *, blocked_reasons=None, session=None):
-        self._blocked = blocked_reasons or []
-        self._message_repository = type("R", (), {"_session": session})()
-        self._task_repository = type("R", (), {"session": session})()
+def _create_d1_success(sf, *, task_status="pending"):
+    """Create a full D1 success chain and return all needed references."""
+    s = sf()
+    ids = seed_base_records(s, task_status=task_status)
+    s.close()
 
-    def revalidate_current_protected_transition_evidence_freshness(self, **kwargs):
-        return type("R", (), {
-            "result": FakeFreshnessResult(blocked_reasons=self._blocked),
-            "blocked_reasons": self._blocked,
-        })()
-
-    def revalidate_persisted_protected_transition_evidence_freshness(self, **kwargs):
-        return type("R", (), {
-            "result": FakeFreshnessResult(),
-            "blocked_reasons": [],
-        })()
-
-
-class FakeBudgetGuardService:
-    def __init__(self, session=None):
-        self._db_session = session
-
-    def evaluate(self, **kwargs):
-        return FakeBudgetDecision()
-
-
-class FakeD1Service:
-    def __init__(self, *, result=None, blocked_reasons=None, session=None):
-        self._result = result
-        self._blocked = blocked_reasons or []
-        self._message_repository = type("R", (), {"_session": session})()
-        self._task_repository = type("R", (), {"session": session})()
-        self._run_repository = type("R", (), {"session": session})()
-
-    def revalidate_persisted_protected_transition_dispatch_consumption(self, **kwargs):
-        return type("R", (), {
-            "result": self._result,
-            "blocked_reasons": self._blocked,
-        })()
-
-
-class FakeAgentSessionRepository:
-    def __init__(self, *, existing_session=None, session=None):
-        self._existing = existing_session
-        self.session = session
-
-    def get_by_run_id(self, run_id):
-        return self._existing
-
-
-def _make_b1_service(session_local, *, freshness_blocked=None, agent_session=None):
-    session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
-    freshness_svc = FakeFreshnessService(blocked_reasons=freshness_blocked, session=session)
-    freshness_svc._message_repository = msg_repo
-    freshness_svc._task_repository = task_repo
-    d1_svc = FakeD1Service(session=session)
-    d1_svc._message_repository = msg_repo
-    d1_svc._task_repository = task_repo
-    d1_svc._run_repository = run_repo
-    b1_svc = ProjectDirectorProtectedTransitionWorkerStartReservationService(
-        session_repository=sess_repo,
-        message_repository=msg_repo,
-        task_repository=task_repo,
-        run_repository=run_repo,
-        agent_session_repository=agent_sess_repo,
-        dispatch_consumption_service=d1_svc,
-        freshness_service=freshness_svc,
-        budget_guard_service=FakeBudgetGuardService(session=session),
+    preflight_msg_id, session, msg_repo, task_repo, run_repo, preflight_svc = (
+        prepare_valid_preflight(
+            sf,
+            session_id=ids["session_id"],
+            task_id=ids["task_id"],
+            project_id=ids["project_id"],
+        )
     )
-    return b1_svc, session, msg_repo, task_repo, run_repo, agent_sess_repo
+    agent_sess_repo = AgentSessionRepository(session)
+    session.close()
+
+    d1_svc, session, msg_repo, task_repo, run_repo = make_d1_service(
+        sf, preflight_svc=preflight_svc,
+        msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
+    )
+    d1_result = d1_svc.consume_protected_transition_dispatch_preflight(
+        session_id=ids["session_id"],
+        source_task_id=ids["task_id"],
+        source_message_id=preflight_msg_id,
+    )
+    assert d1_result.result.consumption_status == "reserved_for_worker_start"
+    session.close()
+
+    return {
+        "ids": ids,
+        "preflight_msg_id": preflight_msg_id,
+        "d1_result": d1_result,
+        "d1_svc": d1_svc,
+        "msg_repo": msg_repo,
+        "task_repo": task_repo,
+        "run_repo": run_repo,
+        "agent_sess_repo": agent_sess_repo,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════
-# B1 Reservation Tests
+# B1 Real Service Behavioral Tests
 # ══════════════════════════════════════════════════════════════════════
 
 
 class TestB1ReservationBehavior:
-    """Tests that actually call B1 service methods."""
+    """Real B1 service behavioral tests using actual D1 success results."""
 
-    def test_prepare_blocks_without_valid_consumption(self, tmp_path):
-        """B1 blocks when source consumption message is invalid."""
+    def test_b1_success_creates_single_reservation_for_exact_consumption_and_run(self, tmp_path):
+        """B1 creates exactly one reservation for the exact D1 consumption."""
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
-        s = sf()
-        ids = seed_base_records(s, task_status="running")
-        s.close()
+        ctx = _create_d1_success(sf)
 
-        b1_svc, session, msg_repo, task_repo, run_repo, _ = _make_b1_service(sf)
+        ids = ctx["ids"]
+        d1_msg_id = ctx["d1_result"].message.id
+        d1_run_id = ctx["d1_result"].result.run_id
+
+        b1_svc, session, msg_repo, task_repo, run_repo, _ = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+        )
+
         result = b1_svc.prepare_protected_transition_worker_start_reservation(
             session_id=ids["session_id"],
             source_task_id=ids["task_id"],
-            source_message_id=uuid4(),
+            source_message_id=d1_msg_id,
         )
-        assert result.result.reservation_status == "blocked"
-        assert result.message is None
+
+        assert result.result.reservation_status == "reserved"
+        assert result.message is not None
+        assert result.result.source_consumption_message_id == d1_msg_id
+        assert result.result.run_id == d1_run_id
+        assert result.result.reservation_id == result.message.id
+        assert result.result.reservation_token is not None
+        assert result.result.reservation_token != ""
+
+        b1_count = count_messages_by_source_detail(
+            msg_repo, ids["session_id"],
+            P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
+        )
+        assert b1_count == 1
+
+        # Task/Run still running
+        task = task_repo.get_by_id(ids["task_id"])
+        assert task.status == TaskStatus.RUNNING
+        run = run_repo.get_by_id(d1_run_id)
+        assert run.status == RunStatus.RUNNING
+
         session.close()
         engine.dispose()
 
-    def test_find_persisted_returns_empty_when_none(self, tmp_path):
-        """Finder returns empty when no reservation exists."""
+    def test_b1_replay_reuses_same_reservation(self, tmp_path):
+        """Second B1 call returns same reservation."""
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
-        s = sf()
-        ids = seed_base_records(s, task_status="running")
-        s.close()
+        ctx = _create_d1_success(sf)
 
-        b1_svc, session, msg_repo, task_repo, run_repo, _ = _make_b1_service(sf)
-        found = b1_svc.find_persisted_protected_transition_worker_start_reservation(
+        ids = ctx["ids"]
+        d1_msg_id = ctx["d1_result"].message.id
+
+        # First call
+        b1_svc, session, msg_repo, task_repo, run_repo, _ = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+        )
+        r1 = b1_svc.prepare_protected_transition_worker_start_reservation(
             session_id=ids["session_id"],
             source_task_id=ids["task_id"],
-            source_consumption_message_id=uuid4(),
+            source_message_id=d1_msg_id,
         )
-        assert found.result is None
-        assert found.message is None
-        assert found.blocked_reasons == []
+        assert r1.result.reservation_status == "reserved"
+        first_id = r1.result.reservation_id
+        first_token = r1.result.reservation_token
+        first_fp = r1.result.reservation_fingerprint
+        session.close()
+
+        # Second call (replay)
+        b1_svc2, session2, msg_repo2, task_repo2, run_repo2, _ = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+        )
+        r2 = b1_svc2.prepare_protected_transition_worker_start_reservation(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=d1_msg_id,
+        )
+
+        assert r2.result.reservation_id == first_id
+        assert r2.result.reservation_token == first_token
+        assert r2.result.reservation_fingerprint == first_fp
+        assert r2.result.resumed_from_existing_reservation is True
+
+        b1_count = count_messages_by_source_detail(
+            msg_repo, ids["session_id"],
+            P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
+        )
+        assert b1_count == 1
+
+        session2.close()
+        engine.dispose()
+
+    def test_b1_blocks_initial_reservation_when_agent_session_exists(self, tmp_path):
+        """B1 blocks when AgentSession already exists for the Run."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = _create_d1_success(sf)
+
+        ids = ctx["ids"]
+        d1_msg_id = ctx["d1_result"].message.id
+        d1_run_id = ctx["d1_result"].result.run_id
+
+        # Create AgentSession for the Run
+        s = sf()
+        s.add(AgentSessionTable(
+            id=uuid4(),
+            project_id=ids["project_id"],
+            task_id=ids["task_id"],
+            run_id=d1_run_id,
+            agent_type="codex",
+            status="running",
+            coding_status="idle",
+            activity_state="idle",
+            workspace_type="worktree",
+        ))
+        s.commit()
+        s.close()
+
+        b1_svc, session, msg_repo, task_repo, run_repo, _ = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+        )
+
+        result = b1_svc.prepare_protected_transition_worker_start_reservation(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=d1_msg_id,
+        )
+
+        assert result.result.reservation_status == "blocked"
+        assert "reserved_run_agent_session_already_exists" in result.result.blocked_reasons
+        assert result.message is None
+
         session.close()
         engine.dispose()
 
+    def test_b1_blocks_initial_reservation_when_budget_denied(self, tmp_path):
+        """B1 blocks when budget guard denies."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = _create_d1_success(sf)
 
-# ══════════════════════════════════════════════════════════════════════
-# DomainModel Validator Tests
-# ══════════════════════════════════════════════════════════════════════
+        ids = ctx["ids"]
+        d1_msg_id = ctx["d1_result"].message.id
 
-
-class TestB2ClaimDomainModel:
-    """Tests for B2 claim result domain model validators."""
-
-    def test_claim_validates_reservation_binding(self) -> None:
-        """Claim must bind exact reservation."""
-        with pytest.raises(ValueError, match="claim must bind the exact reservation"):
-            ProjectDirectorProtectedTransitionWorkerInvocationClaimResult(
-                claim_status="claimed",
-                claim_id=uuid4(),
-                claim_fingerprint="a" * 64,
-                claim_token="token",
-                session_id=uuid4(),
-                project_id=uuid4(),
-                source_task_id=uuid4(),
-                target_task_id=uuid4(),
-                run_id=uuid4(),
-                source_reservation_message_id=uuid4(),
-                source_reservation_id=uuid4(),
-                source_reservation_fingerprint="a" * 64,
-                source_reservation_token="token",
-                source_consumption_message_id=uuid4(),
-                source_consumption_fingerprint="a" * 64,
-                source_preflight_message_id=uuid4(),
-                source_intent_message_id=uuid4(),
-                source_freshness_message_id=uuid4(),
-                disposition_type="AUTO_CONTINUE",
-                dispatch_kind="auto_continue",
-                target_task_strategy="source_task_continue",
-                review_result_fingerprint="a" * 64,
-                review_semantic_fingerprint="a" * 64,
-                current_freshness_fingerprint="a" * 64,
-                current_diff_sha256="a" * 64,
-                current_scope_paths=["src/example.py"],
-                workspace_path="/tmp/ws",
-                workspace_path_within_root=True,
-                task_status_before="running",
-                run_status_before="running",
-                agent_session_absent=True,
-                budget_guard_allowed=True,
-                budget_pressure_level="normal",
-                budget_strategy_action="allow",
-                budget_strategy_code="normal",
-                budget_policy_source="test",
-                retry_limit_reached=False,
-                rework_attempt_index=0,
-                rework_attempt_limit=3,
-                worker_invocation_claimed=True,
-            )
-
-    def test_claim_validates_target_equals_source(self) -> None:
-        """Claim target must equal source task."""
-        with pytest.raises(ValueError, match="claim must bind the exact reservation"):
-            ProjectDirectorProtectedTransitionWorkerInvocationClaimResult(
-                claim_status="claimed",
-                claim_id=uuid4(),
-                claim_fingerprint="a" * 64,
-                claim_token="token",
-                session_id=uuid4(),
-                project_id=uuid4(),
-                source_task_id=uuid4(),
-                target_task_id=uuid4(),
-                run_id=uuid4(),
-                source_reservation_message_id=uuid4(),
-                source_reservation_id=uuid4(),
-                source_reservation_fingerprint="a" * 64,
-                source_reservation_token="token",
-                source_consumption_message_id=uuid4(),
-                source_consumption_fingerprint="a" * 64,
-                source_preflight_message_id=uuid4(),
-                source_intent_message_id=uuid4(),
-                source_freshness_message_id=uuid4(),
-                disposition_type="AUTO_CONTINUE",
-                dispatch_kind="auto_continue",
-                target_task_strategy="source_task_continue",
-                review_result_fingerprint="a" * 64,
-                review_semantic_fingerprint="a" * 64,
-                current_freshness_fingerprint="a" * 64,
-                current_diff_sha256="a" * 64,
-                current_scope_paths=["src/example.py"],
-                workspace_path="/tmp/ws",
-                workspace_path_within_root=True,
-                task_status_before="running",
-                run_status_before="running",
-                agent_session_absent=True,
-                budget_guard_allowed=True,
-                budget_pressure_level="normal",
-                budget_strategy_action="allow",
-                budget_strategy_code="normal",
-                budget_policy_source="test",
-                retry_limit_reached=False,
-                rework_attempt_index=0,
-                rework_attempt_limit=3,
-                worker_invocation_claimed=True,
-            )
-
-
-class TestB2OutcomeDomainModel:
-    """Tests for B2 outcome result domain model validators."""
-
-    def test_outcome_validates_claim_binding(self) -> None:
-        """Outcome must bind exact claim."""
-        claim_id = uuid4()
-        with pytest.raises(ValueError, match="outcome must bind the exact invocation claim"):
-            ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult(
-                outcome_status="returned",
-                outcome_id=uuid4(),
-                outcome_fingerprint="a" * 64,
-                session_id=uuid4(),
-                project_id=uuid4(),
-                source_task_id=uuid4(),
-                run_id=uuid4(),
-                source_claim_message_id=claim_id,
-                source_claim_id=uuid4(),
-                source_claim_fingerprint="a" * 64,
-                source_claim_token="token",
-                source_reservation_message_id=uuid4(),
-                source_reservation_fingerprint="a" * 64,
-                source_consumption_message_id=uuid4(),
-                disposition_type="AUTO_CONTINUE",
-                dispatch_kind="auto_continue",
-                target_task_strategy="source_task_continue",
-                worker_call_attempted=True,
-                worker_returned=True,
-                worker_raised=False,
-                worker_result_contract_valid=True,
-                reserved_snapshot_present=True,
-                replay_check_completed=True,
-            )
-
-    def test_not_invoked_no_execution_evidence(self) -> None:
-        """Not invoked outcome cannot have execution evidence."""
-        claim_id = uuid4()
-        with pytest.raises(ValueError, match="not_invoked outcome has contradictory"):
-            ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult(
-                outcome_status="not_invoked",
-                outcome_id=uuid4(),
-                outcome_fingerprint="a" * 64,
-                session_id=uuid4(),
-                project_id=uuid4(),
-                source_task_id=uuid4(),
-                run_id=uuid4(),
-                source_claim_message_id=claim_id,
-                source_claim_id=claim_id,
-                source_claim_fingerprint="a" * 64,
-                source_claim_token="token",
-                source_reservation_message_id=uuid4(),
-                source_reservation_fingerprint="a" * 64,
-                source_consumption_message_id=uuid4(),
-                disposition_type="AUTO_CONTINUE",
-                dispatch_kind="auto_continue",
-                target_task_strategy="source_task_continue",
-                worker_call_attempted=True,
-                worker_returned=False,
-                worker_raised=False,
-                worker_result_contract_valid=False,
-                reserved_snapshot_present=False,
-                replay_check_completed=True,
-                blocked_reasons=["x"],
-            )
-
-    def test_raised_requires_exception_info(self) -> None:
-        """Raised outcome must have exception type and summary."""
-        claim_id = uuid4()
-        with pytest.raises(ValueError, match="raised outcome requires safe exception"):
-            ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult(
-                outcome_status="raised",
-                outcome_id=uuid4(),
-                outcome_fingerprint="a" * 64,
-                session_id=uuid4(),
-                project_id=uuid4(),
-                source_task_id=uuid4(),
-                run_id=uuid4(),
-                source_claim_message_id=claim_id,
-                source_claim_id=claim_id,
-                source_claim_fingerprint="a" * 64,
-                source_claim_token="token",
-                source_reservation_message_id=uuid4(),
-                source_reservation_fingerprint="a" * 64,
-                source_consumption_message_id=uuid4(),
-                disposition_type="AUTO_CONTINUE",
-                dispatch_kind="auto_continue",
-                target_task_strategy="source_task_continue",
-                worker_call_attempted=True,
-                worker_returned=False,
-                worker_raised=True,
-                worker_result_contract_valid=False,
-                reserved_snapshot_present=False,
-                replay_check_completed=True,
-                human_recovery_required=True,
-            )
-
-    def test_continuation_and_rework_both_true_rejected(self) -> None:
-        """Cannot have both continuation and rework started."""
-        claim_id = uuid4()
-        with pytest.raises(ValueError, match="continuation and rework cannot both start"):
-            ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult(
-                outcome_status="returned",
-                outcome_id=uuid4(),
-                outcome_fingerprint="a" * 64,
-                session_id=uuid4(),
-                project_id=uuid4(),
-                source_task_id=uuid4(),
-                run_id=uuid4(),
-                source_claim_message_id=claim_id,
-                source_claim_id=claim_id,
-                source_claim_fingerprint="a" * 64,
-                source_claim_token="token",
-                source_reservation_message_id=uuid4(),
-                source_reservation_fingerprint="a" * 64,
-                source_consumption_message_id=uuid4(),
-                disposition_type="AUTO_CONTINUE",
-                dispatch_kind="auto_continue",
-                target_task_strategy="source_task_continue",
-                worker_call_attempted=True,
-                worker_returned=True,
-                worker_raised=False,
-                worker_result_contract_valid=True,
-                reserved_snapshot_present=True,
-                replay_check_completed=True,
-                continuation_started=True,
-                rework_started=True,
-            )
-
-    def test_git_write_authority_rejected(self) -> None:
-        """Cannot authorize Git write."""
-        claim_id = uuid4()
-        with pytest.raises(ValueError, match="outcome cannot authorize Git write"):
-            ProjectDirectorProtectedTransitionWorkerInvocationOutcomeResult(
-                outcome_status="not_invoked",
-                outcome_id=uuid4(),
-                outcome_fingerprint="a" * 64,
-                session_id=uuid4(),
-                project_id=uuid4(),
-                source_task_id=uuid4(),
-                run_id=uuid4(),
-                source_claim_message_id=claim_id,
-                source_claim_id=claim_id,
-                source_claim_fingerprint="a" * 64,
-                source_claim_token="token",
-                source_reservation_message_id=uuid4(),
-                source_reservation_fingerprint="a" * 64,
-                source_consumption_message_id=uuid4(),
-                disposition_type="AUTO_CONTINUE",
-                dispatch_kind="auto_continue",
-                target_task_strategy="source_task_continue",
-                worker_call_attempted=False,
-                worker_returned=False,
-                worker_raised=False,
-                worker_result_contract_valid=False,
-                reserved_snapshot_present=False,
-                replay_check_completed=True,
-                product_runtime_git_write_allowed=True,
-                blocked_reasons=["x"],
-            )
-
-
-class TestWorkerReservedExecutionSnapshot:
-    """Tests for the reserved execution snapshot contract."""
-
-    def test_snapshot_fields_present(self) -> None:
-        """Snapshot must have all required fields."""
-        snapshot = WorkerReservedRunExecutionSnapshot(
-            source="p23_d2_exact_reserved_run",
-            exact_task_id=uuid4(),
-            exact_run_id=uuid4(),
-            reserved_run_execution_requested=True,
-            exact_binding_validated=True,
-            task_routed=False,
-            task_claimed_in_this_cycle=False,
-            run_created_in_this_cycle=False,
-            budget_rechecked=True,
-            existing_run_reused=True,
-            shared_execution_seam_used=True,
-            product_runtime_git_write_allowed=False,
-            blocked_reasons=[],
+        b1_svc, session, msg_repo, task_repo, run_repo, _ = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+            budget_allowed=False,
         )
-        assert snapshot.source == "p23_d2_exact_reserved_run"
-        assert snapshot.reserved_run_execution_requested is True
-        assert snapshot.task_routed is False
-        assert snapshot.product_runtime_git_write_allowed is False
 
-
-class TestFakeWorkerResult:
-    """Tests for the fake worker result factory."""
-
-    def test_make_fake_worker_result_auto_continue(self) -> None:
-        """Fake result for AUTO_CONTINUE has correct flags."""
-        tid = uuid4()
-        rid = uuid4()
-        result = make_fake_worker_result(
-            task_id=tid, run_id=rid, disposition_type="AUTO_CONTINUE"
+        result = b1_svc.prepare_protected_transition_worker_start_reservation(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=d1_msg_id,
         )
-        assert result.claimed is True
-        assert result.reserved_run_execution_snapshot is not None
-        assert result.reserved_run_execution_snapshot.exact_task_id == tid
-        assert result.reserved_run_execution_snapshot.exact_run_id == rid
-        assert result.reserved_run_execution_snapshot.source == "p23_d2_exact_reserved_run"
 
-    def test_make_fake_worker_result_git_activity(self) -> None:
-        """Fake result with git activity sets flag."""
-        result = make_fake_worker_result(
-            task_id=uuid4(), run_id=uuid4(), git_activity=True
+        assert result.result.reservation_status == "blocked"
+        assert "budget_guard_blocked" in result.result.blocked_reasons
+        assert result.message is None
+
+        session.close()
+        engine.dispose()
+
+    def test_b1_blocks_when_task_not_running(self, tmp_path):
+        """B1 blocks when task is not in running state."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+
+        # Create D1 with task_status="pending" but then change task state
+        ctx = _create_d1_success(sf)
+        ids = ctx["ids"]
+        d1_msg_id = ctx["d1_result"].message.id
+
+        # Change task to completed
+        task = ctx["task_repo"].get_by_id(ids["task_id"])
+        ctx["task_repo"].set_status(ids["task_id"], TaskStatus.COMPLETED)
+        ctx["msg_repo"]._session.commit()
+
+        b1_svc, session, msg_repo, task_repo, run_repo, _ = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
         )
-        assert result.git_diff_dry_run_runs_write_git is True
 
-    def test_make_fake_worker_result_invalid_contract(self) -> None:
-        """Fake result with invalid contract has wrong source."""
-        result = make_fake_worker_result(
-            task_id=uuid4(), run_id=uuid4(), contract_valid=False
+        result = b1_svc.prepare_protected_transition_worker_start_reservation(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=d1_msg_id,
         )
-        assert result.reserved_run_execution_snapshot.source == "invalid_source"
-        assert result.reserved_run_execution_snapshot.task_routed is True
 
+        assert result.result.reservation_status == "blocked"
+        assert result.message is None
 
-class TestSpyTaskWorker:
-    """Tests for the spy task worker."""
+        session.close()
+        engine.dispose()
 
-    def test_records_run_reserved_once_calls(self) -> None:
-        """Spy records run_reserved_once calls."""
-        tid = uuid4()
-        rid = uuid4()
-        result = make_fake_worker_result(task_id=tid, run_id=rid)
-        spy = SpyTaskWorker(result=result)
-        spy.run_reserved_once(task_id=tid, run_id=rid)
-        assert len(spy.run_reserved_once_calls) == 1
-        assert spy.run_reserved_once_calls[0]["task_id"] == tid
-        assert spy.run_reserved_once_calls[0]["run_id"] == rid
+    def test_b1_blocks_when_run_not_running(self, tmp_path):
+        """B1 blocks when run is not in running state."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = _create_d1_success(sf)
 
-    def test_records_run_once_calls(self) -> None:
-        """Spy records run_once calls."""
-        spy = SpyTaskWorker()
-        spy.run_once(task_id=uuid4())
-        assert len(spy.run_once_calls) == 1
+        ids = ctx["ids"]
+        d1_msg_id = ctx["d1_result"].message.id
+        d1_run_id = ctx["d1_result"].result.run_id
 
-    def test_raises_exception(self) -> None:
-        """Spy can raise exception."""
-        spy = SpyTaskWorker(exception=ValueError("test error"))
-        with pytest.raises(ValueError, match="test error"):
-            spy.run_reserved_once(task_id=uuid4(), run_id=uuid4())
-        assert len(spy.run_reserved_once_calls) == 1
+        # Change run to completed
+        ctx["run_repo"].finish_run(d1_run_id, status=RunStatus.SUCCEEDED, result_summary="test")
+        ctx["msg_repo"]._session.commit()
+
+        b1_svc, session, msg_repo, task_repo, run_repo, _ = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+        )
+
+        result = b1_svc.prepare_protected_transition_worker_start_reservation(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=d1_msg_id,
+        )
+
+        assert result.result.reservation_status == "blocked"
+        assert result.message is None
+
+        session.close()
+        engine.dispose()
+
+    def test_b1_persisted_finder_recovers_reservation_after_task_run_terminal(self, tmp_path):
+        """B1 persisted finder can recover reservation even after Task/Run become terminal."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        sf = make_session_factory(engine)
+        ctx = _create_d1_success(sf)
+
+        ids = ctx["ids"]
+        d1_msg_id = ctx["d1_result"].message.id
+        d1_run_id = ctx["d1_result"].result.run_id
+
+        # Create reservation
+        b1_svc, session, msg_repo, task_repo, run_repo, agent_sess_repo = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+        )
+        r1 = b1_svc.prepare_protected_transition_worker_start_reservation(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_message_id=d1_msg_id,
+        )
+        assert r1.result.reservation_status == "reserved"
+        reservation_msg_id = r1.message.id
+        session.close()
+
+        # Move Task/Run to terminal state
+        task_repo.set_status(ids["task_id"], TaskStatus.COMPLETED)
+        run_repo.finish_run(d1_run_id, status=RunStatus.SUCCEEDED, result_summary="test")
+        ctx["msg_repo"]._session.commit()
+
+        # Finder should still work (immutable revalidation)
+        b1_svc2, session2, msg_repo2, task_repo2, run_repo2, agent_sess_repo2 = make_b1_service(
+            sf,
+            msg_repo=ctx["msg_repo"],
+            task_repo=ctx["task_repo"],
+            run_repo=ctx["run_repo"],
+            d1_service=ctx["d1_svc"],
+        )
+
+        found = b1_svc2.find_persisted_protected_transition_worker_start_reservation(
+            session_id=ids["session_id"],
+            source_task_id=ids["task_id"],
+            source_consumption_message_id=d1_msg_id,
+        )
+
+        assert found.result is not None
+        assert found.result.reservation_id == reservation_msg_id
+        assert found.message.id == reservation_msg_id
+        assert found.blocked_reasons == []
+
+        session2.close()
+        engine.dispose()
