@@ -143,6 +143,7 @@ WORKER_RUN_RESULT_TOP_LEVEL_FIELD_GUARD = (
 WORKER_RUN_RESULT_FUTURE_GROUPED_SNAPSHOTS = (
     "runtime_snapshot",
     "external_executor_snapshot",
+    "reserved_run_execution_snapshot",
     "delivery_snapshot",
     "approval_snapshot",
     "cost_snapshot",
@@ -171,6 +172,25 @@ class WorkerSilentLaunchSnapshot:
     supervisor_status: str | None = None
     supervisor_cleanup_done: bool = False
     supervisor_action_success: bool | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class WorkerReservedRunExecutionSnapshot:
+    """P23-D2 exact reserved Task/Run 执行快照。"""
+
+    source: str
+    exact_task_id: UUID
+    exact_run_id: UUID
+    reserved_run_execution_requested: bool
+    exact_binding_validated: bool
+    task_routed: bool
+    task_claimed_in_this_cycle: bool
+    run_created_in_this_cycle: bool
+    budget_rechecked: bool
+    existing_run_reused: bool
+    shared_execution_seam_used: bool
+    product_runtime_git_write_allowed: bool = False
+    blocked_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -439,6 +459,7 @@ class WorkerRunResult:
     failure_recovery_reason_code: TaskBlockingReasonCode | None = None
     failure_recovery_decision: FailureRecoveryDecision | None = None
     agent_dispatch_decision: AgentDispatchDecision | None = None
+    reserved_run_execution_snapshot: WorkerReservedRunExecutionSnapshot | None = None
     task: Task | None = None
     run: Run | None = None
 
@@ -1751,18 +1772,515 @@ class TaskWorker:
         }
 
     def run_once(self, *, project_id: UUID | None = None) -> WorkerRunResult:
-        """Execute one conservative worker loop.
-
-        When ``project_id`` is provided, routing is scoped to pending tasks
-        under that project only.
-        """
+        """执行一次普通路由、认领、Run 创建与共享执行链。"""
 
         task: Task | None = None
         run: Run | None = None
         log_path: str | None = None
-        context_package: TaskContextPackage | None = None
         routing_decision: TaskRoutingDecision | None = None
-        claim_transition: TaskStateTransition | None = None
+        try:
+            for _ in range(_CLAIM_RETRY_LIMIT):
+                routing_decision = self.task_router_service.route_next_task(
+                    project_id=project_id
+                )
+                if routing_decision.selected_task is None:
+                    return WorkerRunResult(
+                        claimed=False,
+                        message=routing_decision.message,
+                        budget_pressure_level=routing_decision.budget_pressure_level,
+                        budget_action=routing_decision.budget_action,
+                        budget_strategy_code=routing_decision.budget_strategy_code,
+                        budget_strategy_summary=routing_decision.budget_strategy_summary,
+                    )
+
+                claim_transition = self.task_state_machine_service.build_claim_transition(
+                    task=routing_decision.selected_task,
+                )
+                task = self.task_repository.claim_pending_task(
+                    routing_decision.selected_task.id
+                )
+                if task is not None:
+                    break
+
+                self.session.rollback()
+            else:
+                return WorkerRunResult(
+                    claimed=False,
+                    message=(
+                        "Router repeatedly selected tasks that were already claimed by "
+                        "another worker."
+                    ),
+                )
+
+            self.session.commit()
+            assert task is not None
+            assert routing_decision is not None
+            assert routing_decision.selected_task is not None
+            event_stream_service.publish_task_updated(
+                task=task,
+                reason=claim_transition.event_reason,
+                previous_status=routing_decision.selected_task.status,
+            )
+
+            guard_decision = self.budget_guard_service.evaluate_before_execution(
+                task.id,
+                project_id=task.project_id,
+            )
+            run = self._create_running_run_from_routing(
+                task=task,
+                routing_decision=routing_decision,
+            )
+            run = self._initialize_run_log(task=task, run=run)
+            log_path = run.log_path
+            self._log_routing_decision(
+                run=run,
+                routing_decision=routing_decision,
+            )
+            self._log_role_handoff(
+                task=task,
+                run=run,
+                routing_decision=routing_decision,
+            )
+            self.run_logging_service.append_event(
+                log_path=log_path,
+                event="run_claimed",
+                message="Worker claimed a pending task and created a running run record.",
+                data={
+                    "task_id": str(task.id),
+                    "run_id": str(run.id),
+                    "task_status": task.status.value,
+                    "run_status": run.status.value,
+                },
+            )
+
+            if not guard_decision.allowed:
+                task, run = self._finalize_guard_blocked_path(
+                    task=task,
+                    run=run,
+                    decision=guard_decision,
+                )
+                self.session.commit()
+                self._record_failure_review_if_needed(task=task, run=run)
+                return self._build_guard_blocked_result(
+                    task=task,
+                    run=run,
+                    decision=guard_decision,
+                )
+
+            self.session.commit()
+        except Exception as exc:
+            if log_path is not None:
+                self.run_logging_service.append_event(
+                    log_path=log_path,
+                    event="worker_rolled_back",
+                    level="error",
+                    message=f"Worker cycle raised {type(exc).__name__}: {exc}",
+                    data={"exception_type": type(exc).__name__},
+                )
+            self.session.rollback()
+            if task is not None and run is not None:
+                self._best_effort_finalize_crashed_run(
+                    task_id=task.id,
+                    run_id=run.id,
+                    exception_summary=(
+                        f"Worker raised {type(exc).__name__}: {exc}. "
+                        "Run was recovered into a failed state."
+                    ),
+                )
+            raise
+
+        return self._execute_running_task_run(
+            task=task,
+            run=run,
+            routing_decision=routing_decision,
+            reserved_snapshot=None,
+        )
+
+    def run_reserved_once(
+        self,
+        *,
+        task_id: UUID,
+        run_id: UUID,
+    ) -> WorkerRunResult:
+        """执行一个由 D1 预留的 exact running Task/Run。"""
+
+        task = self.task_repository.get_by_id(task_id)
+        run = self.run_repository.get_by_id(run_id)
+        blocked_reason = self._validate_reserved_task_run(
+            task_id=task_id,
+            run_id=run_id,
+            task=task,
+            run=run,
+        )
+        if blocked_reason is not None:
+            return self._build_reserved_blocked_result(
+                task_id=task_id,
+                run_id=run_id,
+                task=task,
+                run=run,
+                reason=blocked_reason,
+                exact_binding_validated=False,
+                budget_rechecked=False,
+            )
+
+        assert task is not None
+        assert run is not None
+        if self._reserved_run_has_agent_session(run.id):
+            return self._build_reserved_blocked_result(
+                task_id=task_id,
+                run_id=run_id,
+                task=task,
+                run=run,
+                reason="reserved_run_agent_session_already_exists",
+                exact_binding_validated=True,
+                budget_rechecked=False,
+            )
+
+        log_path = run.log_path
+        try:
+            guard_decision = self.budget_guard_service.evaluate_before_execution(
+                task.id,
+                project_id=task.project_id,
+            )
+            routing_decision = self._build_routing_decision_from_reserved_run(
+                task=task,
+                run=run,
+                budget_decision=guard_decision,
+            )
+            if run.log_path is None:
+                run = self._initialize_run_log(task=task, run=run)
+            log_path = run.log_path
+            self._log_routing_decision(
+                run=run,
+                routing_decision=routing_decision,
+            )
+            self._log_role_handoff(
+                task=task,
+                run=run,
+                routing_decision=routing_decision,
+            )
+            self.run_logging_service.append_event(
+                log_path=log_path,
+                event="reserved_run_execution_started",
+                message=(
+                    "Executing exact D1-reserved Task and Run without routing, "
+                    "claiming, or creating another Run."
+                ),
+                data={
+                    "task_id": str(task.id),
+                    "run_id": str(run.id),
+                    "source": "p23_d2_exact_reserved_run",
+                    "task_routed": False,
+                    "task_claimed_in_this_cycle": False,
+                    "run_created_in_this_cycle": False,
+                    "product_runtime_git_write_allowed": False,
+                },
+            )
+
+            if not guard_decision.allowed:
+                task, run = self._finalize_guard_blocked_path(
+                    task=task,
+                    run=run,
+                    decision=guard_decision,
+                )
+                self.session.commit()
+                self._record_failure_review_if_needed(task=task, run=run)
+                return self._build_guard_blocked_result(
+                    task=task,
+                    run=run,
+                    decision=guard_decision,
+                    reserved_snapshot=self._build_reserved_snapshot(
+                        task_id=task_id,
+                        run_id=run_id,
+                        exact_binding_validated=True,
+                        budget_rechecked=True,
+                        shared_execution_seam_used=False,
+                        blocked_reasons=["budget_guard_blocked"],
+                    ),
+                )
+
+            self.session.commit()
+        except Exception as exc:
+            if log_path is not None:
+                self.run_logging_service.append_event(
+                    log_path=log_path,
+                    event="worker_rolled_back",
+                    level="error",
+                    message=f"Worker cycle raised {type(exc).__name__}: {exc}",
+                    data={"exception_type": type(exc).__name__},
+                )
+            self.session.rollback()
+            self._best_effort_finalize_crashed_run(
+                task_id=task.id,
+                run_id=run.id,
+                exception_summary=(
+                    f"Worker raised {type(exc).__name__}: {exc}. "
+                    "Run was recovered into a failed state."
+                ),
+            )
+            raise
+
+        return self._execute_running_task_run(
+            task=task,
+            run=run,
+            routing_decision=routing_decision,
+            reserved_snapshot=self._build_reserved_snapshot(
+                task_id=task_id,
+                run_id=run_id,
+                exact_binding_validated=True,
+                budget_rechecked=True,
+                shared_execution_seam_used=True,
+            ),
+        )
+
+    @staticmethod
+    def _validate_reserved_task_run(
+        *,
+        task_id: UUID,
+        run_id: UUID,
+        task: Task | None,
+        run: Run | None,
+    ) -> str | None:
+        """验证 exact reserved Task/Run 绑定与持久化路由证据。"""
+
+        if task is None:
+            return "reserved_task_missing"
+        if run is None:
+            return "reserved_run_missing"
+        if run.task_id != task.id or task.id != task_id or run.id != run_id:
+            return "reserved_run_task_mismatch"
+        if task.status != TaskStatus.RUNNING:
+            return "reserved_task_not_running"
+        if run.status != RunStatus.RUNNING:
+            return "reserved_run_not_running"
+        if task.project_id is None:
+            return "reserved_task_project_missing"
+        if (
+            run.started_at is None
+            or not run.route_reason
+            or not run.route_reason.strip()
+            or run.routing_score is None
+            or not run.routing_score_breakdown
+            or run.strategy_decision is None
+            or not run.model_name
+            or run.owner_role_code is None
+            or not run.dispatch_status
+        ):
+            return "reserved_run_routing_metadata_invalid"
+        return None
+
+    def _reserved_run_has_agent_session(self, run_id: UUID) -> bool:
+        """检查 exact Run 是否已经绑定 AgentSession。"""
+
+        return (
+            self.agent_conversation_service.agent_session_repository.get_by_run_id(
+                run_id
+            )
+            is not None
+        )
+
+    @staticmethod
+    def _build_reserved_snapshot(
+        *,
+        task_id: UUID,
+        run_id: UUID,
+        exact_binding_validated: bool,
+        budget_rechecked: bool,
+        shared_execution_seam_used: bool,
+        blocked_reasons: list[str] | None = None,
+    ) -> WorkerReservedRunExecutionSnapshot:
+        """构造 grouped reserved execution 快照。"""
+
+        return WorkerReservedRunExecutionSnapshot(
+            source="p23_d2_exact_reserved_run",
+            exact_task_id=task_id,
+            exact_run_id=run_id,
+            reserved_run_execution_requested=True,
+            exact_binding_validated=exact_binding_validated,
+            task_routed=False,
+            task_claimed_in_this_cycle=False,
+            run_created_in_this_cycle=False,
+            budget_rechecked=budget_rechecked,
+            existing_run_reused=exact_binding_validated,
+            shared_execution_seam_used=shared_execution_seam_used,
+            product_runtime_git_write_allowed=False,
+            blocked_reasons=list(blocked_reasons or []),
+        )
+
+    def _build_reserved_blocked_result(
+        self,
+        *,
+        task_id: UUID,
+        run_id: UUID,
+        task: Task | None,
+        run: Run | None,
+        reason: str,
+        exact_binding_validated: bool,
+        budget_rechecked: bool,
+    ) -> WorkerRunResult:
+        """返回不产生执行副作用的 reserved blocked 结果。"""
+
+        return WorkerRunResult(
+            claimed=False,
+            message=reason,
+            route_reason=run.route_reason if run is not None else None,
+            routing_score=run.routing_score if run is not None else None,
+            routing_score_breakdown=(
+                list(run.routing_score_breakdown) if run is not None else []
+            ),
+            model_name=run.model_name if run is not None else None,
+            owner_role_code=run.owner_role_code if run is not None else None,
+            upstream_role_code=run.upstream_role_code if run is not None else None,
+            downstream_role_code=run.downstream_role_code if run is not None else None,
+            handoff_reason=run.handoff_reason if run is not None else None,
+            dispatch_status=run.dispatch_status if run is not None else None,
+            reserved_run_execution_snapshot=self._build_reserved_snapshot(
+                task_id=task_id,
+                run_id=run_id,
+                exact_binding_validated=exact_binding_validated,
+                budget_rechecked=budget_rechecked,
+                shared_execution_seam_used=False,
+                blocked_reasons=[reason],
+            ),
+            task=task,
+            run=run,
+        )
+
+    @staticmethod
+    def _build_routing_decision_from_reserved_run(
+        *,
+        task: Task,
+        run: Run,
+        budget_decision: BudgetGuardDecision,
+    ) -> TaskRoutingDecision:
+        """从 persisted Run 与 current budget 重建执行期 routing decision。"""
+
+        strategy_decision = run.strategy_decision
+        if strategy_decision is None:
+            raise ValueError("reserved_run_routing_metadata_invalid")
+        return TaskRoutingDecision(
+            selected_task=task,
+            routing_score=run.routing_score,
+            route_reason=run.route_reason,
+            routing_score_breakdown=list(run.routing_score_breakdown),
+            candidates=[],
+            message=(
+                "Executing exact D1-reserved Task and Run without routing, "
+                "claiming, or creating another Run."
+            ),
+            budget_pressure_level=budget_decision.pressure_level,
+            budget_action=budget_decision.suggested_action,
+            budget_strategy_code=budget_decision.strategy_code,
+            budget_strategy_summary=budget_decision.budget.strategy_summary,
+            project_stage=strategy_decision.project_stage,
+            owner_role_code=run.owner_role_code,
+            upstream_role_code=run.upstream_role_code,
+            downstream_role_code=run.downstream_role_code,
+            dispatch_status=run.dispatch_status,
+            handoff_reason=run.handoff_reason,
+            model_name=run.model_name,
+            model_tier=strategy_decision.model_tier,
+            selected_skill_codes=tuple(strategy_decision.selected_skill_codes),
+            selected_skill_names=tuple(strategy_decision.selected_skill_names),
+            strategy_code=strategy_decision.strategy_code,
+            strategy_summary=strategy_decision.summary,
+            strategy_reasons=list(strategy_decision.reasons),
+            strategy_decision=strategy_decision,
+        )
+
+    def _create_running_run_from_routing(
+        self,
+        *,
+        task: Task,
+        routing_decision: TaskRoutingDecision,
+    ) -> Run:
+        """按普通 routing decision 创建新的 running Run。"""
+
+        return self.run_repository.create_running_run(
+            task_id=task.id,
+            model_name=routing_decision.model_name,
+            route_reason=routing_decision.route_reason,
+            routing_score=routing_decision.routing_score,
+            routing_score_breakdown=routing_decision.routing_score_breakdown,
+            strategy_decision=routing_decision.strategy_decision,
+            owner_role_code=routing_decision.owner_role_code,
+            upstream_role_code=routing_decision.upstream_role_code,
+            downstream_role_code=routing_decision.downstream_role_code,
+            handoff_reason=routing_decision.handoff_reason,
+            dispatch_status=routing_decision.dispatch_status,
+        )
+
+    @staticmethod
+    def _build_guard_blocked_result(
+        *,
+        task: Task,
+        run: Run,
+        decision: BudgetGuardDecision,
+        reserved_snapshot: WorkerReservedRunExecutionSnapshot | None = None,
+    ) -> WorkerRunResult:
+        """构造预算阻断后的既有 Worker 结果。"""
+
+        return WorkerRunResult(
+            claimed=True,
+            message=decision.summary or "Budget guard blocked execution.",
+            failure_category=run.failure_category,
+            quality_gate_passed=run.quality_gate_passed,
+            route_reason=run.route_reason,
+            routing_score=run.routing_score,
+            routing_score_breakdown=run.routing_score_breakdown,
+            budget_pressure_level=decision.pressure_level,
+            budget_action=decision.suggested_action,
+            budget_strategy_code=decision.strategy_code,
+            budget_strategy_summary=decision.budget.strategy_summary,
+            result_summary=run.result_summary,
+            model_name=run.model_name,
+            model_tier=(
+                run.strategy_decision.model_tier
+                if run.strategy_decision is not None
+                else None
+            ),
+            selected_skill_codes=(
+                list(run.strategy_decision.selected_skill_codes)
+                if run.strategy_decision is not None
+                else []
+            ),
+            selected_skill_names=(
+                list(run.strategy_decision.selected_skill_names)
+                if run.strategy_decision is not None
+                else []
+            ),
+            strategy_code=(
+                run.strategy_decision.strategy_code
+                if run.strategy_decision is not None
+                else None
+            ),
+            strategy_summary=(
+                run.strategy_decision.summary
+                if run.strategy_decision is not None
+                else None
+            ),
+            owner_role_code=run.owner_role_code,
+            upstream_role_code=run.upstream_role_code,
+            downstream_role_code=run.downstream_role_code,
+            handoff_reason=run.handoff_reason,
+            dispatch_status=run.dispatch_status,
+            reserved_run_execution_snapshot=reserved_snapshot,
+            task=task,
+            run=run,
+        )
+
+    def _execute_running_task_run(
+        self,
+        *,
+        task: Task,
+        run: Run,
+        routing_decision: TaskRoutingDecision,
+        reserved_snapshot: WorkerReservedRunExecutionSnapshot | None,
+    ) -> WorkerRunResult:
+        """复用既有 Worker 后半段执行 exact running Task/Run。"""
+
+        log_path = run.log_path
+        context_package: TaskContextPackage | None = None
         agent_session: AgentSession | None = None
         agent_session_id: UUID | None = None
         agent_session_status: str | None = None
@@ -1845,216 +2363,19 @@ class TaskWorker:
         delivery_gate_evidence_result: DeliveryGateEvidenceResult | None = None
 
         try:
-            for _ in range(_CLAIM_RETRY_LIMIT):
-                routing_decision = self.task_router_service.route_next_task(
-                    project_id=project_id
-                )
-                if routing_decision.selected_task is None:
-                    return WorkerRunResult(
-                        claimed=False,
-                        message=routing_decision.message,
-                        budget_pressure_level=routing_decision.budget_pressure_level,
-                        budget_action=routing_decision.budget_action,
-                        budget_strategy_code=routing_decision.budget_strategy_code,
-                        budget_strategy_summary=routing_decision.budget_strategy_summary,
-                    )
-
-                claim_transition = self.task_state_machine_service.build_claim_transition(
-                    task=routing_decision.selected_task,
-                )
-                task = self.task_repository.claim_pending_task(routing_decision.selected_task.id)
-                if task is not None:
-                    break
-
-                self.session.rollback()
-            else:
-                return WorkerRunResult(
-                    claimed=False,
-                    message=(
-                        "Router repeatedly selected tasks that were already claimed by "
-                        "another worker."
-                    ),
-                )
-
-            self.session.commit()
-            assert task is not None
-            assert routing_decision is not None
-            assert routing_decision.selected_task is not None
-            assert claim_transition is not None
-            event_stream_service.publish_task_updated(
-                task=task,
-                reason=claim_transition.event_reason,
-                previous_status=routing_decision.selected_task.status,
-            )
-
-            guard_decision = self.budget_guard_service.evaluate_before_execution(
-                task.id,
-                project_id=task.project_id,
-            )
-            if not guard_decision.allowed:
-                run = self.run_repository.create_running_run(
-                    task_id=task.id,
-                    model_name=routing_decision.model_name if routing_decision else None,
-                    route_reason=routing_decision.route_reason if routing_decision else None,
-                    routing_score=(
-                        routing_decision.routing_score if routing_decision else None
-                    ),
-                    routing_score_breakdown=(
-                        routing_decision.routing_score_breakdown
-                        if routing_decision
-                        else []
-                    ),
-                    strategy_decision=(
-                        routing_decision.strategy_decision if routing_decision else None
-                    ),
-                    owner_role_code=(
-                        routing_decision.owner_role_code if routing_decision else None
-                    ),
-                    upstream_role_code=(
-                        routing_decision.upstream_role_code if routing_decision else None
-                    ),
-                    downstream_role_code=(
-                        routing_decision.downstream_role_code if routing_decision else None
-                    ),
-                    handoff_reason=(
-                        routing_decision.handoff_reason if routing_decision else None
-                    ),
-                    dispatch_status=(
-                        routing_decision.dispatch_status if routing_decision else None
-                    ),
-                )
-                run = self._initialize_run_log(task=task, run=run)
-                log_path = run.log_path
-                if routing_decision is not None:
-                    self._log_routing_decision(run=run, routing_decision=routing_decision)
-                    self._log_role_handoff(
-                        task=task,
-                        run=run,
-                        routing_decision=routing_decision,
-                    )
-
-                self.run_logging_service.append_event(
-                    log_path=log_path,
-                    event="run_claimed",
-                    message="Worker claimed a pending task and created a running run record.",
-                    data={
-                        "task_id": str(task.id),
-                        "run_id": str(run.id),
-                        "task_status": task.status.value,
-                        "run_status": run.status.value,
-                    },
-                )
-
-                task, run = self._finalize_guard_blocked_path(
+            if (
+                reserved_snapshot is not None
+                and self._reserved_run_has_agent_session(run.id)
+            ):
+                return self._build_reserved_blocked_result(
+                    task_id=reserved_snapshot.exact_task_id,
+                    run_id=reserved_snapshot.exact_run_id,
                     task=task,
                     run=run,
-                    decision=guard_decision,
+                    reason="reserved_run_agent_session_already_exists",
+                    exact_binding_validated=True,
+                    budget_rechecked=True,
                 )
-                self.session.commit()
-                self._record_failure_review_if_needed(task=task, run=run)
-
-                return WorkerRunResult(
-                    claimed=True,
-                    message=guard_decision.summary or "Budget guard blocked execution.",
-                    failure_category=run.failure_category,
-                    quality_gate_passed=run.quality_gate_passed,
-                    route_reason=run.route_reason,
-                    routing_score=run.routing_score,
-                    routing_score_breakdown=run.routing_score_breakdown,
-                    budget_pressure_level=guard_decision.pressure_level,
-                    budget_action=guard_decision.suggested_action,
-                    budget_strategy_code=guard_decision.strategy_code,
-                    budget_strategy_summary=guard_decision.budget.strategy_summary,
-                    result_summary=run.result_summary,
-                    model_name=run.model_name,
-                    model_tier=(
-                        run.strategy_decision.model_tier
-                        if run.strategy_decision is not None
-                        else None
-                    ),
-                    selected_skill_codes=(
-                        list(run.strategy_decision.selected_skill_codes)
-                        if run.strategy_decision is not None
-                        else []
-                    ),
-                    selected_skill_names=(
-                        list(run.strategy_decision.selected_skill_names)
-                        if run.strategy_decision is not None
-                        else []
-                    ),
-                    strategy_code=(
-                        run.strategy_decision.strategy_code
-                        if run.strategy_decision is not None
-                        else None
-                    ),
-                    strategy_summary=(
-                        run.strategy_decision.summary
-                        if run.strategy_decision is not None
-                        else None
-                    ),
-                    owner_role_code=run.owner_role_code,
-                    upstream_role_code=run.upstream_role_code,
-                    downstream_role_code=run.downstream_role_code,
-                    handoff_reason=run.handoff_reason,
-                    dispatch_status=run.dispatch_status,
-                    task=task,
-                    run=run,
-                )
-
-            run = self.run_repository.create_running_run(
-                task_id=task.id,
-                model_name=routing_decision.model_name if routing_decision else None,
-                route_reason=routing_decision.route_reason if routing_decision else None,
-                routing_score=(
-                    routing_decision.routing_score if routing_decision else None
-                ),
-                routing_score_breakdown=(
-                    routing_decision.routing_score_breakdown
-                    if routing_decision
-                    else []
-                ),
-                strategy_decision=(
-                    routing_decision.strategy_decision if routing_decision else None
-                ),
-                owner_role_code=(
-                    routing_decision.owner_role_code if routing_decision else None
-                ),
-                upstream_role_code=(
-                    routing_decision.upstream_role_code if routing_decision else None
-                ),
-                downstream_role_code=(
-                    routing_decision.downstream_role_code if routing_decision else None
-                ),
-                handoff_reason=(
-                    routing_decision.handoff_reason if routing_decision else None
-                ),
-                dispatch_status=(
-                    routing_decision.dispatch_status if routing_decision else None
-                ),
-            )
-            run = self._initialize_run_log(task=task, run=run)
-            log_path = run.log_path
-            if routing_decision is not None:
-                self._log_routing_decision(run=run, routing_decision=routing_decision)
-                self._log_role_handoff(
-                    task=task,
-                    run=run,
-                    routing_decision=routing_decision,
-                )
-
-            self.run_logging_service.append_event(
-                log_path=log_path,
-                event="run_claimed",
-                message="Worker claimed a pending task and created a running run record.",
-                data={
-                    "task_id": str(task.id),
-                    "run_id": str(run.id),
-                    "task_status": task.status.value,
-                    "run_status": run.status.value,
-                },
-            )
-            self.session.commit()
-
             context_package = self.context_builder_service.build_context_package(
                 task=task,
                 run_id=run.id,
@@ -2597,6 +2918,7 @@ class TaskWorker:
                         downstream_role_code=run.downstream_role_code,
                         handoff_reason=run.handoff_reason,
                         dispatch_status=run.dispatch_status,
+                        reserved_run_execution_snapshot=reserved_snapshot,
                         task=task,
                         run=run,
                     )
@@ -2920,6 +3242,7 @@ class TaskWorker:
                         downstream_role_code=run.downstream_role_code,
                         handoff_reason=run.handoff_reason,
                         dispatch_status=run.dispatch_status,
+                        reserved_run_execution_snapshot=reserved_snapshot,
                         task=task,
                         run=run,
                     )
@@ -3247,6 +3570,7 @@ class TaskWorker:
                         downstream_role_code=run.downstream_role_code,
                         handoff_reason=run.handoff_reason,
                         dispatch_status=run.dispatch_status,
+                        reserved_run_execution_snapshot=reserved_snapshot,
                         task=task,
                         run=run,
                     )
@@ -3796,6 +4120,7 @@ class TaskWorker:
                 downstream_role_code=run.downstream_role_code if run else None,
                 handoff_reason=run.handoff_reason if run else None,
                 dispatch_status=run.dispatch_status if run else None,
+                reserved_run_execution_snapshot=reserved_snapshot,
                 task=task,
                 run=run,
             )
