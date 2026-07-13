@@ -62,7 +62,6 @@ _FORBIDDEN_ACTIONS = (
     "package_persistence",
     "continuation_persistence",
 )
-_CONFIRMED_REVIEW_STATUS = "confirmed"
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _GLOB_META = frozenset("*?[]{}!")
 
@@ -827,6 +826,20 @@ class ProjectDirectorNextTaskInstructionPackageCandidateBuilder:
         tuple[ProjectDirectorCandidateTestRequirement, ...],
         tuple[ProjectDirectorCandidateEvidenceRequirement, ...],
     ]:
+        verification_config = source_bundle.verification_config
+        expected_locator = (
+            f"pdv:{source_bundle.plan_version_id}:{source_bundle.plan_version_no}"
+        )
+        if (
+            verification_config.status != "confirmed"
+            or verification_config.project_id != source_bundle.project_id
+            or verification_config.plan_version_id
+            != source_bundle.plan_version_id
+            or verification_config.source_draft_id != expected_locator
+        ):
+            raise _Blocked(
+                "instruction_candidate_verification_requirement_unconfirmed"
+            )
         if exact_task.owner_role_code is None:
             raise _Blocked("instruction_candidate_task_conflict")
         relevant = tuple(
@@ -851,18 +864,18 @@ class ProjectDirectorNextTaskInstructionPackageCandidateBuilder:
                 raise _Blocked(
                     "instruction_candidate_verification_requirements_missing"
                 )
+            if (
+                not isinstance(mechanism.review_status, str)
+                or not mechanism.review_status.strip()
+            ):
+                raise _Blocked(
+                    "instruction_candidate_verification_requirement_unconfirmed"
+                )
             if mechanism.name in names:
                 raise _Blocked(
                     "instruction_candidate_verification_requirements_missing"
                 )
             names.add(mechanism.name)
-            if (
-                mechanism.review_status.strip().lower()
-                != _CONFIRMED_REVIEW_STATUS
-            ):
-                raise _Blocked(
-                    "instruction_candidate_verification_requirement_unconfirmed"
-                )
 
         verification = tuple(
             ProjectDirectorCandidateVerificationRequirement(
