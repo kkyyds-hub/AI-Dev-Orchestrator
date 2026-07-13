@@ -90,6 +90,21 @@ SourceTaskCompletionBlockedReason = Literal[
     "source_completion_delivery_fingerprint_mismatch",
     "source_completion_delivery_content_hash_mismatch",
     "source_completion_approval_evidence_adapter_unavailable",
+    "source_completion_approval_evidence_missing",
+    "source_completion_approval_evidence_id_invalid",
+    "source_completion_approval_evidence_conflict",
+    "source_completion_approval_terminal_result_unsupported",
+    "source_completion_approval_delivery_evidence_required",
+    "source_completion_approval_request_missing",
+    "source_completion_approval_request_invalid",
+    "source_completion_approval_project_mismatch",
+    "source_completion_approval_delivery_mismatch",
+    "source_completion_approval_decision_missing",
+    "source_completion_approval_decision_conflict",
+    "source_completion_approval_decision_invalid",
+    "source_completion_approval_not_approved",
+    "source_completion_approval_timeline_invalid",
+    "source_completion_approval_fingerprint_mismatch",
     "source_completion_axis_unsatisfied",
     "source_completion_evidence_missing",
     "source_completion_evidence_schema_mismatch",
@@ -204,6 +219,23 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     approval_satisfaction_status: SourceTaskCompletionAxisSatisfactionStatus
     approval_evidence_kind: str = Field(min_length=1, max_length=100)
     approval_evidence_ids: list[UUID]
+    source_completion_approval_request_id: UUID | None
+    source_completion_approval_decision_id: UUID | None
+    source_completion_approval_fingerprint: str | None = Field(max_length=64)
+    source_completion_approval_status: str | None = Field(
+        min_length=1, max_length=100
+    )
+    source_completion_approval_action: str | None = Field(
+        min_length=1, max_length=100
+    )
+    source_completion_approval_deliverable_id: UUID | None
+    source_completion_approval_deliverable_version_id: UUID | None
+    source_completion_approval_decided_at: datetime | None
+    source_completion_approval_actor_name: str | None = Field(
+        min_length=1, max_length=100
+    )
+    source_completion_approval_summary_sha256: str | None = Field(max_length=64)
+    source_completion_approval_summary_bytes: int | None = Field(ge=1)
 
     completion_status: Literal["completed"] = "completed"
     product_runtime_git_write_allowed: Literal[False] = False
@@ -220,6 +252,7 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     @field_validator(
         "agent_session_finished_at",
         "source_completion_deliverable_version_created_at",
+        "source_completion_approval_decided_at",
         mode="after",
     )
     @classmethod
@@ -245,6 +278,8 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
         "source_completion_review_diff_sha256",
         "source_completion_deliverable_version_fingerprint",
         "source_completion_deliverable_content_sha256",
+        "source_completion_approval_fingerprint",
+        "source_completion_approval_summary_sha256",
         mode="after",
     )
     @classmethod
@@ -340,6 +375,40 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
             ]
         ):
             raise ValueError("required delivery requires exact persisted version facts")
+        approval_facts = (
+            self.source_completion_approval_request_id,
+            self.source_completion_approval_decision_id,
+            self.source_completion_approval_fingerprint,
+            self.source_completion_approval_status,
+            self.source_completion_approval_action,
+            self.source_completion_approval_deliverable_id,
+            self.source_completion_approval_deliverable_version_id,
+            self.source_completion_approval_decided_at,
+            self.source_completion_approval_actor_name,
+            self.source_completion_approval_summary_sha256,
+            self.source_completion_approval_summary_bytes,
+        )
+        if self.approval_requirement == "not_required":
+            if any(value is not None for value in approval_facts):
+                raise ValueError("not-required approval may not freeze approval facts")
+        elif (
+            any(value is None for value in approval_facts)
+            or self.delivery_requirement != "required"
+            or self.approval_satisfaction_status != "satisfied"
+            or self.approval_evidence_kind != "approved_deliverable_version"
+            or self.approval_evidence_ids
+            != [
+                self.source_completion_approval_request_id,
+                self.source_completion_approval_decision_id,
+            ]
+            or self.source_completion_approval_status != "approved"
+            or self.source_completion_approval_action != "approve"
+            or self.source_completion_approval_deliverable_id
+            != self.source_completion_deliverable_id
+            or self.source_completion_approval_deliverable_version_id
+            != self.source_completion_deliverable_version_id
+        ):
+            raise ValueError("required approval requires exact approved version facts")
         if self.authority_agent_session_id is None:
             if (
                 self.authority_agent_session_status is not None
