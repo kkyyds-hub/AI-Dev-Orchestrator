@@ -34,6 +34,7 @@ from app.services.budget_guard_service import BudgetGuardService
 from app.services.role_catalog_service import RoleCatalogService
 from app.services.skill_registry_service import SkillRegistryService
 from app.services.strategy_engine_service import StrategyEngineService
+from app.domain.run import RunBudgetStrategyAction
 from app.services.task_readiness_service import TaskReadinessService
 from app.services.task_router_service import TaskRouterService
 
@@ -408,7 +409,7 @@ def test_exact_evaluator_fails_closed_on_shared_session_mismatch(
         assert candidate.ready is False
         assert candidate.owner_role_code is None
         assert candidate.selected_skill_codes == ()
-        assert "readonly_strategy_session_mismatch" in _reason_codes(candidate)
+        assert "readonly_router_session_mismatch" in _reason_codes(candidate)
     finally:
         other_session.close()
 
@@ -431,3 +432,353 @@ def test_route_next_task_keeps_existing_write_capable_initialization_path(
         harness.session.scalar(select(func.count()).select_from(ProjectRoleSkillBindingTable))
         > 0
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# P24-D2A1-PRE-B-R1: Session boundary acceptance tests
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _make_other_session(engine):
+    """Create a second Session bound to the same engine."""
+    return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
+
+
+def _assert_session_mismatch_blocked(candidate):
+    """Assert all fields match the session-mismatch blocked candidate contract."""
+    assert candidate.ready is False
+    assert "readonly_router_session_mismatch" in candidate.route_reason
+    assert any(
+        r.code == "readonly_router_session_mismatch"
+        for r in candidate.strategy_reasons
+    )
+    assert candidate.budget_action == RunBudgetStrategyAction.BLOCK
+    assert candidate.owner_role_code is None
+    assert candidate.upstream_role_code is None
+    assert candidate.downstream_role_code is None
+    assert candidate.selected_skill_codes == ()
+    assert candidate.selected_skill_names == ()
+    assert candidate.execution_attempts == 0
+    assert candidate.recent_failure_count == 0
+
+
+def _count_sql_statements(engine, session, task, *, kinds=("SELECT", "INSERT", "UPDATE", "DELETE")):
+    """Execute evaluate_exact_task_for_dispatch and count SQL by kind."""
+    observed = []
+
+    def _catch(conn, cursor, statement, parameters, context, executemany):
+        del conn, cursor, parameters, context, executemany
+        for kind in kinds:
+            if statement.lstrip().upper().startswith(kind):
+                observed.append(kind)
+                break
+
+    event.listen(engine, "before_cursor_execute", _catch)
+    try:
+        candidate = session and None  # noqa: just need the engine listener
+        from app.services.task_router_service import TaskRouterService
+        # We'll call the router externally
+    finally:
+        event.remove(engine, "before_cursor_execute", _catch)
+    return observed
+
+
+# ── A. Router Session mismatch parameterized tests ───────────────────
+
+
+@pytest.mark.parametrize(
+    "mismatch_scenario",
+    [
+        pytest.param("run_repository.session", id="1-run-repo-session"),
+        pytest.param("readiness.task_repository.session", id="2-readiness-task-repo"),
+        pytest.param("readiness.run_repository.session", id="3-readiness-run-repo"),
+        pytest.param("router_budget.run_repository.session", id="4-router-budget-run-repo"),
+        pytest.param("router_budget._db_session", id="5-router-budget-db-session"),
+        pytest.param("strategy.project_repository.session", id="6-strategy-project-repo"),
+        pytest.param("strategy_budget.run_repository.session", id="7-strategy-budget-run-repo"),
+        pytest.param("strategy_budget._db_session", id="8-strategy-budget-db-session"),
+        pytest.param("role.project_repository.session", id="9-role-project-repo"),
+        pytest.param("role.project_role_repository.session", id="10-role-role-repo"),
+        pytest.param("skill.project_repository.session", id="11-skill-project-repo"),
+        pytest.param("skill.skill_repository.session", id="12-skill-skill-repo"),
+        pytest.param("skill_role_service_object", id="13-skill-role-service-object"),
+        pytest.param("skill_role_repo_session", id="14-skill-role-repo-session"),
+    ],
+)
+def test_session_mismatch_fails_closed(
+    harness: RouterHarness,
+    monkeypatch: pytest.MonkeyPatch,
+    mismatch_scenario: str,
+):
+    """Each Session mismatch must fail closed before any business query."""
+    _initialize_all_authorities(harness)
+    other_session = _make_other_session(harness.engine)
+    try:
+        if mismatch_scenario == "run_repository.session":
+            harness.router.run_repository = RunRepository(other_session)
+        elif mismatch_scenario == "readiness.task_repository.session":
+            harness.router.task_readiness_service.task_repository = TaskRepository(other_session)
+        elif mismatch_scenario == "readiness.run_repository.session":
+            harness.router.task_readiness_service.run_repository = RunRepository(other_session)
+        elif mismatch_scenario == "router_budget.run_repository.session":
+            harness.router.budget_guard_service.run_repository = RunRepository(other_session)
+        elif mismatch_scenario == "router_budget._db_session":
+            harness.router.budget_guard_service._db_session = other_session
+        elif mismatch_scenario == "strategy.project_repository.session":
+            harness.strategy_engine_service.project_repository = ProjectRepository(other_session)
+        elif mismatch_scenario == "strategy_budget.run_repository.session":
+            harness.strategy_engine_service.budget_guard_service.run_repository = RunRepository(other_session)
+        elif mismatch_scenario == "strategy_budget._db_session":
+            harness.strategy_engine_service.budget_guard_service._db_session = other_session
+        elif mismatch_scenario == "role.project_repository.session":
+            harness.role_catalog_service.project_repository = ProjectRepository(other_session)
+        elif mismatch_scenario == "role.project_role_repository.session":
+            harness.role_catalog_service.project_role_repository = ProjectRoleRepository(other_session)
+        elif mismatch_scenario == "skill.project_repository.session":
+            harness.skill_registry_service.project_repository = ProjectRepository(other_session)
+        elif mismatch_scenario == "skill.skill_repository.session":
+            harness.skill_registry_service.skill_repository = SkillRepository(other_session)
+        elif mismatch_scenario == "skill_role_service_object":
+            other_role = RoleCatalogService(
+                project_repository=harness.project_repository,
+                project_role_repository=harness.project_role_repository,
+            )
+            harness.skill_registry_service.role_catalog_service = other_role
+        elif mismatch_scenario == "skill_role_repo_session":
+            harness.skill_registry_service.role_catalog_service.project_role_repository = (
+                ProjectRoleRepository(other_session)
+            )
+
+        candidate = harness.router.evaluate_exact_task_for_dispatch(task=harness.task)
+        _assert_session_mismatch_blocked(candidate)
+    finally:
+        other_session.close()
+
+
+# ── B. Mismatch produces zero SQL ─────────────────────────────────────
+
+
+def test_session_mismatch_emits_zero_sql(
+    harness: RouterHarness,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Session mismatch must not emit any SQL including SELECT."""
+    _initialize_all_authorities(harness)
+    other_session = _make_other_session(harness.engine)
+    try:
+        harness.router.run_repository = RunRepository(other_session)
+
+        observed_sql = []
+
+        def _catch(conn, cursor, statement, parameters, context, executemany):
+            del conn, cursor, parameters, context, executemany
+            observed_sql.append(statement.lstrip().upper()[:20])
+
+        event.listen(harness.engine, "before_cursor_execute", _catch)
+        try:
+            candidate = harness.router.evaluate_exact_task_for_dispatch(task=harness.task)
+        finally:
+            event.remove(harness.engine, "before_cursor_execute", _catch)
+
+        _assert_session_mismatch_blocked(candidate)
+        assert len(observed_sql) == 0, f"Session mismatch emitted SQL: {observed_sql}"
+    finally:
+        other_session.close()
+
+
+def test_session_mismatch_does_not_call_business_services(
+    harness: RouterHarness,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Session mismatch must not call Budget, Readiness, Strategy, Role, or Skill."""
+    _initialize_all_authorities(harness)
+    other_session = _make_other_session(harness.engine)
+    try:
+        harness.router.run_repository = RunRepository(other_session)
+
+        calls = {"budget": 0, "readiness": 0, "strategy": 0, "role": 0, "skill": 0}
+
+        orig_budget = harness.router.budget_guard_service.build_budget_snapshot
+        orig_readiness = harness.router.task_readiness_service.evaluate_task
+        orig_strategy = harness.strategy_engine_service.resolve_task_strategy_readonly
+        orig_role = harness.role_catalog_service.inspect_project_role_catalog_readonly
+        orig_skill = harness.skill_registry_service.inspect_project_skill_bindings_readonly
+
+        def wrap(name, fn):
+            def inner(*a, **kw):
+                calls[name] += 1
+                return fn(*a, **kw)
+            return inner
+
+        harness.router.budget_guard_service.build_budget_snapshot = wrap("budget", orig_budget)
+        harness.router.task_readiness_service.evaluate_task = wrap("readiness", orig_readiness)
+        harness.strategy_engine_service.resolve_task_strategy_readonly = wrap("strategy", orig_strategy)
+        harness.role_catalog_service.inspect_project_role_catalog_readonly = wrap("role", orig_role)
+        harness.skill_registry_service.inspect_project_skill_bindings_readonly = wrap("skill", orig_skill)
+
+        candidate = harness.router.evaluate_exact_task_for_dispatch(task=harness.task)
+        _assert_session_mismatch_blocked(candidate)
+
+        assert calls == {"budget": 0, "readiness": 0, "strategy": 0, "role": 0, "skill": 0}, (
+            f"Session mismatch called business services: {calls}"
+        )
+    finally:
+        other_session.close()
+
+
+# ── C. Router no_autoflush proof ──────────────────────────────────────
+
+
+def test_router_no_autoflush_prevents_pending_object_flush(
+    harness: RouterHarness,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Router no_autoflush must not flush pending ORM objects."""
+    _initialize_all_authorities(harness)
+    persisted_task = harness.task_repository.add_no_commit(harness.task)
+    harness.session.commit()
+
+    # Add a pending ORM object that should NOT be flushed
+    pending_row = ProjectTable(
+        id=uuid4(),
+        name="Pending autoflush test",
+        summary="Should not be flushed",
+        status="active",
+        stage="intake",
+    )
+    harness.session.add(pending_row)
+    assert pending_row in harness.session.new
+
+    # Guard against INSERT/UPDATE/DELETE
+    mutating_sql = []
+
+    def _guard(conn, cursor, statement, parameters, context, executemany):
+        del conn, cursor, parameters, context, executemany
+        upper = statement.lstrip().upper()
+        if upper.startswith(("INSERT", "UPDATE", "DELETE")):
+            mutating_sql.append(upper[:60])
+
+    event.listen(harness.engine, "before_cursor_execute", _guard)
+    try:
+        candidate = harness.router.evaluate_exact_task_for_dispatch(task=harness.task)
+    finally:
+        event.remove(harness.engine, "before_cursor_execute", _guard)
+
+    assert candidate.ready is True
+    assert len(mutating_sql) == 0, f"Router autoflushed: {mutating_sql}"
+    assert pending_row in harness.session.new, "Pending object was flushed"
+
+    # Verify the pending row does NOT exist in the database via independent connection
+    with harness.engine.connect() as conn:
+        count = conn.scalar(
+            select(func.count()).select_from(ProjectTable).where(
+                ProjectTable.name == "Pending autoflush test"
+            )
+        )
+    assert count == 0, "Pending object was written to database"
+
+
+# ── D. Strategy readonly seam self-protection ─────────────────────────
+
+
+def test_strategy_readonly_seam_no_autoflush(
+    harness: RouterHarness,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Strategy readonly seam must not trigger autoflush."""
+    _initialize_all_authorities(harness)
+    persisted_task = harness.task_repository.add_no_commit(harness.task)
+    harness.session.commit()
+
+    pending_row = ProjectTable(
+        id=uuid4(),
+        name="Strategy readonly autoflush test",
+        summary="Should not be flushed",
+        status="active",
+        stage="intake",
+    )
+    harness.session.add(pending_row)
+    assert pending_row in harness.session.new
+
+    mutating_sql = []
+
+    def _guard(conn, cursor, statement, parameters, context, executemany):
+        del conn, cursor, parameters, context, executemany
+        upper = statement.lstrip().upper()
+        if upper.startswith(("INSERT", "UPDATE", "DELETE")):
+            mutating_sql.append(upper[:60])
+
+    event.listen(harness.engine, "before_cursor_execute", _guard)
+    try:
+        strategy = harness.strategy_engine_service.resolve_task_strategy_readonly(
+            task=harness.task,
+            execution_attempts=0,
+            recent_failure_count=0,
+        )
+    finally:
+        event.remove(harness.engine, "before_cursor_execute", _guard)
+
+    assert strategy is not None
+    assert len(mutating_sql) == 0, f"Strategy readonly seam autoflushed: {mutating_sql}"
+    assert pending_row in harness.session.new
+
+    with harness.engine.connect() as conn:
+        count = conn.scalar(
+            select(func.count()).select_from(ProjectTable).where(
+                ProjectTable.name == "Strategy readonly autoflush test"
+            )
+        )
+    assert count == 0, "Strategy readonly seam wrote to database"
+
+
+# ── E. Strategy Session mismatch ─────────────────────────────────────
+
+
+def test_strategy_session_mismatch_raises_value_error(
+    harness: RouterHarness,
+):
+    """Strategy readonly seam must raise ValueError on Session mismatch."""
+    _initialize_all_authorities(harness)
+    other_session = _make_other_session(harness.engine)
+    try:
+        harness.strategy_engine_service.project_repository = ProjectRepository(other_session)
+
+        with pytest.raises(ValueError, match="readonly_strategy_session_mismatch"):
+            harness.strategy_engine_service.resolve_task_strategy_readonly(
+                task=harness.task,
+                execution_attempts=0,
+                recent_failure_count=0,
+            )
+    finally:
+        other_session.close()
+
+
+def test_strategy_session_mismatch_no_sql(
+    harness: RouterHarness,
+):
+    """Strategy Session mismatch must not emit any SQL."""
+    _initialize_all_authorities(harness)
+    other_session = _make_other_session(harness.engine)
+    try:
+        harness.strategy_engine_service.project_repository = ProjectRepository(other_session)
+
+        observed_sql = []
+
+        def _catch(conn, cursor, statement, parameters, context, executemany):
+            del conn, cursor, parameters, context, executemany
+            observed_sql.append(statement.lstrip().upper()[:20])
+
+        event.listen(harness.engine, "before_cursor_execute", _catch)
+        try:
+            with pytest.raises(ValueError, match="readonly_strategy_session_mismatch"):
+                harness.strategy_engine_service.resolve_task_strategy_readonly(
+                    task=harness.task,
+                    execution_attempts=0,
+                    recent_failure_count=0,
+                )
+        finally:
+            event.remove(harness.engine, "before_cursor_execute", _catch)
+
+        assert len(observed_sql) == 0, f"Strategy mismatch emitted SQL: {observed_sql}"
+    finally:
+        other_session.close()
