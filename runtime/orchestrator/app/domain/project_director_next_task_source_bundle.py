@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain._base import DomainModel
+from app.domain._base import DomainModel, ensure_utc_datetime
 from app.domain.project_director_confirmed_plan_queue import (
     ProjectDirectorConfirmedPlanQueueSnapshot,
 )
@@ -63,6 +63,30 @@ class _FrozenSnapshot(DomainModel):
     model_config = ConfigDict(frozen=True)
 
 
+class _ConfirmedConfigSnapshot(_FrozenSnapshot):
+    status: Literal["confirmed"]
+    created_at: datetime
+    updated_at: datetime
+    confirmed_at: datetime
+    rejected_at: None = None
+
+    @model_validator(mode="after")
+    def validate_confirmation_timeline(self) -> "_ConfirmedConfigSnapshot":
+        created_at = ensure_utc_datetime(self.created_at)
+        updated_at = ensure_utc_datetime(self.updated_at)
+        confirmed_at = ensure_utc_datetime(self.confirmed_at)
+        if created_at is None or updated_at is None or confirmed_at is None:
+            raise ValueError("confirmed config timestamps are required")
+        if self.rejected_at is not None or not (
+            created_at <= confirmed_at <= updated_at
+        ):
+            raise ValueError("confirmed config timeline is invalid")
+        object.__setattr__(self, "created_at", created_at)
+        object.__setattr__(self, "updated_at", updated_at)
+        object.__setattr__(self, "confirmed_at", confirmed_at)
+        return self
+
+
 class ProjectDirectorPlanScopeSnapshot(_FrozenSnapshot):
     in_scope: tuple[str, ...] = ()
     out_of_scope: tuple[str, ...] = ()
@@ -86,19 +110,14 @@ class ProjectDirectorAgentTeamMemberSnapshot(_FrozenSnapshot):
     review_status: str
 
 
-class ProjectDirectorAgentTeamConfigSnapshot(_FrozenSnapshot):
+class ProjectDirectorAgentTeamConfigSnapshot(_ConfirmedConfigSnapshot):
     id: UUID
     project_id: UUID
     plan_version_id: UUID
     source_draft_id: str
-    status: Literal["confirmed"]
     agent_team: tuple[ProjectDirectorAgentTeamMemberSnapshot, ...]
     warnings: tuple[str, ...] = ()
     review_note: str
-    created_at: datetime
-    updated_at: datetime
-    confirmed_at: datetime
-    rejected_at: None = None
 
 
 class ProjectDirectorSkillBindingSnapshot(_FrozenSnapshot):
@@ -112,19 +131,14 @@ class ProjectDirectorSkillBindingSnapshot(_FrozenSnapshot):
     review_status: str
 
 
-class ProjectDirectorSkillBindingConfigSnapshot(_FrozenSnapshot):
+class ProjectDirectorSkillBindingConfigSnapshot(_ConfirmedConfigSnapshot):
     id: UUID
     project_id: UUID
     plan_version_id: UUID
     source_draft_id: str
-    status: Literal["confirmed"]
     skill_bindings: tuple[ProjectDirectorSkillBindingSnapshot, ...]
     warnings: tuple[str, ...] = ()
     review_note: str
-    created_at: datetime
-    updated_at: datetime
-    confirmed_at: datetime
-    rejected_at: None = None
 
 
 class ProjectDirectorRepositoryBindingSnapshot(_FrozenSnapshot):
@@ -138,19 +152,14 @@ class ProjectDirectorRepositoryBindingSnapshot(_FrozenSnapshot):
     review_status: str
 
 
-class ProjectDirectorRepositoryBindingConfigSnapshot(_FrozenSnapshot):
+class ProjectDirectorRepositoryBindingConfigSnapshot(_ConfirmedConfigSnapshot):
     id: UUID
     project_id: UUID
     plan_version_id: UUID
     source_draft_id: str
-    status: Literal["confirmed"]
     repository_bindings: tuple[ProjectDirectorRepositoryBindingSnapshot, ...]
     warnings: tuple[str, ...] = ()
     review_note: str
-    created_at: datetime
-    updated_at: datetime
-    confirmed_at: datetime
-    rejected_at: None = None
 
 
 class ProjectDirectorVerificationMechanismSnapshot(_FrozenSnapshot):
@@ -164,21 +173,16 @@ class ProjectDirectorVerificationMechanismSnapshot(_FrozenSnapshot):
     review_status: str
 
 
-class ProjectDirectorVerificationConfigSnapshot(_FrozenSnapshot):
+class ProjectDirectorVerificationConfigSnapshot(_ConfirmedConfigSnapshot):
     id: UUID
     project_id: UUID
     plan_version_id: UUID
     source_draft_id: str
-    status: Literal["confirmed"]
     verification_mechanisms: tuple[
         ProjectDirectorVerificationMechanismSnapshot, ...
     ]
     warnings: tuple[str, ...] = ()
     review_note: str
-    created_at: datetime
-    updated_at: datetime
-    confirmed_at: datetime
-    rejected_at: None = None
 
 
 class ProjectDirectorRepositoryWorkspaceSnapshot(_FrozenSnapshot):

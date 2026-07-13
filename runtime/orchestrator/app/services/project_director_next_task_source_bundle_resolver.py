@@ -857,7 +857,7 @@ class ProjectDirectorNextTaskSourceBundleResolver:
             confirmed_at = self._strict_utc_datetime(row.confirmed_at)
         except (TypeError, ValueError) as exc:
             raise _Blocked(invalid) from exc
-        if updated_at < created_at:
+        if not created_at <= confirmed_at <= updated_at:
             raise _Blocked(invalid)
         return created_at, updated_at, confirmed_at
 
