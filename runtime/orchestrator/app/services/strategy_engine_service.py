@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from pydantic import Field, ValidationError, model_validator
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.domain._base import DomainModel
@@ -19,7 +20,7 @@ from app.domain.run import (
     RunStrategyDecision,
     RunStrategyReasonItem,
 )
-from app.domain.skill import ProjectRoleBoundSkill
+from app.domain.skill import ProjectRoleBoundSkill, ProjectSkillBindingSnapshot
 from app.domain.task import Task, TaskPriority, TaskRiskLevel
 from app.repositories.project_repository import ProjectRepository
 from app.services.budget_guard_service import (
@@ -123,6 +124,7 @@ class ResolvedTaskStrategy:
     routing_score_items: list[RunRoutingScoreItem]
     rule_codes: tuple[str, ...]
     strategy_decision: RunStrategyDecision
+    readonly_blocked_reasons: tuple[str, ...] = ()
 
 
 @dataclass(slots=True, frozen=True)
@@ -362,21 +364,237 @@ class StrategyEngineService:
             dependency_tasks=dependency_tasks or [],
         )
 
-        role_key = role_assignment.owner_role_code.value if role_assignment.owner_role_code else "unassigned"
-        stage_key = project_stage.value if project_stage is not None else "unscoped"
-
-        role_stage_score = rules.stage_role_boosts.get(stage_key, {}).get(role_key, 0.0)
-        role_stage_detail = self._build_role_stage_detail(
-            project_stage=project_stage,
-            role_assignment=role_assignment,
-            role_stage_score=role_stage_score,
-        )
-
         selected_skills, skill_rule_codes, skill_score, skill_reason = self._select_skills(
             project_id=task.project_id,
             project_stage=project_stage,
             owner_role_code=role_assignment.owner_role_code,
             rules=rules,
+        )
+        return self._build_resolved_task_strategy(
+            task=task,
+            rules=rules,
+            snapshot=snapshot,
+            budget_directive=budget_directive,
+            project=project,
+            project_stage=project_stage,
+            role_assignment=role_assignment,
+            selected_skills=selected_skills,
+            skill_rule_codes=skill_rule_codes,
+            skill_score=skill_score,
+            skill_reason=skill_reason,
+        )
+
+    def resolve_task_strategy_readonly(
+        self,
+        *,
+        task: Task,
+        execution_attempts: int,
+        recent_failure_count: int,
+        budget_snapshot: BudgetSnapshot | None = None,
+        dependency_tasks: list[Task] | None = None,
+    ) -> ResolvedTaskStrategy:
+        """Resolve exact-task strategy from persisted Role/Skill authority only."""
+
+        rules, _ = self._load_rule_set()
+        snapshot = budget_snapshot or self.budget_guard_service.build_budget_snapshot()
+        budget_directive = self.budget_guard_service.build_routing_directive(
+            risk_level=task.risk_level,
+            execution_attempts=execution_attempts,
+            recent_failure_count=recent_failure_count,
+            snapshot=snapshot,
+        )
+        project = None
+        project_stage = None
+        role_assignment = ResolvedTaskRoleAssignment(
+            owner_role_code=None,
+            upstream_role_code=None,
+            downstream_role_code=None,
+            dispatch_status="readonly_blocked",
+            handoff_reason="Readonly Role authority was not resolved.",
+            responsibility_score=0.0,
+        )
+        selected_skills: list[ProjectRoleBoundSkill] = []
+        skill_rule_codes: tuple[str, ...] = ()
+        skill_score = 0.0
+        skill_reason = "Readonly Skill authority was not resolved."
+        blocked_reasons: list[str] = []
+
+        if task.project_id is None:
+            blocked_reasons.append("readonly_strategy_project_required")
+        elif not self._readonly_dependencies_share_session():
+            blocked_reasons.append("readonly_strategy_session_mismatch")
+        else:
+            try:
+                project = self.project_repository.get_by_id(task.project_id)
+            except (TypeError, ValueError, SQLAlchemyError):
+                blocked_reasons.append("readonly_strategy_project_invalid")
+
+            if project is None and not blocked_reasons:
+                blocked_reasons.append("readonly_strategy_project_missing")
+            elif project is not None and project.id != task.project_id:
+                blocked_reasons.append("readonly_strategy_project_invalid")
+
+            if project is not None and not blocked_reasons:
+                project_stage = project.stage
+                try:
+                    role_resolution = (
+                        self.role_catalog_service.inspect_project_role_catalog_readonly(
+                            task.project_id
+                        )
+                    )
+                except (TypeError, ValueError, SQLAlchemyError):
+                    blocked_reasons.append("readonly_role_catalog_invalid")
+                else:
+                    if role_resolution.resolved:
+                        if (
+                            role_resolution.catalog is None
+                            or role_resolution.catalog.project_id != task.project_id
+                            or role_resolution.blocked_reasons
+                        ):
+                            blocked_reasons.append("readonly_role_catalog_invalid")
+                        else:
+                            try:
+                                role_assignment = (
+                                    self.role_catalog_service.resolve_task_role_assignment_from_catalog(
+                                        catalog=role_resolution.catalog,
+                                        title=task.title,
+                                        input_summary=task.input_summary,
+                                        acceptance_criteria=task.acceptance_criteria,
+                                        source_draft_id=task.source_draft_id,
+                                        requested_owner_role_code=(
+                                            task.owner_role_code
+                                        ),
+                                        requested_upstream_role_code=(
+                                            task.upstream_role_code
+                                        ),
+                                        requested_downstream_role_code=(
+                                            task.downstream_role_code
+                                        ),
+                                        dependency_tasks=dependency_tasks or [],
+                                    )
+                                )
+                            except (TypeError, ValueError):
+                                blocked_reasons.append(
+                                    "readonly_role_catalog_invalid"
+                                )
+                            else:
+                                if role_assignment.owner_role_code is None:
+                                    blocked_reasons.append(
+                                        "readonly_role_assignment_unresolved"
+                                    )
+                    elif (
+                        role_resolution.catalog is not None
+                        or not role_resolution.blocked_reasons
+                    ):
+                        blocked_reasons.append("readonly_role_catalog_invalid")
+                    else:
+                        blocked_reasons.extend(role_resolution.blocked_reasons)
+
+            if project is not None and not blocked_reasons:
+                try:
+                    skill_resolution = (
+                        self.skill_registry_service.inspect_project_skill_bindings_readonly(
+                            task.project_id
+                        )
+                    )
+                except (TypeError, ValueError, SQLAlchemyError):
+                    blocked_reasons.append("readonly_skill_registry_invalid")
+                else:
+                    if skill_resolution.resolved:
+                        if (
+                            skill_resolution.snapshot is None
+                            or skill_resolution.snapshot.project_id != task.project_id
+                            or skill_resolution.blocked_reasons
+                        ):
+                            blocked_reasons.append("readonly_skill_registry_invalid")
+                        else:
+                            try:
+                                (
+                                    selected_skills,
+                                    skill_rule_codes,
+                                    skill_score,
+                                    skill_reason,
+                                ) = self._select_skills_from_snapshot(
+                                    snapshot=skill_resolution.snapshot,
+                                    project_stage=project_stage,
+                                    owner_role_code=role_assignment.owner_role_code,
+                                    rules=rules,
+                                )
+                            except (TypeError, ValueError):
+                                blocked_reasons.append(
+                                    "readonly_skill_registry_invalid"
+                                )
+                            else:
+                                if not selected_skills:
+                                    blocked_reasons.append(
+                                        "readonly_skill_role_bindings_missing"
+                                    )
+                    elif (
+                        skill_resolution.snapshot is not None
+                        or not skill_resolution.blocked_reasons
+                    ):
+                        blocked_reasons.append("readonly_skill_registry_invalid")
+                    else:
+                        blocked_reasons.extend(skill_resolution.blocked_reasons)
+
+        normalized_blocked_reasons = tuple(dict.fromkeys(blocked_reasons))
+        if normalized_blocked_reasons:
+            selected_skills = []
+            skill_rule_codes = ()
+            skill_score = 0.0
+            skill_reason = (
+                "Readonly Role/Skill authority blocked exact routing: "
+                + ", ".join(normalized_blocked_reasons)
+                + "."
+            )
+
+        return self._build_resolved_task_strategy(
+            task=task,
+            rules=rules,
+            snapshot=snapshot,
+            budget_directive=budget_directive,
+            project=project,
+            project_stage=project_stage,
+            role_assignment=role_assignment,
+            selected_skills=selected_skills,
+            skill_rule_codes=skill_rule_codes,
+            skill_score=skill_score,
+            skill_reason=skill_reason,
+            readonly_blocked_reasons=normalized_blocked_reasons,
+        )
+
+    def _build_resolved_task_strategy(
+        self,
+        *,
+        task: Task,
+        rules: StrategyRuleSet,
+        snapshot: BudgetSnapshot,
+        budget_directive: BudgetRoutingDirective,
+        project: Project | None,
+        project_stage: ProjectStage | None,
+        role_assignment: ResolvedTaskRoleAssignment,
+        selected_skills: list[ProjectRoleBoundSkill],
+        skill_rule_codes: tuple[str, ...],
+        skill_score: float,
+        skill_reason: str,
+        readonly_blocked_reasons: tuple[str, ...] = (),
+    ) -> ResolvedTaskStrategy:
+        """Build one strategy from already-resolved Role and Skill authority."""
+
+        role_key = (
+            role_assignment.owner_role_code.value
+            if role_assignment.owner_role_code
+            else "unassigned"
+        )
+        stage_key = project_stage.value if project_stage is not None else "unscoped"
+        role_stage_score = rules.stage_role_boosts.get(stage_key, {}).get(
+            role_key,
+            0.0,
+        )
+        role_stage_detail = self._build_role_stage_detail(
+            project_stage=project_stage,
+            role_assignment=role_assignment,
+            role_stage_score=role_stage_score,
         )
         selected_skill_codes = tuple(skill.skill_code for skill in selected_skills)
         selected_skill_names = tuple(skill.skill_name for skill in selected_skills)
@@ -409,6 +627,7 @@ class StrategyEngineService:
                 f"stage-role:{stage_key}:{role_key}",
                 *skill_rule_codes,
                 *model_rule_codes,
+                *readonly_blocked_reasons,
             )
             if code
         )
@@ -468,6 +687,16 @@ class StrategyEngineService:
                     score=role_assignment.responsibility_score,
                 )
             )
+
+        strategy_reasons.extend(
+            RunStrategyReasonItem(
+                code=reason,
+                label="Readonly authority blocked",
+                detail=f"Exact routing blocked by {reason}.",
+                score=None,
+            )
+            for reason in readonly_blocked_reasons
+        )
 
         strategy_summary = self._build_strategy_summary(
             project_stage=project_stage,
@@ -536,6 +765,26 @@ class StrategyEngineService:
             routing_score_items=routing_score_items,
             rule_codes=rule_codes,
             strategy_decision=strategy_decision,
+            readonly_blocked_reasons=readonly_blocked_reasons,
+        )
+
+    def _readonly_dependencies_share_session(self) -> bool:
+        """Return whether every readonly Role/Skill dependency shares one session."""
+
+        session = self.project_repository.session
+        role_service = self.role_catalog_service
+        skill_service = self.skill_registry_service
+        return (
+            skill_service.role_catalog_service is role_service
+            and all(
+                dependency_session is session
+                for dependency_session in (
+                    role_service.project_repository.session,
+                    role_service.project_role_repository.session,
+                    skill_service.project_repository.session,
+                    skill_service.skill_repository.session,
+                )
+            )
         )
 
     def _load_rule_set(self) -> tuple[StrategyRuleSet, str]:
@@ -599,6 +848,31 @@ class StrategyEngineService:
                 (),
                 0.0,
                 "Project Skill bindings are not initialized yet.",
+            )
+
+        return self._select_skills_from_snapshot(
+            snapshot=snapshot,
+            project_stage=project_stage,
+            owner_role_code=owner_role_code,
+            rules=rules,
+        )
+
+    def _select_skills_from_snapshot(
+        self,
+        *,
+        snapshot: ProjectSkillBindingSnapshot,
+        project_stage: ProjectStage | None,
+        owner_role_code: ProjectRoleCode | None,
+        rules: StrategyRuleSet,
+    ) -> tuple[list[ProjectRoleBoundSkill], tuple[str, ...], float, str]:
+        """Pick Skills from an already-resolved project binding snapshot."""
+
+        if owner_role_code is None:
+            return (
+                [],
+                (),
+                0.0,
+                "Task has no resolved owner role, so project-level Skill bindings are skipped.",
             )
 
         role_group = next(

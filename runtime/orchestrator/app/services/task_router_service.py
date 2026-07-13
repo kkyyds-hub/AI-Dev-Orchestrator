@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -251,8 +252,16 @@ class TaskRouterService:
     ) -> TaskRoutingCandidate:
         """只评估调用方指定的 exact task，不选择或修改其他任务。"""
 
-        budget_snapshot = self.budget_guard_service.build_budget_snapshot()
-        return self._evaluate_task(task, budget_snapshot=budget_snapshot)
+        session = self.strategy_engine_service.project_repository.session
+        with session.no_autoflush:
+            budget_snapshot = self.budget_guard_service.build_budget_snapshot()
+            return self._evaluate_task_with_strategy(
+                task,
+                budget_snapshot=budget_snapshot,
+                strategy_resolver=(
+                    self.strategy_engine_service.resolve_task_strategy_readonly
+                ),
+            )
 
     def _evaluate_task(
         self,
@@ -262,6 +271,21 @@ class TaskRouterService:
     ) -> TaskRoutingCandidate:
         """Evaluate one pending task and explain the result."""
 
+        return self._evaluate_task_with_strategy(
+            task,
+            budget_snapshot=budget_snapshot,
+            strategy_resolver=self.strategy_engine_service.resolve_task_strategy,
+        )
+
+    def _evaluate_task_with_strategy(
+        self,
+        task: Task,
+        *,
+        budget_snapshot: BudgetSnapshot,
+        strategy_resolver: Callable[..., ResolvedTaskStrategy],
+    ) -> TaskRoutingCandidate:
+        """Evaluate one task using the caller's explicit Strategy seam."""
+
         readiness = self.task_readiness_service.evaluate_task(task=task)
         execution_attempts = self.run_repository.count_execution_attempts_by_task_id(task.id)
         recent_runs = self.run_repository.list_by_task_id(task.id)[:3]
@@ -269,7 +293,7 @@ class TaskRouterService:
         dependency_tasks = list(
             self.task_repository.get_by_ids(task.depends_on_task_ids).values()
         )
-        strategy = self.strategy_engine_service.resolve_task_strategy(
+        strategy = strategy_resolver(
             task=task,
             execution_attempts=execution_attempts,
             recent_failure_count=recent_failure_count,
@@ -277,8 +301,12 @@ class TaskRouterService:
             dependency_tasks=dependency_tasks,
         )
 
-        if not readiness.ready_for_execution:
-            blocking_text = " | ".join(readiness.blocking_reasons)
+        if not readiness.ready_for_execution or strategy.readonly_blocked_reasons:
+            blocking_reasons = [
+                *readiness.blocking_reasons,
+                *strategy.readonly_blocked_reasons,
+            ]
+            blocking_text = " | ".join(blocking_reasons)
             routing_score_breakdown = [
                 RunRoutingScoreItem(
                     code="readiness_gate",
@@ -297,6 +325,19 @@ class TaskRouterService:
                 ),
                 *strategy.routing_score_items,
             ]
+            if strategy.readonly_blocked_reasons:
+                routing_score_breakdown.insert(
+                    1,
+                    RunRoutingScoreItem(
+                        code="readonly_authority_gate",
+                        label="Readonly authority gate",
+                        score=0.0,
+                        detail=(
+                            "exact routing blocked by: "
+                            + ", ".join(strategy.readonly_blocked_reasons)
+                        ),
+                    ),
+                )
             return TaskRoutingCandidate(
                 task=task,
                 readiness=readiness,

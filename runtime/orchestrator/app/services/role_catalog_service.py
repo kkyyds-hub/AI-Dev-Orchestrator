@@ -377,6 +377,33 @@ class RoleCatalogService:
             )
 
         catalog = self.get_project_role_catalog(project_id)
+        return self.resolve_task_role_assignment_from_catalog(
+            catalog=catalog,
+            title=title,
+            input_summary=input_summary,
+            acceptance_criteria=acceptance_criteria,
+            source_draft_id=source_draft_id,
+            requested_owner_role_code=requested_owner_role_code,
+            requested_upstream_role_code=requested_upstream_role_code,
+            requested_downstream_role_code=requested_downstream_role_code,
+            dependency_tasks=dependency_tasks,
+        )
+
+    def resolve_task_role_assignment_from_catalog(
+        self,
+        *,
+        catalog: ProjectRoleCatalog | None,
+        title: str,
+        input_summary: str,
+        acceptance_criteria: list[str],
+        source_draft_id: str | None = None,
+        requested_owner_role_code: ProjectRoleCode | None = None,
+        requested_upstream_role_code: ProjectRoleCode | None = None,
+        requested_downstream_role_code: ProjectRoleCode | None = None,
+        dependency_tasks: list[Task] | None = None,
+    ) -> ResolvedTaskRoleAssignment:
+        """Resolve a role chain from an already-loaded catalog without persistence."""
+
         roles = catalog.roles if catalog is not None else []
         role_map = {role.role_code: role for role in roles}
         enabled_roles = sorted(
