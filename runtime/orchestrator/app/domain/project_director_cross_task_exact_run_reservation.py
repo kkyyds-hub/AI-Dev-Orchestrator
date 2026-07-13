@@ -11,11 +11,14 @@ from uuid import UUID
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from app.domain._base import DomainModel, ensure_utc_datetime
+from app.domain.project_director_exact_next_task_routing_snapshot import (
+    ProjectDirectorRoutingScoreItemSnapshot,
+    ProjectDirectorStrategyDecisionSnapshot,
+)
 from app.domain.project_director_next_task_instruction_package import (
     compute_p24_contract_sha256,
 )
 from app.domain.project_role import ProjectRoleCode
-from app.domain.run import RunRoutingScoreItem, RunStrategyDecision
 from app.domain.task import TaskPriority, TaskRiskLevel
 
 
@@ -80,6 +83,7 @@ _REQUIRED_FORBIDDEN_ACTIONS = {
     "duplicate_task_creation",
     "duplicate_task_claim",
     "duplicate_run_creation",
+    "worker_invocation",
     "worker_invocation_without_reservation",
     "verification_command_execution",
     "uncontrolled_workspace_write",
@@ -169,8 +173,11 @@ class ProjectDirectorCrossTaskExactRunReservation(DomainModel):
     run_model_name: str
     run_route_reason: str
     run_routing_score: float
-    run_routing_score_breakdown: tuple[RunRoutingScoreItem, ...]
-    run_strategy_decision: RunStrategyDecision
+    run_routing_score_breakdown: tuple[
+        ProjectDirectorRoutingScoreItemSnapshot,
+        ...,
+    ]
+    run_strategy_decision: ProjectDirectorStrategyDecisionSnapshot
 
     run_owner_role_code: ProjectRoleCode
     run_upstream_role_code: ProjectRoleCode | None
