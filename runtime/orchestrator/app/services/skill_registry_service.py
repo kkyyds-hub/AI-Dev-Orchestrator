@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.domain._base import utc_now
 from app.domain.project import Project
 from app.domain.project_role import ProjectRoleCatalog, ProjectRoleCode, ProjectRoleConfig
@@ -35,6 +37,33 @@ class SkillSeedTemplate:
     initial_version: str = "1.0.0"
     enabled: bool = True
     change_note: str = "Built-in Day13 Skill seeded into the registry."
+
+
+@dataclass(slots=True, frozen=True)
+class ProjectSkillBindingsReadOnlyResolution:
+    """Strictly readonly resolution of persisted project Skill bindings."""
+
+    resolved: bool
+    snapshot: ProjectSkillBindingSnapshot | None
+    blocked_reasons: tuple[str, ...]
+    missing_skill_codes: tuple[str, ...] = ()
+    missing_current_version_skill_codes: tuple[str, ...] = ()
+    duplicate_skill_codes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.blocked_reasons) != len(set(self.blocked_reasons)):
+            raise ValueError("readonly Skill blocked reasons must be unique")
+        if self.resolved:
+            if (
+                self.snapshot is None
+                or self.blocked_reasons
+                or self.missing_skill_codes
+                or self.missing_current_version_skill_codes
+                or self.duplicate_skill_codes
+            ):
+                raise ValueError("resolved readonly Skill bindings are inconsistent")
+        elif self.snapshot is not None or not self.blocked_reasons:
+            raise ValueError("blocked readonly Skill bindings are inconsistent")
 
 
 _SYSTEM_SKILL_TEMPLATES: tuple[SkillSeedTemplate, ...] = (
@@ -262,6 +291,266 @@ class SkillRegistryService:
             skills=skills,
             bindings=bindings,
         )
+
+    def inspect_project_skill_bindings_readonly(
+        self,
+        project_id: UUID,
+    ) -> ProjectSkillBindingsReadOnlyResolution:
+        """Inspect complete persisted Skill bindings without initializing them."""
+
+        session = self.project_repository.session
+        role_service = self.role_catalog_service
+        if any(
+            dependency_session is not session
+            for dependency_session in (
+                self.skill_repository.session,
+                role_service.project_repository.session,
+                role_service.project_role_repository.session,
+            )
+        ):
+            raise ValueError(
+                "read-only Skill catalog dependencies must share one SQLAlchemy session"
+            )
+
+        with session.no_autoflush:
+            try:
+                project = self.project_repository.get_by_id(project_id)
+            except (TypeError, ValueError, SQLAlchemyError):
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_registry_invalid",),
+                )
+            if project is None:
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_project_missing",),
+                )
+
+            try:
+                role_resolution = (
+                    role_service.inspect_project_role_catalog_readonly(project_id)
+                )
+            except (TypeError, ValueError, SQLAlchemyError):
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_role_catalog_unavailable",),
+                )
+            if not role_resolution.resolved or role_resolution.catalog is None:
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_role_catalog_unavailable",),
+                )
+            if role_resolution.catalog.project_id != project_id:
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_role_catalog_unavailable",),
+                )
+
+            try:
+                persisted_skills = self.skill_repository.list_skills()
+            except (TypeError, ValueError, SQLAlchemyError):
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_registry_invalid",),
+                )
+
+            seen_skill_codes: dict[str, None] = {}
+            seen_skill_ids: dict[UUID, None] = {}
+            duplicate_skill_codes: list[str] = []
+            duplicate_skill_id_found = False
+            for skill in persisted_skills:
+                if (
+                    skill.code in seen_skill_codes
+                    and skill.code not in duplicate_skill_codes
+                ):
+                    duplicate_skill_codes.append(skill.code)
+                if skill.id in seen_skill_ids:
+                    duplicate_skill_id_found = True
+                seen_skill_codes[skill.code] = None
+                seen_skill_ids[skill.id] = None
+
+            missing_skill_codes = tuple(
+                template.code
+                for template in _SYSTEM_SKILL_TEMPLATES
+                if template.code not in seen_skill_codes
+            )
+            registry_reasons: list[str] = []
+            if duplicate_skill_codes or duplicate_skill_id_found:
+                registry_reasons.append("readonly_skill_registry_conflict")
+            if missing_skill_codes:
+                registry_reasons.append(
+                    "readonly_skill_registry_initialization_required"
+                )
+            if registry_reasons:
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=tuple(registry_reasons),
+                    missing_skill_codes=missing_skill_codes,
+                    duplicate_skill_codes=tuple(duplicate_skill_codes),
+                )
+
+            try:
+                versions_by_skill_id = (
+                    self.skill_repository.list_versions_by_skill_ids(
+                        [skill.id for skill in persisted_skills]
+                    )
+                )
+            except (TypeError, ValueError, SQLAlchemyError):
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_registry_invalid",),
+                )
+
+            missing_current_versions: list[str] = []
+            version_reasons: list[str] = []
+            for skill in persisted_skills:
+                version_records = versions_by_skill_id.get(skill.id, [])
+                seen_versions: dict[str, None] = {}
+                for record in version_records:
+                    if record.skill_id != skill.id:
+                        return ProjectSkillBindingsReadOnlyResolution(
+                            resolved=False,
+                            snapshot=None,
+                            blocked_reasons=("readonly_skill_registry_invalid",),
+                        )
+                    if record.version in seen_versions:
+                        if (
+                            "readonly_skill_registry_conflict"
+                            not in version_reasons
+                        ):
+                            version_reasons.append(
+                                "readonly_skill_registry_conflict"
+                            )
+                    seen_versions[record.version] = None
+                current_version_count = sum(
+                    record.skill_id == skill.id
+                    and record.version == skill.current_version
+                    for record in version_records
+                )
+                if current_version_count == 0:
+                    missing_current_versions.append(skill.code)
+                    if (
+                        "readonly_skill_version_backfill_required"
+                        not in version_reasons
+                    ):
+                        version_reasons.append(
+                            "readonly_skill_version_backfill_required"
+                        )
+                elif current_version_count > 1:
+                    if (
+                        "readonly_skill_registry_conflict"
+                        not in version_reasons
+                    ):
+                        version_reasons.append(
+                            "readonly_skill_registry_conflict"
+                        )
+            if version_reasons:
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=tuple(version_reasons),
+                    missing_current_version_skill_codes=tuple(
+                        missing_current_versions
+                    ),
+                )
+
+            try:
+                skills_with_history = [
+                    SkillDefinition.model_validate(skill.model_dump(mode="python"))
+                    for skill in self._build_skills_with_history(
+                        persisted_skills,
+                        versions_by_skill_id,
+                    )
+                ]
+            except (TypeError, ValueError):
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_registry_invalid",),
+                )
+
+            try:
+                bindings = self.skill_repository.list_role_bindings_by_project_id(
+                    project_id
+                )
+            except (TypeError, ValueError, SQLAlchemyError):
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_binding_invalid",),
+                )
+            if not bindings:
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=(
+                        "readonly_skill_bindings_initialization_required",
+                    ),
+                )
+
+            role_codes = {
+                role.role_code for role in role_resolution.catalog.roles
+            }
+            skills_by_id = {skill.id: skill for skill in skills_with_history}
+            seen_binding_keys: dict[tuple[ProjectRoleCode, UUID], None] = {}
+            binding_reasons: list[str] = []
+            for binding in bindings:
+                binding_key = (binding.role_code, binding.skill_id)
+                if binding_key in seen_binding_keys:
+                    if "readonly_skill_binding_conflict" not in binding_reasons:
+                        binding_reasons.append("readonly_skill_binding_conflict")
+                seen_binding_keys[binding_key] = None
+
+                skill = skills_by_id.get(binding.skill_id)
+                version_records = versions_by_skill_id.get(binding.skill_id, [])
+                bound_version_count = sum(
+                    record.skill_id == binding.skill_id
+                    and record.version == binding.bound_version
+                    for record in version_records
+                )
+                if (
+                    binding.project_id != project_id
+                    or binding.role_code not in role_codes
+                    or skill is None
+                    or binding.skill_code != skill.code
+                    or binding.role_code not in skill.applicable_role_codes
+                    or bound_version_count != 1
+                ):
+                    if "readonly_skill_binding_invalid" not in binding_reasons:
+                        binding_reasons.append("readonly_skill_binding_invalid")
+            if binding_reasons:
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=tuple(binding_reasons),
+                )
+
+            try:
+                snapshot = self._build_project_binding_snapshot(
+                    project=project,
+                    role_catalog=role_resolution.catalog,
+                    skills=skills_with_history,
+                    bindings=bindings,
+                )
+            except (TypeError, ValueError):
+                return ProjectSkillBindingsReadOnlyResolution(
+                    resolved=False,
+                    snapshot=None,
+                    blocked_reasons=("readonly_skill_binding_invalid",),
+                )
+            return ProjectSkillBindingsReadOnlyResolution(
+                resolved=True,
+                snapshot=snapshot.model_copy(deep=True),
+                blocked_reasons=(),
+            )
 
     def replace_project_role_skill_bindings(
         self,

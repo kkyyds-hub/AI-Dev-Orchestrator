@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import re
 from uuid import UUID
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.domain._base import utc_now
 from app.domain.project_role import (
     ProjectRoleCatalog,
@@ -29,6 +31,31 @@ class ResolvedTaskRoleAssignment:
     handoff_reason: str
     responsibility_score: float
     matched_terms: tuple[str, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class ProjectRoleCatalogReadOnlyResolution:
+    """Strictly readonly resolution of one persisted project role catalog."""
+
+    resolved: bool
+    catalog: ProjectRoleCatalog | None
+    blocked_reasons: tuple[str, ...]
+    missing_role_codes: tuple[ProjectRoleCode, ...] = ()
+    duplicate_role_codes: tuple[ProjectRoleCode, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.blocked_reasons) != len(set(self.blocked_reasons)):
+            raise ValueError("readonly role blocked reasons must be unique")
+        if self.resolved:
+            if (
+                self.catalog is None
+                or self.blocked_reasons
+                or self.missing_role_codes
+                or self.duplicate_role_codes
+            ):
+                raise ValueError("resolved readonly role catalog is inconsistent")
+        elif self.catalog is not None or not self.blocked_reasons:
+            raise ValueError("blocked readonly role catalog is inconsistent")
 
 
 _ROLE_MATCH_HINTS: dict[ProjectRoleCode, tuple[str, ...]] = {
@@ -194,6 +221,89 @@ class RoleCatalogService:
 
         roles = self._ensure_project_roles_initialized(project_id)
         return self._build_project_catalog(project_id=project_id, roles=roles)
+
+    def inspect_project_role_catalog_readonly(
+        self,
+        project_id: UUID,
+    ) -> ProjectRoleCatalogReadOnlyResolution:
+        """Inspect a complete persisted role catalog without initializing it."""
+
+        session = self.project_repository.session
+        if session is not self.project_role_repository.session:
+            raise ValueError(
+                "read-only role catalog dependencies must share one SQLAlchemy session"
+            )
+
+        with session.no_autoflush:
+            try:
+                if not self.project_repository.exists(project_id):
+                    return ProjectRoleCatalogReadOnlyResolution(
+                        resolved=False,
+                        catalog=None,
+                        blocked_reasons=("readonly_role_project_missing",),
+                    )
+                persisted_roles = self.project_role_repository.list_by_project_id(
+                    project_id
+                )
+            except (TypeError, ValueError, SQLAlchemyError):
+                return ProjectRoleCatalogReadOnlyResolution(
+                    resolved=False,
+                    catalog=None,
+                    blocked_reasons=("readonly_role_catalog_invalid",),
+                )
+
+            if any(role.project_id != project_id for role in persisted_roles):
+                return ProjectRoleCatalogReadOnlyResolution(
+                    resolved=False,
+                    catalog=None,
+                    blocked_reasons=("readonly_role_catalog_invalid",),
+                )
+
+            seen_role_codes: dict[ProjectRoleCode, None] = {}
+            duplicate_role_codes: list[ProjectRoleCode] = []
+            for role in persisted_roles:
+                if (
+                    role.role_code in seen_role_codes
+                    and role.role_code not in duplicate_role_codes
+                ):
+                    duplicate_role_codes.append(role.role_code)
+                seen_role_codes[role.role_code] = None
+
+            missing_role_codes = tuple(
+                entry.code
+                for entry in _SYSTEM_ROLE_CATALOG
+                if entry.code not in seen_role_codes
+            )
+            blocked_reasons: list[str] = []
+            if missing_role_codes:
+                blocked_reasons.append("readonly_role_catalog_initialization_required")
+            if duplicate_role_codes:
+                blocked_reasons.append("readonly_role_catalog_conflict")
+            if blocked_reasons:
+                return ProjectRoleCatalogReadOnlyResolution(
+                    resolved=False,
+                    catalog=None,
+                    blocked_reasons=tuple(blocked_reasons),
+                    missing_role_codes=missing_role_codes,
+                    duplicate_role_codes=tuple(duplicate_role_codes),
+                )
+
+            try:
+                catalog = self._build_project_catalog(
+                    project_id=project_id,
+                    roles=persisted_roles,
+                )
+            except (TypeError, ValueError):
+                return ProjectRoleCatalogReadOnlyResolution(
+                    resolved=False,
+                    catalog=None,
+                    blocked_reasons=("readonly_role_catalog_invalid",),
+                )
+            return ProjectRoleCatalogReadOnlyResolution(
+                resolved=True,
+                catalog=catalog.model_copy(deep=True),
+                blocked_reasons=(),
+            )
 
     def update_project_role_config(
         self,
