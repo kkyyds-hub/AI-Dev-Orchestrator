@@ -130,6 +130,18 @@ class AgentSessionRepository:
             rows = self.session.execute(statement).scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    def list_by_task_id(self, task_id: UUID) -> list[AgentSession]:
+        """Return every session for one exact task in deterministic order."""
+
+        statement = (
+            select(AgentSessionTable)
+            .where(AgentSessionTable.task_id == task_id)
+            .order_by(AgentSessionTable.started_at.asc(), AgentSessionTable.id.asc())
+        )
+        with self.session.no_autoflush:
+            rows = self.session.execute(statement).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     def list_by_project_id(
         self,
         *,
