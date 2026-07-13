@@ -77,6 +77,18 @@ SourceTaskCompletionBlockedReason = Literal[
     "source_completion_review_timeline_invalid",
     "source_completion_verification_evidence_kind_unsupported",
     "source_completion_delivery_evidence_adapter_unavailable",
+    "source_completion_delivery_evidence_missing",
+    "source_completion_delivery_evidence_id_invalid",
+    "source_completion_delivery_evidence_conflict",
+    "source_completion_delivery_evidence_kind_unsupported",
+    "source_completion_delivery_deliverable_missing",
+    "source_completion_delivery_version_missing",
+    "source_completion_delivery_version_mismatch",
+    "source_completion_delivery_project_mismatch",
+    "source_completion_delivery_task_run_mismatch",
+    "source_completion_delivery_version_lineage_invalid",
+    "source_completion_delivery_fingerprint_mismatch",
+    "source_completion_delivery_content_hash_mismatch",
     "source_completion_approval_evidence_adapter_unavailable",
     "source_completion_axis_unsatisfied",
     "source_completion_evidence_missing",
@@ -169,6 +181,24 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     delivery_satisfaction_status: SourceTaskCompletionAxisSatisfactionStatus
     delivery_evidence_kind: str = Field(min_length=1, max_length=100)
     delivery_evidence_ids: list[UUID]
+    source_completion_deliverable_id: UUID | None
+    source_completion_deliverable_version_id: UUID | None
+    source_completion_deliverable_version_fingerprint: str | None = Field(
+        max_length=64
+    )
+    source_completion_deliverable_version_number: int | None = Field(ge=1)
+    source_completion_deliverable_type: str | None = Field(
+        min_length=1, max_length=100
+    )
+    source_completion_deliverable_stage: str | None = Field(
+        min_length=1, max_length=100
+    )
+    source_completion_deliverable_content_format: str | None = Field(
+        min_length=1, max_length=100
+    )
+    source_completion_deliverable_content_sha256: str | None = Field(max_length=64)
+    source_completion_deliverable_content_bytes: int | None = Field(ge=1)
+    source_completion_deliverable_version_created_at: datetime | None
 
     approval_requirement: SourceTaskCompletionAxisRequirement
     approval_satisfaction_status: SourceTaskCompletionAxisSatisfactionStatus
@@ -187,7 +217,11 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
             raise ValueError("completion evidence datetime is required")
         return normalized
 
-    @field_validator("agent_session_finished_at", mode="after")
+    @field_validator(
+        "agent_session_finished_at",
+        "source_completion_deliverable_version_created_at",
+        mode="after",
+    )
     @classmethod
     def normalize_optional_datetime(cls, value: datetime | None) -> datetime | None:
         return ensure_utc_datetime(value)
@@ -209,6 +243,8 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     @field_validator(
         "source_completion_review_result_fingerprint",
         "source_completion_review_diff_sha256",
+        "source_completion_deliverable_version_fingerprint",
+        "source_completion_deliverable_content_sha256",
         mode="after",
     )
     @classmethod
@@ -278,6 +314,32 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
             or self.review_evidence_ids[0] != self.source_completion_review_id
         ):
             raise ValueError("required review requires exact passing review facts")
+        delivery_facts = (
+            self.source_completion_deliverable_id,
+            self.source_completion_deliverable_version_id,
+            self.source_completion_deliverable_version_fingerprint,
+            self.source_completion_deliverable_version_number,
+            self.source_completion_deliverable_type,
+            self.source_completion_deliverable_stage,
+            self.source_completion_deliverable_content_format,
+            self.source_completion_deliverable_content_sha256,
+            self.source_completion_deliverable_content_bytes,
+            self.source_completion_deliverable_version_created_at,
+        )
+        if self.delivery_requirement == "not_required":
+            if any(value is not None for value in delivery_facts):
+                raise ValueError("not-required delivery may not freeze deliverable facts")
+        elif (
+            any(value is None for value in delivery_facts)
+            or self.delivery_satisfaction_status != "satisfied"
+            or self.delivery_evidence_kind != "deliverable_version_persisted"
+            or self.delivery_evidence_ids
+            != [
+                self.source_completion_deliverable_id,
+                self.source_completion_deliverable_version_id,
+            ]
+        ):
+            raise ValueError("required delivery requires exact persisted version facts")
         if self.authority_agent_session_id is None:
             if (
                 self.authority_agent_session_status is not None

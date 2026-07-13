@@ -102,6 +102,14 @@ class DeliverableRepository:
 
         return self._to_record(deliverable_row)
 
+    def get_version_by_id(self, *, version_id: UUID) -> DeliverableVersion | None:
+        """Return one exact immutable version without selecting by recency."""
+
+        version_row = self.session.get(DeliverableVersionTable, version_id)
+        if version_row is None:
+            return None
+        return self._to_version(version_row)
+
     def list_records_by_project_id(self, project_id: UUID) -> list[DeliverableRecord]:
         """Return all deliverables under one project ordered by latest activity."""
 
