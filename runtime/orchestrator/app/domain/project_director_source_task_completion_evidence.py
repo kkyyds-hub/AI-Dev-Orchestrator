@@ -16,7 +16,7 @@ from app.domain.project_director_source_execution_authority import (
 
 
 SOURCE_TASK_COMPLETION_EVIDENCE_SCHEMA_VERSION = (
-    "p24-b-source-task-completion-evidence.v1"
+    "p24-b-source-task-completion-evidence.v2"
 )
 
 SourceTaskCompletionAxisRequirement = Literal["required", "not_required"]
@@ -122,7 +122,7 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal["p24-b-source-task-completion-evidence.v1"] = (
+    schema_version: Literal["p24-b-source-task-completion-evidence.v2"] = (
         SOURCE_TASK_COMPLETION_EVIDENCE_SCHEMA_VERSION
     )
 
@@ -146,6 +146,7 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     source_reservation_id: UUID
     source_claim_id: UUID
     source_outcome_id: UUID
+    source_outcome_schema_version: str = Field(min_length=1, max_length=100)
     source_outcome_fingerprint: str = Field(min_length=64, max_length=64)
 
     completion_policy_id: UUID
@@ -258,6 +259,15 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     @classmethod
     def normalize_optional_datetime(cls, value: datetime | None) -> datetime | None:
         return ensure_utc_datetime(value)
+
+    @field_validator("source_outcome_schema_version")
+    @classmethod
+    def require_exact_outcome_schema_version(cls, value: str) -> str:
+        if not value.strip() or value != value.strip():
+            raise ValueError(
+                "source_outcome_schema_version must be non-empty without outer whitespace"
+            )
+        return value
 
     @field_validator(
         "source_completion_evidence_fingerprint",

@@ -716,6 +716,7 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             "source_reservation_id": authority.reservation_id,
             "source_claim_id": authority.claim_id,
             "source_outcome_id": authority.outcome_id,
+            "source_outcome_schema_version": authority.outcome_schema_version,
             "source_outcome_fingerprint": authority.outcome_fingerprint,
             "completion_policy_id": policy.completion_policy_id,
             "completion_policy_version": policy.completion_policy_version,
