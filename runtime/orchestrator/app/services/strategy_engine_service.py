@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError, model_validator
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.domain._base import DomainModel
@@ -395,6 +396,30 @@ class StrategyEngineService:
     ) -> ResolvedTaskStrategy:
         """Resolve exact-task strategy from persisted Role/Skill authority only."""
 
+        session = self._resolve_readonly_session()
+        if session is None:
+            raise ValueError("readonly_strategy_session_mismatch")
+
+        with session.no_autoflush:
+            return self._resolve_task_strategy_readonly(
+                task=task,
+                execution_attempts=execution_attempts,
+                recent_failure_count=recent_failure_count,
+                budget_snapshot=budget_snapshot,
+                dependency_tasks=dependency_tasks,
+            )
+
+    def _resolve_task_strategy_readonly(
+        self,
+        *,
+        task: Task,
+        execution_attempts: int,
+        recent_failure_count: int,
+        budget_snapshot: BudgetSnapshot | None = None,
+        dependency_tasks: list[Task] | None = None,
+    ) -> ResolvedTaskStrategy:
+        """Resolve readonly strategy inside a validated no-autoflush session."""
+
         rules, _ = self._load_rule_set()
         snapshot = budget_snapshot or self.budget_guard_service.build_budget_snapshot()
         budget_directive = self.budget_guard_service.build_routing_directive(
@@ -421,8 +446,6 @@ class StrategyEngineService:
 
         if task.project_id is None:
             blocked_reasons.append("readonly_strategy_project_required")
-        elif not self._readonly_dependencies_share_session():
-            blocked_reasons.append("readonly_strategy_session_mismatch")
         else:
             try:
                 project = self.project_repository.get_by_id(task.project_id)
@@ -768,24 +791,36 @@ class StrategyEngineService:
             readonly_blocked_reasons=readonly_blocked_reasons,
         )
 
-    def _readonly_dependencies_share_session(self) -> bool:
-        """Return whether every readonly Role/Skill dependency shares one session."""
+    def _resolve_readonly_session(self) -> Session | None:
+        """Return the shared readonly Session without executing database queries."""
 
-        session = self.project_repository.session
+        canonical_session = self.project_repository.session
         role_service = self.role_catalog_service
         skill_service = self.skill_registry_service
-        return (
-            skill_service.role_catalog_service is role_service
-            and all(
-                dependency_session is session
-                for dependency_session in (
-                    role_service.project_repository.session,
-                    role_service.project_role_repository.session,
-                    skill_service.project_repository.session,
-                    skill_service.skill_repository.session,
-                )
-            )
+        skill_role_service = skill_service.role_catalog_service
+        budget_db_session = self.budget_guard_service._db_session
+        dependency_sessions = (
+            self.budget_guard_service.run_repository.session,
+            role_service.project_repository.session,
+            role_service.project_role_repository.session,
+            skill_service.project_repository.session,
+            skill_service.skill_repository.session,
+            skill_role_service.project_repository.session,
+            skill_role_service.project_role_repository.session,
         )
+        if any(
+            dependency_session is not canonical_session
+            for dependency_session in dependency_sessions
+        ):
+            return None
+        if (
+            budget_db_session is not None
+            and budget_db_session is not canonical_session
+        ):
+            return None
+        if skill_role_service is not role_service:
+            return None
+        return canonical_session
 
     def _load_rule_set(self) -> tuple[StrategyRuleSet, str]:
         """Load the configured rule set with a safe default fallback."""

@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy.orm import Session
+
 from app.domain.project import ProjectStage
 from app.domain.project_role import ProjectRoleCode
 from app.domain.run import (
@@ -42,6 +44,7 @@ _HUMAN_STATUS_ADJUSTMENTS = {
 _FAILED_RUN_STATUSES = {RunStatus.FAILED, RunStatus.CANCELLED}
 _EXECUTION_ATTEMPT_PENALTY = 20.0
 _RECENT_FAILURE_PENALTY = 35.0
+_READONLY_ROUTER_SESSION_MISMATCH = "readonly_router_session_mismatch"
 
 
 @dataclass(slots=True, frozen=True)
@@ -252,7 +255,13 @@ class TaskRouterService:
     ) -> TaskRoutingCandidate:
         """只评估调用方指定的 exact task，不选择或修改其他任务。"""
 
-        session = self.strategy_engine_service.project_repository.session
+        try:
+            session = self._resolve_exact_readonly_session()
+        except (AttributeError, TypeError):
+            session = None
+        if session is None:
+            return self._build_readonly_session_mismatch_candidate(task)
+
         with session.no_autoflush:
             budget_snapshot = self.budget_guard_service.build_budget_snapshot()
             return self._evaluate_task_with_strategy(
@@ -262,6 +271,114 @@ class TaskRouterService:
                     self.strategy_engine_service.resolve_task_strategy_readonly
                 ),
             )
+
+    def _resolve_exact_readonly_session(self) -> Session | None:
+        """Return one Session only when the complete exact read graph shares it."""
+
+        canonical_session = self.task_repository.session
+        strategy_service = self.strategy_engine_service
+        role_service = strategy_service.role_catalog_service
+        skill_service = strategy_service.skill_registry_service
+        skill_role_service = skill_service.role_catalog_service
+        router_budget_db_session = self.budget_guard_service._db_session
+        strategy_budget_db_session = strategy_service.budget_guard_service._db_session
+        dependency_sessions = (
+            self.run_repository.session,
+            self.task_readiness_service.task_repository.session,
+            self.task_readiness_service.run_repository.session,
+            self.budget_guard_service.run_repository.session,
+            strategy_service.project_repository.session,
+            strategy_service.budget_guard_service.run_repository.session,
+            role_service.project_repository.session,
+            role_service.project_role_repository.session,
+            skill_service.project_repository.session,
+            skill_service.skill_repository.session,
+            skill_role_service.project_repository.session,
+            skill_role_service.project_role_repository.session,
+        )
+        if any(
+            dependency_session is not canonical_session
+            for dependency_session in dependency_sessions
+        ):
+            return None
+        if any(
+            db_session is not None and db_session is not canonical_session
+            for db_session in (
+                router_budget_db_session,
+                strategy_budget_db_session,
+            )
+        ):
+            return None
+        if skill_role_service is not role_service:
+            return None
+        return canonical_session
+
+    @staticmethod
+    def _build_readonly_session_mismatch_candidate(
+        task: Task,
+    ) -> TaskRoutingCandidate:
+        """Build a deterministic blocked candidate without repository access."""
+
+        detail = (
+            f"{_READONLY_ROUTER_SESSION_MISMATCH}: exact routing dependencies "
+            "must share one SQLAlchemy Session."
+        )
+        readiness = TaskReadinessResult(
+            task_id=task.id,
+            ready_for_execution=False,
+            blocking_signals=[],
+            blocking_reasons=[detail],
+            dependency_items=[],
+        )
+        score_item = RunRoutingScoreItem(
+            code=_READONLY_ROUTER_SESSION_MISMATCH,
+            label="Readonly router Session gate",
+            score=0.0,
+            detail=detail,
+        )
+        strategy_reason = RunStrategyReasonItem(
+            code=_READONLY_ROUTER_SESSION_MISMATCH,
+            label="Readonly router Session gate",
+            detail=detail,
+            score=None,
+        )
+        strategy_decision = RunStrategyDecision(
+            budget_pressure_level=RunBudgetPressureLevel.BLOCKED,
+            budget_action=RunBudgetStrategyAction.BLOCK,
+            strategy_code=_READONLY_ROUTER_SESSION_MISMATCH,
+            summary=detail,
+            rule_codes=[_READONLY_ROUTER_SESSION_MISMATCH],
+            reasons=[strategy_reason],
+        )
+        return TaskRoutingCandidate(
+            task=task,
+            readiness=readiness,
+            ready=False,
+            routing_score=None,
+            route_reason=detail,
+            routing_score_breakdown=[score_item],
+            execution_attempts=0,
+            recent_failure_count=0,
+            budget_pressure_level=RunBudgetPressureLevel.BLOCKED,
+            budget_action=RunBudgetStrategyAction.BLOCK,
+            budget_strategy_code=_READONLY_ROUTER_SESSION_MISMATCH,
+            budget_score_adjustment=0.0,
+            project_stage=None,
+            owner_role_code=None,
+            upstream_role_code=None,
+            downstream_role_code=None,
+            dispatch_status="readonly_blocked",
+            handoff_reason=detail,
+            matched_terms=(),
+            model_name=None,
+            model_tier=None,
+            selected_skill_codes=(),
+            selected_skill_names=(),
+            strategy_code=_READONLY_ROUTER_SESSION_MISMATCH,
+            strategy_summary=detail,
+            strategy_reasons=[strategy_reason],
+            strategy_decision=strategy_decision,
+        )
 
     def _evaluate_task(
         self,
