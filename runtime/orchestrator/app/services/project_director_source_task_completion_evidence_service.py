@@ -718,6 +718,11 @@ class ProjectDirectorSourceTaskCompletionEvidenceService:
             "source_outcome_id": authority.outcome_id,
             "source_outcome_schema_version": authority.outcome_schema_version,
             "source_outcome_fingerprint": authority.outcome_fingerprint,
+            "source_review_id": authority.source_review_id,
+            "source_review_outcome": authority.source_review_outcome,
+            "source_transition_evidence_ids": list(
+                authority.source_transition_evidence_ids
+            ),
             "completion_policy_id": policy.completion_policy_id,
             "completion_policy_version": policy.completion_policy_version,
             "completion_policy_fingerprint": policy.completion_policy_fingerprint,

@@ -16,7 +16,7 @@ from app.domain.project_director_source_execution_authority import (
 
 
 SOURCE_TASK_COMPLETION_EVIDENCE_SCHEMA_VERSION = (
-    "p24-b-source-task-completion-evidence.v2"
+    "p24-b-source-task-completion-evidence.v3"
 )
 
 SourceTaskCompletionAxisRequirement = Literal["required", "not_required"]
@@ -122,7 +122,7 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal["p24-b-source-task-completion-evidence.v2"] = (
+    schema_version: Literal["p24-b-source-task-completion-evidence.v3"] = (
         SOURCE_TASK_COMPLETION_EVIDENCE_SCHEMA_VERSION
     )
 
@@ -148,6 +148,9 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
     source_outcome_id: UUID
     source_outcome_schema_version: str = Field(min_length=1, max_length=100)
     source_outcome_fingerprint: str = Field(min_length=64, max_length=64)
+    source_review_id: UUID | None = None
+    source_review_outcome: str | None = Field(default=None, max_length=100)
+    source_transition_evidence_ids: list[UUID]
 
     completion_policy_id: UUID
     completion_policy_version: int = Field(ge=1)
@@ -269,6 +272,15 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
             )
         return value
 
+    @field_validator("source_review_outcome")
+    @classmethod
+    def require_exact_source_review_outcome(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or value != value.strip()):
+            raise ValueError(
+                "source_review_outcome must be non-empty without outer whitespace"
+            )
+        return value
+
     @field_validator(
         "source_completion_evidence_fingerprint",
         "source_completion_evidence_replay_key",
@@ -300,6 +312,14 @@ class ProjectDirectorSourceTaskCompletionEvidence(DomainModel):
 
     @model_validator(mode="after")
     def validate_completion_evidence(self) -> "ProjectDirectorSourceTaskCompletionEvidence":
+        if self.source_review_id is None and self.source_review_outcome is not None:
+            raise ValueError("source review outcome requires an exact source review ID")
+        if (
+            not self.source_transition_evidence_ids
+            or len(set(self.source_transition_evidence_ids))
+            != len(self.source_transition_evidence_ids)
+        ):
+            raise ValueError("source transition evidence IDs must be non-empty and unique")
         axis_values = (
             (
                 self.review_requirement,
