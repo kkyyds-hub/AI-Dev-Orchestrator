@@ -1481,11 +1481,12 @@ class TestAgentSessionAfterState:
             }],
         )
 
+        assert len(worker.created_agent_session_ids) == 1
         assert result.status == "outcome_recorded"
         assert result.outcome is not None
         assert result.outcome.status == "returned"
         assert worker.call_count == 1
-        assert result.outcome.agent_session_id is not None
+        assert result.outcome.agent_session_id == worker.created_agent_session_ids[0]
         assert result.outcome.agent_session_status == "running"
         assert result.outcome.agent_session_phase == "executing"
         assert result.outcome.worker_result_contract_valid is True
@@ -1519,6 +1520,7 @@ class TestAgentSessionAfterState:
             ],
         )
 
+        assert len(worker.created_agent_session_ids) == 2
         assert result.status == "outcome_recorded"
         assert result.outcome is not None
         assert result.outcome.status == "returned"
@@ -1701,10 +1703,11 @@ class TestGitBoundaryMatrix:
         object.__setattr__(worker_result, "git_diff_dry_run_git_commit_triggered", "true")
         fake_worker = FakeTaskWorker(session=None, result=worker_result)
 
-        result, _, _ = invoke_exact_worker_full(
+        result, worker, _ = invoke_exact_worker_full(
             session_local, chain, task_worker=fake_worker,
         )
 
+        assert worker.call_count == 1
         assert result.status == "outcome_recorded"
         assert result.outcome is not None
         assert result.outcome.status == "returned"

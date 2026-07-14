@@ -292,6 +292,7 @@ class TestHistoryCorruption:
 
     # 12. Two outcomes same claim
     def test_two_outcomes_same_claim(self, session_local):
+        """1 Claim + 2 different Outcomes → history_invalid."""
         chain = build_p24_chain()
         def corrupt(s):
             seed_claim_message(s, chain.claim)
@@ -301,29 +302,58 @@ class TestHistoryCorruption:
             seed_outcome_message(s, outcome2)
         result, worker, msg_repo = self._seed_and_invoke(session_local, chain, corrupt_fn=corrupt)
         assert result.status == "blocked"
+        assert result.blocked_reasons == ("exact_worker_invocation_outcome_history_invalid",)
+        assert result.automatic_worker_call_allowed is False
         assert worker.call_count == 0
-        # The reason depends on whether the history loads or not
-        assert result.blocked_reasons[0] in (
-            "exact_worker_invocation_outcome_history_invalid",
-            "exact_worker_invocation_outcome_replay_conflict",
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 1
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 2
+
+    # 13. Two outcomes same exact run (different Claims)
+    def test_two_outcomes_same_exact_run(self, session_local):
+        """2 different Claims + 2 Outcomes targeting same exact Run → history_invalid."""
+        from app.core.db_tables import ProjectDirectorPlanVersionTable
+        chain_a = build_p24_chain()
+        chain_b = build_p24_chain(
+            session_id=chain_a.session_id,
+            project_id=chain_a.project_id,
+            next_task_id=chain_a.next_task_id,
+            exact_run_id=chain_a.exact_run_id,
         )
 
-    # 13. Two outcomes same exact run
-    def test_two_outcomes_same_exact_run(self, session_local):
-        chain = build_p24_chain()
         def corrupt(s):
-            seed_claim_message(s, chain.claim)
-            outcome1 = build_valid_outcome(chain, status="returned")
-            seed_outcome_message(s, outcome1)
-            outcome2 = build_valid_outcome(chain, status="returned")
-            seed_outcome_message(s, outcome2)
-        result, worker, msg_repo = self._seed_and_invoke(session_local, chain, corrupt_fn=corrupt)
+            # Add chain_b's plan version for FK
+            s.add(ProjectDirectorPlanVersionTable(
+                id=chain_b.plan_version_id, session_id=chain_a.session_id,
+                project_id=chain_a.project_id, version_no=2, status="confirmed",
+            ))
+            s.flush()
+            seed_claim_message(s, chain_a.claim)
+            o1 = build_valid_outcome(chain_a, status="returned")
+            seed_outcome_message(s, o1)
+            seed_claim_message(s, chain_b.claim)
+            o2 = build_valid_outcome(chain_b, status="returned")
+            seed_outcome_message(s, o2)
+
+        result, worker, msg_repo = self._seed_and_invoke(
+            session_local, chain_a, corrupt_fn=corrupt)
         assert result.status == "blocked"
+        assert result.blocked_reasons == ("exact_worker_invocation_outcome_history_invalid",)
+        assert result.automatic_worker_call_allowed is False
         assert worker.call_count == 0
-        assert result.blocked_reasons[0] in (
-            "exact_worker_invocation_outcome_history_invalid",
-            "exact_worker_invocation_outcome_replay_conflict",
-        )
+        assert count_messages_by_source_detail(
+            msg_repo, chain_a.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 2
+        assert count_messages_by_source_detail(
+            msg_repo, chain_a.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 2
 
     # 14. Broken previous_record_id
     def test_broken_previous_record_id(self, session_local):

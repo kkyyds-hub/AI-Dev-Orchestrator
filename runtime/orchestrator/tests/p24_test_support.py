@@ -1920,6 +1920,7 @@ class AgentSessionCreatingWorker:
         self._agent_sessions = agent_sessions_to_create or []
         self._call_count = 0
         self._calls = []
+        self._created_agent_session_ids: list[UUID] = []
         self._lock = threading.Lock()
         self.session = None
         self._task_repo = None
@@ -1950,6 +1951,11 @@ class AgentSessionCreatingWorker:
         with self._lock:
             return self._call_count
 
+    @property
+    def created_agent_session_ids(self) -> tuple[UUID, ...]:
+        with self._lock:
+            return tuple(self._created_agent_session_ids)
+
     def run_reserved_once(self, *, task_id, run_id):
         with self._lock:
             self._call_count += 1
@@ -1958,7 +1964,7 @@ class AgentSessionCreatingWorker:
         for as_info in self._agent_sessions:
             s = self._session_local()
             try:
-                seed_agent_session(
+                aid = seed_agent_session(
                     s,
                     project_id=as_info["project_id"],
                     task_id=as_info["task_id"],
@@ -1966,6 +1972,8 @@ class AgentSessionCreatingWorker:
                     status=as_info.get("status", "running"),
                     current_phase=as_info.get("current_phase", "executing"),
                 )
+                with self._lock:
+                    self._created_agent_session_ids.append(aid)
             finally:
                 s.close()
         if self._result is not None:
