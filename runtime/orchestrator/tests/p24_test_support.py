@@ -1732,7 +1732,7 @@ def invoke_exact_worker_full(
                 task_id=as_info.get("task_id", chain.next_task_id),
                 run_id=as_info.get("run_id", chain.exact_run_id),
                 status=as_info.get("status", "running"),
-                current_phase=as_info.get("current_phase", "execution"),
+                current_phase=as_info.get("current_phase", "executing"),
             )
     s.close()
 
@@ -1861,3 +1861,177 @@ def build_worker_result_for_chain(
         delivery_gate_evidence_gate_allows_write=delivery_gate_allows_write,
         delivery_human_approval_git_push_triggered=delivery_push_triggered,
     )
+
+
+# ── Phase 2 Injection Helpers ───────────────────────────────────────
+
+
+class Phase2InjectingClaimServiceWrapper:
+    """Wraps ClaimService: after creating claim, injects state changes via independent session."""
+
+    def __init__(self, real_claim_service, session_local, *, inject_fn):
+        self._real = real_claim_service
+        self._session_local = session_local
+        self._inject_fn = inject_fn
+        self._last_claim_result = None
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    @property
+    def _message_repository(self):
+        return self._real._message_repository
+
+    @property
+    def _task_repository(self):
+        return self._real._task_repository
+
+    @property
+    def _run_repository(self):
+        return self._real._run_repository
+
+    @property
+    def _agent_session_repository(self):
+        return self._real._agent_session_repository
+
+    def claim_exact_worker_invocation(self, **kwargs):
+        result = self._real.claim_exact_worker_invocation(**kwargs)
+        self._last_claim_result = result
+        if result.status == "invocation_claim_created":
+            # Inject state change via independent session
+            s = self._session_local()
+            try:
+                self._inject_fn(s, kwargs)
+                s.commit()
+            finally:
+                s.close()
+        return result
+
+
+class AgentSessionCreatingWorker:
+    """Creates AgentSession(s) during run_reserved_once via independent session."""
+
+    def __init__(self, session_local, *, result=None, agent_sessions_to_create=None):
+        self._session_local = session_local
+        self._result = result
+        self._agent_sessions = agent_sessions_to_create or []
+        self._call_count = 0
+        self._calls = []
+        self._lock = threading.Lock()
+        self.session = None
+        self._task_repo = None
+        self._run_repo = None
+        self._agent_sess_repo = None
+
+    def bind_session(self, session, task_repo, run_repo, agent_sess_repo):
+        self.session = session
+        self._task_repo = task_repo
+        self._run_repo = run_repo
+        self._agent_sess_repo = agent_sess_repo
+
+    @property
+    def task_repository(self):
+        return self._task_repo or type("R", (), {"session": self.session})()
+
+    @property
+    def run_repository(self):
+        return self._run_repo or type("R", (), {"session": self.session})()
+
+    @property
+    def agent_conversation_service(self):
+        repo = self._agent_sess_repo or type("R", (), {"session": self.session})()
+        return type("R", (), {"agent_session_repository": repo})()
+
+    @property
+    def call_count(self) -> int:
+        with self._lock:
+            return self._call_count
+
+    def run_reserved_once(self, *, task_id, run_id):
+        with self._lock:
+            self._call_count += 1
+            self._calls.append({"task_id": task_id, "run_id": run_id})
+        # Create AgentSessions via independent session
+        for as_info in self._agent_sessions:
+            s = self._session_local()
+            try:
+                seed_agent_session(
+                    s,
+                    project_id=as_info["project_id"],
+                    task_id=as_info["task_id"],
+                    run_id=as_info["run_id"],
+                    status=as_info.get("status", "running"),
+                    current_phase=as_info.get("current_phase", "executing"),
+                )
+            finally:
+                s.close()
+        if self._result is not None:
+            return self._result
+        raise AssertionError("AgentSessionCreatingWorker: no result configured")
+
+    def run_once(self, *, project_id=None):
+        return None
+
+
+class OutcomeOnlyFailingMessageRepository:
+    """Wraps a real MessageRepository: allows Claim messages, fails on Outcome messages."""
+
+    def __init__(self, real_repo):
+        self._real = real_repo
+        self._create_call_count = 0
+        self._fail_outcome = False
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    @property
+    def _session(self):
+        return self._real._session
+
+    def create(self, message):
+        self._create_call_count += 1
+        if self._fail_outcome and hasattr(message, 'intent') and \
+           message.intent == "cross_task_exact_worker_invocation_outcome":
+            raise ValueError("Simulated Outcome create failure")
+        if self._fail_outcome and hasattr(message, 'source_detail') and \
+           message.source_detail == "p24_cross_task_exact_worker_invocation_outcome_recorded":
+            raise ValueError("Simulated Outcome create failure")
+        return self._real.create(message)
+
+    def sqlite_immediate_transaction(self):
+        return self._real.sqlite_immediate_transaction()
+
+    def list_by_session_id(self, **kwargs):
+        return self._real.list_by_session_id(**kwargs)
+
+    def get_next_sequence_no(self, **kwargs):
+        return self._real.get_next_sequence_no(**kwargs)
+
+
+class PostWriteFailingOutcomeRepository:
+    """Wraps a real MessageRepository: allows create, fails on post_write_validate for Outcome."""
+
+    def __init__(self, real_repo):
+        self._real = real_repo
+        self._fail_post_write = False
+        self._create_call_count = 0
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    @property
+    def _session(self):
+        return self._real._session
+
+    def create(self, message):
+        self._create_call_count += 1
+        return self._real.create(message)
+
+    def sqlite_immediate_transaction(self):
+        return self._real.sqlite_immediate_transaction()
+
+    def list_by_session_id(self, **kwargs):
+        return self._real.list_by_session_id(**kwargs)
+
+    def get_next_sequence_no(self, **kwargs):
+        return self._real.get_next_sequence_no(**kwargs)

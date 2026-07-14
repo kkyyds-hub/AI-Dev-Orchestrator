@@ -630,7 +630,7 @@ class TestHistoryCorruption:
         assert fake_worker.call_count == 0
 
     def test_two_outcomes_same_claim(self, session_local):
-        """Two Outcomes for same Claim → blocked/recovery."""
+        """Two Outcomes for same Claim → blocked with history_invalid."""
         chain = build_p24_chain()
         s = session_local()
         seed_base_records(
@@ -653,15 +653,8 @@ class TestHistoryCorruption:
         # Seed two outcomes with different IDs but same replay key
         outcome1 = build_valid_outcome(chain, status="returned")
         seed_outcome_message(s, outcome1)
-        # Create a second outcome with a different ID
-        outcome2_values = outcome1.model_dump(mode="python")
-        outcome2_values["exact_worker_invocation_outcome_id"] = uuid4()
-        from app.domain.project_director_cross_task_exact_worker_invocation_outcome import ProjectDirectorCrossTaskExactWorkerInvocationOutcome
-        from app.domain.project_director_next_task_instruction_package import compute_p24_contract_sha256
-        provisional = ProjectDirectorCrossTaskExactWorkerInvocationOutcome.model_construct(**outcome2_values)
-        fp = provisional.compute_fingerprint()
-        outcome2_values["worker_invocation_outcome_fingerprint"] = fp
-        outcome2 = ProjectDirectorCrossTaskExactWorkerInvocationOutcome.model_validate(outcome2_values)
+        # Create a second outcome with a different ID but same replay key
+        outcome2 = build_valid_outcome(chain, status="returned")
         seed_outcome_message(s, outcome2)
         s.close()
 
@@ -685,8 +678,8 @@ class TestHistoryCorruption:
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
 
-        # Should be blocked or recovery due to duplicate outcomes
-        assert result.status in ("blocked", "recovery_required")
+        # Duplicate outcomes → blocked
+        assert result.status == "blocked"
         assert fake_worker.call_count == 0
 
     def test_broken_previous_record_id(self, session_local):
@@ -799,8 +792,8 @@ class TestHistoryCorruption:
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
 
-        # Corrupted fingerprint → blocked or recovery
-        assert result.status in ("blocked", "recovery_required")
+        # Corrupted fingerprint → blocked
+        assert result.status == "blocked"
         assert fake_worker.call_count == 0
 
     def test_outcome_replay_key_corrupted(self, session_local):
@@ -856,8 +849,8 @@ class TestHistoryCorruption:
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
 
-        # Corrupted replay key → blocked or recovery
-        assert result.status in ("blocked", "recovery_required")
+        # Corrupted replay key → blocked
+        assert result.status == "blocked"
         assert fake_worker.call_count == 0
 
     def test_two_outcomes_same_exact_run(self, session_local):
@@ -939,5 +932,7 @@ class TestHistoryCorruption:
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
 
-        assert result.status in ("blocked", "recovery_required")
+        # Two outcomes for same exact run → blocked with replay_conflict
+        assert result.status == "blocked"
+        assert "exact_worker_invocation_outcome_replay_conflict" in result.blocked_reasons
         assert fake_worker.call_count == 0

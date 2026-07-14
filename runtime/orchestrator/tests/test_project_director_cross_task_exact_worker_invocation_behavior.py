@@ -51,13 +51,22 @@ from app.workers.task_worker import (
     WorkerRunResult,
 )
 
+from app.domain.project_director_cross_task_exact_worker_invocation_outcome import (
+    ProjectDirectorCrossTaskExactWorkerInvocationOutcome,
+)
+
 from tests.p24_test_support import (
+    AgentSessionCreatingWorker,
     FakeTaskWorker,
     FailingMessageRepositoryWrapper,
+    OutcomeOnlyFailingMessageRepository,
+    Phase2InjectingClaimServiceWrapper,
+    PostWriteFailingOutcomeRepository,
     build_p24_chain,
     build_valid_outcome,
     build_worker_result_for_chain,
     count_messages_by_source_detail,
+    get_messages_by_source_detail,
     invoke_exact_worker_full,
     make_claim_service,
     make_outcome_service,
@@ -1143,22 +1152,10 @@ class TestClaimPostWriteRollback:
 
 
 class TestNotInvokedStrict:
-    """Strict not_invoked tests with precise assertions."""
+    """Phase 2 not_invoked tests: Claim created successfully, then state changes before Worker."""
 
-    def test_task_not_running_strict(self, session_local):
-        """Task completed → blocked at Claim level (task state conflict)."""
-        chain = build_p24_chain()
-        result, worker, msg_repo = invoke_exact_worker_full(
-            session_local, chain, task_status="completed",
-        )
-
-        # Claim service blocks because Task is not running
-        assert result.status == "blocked"
-        assert result.automatic_worker_call_allowed is False
-        assert worker.call_count == 0
-
-    def test_task_paused_strict(self, session_local):
-        """Task paused → strict not_invoked outcome."""
+    def _run_phase2_test(self, session_local, inject_fn):
+        """Helper: create chain, seed, wrap ClaimService to inject after creation."""
         chain = build_p24_chain()
         s = session_local()
         seed_base_records(
@@ -1181,20 +1178,32 @@ class TestNotInvokedStrict:
             started_at=chain.claim.exact_run_started_at,
             created_at=chain.claim.exact_run_created_at,
         )
-        # Pause the task
-        task = s.get(TaskTable, chain.next_task_id)
-        task.paused_reason = "test pause"
-        s.commit()
         s.close()
 
         fake_worker = FakeTaskWorker(session=None)
         session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
-        outcome_svc = make_outcome_service(
+
+        real_claim_svc = make_claim_service(
             session,
             msg_repo=msg_repo,
             task_repo=task_repo,
             run_repo=run_repo,
             agent_sess_repo=agent_sess_repo,
+        )
+        wrapped_claim_svc = Phase2InjectingClaimServiceWrapper(
+            real_claim_svc, session_local, inject_fn=inject_fn,
+        )
+
+        from app.services.project_director_cross_task_exact_worker_invocation_outcome_service import (
+            ProjectDirectorCrossTaskExactWorkerInvocationOutcomeService,
+        )
+        fake_worker.bind_session(session, task_repo, run_repo, agent_sess_repo)
+        outcome_svc = ProjectDirectorCrossTaskExactWorkerInvocationOutcomeService(
+            message_repository=msg_repo,
+            task_repository=task_repo,
+            run_repository=run_repo,
+            agent_session_repository=agent_sess_repo,
+            claim_service=wrapped_claim_svc,
             task_worker=fake_worker,
         )
 
@@ -1207,12 +1216,94 @@ class TestNotInvokedStrict:
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
 
-        assert result.status in ("outcome_recorded", "blocked")
-        if result.status == "outcome_recorded":
-            assert result.outcome.status == "not_invoked"
-            assert result.outcome.worker_called is False
-            assert result.outcome.human_recovery_required is True
+        # Verify Phase 2 not_invoked
+        assert result.status == "outcome_recorded"
+        assert result.outcome is not None
+        assert result.outcome.status == "not_invoked"
+        assert result.outcome.worker_called is False
+        assert result.outcome.worker_call_attempted is False
+        assert result.outcome.worker_started is False
+        assert result.outcome.worker_returned is False
+        assert result.outcome.worker_raised is False
+        assert result.outcome.worker_result_contract_valid is False
+        assert result.outcome.human_recovery_required is True
+        assert "exact_worker_invocation_outcome_pre_call_revalidation_failed" in result.outcome.blocked_reasons
         assert fake_worker.call_count == 0
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 1
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 1
+        assert result.automatic_worker_call_allowed is False
+        return chain, result, msg_repo
+
+    def test_phase2_task_completed(self, session_local):
+        """Phase 2: Task completed after Claim → not_invoked."""
+        def inject(s, kwargs):
+            task_id = kwargs.get("exact_worker_start_reservation_id")
+            # Find the task via the chain's next_task_id from the claim
+            from app.core.db_tables import TaskTable as TT
+            tasks = s.query(TT).filter(TT.status == "running").all()
+            for t in tasks:
+                t.status = "completed"
+
+        self._run_phase2_test(session_local, inject)
+
+    def test_phase2_task_paused(self, session_local):
+        """Phase 2: Task paused after Claim → not_invoked."""
+        def inject(s, kwargs):
+            from app.core.db_tables import TaskTable as TT
+            tasks = s.query(TT).filter(TT.status == "running").all()
+            for t in tasks:
+                t.paused_reason = "test pause"
+
+        self._run_phase2_test(session_local, inject)
+
+    def test_phase2_run_terminal(self, session_local):
+        """Phase 2: Run changed to terminal after Claim → not_invoked."""
+        def inject(s, kwargs):
+            from app.core.db_tables import RunTable as RT
+            runs = s.query(RT).filter(RT.status == "running").all()
+            for r in runs:
+                r.status = "succeeded"
+        self._run_phase2_test(session_local, inject)
+
+    def test_phase2_second_active_run(self, session_local):
+        """Phase 2: Second active Run added after Claim → not_invoked."""
+        def inject(s, kwargs):
+            from app.core.db_tables import RunTable as RT
+            existing = s.query(RT).filter(RT.status == "running").first()
+            if existing:
+                s.add(RT(
+                    id=uuid4(),
+                    task_id=existing.task_id,
+                    status="running",
+                    model_name="extra-model",
+                    started_at=existing.started_at,
+                    created_at=existing.created_at,
+                ))
+        self._run_phase2_test(session_local, inject)
+
+    def test_phase2_agent_session_created(self, session_local):
+        """Phase 2: AgentSession created for exact Run after Claim → not_invoked."""
+        def inject(s, kwargs):
+            from app.core.db_tables import RunTable as RT, TaskTable as TT
+            run = s.query(RT).filter(RT.status == "running").first()
+            if run:
+                task = s.get(TT, run.task_id)
+                if task:
+                    seed_agent_session(
+                        s,
+                        project_id=task.project_id,
+                        task_id=run.task_id,
+                        run_id=run.id,
+                        status="running",
+                        current_phase="executing",
+                    )
+        self._run_phase2_test(session_local, inject)
 
 
 # ── returned-invalid Matrix ─────────────────────────────────────────
@@ -1300,7 +1391,7 @@ class TestReturnedInvalidMatrix:
 
 
 class TestAgentSessionAfterState:
-    """AgentSession after-state tests."""
+    """AgentSession after-state tests using Phase2 injection."""
 
     def test_no_agent_session(self, session_local):
         """0 AgentSessions → no binding conflict, valid outcome."""
@@ -1316,32 +1407,91 @@ class TestAgentSessionAfterState:
         assert result.outcome is not None
         assert result.outcome.worker_result_contract_valid is True
         assert result.outcome.agent_session_id is None
+        assert "exact_worker_invocation_outcome_worker_result_binding_conflict" not in result.outcome.blocked_reasons
 
-    def test_one_correct_agent_session_blocks_pre_call(self, session_local):
-        """1 AgentSession → pre-call validation detects conflict → not_invoked."""
+    def test_one_correct_agent_session(self, session_local):
+        """1 AgentSession created after Claim → Phase 2 detects it → not_invoked."""
+        def inject(s, kwargs):
+            from app.core.db_tables import RunTable as RT, TaskTable as TT
+            run = s.query(RT).filter(RT.status == "running").first()
+            if run:
+                task = s.get(TT, run.task_id)
+                if task:
+                    seed_agent_session(
+                        s,
+                        project_id=task.project_id,
+                        task_id=run.task_id,
+                        run_id=run.id,
+                        status="running",
+                        current_phase="executing",
+                    )
+
         chain = build_p24_chain()
-        # Seed chain with AgentSession
+        s = session_local()
+        seed_base_records(
+            s,
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            task_id=chain.next_task_id,
+            plan_version_id=chain.plan_version_id,
+            task_status="running",
+        )
+        seed_package_message(s, chain.package)
+        seed_root_message(s, chain.root)
+        seed_e1b_message(s, chain.exact_run_reservation)
+        seed_e2a_message(s, chain.worker_start_reservation)
+        seed_run(
+            s,
+            run_id=chain.exact_run_id,
+            task_id=chain.next_task_id,
+            model_name=chain.claim.worker_model_name,
+            started_at=chain.claim.exact_run_started_at,
+            created_at=chain.claim.exact_run_created_at,
+        )
+        s.close()
+
         worker_result = build_worker_result_for_chain(chain)
         fake_worker = FakeTaskWorker(session=None, result=worker_result)
+        session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
 
-        result, _, _ = invoke_exact_worker_full(
-            session_local, chain, task_worker=fake_worker,
-            agent_sessions=[{
-                "project_id": chain.project_id,
-                "task_id": chain.next_task_id,
-                "run_id": chain.exact_run_id,
-                "status": "running",
-                "current_phase": "executing",
-            }],
+        real_claim_svc = make_claim_service(
+            session, msg_repo=msg_repo, task_repo=task_repo,
+            run_repo=run_repo, agent_sess_repo=agent_sess_repo,
+        )
+        wrapped_claim_svc = Phase2InjectingClaimServiceWrapper(
+            real_claim_svc, session_local, inject_fn=inject,
+        )
+        fake_worker.bind_session(session, task_repo, run_repo, agent_sess_repo)
+
+        from app.services.project_director_cross_task_exact_worker_invocation_outcome_service import (
+            ProjectDirectorCrossTaskExactWorkerInvocationOutcomeService,
+        )
+        outcome_svc = ProjectDirectorCrossTaskExactWorkerInvocationOutcomeService(
+            message_repository=msg_repo,
+            task_repository=task_repo,
+            run_repository=run_repo,
+            agent_session_repository=agent_sess_repo,
+            claim_service=wrapped_claim_svc,
+            task_worker=fake_worker,
+        )
+        result = outcome_svc.invoke_exact_worker(
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            continuation_root_record_id=chain.root_record_id,
+            instruction_package_id=chain.package_id,
+            exact_run_reservation_id=chain.exact_run_reservation_id,
+            exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
 
-        # AgentSession exists → claim service blocks because
-        # _active_agent_session_ids finds active sessions
-        assert result.status == "blocked"
-        assert result.automatic_worker_call_allowed is False
+        # AgentSession created after Claim → Phase 2 detects it → not_invoked
+        assert result.status == "outcome_recorded"
+        assert result.outcome is not None
+        assert result.outcome.status == "not_invoked"
+        assert result.outcome.worker_called is False
+        assert result.outcome.human_recovery_required is True
 
-    def test_two_agent_sessions_blocks_claim(self, session_local):
-        """2 AgentSessions → claim service blocks."""
+    def test_two_agent_sessions_binding_conflict(self, session_local):
+        """2 AgentSessions → claim blocked (pre-existing sessions)."""
         chain = build_p24_chain()
         worker_result = build_worker_result_for_chain(chain)
         fake_worker = FakeTaskWorker(session=None, result=worker_result)
@@ -1349,24 +1499,37 @@ class TestAgentSessionAfterState:
         result, _, _ = invoke_exact_worker_full(
             session_local, chain, task_worker=fake_worker,
             agent_sessions=[
-                {
-                    "project_id": chain.project_id,
-                    "task_id": chain.next_task_id,
-                    "run_id": chain.exact_run_id,
-                    "status": "running",
-                    "current_phase": "executing",
-                },
-                {
-                    "project_id": chain.project_id,
-                    "task_id": chain.next_task_id,
-                    "run_id": chain.exact_run_id,
-                    "status": "running",
-                    "current_phase": "executing",
-                },
+                {"project_id": chain.project_id, "task_id": chain.next_task_id, "run_id": chain.exact_run_id},
+                {"project_id": chain.project_id, "task_id": chain.next_task_id, "run_id": chain.exact_run_id},
             ],
         )
 
-        # Multiple AgentSessions → claim service blocks
+        assert result.status == "blocked"
+        assert result.automatic_worker_call_allowed is False
+
+    def test_wrong_binding_agent_session(self, session_local):
+        """AgentSession with wrong project_id → claim blocked."""
+        chain = build_p24_chain()
+        wrong_project_id = uuid4()
+        s = session_local()
+        from app.core.db_tables import ProjectTable
+        s.add(ProjectTable(id=wrong_project_id, name="Wrong", summary="Wrong", status="active", stage="intake"))
+        s.flush()
+        s.commit()
+        s.close()
+
+        worker_result = build_worker_result_for_chain(chain)
+        fake_worker = FakeTaskWorker(session=None, result=worker_result)
+
+        result, _, _ = invoke_exact_worker_full(
+            session_local, chain, task_worker=fake_worker,
+            agent_sessions=[{
+                "project_id": wrong_project_id,
+                "task_id": chain.next_task_id,
+                "run_id": chain.exact_run_id,
+            }],
+        )
+
         assert result.status == "blocked"
         assert result.automatic_worker_call_allowed is False
 
@@ -1385,28 +1548,43 @@ class TestServiceSensitiveInfo:
         "provider_credential=abc",
     ])
     def test_sensitive_in_worker_result(self, session_local, secret):
-        """Sensitive info in Worker result → cleaned in Outcome."""
+        """Sensitive info in Worker result → cleaned in Outcome, JSON round-trip works."""
         chain = build_p24_chain()
         worker_result = build_worker_result_for_chain(chain, message=f"Result: {secret}")
         fake_worker = FakeTaskWorker(session=None, result=worker_result)
 
-        result, _, _ = invoke_exact_worker_full(
+        result, _, msg_repo = invoke_exact_worker_full(
             session_local, chain, task_worker=fake_worker,
         )
 
         assert result.status == "outcome_recorded"
         assert result.outcome is not None
-        # The secret should not appear in the persisted outcome
+        # Secret must not appear in outcome
         outcome_json = result.outcome.model_dump_json()
         assert secret not in outcome_json
+        # Must contain redaction marker
+        assert "REDACTED" in result.outcome.worker_result_message
+        # JSON round-trip must work
+        dumped = result.outcome.model_dump(mode="json")
+        restored = ProjectDirectorCrossTaskExactWorkerInvocationOutcome.model_validate(dumped)
+        assert restored == result.outcome
+        # Secret must not appear in persisted message
+        msgs = get_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        )
+        for m in msgs:
+            for action in m.suggested_actions:
+                action_json = json.dumps(action)
+                assert secret not in action_json
 
     def test_sensitive_in_exception(self, session_local):
-        """Sensitive info in exception → cleaned in Outcome."""
+        """Sensitive info in exception → cleaned in Outcome, JSON round-trip works."""
         chain = build_p24_chain()
         exc = RuntimeError("Authorization: Bearer secret-value-12345")
         fake_worker = FakeTaskWorker(session=None, exception=exc)
 
-        result, _, _ = invoke_exact_worker_full(
+        result, _, msg_repo = invoke_exact_worker_full(
             session_local, chain, task_worker=fake_worker,
         )
 
@@ -1415,6 +1593,22 @@ class TestServiceSensitiveInfo:
         assert result.outcome.status == "raised"
         outcome_json = result.outcome.model_dump_json()
         assert "secret-value-12345" not in outcome_json
+        # Must contain redaction marker or safe summary
+        assert "REDACTED" in result.outcome.exception_summary or \
+               "redacted" in result.outcome.exception_summary.lower()
+        # JSON round-trip must work
+        dumped = result.outcome.model_dump(mode="json")
+        restored = ProjectDirectorCrossTaskExactWorkerInvocationOutcome.model_validate(dumped)
+        assert restored == result.outcome
+        # Secret must not appear in persisted message
+        msgs = get_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        )
+        for m in msgs:
+            for action in m.suggested_actions:
+                action_json = json.dumps(action)
+                assert "secret-value-12345" not in action_json
 
 
 # ── Git Boundary Matrix ─────────────────────────────────────────────
@@ -1434,6 +1628,24 @@ class TestGitBoundaryMatrix:
         chain = build_p24_chain()
         kwargs = {field: True}
         worker_result = build_worker_result_for_chain(chain, **kwargs)
+        fake_worker = FakeTaskWorker(session=None, result=worker_result)
+
+        result, _, _ = invoke_exact_worker_full(
+            session_local, chain, task_worker=fake_worker,
+        )
+
+        assert result.status == "outcome_recorded"
+        assert result.outcome is not None
+        assert result.outcome.worker_reported_git_write_activity is True
+        assert result.outcome.worker_result_contract_valid is False
+        assert result.outcome.human_recovery_required is True
+        assert "exact_worker_invocation_outcome_git_boundary_violation" in result.outcome.blocked_reasons
+        assert result.outcome.product_runtime_git_write_allowed is False
+
+    def test_nested_snapshot_git_write(self, session_local):
+        """Nested snapshot product_runtime_git_write_allowed=true → git boundary."""
+        chain = build_p24_chain()
+        worker_result = build_worker_result_for_chain(chain, snapshot_product_git_write=True)
         fake_worker = FakeTaskWorker(session=None, result=worker_result)
 
         result, _, _ = invoke_exact_worker_full(
@@ -1501,30 +1713,8 @@ class TestRaisedOutcomeReplay:
         assert fake_worker.call_count == 1  # Only first worker was called
         assert fake_worker2.call_count == 0  # Second worker was never called
 
-    def test_keyboard_interrupt_not_swallowed(self, session_local):
-        """KeyboardInterrupt is not caught by except Exception.
-
-        The production code uses `except Exception` which does NOT catch
-        KeyboardInterrupt or SystemExit (they inherit from BaseException).
-        We verify this by checking that the service's exception handler
-        only catches Exception subclasses.
-        """
-        # Verify KeyboardInterrupt is NOT a subclass of Exception
-        assert not issubclass(KeyboardInterrupt, Exception)
-        # Verify SystemExit is NOT a subclass of Exception
-        assert not issubclass(SystemExit, Exception)
-        # This means `except Exception` in the production code will NOT
-        # catch these exceptions, and they will propagate up to the caller.
-
-
-# ── Outcome Persistence Rollback ────────────────────────────────────
-
-
-class TestOutcomePersistenceRollback:
-    """Outcome persistence rollback tests."""
-
-    def test_outcome_create_failure_recovery(self, session_local):
-        """Outcome Message create failure → recovery_required, no retry."""
+    def test_keyboard_interrupt_propagates(self, session_local):
+        """KeyboardInterrupt propagates through E4B service."""
         chain = build_p24_chain()
         s = session_local()
         seed_base_records(
@@ -1549,16 +1739,54 @@ class TestOutcomePersistenceRollback:
         )
         s.close()
 
-        # First: create the claim with a real service
+        def raise_ki(*args, **kwargs):
+            raise KeyboardInterrupt("test")
+
+        fake_worker = FakeTaskWorker(session=None)
+        fake_worker.run_reserved_once = raise_ki
+
         session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
-        claim_svc = make_claim_service(
+        outcome_svc = make_outcome_service(
             session,
             msg_repo=msg_repo,
             task_repo=task_repo,
             run_repo=run_repo,
             agent_sess_repo=agent_sess_repo,
+            task_worker=fake_worker,
         )
-        claim_result = claim_svc.claim_exact_worker_invocation(
+
+        with pytest.raises(KeyboardInterrupt):
+            outcome_svc.invoke_exact_worker(
+                session_id=chain.session_id,
+                project_id=chain.project_id,
+                continuation_root_record_id=chain.root_record_id,
+                instruction_package_id=chain.package_id,
+                exact_run_reservation_id=chain.exact_run_reservation_id,
+                exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+            )
+
+        # Claim was created, Outcome was not
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 1
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 0
+
+        # Second call: recovery_required, no Worker retry
+        fake_worker2 = FakeTaskWorker(session=None)
+        session2, msg_repo2, sess_repo2, task_repo2, run_repo2, agent_sess_repo2 = make_repos(session_local)
+        outcome_svc2 = make_outcome_service(
+            session2,
+            msg_repo=msg_repo2,
+            task_repo=task_repo2,
+            run_repo=run_repo2,
+            agent_sess_repo=agent_sess_repo2,
+            task_worker=fake_worker2,
+        )
+        result2 = outcome_svc2.invoke_exact_worker(
             session_id=chain.session_id,
             project_id=chain.project_id,
             continuation_root_record_id=chain.root_record_id,
@@ -1566,37 +1794,131 @@ class TestOutcomePersistenceRollback:
             exact_run_reservation_id=chain.exact_run_reservation_id,
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
-        assert claim_result.status == "invocation_claim_created"
+        assert result2.status == "recovery_required"
+        assert result2.automatic_worker_call_allowed is False
+        assert result2.worker_call_state_indeterminate is True
+        assert fake_worker2.call_count == 0
 
-        # Now wrap the message repo to fail on create for the outcome
-        failing_msg_repo = FailingMessageRepositoryWrapper(msg_repo)
-        failing_msg_repo._fail_create = True
+    def test_system_exit_propagates(self, session_local):
+        """SystemExit propagates through E4B service."""
+        chain = build_p24_chain()
+        s = session_local()
+        seed_base_records(
+            s,
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            task_id=chain.next_task_id,
+            plan_version_id=chain.plan_version_id,
+            task_status="running",
+        )
+        seed_package_message(s, chain.package)
+        seed_root_message(s, chain.root)
+        seed_e1b_message(s, chain.exact_run_reservation)
+        seed_e2a_message(s, chain.worker_start_reservation)
+        seed_run(
+            s,
+            run_id=chain.exact_run_id,
+            task_id=chain.next_task_id,
+            model_name=chain.claim.worker_model_name,
+            started_at=chain.claim.exact_run_started_at,
+            created_at=chain.claim.exact_run_created_at,
+        )
+        s.close()
+
+        def raise_se(*args, **kwargs):
+            raise SystemExit(1)
+
+        fake_worker = FakeTaskWorker(session=None)
+        fake_worker.run_reserved_once = raise_se
+
+        session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
+        outcome_svc = make_outcome_service(
+            session,
+            msg_repo=msg_repo,
+            task_repo=task_repo,
+            run_repo=run_repo,
+            agent_sess_repo=agent_sess_repo,
+            task_worker=fake_worker,
+        )
+
+        with pytest.raises(SystemExit):
+            outcome_svc.invoke_exact_worker(
+                session_id=chain.session_id,
+                project_id=chain.project_id,
+                continuation_root_record_id=chain.root_record_id,
+                instruction_package_id=chain.package_id,
+                exact_run_reservation_id=chain.exact_run_reservation_id,
+                exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+            )
+
+        # Claim was created, Outcome was not
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 1
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 0
+
+
+# ── Outcome Persistence Rollback ────────────────────────────────────
+
+
+class TestOutcomePersistenceRollback:
+    """Outcome persistence rollback tests."""
+
+    def test_outcome_create_failure_recovery(self, session_local):
+        """Outcome Message create failure → recovery_required, Worker not retried."""
+        chain = build_p24_chain()
+        s = session_local()
+        seed_base_records(
+            s,
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            task_id=chain.next_task_id,
+            plan_version_id=chain.plan_version_id,
+            task_status="running",
+        )
+        seed_package_message(s, chain.package)
+        seed_root_message(s, chain.root)
+        seed_e1b_message(s, chain.exact_run_reservation)
+        seed_e2a_message(s, chain.worker_start_reservation)
+        seed_run(
+            s,
+            run_id=chain.exact_run_id,
+            task_id=chain.next_task_id,
+            model_name=chain.claim.worker_model_name,
+            started_at=chain.claim.exact_run_started_at,
+            created_at=chain.claim.exact_run_created_at,
+        )
+        s.close()
+
+        # Use OutcomeOnlyFailingMessageRepository: allows Claim, fails on Outcome
+        session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
+        failing_repo = OutcomeOnlyFailingMessageRepository(msg_repo)
+        failing_repo._fail_outcome = True
 
         worker_result = build_worker_result_for_chain(chain)
         fake_worker = FakeTaskWorker(session=None, result=worker_result)
         fake_worker.bind_session(session, task_repo, run_repo, agent_sess_repo)
 
-        from app.services.project_director_cross_task_exact_worker_invocation_claim_service import (
-            ProjectDirectorCrossTaskExactWorkerInvocationClaimService,
-        )
         from app.services.project_director_cross_task_exact_worker_invocation_outcome_service import (
             ProjectDirectorCrossTaskExactWorkerInvocationOutcomeService,
         )
 
-        # Create a new claim service that uses the failing repo
-        claim_svc2 = ProjectDirectorCrossTaskExactWorkerInvocationClaimService(
-            message_repository=failing_msg_repo,
-            task_repository=task_repo,
-            run_repository=run_repo,
-            agent_session_repository=agent_sess_repo,
-        )
-
         outcome_svc = ProjectDirectorCrossTaskExactWorkerInvocationOutcomeService(
-            message_repository=failing_msg_repo,
+            message_repository=failing_repo,
             task_repository=task_repo,
             run_repository=run_repo,
             agent_session_repository=agent_sess_repo,
-            claim_service=claim_svc2,
+            claim_service=make_claim_service(
+                session,
+                msg_repo=failing_repo,
+                task_repo=task_repo,
+                run_repo=run_repo,
+                agent_sess_repo=agent_sess_repo,
+            ),
             task_worker=fake_worker,
         )
 
@@ -1609,10 +1931,136 @@ class TestOutcomePersistenceRollback:
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
 
-        # The outcome service sees the claim is replayed (not created),
-        # so it tries to resolve the replayed claim by loading history.
-        # Since the claim exists but no outcome, it returns recovery_required.
+        # Worker was called once, Outcome creation failed
+        assert fake_worker.call_count == 1
         assert result.status == "recovery_required"
+        assert result.exact_worker_invocation_claim_id is not None
         assert result.outcome is None
+        assert result.worker_call_attempted is None
         assert result.worker_call_state_indeterminate is True
         assert result.automatic_worker_call_allowed is False
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 1
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 0
+
+        # Second call: still recovery_required, Worker not retried
+        fake_worker2 = FakeTaskWorker(session=None)
+        session2, msg_repo2, sess_repo2, task_repo2, run_repo2, agent_sess_repo2 = make_repos(session_local)
+        outcome_svc2 = make_outcome_service(
+            session2,
+            msg_repo=msg_repo2,
+            task_repo=task_repo2,
+            run_repo=run_repo2,
+            agent_sess_repo=agent_sess_repo2,
+            task_worker=fake_worker2,
+        )
+        result2 = outcome_svc2.invoke_exact_worker(
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            continuation_root_record_id=chain.root_record_id,
+            instruction_package_id=chain.package_id,
+            exact_run_reservation_id=chain.exact_run_reservation_id,
+            exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+        )
+        assert result2.status == "recovery_required"
+        assert fake_worker2.call_count == 0
+
+    def test_outcome_post_write_validation_failure(self, session_local):
+        """Outcome post_write_validate failure → rollback, no Outcome persisted."""
+        chain = build_p24_chain()
+        s = session_local()
+        seed_base_records(
+            s,
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            task_id=chain.next_task_id,
+            plan_version_id=chain.plan_version_id,
+            task_status="running",
+        )
+        seed_package_message(s, chain.package)
+        seed_root_message(s, chain.root)
+        seed_e1b_message(s, chain.exact_run_reservation)
+        seed_e2a_message(s, chain.worker_start_reservation)
+        seed_run(
+            s,
+            run_id=chain.exact_run_id,
+            task_id=chain.next_task_id,
+            model_name=chain.claim.worker_model_name,
+            started_at=chain.claim.exact_run_started_at,
+            created_at=chain.claim.exact_run_created_at,
+        )
+        s.close()
+
+        worker_result = build_worker_result_for_chain(chain)
+        fake_worker = FakeTaskWorker(session=None, result=worker_result)
+
+        session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
+        fake_worker.bind_session(session, task_repo, run_repo, agent_sess_repo)
+
+        outcome_svc = make_outcome_service(
+            session,
+            msg_repo=msg_repo,
+            task_repo=task_repo,
+            run_repo=run_repo,
+            agent_sess_repo=agent_sess_repo,
+            task_worker=fake_worker,
+        )
+
+        # Monkey-patch _post_write_validate on the outcome service
+        original_validate = outcome_svc._post_write_validate
+
+        def failing_validate(message, outcome, graph):
+            raise ValueError("Simulated post-write validation failure")
+
+        outcome_svc._post_write_validate = failing_validate
+
+        result = outcome_svc.invoke_exact_worker(
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            continuation_root_record_id=chain.root_record_id,
+            instruction_package_id=chain.package_id,
+            exact_run_reservation_id=chain.exact_run_reservation_id,
+            exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+        )
+
+        assert result.status == "recovery_required"
+        assert result.exact_worker_invocation_claim_id is not None
+        assert result.outcome is None
+        assert result.worker_call_state_indeterminate is True
+        assert fake_worker.call_count == 1
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 1
+        assert count_messages_by_source_detail(
+            msg_repo, chain.session_id,
+            CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 0
+
+        # Second call: still recovery_required, Worker not retried
+        outcome_svc._post_write_validate = original_validate
+        fake_worker2 = FakeTaskWorker(session=None)
+        session2, msg_repo2, sess_repo2, task_repo2, run_repo2, agent_sess_repo2 = make_repos(session_local)
+        outcome_svc2 = make_outcome_service(
+            session2,
+            msg_repo=msg_repo2,
+            task_repo=task_repo2,
+            run_repo=run_repo2,
+            agent_sess_repo=agent_sess_repo2,
+            task_worker=fake_worker2,
+        )
+        result2 = outcome_svc2.invoke_exact_worker(
+            session_id=chain.session_id,
+            project_id=chain.project_id,
+            continuation_root_record_id=chain.root_record_id,
+            instruction_package_id=chain.package_id,
+            exact_run_reservation_id=chain.exact_run_reservation_id,
+            exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+        )
+        assert result2.status == "recovery_required"
+        assert fake_worker2.call_count == 0
