@@ -593,23 +593,34 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
         repository_inspection_indeterminate = (
             observation.repository_inspection_indeterminate
         )
+        effective_after_repository = observation.after_repository
         try:
             if final.package is None:
                 raise ValueError("missing revalidated package")
             final_repository = self._snapshot_repository(final.package)
         except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
             repository_inspection_indeterminate = True
+        else:
+            effective_after_repository = final_repository
+        workspace_changed_during_persistence = bool(
+            observation.after_workspace is not None
+            and observation.after_workspace != final_workspace
+        )
+        repository_changed_during_persistence = bool(
+            final_repository is not None
+            and observation.after_repository is not None
+            and final_repository != observation.after_repository
+        )
+        repository_final_state_unknown = final_repository is None
         changed_during_persistence = bool(
-            observation.after_workspace is None
-            or observation.after_repository is None
-            or observation.after_workspace != final_workspace
-            or observation.after_repository != final_repository
+            workspace_changed_during_persistence
+            or repository_changed_during_persistence
         )
         return _ExecutionObservation(
             before_workspace=observation.before_workspace,
             before_repository=observation.before_repository,
             after_workspace=final_workspace,
-            after_repository=final_repository,
+            after_repository=effective_after_repository,
             executor_result=observation.executor_result,
             executor_exception_type=observation.executor_exception_type,
             executor_result_invalid=observation.executor_result_invalid,
@@ -621,6 +632,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             ),
             repository_inspection_indeterminate=(
                 repository_inspection_indeterminate
+                or repository_final_state_unknown
             ),
         )
 
@@ -660,6 +672,12 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             != after_workspace.manifest_fingerprint
             and not observed_paths
         )
+        side_effect_indeterminate = bool(
+            observation.inspection_indeterminate
+            or observation.repository_inspection_indeterminate
+            or observation.after_workspace is None
+            or observation.after_repository is None
+        )
 
         outcome_status: str
         safe_error_code: str | None = None
@@ -685,7 +703,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             scope_validation_status = "invalid"
             side_effect_state = (
                 "indeterminate"
-                if observation.repository_inspection_indeterminate
+                if side_effect_indeterminate
                 else "observed" if observed_paths else "none"
             )
         elif (
