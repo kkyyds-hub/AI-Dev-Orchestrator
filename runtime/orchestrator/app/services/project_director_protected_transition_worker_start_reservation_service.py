@@ -51,6 +51,9 @@ P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_ACTION_TYPE = (
     "p23_d2_worker_start_reservation_record"
 )
 PROTECTED_TRANSITION_WORKER_START_RESERVATION_SCHEMA_VERSION = "p23-d2-b1.v1"
+AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION = (
+    "auto_rework_requires_p25_bounded_reservation"
+)
 
 _INTENT = "protected_transition_worker_start_reservation"
 _PAGE_SIZE = 100
@@ -513,6 +516,15 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
                 values=values,
             )
         values.update(self._values_from_consumption(consumption))
+        if (
+            consumption.disposition_type,
+            consumption.dispatch_kind,
+            consumption.target_task_strategy,
+        ) == ("AUTO_REWORK", "auto_rework", "source_task_rework"):
+            return self._blocked(
+                reasons=[AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION],
+                values=values,
+            )
         current = self._evaluate_current_reservation_eligibility(
             consumption=consumption,
         )
@@ -1091,6 +1103,7 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
 
 
 __all__ = (
+    "AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION",
     "P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_ACTION_TYPE",
     "P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL",
     "PROTECTED_TRANSITION_WORKER_START_RESERVATION_SCHEMA_VERSION",
