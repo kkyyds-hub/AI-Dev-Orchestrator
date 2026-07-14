@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel
 
 
 SandboxCandidateDiffMode = Literal["readonly_unified_diff"]
 SandboxCandidateDiffGenerationStatus = Literal["generated", "blocked"]
+SandboxCandidateDiffBaseContentSource = Literal["exact_git_commit_object"]
+
+P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION = (
+    "p21-c-f.base-evidence.v1"
+)
+P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT = (
+    "exact_git_commit_object"
+)
+
+_LOWER_HEX_GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+_LOWER_HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class CandidateSandboxDiffEntry(DomainModel):
@@ -57,6 +69,15 @@ class ProjectDirectorSandboxCandidateDiffResult(DomainModel):
     internal_manifest_file_path: str | None = Field(default=None, max_length=2_000)
     internal_manifest_verified: bool = False
     repo_root: str | None = Field(default=None, max_length=2_000)
+    base_evidence_schema_version: str | None = Field(default=None, max_length=80)
+    base_commit_sha: str | None = Field(default=None, min_length=40, max_length=40)
+    base_snapshot_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+    )
+    base_content_source: SandboxCandidateDiffBaseContentSource | None = None
+    readonly_base_snapshot_verified: bool = False
     target_file_content_read: bool = False
     candidate_file_content_read: bool = False
     readonly_real_diff_generated: bool = False
@@ -136,11 +157,85 @@ class ProjectDirectorSandboxCandidateDiffResult(DomainModel):
             raise ValueError("P21-C-F readonly diff generation may not write or execute")
         return value
 
+    @field_validator("base_evidence_schema_version")
+    @classmethod
+    def validate_base_evidence_schema_version(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if value != P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION:
+            raise ValueError("unexpected P21-C-F base evidence schema version")
+        return value
+
+    @field_validator("base_commit_sha")
+    @classmethod
+    def validate_base_commit_sha(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _LOWER_HEX_GIT_SHA.fullmatch(value):
+            raise ValueError("P21-C-F base commit must be a lowercase 40-character SHA")
+        return value
+
+    @field_validator("base_snapshot_fingerprint")
+    @classmethod
+    def validate_base_snapshot_fingerprint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _LOWER_HEX_SHA256.fullmatch(value):
+            raise ValueError(
+                "P21-C-F base snapshot fingerprint must be a lowercase SHA-256"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_base_evidence(self) -> "ProjectDirectorSandboxCandidateDiffResult":
+        base_evidence_present = any(
+            value is not None
+            for value in (
+                self.base_evidence_schema_version,
+                self.base_commit_sha,
+                self.base_snapshot_fingerprint,
+                self.base_content_source,
+            )
+        )
+        if self.diff_generation_status == "blocked":
+            if self.readonly_base_snapshot_verified:
+                raise ValueError(
+                    "blocked P21-C-F results may not claim a verified base snapshot"
+                )
+            return self
+        if base_evidence_present and not self.readonly_base_snapshot_verified:
+            raise ValueError(
+                "generated P21-C-F base evidence must not be partially unverified"
+            )
+        if self.readonly_base_snapshot_verified:
+            required = (
+                self.base_evidence_schema_version,
+                self.base_commit_sha,
+                self.base_snapshot_fingerprint,
+                self.base_content_source,
+            )
+            if any(value is None for value in required):
+                raise ValueError(
+                    "verified P21-C-F base evidence requires schema, commit, "
+                    "fingerprint, and content source"
+                )
+            if (
+                self.base_content_source
+                != P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT
+            ):
+                raise ValueError(
+                    "verified P21-C-F base content must come from an exact Git commit object"
+                )
+        return self
+
 
 __all__ = (
     "CandidateSandboxDiffBlockedFile",
     "CandidateSandboxDiffEntry",
+    "P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT",
+    "P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION",
     "ProjectDirectorSandboxCandidateDiffResult",
     "SandboxCandidateDiffGenerationStatus",
+    "SandboxCandidateDiffBaseContentSource",
     "SandboxCandidateDiffMode",
 )

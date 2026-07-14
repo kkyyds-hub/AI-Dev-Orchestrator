@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -19,6 +21,8 @@ from app.domain.project_director_message import (
 from app.domain.project_director_sandbox_candidate_diff import (
     CandidateSandboxDiffBlockedFile,
     CandidateSandboxDiffEntry,
+    P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT,
+    P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION,
     ProjectDirectorSandboxCandidateDiffResult,
     SandboxCandidateDiffMode,
 )
@@ -212,6 +216,15 @@ class _PreparedCandidateDiffFile:
     target_file_path: Path
 
 
+@dataclass(frozen=True, slots=True)
+class _BaseSnapshotFingerprintEntry:
+    relative_path: str
+    operation: str
+    base_file_existed: bool
+    base_content_sha256: str | None
+    candidate_content_sha256: str
+
+
 class ProjectDirectorSandboxCandidateDiffService:
     """Generate readonly unified diffs from sandbox candidate files."""
 
@@ -272,7 +285,7 @@ class ProjectDirectorSandboxCandidateDiffService:
                 session_id=session_id,
                 role=ProjectDirectorMessageRole.ASSISTANT,
                 content=(
-                    "已只读读取主项目目标文件和 sandbox candidate 文件，"
+                    "已只读读取 exact base commit object 与 sandbox candidate 文件，"
                     "并在内存中生成 P21-C-F readonly real diff。"
                     "本轮没有写主项目文件，没有写 sandbox 文件，没有写 manifest 文件，"
                     "没有应用 patch，没有创建 git worktree，没有执行 Git 写入，"
@@ -469,6 +482,13 @@ class ProjectDirectorSandboxCandidateDiffService:
 
         repo_root = self._resolved_repo_root(blocked_reasons)
         repo_root_text = repo_root.as_posix() if repo_root is not None else None
+        exact_base_commit_sha = None
+        ordered_scope_paths = tuple(sorted(allowed_operation_paths))
+        if not blocked_reasons and repo_root is not None:
+            exact_base_commit_sha = self._read_repository_head(
+                repo_root,
+                blocked_reasons=blocked_reasons,
+            )
 
         raw_candidate_files = (
             source_action.get("candidate_written_files") if source_action else None
@@ -501,12 +521,6 @@ class ProjectDirectorSandboxCandidateDiffService:
                 self._candidate_file_preflight(
                     candidate_file_path,
                     workspace_path=workspace_path,
-                    file_reasons=file_reasons,
-                )
-            if target_file_path is not None:
-                self._target_file_preflight(
-                    target_file_path,
-                    operation=operation,
                     file_reasons=file_reasons,
                 )
 
@@ -546,6 +560,7 @@ class ProjectDirectorSandboxCandidateDiffService:
         )
 
         diff_entries: list[CandidateSandboxDiffEntry] = []
+        base_snapshot_entries: list[_BaseSnapshotFingerprintEntry] = []
         unified_diff_text = ""
         target_file_content_read = False
         candidate_file_content_read = False
@@ -567,27 +582,108 @@ class ProjectDirectorSandboxCandidateDiffService:
                     )
                     continue
                 candidate_file_content_read = True
+                candidate_content_sha256 = self._sha256_utf8(candidate_content)
 
                 if prepared_file.operation == "update":
-                    target_content = self._read_text_file(
-                        prepared_file.target_file_path,
-                        blocked_reason="target_file_not_utf8",
-                        blocked_reasons=blocked_reasons,
-                    )
+                    target_lookup_error: str | None = None
+                    try:
+                        target_object_type = self._git_object_type(
+                            repo_root=repo_root,
+                            base_commit_sha=exact_base_commit_sha,
+                            relative_path=prepared_file.relative_path,
+                        )
+                    except (OSError, subprocess.SubprocessError):
+                        target_object_type = None
+                        target_lookup_error = "base_snapshot_read_failed"
+                        blocked_reasons.append(target_lookup_error)
+                    if target_object_type != "blob":
+                        blocked_reason = target_lookup_error or (
+                            "target_file_missing_for_update"
+                            if target_object_type is None
+                            else "target_file_not_file_in_base_commit"
+                        )
+                        blocked_files.append(
+                            CandidateSandboxDiffBlockedFile(
+                                relative_path=prepared_file.relative_path,
+                                operation=prepared_file.operation,
+                                blocked_reasons=[blocked_reason],
+                            )
+                        )
+                        blocked_reasons.append(blocked_reason)
+                        continue
+                    target_read_error: str | None = None
+                    try:
+                        target_content = self._read_git_blob_text(
+                            repo_root=repo_root,
+                            base_commit_sha=exact_base_commit_sha,
+                            relative_path=prepared_file.relative_path,
+                        )
+                    except UnicodeDecodeError:
+                        target_content = None
+                        target_read_error = "target_file_not_utf8"
+                        blocked_reasons.append(target_read_error)
+                    except (OSError, subprocess.SubprocessError):
+                        target_content = None
+                        target_read_error = "base_snapshot_read_failed"
+                        blocked_reasons.append(target_read_error)
                     if target_content is None:
                         blocked_files.append(
                             CandidateSandboxDiffBlockedFile(
                                 relative_path=prepared_file.relative_path,
                                 operation=prepared_file.operation,
-                                blocked_reasons=["target_file_not_utf8"],
+                                blocked_reasons=[
+                                    target_read_error or "base_snapshot_read_failed"
+                                ],
                             )
                         )
                         continue
                     target_file_content_read = True
                     target_existed = True
+                    target_content_sha256 = self._sha256_utf8(target_content)
                 else:
+                    target_lookup_error = None
+                    try:
+                        target_object_type = self._git_object_type(
+                            repo_root=repo_root,
+                            base_commit_sha=exact_base_commit_sha,
+                            relative_path=prepared_file.relative_path,
+                        )
+                    except (OSError, subprocess.SubprocessError):
+                        target_object_type = None
+                        target_lookup_error = "base_snapshot_read_failed"
+                        blocked_reasons.append(target_lookup_error)
+                    if target_lookup_error is not None:
+                        blocked_files.append(
+                            CandidateSandboxDiffBlockedFile(
+                                relative_path=prepared_file.relative_path,
+                                operation=prepared_file.operation,
+                                blocked_reasons=[target_lookup_error],
+                            )
+                        )
+                        continue
+                    if target_object_type is not None:
+                        blocked_files.append(
+                            CandidateSandboxDiffBlockedFile(
+                                relative_path=prepared_file.relative_path,
+                                operation=prepared_file.operation,
+                                blocked_reasons=["target_file_already_exists_for_create"],
+                            )
+                        )
+                        blocked_reasons.append("target_file_already_exists_for_create")
+                        continue
                     target_content = ""
                     target_existed = False
+                    target_content_sha256 = None
+
+                base_snapshot_entries.append(
+                    _BaseSnapshotFingerprintEntry(
+                        relative_path=prepared_file.relative_path,
+                        operation=prepared_file.operation,
+                        base_file_existed=target_existed,
+                        base_content_sha256=target_content_sha256,
+                        candidate_content_sha256=candidate_content_sha256,
+                    )
+                )
 
                 unified_diff = self._unified_diff(
                     relative_path=prepared_file.relative_path,
@@ -618,9 +714,48 @@ class ProjectDirectorSandboxCandidateDiffService:
                     blocked_reasons.append("diff_too_large")
                     diff_entries = []
                     unified_diff_text = ""
+                    base_snapshot_entries = []
+            if not blocked_reasons:
+                current_head = self._read_repository_head(
+                    repo_root,
+                    blocked_reasons=blocked_reasons,
+                )
+                if (
+                    current_head is not None
+                    and exact_base_commit_sha is not None
+                    and current_head != exact_base_commit_sha
+                ):
+                    blocked_reasons.append("base_commit_changed_during_diff_generation")
 
         blocked_reasons = self._dedupe(blocked_reasons)
         diff_generation_status = "generated" if not blocked_reasons else "blocked"
+        generated = diff_generation_status == "generated"
+        base_evidence_schema_version = (
+            P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION
+            if generated
+            else None
+        )
+        base_snapshot_fingerprint = (
+            self._base_snapshot_fingerprint(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_candidate_write_message_id=source_message_id,
+                source_workspace_creation_message_id=source_workspace_creation_message_id,
+                source_workspace_manifest_write_message_id=(
+                    source_workspace_manifest_write_message_id
+                ),
+                source_operation_manifest_message_id=(
+                    source_operation_manifest_message_id
+                ),
+                canonical_repo_root=repo_root_text,
+                exact_base_commit_sha=exact_base_commit_sha,
+                ordered_scope_paths=ordered_scope_paths,
+                base_snapshot_entries=base_snapshot_entries,
+                diff_mode=diff_mode,
+            )
+            if generated
+            else None
+        )
         diff_bytes = (
             len(unified_diff_text.encode("utf-8"))
             if diff_generation_status == "generated"
@@ -643,7 +778,6 @@ class ProjectDirectorSandboxCandidateDiffService:
             workspace_creation_action is not None
             and workspace_creation_action.get("cleanup_required") is True
         )
-        generated = diff_generation_status == "generated"
 
         return ProjectDirectorSandboxCandidateDiffResult(
             diff_generation_status=diff_generation_status,
@@ -667,6 +801,15 @@ class ProjectDirectorSandboxCandidateDiffService:
             internal_manifest_file_path=internal_manifest_file_text,
             internal_manifest_verified=internal_manifest_verified,
             repo_root=repo_root_text,
+            base_evidence_schema_version=base_evidence_schema_version,
+            base_commit_sha=exact_base_commit_sha if generated else None,
+            base_snapshot_fingerprint=base_snapshot_fingerprint,
+            base_content_source=(
+                P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT
+                if generated
+                else None
+            ),
+            readonly_base_snapshot_verified=generated,
             target_file_content_read=target_file_content_read,
             candidate_file_content_read=candidate_file_content_read and generated,
             readonly_real_diff_generated=generated,
@@ -1006,23 +1149,6 @@ class ProjectDirectorSandboxCandidateDiffService:
             file_reasons.append("candidate_file_missing_on_disk")
 
     @staticmethod
-    def _target_file_preflight(
-        target_file_path: Path,
-        *,
-        operation: str,
-        file_reasons: list[str],
-    ) -> None:
-        try:
-            if target_file_path.exists() and target_file_path.is_dir():
-                file_reasons.append("target_file_is_directory")
-            if operation == "create" and target_file_path.exists():
-                file_reasons.append("target_file_already_exists_for_create")
-            if operation == "update" and not target_file_path.exists():
-                file_reasons.append("target_file_missing_for_update")
-        except OSError:
-            file_reasons.append("target_file_path_escapes_repo_root")
-
-    @staticmethod
     def _read_text_file(
         path: Path,
         *,
@@ -1037,6 +1163,162 @@ class ProjectDirectorSandboxCandidateDiffService:
         except OSError:
             blocked_reasons.append(blocked_reason)
             return None
+
+    @staticmethod
+    def _read_repository_head(
+        repo_root: Path,
+        *,
+        blocked_reasons: list[str],
+    ) -> str | None:
+        try:
+            completed = subprocess.run(
+                ("git", "rev-parse", "--verify", "HEAD"),
+                cwd=repo_root,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            blocked_reasons.append("base_commit_unavailable")
+            return None
+        value = completed.stdout.strip()
+        if completed.returncode != 0 or not ProjectDirectorSandboxCandidateDiffService._is_lower_hex(
+            value,
+            length=40,
+        ):
+            blocked_reasons.append("base_commit_unavailable")
+            return None
+        return value
+
+    @staticmethod
+    def _git_object_type(
+        *,
+        repo_root: Path,
+        base_commit_sha: str,
+        relative_path: str,
+    ) -> str | None:
+        completed = subprocess.run(
+            ("git", "cat-file", "-t", f"{base_commit_sha}:{relative_path}"),
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if completed.returncode != 0:
+            return None
+        value = completed.stdout.strip()
+        return value or None
+
+    @staticmethod
+    def _read_git_blob_text(
+        *,
+        repo_root: Path,
+        base_commit_sha: str,
+        relative_path: str,
+    ) -> str:
+        completed = subprocess.run(
+            ("git", "cat-file", "blob", f"{base_commit_sha}:{relative_path}"),
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+        if completed.returncode != 0:
+            raise OSError("git cat-file blob failed")
+        return completed.stdout.decode("utf-8")
+
+    @staticmethod
+    def _sha256_utf8(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _base_snapshot_fingerprint(
+        cls,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_candidate_write_message_id: UUID,
+        source_workspace_creation_message_id: UUID | None,
+        source_workspace_manifest_write_message_id: UUID | None,
+        source_operation_manifest_message_id: UUID | None,
+        canonical_repo_root: str | None,
+        exact_base_commit_sha: str | None,
+        ordered_scope_paths: tuple[str, ...],
+        base_snapshot_entries: list[_BaseSnapshotFingerprintEntry],
+        diff_mode: SandboxCandidateDiffMode,
+    ) -> str:
+        payload = {
+            "schema_version": (
+                P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION
+            ),
+            "session_id": str(session_id),
+            "source_task_id": str(source_task_id),
+            "source_candidate_write_message_id": str(
+                source_candidate_write_message_id
+            ),
+            "source_workspace_creation_message_id": (
+                str(source_workspace_creation_message_id)
+                if source_workspace_creation_message_id is not None
+                else None
+            ),
+            "source_workspace_manifest_write_message_id": (
+                str(source_workspace_manifest_write_message_id)
+                if source_workspace_manifest_write_message_id is not None
+                else None
+            ),
+            "source_operation_manifest_message_id": (
+                str(source_operation_manifest_message_id)
+                if source_operation_manifest_message_id is not None
+                else None
+            ),
+            "canonical_repo_root": canonical_repo_root,
+            "exact_base_commit_sha": exact_base_commit_sha,
+            "ordered_scope_paths": list(ordered_scope_paths),
+            "diff_identity": {
+                "diff_mode": diff_mode,
+                "entries": [
+                    {
+                        "relative_path": entry.relative_path,
+                        "operation": entry.operation,
+                        "candidate_content_sha256": entry.candidate_content_sha256,
+                    }
+                    for entry in sorted(
+                        base_snapshot_entries,
+                        key=lambda item: (item.relative_path, item.operation),
+                    )
+                ],
+            },
+            "base_snapshot_entries": [
+                {
+                    "relative_path": entry.relative_path,
+                    "operation": entry.operation,
+                    "base_file_existed": entry.base_file_existed,
+                    "base_content_sha256": entry.base_content_sha256,
+                }
+                for entry in sorted(
+                    base_snapshot_entries,
+                    key=lambda item: (item.relative_path, item.operation),
+                )
+            ],
+        }
+        return hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def _is_lower_hex(value: str, *, length: int) -> bool:
+        return (
+            isinstance(value, str)
+            and len(value) == length
+            and all(char in "0123456789abcdef" for char in value)
+        )
 
     @staticmethod
     def _unified_diff(
@@ -1260,6 +1542,13 @@ class ProjectDirectorSandboxCandidateDiffService:
             "workspace_path_within_root": result.workspace_path_within_root,
             "internal_manifest_file_path": result.internal_manifest_file_path,
             "repo_root": result.repo_root,
+            "base_evidence_schema_version": result.base_evidence_schema_version,
+            "base_commit_sha": result.base_commit_sha,
+            "base_snapshot_fingerprint": result.base_snapshot_fingerprint,
+            "base_content_source": result.base_content_source,
+            "readonly_base_snapshot_verified": (
+                result.readonly_base_snapshot_verified
+            ),
             "target_file_content_read": result.target_file_content_read,
             "candidate_file_content_read": result.candidate_file_content_read,
             "readonly_real_diff_generated": result.readonly_real_diff_generated,

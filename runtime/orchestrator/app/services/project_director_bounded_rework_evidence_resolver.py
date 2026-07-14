@@ -29,6 +29,8 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageSource,
 )
 from app.domain.project_director_sandbox_candidate_diff import (
+    P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT,
+    P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION,
     ProjectDirectorSandboxCandidateDiffResult,
 )
 from app.domain.project_director_sandbox_candidate_file_write import (
@@ -179,6 +181,7 @@ class _PersistedBaseCommitSource:
     record_identity: str
     source_fingerprint: str
     expected_base_commit_sha: str
+    persisted_source_base_snapshot_fingerprint: str
 
 
 class _Blocked(RuntimeError):
@@ -558,7 +561,12 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
             repository_workspace_id=repository_workspace.id,
             repository_root=repository_root,
             workspace_creation_message_id=workspace_creation_message.id,
+            workspace_manifest_message_id=manifest_message.id,
+            operation_manifest_message_id=diff.source_operation_manifest_message_id,
             workspace_path=workspace_path,
+            source_candidate_diff_message=diff_message,
+            source_candidate_diff_action=diff_action,
+            source_candidate_diff=diff,
             source_candidate_diff_message_id=source_diff_message_id,
             source_candidate_diff_fingerprint=source_diff_fingerprint,
         )
@@ -586,6 +594,9 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
                 ),
                 "persisted_base_commit_source_fingerprint": (
                     persisted_base.source_fingerprint
+                ),
+                "persisted_source_base_snapshot_fingerprint": (
+                    persisted_base.persisted_source_base_snapshot_fingerprint
                 ),
                 "expected_base_commit_sha": base_commit_sha,
                 "repository_binding_fingerprint": repository_binding_fingerprint,
@@ -1080,16 +1091,133 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
         repository_workspace_id: UUID,
         repository_root: str,
         workspace_creation_message_id: UUID,
+        workspace_manifest_message_id: UUID,
+        operation_manifest_message_id: UUID | None,
         workspace_path: str,
+        source_candidate_diff_message: ProjectDirectorMessage | None,
+        source_candidate_diff_action: dict[str, Any],
+        source_candidate_diff: ProjectDirectorSandboxCandidateDiffResult,
         source_candidate_diff_message_id: UUID,
         source_candidate_diff_fingerprint: str,
     ) -> _PersistedBaseCommitSource:
         """Resolve only an exact persisted base source for the P21 diff lineage."""
 
-        # The base SHA exists only on the transient worktree-create response; its
-        # audit record does not persist it or bind it to this P21 Task/Run/diff.
-        # Paths or live repository state cannot supply the missing authority.
-        raise _Blocked("authority_invalid")
+        message = source_candidate_diff_message
+        diff = source_candidate_diff
+        if (
+            message is None
+            or message.id != source_candidate_diff_message_id
+            or message.session_id != session_id
+            or message.related_project_id != project_id
+            or message.related_task_id != source_task_id
+            or message.role != ProjectDirectorMessageRole.ASSISTANT
+            or message.source != ProjectDirectorMessageSource.SYSTEM
+            or message.intent != "sandbox_candidate_diff_generate"
+            or message.source_detail != P21_C_SANDBOX_CANDIDATE_DIFF_SOURCE_DETAIL
+            or message.requires_confirmation is not False
+            or message.token_count is not None
+            or message.estimated_cost is not None
+            or len(message.suggested_actions) != 1
+            or message.suggested_actions[0] != source_candidate_diff_action
+            or operation_manifest_message_id is None
+        ):
+            raise _Blocked("authority_invalid")
+
+        if (
+            diff.diff_generation_status != "generated"
+            or diff.source_task_id != source_task_id
+            or diff.source_message_id is None
+            or diff.source_workspace_creation_message_id != workspace_creation_message_id
+            or diff.source_workspace_manifest_write_message_id
+            != workspace_manifest_message_id
+            or diff.source_operation_manifest_message_id
+            != operation_manifest_message_id
+            or diff.workspace_path != workspace_path
+            or not diff.workspace_path_within_root
+            or diff.repo_root != repository_root
+            or not diff.internal_manifest_verified
+            or not diff.source_candidate_write_message_bound
+            or not diff.source_candidate_write_verified
+            or not diff.readonly_real_diff_generated
+            or not diff.real_diff_generated
+            or diff.base_evidence_schema_version
+            != P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION
+            or diff.base_content_source
+            != (
+                P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT
+            )
+            or diff.readonly_base_snapshot_verified is not True
+            or diff.product_runtime_git_write_allowed is not False
+            or diff.main_worktree_write_allowed is not False
+            or diff.worktree_write_allowed is not False
+            or diff.git_write_performed is not False
+            or diff.file_write_allowed is not False
+            or diff.main_project_file_written is not False
+            or diff.sandbox_file_written is not False
+            or diff.manifest_file_written is not False
+            or diff.patch_applied is not False
+            or diff.actual_patch_applied is not False
+            or diff.real_code_modified is not False
+        ):
+            raise _Blocked("authority_invalid")
+
+        base_commit_sha = diff.base_commit_sha
+        persisted_base_snapshot_fingerprint = diff.base_snapshot_fingerprint
+        if (
+            not _LOWER_HEX_SHA256.fullmatch(source_candidate_diff_fingerprint)
+            or base_commit_sha is None
+            or not _LOWER_HEX_GIT_COMMIT.fullmatch(base_commit_sha)
+            or persisted_base_snapshot_fingerprint is None
+            or not _LOWER_HEX_SHA256.fullmatch(
+                persisted_base_snapshot_fingerprint
+            )
+        ):
+            raise _Blocked("authority_invalid")
+
+        record_identity = f"project_director_message:{source_candidate_diff_message_id}"
+        source_fingerprint = compute_p25_contract_sha256(
+            {
+                "schema_version": "p25-c.persisted-base-source.v1",
+                "record_identity": record_identity,
+                "session_id": session_id,
+                "project_id": project_id,
+                "source_task_id": source_task_id,
+                "source_run_id": source_run_id,
+                "repository_workspace_id": repository_workspace_id,
+                "repository_root": repository_root,
+                "workspace_creation_message_id": workspace_creation_message_id,
+                "workspace_manifest_message_id": workspace_manifest_message_id,
+                "operation_manifest_message_id": operation_manifest_message_id,
+                "workspace_path": workspace_path,
+                "source_candidate_diff_message_id": source_candidate_diff_message_id,
+                "source_candidate_diff_message_sequence_no": message.sequence_no,
+                "source_candidate_diff_message_intent": message.intent,
+                "source_candidate_diff_message_source_detail": (
+                    message.source_detail
+                ),
+                "source_candidate_diff_action": source_candidate_diff_action,
+                "source_candidate_diff_fingerprint": source_candidate_diff_fingerprint,
+                "base_evidence_schema_version": (
+                    diff.base_evidence_schema_version
+                ),
+                "base_commit_sha": base_commit_sha,
+                "persisted_source_base_snapshot_fingerprint": (
+                    persisted_base_snapshot_fingerprint
+                ),
+                "base_content_source": diff.base_content_source,
+                "readonly_base_snapshot_verified": (
+                    diff.readonly_base_snapshot_verified
+                ),
+            }
+        )
+        return _PersistedBaseCommitSource(
+            record_identity=record_identity,
+            source_fingerprint=source_fingerprint,
+            expected_base_commit_sha=base_commit_sha,
+            persisted_source_base_snapshot_fingerprint=(
+                persisted_base_snapshot_fingerprint
+            ),
+        )
 
     @staticmethod
     def _read_repository_head(repository_root: str) -> str:
