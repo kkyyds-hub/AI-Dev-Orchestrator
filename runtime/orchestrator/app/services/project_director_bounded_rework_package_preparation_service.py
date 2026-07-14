@@ -96,6 +96,19 @@ class PreparedProjectDirectorBoundedReworkInstructionPackage:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedPersistedBoundedReworkInstructionPackage:
+    """Pure reconstruction of one exact persisted prepared package."""
+
+    package: ProjectDirectorBoundedReworkInstructionPackage | None
+    message: ProjectDirectorMessage | None
+    packages: tuple[ProjectDirectorBoundedReworkInstructionPackage, ...]
+    reservations: tuple[ProjectDirectorBoundedReworkAttemptReservation, ...]
+    claims: tuple[ProjectDirectorBoundedReworkInvocationClaim, ...]
+    outcomes: tuple[ProjectDirectorBoundedReworkInvocationOutcome, ...]
+    blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _AuthorityContext:
     authority: ProjectDirectorBoundedReworkAuthorityEnvelope
     source_freshness_message_id: UUID
@@ -231,6 +244,190 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
             return self._blocked_result("persistence_failed")
         except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
             return self._blocked_result("history_invalid")
+
+    def revalidate_persisted_bounded_rework_instruction_package(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_package_message_id: UUID,
+    ) -> RevalidatedPersistedBoundedReworkInstructionPackage:
+        """Rebuild one persisted package and its current authority without writes."""
+
+        try:
+            message = self._message_repository.get_by_id(source_package_message_id)
+            if message is None:
+                raise _Blocked("authority_invalid")
+            action = self._p25_action(message)
+            if (
+                action is None
+                or action.get("type") != P25_BOUNDED_REWORK_PACKAGE_ACTION_TYPE
+                or action.get("schema_version") != _PACKAGE_SCHEMA_VERSION
+            ):
+                raise _Blocked("history_invalid")
+            payload = dict(action)
+            payload.pop("type", None)
+            package = ProjectDirectorBoundedReworkInstructionPackage.model_validate(
+                payload
+            )
+            self._validate_package_message(message, package)
+            if (
+                package.authority is None
+                or package.package_status != "prepared"
+                or package.blocked_reasons
+                or package.package_replay_key is None
+                or package.repository_binding is None
+                or package.workspace_binding is None
+                or package.base_commit_sha is None
+                or package.base_snapshot_fingerprint is None
+                or package.source_candidate_diff_message_id is None
+                or package.source_candidate_diff_sha256 is None
+                or package.source_candidate_diff_fingerprint is None
+                or package.rework_attempt_index not in {0, 1, 2}
+                or package.rework_attempt_limit != P25_BOUNDED_REWORK_ATTEMPT_LIMIT
+                or message.id != source_package_message_id
+                or message.session_id != session_id
+                or message.related_task_id != source_task_id
+                or package.package_id != source_package_message_id
+                or package.authority.session_id != session_id
+                or package.authority.source_task_id != source_task_id
+                or package.authority.target_task_id != source_task_id
+                or message.related_project_id != package.authority.project_id
+            ):
+                raise _Blocked("authority_invalid")
+
+            history = self._load_history(session_id)
+            exact_packages = [
+                item
+                for item in history.packages
+                if item[0].id == source_package_message_id
+                and item[1].package_id == source_package_message_id
+            ]
+            if len(exact_packages) != 1 or exact_packages[0] != (message, package):
+                raise _Blocked("history_invalid")
+
+            authority_context = self._revalidate_authority(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_consumption_message_id=(
+                    package.authority.source_p23_dispatch_consumption_id
+                ),
+            )
+            if (
+                authority_context.authority != package.authority
+                or authority_context.rework_attempt_index
+                != package.rework_attempt_index
+                or authority_context.rework_attempt_limit
+                != package.rework_attempt_limit
+            ):
+                raise _Blocked("authority_invalid")
+
+            evidence_resolution = (
+                self._evidence_resolver.resolve_bounded_rework_evidence_snapshot(
+                    session_id=session_id,
+                    project_id=package.authority.project_id,
+                    source_task_id=source_task_id,
+                    source_run_id=package.authority.source_run_id,
+                    source_review_message_id=(
+                        package.authority.source_review_message_id
+                    ),
+                    source_review_fingerprint=(
+                        package.authority.source_review_fingerprint
+                    ),
+                    source_review_semantic_fingerprint=(
+                        package.authority.source_review_semantic_fingerprint
+                    ),
+                    source_freshness_message_id=(
+                        authority_context.source_freshness_message_id
+                    ),
+                    source_diff_message_id=authority_context.source_diff_message_id,
+                )
+            )
+            evidence = evidence_resolution.snapshot
+            if evidence is None or evidence_resolution.blocked_reasons:
+                raise _Blocked(
+                    self._map_evidence_reason(evidence_resolution.blocked_reasons)
+                )
+            if (
+                evidence.repository_binding != package.repository_binding
+                or evidence.workspace_binding != package.workspace_binding
+                or evidence.repository_binding_fingerprint
+                != package.repository_binding.repository_binding_fingerprint
+                or evidence.workspace_binding_fingerprint
+                != package.workspace_binding.workspace_binding_fingerprint
+            ):
+                raise _Blocked("workspace_invalid")
+            if (
+                evidence.base_commit_sha != package.base_commit_sha
+                or evidence.base_snapshot_fingerprint
+                != package.base_snapshot_fingerprint
+            ):
+                raise _Blocked("base_commit_mismatch")
+            if (
+                evidence.source_candidate_diff_message_id
+                != package.source_candidate_diff_message_id
+                or evidence.source_candidate_diff_sha256
+                != package.source_candidate_diff_sha256
+                or evidence.source_candidate_diff_fingerprint
+                != package.source_candidate_diff_fingerprint
+            ):
+                raise _Blocked("source_diff_mismatch")
+
+            allowed_scope = self._intersect_scope_sources(
+                evidence.task_plan_allowed_paths,
+                evidence.repository_allowed_paths,
+                evidence.workspace_manifest_allowed_paths,
+                evidence.review_scope_paths,
+            )
+            forbidden_scope = evidence.trusted_forbidden_paths
+            if any(
+                paths_overlap(allowed, forbidden)
+                for allowed in allowed_scope
+                for forbidden in forbidden_scope
+            ):
+                raise _Blocked("scope_invalid")
+            if (
+                allowed_scope != package.allowed_scope_paths
+                or forbidden_scope != package.forbidden_scope_paths
+            ):
+                raise _Blocked("scope_invalid")
+            findings, corrections = self._findings_and_corrections(
+                evidence=evidence,
+                allowed_scope=allowed_scope,
+            )
+            lineage = self._attempt_lineage(
+                history=history,
+                authority_context=authority_context,
+                evidence=evidence,
+            )
+            rebuilt = self._build_package(
+                package_id=package.package_id,
+                created_at=package.created_at,
+                authority=authority_context.authority,
+                evidence=evidence,
+                allowed_scope=allowed_scope,
+                forbidden_scope=forbidden_scope,
+                findings=findings,
+                corrections=corrections,
+                lineage=lineage,
+            )
+            if rebuilt != package:
+                raise _Blocked("instruction_package_conflict")
+            return RevalidatedPersistedBoundedReworkInstructionPackage(
+                package=package,
+                message=message,
+                packages=tuple(item[1] for item in history.packages),
+                reservations=history.reservations,
+                claims=history.claims,
+                outcomes=history.outcomes,
+                blocked_reasons=(),
+            )
+        except _Blocked as exc:
+            return self._blocked_revalidation(exc.reason)
+        except SQLAlchemyError:
+            return self._blocked_revalidation("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._blocked_revalidation("history_invalid")
 
     def _revalidate_authority(
         self,
@@ -1096,6 +1293,20 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
         ):
             raise ValueError("P25-C dependencies must share one message repository")
 
+    @staticmethod
+    def _blocked_revalidation(
+        reason: BoundedReworkBlockedReason,
+    ) -> RevalidatedPersistedBoundedReworkInstructionPackage:
+        return RevalidatedPersistedBoundedReworkInstructionPackage(
+            package=None,
+            message=None,
+            packages=(),
+            reservations=(),
+            claims=(),
+            outcomes=(),
+            blocked_reasons=(reason,),
+        )
+
 
 def PurePathParts(value: str) -> tuple[str, ...]:
     """Return POSIX parts without exposing pathlib objects in sort keys."""
@@ -1109,4 +1320,5 @@ __all__ = (
     "P25_BOUNDED_REWORK_PACKAGE_SOURCE_DETAIL",
     "PreparedProjectDirectorBoundedReworkInstructionPackage",
     "ProjectDirectorBoundedReworkPackagePreparationService",
+    "RevalidatedPersistedBoundedReworkInstructionPackage",
 )
