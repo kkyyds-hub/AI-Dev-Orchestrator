@@ -188,44 +188,51 @@ class ProjectDirectorSandboxCandidateDiffResult(DomainModel):
 
     @model_validator(mode="after")
     def validate_base_evidence(self) -> "ProjectDirectorSandboxCandidateDiffResult":
-        base_evidence_present = any(
-            value is not None
-            for value in (
-                self.base_evidence_schema_version,
-                self.base_commit_sha,
-                self.base_snapshot_fingerprint,
-                self.base_content_source,
-            )
-        )
         if self.diff_generation_status == "blocked":
             if self.readonly_base_snapshot_verified:
                 raise ValueError(
                     "blocked P21-C-F results may not claim a verified base snapshot"
                 )
-            return self
-        if base_evidence_present and not self.readonly_base_snapshot_verified:
-            raise ValueError(
-                "generated P21-C-F base evidence must not be partially unverified"
-            )
-        if self.readonly_base_snapshot_verified:
-            required = (
-                self.base_evidence_schema_version,
-                self.base_commit_sha,
-                self.base_snapshot_fingerprint,
-                self.base_content_source,
-            )
-            if any(value is None for value in required):
-                raise ValueError(
-                    "verified P21-C-F base evidence requires schema, commit, "
-                    "fingerprint, and content source"
+            if any(
+                value is not None
+                for value in (
+                    self.base_evidence_schema_version,
+                    self.base_commit_sha,
+                    self.base_snapshot_fingerprint,
+                    self.base_content_source,
                 )
-            if (
-                self.base_content_source
-                != P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT
             ):
                 raise ValueError(
-                    "verified P21-C-F base content must come from an exact Git commit object"
+                    "blocked P21-C-F results may not carry successful base authority evidence"
                 )
+            return self
+
+        if not self.readonly_base_snapshot_verified:
+            raise ValueError(
+                "generated P21-C-F results require a verified base snapshot"
+            )
+        if (
+            self.base_evidence_schema_version
+            != P21_C_SANDBOX_CANDIDATE_DIFF_BASE_EVIDENCE_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                "generated P21-C-F results require the exact base evidence schema version"
+            )
+        if self.base_commit_sha is None:
+            raise ValueError(
+                "generated P21-C-F results require an exact persisted base commit"
+            )
+        if self.base_snapshot_fingerprint is None:
+            raise ValueError(
+                "generated P21-C-F results require a persisted base snapshot fingerprint"
+            )
+        if (
+            self.base_content_source
+            != P21_C_SANDBOX_CANDIDATE_DIFF_BASE_CONTENT_SOURCE_EXACT_GIT_COMMIT_OBJECT
+        ):
+            raise ValueError(
+                "generated P21-C-F base content must come from an exact Git commit object"
+            )
         return self
 
 
