@@ -141,23 +141,26 @@ class TestConcurrentClaim:
 
         def claim_worker(index):
             session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
-            claim_svc = make_claim_service(
-                session,
-                msg_repo=msg_repo,
-                task_repo=task_repo,
-                run_repo=run_repo,
-                agent_sess_repo=agent_sess_repo,
-            )
-            barrier.wait()
-            result = claim_svc.claim_exact_worker_invocation(
-                session_id=chain.session_id,
-                project_id=chain.project_id,
-                continuation_root_record_id=chain.root_record_id,
-                instruction_package_id=chain.package_id,
-                exact_run_reservation_id=chain.exact_run_reservation_id,
-                exact_worker_start_reservation_id=chain.worker_start_reservation_id,
-            )
-            results[index] = result
+            try:
+                claim_svc = make_claim_service(
+                    session,
+                    msg_repo=msg_repo,
+                    task_repo=task_repo,
+                    run_repo=run_repo,
+                    agent_sess_repo=agent_sess_repo,
+                )
+                barrier.wait()
+                result = claim_svc.claim_exact_worker_invocation(
+                    session_id=chain.session_id,
+                    project_id=chain.project_id,
+                    continuation_root_record_id=chain.root_record_id,
+                    instruction_package_id=chain.package_id,
+                    exact_run_reservation_id=chain.exact_run_reservation_id,
+                    exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+                )
+                results[index] = result
+            finally:
+                session.close()
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(claim_worker, i) for i in range(2)]
@@ -214,53 +217,56 @@ class TestConcurrentE4B:
 
         def thread_a():
             worker = FakeTaskWorker(session=None)
-            # Override run_reserved_once to use the controller
             worker.run_reserved_once = controller.run_reserved_once
             session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
-            outcome_svc = make_outcome_service(
-                session,
-                msg_repo=msg_repo,
-                task_repo=task_repo,
-                run_repo=run_repo,
-                agent_sess_repo=agent_sess_repo,
-                task_worker=worker,
-            )
-            barrier.wait()
-            result = outcome_svc.invoke_exact_worker(
-                session_id=chain.session_id,
-                project_id=chain.project_id,
-                continuation_root_record_id=chain.root_record_id,
-                instruction_package_id=chain.package_id,
-                exact_run_reservation_id=chain.exact_run_reservation_id,
-                exact_worker_start_reservation_id=chain.worker_start_reservation_id,
-            )
-            thread_a_result[0] = result
+            try:
+                outcome_svc = make_outcome_service(
+                    session,
+                    msg_repo=msg_repo,
+                    task_repo=task_repo,
+                    run_repo=run_repo,
+                    agent_sess_repo=agent_sess_repo,
+                    task_worker=worker,
+                )
+                barrier.wait()
+                result = outcome_svc.invoke_exact_worker(
+                    session_id=chain.session_id,
+                    project_id=chain.project_id,
+                    continuation_root_record_id=chain.root_record_id,
+                    instruction_package_id=chain.package_id,
+                    exact_run_reservation_id=chain.exact_run_reservation_id,
+                    exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+                )
+                thread_a_result[0] = result
+            finally:
+                session.close()
 
         def thread_b():
             session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
             exploding_worker.bind_session(session, task_repo, run_repo, agent_sess_repo)
-            outcome_svc = make_outcome_service(
-                session,
-                msg_repo=msg_repo,
-                task_repo=task_repo,
-                run_repo=run_repo,
-                agent_sess_repo=agent_sess_repo,
-                task_worker=exploding_worker,
-            )
-            barrier.wait()
-            # Wait a bit for Thread A to enter the Worker
-            controller.wait_until_entered(timeout=10)
-            result = outcome_svc.invoke_exact_worker(
-                session_id=chain.session_id,
-                project_id=chain.project_id,
-                continuation_root_record_id=chain.root_record_id,
-                instruction_package_id=chain.package_id,
-                exact_run_reservation_id=chain.exact_run_reservation_id,
-                exact_worker_start_reservation_id=chain.worker_start_reservation_id,
-            )
-            thread_b_result[0] = result
-            # Release Thread A after we have our result
-            controller.release()
+            try:
+                outcome_svc = make_outcome_service(
+                    session,
+                    msg_repo=msg_repo,
+                    task_repo=task_repo,
+                    run_repo=run_repo,
+                    agent_sess_repo=agent_sess_repo,
+                    task_worker=exploding_worker,
+                )
+                barrier.wait()
+                controller.wait_until_entered(timeout=10)
+                result = outcome_svc.invoke_exact_worker(
+                    session_id=chain.session_id,
+                    project_id=chain.project_id,
+                    continuation_root_record_id=chain.root_record_id,
+                    instruction_package_id=chain.package_id,
+                    exact_run_reservation_id=chain.exact_run_reservation_id,
+                    exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+                )
+                thread_b_result[0] = result
+                controller.release()
+            finally:
+                session.close()
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             fa = executor.submit(thread_a)
@@ -268,14 +274,21 @@ class TestConcurrentE4B:
             fa.result(timeout=30)
             fb.result(timeout=30)
 
-        # Thread A should have outcome_recorded
+        # Thread A: outcome_recorded
         assert thread_a_result[0].status == "outcome_recorded"
         assert thread_a_result[0].outcome is not None
         assert thread_a_result[0].outcome.status == "returned"
+        assert thread_a_result[0].outcome.worker_call_attempted is True
+        assert thread_a_result[0].outcome.worker_result_contract_valid is True
+        thread_a_claim_id = thread_a_result[0].exact_worker_invocation_claim_id
+        thread_a_outcome_id = thread_a_result[0].outcome.exact_worker_invocation_outcome_id
+        thread_a_fp = thread_a_result[0].outcome.worker_invocation_outcome_fingerprint
 
-        # Thread B should have recovery_required
+        # Thread B: recovery_required with precise fields
         assert thread_b_result[0].status == "recovery_required"
         assert thread_b_result[0].outcome is None
+        assert thread_b_result[0].exact_worker_invocation_claim_id == thread_a_claim_id
+        assert thread_b_result[0].worker_call_attempted is None
         assert thread_b_result[0].worker_call_state_indeterminate is True
         assert thread_b_result[0].automatic_worker_call_allowed is False
 
@@ -301,13 +314,17 @@ class TestConcurrentE4B:
             exact_run_reservation_id=chain.exact_run_reservation_id,
             exact_worker_start_reservation_id=chain.worker_start_reservation_id,
         )
+        session.close()
 
+        # Third: replay with exact identity
         assert third_result.status == "outcome_replayed"
         assert third_result.outcome is not None
-        assert third_result.outcome.exact_worker_invocation_outcome_id == thread_a_result[0].outcome.exact_worker_invocation_outcome_id
+        assert third_result.outcome.exact_worker_invocation_outcome_id == thread_a_outcome_id
+        assert third_result.outcome.worker_invocation_outcome_fingerprint == thread_a_fp
+        assert third_result.exact_worker_invocation_claim_id == thread_a_claim_id
         assert third_worker.call_count == 0
 
-        # Final assertions
+        # Final database assertions
         session, msg_repo, *_ = make_repos(session_local)
         assert count_messages_by_source_detail(
             msg_repo, chain.session_id,
@@ -317,6 +334,11 @@ class TestConcurrentE4B:
             msg_repo, chain.session_id,
             CROSS_TASK_EXACT_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
         ) == 1
+        # Verify Run count
+        from app.core.db_tables import RunTable
+        runs = session.query(RunTable).filter(RunTable.task_id == chain.next_task_id).all()
+        assert len(runs) == 1
+        session.close()
 
         # Total Worker calls across all threads = 1
         assert controller.call_count == 1

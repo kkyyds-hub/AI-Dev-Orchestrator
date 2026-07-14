@@ -1567,13 +1567,16 @@ class SharedGatedWorkerController:
             self._call_count += 1
             self._calls.append({"task_id": task_id, "run_id": run_id})
         self._entered.set()
-        self._release.wait(timeout=10)
+        released = self._release.wait(timeout=10)
+        assert released, "Worker was not released before timeout"
         if self._exception:
             raise self._exception
         return self._result
 
-    def wait_until_entered(self, timeout: float = 10):
-        self._entered.wait(timeout=timeout)
+    def wait_until_entered(self, timeout: float = 10) -> bool:
+        reached = self._entered.wait(timeout=timeout)
+        assert reached, "Worker did not enter run_reserved_once before timeout"
+        return reached
 
     def release(self):
         self._release.set()
