@@ -1,0 +1,1057 @@
+"""Readonly evidence reconstruction for P25 bounded rework preparation."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable, Literal
+from uuid import UUID
+
+from pydantic import ValidationError
+
+from app.domain.project_director_bounded_rework_contract import (
+    ProjectDirectorBoundedReworkModelSelection,
+    ProjectDirectorBoundedReworkRepositoryBinding,
+    ProjectDirectorBoundedReworkRoleSelection,
+    ProjectDirectorBoundedReworkSkillSelection,
+    ProjectDirectorBoundedReworkVerificationRequirement,
+    ProjectDirectorBoundedReworkWorkspaceBinding,
+    compute_p25_contract_sha256,
+    validate_repository_relative_path,
+)
+from app.domain.project_director_message import (
+    ProjectDirectorMessage,
+    ProjectDirectorMessageRole,
+    ProjectDirectorMessageSource,
+)
+from app.domain.project_director_sandbox_candidate_diff import (
+    ProjectDirectorSandboxCandidateDiffResult,
+)
+from app.domain.project_director_sandbox_candidate_file_write import (
+    ProjectDirectorSandboxCandidateFileWriteResult,
+)
+from app.domain.project_director_sandbox_operation_manifest_guard import (
+    ProjectDirectorSandboxOperationManifestGuardResult,
+)
+from app.domain.project_director_sandbox_candidate_diff_review_output import (
+    ProjectDirectorSandboxCandidateDiffValidatedReviewOutput,
+)
+from app.domain.project_director_sandbox_workspace_creation import (
+    ProjectDirectorSandboxWorkspaceCreationResult,
+)
+from app.domain.project_director_sandbox_workspace_manifest_write import (
+    ProjectDirectorSandboxWorkspaceManifestWriteResult,
+)
+from app.domain.project_director_sandbox_write_execution import (
+    ProjectDirectorSandboxWriteExecutionResult,
+)
+from app.domain.project_director_sandbox_write_preflight import (
+    ProjectDirectorSandboxWritePreflightResult,
+)
+from app.repositories.project_director_message_repository import (
+    ProjectDirectorMessageRepository,
+)
+from app.repositories.project_director_plan_version_repository import (
+    ProjectDirectorPlanVersionRepository,
+)
+from app.repositories.project_director_repository_binding_config_repository import (
+    ProjectDirectorRepositoryBindingConfigRepository,
+)
+from app.repositories.project_director_skill_binding_config_repository import (
+    ProjectDirectorSkillBindingConfigRepository,
+)
+from app.repositories.project_director_verification_config_repository import (
+    ProjectDirectorVerificationConfigRepository,
+)
+from app.repositories.repository_workspace_repository import (
+    RepositoryWorkspaceRepository,
+)
+from app.repositories.run_repository import RunRepository
+from app.repositories.task_repository import TaskRepository
+from app.services.project_director_protected_transition_evidence_freshness_service import (
+    ProjectDirectorProtectedTransitionEvidenceFreshnessService,
+)
+from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
+    P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
+    P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_candidate_diff_review_disposition_service import (
+    ProjectDirectorSandboxCandidateDiffReviewDispositionService,
+)
+from app.services.project_director_sandbox_candidate_diff_service import (
+    P21_C_SANDBOX_CANDIDATE_DIFF_ACTION_TYPE,
+    P21_C_SANDBOX_CANDIDATE_DIFF_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_candidate_file_write_service import (
+    P21_C_SANDBOX_CANDIDATE_FILES_WRITE_ACTION_TYPE,
+    P21_C_SANDBOX_CANDIDATE_FILES_WRITE_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_operation_manifest_guard_service import (
+    P21_C_SANDBOX_OPERATION_MANIFEST_GUARD_ACTION_TYPE,
+    P21_C_SANDBOX_OPERATION_MANIFEST_GUARD_SOURCE_DETAIL,
+    P21_SANDBOX_WRITE_EXECUTION_ACTION_TYPE,
+)
+from app.services.project_director_sandbox_workspace_creation_service import (
+    P21_C_SANDBOX_WORKSPACE_CREATE_ACTION_TYPE,
+    P21_C_SANDBOX_WORKSPACE_CREATE_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_workspace_manifest_write_service import (
+    P21_C_SANDBOX_WORKSPACE_MANIFEST_WRITE_ACTION_TYPE,
+    P21_C_SANDBOX_WORKSPACE_MANIFEST_WRITE_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_write_execution_service import (
+    P20_SANDBOX_WRITE_PREFLIGHT_ACTION_TYPE,
+    P21_SANDBOX_WRITE_EXECUTION_SOURCE_DETAIL,
+)
+from app.services.project_director_sandbox_write_preflight_service import (
+    P20_SANDBOX_WRITE_PREFLIGHT_SOURCE_DETAIL,
+)
+
+
+_LOWER_HEX_GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_PLAN_LOCATOR = re.compile(
+    r"^pdv:(?P<plan_id>[0-9a-fA-F-]{36}):(?P<version_no>[1-9][0-9]*)$"
+)
+
+EvidenceResolutionStatus = Literal["resolved", "blocked"]
+RepositoryHeadReader = Callable[[str], str]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectDirectorBoundedReworkEvidenceSnapshot:
+    """Immutable, fully revalidated evidence consumed by package preparation."""
+
+    session_id: UUID
+    project_id: UUID
+    source_task_id: UUID
+    source_run_id: UUID
+    source_review_message_id: UUID
+    source_review_fingerprint: str
+    source_review_semantic_fingerprint: str
+    source_freshness_message_id: UUID
+
+    review_output: ProjectDirectorSandboxCandidateDiffValidatedReviewOutput
+    review_scope_paths: tuple[str, ...]
+    repository_binding: ProjectDirectorBoundedReworkRepositoryBinding
+    repository_root: str
+    repository_binding_fingerprint: str
+    repository_allowed_paths: tuple[str, ...]
+    workspace_binding: ProjectDirectorBoundedReworkWorkspaceBinding
+    workspace_root: str
+    workspace_path: str
+    workspace_binding_fingerprint: str
+    workspace_manifest_allowed_paths: tuple[str, ...]
+    task_plan_allowed_paths: tuple[str, ...]
+    trusted_forbidden_paths: tuple[str, ...]
+
+    base_commit_sha: str
+    base_snapshot_fingerprint: str
+    source_candidate_diff_message_id: UUID
+    source_candidate_diff_sha256: str
+    source_candidate_diff_fingerprint: str
+    source_candidate_diff_paths: tuple[str, ...]
+
+    confirmed_acceptance_criteria: tuple[str, ...]
+    verification_requirements: tuple[
+        ProjectDirectorBoundedReworkVerificationRequirement,
+        ...,
+    ]
+    selected_model: ProjectDirectorBoundedReworkModelSelection
+    selected_skills: tuple[ProjectDirectorBoundedReworkSkillSelection, ...]
+    selected_role: ProjectDirectorBoundedReworkRoleSelection
+    snapshot_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectDirectorBoundedReworkEvidenceResolution:
+    status: EvidenceResolutionStatus
+    snapshot: ProjectDirectorBoundedReworkEvidenceSnapshot | None
+    blocked_reasons: tuple[str, ...]
+
+
+class _Blocked(RuntimeError):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+class ProjectDirectorBoundedReworkEvidenceResolver:
+    """Resolve repository, workspace, diff, plan, and execution facts read-only."""
+
+    def __init__(
+        self,
+        *,
+        message_repository: ProjectDirectorMessageRepository,
+        task_repository: TaskRepository,
+        run_repository: RunRepository,
+        plan_version_repository: ProjectDirectorPlanVersionRepository,
+        repository_binding_config_repository: (
+            ProjectDirectorRepositoryBindingConfigRepository
+        ),
+        skill_binding_config_repository: ProjectDirectorSkillBindingConfigRepository,
+        verification_config_repository: ProjectDirectorVerificationConfigRepository,
+        repository_workspace_repository: RepositoryWorkspaceRepository,
+        freshness_service: ProjectDirectorProtectedTransitionEvidenceFreshnessService,
+        repository_head_reader: RepositoryHeadReader | None = None,
+    ) -> None:
+        self._message_repository = message_repository
+        self._task_repository = task_repository
+        self._run_repository = run_repository
+        self._plan_version_repository = plan_version_repository
+        self._repository_binding_config_repository = (
+            repository_binding_config_repository
+        )
+        self._skill_binding_config_repository = skill_binding_config_repository
+        self._verification_config_repository = verification_config_repository
+        self._repository_workspace_repository = repository_workspace_repository
+        self._freshness_service = freshness_service
+        self._repository_head_reader = (
+            repository_head_reader or self._read_repository_head
+        )
+
+    def resolve_bounded_rework_evidence_snapshot(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_run_id: UUID,
+        source_review_message_id: UUID,
+        source_review_fingerprint: str,
+        source_review_semantic_fingerprint: str,
+        source_freshness_message_id: UUID,
+        source_diff_message_id: UUID,
+    ) -> ProjectDirectorBoundedReworkEvidenceResolution:
+        """Build one safe immutable snapshot without performing DB writes."""
+
+        try:
+            snapshot = self._resolve(
+                session_id=session_id,
+                project_id=project_id,
+                source_task_id=source_task_id,
+                source_run_id=source_run_id,
+                source_review_message_id=source_review_message_id,
+                source_review_fingerprint=source_review_fingerprint,
+                source_review_semantic_fingerprint=(
+                    source_review_semantic_fingerprint
+                ),
+                source_freshness_message_id=source_freshness_message_id,
+                source_diff_message_id=source_diff_message_id,
+            )
+        except _Blocked as exc:
+            return ProjectDirectorBoundedReworkEvidenceResolution(
+                status="blocked",
+                snapshot=None,
+                blocked_reasons=(exc.reason,),
+            )
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return ProjectDirectorBoundedReworkEvidenceResolution(
+                status="blocked",
+                snapshot=None,
+                blocked_reasons=("workspace_invalid",),
+            )
+        return ProjectDirectorBoundedReworkEvidenceResolution(
+            status="resolved",
+            snapshot=snapshot,
+            blocked_reasons=(),
+        )
+
+    def revalidate_bounded_rework_evidence_snapshot(
+        self,
+        snapshot: ProjectDirectorBoundedReworkEvidenceSnapshot,
+    ) -> ProjectDirectorBoundedReworkEvidenceResolution:
+        """Rebuild a snapshot and require byte-stable semantic identity."""
+
+        resolution = self.resolve_bounded_rework_evidence_snapshot(
+            session_id=snapshot.session_id,
+            project_id=snapshot.project_id,
+            source_task_id=snapshot.source_task_id,
+            source_run_id=snapshot.source_run_id,
+            source_review_message_id=snapshot.source_review_message_id,
+            source_review_fingerprint=snapshot.source_review_fingerprint,
+            source_review_semantic_fingerprint=(
+                snapshot.source_review_semantic_fingerprint
+            ),
+            source_freshness_message_id=snapshot.source_freshness_message_id,
+            source_diff_message_id=snapshot.source_candidate_diff_message_id,
+        )
+        if resolution.snapshot is None or resolution.blocked_reasons:
+            return resolution
+        if (
+            resolution.snapshot.snapshot_fingerprint
+            != snapshot.snapshot_fingerprint
+            or resolution.snapshot != snapshot
+        ):
+            return ProjectDirectorBoundedReworkEvidenceResolution(
+                status="blocked",
+                snapshot=None,
+                blocked_reasons=("source_diff_mismatch",),
+            )
+        return resolution
+
+    def _resolve(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_run_id: UUID,
+        source_review_message_id: UUID,
+        source_review_fingerprint: str,
+        source_review_semantic_fingerprint: str,
+        source_freshness_message_id: UUID,
+        source_diff_message_id: UUID,
+    ) -> ProjectDirectorBoundedReworkEvidenceSnapshot:
+        task = self._task_repository.get_by_id(source_task_id)
+        run = self._run_repository.get_by_id(source_run_id)
+        if (
+            task is None
+            or task.project_id != project_id
+            or run is None
+            or run.task_id != source_task_id
+            or run.strategy_decision is None
+        ):
+            raise _Blocked("authority_invalid")
+
+        review_message = self._message_repository.get_by_id(
+            source_review_message_id
+        )
+        review_action = self._exact_action(
+            review_message,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_candidate_diff_readonly_review_execution",
+            source_detail=(
+                P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL
+            ),
+            action_type=(
+                P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE
+            ),
+        )
+        review_revalidation = ProjectDirectorSandboxCandidateDiffReviewDispositionService.revalidate_persisted_review_result_fingerprint(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_review_message_id,
+            source_review_message=review_message,
+        )
+        if (
+            review_revalidation.blocked_reasons
+            or review_revalidation.review_result_fingerprint
+            != source_review_fingerprint
+            or review_revalidation.source_diff_message_id != source_diff_message_id
+        ):
+            raise _Blocked("authority_invalid")
+        review_output = self._review_output(review_action)
+        if review_output.verdict != "changes_required":
+            raise _Blocked("review_findings_invalid")
+
+        freshness = self._freshness_service.revalidate_current_automatic_transition_evidence_from_persisted_freshness(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_freshness_message_id=source_freshness_message_id,
+        )
+        if (
+            freshness.freshness_status != "ready"
+            or freshness.blocked_reasons
+            or freshness.source_review_message_id != source_review_message_id
+            or freshness.source_diff_message_id != source_diff_message_id
+            or freshness.review_result_fingerprint != source_review_fingerprint
+            or freshness.reviewed_diff_sha256 != freshness.current_diff_sha256
+            or freshness.reviewed_scope_paths != freshness.current_scope_paths
+            or not freshness.workspace_path_within_root
+        ):
+            raise _Blocked("source_diff_mismatch")
+
+        diff_message = self._message_repository.get_by_id(source_diff_message_id)
+        diff_action = self._exact_action(
+            diff_message,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_candidate_diff_generate",
+            source_detail=P21_C_SANDBOX_CANDIDATE_DIFF_SOURCE_DETAIL,
+            action_type=P21_C_SANDBOX_CANDIDATE_DIFF_ACTION_TYPE,
+        )
+        diff = self._domain_from_action(
+            ProjectDirectorSandboxCandidateDiffResult,
+            diff_action,
+        )
+        diff_sha = hashlib.sha256(diff.unified_diff_text.encode("utf-8")).hexdigest()
+        diff_paths = self._normalized_paths(
+            tuple(entry.relative_path for entry in diff.diff_entries),
+            allow_empty=False,
+        )
+        review_scope = self._normalized_paths(
+            tuple(review_revalidation.review_scope_paths or ()),
+            allow_empty=False,
+        )
+        if (
+            diff.diff_generation_status != "generated"
+            or not diff.readonly_real_diff_generated
+            or not diff.real_diff_generated
+            or not diff.source_candidate_write_message_bound
+            or not diff.source_candidate_write_verified
+            or not diff.internal_manifest_verified
+            or diff.source_task_id != source_task_id
+            or diff.workspace_path != freshness.workspace_path
+            or not diff.workspace_path_within_root
+            or diff_sha != review_revalidation.source_diff_sha256
+            or diff_sha != freshness.reviewed_diff_sha256
+            or diff_paths != review_scope
+        ):
+            raise _Blocked("source_diff_mismatch")
+
+        evidence = self._workspace_evidence_chain(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            diff=diff,
+        )
+        (
+            workspace_creation_message,
+            workspace_creation,
+            manifest_message,
+            manifest_write,
+            operation_manifest,
+            preflight,
+        ) = evidence
+
+        plan, locator = self._confirmed_plan(task.source_draft_id, session_id, project_id)
+        repository_binding_config = (
+            self._repository_binding_config_repository.get_by_plan_version_id(
+                plan.id
+            )
+        )
+        skill_config = self._skill_binding_config_repository.get_by_plan_version_id(
+            plan.id
+        )
+        verification_config = (
+            self._verification_config_repository.get_by_plan_version_id(plan.id)
+        )
+        repository_workspace = (
+            self._repository_workspace_repository.get_by_project_id(project_id)
+        )
+        if (
+            repository_binding_config is None
+            or repository_binding_config.status != "confirmed"
+            or repository_binding_config.project_id != project_id
+            or repository_binding_config.source_draft_id != locator
+            or repository_binding_config.confirmed_at is None
+            or len(repository_binding_config.repository_bindings) != 1
+            or skill_config is None
+            or skill_config.status != "confirmed"
+            or skill_config.project_id != project_id
+            or skill_config.source_draft_id != locator
+            or skill_config.confirmed_at is None
+            or verification_config is None
+            or verification_config.status != "confirmed"
+            or verification_config.project_id != project_id
+            or verification_config.source_draft_id != locator
+            or verification_config.confirmed_at is None
+            or repository_workspace is None
+            or repository_workspace.project_id != project_id
+        ):
+            raise _Blocked("authority_invalid")
+
+        binding = repository_binding_config.repository_bindings[0]
+        repository_root = self._absolute_path(binding.target)
+        if repository_root != self._absolute_path(repository_workspace.root_path):
+            raise _Blocked("workspace_invalid")
+        repository_allowed = self._normalized_paths(
+            tuple(binding.focus_paths),
+            allow_empty=False,
+        )
+        repository_binding_fingerprint = compute_p25_contract_sha256(
+            {
+                "binding_config_id": repository_binding_config.id,
+                "plan_version_id": plan.id,
+                "project_id": project_id,
+                "binding": binding,
+                "repository_workspace_id": repository_workspace.id,
+                "repository_root": repository_root,
+                "repository_allowed_paths": repository_allowed,
+            }
+        )
+        repository_binding = ProjectDirectorBoundedReworkRepositoryBinding(
+            repository_binding_id=repository_binding_config.id,
+            project_id=project_id,
+            repository_root=repository_root,
+            repository_binding_fingerprint=repository_binding_fingerprint,
+        )
+
+        workspace_path = self._absolute_path(workspace_creation.workspace_path)
+        workspace_root = self._absolute_path(workspace_creation.workspace_root)
+        if (
+            workspace_path != self._absolute_path(diff.workspace_path)
+            or workspace_path != self._absolute_path(manifest_write.workspace_path)
+            or workspace_root != self._absolute_path(manifest_write.workspace_root)
+            or PurePosixPath(workspace_root) not in PurePosixPath(workspace_path).parents
+        ):
+            raise _Blocked("workspace_invalid")
+        manifest_content_fingerprint = self._validate_manifest_file(
+            manifest_write=manifest_write,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            workspace_creation_message_id=workspace_creation_message.id,
+            workspace_path=workspace_path,
+            workspace_root=workspace_root,
+        )
+        manifest_allowed_paths = self._normalized_paths(
+            tuple(operation_manifest.allowed_operation_paths),
+            allow_empty=False,
+        )
+        task_plan_allowed_paths = self._normalized_paths(
+            tuple(preflight.accepted_operation_paths),
+            allow_empty=False,
+        )
+        if manifest_allowed_paths != diff_paths:
+            raise _Blocked("scope_invalid")
+        workspace_binding_fingerprint = compute_p25_contract_sha256(
+            {
+                "workspace_creation_message_id": workspace_creation_message.id,
+                "workspace_creation": workspace_creation,
+                "workspace_manifest_message_id": manifest_message.id,
+                "workspace_manifest": manifest_write,
+                "workspace_manifest_content_fingerprint": (
+                    manifest_content_fingerprint
+                ),
+                "operation_manifest": operation_manifest,
+                "workspace_path": workspace_path,
+                "workspace_root": workspace_root,
+            }
+        )
+        workspace_binding = ProjectDirectorBoundedReworkWorkspaceBinding(
+            workspace_binding_id=workspace_creation_message.id,
+            project_id=project_id,
+            workspace_path=workspace_path,
+            workspace_root=workspace_root,
+            workspace_binding_fingerprint=workspace_binding_fingerprint,
+        )
+
+        base_commit_sha = self._repository_head_reader(repository_root).strip()
+        if not _LOWER_HEX_GIT_COMMIT.fullmatch(base_commit_sha):
+            raise _Blocked("base_commit_mismatch")
+        source_diff_fingerprint = compute_p25_contract_sha256(
+            {
+                "message_id": source_diff_message_id,
+                "message_sequence_no": diff_message.sequence_no if diff_message else None,
+                "action": diff_action,
+                "source_candidate_diff_sha256": diff_sha,
+                "source_candidate_diff_paths": diff_paths,
+            }
+        )
+        base_snapshot_fingerprint = compute_p25_contract_sha256(
+            {
+                "repository_binding_fingerprint": repository_binding_fingerprint,
+                "repository_root": repository_root,
+                "base_commit_sha": base_commit_sha,
+                "source_candidate_diff_fingerprint": source_diff_fingerprint,
+            }
+        )
+
+        selected_model, selected_skills, selected_role = self._execution_config(
+            run=run,
+            task=task,
+            skill_config=skill_config,
+        )
+        acceptance_criteria = tuple(
+            task.acceptance_criteria or plan.acceptance_criteria
+        )
+        if (
+            not acceptance_criteria
+            or len(acceptance_criteria) != len(set(acceptance_criteria))
+            or any(not item.strip() or item != item.strip() for item in acceptance_criteria)
+        ):
+            raise _Blocked("authority_invalid")
+        verification_requirements = self._verification_requirements(
+            verification_config=verification_config,
+            owner_role_code=selected_role.role_code,
+        )
+        trusted_forbidden_paths = self._trusted_forbidden_paths(
+            plan_out_of_scope=tuple(plan.project_scope.out_of_scope),
+            repository_ignores=tuple(repository_workspace.ignore_rule_summary),
+            preflight_blocked=tuple(preflight.blocked_operation_paths),
+            manifest_blocked=tuple(operation_manifest.blocked_operation_paths),
+        )
+
+        payload: dict[str, Any] = {
+            "session_id": session_id,
+            "project_id": project_id,
+            "source_task_id": source_task_id,
+            "source_run_id": source_run_id,
+            "source_review_message_id": source_review_message_id,
+            "source_review_fingerprint": source_review_fingerprint,
+            "source_review_semantic_fingerprint": source_review_semantic_fingerprint,
+            "source_freshness_message_id": source_freshness_message_id,
+            "review_output": review_output,
+            "review_scope_paths": review_scope,
+            "repository_binding": repository_binding,
+            "repository_root": repository_root,
+            "repository_binding_fingerprint": repository_binding_fingerprint,
+            "repository_allowed_paths": repository_allowed,
+            "workspace_binding": workspace_binding,
+            "workspace_root": workspace_root,
+            "workspace_path": workspace_path,
+            "workspace_binding_fingerprint": workspace_binding_fingerprint,
+            "workspace_manifest_allowed_paths": manifest_allowed_paths,
+            "task_plan_allowed_paths": task_plan_allowed_paths,
+            "trusted_forbidden_paths": trusted_forbidden_paths,
+            "base_commit_sha": base_commit_sha,
+            "base_snapshot_fingerprint": base_snapshot_fingerprint,
+            "source_candidate_diff_message_id": source_diff_message_id,
+            "source_candidate_diff_sha256": diff_sha,
+            "source_candidate_diff_fingerprint": source_diff_fingerprint,
+            "source_candidate_diff_paths": diff_paths,
+            "confirmed_acceptance_criteria": acceptance_criteria,
+            "verification_requirements": verification_requirements,
+            "selected_model": selected_model,
+            "selected_skills": selected_skills,
+            "selected_role": selected_role,
+        }
+        return ProjectDirectorBoundedReworkEvidenceSnapshot(
+            **payload,
+            snapshot_fingerprint=compute_p25_contract_sha256(payload),
+        )
+
+    def _workspace_evidence_chain(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        diff: ProjectDirectorSandboxCandidateDiffResult,
+    ) -> tuple[
+        ProjectDirectorMessage,
+        ProjectDirectorSandboxWorkspaceCreationResult,
+        ProjectDirectorMessage,
+        ProjectDirectorSandboxWorkspaceManifestWriteResult,
+        ProjectDirectorSandboxOperationManifestGuardResult,
+        ProjectDirectorSandboxWritePreflightResult,
+    ]:
+        required_ids = (
+            diff.source_message_id,
+            diff.source_workspace_creation_message_id,
+            diff.source_workspace_manifest_write_message_id,
+            diff.source_operation_manifest_message_id,
+        )
+        if any(value is None for value in required_ids):
+            raise _Blocked("workspace_invalid")
+        (
+            candidate_write_id,
+            workspace_creation_id,
+            manifest_write_id,
+            operation_manifest_id,
+        ) = required_ids
+        assert candidate_write_id is not None
+        assert workspace_creation_id is not None
+        assert manifest_write_id is not None
+        assert operation_manifest_id is not None
+
+        candidate_write = self._load_domain_message(
+            candidate_write_id,
+            ProjectDirectorSandboxCandidateFileWriteResult,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_candidate_files_write",
+            source_detail=P21_C_SANDBOX_CANDIDATE_FILES_WRITE_SOURCE_DETAIL,
+            action_type=P21_C_SANDBOX_CANDIDATE_FILES_WRITE_ACTION_TYPE,
+        )[1]
+        workspace_creation_message, workspace_creation = self._load_domain_message(
+            workspace_creation_id,
+            ProjectDirectorSandboxWorkspaceCreationResult,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_workspace_create",
+            source_detail=P21_C_SANDBOX_WORKSPACE_CREATE_SOURCE_DETAIL,
+            action_type=P21_C_SANDBOX_WORKSPACE_CREATE_ACTION_TYPE,
+        )
+        manifest_message, manifest_write = self._load_domain_message(
+            manifest_write_id,
+            ProjectDirectorSandboxWorkspaceManifestWriteResult,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_workspace_manifest_write",
+            source_detail=P21_C_SANDBOX_WORKSPACE_MANIFEST_WRITE_SOURCE_DETAIL,
+            action_type=P21_C_SANDBOX_WORKSPACE_MANIFEST_WRITE_ACTION_TYPE,
+        )
+        _, operation_manifest = self._load_domain_message(
+            operation_manifest_id,
+            ProjectDirectorSandboxOperationManifestGuardResult,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_operation_manifest_guard",
+            source_detail=P21_C_SANDBOX_OPERATION_MANIFEST_GUARD_SOURCE_DETAIL,
+            action_type=P21_C_SANDBOX_OPERATION_MANIFEST_GUARD_ACTION_TYPE,
+        )
+        execution_id = operation_manifest.source_execution_message_id
+        if execution_id is None:
+            raise _Blocked("workspace_invalid")
+        _, execution = self._load_domain_message(
+            execution_id,
+            ProjectDirectorSandboxWriteExecutionResult,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_write_execution",
+            source_detail=P21_SANDBOX_WRITE_EXECUTION_SOURCE_DETAIL,
+            action_type=P21_SANDBOX_WRITE_EXECUTION_ACTION_TYPE,
+        )
+        preflight_id = execution.source_message_id
+        if preflight_id is None:
+            raise _Blocked("scope_invalid")
+        _, preflight = self._load_domain_message(
+            preflight_id,
+            ProjectDirectorSandboxWritePreflightResult,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="sandbox_write_preflight",
+            source_detail=P20_SANDBOX_WRITE_PREFLIGHT_SOURCE_DETAIL,
+            action_type=P20_SANDBOX_WRITE_PREFLIGHT_ACTION_TYPE,
+        )
+
+        allowed = tuple(operation_manifest.allowed_operation_paths)
+        if (
+            candidate_write.candidate_write_status != "written"
+            or not candidate_write.source_manifest_write_verified
+            or candidate_write.source_message_id != manifest_write_id
+            or candidate_write.source_workspace_creation_message_id
+            != workspace_creation_id
+            or candidate_write.source_operation_manifest_message_id
+            != operation_manifest_id
+            or workspace_creation.creation_status not in {"created", "already_exists"}
+            or workspace_creation.source_message_id != operation_manifest_id
+            or not workspace_creation.source_manifest_message_bound
+            or not workspace_creation.source_manifest_verified
+            or not workspace_creation.workspace_path_within_root
+            or workspace_creation.workspace_path
+            != operation_manifest.workspace_path_preview
+            or manifest_write.manifest_write_status not in {"written", "overwritten"}
+            or manifest_write.source_message_id != workspace_creation_id
+            or not manifest_write.source_workspace_creation_verified
+            or operation_manifest.manifest_status != "manifested"
+            or not operation_manifest.source_workspace_guard_verified
+            or execution.execution_status not in {"planned", "simulated"}
+            or not execution.source_preflight_message_bound
+            or not execution.policy_only_source_verified
+            or not execution.no_write_execution
+            or execution.blocked_reasons
+            or preflight.preflight_status != "passed"
+            or not preflight.preflight_message_bound
+            or tuple(execution.accepted_operation_paths) != allowed
+            or tuple(preflight.accepted_operation_paths) != allowed
+        ):
+            raise _Blocked("workspace_invalid")
+        return (
+            workspace_creation_message,
+            workspace_creation,
+            manifest_message,
+            manifest_write,
+            operation_manifest,
+            preflight,
+        )
+
+    def _load_domain_message(
+        self,
+        message_id: UUID,
+        model: type[Any],
+        **metadata: Any,
+    ) -> tuple[ProjectDirectorMessage, Any]:
+        message = self._message_repository.get_by_id(message_id)
+        action = self._exact_action(message, **metadata)
+        if message is None:
+            raise _Blocked("history_invalid")
+        return message, self._domain_from_action(model, action)
+
+    @staticmethod
+    def _domain_from_action(model: type[Any], action: dict[str, Any]) -> Any:
+        try:
+            return model.model_validate(
+                {name: action.get(name) for name in model.model_fields}
+            )
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise _Blocked("history_invalid") from exc
+
+    @staticmethod
+    def _review_output(
+        action: dict[str, Any],
+    ) -> ProjectDirectorSandboxCandidateDiffValidatedReviewOutput:
+        try:
+            return ProjectDirectorSandboxCandidateDiffValidatedReviewOutput.model_validate(
+                {
+                    name: action.get(name)
+                    for name in ProjectDirectorSandboxCandidateDiffValidatedReviewOutput.model_fields
+                }
+            )
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise _Blocked("review_findings_invalid") from exc
+
+    @staticmethod
+    def _exact_action(
+        message: ProjectDirectorMessage | None,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        intent: str,
+        source_detail: str,
+        action_type: str,
+    ) -> dict[str, Any]:
+        if (
+            message is None
+            or message.session_id != session_id
+            or message.related_project_id != project_id
+            or message.related_task_id != source_task_id
+            or message.role != ProjectDirectorMessageRole.ASSISTANT
+            or message.source != ProjectDirectorMessageSource.SYSTEM
+            or message.intent != intent
+            or message.source_detail != source_detail
+            or message.requires_confirmation is not False
+            or message.token_count is not None
+            or message.estimated_cost is not None
+            or len(message.suggested_actions) != 1
+            or not isinstance(message.suggested_actions[0], dict)
+            or message.suggested_actions[0].get("type") != action_type
+        ):
+            raise _Blocked("history_invalid")
+        return message.suggested_actions[0]
+
+    def _confirmed_plan(
+        self,
+        source_draft_id: str | None,
+        session_id: UUID,
+        project_id: UUID,
+    ) -> tuple[Any, str]:
+        match = _PLAN_LOCATOR.fullmatch(source_draft_id or "")
+        if match is None:
+            raise _Blocked("authority_invalid")
+        plan_id = UUID(match.group("plan_id"))
+        plan = self._plan_version_repository.get_by_id(plan_id)
+        locator = f"pdv:{plan_id}:{match.group('version_no')}"
+        if (
+            plan is None
+            or plan.status != "confirmed"
+            or plan.confirmed_at is None
+            or plan.session_id != session_id
+            or plan.project_id != project_id
+            or plan.version_no != int(match.group("version_no"))
+        ):
+            raise _Blocked("authority_invalid")
+        return plan, locator
+
+    @staticmethod
+    def _execution_config(
+        *,
+        run: Any,
+        task: Any,
+        skill_config: Any,
+    ) -> tuple[
+        ProjectDirectorBoundedReworkModelSelection,
+        tuple[ProjectDirectorBoundedReworkSkillSelection, ...],
+        ProjectDirectorBoundedReworkRoleSelection,
+    ]:
+        decision = run.strategy_decision
+        role_code = task.owner_role_code.value if task.owner_role_code else None
+        if (
+            decision is None
+            or role_code is None
+            or decision.owner_role_code != task.owner_role_code
+            or run.owner_role_code != task.owner_role_code
+            or not decision.model_name
+            or not decision.model_tier
+            or run.model_name != decision.model_name
+            or not decision.selected_skill_codes
+            or len(decision.selected_skill_codes)
+            != len(decision.selected_skill_names)
+        ):
+            raise _Blocked("authority_invalid")
+        confirmed = {
+            (item.skill_code, item.skill_name)
+            for item in skill_config.skill_bindings
+            if item.owner_role_code == role_code
+        }
+        pairs = tuple(
+            zip(
+                decision.selected_skill_codes,
+                decision.selected_skill_names,
+                strict=True,
+            )
+        )
+        if (
+            len(pairs) != len(set(pairs))
+            or any(pair not in confirmed for pair in pairs)
+        ):
+            raise _Blocked("authority_invalid")
+        return (
+            ProjectDirectorBoundedReworkModelSelection(
+                model_name=decision.model_name,
+                model_tier=decision.model_tier,
+            ),
+            tuple(
+                ProjectDirectorBoundedReworkSkillSelection(
+                    skill_code=code,
+                    skill_name=name,
+                )
+                for code, name in pairs
+            ),
+            ProjectDirectorBoundedReworkRoleSelection(role_code=role_code),
+        )
+
+    @staticmethod
+    def _verification_requirements(
+        *,
+        verification_config: Any,
+        owner_role_code: str,
+    ) -> tuple[ProjectDirectorBoundedReworkVerificationRequirement, ...]:
+        mechanisms = tuple(
+            item
+            for item in verification_config.verification_mechanisms
+            if item.owner_role_code in {owner_role_code, "reviewer"}
+        )
+        if not mechanisms:
+            raise _Blocked("authority_invalid")
+        requirements: list[ProjectDirectorBoundedReworkVerificationRequirement] = []
+        for item in mechanisms:
+            if item.review_status == "pending_confirmation":
+                raise _Blocked("authority_invalid")
+            digest = hashlib.sha256(
+                json.dumps(
+                    item.model_dump(mode="json"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).hexdigest()[:24]
+            description = (
+                f"{item.name}: {item.command_or_method}; evidence: "
+                f"{item.evidence_required}"
+            )
+            if len(description) > 1_000:
+                raise _Blocked("authority_invalid")
+            requirements.append(
+                ProjectDirectorBoundedReworkVerificationRequirement(
+                    requirement_id=f"verification-{digest}",
+                    description=description,
+                )
+            )
+        if len({item.requirement_id for item in requirements}) != len(requirements):
+            raise _Blocked("authority_invalid")
+        return tuple(requirements)
+
+    @classmethod
+    def _trusted_forbidden_paths(
+        cls,
+        *,
+        plan_out_of_scope: tuple[str, ...],
+        repository_ignores: tuple[str, ...],
+        preflight_blocked: tuple[str, ...],
+        manifest_blocked: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        path_markers = tuple(
+            item[len("path:") :]
+            for item in (*plan_out_of_scope, *repository_ignores)
+            if item.startswith("path:")
+        )
+        return cls._normalized_paths(
+            (*path_markers, *preflight_blocked, *manifest_blocked),
+            allow_empty=True,
+        )
+
+    @staticmethod
+    def _normalized_paths(
+        values: tuple[str, ...],
+        *,
+        allow_empty: bool,
+    ) -> tuple[str, ...]:
+        normalized: set[str] = set()
+        for raw in values:
+            if not isinstance(raw, str) or raw != raw.strip():
+                raise _Blocked("scope_invalid")
+            value = PurePosixPath(raw).as_posix()
+            try:
+                validate_repository_relative_path(value)
+            except ValueError as exc:
+                raise _Blocked("scope_invalid") from exc
+            normalized.add(value)
+        result = tuple(sorted(normalized))
+        if not allow_empty and not result:
+            raise _Blocked("scope_invalid")
+        return result
+
+    @staticmethod
+    def _absolute_path(value: str | None) -> str:
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise _Blocked("workspace_invalid")
+        path = PurePosixPath(value)
+        if not path.is_absolute() or path.as_posix() != value or ".." in path.parts:
+            raise _Blocked("workspace_invalid")
+        return value
+
+    @staticmethod
+    def _validate_manifest_file(
+        *,
+        manifest_write: ProjectDirectorSandboxWorkspaceManifestWriteResult,
+        session_id: UUID,
+        source_task_id: UUID,
+        workspace_creation_message_id: UUID,
+        workspace_path: str,
+        workspace_root: str,
+    ) -> str:
+        manifest_path = manifest_write.manifest_file_path
+        if manifest_path is None:
+            raise _Blocked("workspace_invalid")
+        try:
+            raw = Path(manifest_path).read_bytes()
+            payload = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _Blocked("workspace_invalid") from exc
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != "p21-c-d.v1"
+            or payload.get("session_id") != str(session_id)
+            or payload.get("source_task_id") != str(source_task_id)
+            or payload.get("source_message_id")
+            != str(workspace_creation_message_id)
+            or payload.get("workspace_path") != workspace_path
+            or payload.get("workspace_root") != workspace_root
+            or payload.get("manifest_file_path") != manifest_path
+            or payload.get("internal_manifest_only") is not True
+            or payload.get("business_file_write_allowed") is not False
+            or payload.get("git_write_performed") is not False
+        ):
+            raise _Blocked("workspace_invalid")
+        return hashlib.sha256(raw).hexdigest()
+
+    @staticmethod
+    def _read_repository_head(repository_root: str) -> str:
+        try:
+            completed = subprocess.run(
+                ("git", "rev-parse", "--verify", "HEAD"),
+                cwd=repository_root,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise _Blocked("base_commit_mismatch") from exc
+        value = completed.stdout.strip()
+        if completed.returncode != 0 or not _LOWER_HEX_GIT_COMMIT.fullmatch(value):
+            raise _Blocked("base_commit_mismatch")
+        return value
+
+
+__all__ = (
+    "ProjectDirectorBoundedReworkEvidenceResolution",
+    "ProjectDirectorBoundedReworkEvidenceResolver",
+    "ProjectDirectorBoundedReworkEvidenceSnapshot",
+)

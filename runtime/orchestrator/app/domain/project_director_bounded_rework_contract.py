@@ -22,10 +22,11 @@ P25_BOUNDED_REWORK_ATTEMPT_LIMIT = 3
 _LOWER_HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _LOWER_HEX_GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
-_SHELL_FRAGMENT = re.compile(r"[;&|`$<>\n\r]")
+_SHELL_FRAGMENT = re.compile(r"[;&|`$<>(){}\[\]*?!~#'\"\x00-\x1f\x7f]")
 _INTERNAL_CONTROL_NAMES = frozenset(
     {
         ".git",
+        ".ai-project-director",
         ".ai-dev-orchestrator",
         ".orchestrator",
         "workspace-manifest.json",
@@ -156,6 +157,28 @@ def validate_repository_relative_path(value: str) -> str:
         for part in path.parts
     ):
         raise ValueError("scope path contains traversal or control metadata")
+    return value
+
+
+def validate_absolute_posix_path(value: str) -> str:
+    """Validate one absolute POSIX path without filesystem normalization."""
+
+    require_trimmed_text(value, label="absolute POSIX path")
+    if (
+        value == "/"
+        or not value.startswith("/")
+        or value.endswith("/")
+        or "\\" in value
+        or "//" in value
+        or _URI_SCHEME.match(value)
+        or _SHELL_FRAGMENT.search(value)
+    ):
+        raise ValueError("path must be a strict canonical absolute POSIX path")
+    raw_parts = value[1:].split("/")
+    if any(part in {"", ".", ".."} for part in raw_parts):
+        raise ValueError("absolute POSIX path contains a non-canonical segment")
+    if PurePosixPath(value).as_posix() != value:
+        raise ValueError("absolute POSIX path must not be normalized implicitly")
     return value
 
 
@@ -308,10 +331,7 @@ class ProjectDirectorBoundedReworkRepositoryBinding(DomainModel):
     @field_validator("repository_root")
     @classmethod
     def validate_root(cls, value: str) -> str:
-        require_trimmed_text(value, label="repository root")
-        if not value.startswith("/") or "\\" in value or value.endswith("/"):
-            raise ValueError("repository root must be a canonical absolute POSIX path")
-        return value
+        return validate_absolute_posix_path(value)
 
     @field_validator("repository_binding_fingerprint")
     @classmethod
@@ -333,10 +353,7 @@ class ProjectDirectorBoundedReworkWorkspaceBinding(DomainModel):
     @field_validator("workspace_path", "workspace_root")
     @classmethod
     def validate_workspace_paths(cls, value: str) -> str:
-        require_trimmed_text(value, label="workspace path")
-        if not value.startswith("/") or "\\" in value or value.endswith("/"):
-            raise ValueError("workspace paths must be canonical absolute POSIX paths")
-        return value
+        return validate_absolute_posix_path(value)
 
     @field_validator("workspace_binding_fingerprint")
     @classmethod
@@ -345,7 +362,12 @@ class ProjectDirectorBoundedReworkWorkspaceBinding(DomainModel):
 
     @model_validator(mode="after")
     def validate_containment(self) -> "ProjectDirectorBoundedReworkWorkspaceBinding":
-        if not self.workspace_path.startswith(f"{self.workspace_root}/"):
+        root_parts = PurePosixPath(self.workspace_root).parts
+        workspace_parts = PurePosixPath(self.workspace_path).parts
+        if (
+            len(workspace_parts) <= len(root_parts)
+            or workspace_parts[: len(root_parts)] != root_parts
+        ):
             raise ValueError("workspace must be a strict child of workspace root")
         return self
 
@@ -427,6 +449,7 @@ __all__ = (
     "require_sha256",
     "require_trimmed_text",
     "validate_repository_relative_path",
+    "validate_absolute_posix_path",
     "validate_skill_selections",
     "validate_unique_paths",
 )
