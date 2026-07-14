@@ -1495,3 +1495,369 @@ def make_outcome_service(
         claim_service=claim_service,
         task_worker=task_worker,
     )
+
+
+# ── AgentSession Seed Helper ────────────────────────────────────────
+
+
+def seed_agent_session(
+    session: Session,
+    *,
+    agent_session_id: UUID | None = None,
+    project_id: UUID,
+    task_id: UUID,
+    run_id: UUID,
+    status: str = "running",
+    current_phase: str = "context_ready",
+) -> UUID:
+    """Seed an AgentSession into the database."""
+    from app.core.db_tables import AgentSessionTable
+    aid = agent_session_id or uuid4()
+    session.add(
+        AgentSessionTable(
+            id=aid,
+            project_id=project_id,
+            task_id=task_id,
+            run_id=run_id,
+            status=status,
+            current_phase=current_phase,
+        )
+    )
+    session.commit()
+    return aid
+
+
+# ── SharedGatedWorkerController for Concurrency ────────────────────
+
+
+class SharedGatedWorkerController:
+    """Thread-safe controller for concurrency tests.
+
+    Thread A calls `run_reserved_once` which blocks until `release()` is called.
+    Thread B's adapter raises AssertionError if called.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._call_count = 0
+        self._calls: list[dict] = []
+        self._entered = threading.Event()
+        self._release = threading.Event()
+        self._result = None
+        self._exception = None
+
+    @property
+    def call_count(self) -> int:
+        with self._lock:
+            return self._call_count
+
+    @property
+    def calls(self) -> list[dict]:
+        with self._lock:
+            return list(self._calls)
+
+    def set_result(self, result):
+        self._result = result
+
+    def set_exception(self, exc):
+        self._exception = exc
+
+    def run_reserved_once(self, *, task_id, run_id):
+        with self._lock:
+            self._call_count += 1
+            self._calls.append({"task_id": task_id, "run_id": run_id})
+        self._entered.set()
+        self._release.wait(timeout=10)
+        if self._exception:
+            raise self._exception
+        return self._result
+
+    def wait_until_entered(self, timeout: float = 10):
+        self._entered.wait(timeout=timeout)
+
+    def release(self):
+        self._release.set()
+
+
+class ExplodingWorkerAdapter:
+    """Raises AssertionError if run_reserved_once is called."""
+
+    def __init__(self, session=None):
+        self.session = session
+        self._task_repo = None
+        self._run_repo = None
+        self._agent_sess_repo = None
+
+    def bind_session(self, session, task_repo, run_repo, agent_sess_repo):
+        self.session = session
+        self._task_repo = task_repo
+        self._run_repo = run_repo
+        self._agent_sess_repo = agent_sess_repo
+
+    @property
+    def task_repository(self):
+        return self._task_repo or type("R", (), {"session": self.session})()
+
+    @property
+    def run_repository(self):
+        return self._run_repo or type("R", (), {"session": self.session})()
+
+    @property
+    def agent_conversation_service(self):
+        repo = self._agent_sess_repo or type("R", (), {"session": self.session})()
+        return type("R", (), {"agent_session_repository": repo})()
+
+    def run_reserved_once(self, *, task_id, run_id):
+        raise AssertionError("ExplodingWorkerAdapter must not be called")
+
+    def run_once(self, *, project_id=None):
+        raise AssertionError("ExplodingWorkerAdapter must not be called")
+
+
+# ── Failing Message Repository Wrapper ──────────────────────────────
+
+
+class FailingMessageRepositoryWrapper:
+    """Wraps a real MessageRepository, intercepting create/post_write."""
+
+    def __init__(self, real_repo):
+        self._real = real_repo
+        self._fail_create = False
+        self._fail_post_write = False
+        self._create_call_count = 0
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    @property
+    def _session(self):
+        return self._real._session
+
+    def create(self, message):
+        self._create_call_count += 1
+        if self._fail_create:
+            raise ValueError("Simulated create failure")
+        return self._real.create(message)
+
+    def sqlite_immediate_transaction(self):
+        return self._real.sqlite_immediate_transaction()
+
+    def list_by_session_id(self, **kwargs):
+        return self._real.list_by_session_id(**kwargs)
+
+    def get_next_sequence_no(self, **kwargs):
+        return self._real.get_next_sequence_no(**kwargs)
+
+
+# ── Message Corruption Helper ───────────────────────────────────────
+
+
+def corrupt_message_field(
+    session: Session,
+    message_id: UUID,
+    *,
+    field: str,
+    value: Any,
+) -> None:
+    """Directly corrupt a field on a persisted message."""
+    from app.core.db_tables import ProjectDirectorMessageTable
+    msg = session.get(ProjectDirectorMessageTable, message_id)
+    if msg is None:
+        raise ValueError(f"Message {message_id} not found")
+    setattr(msg, field, value)
+    session.commit()
+
+
+# ── Full E4B Invocation Helper ──────────────────────────────────────
+
+
+def invoke_exact_worker_full(
+    session_local,
+    chain: P24Chain,
+    *,
+    task_worker=None,
+    task_status: str = "running",
+    strategy_decision=None,
+    agent_sessions: list[dict] | None = None,
+) -> tuple:
+    """Seed full chain and invoke E4B. Returns (result, fake_worker, msg_repo)."""
+    s = session_local()
+    seed_base_records(
+        s,
+        session_id=chain.session_id,
+        project_id=chain.project_id,
+        task_id=chain.next_task_id,
+        plan_version_id=chain.plan_version_id,
+        task_status=task_status,
+    )
+    seed_package_message(s, chain.package)
+    seed_root_message(s, chain.root)
+    seed_e1b_message(s, chain.exact_run_reservation)
+    seed_e2a_message(s, chain.worker_start_reservation)
+    sd = strategy_decision or RunStrategyDecision(
+        version="1",
+        project_stage=None,
+        owner_role_code=chain.claim.worker_owner_role_code,
+        model_tier=chain.claim.worker_model_tier,
+        model_name=chain.claim.worker_model_name,
+        selected_skill_codes=[sk.skill_code for sk in chain.claim.worker_selected_skills],
+        selected_skill_names=[sk.skill_name for sk in chain.claim.worker_selected_skills],
+        budget_pressure_level=RunBudgetPressureLevel.NORMAL,
+        budget_action=RunBudgetStrategyAction.FULL_SPEED,
+        strategy_code="normal",
+        summary="Normal execution",
+        role_model_policy_source="test",
+        role_model_policy_desired_tier=chain.claim.worker_model_tier,
+        role_model_policy_adjusted_tier=chain.claim.worker_model_tier,
+        role_model_policy_final_tier=chain.claim.worker_model_tier,
+        role_model_policy_stage_override_applied=False,
+        rule_codes=["normal"],
+        reasons=[RunStrategyReasonItem(code="normal", label="Normal", detail="Normal", score=1.0)],
+    )
+    seed_run(
+        s,
+        run_id=chain.exact_run_id,
+        task_id=chain.next_task_id,
+        model_name=chain.claim.worker_model_name,
+        started_at=chain.claim.exact_run_started_at,
+        created_at=chain.claim.exact_run_created_at,
+        strategy_decision=sd,
+    )
+    if agent_sessions:
+        for as_info in agent_sessions:
+            seed_agent_session(
+                s,
+                agent_session_id=as_info.get("id"),
+                project_id=as_info.get("project_id", chain.project_id),
+                task_id=as_info.get("task_id", chain.next_task_id),
+                run_id=as_info.get("run_id", chain.exact_run_id),
+                status=as_info.get("status", "running"),
+                current_phase=as_info.get("current_phase", "execution"),
+            )
+    s.close()
+
+    if task_worker is None:
+        snapshot = WorkerReservedRunExecutionSnapshot(
+            source="p23_d2_exact_reserved_run",
+            exact_task_id=chain.next_task_id,
+            exact_run_id=chain.exact_run_id,
+            reserved_run_execution_requested=True,
+            exact_binding_validated=True,
+            task_routed=False,
+            task_claimed_in_this_cycle=False,
+            run_created_in_this_cycle=False,
+            budget_rechecked=True,
+            existing_run_reused=True,
+            shared_execution_seam_used=True,
+            product_runtime_git_write_allowed=False,
+            blocked_reasons=[],
+        )
+        task_worker = FakeTaskWorker(
+            session=None,
+            result=WorkerRunResult(
+                claimed=True,
+                message="fake worker executed",
+                execution_mode="fake",
+                result_summary="fake execution",
+                model_name=chain.claim.worker_model_name,
+                model_tier=chain.claim.worker_model_tier,
+                selected_skill_codes=[sk.skill_code for sk in chain.claim.worker_selected_skills],
+                selected_skill_names=[sk.skill_name for sk in chain.claim.worker_selected_skills],
+                owner_role_code=chain.claim.worker_owner_role_code,
+                upstream_role_code=chain.claim.worker_upstream_role_code,
+                downstream_role_code=chain.claim.worker_downstream_role_code,
+                route_reason="test",
+                strategy_code="normal",
+                dispatch_status="dispatched",
+                reserved_run_execution_snapshot=snapshot,
+            ),
+        )
+
+    session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
+    outcome_svc = make_outcome_service(
+        session,
+        msg_repo=msg_repo,
+        task_repo=task_repo,
+        run_repo=run_repo,
+        agent_sess_repo=agent_sess_repo,
+        task_worker=task_worker,
+    )
+
+    result = outcome_svc.invoke_exact_worker(
+        session_id=chain.session_id,
+        project_id=chain.project_id,
+        continuation_root_record_id=chain.root_record_id,
+        instruction_package_id=chain.package_id,
+        exact_run_reservation_id=chain.exact_run_reservation_id,
+        exact_worker_start_reservation_id=chain.worker_start_reservation_id,
+    )
+
+    return result, task_worker, msg_repo
+
+
+def build_worker_result_for_chain(
+    chain: P24Chain,
+    *,
+    model_name: str | None = None,
+    model_tier: str | None = None,
+    skill_codes: list[str] | None = None,
+    skill_names: list[str] | None = None,
+    owner_role_code=None,
+    upstream_role_code=None,
+    downstream_role_code=None,
+    snapshot_source: str = "p23_d2_exact_reserved_run",
+    snapshot_task_id: UUID | None = None,
+    snapshot_run_id: UUID | None = None,
+    exact_binding_validated: bool = True,
+    task_routed: bool = False,
+    task_claimed_in_this_cycle: bool = False,
+    run_created_in_this_cycle: bool = False,
+    existing_run_reused: bool = True,
+    shared_execution_seam_used: bool = True,
+    snapshot_blocked_reasons: list[str] | None = None,
+    budget_rechecked: bool = True,
+    git_commit_triggered: bool = False,
+    git_operation_applied: bool = False,
+    delivery_gate_allows_write: bool = False,
+    delivery_push_triggered: bool = False,
+    snapshot_product_git_write: bool = False,
+    message: str = "fake worker executed",
+) -> WorkerRunResult:
+    """Build a WorkerRunResult with customizable fields for testing."""
+    claim = chain.claim
+    snapshot = WorkerReservedRunExecutionSnapshot(
+        source=snapshot_source,
+        exact_task_id=snapshot_task_id if snapshot_task_id is not None else claim.next_task_id,
+        exact_run_id=snapshot_run_id if snapshot_run_id is not None else claim.exact_run_id,
+        reserved_run_execution_requested=True,
+        exact_binding_validated=exact_binding_validated,
+        task_routed=task_routed,
+        task_claimed_in_this_cycle=task_claimed_in_this_cycle,
+        run_created_in_this_cycle=run_created_in_this_cycle,
+        budget_rechecked=budget_rechecked,
+        existing_run_reused=existing_run_reused,
+        shared_execution_seam_used=shared_execution_seam_used,
+        product_runtime_git_write_allowed=snapshot_product_git_write,
+        blocked_reasons=snapshot_blocked_reasons or [],
+    )
+    return WorkerRunResult(
+        claimed=True,
+        message=message,
+        execution_mode="fake",
+        result_summary="fake execution",
+        model_name=model_name if model_name is not None else claim.worker_model_name,
+        model_tier=model_tier if model_tier is not None else claim.worker_model_tier,
+        selected_skill_codes=skill_codes if skill_codes is not None else [sk.skill_code for sk in claim.worker_selected_skills],
+        selected_skill_names=skill_names if skill_names is not None else [sk.skill_name for sk in claim.worker_selected_skills],
+        owner_role_code=owner_role_code if owner_role_code is not None else claim.worker_owner_role_code,
+        upstream_role_code=upstream_role_code if upstream_role_code is not None else claim.worker_upstream_role_code,
+        downstream_role_code=downstream_role_code if downstream_role_code is not None else claim.worker_downstream_role_code,
+        route_reason="test",
+        strategy_code="normal",
+        dispatch_status="dispatched",
+        reserved_run_execution_snapshot=snapshot,
+        git_diff_dry_run_git_commit_triggered=git_commit_triggered,
+        git_operation_dry_run_operation_applied=git_operation_applied,
+        delivery_gate_evidence_gate_allows_write=delivery_gate_allows_write,
+        delivery_human_approval_git_push_triggered=delivery_push_triggered,
+    )
