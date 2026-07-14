@@ -155,7 +155,7 @@ class ProjectDirectorBoundedReworkAttemptReservationService:
         """Rebuild an exact reservation and current authority without writes."""
 
         try:
-            history = self._package_preparation_service.revalidate_persisted_bounded_rework_instruction_package(
+            history = self._package_preparation_service.revalidate_persisted_bounded_rework_instruction_package_for_execution(
                 session_id=session_id,
                 source_task_id=source_task_id,
                 source_package_message_id=self._reservation_package_message_id(

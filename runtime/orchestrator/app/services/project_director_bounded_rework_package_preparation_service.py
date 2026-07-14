@@ -252,6 +252,39 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
         source_task_id: UUID,
         source_package_message_id: UUID,
     ) -> RevalidatedPersistedBoundedReworkInstructionPackage:
+        """Rebuild a package only when every historical Claim is complete."""
+
+        return self._revalidate_persisted_bounded_rework_instruction_package(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_package_message_id=source_package_message_id,
+            require_claim_outcomes=True,
+        )
+
+    def revalidate_persisted_bounded_rework_instruction_package_for_execution(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_package_message_id: UUID,
+    ) -> RevalidatedPersistedBoundedReworkInstructionPackage:
+        """Rebuild a package while allowing one structurally valid pending Claim."""
+
+        return self._revalidate_persisted_bounded_rework_instruction_package(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_package_message_id=source_package_message_id,
+            require_claim_outcomes=False,
+        )
+
+    def _revalidate_persisted_bounded_rework_instruction_package(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_package_message_id: UUID,
+        require_claim_outcomes: bool,
+    ) -> RevalidatedPersistedBoundedReworkInstructionPackage:
         """Rebuild one persisted package and its current authority without writes."""
 
         try:
@@ -296,7 +329,10 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
             ):
                 raise _Blocked("authority_invalid")
 
-            history = self._load_history(session_id)
+            history = self._load_history(
+                session_id,
+                require_claim_outcomes=require_claim_outcomes,
+            )
             exact_packages = [
                 item
                 for item in history.packages
@@ -969,7 +1005,12 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
         except (TypeError, ValueError, ValidationError) as exc:
             raise _Blocked("authority_invalid") from exc
 
-    def _load_history(self, session_id: UUID) -> _History:
+    def _load_history(
+        self,
+        session_id: UUID,
+        *,
+        require_claim_outcomes: bool = True,
+    ) -> _History:
         packages: list[
             tuple[ProjectDirectorMessage, ProjectDirectorBoundedReworkInstructionPackage]
         ] = []
@@ -1038,7 +1079,9 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
             claims=tuple(claims),
             outcomes=tuple(outcomes),
         )
-        self._validate_history(history)
+        self._validate_history_structure(history)
+        if require_claim_outcomes:
+            self._validate_completed_claim_history(history)
         return history
 
     def _iter_session_messages(
@@ -1150,42 +1193,169 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
             raise _Blocked("history_invalid")
 
     @staticmethod
-    def _validate_history(history: _History) -> None:
-        packages = [item[1] for item in history.packages]
+    def _validate_history_structure(history: _History) -> None:
+        packages = {item[1].package_id: item[1] for item in history.packages}
+        reservations = {
+            item.reservation_id: item for item in history.reservations
+        }
+        claims = {item.claim_id: item for item in history.claims}
         collections = (
-            [item.package_id for item in packages],
-            [item.package_replay_key for item in packages],
+            [item.package_id for _, item in history.packages],
+            [item.package_replay_key for _, item in history.packages],
             [item.reservation_id for item in history.reservations],
             [item.reservation_replay_key for item in history.reservations],
             [item.claim_id for item in history.claims],
             [item.claim_replay_key for item in history.claims],
             [item.outcome_id for item in history.outcomes],
             [item.outcome_replay_key for item in history.outcomes],
+            [item.reservation_id for item in history.claims],
+            [item.exact_run_id for item in history.claims],
+            [
+                (item.package_id, item.rework_attempt_index)
+                for item in history.claims
+            ],
+            [item.claim_id for item in history.outcomes],
         )
         if any(len(values) != len(set(values)) for values in collections):
             raise _Blocked("history_invalid")
         consumption_ids = [
             item.authority.source_p23_dispatch_consumption_id
-            for item in packages
+            for _, item in history.packages
             if item.authority is not None
         ]
         if len(consumption_ids) != len(set(consumption_ids)):
             raise _Blocked("authority_replayed")
-        reservation_ids = {item.reservation_id for item in history.reservations}
-        claim_ids = {item.claim_id for item in history.claims}
-        package_ids = {item.package_id for item in packages}
-        if any(item.package_id not in package_ids for item in history.reservations):
-            raise _Blocked("history_invalid")
-        if any(item.reservation_id not in reservation_ids for item in history.claims):
-            raise _Blocked("history_invalid")
-        if any(item.claim_id not in claim_ids for item in history.outcomes):
-            raise _Blocked("history_invalid")
+
+        for reservation in history.reservations:
+            package = packages.get(reservation.package_id)
+            if package is None or not ProjectDirectorBoundedReworkPackagePreparationService._reservation_binds_package(
+                reservation,
+                package,
+            ):
+                raise _Blocked("history_invalid")
         for claim in history.claims:
-            matches = [item for item in history.outcomes if item.claim_id == claim.claim_id]
+            reservation = reservations.get(claim.reservation_id)
+            package = packages.get(claim.package_id)
+            if (
+                reservation is None
+                or package is None
+                or not ProjectDirectorBoundedReworkPackagePreparationService._claim_binds_reservation_and_package(
+                    claim,
+                    reservation,
+                    package,
+                )
+            ):
+                raise _Blocked("history_invalid")
+        for outcome in history.outcomes:
+            claim = claims.get(outcome.claim_id)
+            reservation = reservations.get(outcome.reservation_id)
+            package = packages.get(outcome.package_id)
+            if (
+                claim is None
+                or reservation is None
+                or package is None
+                or not ProjectDirectorBoundedReworkPackagePreparationService._outcome_binds_claim_reservation_and_package(
+                    outcome,
+                    claim,
+                    reservation,
+                    package,
+                )
+            ):
+                raise _Blocked("history_invalid")
+
+    @staticmethod
+    def _validate_completed_claim_history(history: _History) -> None:
+        for claim in history.claims:
+            matches = [
+                item for item in history.outcomes if item.claim_id == claim.claim_id
+            ]
             if not matches:
                 raise _Blocked("claim_without_outcome")
             if len(matches) != 1:
                 raise _Blocked("history_invalid")
+
+    @staticmethod
+    def _reservation_binds_package(
+        reservation: ProjectDirectorBoundedReworkAttemptReservation,
+        package: ProjectDirectorBoundedReworkInstructionPackage,
+    ) -> bool:
+        return bool(
+            package.authority is not None
+            and package.package_replay_key is not None
+            and package.workspace_binding is not None
+            and package.base_commit_sha is not None
+            and package.source_candidate_diff_sha256 is not None
+            and package.rework_attempt_index is not None
+            and package.rework_attempt_limit is not None
+            and reservation.replay_state == "new"
+            and reservation.package_fingerprint == package.package_fingerprint
+            and reservation.package_replay_key == package.package_replay_key
+            and reservation.authority == package.authority
+            and reservation.exact_task_id == package.authority.source_task_id
+            and reservation.exact_run_id == package.authority.source_run_id
+            and reservation.rework_attempt_index == package.rework_attempt_index
+            and reservation.rework_attempt_limit == package.rework_attempt_limit
+            and reservation.workspace_binding_fingerprint
+            == package.workspace_binding.workspace_binding_fingerprint
+            and reservation.base_commit_sha == package.base_commit_sha
+            and reservation.source_candidate_diff_sha256
+            == package.source_candidate_diff_sha256
+        )
+
+    @staticmethod
+    def _claim_binds_reservation_and_package(
+        claim: ProjectDirectorBoundedReworkInvocationClaim,
+        reservation: ProjectDirectorBoundedReworkAttemptReservation,
+        package: ProjectDirectorBoundedReworkInstructionPackage,
+    ) -> bool:
+        return bool(
+            package.selected_model is not None
+            and package.selected_role is not None
+            and claim.reservation_fingerprint
+            == reservation.reservation_fingerprint
+            and claim.reservation_token == reservation.reservation_token
+            and claim.package_id == reservation.package_id == package.package_id
+            and claim.package_fingerprint
+            == reservation.package_fingerprint
+            == package.package_fingerprint
+            and claim.authority == reservation.authority == package.authority
+            and claim.exact_task_id == reservation.exact_task_id
+            and claim.exact_run_id == reservation.exact_run_id
+            and claim.rework_attempt_index == reservation.rework_attempt_index
+            and claim.rework_attempt_limit == reservation.rework_attempt_limit
+            and claim.selected_model == package.selected_model
+            and claim.selected_skills == package.selected_skills
+            and claim.selected_role == package.selected_role
+        )
+
+    @staticmethod
+    def _outcome_binds_claim_reservation_and_package(
+        outcome: ProjectDirectorBoundedReworkInvocationOutcome,
+        claim: ProjectDirectorBoundedReworkInvocationClaim,
+        reservation: ProjectDirectorBoundedReworkAttemptReservation,
+        package: ProjectDirectorBoundedReworkInstructionPackage,
+    ) -> bool:
+        return bool(
+            outcome.claim_fingerprint == claim.claim_fingerprint
+            and outcome.claim_token == claim.claim_token
+            and outcome.reservation_id == claim.reservation_id
+            and outcome.reservation_fingerprint
+            == reservation.reservation_fingerprint
+            and outcome.package_id == claim.package_id == package.package_id
+            and outcome.package_fingerprint
+            == claim.package_fingerprint
+            == package.package_fingerprint
+            and outcome.authority == claim.authority == package.authority
+            and outcome.exact_task_id == claim.exact_task_id
+            and outcome.exact_run_id == claim.exact_run_id
+            and outcome.rework_attempt_index == claim.rework_attempt_index
+            and outcome.rework_attempt_limit == claim.rework_attempt_limit
+            and outcome.invocation_ordinal == claim.invocation_ordinal
+            and outcome.workspace_before_manifest_fingerprint
+            == claim.workspace_before_manifest_fingerprint
+            and outcome.workspace_before_content_fingerprint
+            == claim.workspace_before_content_fingerprint
+        )
 
     @staticmethod
     def _semantic_package_payload(
