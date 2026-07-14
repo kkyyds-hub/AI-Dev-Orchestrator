@@ -113,6 +113,7 @@ from app.services.project_director_sandbox_write_preflight_service import (
 
 
 _LOWER_HEX_GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_LOWER_HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _PLAN_LOCATOR = re.compile(
     r"^pdv:(?P<plan_id>[0-9a-fA-F-]{36}):(?P<version_no>[1-9][0-9]*)$"
 )
@@ -171,6 +172,13 @@ class ProjectDirectorBoundedReworkEvidenceResolution:
     status: EvidenceResolutionStatus
     snapshot: ProjectDirectorBoundedReworkEvidenceSnapshot | None
     blocked_reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _PersistedBaseCommitSource:
+    record_identity: str
+    source_fingerprint: str
+    expected_base_commit_sha: str
 
 
 class _Blocked(RuntimeError):
@@ -533,9 +541,6 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
             workspace_binding_fingerprint=workspace_binding_fingerprint,
         )
 
-        base_commit_sha = self._repository_head_reader(repository_root).strip()
-        if not _LOWER_HEX_GIT_COMMIT.fullmatch(base_commit_sha):
-            raise _Blocked("base_commit_mismatch")
         source_diff_fingerprint = compute_p25_contract_sha256(
             {
                 "message_id": source_diff_message_id,
@@ -545,11 +550,45 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
                 "source_candidate_diff_paths": diff_paths,
             }
         )
+        persisted_base = self._persisted_base_commit_source(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            source_run_id=source_run_id,
+            repository_workspace_id=repository_workspace.id,
+            repository_root=repository_root,
+            workspace_creation_message_id=workspace_creation_message.id,
+            workspace_path=workspace_path,
+            source_candidate_diff_message_id=source_diff_message_id,
+            source_candidate_diff_fingerprint=source_diff_fingerprint,
+        )
+        base_commit_sha = persisted_base.expected_base_commit_sha
+        if (
+            not persisted_base.record_identity
+            or persisted_base.record_identity != persisted_base.record_identity.strip()
+            or not _LOWER_HEX_SHA256.fullmatch(persisted_base.source_fingerprint)
+            or not _LOWER_HEX_GIT_COMMIT.fullmatch(base_commit_sha)
+        ):
+            raise _Blocked("authority_invalid")
+        try:
+            current_head = self._repository_head_reader(repository_root).strip()
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise _Blocked("base_commit_mismatch") from exc
+        if (
+            not _LOWER_HEX_GIT_COMMIT.fullmatch(current_head)
+            or current_head != base_commit_sha
+        ):
+            raise _Blocked("base_commit_mismatch")
         base_snapshot_fingerprint = compute_p25_contract_sha256(
             {
+                "persisted_base_commit_source_record_identity": (
+                    persisted_base.record_identity
+                ),
+                "persisted_base_commit_source_fingerprint": (
+                    persisted_base.source_fingerprint
+                ),
+                "expected_base_commit_sha": base_commit_sha,
                 "repository_binding_fingerprint": repository_binding_fingerprint,
-                "repository_root": repository_root,
-                "base_commit_sha": base_commit_sha,
                 "source_candidate_diff_fingerprint": source_diff_fingerprint,
             }
         )
@@ -1030,6 +1069,27 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
         ):
             raise _Blocked("workspace_invalid")
         return hashlib.sha256(raw).hexdigest()
+
+    @staticmethod
+    def _persisted_base_commit_source(
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_run_id: UUID,
+        repository_workspace_id: UUID,
+        repository_root: str,
+        workspace_creation_message_id: UUID,
+        workspace_path: str,
+        source_candidate_diff_message_id: UUID,
+        source_candidate_diff_fingerprint: str,
+    ) -> _PersistedBaseCommitSource:
+        """Resolve only an exact persisted base source for the P21 diff lineage."""
+
+        # The base SHA exists only on the transient worktree-create response; its
+        # audit record does not persist it or bind it to this P21 Task/Run/diff.
+        # Paths or live repository state cannot supply the missing authority.
+        raise _Blocked("authority_invalid")
 
     @staticmethod
     def _read_repository_head(repository_root: str) -> str:
