@@ -26,6 +26,29 @@ _SENSITIVE_TEXT_PATTERN = re.compile(
 )
 
 
+def _validate_non_sensitive_text(value: str) -> str:
+    if _SENSITIVE_TEXT_PATTERN.search(value):
+        raise ValueError("executor request contains suspected sensitive material")
+    return value
+
+
+def _validate_non_sensitive_projection(value: Any) -> Any:
+    projection = (
+        value.model_dump(mode="python")
+        if isinstance(value, BaseModel)
+        else value
+    )
+    if isinstance(projection, str):
+        _validate_non_sensitive_text(projection)
+    elif isinstance(projection, dict):
+        for item in projection.values():
+            _validate_non_sensitive_projection(item)
+    elif isinstance(projection, (list, tuple)):
+        for item in projection:
+            _validate_non_sensitive_projection(item)
+    return value
+
+
 class _BoundedReworkExecutorContract(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -34,6 +57,11 @@ class ProjectDirectorBoundedReworkExecutorFinding(_BoundedReworkExecutorContract
     finding_id: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=200)
     evidence_paths: tuple[str, ...]
+
+    @field_validator("finding_id", "title")
+    @classmethod
+    def validate_free_text(cls, value: str) -> str:
+        return _validate_non_sensitive_text(value)
 
     @field_validator("evidence_paths", mode="before")
     @classmethod
@@ -51,12 +79,22 @@ class ProjectDirectorBoundedReworkExecutorCorrection(_BoundedReworkExecutorContr
     source_finding_id: str = Field(min_length=1, max_length=80)
     instruction: str = Field(min_length=1, max_length=1_000)
 
+    @field_validator("correction_id", "source_finding_id", "instruction")
+    @classmethod
+    def validate_free_text(cls, value: str) -> str:
+        return _validate_non_sensitive_text(value)
+
 
 class ProjectDirectorBoundedReworkExecutorVerificationRequirement(
     _BoundedReworkExecutorContract
 ):
     requirement_id: str = Field(min_length=1, max_length=80)
     description: str = Field(min_length=1, max_length=1_000)
+
+    @field_validator("requirement_id", "description")
+    @classmethod
+    def validate_free_text(cls, value: str) -> str:
+        return _validate_non_sensitive_text(value)
 
 
 def _normalize_paths(values: Any) -> Any:
@@ -99,7 +137,22 @@ class ProjectDirectorBoundedReworkExecutorRequest(_BoundedReworkExecutorContract
     def validate_adapter_kind(cls, value: str) -> str:
         if value != value.strip():
             raise ValueError("executor adapter kind must be trimmed")
-        return value
+        return _validate_non_sensitive_text(value)
+
+    @field_validator("confirmed_acceptance_criteria")
+    @classmethod
+    def validate_acceptance_criteria(
+        cls,
+        values: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        for value in values:
+            _validate_non_sensitive_text(value)
+        return values
+
+    @field_validator("selected_model", "selected_skills", "selected_role")
+    @classmethod
+    def validate_selection_text(cls, value: Any) -> Any:
+        return _validate_non_sensitive_projection(value)
 
     @field_validator("workspace_path")
     @classmethod

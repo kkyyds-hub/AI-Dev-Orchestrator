@@ -134,6 +134,7 @@ class _ExecutionObservation:
     pre_call_error: BoundedReworkBlockedReason | None = None
     inspection_error: BoundedReworkBlockedReason | None = None
     inspection_indeterminate: bool = False
+    repository_inspection_indeterminate: bool = False
 
 
 class _Blocked(RuntimeError):
@@ -345,12 +346,16 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                     observe_out_of_scope_files=True,
                 )
             )
-            after_repository = self._snapshot_repository(current.package)
         except BoundedReworkWorkspaceInspectionError as exc:
             inspection_error = exc.reason
             inspection_indeterminate = True
         except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
             inspection_indeterminate = True
+        repository_inspection_indeterminate = False
+        try:
+            after_repository = self._snapshot_repository(current.package)
+        except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
+            repository_inspection_indeterminate = True
 
         observation = _ExecutionObservation(
             before_workspace=before_workspace,
@@ -363,6 +368,9 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             executor_started=True,
             inspection_error=inspection_error,
             inspection_indeterminate=inspection_indeterminate,
+            repository_inspection_indeterminate=(
+                repository_inspection_indeterminate
+            ),
         )
         return self._persist_outcome(
             current=current,
@@ -379,7 +387,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
     ) -> ExecutedProjectDirectorBoundedReworkInvocation:
         if claim is None or claim_message is None:
             return self._blocked("history_invalid")
-        current = self._claim_service.revalidate_persisted_bounded_rework_invocation_claim(
+        current = self._claim_service.revalidate_persisted_bounded_rework_invocation_claim_for_outcome_persistence(
             session_id=session_id,
             source_task_id=source_task_id,
             source_claim_message_id=claim.claim_id,
@@ -456,11 +464,18 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
         self._rollback_read_transaction()
         try:
             with self._message_repository.sqlite_immediate_transaction():
-                final = self._claim_service.revalidate_persisted_bounded_rework_invocation_claim(
-                    session_id=claim.authority.session_id,
-                    source_task_id=claim.exact_task_id,
-                    source_claim_message_id=claim.claim_id,
-                )
+                if observation.executor_started:
+                    final = self._claim_service.revalidate_persisted_bounded_rework_invocation_claim_for_outcome_persistence(
+                        session_id=claim.authority.session_id,
+                        source_task_id=claim.exact_task_id,
+                        source_claim_message_id=claim.claim_id,
+                    )
+                else:
+                    final = self._claim_service.revalidate_persisted_bounded_rework_invocation_claim(
+                        session_id=claim.authority.session_id,
+                        source_task_id=claim.exact_task_id,
+                        source_claim_message_id=claim.claim_id,
+                    )
                 if final.blocked_reasons:
                     raise _Blocked(final.blocked_reasons[0])
                 if final.outcome is not None:
@@ -532,6 +547,8 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
     ) -> _ExecutionObservation:
         if not observation.executor_started:
             return observation
+        final_workspace: BoundedReworkWorkspaceSnapshot | None = None
+        final_repository: _RepositorySnapshot | None = None
         try:
             final_workspace = (
                 self._claim_service.inspect_revalidated_bounded_rework_workspace(
@@ -539,9 +556,6 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                     observe_out_of_scope_files=True,
                 )
             )
-            if final.package is None:
-                raise ValueError("missing revalidated package")
-            final_repository = self._snapshot_repository(final.package)
         except BoundedReworkWorkspaceInspectionError as exc:
             return _ExecutionObservation(
                 before_workspace=observation.before_workspace,
@@ -555,6 +569,9 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 pre_call_error=observation.pre_call_error,
                 inspection_error=exc.reason,
                 inspection_indeterminate=True,
+                repository_inspection_indeterminate=(
+                    observation.repository_inspection_indeterminate
+                ),
             )
         except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
             return _ExecutionObservation(
@@ -569,7 +586,19 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 pre_call_error=observation.pre_call_error,
                 inspection_error=observation.inspection_error,
                 inspection_indeterminate=True,
+                repository_inspection_indeterminate=(
+                    observation.repository_inspection_indeterminate
+                ),
             )
+        repository_inspection_indeterminate = (
+            observation.repository_inspection_indeterminate
+        )
+        try:
+            if final.package is None:
+                raise ValueError("missing revalidated package")
+            final_repository = self._snapshot_repository(final.package)
+        except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
+            repository_inspection_indeterminate = True
         changed_during_persistence = bool(
             observation.after_workspace is None
             or observation.after_repository is None
@@ -589,6 +618,9 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             inspection_error=observation.inspection_error,
             inspection_indeterminate=(
                 observation.inspection_indeterminate or changed_during_persistence
+            ),
+            repository_inspection_indeterminate=(
+                repository_inspection_indeterminate
             ),
         )
 
@@ -651,7 +683,11 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             redacted_error_summary = "Git or repository control activity was detected"
             human_escalation_required = True
             scope_validation_status = "invalid"
-            side_effect_state = "observed" if observed_paths else "none"
+            side_effect_state = (
+                "indeterminate"
+                if observation.repository_inspection_indeterminate
+                else "observed" if observed_paths else "none"
+            )
         elif (
             internal_change
             or scope_escape
@@ -976,9 +1012,12 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 != observation.after_repository.status_fingerprint
             ),
             "git_control_metadata_changed": bool(
-                observation.after_repository
-                and observation.before_repository.git_control_fingerprint
-                != observation.after_repository.git_control_fingerprint
+                observation.repository_inspection_indeterminate
+                or (
+                    observation.after_repository
+                    and observation.before_repository.git_control_fingerprint
+                    != observation.after_repository.git_control_fingerprint
+                )
             ),
         }
         return tuple(kind for kind, detected in reported.items() if detected)

@@ -248,6 +248,39 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
     ) -> RevalidatedPersistedBoundedReworkInvocationClaim:
         """Rebuild one exact Claim, reservation, package, and optional Outcome."""
 
+        return self._revalidate_persisted_bounded_rework_invocation_claim(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_claim_message_id=source_claim_message_id,
+            for_outcome_persistence=False,
+        )
+
+    def revalidate_persisted_bounded_rework_invocation_claim_for_outcome_persistence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_claim_message_id: UUID,
+    ) -> RevalidatedPersistedBoundedReworkInvocationClaim:
+        """Read post-call immutable lineage without granting execution authority."""
+
+        return self._revalidate_persisted_bounded_rework_invocation_claim(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_claim_message_id=source_claim_message_id,
+            for_outcome_persistence=True,
+        )
+
+    def _revalidate_persisted_bounded_rework_invocation_claim(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_claim_message_id: UUID,
+        for_outcome_persistence: bool,
+    ) -> RevalidatedPersistedBoundedReworkInvocationClaim:
+        """Rebuild one exact persisted Claim lineage without writes."""
+
         try:
             message = self._message_repository.get_by_id(source_claim_message_id)
             if message is None or len(message.suggested_actions) != 1:
@@ -274,11 +307,18 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
             ):
                 raise _Blocked("authority_invalid")
 
-            current = self._revalidate_reservation_history_for_claim(
-                session_id=session_id,
-                source_task_id=source_task_id,
-                claim=claim,
-            )
+            if for_outcome_persistence:
+                current = self._revalidate_reservation_history_for_claim_for_outcome_persistence(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    claim=claim,
+                )
+            else:
+                current = self._revalidate_reservation_history_for_claim(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    claim=claim,
+                )
             if current.blocked_reasons:
                 raise _Blocked(current.blocked_reasons[0])
             reservation = current.reservation
@@ -445,6 +485,58 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
         reservation_service._validate_p23_generic_history(package)
         reservation_service._validate_raw_p25_history_coverage(history)
         reservation_service._validate_p25_history(history)
+        return RevalidatedPersistedBoundedReworkAttemptReservation(
+            reservation=reservation,
+            message=reservation_message,
+            package=package,
+            packages=history.packages,
+            reservations=history.reservations,
+            claims=history.claims,
+            outcomes=history.outcomes,
+            blocked_reasons=(),
+        )
+
+    def _revalidate_reservation_history_for_claim_for_outcome_persistence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        claim: ProjectDirectorBoundedReworkInvocationClaim,
+    ) -> RevalidatedPersistedBoundedReworkAttemptReservation:
+        history = self._attempt_reservation_service._package_preparation_service.revalidate_persisted_bounded_rework_instruction_package_for_outcome_persistence(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_package_message_id=claim.package_id,
+        )
+        if history.blocked_reasons:
+            raise _Blocked(history.blocked_reasons[0])
+        package = history.package
+        if package is None:
+            raise _Blocked("history_invalid")
+        reservations = [
+            item
+            for item in history.reservations
+            if item.reservation_id == claim.reservation_id
+        ]
+        if len(reservations) != 1:
+            raise _Blocked("history_invalid")
+        reservation = reservations[0]
+        reservation_message = self._message_repository.get_by_id(
+            reservation.reservation_id
+        )
+        reservation_service = self._attempt_reservation_service
+        if (
+            reservation_message is None
+            or not reservation_service._reservation_message_valid(
+                message=reservation_message,
+                reservation=reservation,
+            )
+            or not reservation_service._reservation_binds_package(
+                reservation,
+                package,
+            )
+        ):
+            raise _Blocked("history_invalid")
         return RevalidatedPersistedBoundedReworkAttemptReservation(
             reservation=reservation,
             message=reservation_message,

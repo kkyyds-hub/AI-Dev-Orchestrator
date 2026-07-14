@@ -277,6 +277,54 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
             require_claim_outcomes=False,
         )
 
+    def revalidate_persisted_bounded_rework_instruction_package_for_outcome_persistence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_package_message_id: UUID,
+    ) -> RevalidatedPersistedBoundedReworkInstructionPackage:
+        """Read immutable P25 lineage; this does not authorize execution."""
+
+        try:
+            history = self._load_history(
+                session_id,
+                require_claim_outcomes=False,
+            )
+            exact_packages = [
+                item
+                for item in history.packages
+                if item[0].id == source_package_message_id
+                and item[1].package_id == source_package_message_id
+            ]
+            if len(exact_packages) != 1:
+                raise _Blocked("history_invalid")
+            message, package = exact_packages[0]
+            if (
+                message.session_id != session_id
+                or message.related_task_id != source_task_id
+                or package.authority is None
+                or package.authority.session_id != session_id
+                or package.authority.source_task_id != source_task_id
+                or package.authority.target_task_id != source_task_id
+            ):
+                raise _Blocked("authority_invalid")
+            return RevalidatedPersistedBoundedReworkInstructionPackage(
+                package=package,
+                message=message,
+                packages=tuple(item[1] for item in history.packages),
+                reservations=history.reservations,
+                claims=history.claims,
+                outcomes=history.outcomes,
+                blocked_reasons=(),
+            )
+        except _Blocked as exc:
+            return self._blocked_revalidation(exc.reason)
+        except SQLAlchemyError:
+            return self._blocked_revalidation("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._blocked_revalidation("history_invalid")
+
     def _revalidate_persisted_bounded_rework_instruction_package(
         self,
         *,
