@@ -27,6 +27,7 @@ from app.domain.project_director_bounded_rework_instruction_package import (
     ProjectDirectorBoundedReworkInstructionPackage,
 )
 from app.domain.project_director_bounded_rework_invocation_claim import (
+    BOUNDED_REWORK_INVOCATION_CLAIM_SCHEMA_VERSION,
     ProjectDirectorBoundedReworkInvocationClaim,
 )
 from app.domain.project_director_bounded_rework_invocation_outcome import (
@@ -97,6 +98,18 @@ _FORMAL_FALSE_BOUNDARIES = (
     "ci_trigger_allowed=false",
 )
 
+_OUTCOME_FORMAL_FALSE_BOUNDARIES = (
+    "product_runtime_git_write_allowed=false",
+    "main_project_write_allowed=false",
+    "git_add_allowed=false",
+    "git_commit_allowed=false",
+    "git_push_allowed=false",
+    "branch_operation_allowed=false",
+    "pull_request_allowed=false",
+    "merge_allowed=false",
+    "ci_trigger_allowed=false",
+)
+
 ClaimPreparationStatus = Literal[
     "claim_claimed",
     "claim_replayed",
@@ -113,9 +126,38 @@ class PreparedProjectDirectorBoundedReworkInvocationClaim:
 
 
 @dataclass(frozen=True, slots=True)
-class _WorkspaceSnapshot:
+class BoundedReworkWorkspaceFileEntry:
+    path: str
+    size: int
+    content_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedReworkWorkspaceSnapshot:
     manifest_fingerprint: str
     content_fingerprint: str
+    file_entries: tuple[BoundedReworkWorkspaceFileEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedPersistedBoundedReworkInvocationClaim:
+    """Pure reconstruction of one exact persisted P25-E Claim lineage."""
+
+    claim: ProjectDirectorBoundedReworkInvocationClaim | None
+    message: ProjectDirectorMessage | None
+    reservation: ProjectDirectorBoundedReworkAttemptReservation | None
+    package: ProjectDirectorBoundedReworkInstructionPackage | None
+    outcome: ProjectDirectorBoundedReworkInvocationOutcome | None
+    outcome_message: ProjectDirectorMessage | None
+    claims: tuple[ProjectDirectorBoundedReworkInvocationClaim, ...]
+    outcomes: tuple[ProjectDirectorBoundedReworkInvocationOutcome, ...]
+    blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
+
+
+class BoundedReworkWorkspaceInspectionError(RuntimeError):
+    def __init__(self, reason: BoundedReworkBlockedReason) -> None:
+        self.reason = reason
+        super().__init__(reason)
 
 
 class _Blocked(RuntimeError):
@@ -197,11 +239,257 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
         except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
             return self._blocked("history_invalid")
 
+    def revalidate_persisted_bounded_rework_invocation_claim(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_claim_message_id: UUID,
+    ) -> RevalidatedPersistedBoundedReworkInvocationClaim:
+        """Rebuild one exact Claim, reservation, package, and optional Outcome."""
+
+        try:
+            message = self._message_repository.get_by_id(source_claim_message_id)
+            if message is None or len(message.suggested_actions) != 1:
+                raise _Blocked("authority_invalid")
+            action = message.suggested_actions[0]
+            if (
+                not isinstance(action, dict)
+                or action.get("type")
+                != P25_BOUNDED_REWORK_INVOCATION_CLAIM_ACTION_TYPE
+                or action.get("schema_version")
+                != BOUNDED_REWORK_INVOCATION_CLAIM_SCHEMA_VERSION
+            ):
+                raise _Blocked("history_invalid")
+            payload = dict(action)
+            payload.pop("type", None)
+            claim = ProjectDirectorBoundedReworkInvocationClaim.model_validate(
+                payload
+            )
+            if (
+                claim.claim_id != source_claim_message_id
+                or claim.authority.session_id != session_id
+                or claim.exact_task_id != source_task_id
+                or not self._claim_message_valid(message=message, claim=claim)
+            ):
+                raise _Blocked("authority_invalid")
+
+            current = self._revalidate_reservation_history_for_claim(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                claim=claim,
+            )
+            if current.blocked_reasons:
+                raise _Blocked(current.blocked_reasons[0])
+            reservation = current.reservation
+            package = current.package
+            if reservation is None or package is None:
+                raise _Blocked("history_invalid")
+            self._validate_claim_history(current)
+            exact_claims = [
+                item for item in current.claims if item.claim_id == claim.claim_id
+            ]
+            if (
+                len(exact_claims) != 1
+                or exact_claims[0] != claim
+                or not self._claim_binds_current(
+                    claim=claim,
+                    reservation=reservation,
+                    package=package,
+                )
+            ):
+                raise _Blocked("history_invalid")
+
+            matching_outcomes = [
+                item for item in current.outcomes if item.claim_id == claim.claim_id
+            ]
+            if len(matching_outcomes) > 1:
+                raise _Blocked("history_invalid")
+            outcome = matching_outcomes[0] if matching_outcomes else None
+            outcome_message = None
+            if outcome is not None:
+                outcome_message = self._message_repository.get_by_id(
+                    outcome.outcome_id
+                )
+                if (
+                    not self._outcome_binds_current(
+                        outcome=outcome,
+                        claim=claim,
+                        reservation=reservation,
+                        package=package,
+                    )
+                    or outcome_message is None
+                    or not self._outcome_message_valid(
+                        message=outcome_message,
+                        outcome=outcome,
+                    )
+                ):
+                    raise _Blocked("history_invalid")
+            return RevalidatedPersistedBoundedReworkInvocationClaim(
+                claim=claim,
+                message=message,
+                reservation=reservation,
+                package=package,
+                outcome=outcome,
+                outcome_message=outcome_message,
+                claims=current.claims,
+                outcomes=current.outcomes,
+                blocked_reasons=(),
+            )
+        except _Blocked as exc:
+            return self._blocked_revalidation(exc.reason)
+        except SQLAlchemyError:
+            return self._blocked_revalidation("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._blocked_revalidation("history_invalid")
+
+    def revalidate_persisted_bounded_rework_invocation_from_reservation(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_reservation_message_id: UUID,
+    ) -> RevalidatedPersistedBoundedReworkInvocationClaim:
+        """Locate an existing Claim from one exact reservation without writes."""
+
+        try:
+            package_message_id = self._attempt_reservation_service._reservation_package_message_id(
+                source_reservation_message_id
+            )
+            history = self._attempt_reservation_service._package_preparation_service.revalidate_persisted_bounded_rework_instruction_package_for_execution(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_package_message_id=package_message_id,
+            )
+            if history.blocked_reasons:
+                raise _Blocked(history.blocked_reasons[0])
+            matches = [
+                item
+                for item in history.claims
+                if item.reservation_id == source_reservation_message_id
+            ]
+            if len(matches) > 1:
+                raise _Blocked("history_invalid")
+            if not matches:
+                raise _Blocked("authority_invalid")
+            return self.revalidate_persisted_bounded_rework_invocation_claim(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_claim_message_id=matches[0].claim_id,
+            )
+        except _Blocked as exc:
+            return self._blocked_revalidation(exc.reason)
+        except SQLAlchemyError:
+            return self._blocked_revalidation("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._blocked_revalidation("history_invalid")
+
+    def _revalidate_reservation_history_for_claim(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        claim: ProjectDirectorBoundedReworkInvocationClaim,
+    ) -> RevalidatedPersistedBoundedReworkAttemptReservation:
+        current = self._attempt_reservation_service.revalidate_persisted_bounded_rework_attempt_reservation(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_reservation_message_id=claim.reservation_id,
+        )
+        if not current.blocked_reasons:
+            return current
+        if current.blocked_reasons[0] not in {
+            "git_boundary_violation",
+            "human_escalation_required",
+        }:
+            return current
+
+        package_message_id = self._attempt_reservation_service._reservation_package_message_id(
+            claim.reservation_id
+        )
+        history = self._attempt_reservation_service._package_preparation_service.revalidate_persisted_bounded_rework_instruction_package_for_execution(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_package_message_id=package_message_id,
+        )
+        if history.blocked_reasons:
+            raise _Blocked(history.blocked_reasons[0])
+        package = history.package
+        if package is None:
+            raise _Blocked("history_invalid")
+        reservations = [
+            item
+            for item in history.reservations
+            if item.reservation_id == claim.reservation_id
+        ]
+        if len(reservations) != 1:
+            raise _Blocked("history_invalid")
+        reservation = reservations[0]
+        reservation_message = self._message_repository.get_by_id(
+            reservation.reservation_id
+        )
+        reservation_service = self._attempt_reservation_service
+        if (
+            reservation_message is None
+            or not reservation_service._reservation_message_valid(
+                message=reservation_message,
+                reservation=reservation,
+            )
+            or not reservation_service._reservation_binds_package(
+                reservation,
+                package,
+            )
+        ):
+            raise _Blocked("history_invalid")
+        reservation_service._validate_exact_task_and_run(package)
+        reservation_service._validate_p23_generic_history(package)
+        reservation_service._validate_raw_p25_history_coverage(history)
+        reservation_service._validate_p25_history(history)
+        return RevalidatedPersistedBoundedReworkAttemptReservation(
+            reservation=reservation,
+            message=reservation_message,
+            package=package,
+            packages=history.packages,
+            reservations=history.reservations,
+            claims=history.claims,
+            outcomes=history.outcomes,
+            blocked_reasons=(),
+        )
+
+    @classmethod
+    def inspect_revalidated_bounded_rework_workspace(
+        cls,
+        current: RevalidatedPersistedBoundedReworkInvocationClaim,
+        *,
+        observe_out_of_scope_files: bool = False,
+    ) -> BoundedReworkWorkspaceSnapshot:
+        """Return a bounded, read-only snapshot for a validated Claim lineage."""
+
+        if current.blocked_reasons or current.package is None:
+            raise ValueError("workspace inspection requires a revalidated Claim")
+        reservation_history = RevalidatedPersistedBoundedReworkAttemptReservation(
+            reservation=current.reservation,
+            message=None,
+            package=current.package,
+            packages=(),
+            reservations=(),
+            claims=current.claims,
+            outcomes=current.outcomes,
+            blocked_reasons=(),
+        )
+        try:
+            return cls._snapshot_for(
+                reservation_history,
+                observe_out_of_scope_files=observe_out_of_scope_files,
+            )
+        except _Blocked as exc:
+            raise BoundedReworkWorkspaceInspectionError(exc.reason) from exc
+
     def _claim_or_replay(
         self,
         *,
         current: RevalidatedPersistedBoundedReworkAttemptReservation,
-        snapshot: _WorkspaceSnapshot,
+        snapshot: BoundedReworkWorkspaceSnapshot,
     ) -> PreparedProjectDirectorBoundedReworkInvocationClaim:
         reservation = current.reservation
         package = current.package
@@ -379,11 +667,49 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
         )
 
     @staticmethod
+    def _outcome_binds_current(
+        *,
+        outcome: ProjectDirectorBoundedReworkInvocationOutcome,
+        claim: ProjectDirectorBoundedReworkInvocationClaim,
+        reservation: ProjectDirectorBoundedReworkAttemptReservation,
+        package: ProjectDirectorBoundedReworkInstructionPackage,
+    ) -> bool:
+        return bool(
+            outcome.claim_id == claim.claim_id
+            and outcome.claim_fingerprint == claim.claim_fingerprint
+            and outcome.claim_token == claim.claim_token
+            and outcome.reservation_id == reservation.reservation_id
+            and outcome.reservation_fingerprint
+            == reservation.reservation_fingerprint
+            and outcome.package_id == package.package_id
+            and outcome.package_fingerprint == package.package_fingerprint
+            and outcome.authority == claim.authority
+            and outcome.exact_task_id == claim.exact_task_id
+            and outcome.exact_run_id == claim.exact_run_id
+            and outcome.rework_attempt_index == claim.rework_attempt_index
+            and outcome.rework_attempt_limit == claim.rework_attempt_limit
+            and outcome.invocation_ordinal == claim.invocation_ordinal
+            and outcome.workspace_before_manifest_fingerprint
+            == claim.workspace_before_manifest_fingerprint
+            and outcome.workspace_before_content_fingerprint
+            == claim.workspace_before_content_fingerprint
+            and outcome.outcome_replay_key
+            == ProjectDirectorBoundedReworkInvocationOutcome.compute_outcome_replay_key(
+                claim_id=claim.claim_id,
+                claim_token=claim.claim_token,
+                reservation_id=reservation.reservation_id,
+                package_id=package.package_id,
+                exact_task_id=claim.exact_task_id,
+                exact_run_id=claim.exact_run_id,
+            )
+        )
+
+    @staticmethod
     def _build_claim(
         *,
         reservation: ProjectDirectorBoundedReworkAttemptReservation,
         package: ProjectDirectorBoundedReworkInstructionPackage,
-        snapshot: _WorkspaceSnapshot,
+        snapshot: BoundedReworkWorkspaceSnapshot,
     ) -> ProjectDirectorBoundedReworkInvocationClaim:
         if package.selected_model is None or package.selected_role is None:
             raise _Blocked("authority_invalid")
@@ -511,11 +837,46 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
             and claim.reservation_token not in message.content
         )
 
+    @staticmethod
+    def _outcome_message_valid(
+        *,
+        message: ProjectDirectorMessage,
+        outcome: ProjectDirectorBoundedReworkInvocationOutcome,
+    ) -> bool:
+        expected_action = {
+            "type": "p25_bounded_rework_invocation_outcome_record",
+            **outcome.model_dump(mode="json"),
+        }
+        return bool(
+            message.id == outcome.outcome_id
+            and message.created_at == outcome.created_at
+            and message.session_id == outcome.authority.session_id
+            and message.related_project_id == outcome.authority.project_id
+            and message.related_task_id == outcome.exact_task_id
+            and message.role == ProjectDirectorMessageRole.ASSISTANT
+            and message.source == ProjectDirectorMessageSource.SYSTEM
+            and message.intent == "bounded_rework_invocation_outcome"
+            and message.source_detail
+            == "p25_bounded_rework_invocation_outcome_recorded"
+            and message.content
+            == f"P25 bounded rework invocation outcome: {outcome.outcome_id}"
+            and message.suggested_actions == [expected_action]
+            and message.requires_confirmation is False
+            and message.risk_level == ProjectDirectorMessageRiskLevel.HIGH
+            and tuple(message.forbidden_actions_detected)
+            == _OUTCOME_FORMAL_FALSE_BOUNDARIES
+            and message.token_count is None
+            and message.estimated_cost is None
+            and outcome.claim_token not in message.content
+        )
+
     @classmethod
     def _snapshot_for(
         cls,
         current: RevalidatedPersistedBoundedReworkAttemptReservation,
-    ) -> _WorkspaceSnapshot:
+        *,
+        observe_out_of_scope_files: bool = False,
+    ) -> BoundedReworkWorkspaceSnapshot:
         package = current.package
         if package is None or package.workspace_binding is None:
             raise _Blocked("workspace_invalid")
@@ -553,8 +914,9 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
             manifest_entries=manifest_entries,
             content_entries=content_entries,
             counters=counters,
+            observe_out_of_scope_files=observe_out_of_scope_files,
         )
-        return _WorkspaceSnapshot(
+        return BoundedReworkWorkspaceSnapshot(
             manifest_fingerprint=compute_p25_contract_sha256(
                 {
                     "schema_version": _WORKSPACE_MANIFEST_SCHEMA_VERSION,
@@ -566,6 +928,14 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
                     "schema_version": _WORKSPACE_CONTENT_SCHEMA_VERSION,
                     "files": content_entries,
                 }
+            ),
+            file_entries=tuple(
+                BoundedReworkWorkspaceFileEntry(
+                    path=str(item["path"]),
+                    size=int(item["size"]),
+                    content_sha256=str(item["content_sha256"]),
+                )
+                for item in content_entries
             ),
         )
 
@@ -579,6 +949,7 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
         manifest_entries: list[dict[str, object]],
         content_entries: list[dict[str, object]],
         counters: dict[str, int],
+        observe_out_of_scope_files: bool,
     ) -> None:
         try:
             before = directory.stat(follow_symlinks=False)
@@ -619,6 +990,7 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
                     manifest_entries=manifest_entries,
                     content_entries=content_entries,
                     counters=counters,
+                    observe_out_of_scope_files=observe_out_of_scope_files,
                 )
                 continue
             if not stat.S_ISREG(entry_stat.st_mode):
@@ -626,9 +998,13 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
             if entry_stat.st_nlink != 1:
                 raise _Blocked("workspace_invalid")
             cls._validate_control_path(relative, is_directory=False)
-            if relative != _INTERNAL_MANIFEST_PATH and not any(
-                path_is_within_scope(relative, allowed)
-                for allowed in allowed_scope_paths
+            if (
+                not observe_out_of_scope_files
+                and relative != _INTERNAL_MANIFEST_PATH
+                and not any(
+                    path_is_within_scope(relative, allowed)
+                    for allowed in allowed_scope_paths
+                )
             ):
                 raise _Blocked("scope_invalid")
             size, content_sha256 = cls._hash_regular_file(
@@ -768,8 +1144,27 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
             blocked_reasons=(reason,),
         )
 
+    @staticmethod
+    def _blocked_revalidation(
+        reason: BoundedReworkBlockedReason,
+    ) -> RevalidatedPersistedBoundedReworkInvocationClaim:
+        return RevalidatedPersistedBoundedReworkInvocationClaim(
+            claim=None,
+            message=None,
+            reservation=None,
+            package=None,
+            outcome=None,
+            outcome_message=None,
+            claims=(),
+            outcomes=(),
+            blocked_reasons=(reason,),
+        )
+
 
 __all__ = (
+    "BoundedReworkWorkspaceFileEntry",
+    "BoundedReworkWorkspaceInspectionError",
+    "BoundedReworkWorkspaceSnapshot",
     "ClaimPreparationStatus",
     "P25_BOUNDED_REWORK_EXECUTOR_ADAPTER_KIND",
     "P25_BOUNDED_REWORK_INVOCATION_CLAIM_ACTION_TYPE",
@@ -777,4 +1172,5 @@ __all__ = (
     "P25_BOUNDED_REWORK_INVOCATION_CLAIM_SOURCE_DETAIL",
     "PreparedProjectDirectorBoundedReworkInvocationClaim",
     "ProjectDirectorBoundedReworkInvocationClaimService",
+    "RevalidatedPersistedBoundedReworkInvocationClaim",
 )
