@@ -98,6 +98,20 @@ class PreparedProjectDirectorBoundedReworkAttemptReservation:
     blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RevalidatedPersistedBoundedReworkAttemptReservation:
+    """Pure reconstruction of one exact persisted P25-D reservation."""
+
+    reservation: ProjectDirectorBoundedReworkAttemptReservation | None
+    message: ProjectDirectorMessage | None
+    package: ProjectDirectorBoundedReworkInstructionPackage | None
+    packages: tuple[ProjectDirectorBoundedReworkInstructionPackage, ...]
+    reservations: tuple[ProjectDirectorBoundedReworkAttemptReservation, ...]
+    claims: tuple[ProjectDirectorBoundedReworkInvocationClaim, ...]
+    outcomes: tuple[ProjectDirectorBoundedReworkInvocationOutcome, ...]
+    blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
+
+
 class _Blocked(RuntimeError):
     def __init__(self, reason: BoundedReworkBlockedReason) -> None:
         self.reason = reason
@@ -130,6 +144,124 @@ class ProjectDirectorBoundedReworkAttemptReservationService:
         self._worker_start_reservation_service = worker_start_reservation_service
         self._worker_invocation_service = worker_invocation_service
         self._require_shared_repositories()
+
+    def revalidate_persisted_bounded_rework_attempt_reservation(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_reservation_message_id: UUID,
+    ) -> RevalidatedPersistedBoundedReworkAttemptReservation:
+        """Rebuild an exact reservation and current authority without writes."""
+
+        try:
+            history = self._package_preparation_service.revalidate_persisted_bounded_rework_instruction_package(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_package_message_id=self._reservation_package_message_id(
+                    source_reservation_message_id
+                ),
+            )
+            if history.blocked_reasons:
+                raise _Blocked(history.blocked_reasons[0])
+            package = history.package
+            package_message = history.message
+            if package is None or package_message is None:
+                raise _Blocked("history_invalid")
+
+            message = self._message_repository.get_by_id(
+                source_reservation_message_id
+            )
+            if message is None or len(message.suggested_actions) != 1:
+                raise _Blocked("authority_invalid")
+            action = message.suggested_actions[0]
+            if (
+                not isinstance(action, dict)
+                or action.get("type")
+                != P25_BOUNDED_REWORK_ATTEMPT_RESERVATION_ACTION_TYPE
+                or action.get("schema_version")
+                != BOUNDED_REWORK_ATTEMPT_RESERVATION_SCHEMA_VERSION
+            ):
+                raise _Blocked("history_invalid")
+            payload = dict(action)
+            payload.pop("type", None)
+            reservation = (
+                ProjectDirectorBoundedReworkAttemptReservation.model_validate(
+                    payload
+                )
+            )
+            if (
+                message.id != source_reservation_message_id
+                or message.session_id != session_id
+                or message.related_task_id != source_task_id
+                or reservation.reservation_id != source_reservation_message_id
+                or reservation.exact_task_id != source_task_id
+                or reservation.authority.session_id != session_id
+                or reservation.package_id != package.package_id
+                or not self._reservation_message_valid(
+                    message=message,
+                    reservation=reservation,
+                )
+                or not self._reservation_binds_package(reservation, package)
+            ):
+                raise _Blocked("authority_invalid")
+            exact = [
+                item
+                for item in history.reservations
+                if item.reservation_id == source_reservation_message_id
+            ]
+            if len(exact) != 1 or exact[0] != reservation:
+                raise _Blocked("history_invalid")
+
+            self._validate_exact_task_and_run(package)
+            self._validate_p23_generic_history(package)
+            self._validate_raw_p25_history_coverage(history)
+            self._validate_p25_history(history)
+            self._validate_recovery_locks(
+                source_task_id=source_task_id,
+                outcomes=history.outcomes,
+            )
+            return RevalidatedPersistedBoundedReworkAttemptReservation(
+                reservation=reservation,
+                message=message,
+                package=package,
+                packages=history.packages,
+                reservations=history.reservations,
+                claims=history.claims,
+                outcomes=history.outcomes,
+                blocked_reasons=(),
+            )
+        except _Blocked as exc:
+            return self._blocked_revalidation(exc.reason)
+        except SQLAlchemyError:
+            return self._blocked_revalidation("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._blocked_revalidation("history_invalid")
+
+    def _reservation_package_message_id(
+        self,
+        source_reservation_message_id: UUID,
+    ) -> UUID:
+        """Read only the persisted reservation locator needed for package revalidation."""
+
+        message = self._message_repository.get_by_id(
+            source_reservation_message_id
+        )
+        if message is None or len(message.suggested_actions) != 1:
+            raise _Blocked("authority_invalid")
+        action = message.suggested_actions[0]
+        if (
+            not isinstance(action, dict)
+            or action.get("type")
+            != P25_BOUNDED_REWORK_ATTEMPT_RESERVATION_ACTION_TYPE
+            or action.get("schema_version")
+            != BOUNDED_REWORK_ATTEMPT_RESERVATION_SCHEMA_VERSION
+        ):
+            raise _Blocked("history_invalid")
+        try:
+            return UUID(str(action.get("package_id")))
+        except (TypeError, ValueError) as exc:
+            raise _Blocked("history_invalid") from exc
 
     def reserve_bounded_rework_attempt(
         self,
@@ -793,6 +925,21 @@ class ProjectDirectorBoundedReworkAttemptReservationService:
             blocked_reasons=(reason,),
         )
 
+    @staticmethod
+    def _blocked_revalidation(
+        reason: BoundedReworkBlockedReason,
+    ) -> RevalidatedPersistedBoundedReworkAttemptReservation:
+        return RevalidatedPersistedBoundedReworkAttemptReservation(
+            reservation=None,
+            message=None,
+            package=None,
+            packages=(),
+            reservations=(),
+            claims=(),
+            outcomes=(),
+            blocked_reasons=(reason,),
+        )
+
 
 __all__ = (
     "P25_BOUNDED_REWORK_ATTEMPT_RESERVATION_ACTION_TYPE",
@@ -800,5 +947,6 @@ __all__ = (
     "P25_BOUNDED_REWORK_ATTEMPT_RESERVATION_SOURCE_DETAIL",
     "PreparedProjectDirectorBoundedReworkAttemptReservation",
     "ProjectDirectorBoundedReworkAttemptReservationService",
+    "RevalidatedPersistedBoundedReworkAttemptReservation",
     "ReservationPreparationStatus",
 )
