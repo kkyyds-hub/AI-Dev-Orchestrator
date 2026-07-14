@@ -265,6 +265,29 @@ class ProjectDirectorBoundedReworkInvocationOutcome(DomainModel):
         )
         if (after_pair[0] is None) != (after_pair[1] is None):
             raise ValueError("workspace after fingerprints must appear together")
+        terminal_execution_status = self.outcome_status in {
+            "returned",
+            "raised",
+            "invalid_result",
+        }
+        if terminal_execution_status and any(value is None for value in after_pair):
+            raise ValueError(
+                "terminal executor Outcomes require complete workspace after state"
+            )
+        if (
+            self.outcome_status
+            in {"recovery_required", "human_escalation_required"}
+            and self.executor_started
+            and all(value is None for value in after_pair)
+            and (
+                self.side_effect_state != "indeterminate"
+                or not self.recovery_required
+                or self.executor_result_valid
+            )
+        ):
+            raise ValueError(
+                "started recovery without after state must remain indeterminate"
+            )
         if self.git_activity_detected != bool(self.git_activity_kinds):
             raise ValueError("Git activity detection requires exact activity kinds")
         if self.git_activity_detected and (
@@ -274,11 +297,18 @@ class ProjectDirectorBoundedReworkInvocationOutcome(DomainModel):
             or not self.human_escalation_required
         ):
             raise ValueError("Git activity must block success and force escalation")
-        if self.side_effect_state == "indeterminate" and not self.recovery_required:
-            raise ValueError("indeterminate side effects require recovery")
+        if self.side_effect_state == "indeterminate" and (
+            not self.recovery_required
+            or self.executor_result_valid
+            or self.outcome_status == "returned"
+        ):
+            raise ValueError(
+                "indeterminate side effects require a non-success recovery state"
+            )
         if self.candidate_files_changed:
             if (
-                not self.declared_changed_paths
+                self.side_effect_state != "observed"
+                or not self.declared_changed_paths
                 or not self.observed_changed_paths
                 or self.candidate_manifest_id is None
                 or self.candidate_manifest_fingerprint is None
@@ -291,6 +321,14 @@ class ProjectDirectorBoundedReworkInvocationOutcome(DomainModel):
             or self.candidate_manifest_fingerprint is not None
         ):
             raise ValueError("unchanged candidate state cannot carry changed-file facts")
+        if self.side_effect_state == "none" and (
+            self.candidate_files_changed
+            or self.declared_changed_paths
+            or self.observed_changed_paths
+            or self.candidate_manifest_id is not None
+            or self.candidate_manifest_fingerprint is not None
+        ):
+            raise ValueError("no side effects cannot carry candidate change facts")
 
     def _validate_status(self) -> None:
         if self.outcome_status == "returned":
