@@ -281,6 +281,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             source_task_id=source_task_id,
             source_candidate_diff_message_id=source_candidate_diff_message_id,
             validate_workspace=True,
+            transaction_cleanup_mode="cleanup_local_read_transaction",
         )
 
     def revalidate_persisted_candidate_diff_lineage_for_review_persistence(
@@ -297,6 +298,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             source_task_id=source_task_id,
             source_candidate_diff_message_id=source_candidate_diff_message_id,
             validate_workspace=False,
+            transaction_cleanup_mode="preserve_caller_transaction",
         )
 
     def _revalidate_persisted_candidate_diff(
@@ -306,7 +308,17 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         source_task_id: UUID,
         source_candidate_diff_message_id: UUID,
         validate_workspace: bool,
+        transaction_cleanup_mode: Literal[
+            "cleanup_local_read_transaction",
+            "preserve_caller_transaction",
+        ],
     ) -> RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+        transaction_active_on_entry = self._message_repository._session.in_transaction()
+        if (
+            transaction_cleanup_mode == "preserve_caller_transaction"
+            and not transaction_active_on_entry
+        ):
+            return self._blocked_revalidation("persistence_failed")
         try:
             diff_message = self._message_repository.get_by_id(
                 source_candidate_diff_message_id
@@ -388,7 +400,10 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 "workspace_invalid" if validate_workspace else "history_invalid"
             )
         finally:
-            self._rollback_read_transaction()
+            self._cleanup_revalidation_transaction(
+                transaction_active_on_entry=transaction_active_on_entry,
+                transaction_cleanup_mode=transaction_cleanup_mode,
+            )
 
     def _regenerate_under_workspace_lock(
         self,
@@ -2095,6 +2110,22 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         )
 
     def _rollback_read_transaction(self) -> None:
+        if self._message_repository._session.in_transaction():
+            self._message_repository._session.rollback()
+
+    def _cleanup_revalidation_transaction(
+        self,
+        *,
+        transaction_active_on_entry: bool,
+        transaction_cleanup_mode: Literal[
+            "cleanup_local_read_transaction",
+            "preserve_caller_transaction",
+        ],
+    ) -> None:
+        if transaction_cleanup_mode != "cleanup_local_read_transaction":
+            return
+        if transaction_active_on_entry:
+            return
         if self._message_repository._session.in_transaction():
             self._message_repository._session.rollback()
 

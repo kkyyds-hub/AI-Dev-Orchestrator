@@ -205,6 +205,8 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
                 )
                 if current.blocked_reasons:
                     raise _Blocked(current.blocked_reasons[0])
+                if not self._message_repository._session.in_transaction():
+                    raise _Blocked("persistence_failed")
                 if not self._same_lineage(initial, current):
                     raise _Blocked("history_invalid")
                 current_old_review = self._recover_trusted_old_review(current)
@@ -593,25 +595,38 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
 
     @staticmethod
     def _p25_h_action(message: ProjectDirectorMessage) -> dict[str, Any] | None:
-        markers = (
-            message.intent
-            in {
-                P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_INTENT,
-                P25_BOUNDED_REWORK_REVIEW_CLAIM_INTENT,
-            },
-            message.source_detail
-            in {
-                P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_SOURCE_DETAIL,
-                P25_BOUNDED_REWORK_REVIEW_CLAIM_SOURCE_DETAIL,
-            },
-            any(
+        preflight_marked = (
+            message.intent == P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_INTENT
+            or message.source_detail
+            == P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_SOURCE_DETAIL
+            or any(
                 isinstance(action, dict)
-                and str(action.get("schema_version", "")).startswith("p25-h-review-")
+                and (
+                    action.get("type")
+                    == P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_ACTION_TYPE
+                    or action.get("schema_version")
+                    == P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_SCHEMA_VERSION
+                )
                 for action in message.suggested_actions
-            ),
+            )
         )
-        if not any(markers):
+        claim_marked = (
+            message.intent == P25_BOUNDED_REWORK_REVIEW_CLAIM_INTENT
+            or message.source_detail == P25_BOUNDED_REWORK_REVIEW_CLAIM_SOURCE_DETAIL
+            or any(
+                isinstance(action, dict)
+                and (
+                    action.get("type") == P25_BOUNDED_REWORK_REVIEW_CLAIM_ACTION_TYPE
+                    or action.get("schema_version")
+                    == P25_BOUNDED_REWORK_REVIEW_CLAIM_SCHEMA_VERSION
+                )
+                for action in message.suggested_actions
+            )
+        )
+        if not preflight_marked and not claim_marked:
             return None
+        if preflight_marked and claim_marked:
+            raise _Blocked("history_invalid")
         if (
             message.role != ProjectDirectorMessageRole.ASSISTANT
             or message.source != ProjectDirectorMessageSource.SYSTEM
@@ -623,7 +638,28 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
             or not isinstance(message.suggested_actions[0], dict)
         ):
             raise _Blocked("history_invalid")
-        return message.suggested_actions[0]
+        action = message.suggested_actions[0]
+        if preflight_marked:
+            if (
+                message.intent != P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_INTENT
+                or message.source_detail
+                != P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_SOURCE_DETAIL
+                or action.get("type")
+                != P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_ACTION_TYPE
+                or action.get("schema_version")
+                != P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_SCHEMA_VERSION
+            ):
+                raise _Blocked("history_invalid")
+            return action
+        if (
+            message.intent != P25_BOUNDED_REWORK_REVIEW_CLAIM_INTENT
+            or message.source_detail != P25_BOUNDED_REWORK_REVIEW_CLAIM_SOURCE_DETAIL
+            or action.get("type") != P25_BOUNDED_REWORK_REVIEW_CLAIM_ACTION_TYPE
+            or action.get("schema_version")
+            != P25_BOUNDED_REWORK_REVIEW_CLAIM_SCHEMA_VERSION
+        ):
+            raise _Blocked("history_invalid")
+        return action
 
     @staticmethod
     def _validate_history(history: _PersistedReviewReentryHistory) -> None:
