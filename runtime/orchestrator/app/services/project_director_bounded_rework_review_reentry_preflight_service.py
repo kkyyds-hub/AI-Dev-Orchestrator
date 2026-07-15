@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid5
 
 from pydantic import ValidationError
@@ -42,16 +42,15 @@ from app.domain.project_director_message import (
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
 )
-from app.services.project_director_bounded_rework_candidate_diff_service import (
-    ProjectDirectorBoundedReworkCandidateDiffService,
-    RevalidatedProjectDirectorBoundedReworkCandidateDiff,
-)
-from app.services.project_director_sandbox_candidate_diff_review_disposition_service import (
-    ProjectDirectorSandboxCandidateDiffReviewDispositionService,
-)
 from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
     ProjectDirectorSandboxCandidateDiffReviewExecutionPreflightService,
 )
+
+if TYPE_CHECKING:
+    from app.services.project_director_bounded_rework_candidate_diff_service import (
+        ProjectDirectorBoundedReworkCandidateDiffService,
+        RevalidatedProjectDirectorBoundedReworkCandidateDiff,
+    )
 
 
 P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_SOURCE_DETAIL = (
@@ -393,6 +392,10 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
         self,
         current: RevalidatedProjectDirectorBoundedReworkCandidateDiff,
     ) -> _TrustedOldReviewEvidence:
+        from app.services.project_director_sandbox_candidate_diff_review_disposition_service import (
+            ProjectDirectorSandboxCandidateDiffReviewDispositionService,
+        )
+
         package = current.package
         if package is None or package.authority is None:
             raise _Blocked("history_invalid")

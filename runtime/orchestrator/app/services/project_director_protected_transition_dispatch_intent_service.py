@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -55,9 +55,6 @@ from app.services.project_director_post_review_automation_service import (
     P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL,
     POST_REVIEW_AUTOMATION_SCHEMA_VERSION,
 )
-from app.services.project_director_bounded_rework_convergence_service import (
-    ProjectDirectorBoundedReworkConvergenceService,
-)
 from app.services.project_director_protected_transition_evidence_freshness_service import (
     P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_ACTION_TYPE,
     P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL,
@@ -92,6 +89,11 @@ from app.services.project_director_sandbox_candidate_diff_review_disposition_ser
 from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
     REVIEW_OUTPUT_SCHEMA_VERSION,
 )
+
+if TYPE_CHECKING:
+    from app.services.project_director_bounded_rework_convergence_service import (
+        ProjectDirectorBoundedReworkConvergenceService,
+    )
 
 
 P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL = (
