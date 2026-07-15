@@ -5,10 +5,12 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import os
+import stat
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path, PureWindowsPath
-from typing import Any
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any, Literal
 from uuid import UUID
 
 from app.core.config import settings
@@ -199,6 +201,12 @@ FORBIDDEN_PATH_FRAGMENTS = (
     "`",
 )
 
+_EXACT_BASE_MAX_CANDIDATE_FILES = 21
+_EXACT_BASE_MAX_CANDIDATE_FILE_BYTES = 256 * 1024
+_EXACT_BASE_MAX_CANDIDATE_TOTAL_BYTES = 2 * 1024 * 1024
+_EXACT_BASE_READ_CHUNK_BYTES = 64 * 1024
+_EXACT_BASE_GIT_TIMEOUT_SECONDS = 5
+
 
 @dataclass(frozen=True, slots=True)
 class ConfirmedSandboxCandidateDiff:
@@ -225,6 +233,51 @@ class _BaseSnapshotFingerprintEntry:
     candidate_content_sha256: str
 
 
+@dataclass(frozen=True, slots=True)
+class ExactBaseCandidateDiffInputEntry:
+    """One manifest-derived candidate identity accepted by the readonly seam."""
+
+    relative_path: str
+    operation: Literal["create", "update", "delete"] | None
+    content_sha256: str | None
+    deleted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ExactBaseCandidateDiffEntry:
+    """One canonical exact-base diff entry with complete content identities."""
+
+    relative_path: str
+    operation: Literal["create", "update", "delete"]
+    base_file_existed: bool
+    candidate_file_existed: bool
+    base_content_sha256: str | None
+    candidate_content_sha256: str | None
+    unified_diff: str
+    diff_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExactBaseCandidateDiffProjection:
+    """Pure readonly diff projection; this object has no persistence authority."""
+
+    base_commit_sha: str
+    base_content_source: Literal["exact_git_commit_object"]
+    readonly_base_snapshot_verified: Literal[True]
+    diff_entries: tuple[ExactBaseCandidateDiffEntry, ...]
+    unified_diff_text: str
+    diff_bytes: int
+    diff_file_count: int
+
+
+class ExactBaseCandidateDiffError(RuntimeError):
+    """Stable fail-closed reason raised by the P25-G compatibility seam."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 class ProjectDirectorSandboxCandidateDiffService:
     """Generate readonly unified diffs from sandbox candidate files."""
 
@@ -240,6 +293,195 @@ class ProjectDirectorSandboxCandidateDiffService:
         self._session_repository = session_repository
         self._message_repository = message_repository
         self._task_repository = task_repository
+
+    def build_readonly_diff_from_exact_base(
+        self,
+        *,
+        repository_root: Path,
+        workspace_path: Path,
+        base_commit_sha: str,
+        candidate_entries: tuple[ExactBaseCandidateDiffInputEntry, ...],
+        max_diff_bytes: int,
+        render_unified_diff: bool = True,
+    ) -> ExactBaseCandidateDiffProjection:
+        """Read exact Git objects and candidate files without touching live targets."""
+
+        try:
+            resolved_repository = repository_root.resolve(strict=True)
+            resolved_workspace = workspace_path.resolve(strict=True)
+            repository_stat = repository_root.lstat()
+            workspace_stat = workspace_path.lstat()
+        except (OSError, RuntimeError) as exc:
+            raise ExactBaseCandidateDiffError("workspace_invalid") from exc
+        if (
+            resolved_repository != repository_root
+            or resolved_workspace != workspace_path
+            or not stat.S_ISDIR(repository_stat.st_mode)
+            or not stat.S_ISDIR(workspace_stat.st_mode)
+            or stat.S_ISLNK(repository_stat.st_mode)
+            or stat.S_ISLNK(workspace_stat.st_mode)
+            or len(base_commit_sha) != 40
+            or any(char not in "0123456789abcdef" for char in base_commit_sha)
+            or max_diff_bytes <= 0
+        ):
+            raise ExactBaseCandidateDiffError("workspace_invalid")
+        if (
+            not candidate_entries
+            or len(candidate_entries) > _EXACT_BASE_MAX_CANDIDATE_FILES
+        ):
+            raise ExactBaseCandidateDiffError("workspace_invalid")
+        paths = tuple(item.relative_path for item in candidate_entries)
+        if paths != tuple(sorted(paths)) or len(paths) != len(set(paths)):
+            raise ExactBaseCandidateDiffError("source_diff_mismatch")
+        try:
+            if self._exact_git_object_type(
+                repo_root=resolved_repository,
+                object_name=base_commit_sha,
+            ) != "commit":
+                raise ExactBaseCandidateDiffError("source_diff_mismatch")
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ExactBaseCandidateDiffError("source_diff_mismatch") from exc
+
+        output_entries: list[ExactBaseCandidateDiffEntry] = []
+        candidate_total_bytes = 0
+        base_total_bytes = 0
+        for entry in candidate_entries:
+            if not self._candidate_path_is_allowed(entry.relative_path):
+                raise ExactBaseCandidateDiffError("scope_invalid")
+            normalized = PurePosixPath(entry.relative_path).as_posix()
+            normalized_parts = PurePosixPath(normalized).parts
+            if (
+                normalized != entry.relative_path
+                or not normalized_parts
+                or normalized_parts[0]
+                in {
+                    ".git",
+                    ".ai-project-director",
+                    ".ai-dev-orchestrator",
+                    ".orchestrator",
+                }
+            ):
+                raise ExactBaseCandidateDiffError("scope_invalid")
+            candidate_path = resolved_workspace.joinpath(*PurePosixPath(normalized).parts)
+            try:
+                candidate_path.relative_to(resolved_workspace)
+            except ValueError as exc:
+                raise ExactBaseCandidateDiffError("scope_invalid") from exc
+
+            try:
+                base_object_type = self._exact_git_object_type(
+                    repo_root=resolved_repository,
+                    object_name=f"{base_commit_sha}:{normalized}",
+                    missing_allowed=True,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ExactBaseCandidateDiffError("source_diff_mismatch") from exc
+            if base_object_type not in {None, "blob"}:
+                raise ExactBaseCandidateDiffError("source_diff_mismatch")
+            base_existed = base_object_type == "blob"
+
+            candidate_lstat = self._lstat_or_none(candidate_path)
+            candidate_existed = candidate_lstat is not None
+            operation = (
+                "update"
+                if base_existed and candidate_existed
+                else "create"
+                if not base_existed and candidate_existed
+                else "delete"
+                if base_existed and not candidate_existed
+                else None
+            )
+            if operation is None:
+                raise ExactBaseCandidateDiffError("workspace_invalid")
+            if (
+                (entry.operation is not None and operation != entry.operation)
+                or entry.deleted != (operation == "delete")
+            ):
+                raise ExactBaseCandidateDiffError("source_diff_mismatch")
+
+            base_content = ""
+            base_content_sha256: str | None = None
+            if base_existed:
+                try:
+                    base_size = self._exact_git_blob_size(
+                        repo_root=resolved_repository,
+                        object_name=f"{base_commit_sha}:{normalized}",
+                    )
+                    if base_size > _EXACT_BASE_MAX_CANDIDATE_FILE_BYTES:
+                        raise OSError("exact Git blob exceeded the bounded read limit")
+                    base_total_bytes += base_size
+                    if base_total_bytes > _EXACT_BASE_MAX_CANDIDATE_TOTAL_BYTES:
+                        raise OSError("exact Git blobs exceeded the aggregate read limit")
+                    base_bytes = self._read_exact_git_blob(
+                        repo_root=resolved_repository,
+                        object_name=f"{base_commit_sha}:{normalized}",
+                    )
+                    if len(base_bytes) != base_size:
+                        raise OSError("exact Git blob size changed during read")
+                    base_content = base_bytes.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ExactBaseCandidateDiffError("source_diff_mismatch") from exc
+                except (OSError, subprocess.SubprocessError) as exc:
+                    raise ExactBaseCandidateDiffError("source_diff_mismatch") from exc
+                base_content_sha256 = hashlib.sha256(base_bytes).hexdigest()
+
+            candidate_content = ""
+            candidate_content_sha256: str | None = None
+            if candidate_lstat is not None:
+                try:
+                    candidate_bytes = self._read_bounded_regular_file(
+                        candidate_path,
+                        expected=candidate_lstat,
+                    )
+                    candidate_content = candidate_bytes.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ExactBaseCandidateDiffError("workspace_invalid") from exc
+                except OSError as exc:
+                    raise ExactBaseCandidateDiffError("workspace_invalid") from exc
+                candidate_total_bytes += len(candidate_bytes)
+                if candidate_total_bytes > _EXACT_BASE_MAX_CANDIDATE_TOTAL_BYTES:
+                    raise ExactBaseCandidateDiffError("workspace_invalid")
+                candidate_content_sha256 = hashlib.sha256(candidate_bytes).hexdigest()
+                if entry.content_sha256 != candidate_content_sha256:
+                    raise ExactBaseCandidateDiffError("source_diff_mismatch")
+            elif entry.content_sha256 is not None:
+                raise ExactBaseCandidateDiffError("source_diff_mismatch")
+
+            unified_diff = (
+                self._exact_unified_diff(
+                    relative_path=normalized,
+                    old_content=base_content,
+                    new_content=candidate_content,
+                )
+                if render_unified_diff
+                else ""
+            )
+            output_entries.append(
+                ExactBaseCandidateDiffEntry(
+                    relative_path=normalized,
+                    operation=operation,
+                    base_file_existed=base_existed,
+                    candidate_file_existed=candidate_existed,
+                    base_content_sha256=base_content_sha256,
+                    candidate_content_sha256=candidate_content_sha256,
+                    unified_diff=unified_diff,
+                    diff_bytes=len(unified_diff.encode("utf-8")),
+                )
+            )
+
+        unified_diff_text = "".join(item.unified_diff for item in output_entries)
+        diff_bytes = len(unified_diff_text.encode("utf-8"))
+        if diff_bytes > max_diff_bytes:
+            raise ExactBaseCandidateDiffError("source_diff_mismatch")
+        return ExactBaseCandidateDiffProjection(
+            base_commit_sha=base_commit_sha,
+            base_content_source="exact_git_commit_object",
+            readonly_base_snapshot_verified=True,
+            diff_entries=tuple(output_entries),
+            unified_diff_text=unified_diff_text,
+            diff_bytes=diff_bytes,
+            diff_file_count=len(output_entries),
+        )
 
     def confirm_candidate_diff_generation(
         self,
@@ -1230,6 +1472,225 @@ class ProjectDirectorSandboxCandidateDiffService:
         return completed.stdout.decode("utf-8")
 
     @staticmethod
+    def _exact_git_object_type(
+        *,
+        repo_root: Path,
+        object_name: str,
+        missing_allowed: bool = False,
+    ) -> str | None:
+        completed = subprocess.run(
+            ("git", "cat-file", "-t", object_name),
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            timeout=_EXACT_BASE_GIT_TIMEOUT_SECONDS,
+            shell=False,
+            env=ProjectDirectorSandboxCandidateDiffService._exact_git_environment(),
+        )
+        if completed.returncode != 0:
+            if missing_allowed:
+                batch = subprocess.run(
+                    (
+                        "git",
+                        "cat-file",
+                        "--batch-check=%(objectname) %(objecttype)",
+                    ),
+                    cwd=repo_root,
+                    check=False,
+                    capture_output=True,
+                    input=f"{object_name}\n".encode("utf-8"),
+                    timeout=_EXACT_BASE_GIT_TIMEOUT_SECONDS,
+                    shell=False,
+                    env=ProjectDirectorSandboxCandidateDiffService._exact_git_environment(),
+                )
+                if batch.returncode != 0:
+                    raise OSError("exact Git object absence check failed")
+                try:
+                    batch_value = batch.stdout.decode("utf-8").strip()
+                except UnicodeDecodeError as exc:
+                    raise OSError("exact Git object absence result was invalid") from exc
+                if batch_value == f"{object_name} missing":
+                    return None
+                batch_parts = batch_value.split()
+                if (
+                    len(batch_parts) == 2
+                    and len(batch_parts[0]) == 40
+                    and all(
+                        char in "0123456789abcdef" for char in batch_parts[0]
+                    )
+                ):
+                    return batch_parts[1]
+            raise OSError("exact Git object type lookup failed")
+        try:
+            value = completed.stdout.decode("utf-8").strip()
+        except UnicodeDecodeError as exc:
+            raise OSError("exact Git object type was not UTF-8") from exc
+        if not value:
+            raise OSError("exact Git object type was empty")
+        return value
+
+    @staticmethod
+    def _read_exact_git_blob(
+        *,
+        repo_root: Path,
+        object_name: str,
+    ) -> bytes:
+        completed = subprocess.run(
+            ("git", "cat-file", "blob", object_name),
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            timeout=_EXACT_BASE_GIT_TIMEOUT_SECONDS,
+            shell=False,
+            env=ProjectDirectorSandboxCandidateDiffService._exact_git_environment(),
+        )
+        if completed.returncode != 0:
+            raise OSError("exact Git blob read failed")
+        return completed.stdout
+
+    @staticmethod
+    def _exact_git_blob_size(
+        *,
+        repo_root: Path,
+        object_name: str,
+    ) -> int:
+        completed = subprocess.run(
+            ("git", "cat-file", "-s", object_name),
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            timeout=_EXACT_BASE_GIT_TIMEOUT_SECONDS,
+            shell=False,
+            env=ProjectDirectorSandboxCandidateDiffService._exact_git_environment(),
+        )
+        if completed.returncode != 0:
+            raise OSError("exact Git blob size lookup failed")
+        try:
+            value = completed.stdout.decode("ascii").strip()
+            size = int(value)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise OSError("exact Git blob size was invalid") from exc
+        if size < 0:
+            raise OSError("exact Git blob size was negative")
+        return size
+
+    @staticmethod
+    def _lstat_or_none(path: Path) -> os.stat_result | None:
+        try:
+            return path.lstat()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise ExactBaseCandidateDiffError("workspace_invalid") from exc
+
+    @staticmethod
+    def _read_bounded_regular_file(
+        path: Path,
+        *,
+        expected: os.stat_result,
+    ) -> bytes:
+        if (
+            not stat.S_ISREG(expected.st_mode)
+            or stat.S_ISLNK(expected.st_mode)
+            or expected.st_nlink != 1
+            or expected.st_size > _EXACT_BASE_MAX_CANDIDATE_FILE_BYTES
+            or path.resolve(strict=True) != path
+        ):
+            raise OSError("candidate file identity is invalid")
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        chunks: list[bytes] = []
+        read_bytes = 0
+        try:
+            opened = os.fstat(descriptor)
+            expected_identity = (
+                expected.st_dev,
+                expected.st_ino,
+                expected.st_mode,
+                expected.st_nlink,
+                expected.st_size,
+                expected.st_mtime_ns,
+                expected.st_ctime_ns,
+            )
+            opened_identity = (
+                opened.st_dev,
+                opened.st_ino,
+                opened.st_mode,
+                opened.st_nlink,
+                opened.st_size,
+                opened.st_mtime_ns,
+                opened.st_ctime_ns,
+            )
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or opened_identity != expected_identity
+            ):
+                raise OSError("candidate file changed before read")
+            while True:
+                chunk = os.read(descriptor, _EXACT_BASE_READ_CHUNK_BYTES)
+                if not chunk:
+                    break
+                read_bytes += len(chunk)
+                if read_bytes > _EXACT_BASE_MAX_CANDIDATE_FILE_BYTES:
+                    raise OSError("candidate file exceeded the bounded read limit")
+                chunks.append(chunk)
+            after = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        after_identity = (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_nlink,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        if read_bytes != expected.st_size or after_identity != expected_identity:
+            raise OSError("candidate file changed during read")
+        return b"".join(chunks)
+
+    @staticmethod
+    def _exact_git_environment() -> dict[str, str]:
+        return {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "LANG": "C",
+            "LC_ALL": "C",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+        }
+
+    @staticmethod
+    def _exact_unified_diff(
+        *,
+        relative_path: str,
+        old_content: str,
+        new_content: str,
+    ) -> str:
+        diff_lines = difflib.unified_diff(
+            old_content.splitlines(keepends=True),
+            new_content.splitlines(keepends=True),
+            fromfile=f"a/{relative_path}",
+            tofile=f"b/{relative_path}",
+            lineterm="\n",
+        )
+        rendered: list[str] = []
+        line_terminators = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+        for line in diff_lines:
+            if line.endswith("\n"):
+                rendered.append(line)
+            elif line and line[-1] in line_terminators:
+                rendered.append(f"{line}\n")
+            else:
+                rendered.append(f"{line}\n\\ No newline at end of file\n")
+        return "".join(rendered)
+
+    @staticmethod
     def _sha256_utf8(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -1600,6 +2061,10 @@ class ProjectDirectorSandboxCandidateDiffService:
 
 __all__ = (
     "ConfirmedSandboxCandidateDiff",
+    "ExactBaseCandidateDiffEntry",
+    "ExactBaseCandidateDiffError",
+    "ExactBaseCandidateDiffInputEntry",
+    "ExactBaseCandidateDiffProjection",
     "P21_C_SANDBOX_CANDIDATE_DIFF_ACTION_TYPE",
     "P21_C_SANDBOX_CANDIDATE_DIFF_SOURCE_DETAIL",
     "ProjectDirectorSandboxCandidateDiffService",
