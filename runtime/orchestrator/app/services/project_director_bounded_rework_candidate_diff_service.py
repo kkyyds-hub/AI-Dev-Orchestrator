@@ -143,6 +143,20 @@ class PreparedProjectDirectorBoundedReworkCandidateDiff:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+    package: ProjectDirectorBoundedReworkInstructionPackage | None
+    reservation: ProjectDirectorBoundedReworkAttemptReservation | None
+    invocation_claim: ProjectDirectorBoundedReworkInvocationClaim | None
+    invocation_outcome: ProjectDirectorBoundedReworkInvocationOutcome | None
+    outcome_message: ProjectDirectorMessage | None
+    candidate_manifest: ProjectDirectorBoundedReworkCandidateManifest | None
+    candidate_manifest_message: ProjectDirectorMessage | None
+    candidate_diff: ProjectDirectorBoundedReworkCandidateDiff | None
+    candidate_diff_message: ProjectDirectorMessage | None
+    blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _P25GLineage:
     current: RevalidatedPersistedBoundedReworkInvocationClaim
     outcome: ProjectDirectorBoundedReworkInvocationOutcome
@@ -252,6 +266,129 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             )
         finally:
             self._release_workspace_lock(lock_descriptor)
+
+    def revalidate_persisted_candidate_diff_for_review_reentry(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_candidate_diff_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+        """Rebuild one persisted generated diff and revalidate current workspace state."""
+
+        return self._revalidate_persisted_candidate_diff(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_candidate_diff_message_id=source_candidate_diff_message_id,
+            validate_workspace=True,
+        )
+
+    def revalidate_persisted_candidate_diff_lineage_for_review_persistence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_candidate_diff_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+        """Rebuild only immutable P25-G lineage for atomic P25-H persistence."""
+
+        return self._revalidate_persisted_candidate_diff(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_candidate_diff_message_id=source_candidate_diff_message_id,
+            validate_workspace=False,
+        )
+
+    def _revalidate_persisted_candidate_diff(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_candidate_diff_message_id: UUID,
+        validate_workspace: bool,
+    ) -> RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+        try:
+            diff_message = self._message_repository.get_by_id(
+                source_candidate_diff_message_id
+            )
+            if diff_message is None or len(diff_message.suggested_actions) != 1:
+                raise _Blocked("authority_invalid")
+            action = diff_message.suggested_actions[0]
+            if (
+                not isinstance(action, dict)
+                or action.get("type") != P25_BOUNDED_REWORK_CANDIDATE_DIFF_ACTION_TYPE
+                or action.get("schema_version")
+                != P25_BOUNDED_REWORK_CANDIDATE_DIFF_SCHEMA_VERSION
+            ):
+                raise _Blocked("history_invalid")
+            payload = dict(action)
+            payload.pop("type", None)
+            candidate_diff = ProjectDirectorBoundedReworkCandidateDiff.model_validate(
+                payload
+            )
+            if (
+                diff_message.id != source_candidate_diff_message_id
+                or diff_message.session_id != session_id
+                or diff_message.related_task_id != source_task_id
+                or candidate_diff.candidate_diff_id
+                != source_candidate_diff_message_id
+                or candidate_diff.authority.session_id != session_id
+                or candidate_diff.exact_task_id != source_task_id
+                or not self._diff_message_valid(diff_message, candidate_diff)
+            ):
+                raise _Blocked("authority_invalid")
+
+            lineage = self._load_lineage(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_outcome_message_id=candidate_diff.source_outcome_id,
+            )
+            self._validate_outcome_gate(lineage.outcome)
+            records = self._load_persisted_records(
+                session_id=session_id,
+                source_outcome_id=candidate_diff.source_outcome_id,
+            )
+            if (
+                records.manifest is None
+                or records.candidate_diff is None
+                or records.manifest_message is None
+                or records.diff_message is None
+                or records.candidate_diff != candidate_diff
+                or records.diff_message != diff_message
+            ):
+                raise _Blocked("history_invalid")
+            self._validate_replay_records(records=records, lineage=lineage)
+            self._validate_review_reentry_candidate_diff(
+                candidate_diff=records.candidate_diff,
+                candidate_diff_message=records.diff_message,
+                candidate_manifest=records.manifest,
+                lineage=lineage,
+                source_candidate_diff_message_id=source_candidate_diff_message_id,
+            )
+            if validate_workspace:
+                self._validate_replay_workspace(records=records, lineage=lineage)
+            return RevalidatedProjectDirectorBoundedReworkCandidateDiff(
+                package=lineage.package,
+                reservation=lineage.reservation,
+                invocation_claim=lineage.claim,
+                invocation_outcome=lineage.outcome,
+                outcome_message=lineage.outcome_message,
+                candidate_manifest=records.manifest,
+                candidate_manifest_message=records.manifest_message,
+                candidate_diff=records.candidate_diff,
+                candidate_diff_message=records.diff_message,
+                blocked_reasons=(),
+            )
+        except _Blocked as exc:
+            return self._blocked_revalidation(exc.reason)
+        except SQLAlchemyError:
+            return self._blocked_revalidation("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._blocked_revalidation(
+                "workspace_invalid" if validate_workspace else "history_invalid"
+            )
+        finally:
+            self._rollback_read_transaction()
 
     def _regenerate_under_workspace_lock(
         self,
@@ -1563,6 +1700,71 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         ):
             raise _Blocked("history_invalid")
 
+    @staticmethod
+    def _validate_review_reentry_candidate_diff(
+        *,
+        candidate_diff: ProjectDirectorBoundedReworkCandidateDiff,
+        candidate_diff_message: ProjectDirectorMessage,
+        candidate_manifest: ProjectDirectorBoundedReworkCandidateManifest,
+        lineage: _P25GLineage,
+        source_candidate_diff_message_id: UUID,
+    ) -> None:
+        if candidate_diff_message.id != source_candidate_diff_message_id:
+            raise _Blocked("authority_invalid")
+        if (
+            candidate_diff.diff_status != "generated"
+            or candidate_diff.non_convergence_reason is not None
+            or not candidate_diff.unified_diff_text
+            or not candidate_diff.diff_entries
+            or candidate_diff.new_diff_sha256 == candidate_diff.previous_diff_sha256
+        ):
+            raise _Blocked("non_convergence")
+        if (
+            candidate_diff.source_outcome_id != lineage.outcome.outcome_id
+            or candidate_diff.source_claim_id != lineage.claim.claim_id
+            or candidate_diff.source_reservation_id
+            != lineage.reservation.reservation_id
+            or candidate_diff.source_package_id != lineage.package.package_id
+            or candidate_diff.source_attempt_id != lineage.reservation.reservation_id
+            or candidate_diff.candidate_manifest_id
+            != candidate_manifest.candidate_manifest_id
+            or candidate_diff.candidate_manifest_fingerprint
+            != candidate_manifest.candidate_manifest_fingerprint
+            or candidate_diff.base_commit_sha != lineage.package.base_commit_sha
+            or candidate_diff.base_snapshot_fingerprint
+            != lineage.package.base_snapshot_fingerprint
+            or candidate_diff.exact_task_id != lineage.claim.exact_task_id
+        ):
+            raise _Blocked("history_invalid")
+        if (
+            candidate_diff.exact_run_id != lineage.claim.exact_run_id
+            or candidate_diff.rework_attempt_index
+            != lineage.package.rework_attempt_index
+            or candidate_diff.rework_attempt_limit
+            != lineage.package.rework_attempt_limit
+        ):
+            raise _Blocked("history_invalid")
+        if candidate_diff.new_diff_sha256 != hashlib.sha256(
+            candidate_diff.unified_diff_text.encode("utf-8")
+        ).hexdigest():
+            raise _Blocked("source_diff_mismatch")
+        manifest_scope = tuple(
+            entry.relative_path for entry in candidate_manifest.changed_files
+        )
+        diff_scope = tuple(
+            entry.relative_path for entry in candidate_diff.diff_entries
+        )
+        if (
+            candidate_diff.scope_paths != diff_scope
+            or candidate_diff.scope_paths != manifest_scope
+        ):
+            raise _Blocked("source_diff_mismatch")
+        if (
+            candidate_diff.base_content_source != "exact_git_commit_object"
+            or candidate_diff.readonly_base_snapshot_verified is not True
+        ):
+            raise _Blocked("source_diff_mismatch")
+
     def _validate_replay_workspace(
         self,
         *,
@@ -1927,6 +2129,23 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             human_escalation_required=human_escalation_required,
         )
 
+    @staticmethod
+    def _blocked_revalidation(
+        reason: BoundedReworkBlockedReason,
+    ) -> RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+        return RevalidatedProjectDirectorBoundedReworkCandidateDiff(
+            package=None,
+            reservation=None,
+            invocation_claim=None,
+            invocation_outcome=None,
+            outcome_message=None,
+            candidate_manifest=None,
+            candidate_manifest_message=None,
+            candidate_diff=None,
+            candidate_diff_message=None,
+            blocked_reasons=(reason,),
+        )
+
 
 __all__ = (
     "CandidateDiffPreparationStatus",
@@ -1937,5 +2156,6 @@ __all__ = (
     "P25_BOUNDED_REWORK_CANDIDATE_MANIFEST_INTENT",
     "P25_BOUNDED_REWORK_CANDIDATE_MANIFEST_SOURCE_DETAIL",
     "PreparedProjectDirectorBoundedReworkCandidateDiff",
+    "RevalidatedProjectDirectorBoundedReworkCandidateDiff",
     "ProjectDirectorBoundedReworkCandidateDiffService",
 )
