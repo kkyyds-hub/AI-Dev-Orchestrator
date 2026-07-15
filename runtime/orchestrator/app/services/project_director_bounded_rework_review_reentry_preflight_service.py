@@ -18,6 +18,7 @@ from app.domain.project_director_bounded_rework_candidate_diff import (
 )
 from app.domain.project_director_bounded_rework_contract import (
     BoundedReworkBlockedReason,
+    require_sha256,
 )
 from app.domain.project_director_bounded_rework_instruction_package import (
     ProjectDirectorBoundedReworkInstructionPackage,
@@ -119,6 +120,24 @@ class PreparedProjectDirectorBoundedReworkReviewReentry:
     preflight_message: ProjectDirectorMessage | None
     review_claim: ProjectDirectorBoundedReworkReviewInvocationClaim | None
     review_claim_message: ProjectDirectorMessage | None
+    blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedProjectDirectorBoundedReworkReviewClaim:
+    preflight: ProjectDirectorBoundedReworkReviewReentryPreflight | None
+    preflight_message: ProjectDirectorMessage | None
+    review_claim: ProjectDirectorBoundedReworkReviewInvocationClaim | None
+    review_claim_message: ProjectDirectorMessage | None
+    package: ProjectDirectorBoundedReworkInstructionPackage | None
+    reservation: Any | None
+    invocation_claim: Any | None
+    invocation_outcome: Any | None
+    outcome_message: ProjectDirectorMessage | None
+    candidate_manifest: ProjectDirectorBoundedReworkCandidateManifest | None
+    candidate_manifest_message: ProjectDirectorMessage | None
+    candidate_diff: ProjectDirectorBoundedReworkCandidateDiff | None
+    candidate_diff_message: ProjectDirectorMessage | None
     blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
 
 
@@ -225,6 +244,150 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
             return self._blocked("history_invalid")
         finally:
             self._rollback_read_transaction()
+
+    def revalidate_persisted_review_reentry_claim_for_execution(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_claim_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkReviewClaim:
+        """Rebuild one persisted H-A Claim plus current workspace-backed diff lineage."""
+
+        return self._revalidate_persisted_review_reentry_claim(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_claim_message_id=source_review_claim_message_id,
+            validate_workspace=True,
+            transaction_cleanup_mode="cleanup_local_read_transaction",
+        )
+
+    def revalidate_persisted_review_reentry_claim_for_persistence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_claim_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkReviewClaim:
+        """Rebuild only immutable H-A/P25-G lineage inside a caller-owned transaction."""
+
+        return self._revalidate_persisted_review_reentry_claim(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_claim_message_id=source_review_claim_message_id,
+            validate_workspace=False,
+            transaction_cleanup_mode="preserve_caller_transaction",
+        )
+
+    def _revalidate_persisted_review_reentry_claim(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_claim_message_id: UUID,
+        validate_workspace: bool,
+        transaction_cleanup_mode: Literal[
+            "cleanup_local_read_transaction",
+            "preserve_caller_transaction",
+        ],
+    ) -> RevalidatedProjectDirectorBoundedReworkReviewClaim:
+        transaction_active_on_entry = self._message_repository._session.in_transaction()
+        if (
+            transaction_cleanup_mode == "preserve_caller_transaction"
+            and not transaction_active_on_entry
+        ):
+            return self._blocked_revalidated_claim("persistence_failed")
+
+        try:
+            history = self._load_history(session_id)
+            claim_message = self._message_repository.get_by_id(
+                source_review_claim_message_id
+            )
+            if (
+                claim_message is None
+                or claim_message.session_id != session_id
+                or claim_message.related_task_id != source_task_id
+            ):
+                raise _Blocked("authority_invalid")
+            action = self._p25_h_action(claim_message)
+            if (
+                action is None
+                or action.get("schema_version")
+                != P25_BOUNDED_REWORK_REVIEW_CLAIM_SCHEMA_VERSION
+            ):
+                raise _Blocked("authority_invalid")
+            candidate_diff_id = action.get("source_candidate_diff_message_id")
+            try:
+                candidate_diff_message_id = UUID(str(candidate_diff_id))
+            except (TypeError, ValueError) as exc:
+                raise _Blocked("authority_invalid") from exc
+            if validate_workspace:
+                current = self._candidate_diff_service.revalidate_persisted_candidate_diff_for_review_reentry(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_candidate_diff_message_id=candidate_diff_message_id,
+                )
+            else:
+                current = self._candidate_diff_service.revalidate_persisted_candidate_diff_lineage_for_review_persistence(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_candidate_diff_message_id=candidate_diff_message_id,
+                )
+            if current.blocked_reasons:
+                raise _Blocked(current.blocked_reasons[0])
+
+            claim_matches = [
+                item for item in history.claims if item[0].id == source_review_claim_message_id
+            ]
+            if len(claim_matches) != 1:
+                raise _Blocked("history_invalid")
+            persisted_claim_message, claim = claim_matches[0]
+            if persisted_claim_message != claim_message:
+                raise _Blocked("history_invalid")
+            preflight_matches = [
+                item for item in history.preflights if item[1].preflight_id == claim.preflight_id
+            ]
+            if len(preflight_matches) != 1:
+                raise _Blocked("history_invalid")
+            preflight_message, preflight = preflight_matches[0]
+            if not self._claim_binds_preflight(claim=claim, preflight=preflight):
+                raise _Blocked("history_invalid")
+            if not self._review_claim_token_valid(claim.review_claim_token):
+                raise _Blocked("review_reentry_failed")
+            self._validate_revalidated_claim_lineage(
+                preflight=preflight,
+                claim=claim,
+                current=current,
+            )
+            return RevalidatedProjectDirectorBoundedReworkReviewClaim(
+                preflight=preflight,
+                preflight_message=preflight_message,
+                review_claim=claim,
+                review_claim_message=persisted_claim_message,
+                package=current.package,
+                reservation=current.reservation,
+                invocation_claim=current.invocation_claim,
+                invocation_outcome=current.invocation_outcome,
+                outcome_message=current.outcome_message,
+                candidate_manifest=current.candidate_manifest,
+                candidate_manifest_message=current.candidate_manifest_message,
+                candidate_diff=current.candidate_diff,
+                candidate_diff_message=current.candidate_diff_message,
+                blocked_reasons=(),
+            )
+        except _Blocked as exc:
+            return self._blocked_revalidated_claim(exc.reason)
+        except SQLAlchemyError:
+            return self._blocked_revalidated_claim("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._blocked_revalidated_claim(
+                "workspace_invalid" if validate_workspace else "history_invalid"
+            )
+        finally:
+            self._cleanup_revalidation_transaction(
+                transaction_active_on_entry=transaction_active_on_entry,
+                transaction_cleanup_mode=transaction_cleanup_mode,
+            )
 
     def _recover_trusted_old_review(
         self,
@@ -892,6 +1055,110 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
         )
 
     @staticmethod
+    def _review_claim_token_valid(value: str) -> bool:
+        try:
+            require_sha256(value, label="P25-H review claim token")
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    @staticmethod
+    def _validate_revalidated_claim_lineage(
+        *,
+        preflight: ProjectDirectorBoundedReworkReviewReentryPreflight,
+        claim: ProjectDirectorBoundedReworkReviewInvocationClaim,
+        current: RevalidatedProjectDirectorBoundedReworkCandidateDiff,
+    ) -> None:
+        if (
+            current.package is None
+            or current.package.workspace_binding is None
+            or current.reservation is None
+            or current.invocation_claim is None
+            or current.invocation_outcome is None
+            or current.candidate_manifest is None
+            or current.candidate_diff is None
+            or current.candidate_diff_message is None
+        ):
+            raise _Blocked("history_invalid")
+        if claim.preflight_id != preflight.preflight_id:
+            raise _Blocked("review_reentry_failed")
+        if claim.preflight_fingerprint != preflight.preflight_fingerprint:
+            raise _Blocked("review_reentry_failed")
+        if (
+            claim.source_candidate_diff_message_id
+            != preflight.source_candidate_diff_message_id
+            or claim.source_candidate_diff_sha256
+            != preflight.source_candidate_diff_sha256
+        ):
+            raise _Blocked("source_diff_mismatch")
+        if (
+            claim.review_prompt_sha256 != preflight.review_prompt_sha256
+            or claim.review_prompt_bytes != preflight.review_prompt_bytes
+            or claim.requested_reviewer_executor
+            != preflight.requested_reviewer_executor
+            or claim.invocation_ordinal != 0
+        ):
+            raise _Blocked("review_reentry_failed")
+        if (
+            current.candidate_diff_message.id
+            != preflight.source_candidate_diff_message_id
+            or current.candidate_diff.candidate_diff_id
+            != preflight.source_candidate_diff_id
+            or current.candidate_diff.candidate_diff_fingerprint
+            != preflight.source_candidate_diff_fingerprint
+            or current.candidate_diff.new_diff_sha256
+            != preflight.source_candidate_diff_sha256
+        ):
+            raise _Blocked("source_diff_mismatch")
+        if (
+            current.candidate_manifest.candidate_manifest_id
+            != preflight.source_candidate_manifest_id
+            or current.candidate_manifest.candidate_manifest_fingerprint
+            != preflight.source_candidate_manifest_fingerprint
+            or current.invocation_outcome.outcome_id != preflight.source_outcome_id
+            or current.invocation_outcome.outcome_fingerprint
+            != preflight.source_outcome_fingerprint
+            or current.invocation_claim.claim_id != preflight.source_claim_id
+            or current.reservation.reservation_id != preflight.source_reservation_id
+            or current.package.package_id != preflight.source_package_id
+            or current.candidate_diff.source_attempt_id != preflight.source_attempt_id
+            or current.candidate_diff.rework_attempt_index
+            != preflight.rework_attempt_index
+            or current.candidate_diff.rework_attempt_limit
+            != preflight.rework_attempt_limit
+        ):
+            raise _Blocked("review_reentry_failed")
+        if (
+            current.package.workspace_binding.workspace_binding_id
+            != preflight.workspace_binding_id
+            or current.package.workspace_binding.workspace_binding_fingerprint
+            != preflight.workspace_binding_fingerprint
+            or current.package.workspace_binding.workspace_path
+            != preflight.workspace_path
+            or current.candidate_manifest.workspace_business_manifest_fingerprint
+            != preflight.workspace_business_manifest_fingerprint
+            or current.candidate_manifest.workspace_business_content_fingerprint
+            != preflight.workspace_business_content_fingerprint
+        ):
+            raise _Blocked("review_reentry_failed")
+
+    def _cleanup_revalidation_transaction(
+        self,
+        *,
+        transaction_active_on_entry: bool,
+        transaction_cleanup_mode: Literal[
+            "cleanup_local_read_transaction",
+            "preserve_caller_transaction",
+        ],
+    ) -> None:
+        if transaction_cleanup_mode != "cleanup_local_read_transaction":
+            return
+        if transaction_active_on_entry:
+            return
+        if self._message_repository._session.in_transaction():
+            self._message_repository._session.rollback()
+
+    @staticmethod
     def _require_package(
         package: ProjectDirectorBoundedReworkInstructionPackage | None,
     ) -> ProjectDirectorBoundedReworkInstructionPackage:
@@ -932,6 +1199,27 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
             blocked_reasons=(reason,),
         )
 
+    @staticmethod
+    def _blocked_revalidated_claim(
+        reason: BoundedReworkBlockedReason,
+    ) -> RevalidatedProjectDirectorBoundedReworkReviewClaim:
+        return RevalidatedProjectDirectorBoundedReworkReviewClaim(
+            preflight=None,
+            preflight_message=None,
+            review_claim=None,
+            review_claim_message=None,
+            package=None,
+            reservation=None,
+            invocation_claim=None,
+            invocation_outcome=None,
+            outcome_message=None,
+            candidate_manifest=None,
+            candidate_manifest_message=None,
+            candidate_diff=None,
+            candidate_diff_message=None,
+            blocked_reasons=(reason,),
+        )
+
 
 __all__ = (
     "P25_BOUNDED_REWORK_REVIEW_CLAIM_ACTION_TYPE",
@@ -941,5 +1229,6 @@ __all__ = (
     "P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_INTENT",
     "P25_BOUNDED_REWORK_REVIEW_PREFLIGHT_SOURCE_DETAIL",
     "PreparedProjectDirectorBoundedReworkReviewReentry",
+    "RevalidatedProjectDirectorBoundedReworkReviewClaim",
     "ProjectDirectorBoundedReworkReviewReentryPreflightService",
 )
