@@ -44,7 +44,31 @@ P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE = (
 )
 DISPOSITION_HANDOFF_SCHEMA_VERSION = "p21-d-c3.v1"
 
-MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK = 1
+MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE = 1
+
+_HANDOFF_INTENT = "sandbox_candidate_diff_review_disposition_handoff"
+_HANDOFF_CONTENT = (
+    "A bounded disposition handoff was prepared only. No continuation or "
+    "rework execution was started, no Task, Run, Worker, or worktree was "
+    "created, no file was written, no patch was applied, and no Git write "
+    "was performed. AI Project Director total loop remains Partial."
+)
+_HANDOFF_FORBIDDEN_ACTIONS = (
+    "no_continuation_start",
+    "no_rework_start",
+    "no_human_escalation_package",
+    "no_human_decision",
+    "no_workspace_write",
+    "no_main_project_file_write",
+    "no_manifest_write",
+    "no_diff_file_write",
+    "no_patch_apply",
+    "no_product_runtime_git_write",
+    "no_worker_dispatch",
+    "no_task_creation",
+    "no_run_creation",
+    "no_worktree_creation",
+)
 
 _LOWER_HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _VALID_REVIEW_VERDICTS = (
@@ -88,6 +112,13 @@ class _ValidatedC2Evidence:
     review_output_schema_version: str
     source_review_verdict: str
     source_review_risk_level: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PriorHandoffScan:
+    exact_lineage_handoff_detected: bool = False
+    exact_lineage_rework_handoff_count: int = 0
+    history_conflict_detected: bool = False
 
 
 class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
@@ -139,8 +170,6 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
         replay_check_completed = False
         prior_handoff_detected = False
         prior_rework_handoff_count = 0
-        bounded_rework_budget_exhausted = False
-        rework_non_convergence_detected = False
 
         def blocked_result() -> PreparedSandboxCandidateDiffReviewDispositionHandoff:
             return PreparedSandboxCandidateDiffReviewDispositionHandoff(
@@ -150,12 +179,6 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
                     replay_check_completed=replay_check_completed,
                     prior_handoff_detected=prior_handoff_detected,
                     prior_rework_handoff_count=prior_rework_handoff_count,
-                    bounded_rework_budget_exhausted=(
-                        bounded_rework_budget_exhausted
-                    ),
-                    rework_non_convergence_detected=(
-                        rework_non_convergence_detected
-                    ),
                     blocked_reasons=blocked_reasons,
                 ),
                 message=None,
@@ -191,32 +214,25 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
         ):
             return blocked_result()
 
-        (
-            prior_handoff_detected,
-            prior_rework_handoff_count,
-        ) = self._scan_prior_handoffs(
+        prior_handoffs = self._scan_prior_handoffs(
             session_id=session_id,
+            session_project_id=session_obj.project_id,
             source_task_id=source_task_id,
             source_consumption_message_id=source_message_id,
+            evidence=evidence,
         )
         replay_check_completed = True
+        prior_handoff_detected = (
+            prior_handoffs.exact_lineage_handoff_detected
+        )
+        prior_rework_handoff_count = (
+            prior_handoffs.exact_lineage_rework_handoff_count
+        )
+        if prior_handoffs.history_conflict_detected:
+            blocked_reasons.append("handoff_history_conflict")
+            return blocked_result()
         if prior_handoff_detected:
             blocked_reasons.append("handoff_already_prepared")
-            return blocked_result()
-
-        if (
-            evidence.consumption.disposition_type == "AUTO_REWORK"
-            and prior_rework_handoff_count
-            >= MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK
-        ):
-            bounded_rework_budget_exhausted = True
-            rework_non_convergence_detected = True
-            blocked_reasons.extend(
-                [
-                    "bounded_rework_budget_exhausted",
-                    "rework_non_convergence",
-                ]
-            )
             return blocked_result()
 
         prepared_at = datetime.now(timezone.utc)
@@ -267,7 +283,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
             rework_attempt_number=(
                 1 if evidence.consumption.disposition_type == "AUTO_REWORK" else 0
             ),
-            rework_attempt_limit=MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
+            rework_attempt_limit=MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE,
             continuation_handoff_prepared=(
                 evidence.consumption.disposition_type == "AUTO_CONTINUE"
             ),
@@ -280,17 +296,11 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
             ProjectDirectorMessage(
                 session_id=session_id,
                 role=ProjectDirectorMessageRole.ASSISTANT,
-                content=(
-                    "A bounded disposition handoff was prepared only. No "
-                    "continuation or rework execution was started, no Task, Run, "
-                    "Worker, or worktree was created, no file was written, no "
-                    "patch was applied, and no Git write was performed. AI Project "
-                    "Director total loop remains Partial."
-                ),
+                content=_HANDOFF_CONTENT,
                 sequence_no=self._message_repository.get_next_sequence_no(
                     session_id=session_id
                 ),
-                intent="sandbox_candidate_diff_review_disposition_handoff",
+                intent=_HANDOFF_INTENT,
                 related_project_id=session_obj.project_id,
                 related_task_id=source_task_id,
                 source=ProjectDirectorMessageSource.SYSTEM,
@@ -307,22 +317,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
                 ],
                 requires_confirmation=False,
                 risk_level=ProjectDirectorMessageRiskLevel.HIGH,
-                forbidden_actions_detected=[
-                    "no_continuation_start",
-                    "no_rework_start",
-                    "no_human_escalation_package",
-                    "no_human_decision",
-                    "no_workspace_write",
-                    "no_main_project_file_write",
-                    "no_manifest_write",
-                    "no_diff_file_write",
-                    "no_patch_apply",
-                    "no_product_runtime_git_write",
-                    "no_worker_dispatch",
-                    "no_task_creation",
-                    "no_run_creation",
-                    "no_worktree_creation",
-                ],
+                forbidden_actions_detected=list(_HANDOFF_FORBIDDEN_ACTIONS),
                 created_at=prepared_at,
             )
         )
@@ -511,11 +506,22 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
         self,
         *,
         session_id: UUID,
+        session_project_id: UUID | None,
         source_task_id: UUID,
         source_consumption_message_id: UUID,
-    ) -> tuple[bool, int]:
-        prior_handoff_detected = False
-        prior_rework_handoff_count = 0
+        evidence: _ValidatedC2Evidence,
+    ) -> _PriorHandoffScan:
+        current_lineage = self._handoff_lineage(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_consumption_message_id=source_consumption_message_id,
+            result=evidence.consumption,
+        )
+        exact_records: list[
+            ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult
+        ] = []
+        seen_handoff_ids: set[UUID] = set()
+        history_conflict_detected = False
         before_message_id: UUID | None = None
         while True:
             messages, has_more = self._message_repository.list_by_session_id(
@@ -524,33 +530,241 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
                 before_message_id=before_message_id,
             )
             for message in messages:
-                if (
-                    message.source_detail
-                    != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL
-                    or not message.suggested_actions
-                ):
+                marked, action = self._normalized_handoff_action(message)
+                if not marked:
                     continue
-                first_action = message.suggested_actions[0]
-                if (
-                    not isinstance(first_action, dict)
-                    or first_action.get("type")
-                    != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE
-                ):
+                if action is None:
+                    history_conflict_detected = True
                     continue
-                if first_action.get("source_consumption_message_id") == str(
-                    source_consumption_message_id
-                ):
-                    prior_handoff_detected = True
-                if (
-                    first_action.get("source_task_id") == str(source_task_id)
-                    and first_action.get("handoff_status") == "prepared"
-                    and first_action.get("disposition_type") == "AUTO_REWORK"
-                    and first_action.get("rework_handoff_prepared") is True
-                ):
-                    prior_rework_handoff_count += 1
+                result = self._trusted_handoff_result(
+                    message=message,
+                    action=action,
+                    session_id=session_id,
+                    session_project_id=session_project_id,
+                )
+                if result is None or result.handoff_id is None:
+                    history_conflict_detected = True
+                    continue
+                if result.handoff_id in seen_handoff_ids:
+                    history_conflict_detected = True
+                seen_handoff_ids.add(result.handoff_id)
+
+                record_lineage = self._handoff_lineage(
+                    session_id=message.session_id,
+                    source_task_id=message.related_task_id,
+                    source_consumption_message_id=(
+                        result.source_consumption_message_id
+                    ),
+                    result=result,
+                )
+                same_consumption_identity = (
+                    result.source_consumption_message_id
+                    == source_consumption_message_id
+                )
+                same_review_identity = (
+                    message.related_task_id == source_task_id
+                    and result.source_review_message_id
+                    == evidence.consumption.source_review_message_id
+                )
+                if record_lineage == current_lineage:
+                    if not self._handoff_matches_current_evidence(
+                        action=action,
+                        result=result,
+                        evidence=evidence,
+                    ):
+                        history_conflict_detected = True
+                        continue
+                    exact_records.append(result)
+                elif same_consumption_identity or same_review_identity:
+                    history_conflict_detected = True
             if not has_more or not messages:
-                return prior_handoff_detected, prior_rework_handoff_count
+                break
             before_message_id = messages[0].id
+
+        if len(exact_records) > MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE:
+            history_conflict_detected = True
+        return _PriorHandoffScan(
+            exact_lineage_handoff_detected=(
+                len(exact_records) == 1 and not history_conflict_detected
+            ),
+            exact_lineage_rework_handoff_count=sum(
+                result.disposition_type == "AUTO_REWORK" for result in exact_records
+            ),
+            history_conflict_detected=history_conflict_detected,
+        )
+
+    @staticmethod
+    def _normalized_handoff_action(
+        message: ProjectDirectorMessage,
+    ) -> tuple[bool, dict[str, Any] | None]:
+        marked = bool(
+            message.intent == _HANDOFF_INTENT
+            or message.source_detail
+            == P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL
+            or any(
+                isinstance(action, dict)
+                and (
+                    action.get("type")
+                    == P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE
+                    or action.get("schema_version")
+                    == DISPOSITION_HANDOFF_SCHEMA_VERSION
+                )
+                for action in message.suggested_actions
+            )
+        )
+        if not marked:
+            return False, None
+        if (
+            message.intent != _HANDOFF_INTENT
+            or message.source_detail
+            != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL
+            or len(message.suggested_actions) != 1
+            or not isinstance(message.suggested_actions[0], dict)
+            or message.suggested_actions[0].get("type")
+            != P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE
+            or message.suggested_actions[0].get("schema_version")
+            != DISPOSITION_HANDOFF_SCHEMA_VERSION
+        ):
+            return True, None
+        return True, message.suggested_actions[0]
+
+    @classmethod
+    def _trusted_handoff_result(
+        cls,
+        *,
+        message: ProjectDirectorMessage,
+        action: dict[str, Any],
+        session_id: UUID,
+        session_project_id: UUID | None,
+    ) -> ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult | None:
+        expected_action_keys = {
+            "type",
+            "schema_version",
+            "session_id",
+            "source_task_id",
+            "review_output_schema_version",
+            "source_review_verdict",
+            "source_review_risk_level",
+            *ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult.model_fields,
+        }
+        if (
+            set(action) != expected_action_keys
+            or message.session_id != session_id
+            or message.related_project_id != session_project_id
+            or message.related_task_id is None
+            or message.role != ProjectDirectorMessageRole.ASSISTANT
+            or message.source != ProjectDirectorMessageSource.SYSTEM
+            or message.requires_confirmation is not False
+            or message.risk_level != ProjectDirectorMessageRiskLevel.HIGH
+            or message.content != _HANDOFF_CONTENT
+            or tuple(message.forbidden_actions_detected)
+            != _HANDOFF_FORBIDDEN_ACTIONS
+            or message.token_count is not None
+            or message.estimated_cost is not None
+            or action.get("session_id") != str(session_id)
+            or action.get("source_task_id") != str(message.related_task_id)
+            or not isinstance(action.get("review_output_schema_version"), str)
+            or not action["review_output_schema_version"].strip()
+            or action.get("source_review_verdict") not in _VALID_REVIEW_VERDICTS
+            or action.get("source_review_risk_level")
+            not in _VALID_REVIEW_RISK_LEVELS
+            or not all(action.get(flag) is False for flag in _C2_FALSE_FLAGS)
+            or action.get("ai_project_director_total_loop") != "Partial"
+        ):
+            return None
+        try:
+            result = (
+                ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult.model_validate(
+                    {
+                        field_name: action[field_name]
+                        for field_name in (
+                            ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult.model_fields
+                        )
+                    }
+                )
+            )
+        except (ValidationError, ValueError, TypeError):
+            return None
+        if (
+            result.handoff_status != "prepared"
+            or result.prepared_at != message.created_at
+        ):
+            return None
+        return result
+
+    @staticmethod
+    def _handoff_lineage(
+        *,
+        session_id: UUID,
+        source_task_id: UUID | None,
+        source_consumption_message_id: UUID,
+        result: (
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult
+            | ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult
+        ),
+    ) -> tuple[Any, ...]:
+        if isinstance(
+            result,
+            ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult,
+        ):
+            source_consumption_id = result.consumption_id
+        else:
+            source_consumption_id = result.source_consumption_id
+        return (
+            session_id,
+            source_task_id,
+            source_consumption_message_id,
+            source_consumption_id,
+            result.source_disposition_message_id,
+            result.disposition_id,
+            result.source_review_message_id,
+            result.source_diff_message_id,
+            result.review_result_fingerprint,
+            result.disposition_type,
+        )
+
+    @staticmethod
+    def _handoff_matches_current_evidence(
+        *,
+        action: dict[str, Any],
+        result: ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult,
+        evidence: _ValidatedC2Evidence,
+    ) -> bool:
+        consumption = evidence.consumption
+        expected_attempt_number = (
+            1 if consumption.disposition_type == "AUTO_REWORK" else 0
+        )
+        return bool(
+            result.source_consumption_preflight_message_id
+            == consumption.source_consumption_preflight_message_id
+            and result.disposition_reason == evidence.disposition_reason
+            and result.revalidated_review_result_fingerprint
+            == consumption.revalidated_review_result_fingerprint
+            and result.reviewed_diff_sha256 == consumption.reviewed_diff_sha256
+            and result.persisted_source_diff_sha256
+            == consumption.persisted_source_diff_sha256
+            and result.current_diff_sha256 == consumption.current_diff_sha256
+            and result.review_prompt_sha256 == evidence.review_prompt_sha256
+            and result.reviewed_scope_paths == consumption.reviewed_scope_paths
+            and result.persisted_source_scope_paths
+            == consumption.persisted_source_scope_paths
+            and result.current_scope_paths == consumption.current_scope_paths
+            and result.workspace_path == consumption.workspace_path
+            and result.workspace_path_within_root
+            == consumption.workspace_path_within_root
+            and action.get("review_output_schema_version")
+            == evidence.review_output_schema_version
+            and action.get("source_review_verdict")
+            == evidence.source_review_verdict
+            and action.get("source_review_risk_level")
+            == evidence.source_review_risk_level
+            and result.prior_rework_handoff_count == 0
+            and result.rework_attempt_number == expected_attempt_number
+            and result.rework_attempt_limit
+            == MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE
+            and result.bounded_rework_budget_exhausted is False
+            and result.rework_non_convergence_detected is False
+        )
 
     @staticmethod
     def _handoff_action(
@@ -645,8 +859,6 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
         replay_check_completed: bool,
         prior_handoff_detected: bool,
         prior_rework_handoff_count: int,
-        bounded_rework_budget_exhausted: bool,
-        rework_non_convergence_detected: bool,
         blocked_reasons: list[str],
     ) -> ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult:
         consumption = evidence.consumption if evidence is not None else None
@@ -736,9 +948,9 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
             replay_check_completed=replay_check_completed,
             prior_handoff_detected=prior_handoff_detected,
             prior_rework_handoff_count=prior_rework_handoff_count,
-            rework_attempt_limit=MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
-            bounded_rework_budget_exhausted=bounded_rework_budget_exhausted,
-            rework_non_convergence_detected=rework_non_convergence_detected,
+            rework_attempt_limit=MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE,
+            bounded_rework_budget_exhausted=False,
+            rework_non_convergence_detected=False,
             blocked_reasons=(
                 ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService._dedupe(
                     blocked_reasons
@@ -774,7 +986,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService:
 
 __all__ = (
     "DISPOSITION_HANDOFF_SCHEMA_VERSION",
-    "MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK",
+    "MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE",
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE",
     "P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL",
     "PreparedSandboxCandidateDiffReviewDispositionHandoff",
