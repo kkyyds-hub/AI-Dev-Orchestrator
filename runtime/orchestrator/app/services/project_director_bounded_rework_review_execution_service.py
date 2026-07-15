@@ -100,6 +100,12 @@ ExecutedBoundedReworkReadonlyReviewStatus = Literal[
     "blocked",
 ]
 
+RevalidatedBoundedReworkReviewOutcomeStatus = Literal[
+    "validated_output",
+    "recovery_required",
+    "blocked",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutedProjectDirectorBoundedReworkReadonlyReview:
@@ -109,6 +115,23 @@ class ExecutedProjectDirectorBoundedReworkReadonlyReview:
     review_outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome | None
     review_outcome_message: ProjectDirectorMessage | None
     blocked_reasons: tuple[BoundedReworkBlockedReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedProjectDirectorBoundedReworkReviewOutcome:
+    """Exact persisted H-B outcome and its reconstructed readonly lineage."""
+
+    status: RevalidatedBoundedReworkReviewOutcomeStatus
+    review_attempt: ProjectDirectorBoundedReworkReviewInvocationAttempt | None
+    review_attempt_message: ProjectDirectorMessage | None
+    review_outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome | None
+    review_outcome_message: ProjectDirectorMessage | None
+    preflight: Any | None
+    review_claim: Any | None
+    candidate_diff: Any | None
+    candidate_manifest: Any | None
+    package: Any | None
+    blocked_reasons: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +320,124 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             )
         finally:
             self._rollback_read_transaction()
+
+    def revalidate_persisted_review_invocation_outcome(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_outcome_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkReviewOutcome:
+        """Rebuild one exact validated H-B outcome without writes or reviewer calls."""
+
+        caller_had_transaction = self._message_repository._session.in_transaction()
+        try:
+            history = self._load_history(session_id)
+            outcome_matches = [
+                item
+                for item in history.outcomes
+                if item[0].id == source_review_outcome_message_id
+            ]
+            if len(outcome_matches) > 1:
+                raise _Blocked("history_invalid")
+            if not outcome_matches:
+                expected_attempts = [
+                    item
+                    for item in history.attempts
+                    if uuid5(
+                        P25_BOUNDED_REWORK_REVIEW_OUTCOME_NAMESPACE,
+                        item[1].review_attempt_replay_key,
+                    )
+                    == source_review_outcome_message_id
+                ]
+                if len(expected_attempts) > 1:
+                    raise _Blocked("history_invalid")
+                if expected_attempts:
+                    attempt_message, attempt = expected_attempts[0]
+                    current = self._preflight_service.revalidate_persisted_review_reentry_claim_for_execution(
+                        session_id=session_id,
+                        source_task_id=source_task_id,
+                        source_review_claim_message_id=attempt.review_claim_id,
+                    )
+                    if (
+                        current.blocked_reasons
+                        or not self._attempt_binds_current(
+                            attempt=attempt,
+                            current=current,
+                        )
+                        or not self._persisted_attempt_fingerprint_valid(
+                            attempt=attempt,
+                            current=current,
+                        )
+                    ):
+                        raise _Blocked("history_invalid")
+                    return self._revalidated_outcome_result(
+                        status="recovery_required",
+                        attempt=attempt,
+                        attempt_message=attempt_message,
+                        current=current,
+                        blocked_reasons=("claim_without_outcome",),
+                    )
+                raise _Blocked("history_invalid")
+
+            outcome_message, outcome = outcome_matches[0]
+            attempt_matches = [
+                item
+                for item in history.attempts
+                if item[1].review_attempt_id == outcome.review_attempt_id
+            ]
+            if len(attempt_matches) != 1:
+                raise _Blocked("history_invalid")
+            attempt_message, attempt = attempt_matches[0]
+
+            current = self._preflight_service.revalidate_persisted_review_reentry_claim_for_execution(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_claim_message_id=outcome.review_claim_id,
+            )
+            if current.blocked_reasons:
+                raise _Blocked(current.blocked_reasons[0])
+            if not self._outcome_binds_current(
+                outcome=outcome,
+                attempt=attempt,
+                current=current,
+            ):
+                raise _Blocked("history_invalid")
+            if not self._persisted_attempt_and_outcome_fingerprints_valid(
+                attempt=attempt,
+                outcome=outcome,
+                current=current,
+            ):
+                raise _Blocked("history_invalid")
+
+            status: RevalidatedBoundedReworkReviewOutcomeStatus = "validated_output"
+            blocked_reasons: tuple[str, ...] = ()
+            if not self._validated_outcome_domain_gate(outcome):
+                status = "blocked"
+                blocked_reasons = ("review_outcome_not_validated",)
+            return self._revalidated_outcome_result(
+                status=status,
+                attempt=attempt,
+                attempt_message=attempt_message,
+                outcome=outcome,
+                outcome_message=outcome_message,
+                current=current,
+                blocked_reasons=blocked_reasons,
+            )
+        except _Blocked as exc:
+            return self._revalidated_outcome_result(
+                status="blocked",
+                blocked_reasons=(str(exc.reason),),
+            )
+        except (SQLAlchemyError, OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._revalidated_outcome_result(
+                status="blocked",
+                blocked_reasons=("history_invalid",),
+            )
+        finally:
+            self._cleanup_local_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
 
     def _execute_once(
         self,
@@ -644,6 +785,175 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             }
         )
 
+    @staticmethod
+    def rebuild_persisted_review_result_fingerprint(
+        outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome,
+    ) -> str:
+        """Rebuild the canonical H-B result fingerprint from persisted fields."""
+
+        return compute_p25_contract_sha256(
+            {
+                "review_attempt_id": outcome.review_attempt_id,
+                "review_attempt_fingerprint": outcome.review_attempt_fingerprint,
+                "review_claim_id": outcome.review_claim_id,
+                "review_claim_fingerprint": outcome.review_claim_fingerprint,
+                "preflight_id": outcome.preflight_id,
+                "preflight_fingerprint": outcome.preflight_fingerprint,
+                "source_candidate_diff_id": outcome.source_candidate_diff_id,
+                "source_candidate_diff_fingerprint": (
+                    outcome.source_candidate_diff_fingerprint
+                ),
+                "source_candidate_diff_sha256": outcome.source_candidate_diff_sha256,
+                "review_prompt_sha256": outcome.review_prompt_sha256,
+                "review_prompt_bytes": outcome.review_prompt_bytes,
+                "requested_reviewer_executor": outcome.requested_reviewer_executor,
+                "authority": outcome.authority,
+                "exact_task_id": outcome.exact_task_id,
+                "exact_run_id": outcome.exact_run_id,
+                "rework_attempt_index": outcome.rework_attempt_index,
+                "review_scope_paths": outcome.review_scope_paths,
+                "adapter_result": (
+                    outcome.adapter_result.model_dump(mode="python")
+                    if outcome.adapter_result is not None
+                    else None
+                ),
+                "safe_error_code": outcome.safe_error_code,
+            }
+        )
+
+    @staticmethod
+    def persisted_review_invocation_outcome_message_is_valid(
+        message: ProjectDirectorMessage,
+        outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome,
+    ) -> bool:
+        """Expose exact H-B marker/message validation to readonly consumers."""
+
+        return ProjectDirectorBoundedReworkReviewExecutionService._outcome_message_valid(
+            message,
+            outcome,
+        )
+
+    def _persisted_attempt_and_outcome_fingerprints_valid(
+        self,
+        *,
+        attempt: ProjectDirectorBoundedReworkReviewInvocationAttempt,
+        outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome,
+        current: RevalidatedProjectDirectorBoundedReworkReviewClaim,
+    ) -> bool:
+        if not self._persisted_attempt_fingerprint_valid(
+            attempt=attempt,
+            current=current,
+        ):
+            return False
+        expected_attempt_replay_key = attempt.review_attempt_replay_key
+        expected_outcome_replay_key = (
+            ProjectDirectorBoundedReworkReviewInvocationOutcome.compute_outcome_replay_key(
+                review_attempt_replay_key=expected_attempt_replay_key,
+                source_candidate_diff_sha256=outcome.source_candidate_diff_sha256,
+                review_prompt_sha256=outcome.review_prompt_sha256,
+                invocation_ordinal=outcome.invocation_ordinal,
+            )
+        )
+        return bool(
+            outcome.review_outcome_replay_key == expected_outcome_replay_key
+            and outcome.review_outcome_id
+            == uuid5(P25_BOUNDED_REWORK_REVIEW_OUTCOME_NAMESPACE, expected_attempt_replay_key)
+            and outcome.review_outcome_fingerprint == outcome.compute_fingerprint()
+            and outcome.review_result_fingerprint
+            == self.rebuild_persisted_review_result_fingerprint(outcome)
+        )
+
+    @staticmethod
+    def _persisted_attempt_fingerprint_valid(
+        *,
+        attempt: ProjectDirectorBoundedReworkReviewInvocationAttempt,
+        current: RevalidatedProjectDirectorBoundedReworkReviewClaim,
+    ) -> bool:
+        if current.review_claim is None:
+            return False
+        expected_attempt_replay_key = (
+            ProjectDirectorBoundedReworkReviewInvocationAttempt.compute_attempt_replay_key(
+                review_claim_replay_key=current.review_claim.review_claim_replay_key,
+                invocation_ordinal=current.review_claim.invocation_ordinal,
+            )
+        )
+        return bool(
+            attempt.review_attempt_replay_key == expected_attempt_replay_key
+            and attempt.review_attempt_id
+            == uuid5(P25_BOUNDED_REWORK_REVIEW_ATTEMPT_NAMESPACE, expected_attempt_replay_key)
+            and attempt.review_attempt_fingerprint == attempt.compute_fingerprint()
+        )
+
+    def _validated_outcome_domain_gate(
+        self,
+        outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome,
+    ) -> bool:
+        if (
+            outcome.outcome_status != "validated_output"
+            or outcome.adapter_result is None
+            or outcome.adapter_result.adapter_status != "validated_output"
+            or outcome.recovery_required is not False
+            or outcome.human_escalation_required is not False
+            or outcome.safe_error_code is not None
+            or outcome.blocked_reasons
+            or not self._is_sha256(outcome.review_semantic_fingerprint)
+        ):
+            return False
+        try:
+            adapter_result = (
+                ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult.model_validate(
+                    outcome.adapter_result.model_dump(mode="python")
+                )
+            )
+        except (TypeError, ValueError, ValidationError):
+            return False
+        return bool(
+            adapter_result == outcome.adapter_result
+            and outcome.review_semantic_fingerprint
+            == self._review_semantic_fingerprint(
+                adapter_result=adapter_result,
+                source_candidate_diff_sha256=outcome.source_candidate_diff_sha256,
+                review_scope_paths=outcome.review_scope_paths,
+            )
+        )
+
+    @staticmethod
+    def _is_sha256(value: Any) -> bool:
+        if not isinstance(value, str) or len(value) != 64:
+            return False
+        try:
+            int(value, 16)
+        except ValueError:
+            return False
+        return value == value.lower()
+
+    @staticmethod
+    def _revalidated_outcome_result(
+        *,
+        status: RevalidatedBoundedReworkReviewOutcomeStatus,
+        attempt: ProjectDirectorBoundedReworkReviewInvocationAttempt | None = None,
+        attempt_message: ProjectDirectorMessage | None = None,
+        outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome | None = None,
+        outcome_message: ProjectDirectorMessage | None = None,
+        current: RevalidatedProjectDirectorBoundedReworkReviewClaim | None = None,
+        blocked_reasons: tuple[str, ...] = (),
+    ) -> RevalidatedProjectDirectorBoundedReworkReviewOutcome:
+        return RevalidatedProjectDirectorBoundedReworkReviewOutcome(
+            status=status,
+            review_attempt=attempt,
+            review_attempt_message=attempt_message,
+            review_outcome=outcome,
+            review_outcome_message=outcome_message,
+            preflight=current.preflight if current is not None else None,
+            review_claim=current.review_claim if current is not None else None,
+            candidate_diff=current.candidate_diff if current is not None else None,
+            candidate_manifest=(
+                current.candidate_manifest if current is not None else None
+            ),
+            package=current.package if current is not None else None,
+            blocked_reasons=blocked_reasons,
+        )
+
     def _attempt_replay_state(
         self,
         *,
@@ -749,18 +1059,36 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             == current.review_claim.review_claim_fingerprint
             and attempt.review_claim_replay_key
             == current.review_claim.review_claim_replay_key
+            and attempt.review_claim_token_fingerprint
+            == hashlib.sha256(
+                current.review_claim.review_claim_token.encode("utf-8")
+            ).hexdigest()
             and attempt.preflight_id == current.preflight.preflight_id
             and attempt.preflight_fingerprint == current.preflight.preflight_fingerprint
+            and attempt.source_candidate_diff_message_id
+            == current.candidate_diff.candidate_diff_id
             and attempt.source_candidate_diff_id
             == current.candidate_diff.candidate_diff_id
             and attempt.source_candidate_diff_fingerprint
             == current.candidate_diff.candidate_diff_fingerprint
             and attempt.source_candidate_diff_sha256
             == current.candidate_diff.new_diff_sha256
+            and attempt.source_outcome_id == current.candidate_diff.source_outcome_id
+            and attempt.source_attempt_id == current.candidate_diff.source_attempt_id
+            and attempt.source_package_id == current.candidate_diff.source_package_id
+            and attempt.authority == current.review_claim.authority
+            and attempt.exact_task_id == current.review_claim.exact_task_id
+            and attempt.exact_run_id == current.review_claim.exact_run_id
+            and attempt.rework_attempt_index
+            == current.review_claim.rework_attempt_index
+            and attempt.rework_attempt_limit
+            == current.review_claim.rework_attempt_limit
             and attempt.review_prompt_sha256 == current.preflight.review_prompt_sha256
             and attempt.review_prompt_bytes == current.preflight.review_prompt_bytes
             and attempt.requested_reviewer_executor
             == current.preflight.requested_reviewer_executor
+            and attempt.review_output_schema_version
+            == current.preflight.review_output_schema_version
             and attempt.invocation_ordinal == current.preflight.invocation_ordinal
         )
 
@@ -786,6 +1114,8 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             == current.review_claim.review_claim_fingerprint
             and outcome.preflight_id == current.preflight.preflight_id
             and outcome.preflight_fingerprint == current.preflight.preflight_fingerprint
+            and outcome.source_candidate_diff_message_id
+            == current.candidate_diff.candidate_diff_id
             and outcome.source_candidate_diff_id
             == current.candidate_diff.candidate_diff_id
             and outcome.source_candidate_diff_fingerprint
@@ -799,11 +1129,21 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             and outcome.source_executor_outcome_id == current.invocation_outcome.outcome_id
             and outcome.source_package_id == current.review_claim.source_package_id
             and outcome.source_attempt_id == current.review_claim.source_attempt_id
+            and outcome.authority == current.review_claim.authority
+            and outcome.exact_task_id == current.review_claim.exact_task_id
+            and outcome.exact_run_id == current.review_claim.exact_run_id
+            and outcome.rework_attempt_index
+            == current.review_claim.rework_attempt_index
+            and outcome.rework_attempt_limit
+            == current.review_claim.rework_attempt_limit
             and outcome.review_prompt_sha256 == current.preflight.review_prompt_sha256
             and outcome.review_prompt_bytes == current.preflight.review_prompt_bytes
             and outcome.review_scope_paths == current.preflight.review_scope_paths
             and outcome.requested_reviewer_executor
             == current.preflight.requested_reviewer_executor
+            and outcome.review_output_schema_version
+            == current.preflight.review_output_schema_version
+            and outcome.invocation_ordinal == current.preflight.invocation_ordinal
         )
 
     def _build_attempt_message(
@@ -1141,6 +1481,17 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
         if self._message_repository._session.in_transaction():
             self._message_repository._session.rollback()
 
+    def _cleanup_local_read_transaction(
+        self,
+        *,
+        caller_had_transaction: bool,
+    ) -> None:
+        if (
+            not caller_had_transaction
+            and self._message_repository._session.in_transaction()
+        ):
+            self._message_repository._session.rollback()
+
     @staticmethod
     def _blocked(
         reason: BoundedReworkBlockedReason,
@@ -1179,4 +1530,5 @@ __all__ = (
     "P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT",
     "P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL",
     "ProjectDirectorBoundedReworkReviewExecutionService",
+    "RevalidatedProjectDirectorBoundedReworkReviewOutcome",
 )

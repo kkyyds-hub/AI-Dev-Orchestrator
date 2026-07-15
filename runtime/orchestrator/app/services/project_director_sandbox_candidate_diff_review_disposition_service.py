@@ -18,6 +18,11 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageRole,
     ProjectDirectorMessageSource,
 )
+from app.domain.project_director_bounded_rework_review_reentry import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION,
+    P25_BOUNDED_REWORK_REVIEW_OUTPUT_SCHEMA_VERSION,
+    ProjectDirectorBoundedReworkReviewInvocationOutcome,
+)
 from app.domain.project_director_sandbox_candidate_diff_review_disposition import (
     ProjectDirectorSandboxCandidateDiffReviewDispositionResult,
     ReviewDispositionType,
@@ -31,6 +36,12 @@ from app.repositories.project_director_session_repository import (
 from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
     P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
     P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL,
+)
+from app.services.project_director_bounded_rework_review_execution_service import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE,
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL,
+    ProjectDirectorBoundedReworkReviewExecutionService,
 )
 from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
     REVIEW_OUTPUT_SCHEMA_VERSION,
@@ -138,6 +149,7 @@ class RevalidatedPersistedReviewDisposition:
 
 @dataclass(frozen=True, slots=True)
 class _ValidatedReviewEvidence:
+    source_review_kind: str
     source_preflight_message_id: UUID
     source_diff_message_id: UUID
     requested_reviewer_executor: str
@@ -157,6 +169,14 @@ class _ValidatedReviewEvidence:
     summary: str
     findings: list[dict[str, Any]]
     recommended_next_step: str
+    canonical_review_result_fingerprint: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedReviewSource:
+    source_review_kind: str
+    message: ProjectDirectorMessage
+    action: dict[str, Any]
 
 
 class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
@@ -183,14 +203,14 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         """Rebuild the D-B fingerprint without persistence or disposition work."""
 
         blocked_reasons: list[str] = []
-        review_action = cls._source_review_action(
+        review_source = cls._source_review_action(
             source_review_message=source_review_message,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=blocked_reasons,
         )
         evidence = cls._validated_review_evidence(
-            review_action,
+            review_source,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=blocked_reasons,
@@ -203,7 +223,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
             )
 
         return RevalidatedPersistedReviewResultFingerprint(
-            review_result_fingerprint=cls._review_result_fingerprint(
+            review_result_fingerprint=cls._canonical_review_result_fingerprint(
                 session_id=session_id,
                 source_task_id=source_task_id,
                 source_review_message_id=source_review_message_id,
@@ -266,14 +286,14 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
             source_review_message=source_review_message,
         )
         review_evidence_blocked_reasons: list[str] = []
-        review_action = self._source_review_action(
+        review_source = self._source_review_action(
             source_review_message=source_review_message,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=review_evidence_blocked_reasons,
         )
         validated_review_evidence = self._validated_review_evidence(
-            review_action,
+            review_source,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=review_evidence_blocked_reasons,
@@ -450,7 +470,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         source_task_id: UUID,
         source_message_id: UUID,
     ) -> ComputedSandboxCandidateDiffReviewDisposition:
-        """Compute from exact persisted P21-C evidence and append one audit record."""
+        """Compute from exact persisted P21-C or P25-H review evidence."""
 
         if self._session_repository is None or self._message_repository is None:
             raise ValueError("review disposition repositories are required")
@@ -480,14 +500,14 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         if session_obj is None:
             blocked_reasons.append("session_missing")
 
-        review_action = self._source_review_action(
+        review_source = self._source_review_action(
             source_review_message=source_review_message,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=blocked_reasons,
         )
         evidence = self._validated_review_evidence(
-            review_action,
+            review_source,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=blocked_reasons,
@@ -503,7 +523,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
                 message=None,
             )
 
-        review_result_fingerprint = self._review_result_fingerprint(
+        review_result_fingerprint = self._canonical_review_result_fingerprint(
             session_id=session_id,
             source_task_id=source_task_id,
             source_review_message_id=source_message_id,
@@ -538,13 +558,18 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
 
         disposition_id = uuid4()
         disposition_created_at = datetime.now(timezone.utc)
+        evidence_label = (
+            "persisted, validated P21-C review evidence"
+            if evidence.source_review_kind == "p21_c"
+            else "persisted, validated P25-H review outcome evidence"
+        )
         message = self._message_repository.create(
             ProjectDirectorMessage(
                 session_id=session_id,
                 role=ProjectDirectorMessageRole.ASSISTANT,
                 content=(
-                    "Automated review disposition was computed from persisted, "
-                    "validated P21-C review evidence. This record does not start "
+                    "Automated review disposition was computed from "
+                    f"{evidence_label}. This record does not start "
                     "continuation or rework, create a human escalation package, "
                     "apply a patch, or authorize Git writes. AI Project Director "
                     "total loop remains Partial."
@@ -759,7 +784,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         session_id: UUID,
         source_task_id: UUID,
         blocked_reasons: list[str],
-    ) -> dict[str, Any] | None:
+    ) -> _NormalizedReviewSource | None:
         if source_review_message is None:
             blocked_reasons.append("source_review_message_missing")
             return None
@@ -767,6 +792,43 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
             blocked_reasons.append("source_review_message_session_mismatch")
         if source_review_message.related_task_id != source_task_id:
             blocked_reasons.append("source_review_message_task_mismatch")
+
+        p25_marked = bool(
+            source_review_message.intent == P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT
+            or source_review_message.source_detail
+            == P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL
+            or any(
+                isinstance(action, dict)
+                and (
+                    action.get("type")
+                    == P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE
+                    or action.get("schema_version")
+                    == P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION
+                )
+                for action in source_review_message.suggested_actions
+            )
+        )
+        if p25_marked:
+            if (
+                source_review_message.intent
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT
+                or source_review_message.source_detail
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL
+                or len(source_review_message.suggested_actions) != 1
+                or not isinstance(source_review_message.suggested_actions[0], dict)
+                or source_review_message.suggested_actions[0].get("type")
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE
+                or source_review_message.suggested_actions[0].get("schema_version")
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION
+            ):
+                blocked_reasons.append("p25_h_review_outcome_marker_invalid")
+                return None
+            return _NormalizedReviewSource(
+                source_review_kind="p25_h",
+                message=source_review_message,
+                action=source_review_message.suggested_actions[0],
+            )
+
         if (
             source_review_message.source_detail
             != P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL
@@ -785,19 +847,32 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         ):
             blocked_reasons.append("p21_c_readonly_review_execution_record_missing")
             return None
-        return first_action
+        return _NormalizedReviewSource(
+            source_review_kind="p21_c",
+            message=source_review_message,
+            action=first_action,
+        )
 
     @classmethod
     def _validated_review_evidence(
         cls,
-        action: dict[str, Any] | None,
+        source: _NormalizedReviewSource | None,
         *,
         session_id: UUID,
         source_task_id: UUID,
         blocked_reasons: list[str],
     ) -> _ValidatedReviewEvidence | None:
-        if action is None:
+        if source is None:
             return None
+        if source.source_review_kind == "p25_h":
+            return cls._validated_p25_h_review_evidence(
+                source.message,
+                source.action,
+                session_id=session_id,
+                source_task_id=source_task_id,
+                blocked_reasons=blocked_reasons,
+            )
+        action = source.action
 
         if action.get("session_id") != str(session_id):
             blocked_reasons.append("source_review_action_session_mismatch")
@@ -872,6 +947,7 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
         if source_preflight_message_id is None or source_diff_message_id is None:
             return None
         return _ValidatedReviewEvidence(
+            source_review_kind="p21_c",
             source_preflight_message_id=source_preflight_message_id,
             source_diff_message_id=source_diff_message_id,
             requested_reviewer_executor=requested_reviewer_executor,
@@ -891,6 +967,147 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionService:
             summary=action["summary"],
             findings=findings,
             recommended_next_step=action["recommended_next_step"],
+        )
+
+    @classmethod
+    def _validated_p25_h_review_evidence(
+        cls,
+        message: ProjectDirectorMessage,
+        action: dict[str, Any],
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        blocked_reasons: list[str],
+    ) -> _ValidatedReviewEvidence | None:
+        payload = dict(action)
+        payload.pop("type", None)
+        try:
+            outcome = ProjectDirectorBoundedReworkReviewInvocationOutcome.model_validate(
+                payload
+            )
+        except (TypeError, ValueError, ValidationError):
+            blocked_reasons.append("p25_h_review_outcome_domain_invalid")
+            return None
+
+        if not ProjectDirectorBoundedReworkReviewExecutionService.persisted_review_invocation_outcome_message_is_valid(
+            message,
+            outcome,
+        ):
+            blocked_reasons.append("p25_h_review_outcome_message_invalid")
+        if (
+            outcome.authority.session_id != session_id
+            or outcome.exact_task_id != source_task_id
+        ):
+            blocked_reasons.append("p25_h_review_outcome_authority_mismatch")
+        if (
+            outcome.review_outcome_fingerprint != outcome.compute_fingerprint()
+            or outcome.review_result_fingerprint
+            != ProjectDirectorBoundedReworkReviewExecutionService.rebuild_persisted_review_result_fingerprint(
+                outcome
+            )
+        ):
+            blocked_reasons.append("p25_h_review_outcome_fingerprint_mismatch")
+
+        adapter_result = outcome.adapter_result
+        if (
+            outcome.outcome_status != "validated_output"
+            or adapter_result is None
+            or adapter_result.adapter_status != "validated_output"
+            or outcome.recovery_required is not False
+            or outcome.human_escalation_required is not False
+            or outcome.safe_error_code is not None
+            or outcome.blocked_reasons
+            or outcome.review_output_schema_version
+            != P25_BOUNDED_REWORK_REVIEW_OUTPUT_SCHEMA_VERSION
+            or not cls._is_sha256(outcome.review_semantic_fingerprint)
+        ):
+            blocked_reasons.append("p25_h_review_outcome_not_validated")
+        if adapter_result is None:
+            return None
+
+        try:
+            adapter_result = type(adapter_result).model_validate(
+                adapter_result.model_dump(mode="python")
+            )
+        except (TypeError, ValueError, ValidationError):
+            blocked_reasons.append("p25_h_review_adapter_domain_invalid")
+            return None
+
+        expected_semantic_fingerprint = (
+            ProjectDirectorBoundedReworkReviewExecutionService._review_semantic_fingerprint(
+                adapter_result=adapter_result,
+                source_candidate_diff_sha256=outcome.source_candidate_diff_sha256,
+                review_scope_paths=outcome.review_scope_paths,
+            )
+        )
+        if outcome.review_semantic_fingerprint != expected_semantic_fingerprint:
+            blocked_reasons.append("p25_h_review_semantic_fingerprint_mismatch")
+
+        raw_output_sha256 = adapter_result.raw_output_sha256
+        if (
+            not cls._is_sha256(raw_output_sha256)
+            or adapter_result.output_validation_status != "validated"
+            or adapter_result.strict_json_valid is not True
+            or adapter_result.schema_valid is not True
+            or adapter_result.semantics_valid is not True
+            or adapter_result.evidence_scope_valid is not True
+            or adapter_result.review_status != "reviewed"
+            or adapter_result.verdict not in _VALID_VERDICTS
+            or adapter_result.risk_level not in _VALID_RISK_LEVELS
+            or not isinstance(adapter_result.summary, str)
+            or not isinstance(adapter_result.recommended_next_step, str)
+        ):
+            blocked_reasons.append("p25_h_review_adapter_not_validated")
+
+        findings = [
+            finding.model_dump(mode="json") for finding in adapter_result.findings
+        ]
+        cls._findings(
+            {"findings": findings},
+            blocked_reasons=blocked_reasons,
+        )
+        if blocked_reasons:
+            return None
+        return _ValidatedReviewEvidence(
+            source_review_kind="p25_h",
+            source_preflight_message_id=outcome.preflight_id,
+            source_diff_message_id=outcome.source_candidate_diff_message_id,
+            requested_reviewer_executor=outcome.requested_reviewer_executor,
+            source_diff_sha256=outcome.source_candidate_diff_sha256,
+            review_prompt_sha256=outcome.review_prompt_sha256,
+            review_scope_paths=list(outcome.review_scope_paths),
+            review_output_schema_version=outcome.review_output_schema_version,
+            raw_output_sha256=raw_output_sha256,
+            output_validation_status=adapter_result.output_validation_status,
+            strict_json_valid=adapter_result.strict_json_valid,
+            schema_valid=adapter_result.schema_valid,
+            semantics_valid=adapter_result.semantics_valid,
+            evidence_scope_valid=adapter_result.evidence_scope_valid,
+            review_status=adapter_result.review_status,
+            verdict=adapter_result.verdict,
+            risk_level=adapter_result.risk_level,
+            summary=adapter_result.summary,
+            findings=findings,
+            recommended_next_step=adapter_result.recommended_next_step,
+            canonical_review_result_fingerprint=outcome.review_result_fingerprint,
+        )
+
+    @classmethod
+    def _canonical_review_result_fingerprint(
+        cls,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_message_id: UUID,
+        evidence: _ValidatedReviewEvidence,
+    ) -> str:
+        if evidence.source_review_kind == "p25_h":
+            return evidence.canonical_review_result_fingerprint or ""
+        return cls._review_result_fingerprint(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_review_message_id,
+            evidence=evidence,
         )
 
     @staticmethod
