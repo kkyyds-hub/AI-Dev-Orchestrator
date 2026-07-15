@@ -2,23 +2,30 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import stat
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - unsupported platforms fail closed.
+    fcntl = None  # type: ignore[assignment]
 
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.domain._base import utc_now
 from app.domain.project_director_bounded_rework_attempt_reservation import (
     ProjectDirectorBoundedReworkAttemptReservation,
 )
 from app.domain.project_director_bounded_rework_candidate_diff import (
+    P25_BOUNDED_REWORK_CANDIDATE_DIFF_NAMESPACE,
     P25_BOUNDED_REWORK_CANDIDATE_DIFF_SCHEMA_VERSION,
     P25_BOUNDED_REWORK_CANDIDATE_MANIFEST_SCHEMA_VERSION,
     P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH,
@@ -26,6 +33,7 @@ from app.domain.project_director_bounded_rework_candidate_diff import (
     ProjectDirectorBoundedReworkCandidateDiffEntry,
     ProjectDirectorBoundedReworkCandidateManifest,
     ProjectDirectorBoundedReworkCandidateManifestEntry,
+    ProjectDirectorBoundedReworkWorkspaceBusinessEntry,
 )
 from app.domain.project_director_bounded_rework_contract import (
     BoundedReworkBlockedReason,
@@ -90,6 +98,13 @@ _MAX_INTERNAL_MANIFEST_BYTES = 256 * 1024
 _MAX_DIFF_BYTES = 2 * 1024 * 1024
 _MESSAGE_PAGE_SIZE = 200
 _READ_CHUNK_BYTES = 64 * 1024
+_MAX_WORKSPACE_ENTRIES = 256
+_MAX_WORKSPACE_FILES = 21
+_MAX_WORKSPACE_DIRECTORIES = 256
+_MAX_WORKSPACE_FILE_BYTES = 256 * 1024
+_MAX_WORKSPACE_TOTAL_BYTES = 2 * 1024 * 1024
+_WORKSPACE_LOCK_TIMEOUT_SECONDS = 5.0
+_WORKSPACE_LOCK_POLL_SECONDS = 0.05
 
 _P25_G_FALSE_BOUNDARIES = (
     "product_runtime_git_write_allowed=false",
@@ -152,6 +167,19 @@ class _ManifestFileState:
     stat_result: os.stat_result
 
 
+@dataclass(frozen=True, slots=True)
+class _WorkspaceBusinessIdentity:
+    manifest_fingerprint: str
+    content_fingerprint: str
+    inventory: tuple[ProjectDirectorBoundedReworkWorkspaceBusinessEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ManifestWriteReceipt:
+    state: _ManifestFileState
+    replaced_by_call: bool
+
+
 class _Blocked(RuntimeError):
     def __init__(self, reason: BoundedReworkBlockedReason) -> None:
         self.reason = reason
@@ -198,7 +226,59 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             )
             if records.manifest is not None or records.candidate_diff is not None:
                 self._validate_replay_records(records=records, lineage=initial)
-                self._validate_replay_workspace(records=records, lineage=initial)
+        except _Blocked as exc:
+            self._rollback_read_transaction()
+            return self._blocked(exc.reason)
+        except SQLAlchemyError:
+            self._rollback_read_transaction()
+            return self._blocked("persistence_failed")
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            self._rollback_read_transaction()
+            return self._blocked("history_invalid")
+
+        self._rollback_read_transaction()
+        try:
+            lock_descriptor = self._acquire_workspace_lock(initial)
+        except (OSError, RuntimeError, TypeError, ValueError, _Blocked):
+            self._rollback_read_transaction()
+            return self._blocked("workspace_invalid")
+        try:
+            return self._regenerate_under_workspace_lock(
+                initial=initial,
+                lock_descriptor=lock_descriptor,
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_outcome_message_id=source_outcome_message_id,
+            )
+        finally:
+            self._release_workspace_lock(lock_descriptor)
+
+    def _regenerate_under_workspace_lock(
+        self,
+        *,
+        initial: _P25GLineage,
+        lock_descriptor: int,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_outcome_message_id: UUID,
+    ) -> PreparedProjectDirectorBoundedReworkCandidateDiff:
+        try:
+            locked = self._load_lineage(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_outcome_message_id=source_outcome_message_id,
+            )
+            self._validate_outcome_gate(locked.outcome)
+            if locked != initial:
+                raise _Blocked("history_invalid")
+            self._validate_workspace_lock_identity(lock_descriptor, locked)
+            records = self._load_persisted_records(
+                session_id=session_id,
+                source_outcome_id=locked.outcome.outcome_id,
+            )
+            if records.manifest is not None or records.candidate_diff is not None:
+                self._validate_replay_records(records=records, lineage=locked)
+                self._validate_replay_workspace(records=records, lineage=locked)
                 self._rollback_read_transaction()
                 return self._replayed(records)
         except _Blocked as exc:
@@ -215,11 +295,14 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         manifest_path: Path | None = None
         original_manifest: _ManifestFileState | None = None
         written_manifest_bytes: bytes | None = None
+        write_receipt: _ManifestWriteReceipt | None = None
+        candidate_manifest: ProjectDirectorBoundedReworkCandidateManifest | None = None
+        candidate_diff: ProjectDirectorBoundedReworkCandidateDiff | None = None
         before_snapshot: BoundedReworkWorkspaceSnapshot | None = None
-        before_inventory: tuple[tuple[str, str], ...] | None = None
+        before_business_identity: _WorkspaceBusinessIdentity | None = None
         expected_business_entries: tuple[tuple[str, str | None], ...] | None = None
         try:
-            prepared = self._prepare_filesystem_payloads(initial)
+            prepared = self._prepare_filesystem_payloads(locked)
             (
                 candidate_manifest,
                 candidate_diff,
@@ -227,18 +310,20 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 original_manifest,
                 written_manifest_bytes,
                 before_snapshot,
-                before_inventory,
+                before_business_identity,
                 expected_business_entries,
             ) = prepared
-            self._atomic_replace_manifest(
+            self._validate_workspace_lock_identity(lock_descriptor, locked)
+            write_receipt = self._compare_and_replace_manifest(
                 path=manifest_path,
-                content=written_manifest_bytes,
+                expected=original_manifest,
+                desired=written_manifest_bytes,
                 mode=stat.S_IMODE(original_manifest.stat_result.st_mode),
             )
             self._validate_post_write_workspace(
-                lineage=initial,
+                lineage=locked,
                 before_snapshot=before_snapshot,
-                before_inventory=before_inventory,
+                before_business_identity=before_business_identity,
                 expected_manifest_bytes=written_manifest_bytes,
                 expected_business_entries=expected_business_entries,
             )
@@ -249,6 +334,11 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 manifest_path=manifest_path,
                 original_manifest=original_manifest,
                 written_manifest_bytes=written_manifest_bytes,
+                write_receipt=write_receipt,
+                lineage=locked,
+                lock_descriptor=lock_descriptor,
+                candidate_manifest=candidate_manifest,
+                candidate_diff=candidate_diff,
             )
         except ExactBaseCandidateDiffError as exc:
             self._rollback_read_transaction()
@@ -262,6 +352,11 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 manifest_path=manifest_path,
                 original_manifest=original_manifest,
                 written_manifest_bytes=written_manifest_bytes,
+                write_receipt=write_receipt,
+                lineage=locked,
+                lock_descriptor=lock_descriptor,
+                candidate_manifest=candidate_manifest,
+                candidate_diff=candidate_diff,
             )
         except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
             self._rollback_read_transaction()
@@ -270,10 +365,18 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 manifest_path=manifest_path,
                 original_manifest=original_manifest,
                 written_manifest_bytes=written_manifest_bytes,
+                write_receipt=write_receipt,
+                lineage=locked,
+                lock_descriptor=lock_descriptor,
+                candidate_manifest=candidate_manifest,
+                candidate_diff=candidate_diff,
             )
 
         self._rollback_read_transaction()
+        assert candidate_manifest is not None
+        assert candidate_diff is not None
         try:
+            self._validate_workspace_lock_identity(lock_descriptor, locked)
             with self._message_repository.sqlite_immediate_transaction():
                 final = self._load_lineage(
                     session_id=session_id,
@@ -281,11 +384,11 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                     source_outcome_message_id=source_outcome_message_id,
                 )
                 self._validate_outcome_gate(final.outcome)
-                if final != initial:
+                if final != locked:
                     raise _Blocked("history_invalid")
                 records = self._load_persisted_records(
                     session_id=session_id,
-                    source_outcome_id=initial.outcome.outcome_id,
+                    source_outcome_id=locked.outcome.outcome_id,
                 )
                 if records.manifest is not None or records.candidate_diff is not None:
                     if (
@@ -294,6 +397,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                     ):
                         raise _Blocked("history_invalid")
                     self._validate_replay_records(records=records, lineage=final)
+                    self._validate_replay_workspace(records=records, lineage=final)
                     result = self._replayed(records)
                 else:
                     manifest_message = self._build_manifest_message(candidate_manifest)
@@ -326,6 +430,11 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 manifest_path=manifest_path,
                 original_manifest=original_manifest,
                 written_manifest_bytes=written_manifest_bytes,
+                write_receipt=write_receipt,
+                lineage=locked,
+                lock_descriptor=lock_descriptor,
+                candidate_manifest=candidate_manifest,
+                candidate_diff=candidate_diff,
             )
         except (SQLAlchemyError, OSError, RuntimeError, TypeError, ValueError, ValidationError):
             self._message_repository._session.rollback()
@@ -334,7 +443,118 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 manifest_path=manifest_path,
                 original_manifest=original_manifest,
                 written_manifest_bytes=written_manifest_bytes,
+                write_receipt=write_receipt,
+                lineage=locked,
+                lock_descriptor=lock_descriptor,
+                candidate_manifest=candidate_manifest,
+                candidate_diff=candidate_diff,
             )
+
+    def _acquire_workspace_lock(self, lineage: _P25GLineage) -> int:
+        if (
+            fcntl is None
+            or not hasattr(fcntl, "flock")
+            or not hasattr(os, "O_DIRECTORY")
+            or not hasattr(os, "O_NOFOLLOW")
+            or lineage.package.workspace_binding is None
+        ):
+            raise OSError("POSIX workspace locking is unavailable")
+        if self._message_repository._session.in_transaction():
+            raise OSError("workspace lock wait cannot hold a database transaction")
+        workspace = Path(lineage.package.workspace_binding.workspace_path)
+        lock_path = workspace / ".ai-project-director"
+        try:
+            if workspace.resolve(strict=True) != workspace:
+                raise OSError("workspace path is not canonical")
+            expected = lock_path.lstat()
+            if (
+                lock_path.resolve(strict=True) != lock_path
+                or not stat.S_ISDIR(expected.st_mode)
+                or stat.S_ISLNK(expected.st_mode)
+            ):
+                raise OSError("workspace lock directory identity is invalid")
+            descriptor = os.open(
+                lock_path,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+        except OSError:
+            raise
+
+        deadline = time.monotonic() + _WORKSPACE_LOCK_TIMEOUT_SECONDS
+        try:
+            while True:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OSError(
+                            errno.ETIMEDOUT,
+                            "workspace materialization lock timed out",
+                        ) from exc
+                    time.sleep(min(_WORKSPACE_LOCK_POLL_SECONDS, remaining))
+            opened = os.fstat(descriptor)
+            current = lock_path.lstat()
+            if (
+                not stat.S_ISDIR(opened.st_mode)
+                or stat.S_ISLNK(current.st_mode)
+                or ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(
+                    opened
+                )
+                != ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(
+                    current
+                )
+                or lock_path.resolve(strict=True) != lock_path
+            ):
+                raise OSError("workspace lock directory changed during acquisition")
+            return descriptor
+        except BaseException:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            os.close(descriptor)
+            raise
+
+    @staticmethod
+    def _release_workspace_lock(descriptor: int) -> None:
+        try:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _validate_workspace_lock_identity(
+        descriptor: int,
+        lineage: _P25GLineage,
+    ) -> None:
+        if lineage.package.workspace_binding is None:
+            raise _Blocked("workspace_invalid")
+        lock_path = (
+            Path(lineage.package.workspace_binding.workspace_path)
+            / ".ai-project-director"
+        )
+        try:
+            opened = os.fstat(descriptor)
+            current = lock_path.lstat()
+            if (
+                lock_path.resolve(strict=True) != lock_path
+                or not stat.S_ISDIR(opened.st_mode)
+                or not stat.S_ISDIR(current.st_mode)
+                or stat.S_ISLNK(current.st_mode)
+                or (opened.st_dev, opened.st_ino, stat.S_IFMT(opened.st_mode))
+                != (current.st_dev, current.st_ino, stat.S_IFMT(current.st_mode))
+            ):
+                raise OSError("workspace lock directory identity changed")
+        except OSError as exc:
+            raise _Blocked("workspace_invalid") from exc
 
     def _prepare_filesystem_payloads(
         self,
@@ -346,7 +566,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         _ManifestFileState,
         bytes,
         BoundedReworkWorkspaceSnapshot,
-        tuple[tuple[str, str], ...],
+        _WorkspaceBusinessIdentity,
         tuple[tuple[str, str | None], ...],
     ]:
         package = lineage.package
@@ -364,6 +584,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             raise _Blocked("history_invalid")
         repository_root = Path(package.repository_binding.repository_root)
         workspace_path = Path(package.workspace_binding.workspace_path)
+        before_business_identity = self._workspace_business_identity(workspace_path)
         snapshot = self._snapshot_workspace(lineage.current)
         if (
             snapshot.manifest_fingerprint
@@ -382,8 +603,6 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 for forbidden in package.forbidden_scope_paths
             ):
                 raise _Blocked("scope_invalid")
-        before_inventory = self._workspace_inventory(workspace_path)
-
         candidate_inputs = tuple(
             ExactBaseCandidateDiffInputEntry(
                 relative_path=path,
@@ -443,6 +662,13 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                 workspace_after_content_fingerprint=(
                     outcome.workspace_after_content_fingerprint
                 ),
+                workspace_business_manifest_fingerprint=(
+                    before_business_identity.manifest_fingerprint
+                ),
+                workspace_business_content_fingerprint=(
+                    before_business_identity.content_fingerprint
+                ),
+                workspace_business_inventory=before_business_identity.inventory,
                 changed_files=changed_files,
             )
         )
@@ -451,7 +677,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             "candidate_manifest_id": outcome.candidate_manifest_id,
             "candidate_manifest_fingerprint": outcome.candidate_manifest_fingerprint,
             "candidate_manifest_replay_key": manifest_replay_key,
-            "created_at": utc_now(),
+            "created_at": outcome.created_at,
             "source_outcome_id": outcome.outcome_id,
             "source_outcome_fingerprint": outcome.outcome_fingerprint,
             "source_claim_id": lineage.claim.claim_id,
@@ -481,6 +707,13 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             "workspace_after_content_fingerprint": (
                 outcome.workspace_after_content_fingerprint
             ),
+            "workspace_business_manifest_fingerprint": (
+                before_business_identity.manifest_fingerprint
+            ),
+            "workspace_business_content_fingerprint": (
+                before_business_identity.content_fingerprint
+            ),
+            "workspace_business_inventory": before_business_identity.inventory,
             "changed_files": changed_files,
             "internal_manifest_file_path": P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH,
         }
@@ -553,14 +786,14 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         )
 
         final_snapshot = self._snapshot_workspace(lineage.current)
-        final_inventory = self._workspace_inventory(workspace_path)
+        final_business_identity = self._workspace_business_identity(workspace_path)
         current_manifest, _ = self._read_and_validate_internal_manifest(
             path=manifest_path,
             lineage=lineage,
         )
         if (
             final_snapshot != snapshot
-            or final_inventory != before_inventory
+            or final_business_identity != before_business_identity
             or current_manifest.content != original_manifest.content
             or self._stat_identity(current_manifest.stat_result)
             != self._stat_identity(original_manifest.stat_result)
@@ -573,7 +806,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             original_manifest,
             manifest_bytes,
             snapshot,
-            before_inventory,
+            before_business_identity,
             business_entries,
         )
 
@@ -627,9 +860,12 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         )
         values = {
             "schema_version": P25_BOUNDED_REWORK_CANDIDATE_DIFF_SCHEMA_VERSION,
-            "candidate_diff_id": uuid4(),
+            "candidate_diff_id": uuid5(
+                P25_BOUNDED_REWORK_CANDIDATE_DIFF_NAMESPACE,
+                replay_key,
+            ),
             "candidate_diff_replay_key": replay_key,
-            "created_at": utc_now(),
+            "created_at": outcome.created_at,
             "diff_status": diff_status,
             "source_attempt_id": lineage.reservation.reservation_id,
             "source_outcome_id": outcome.outcome_id,
@@ -869,8 +1105,15 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             stat_result=expected,
         )
 
-    @staticmethod
-    def _atomic_replace_manifest(*, path: Path, content: bytes, mode: int) -> None:
+    @classmethod
+    def _compare_and_replace_manifest(
+        cls,
+        *,
+        path: Path,
+        expected: _ManifestFileState,
+        desired: bytes,
+        mode: int,
+    ) -> _ManifestWriteReceipt:
         temporary = path.parent / f".{path.name}.p25g-{uuid4().hex}.tmp"
         descriptor: int | None = None
         try:
@@ -880,20 +1123,49 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             descriptor = os.open(temporary, flags, mode)
             os.fchmod(descriptor, mode)
             written = 0
-            while written < len(content):
-                chunk_written = os.write(descriptor, content[written:])
+            while written < len(desired):
+                chunk_written = os.write(descriptor, desired[written:])
                 if chunk_written <= 0:
                     raise OSError("internal manifest atomic write made no progress")
                 written += chunk_written
             os.fsync(descriptor)
             os.close(descriptor)
             descriptor = None
+            current = cls._read_manifest_state(path)
+            desired_sha256 = hashlib.sha256(desired).hexdigest()
+            if (
+                current.content == desired
+                and current.content_sha256 == desired_sha256
+            ):
+                return _ManifestWriteReceipt(
+                    state=current,
+                    replaced_by_call=False,
+                )
+            if (
+                current.content != expected.content
+                or current.content_sha256 != expected.content_sha256
+                or cls._stat_identity(current.stat_result)
+                != cls._stat_identity(expected.stat_result)
+            ):
+                raise _Blocked("human_escalation_required")
             os.replace(temporary, path)
             directory_descriptor = os.open(path.parent, os.O_RDONLY)
             try:
                 os.fsync(directory_descriptor)
             finally:
                 os.close(directory_descriptor)
+            replaced = cls._read_manifest_state(path)
+            if (
+                replaced.content != desired
+                or replaced.content_sha256 != desired_sha256
+                or stat.S_IMODE(replaced.stat_result.st_mode) != mode
+                or replaced.stat_result.st_nlink != 1
+            ):
+                raise OSError("internal manifest replace verification failed")
+            return _ManifestWriteReceipt(
+                state=replaced,
+                replaced_by_call=True,
+            )
         finally:
             if descriptor is not None:
                 os.close(descriptor)
@@ -904,37 +1176,31 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         *,
         lineage: _P25GLineage,
         before_snapshot: BoundedReworkWorkspaceSnapshot,
-        before_inventory: tuple[tuple[str, str], ...],
+        before_business_identity: _WorkspaceBusinessIdentity,
         expected_manifest_bytes: bytes,
         expected_business_entries: tuple[tuple[str, str | None], ...],
     ) -> None:
         after_snapshot = self._snapshot_workspace(lineage.current)
         workspace = Path(lineage.package.workspace_binding.workspace_path)
-        after_inventory = self._workspace_inventory(workspace)
+        after_business_identity = self._workspace_business_identity(workspace)
         state = self._read_manifest_state(
             workspace / P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH
         )
         if state.content != expected_manifest_bytes:
             raise _Blocked("workspace_invalid")
         before_business_files = tuple(
-            item for item in before_snapshot.file_entries
-            if item.path != P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH
+            item
+            for item in before_snapshot.file_entries
+            if not self._is_internal_path(item.path)
         )
         after_business_files = tuple(
-            item for item in after_snapshot.file_entries
-            if item.path != P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH
-        )
-        before_business_inventory = tuple(
-            item for item in before_inventory
-            if item[0] != P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH
-        )
-        after_business_inventory = tuple(
-            item for item in after_inventory
-            if item[0] != P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH
+            item
+            for item in after_snapshot.file_entries
+            if not self._is_internal_path(item.path)
         )
         if (
             before_business_files != after_business_files
-            or before_business_inventory != after_business_inventory
+            or before_business_identity != after_business_identity
             or self._business_entries_from_outcome(
                 lineage.outcome,
                 after_snapshot,
@@ -942,16 +1208,32 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         ):
             raise _Blocked("workspace_invalid")
 
-    def _workspace_inventory(self, workspace: Path) -> tuple[tuple[str, str], ...]:
+    def _workspace_business_identity(
+        self,
+        workspace: Path,
+    ) -> _WorkspaceBusinessIdentity:
         try:
-            if workspace.resolve(strict=True) != workspace:
-                raise OSError("workspace path is not canonical")
+            workspace_stat = workspace.lstat()
+            if (
+                workspace.resolve(strict=True) != workspace
+                or not stat.S_ISDIR(workspace_stat.st_mode)
+                or stat.S_ISLNK(workspace_stat.st_mode)
+            ):
+                raise OSError("workspace path is not a canonical directory")
         except OSError as exc:
             raise _Blocked("workspace_invalid") from exc
-        entries: list[tuple[str, str]] = []
+        entries: list[ProjectDirectorBoundedReworkWorkspaceBusinessEntry] = []
+        counters = {"entries": 0, "files": 0, "directories": 0, "bytes": 0}
 
         def walk(directory: Path) -> None:
             try:
+                before = directory.stat(follow_symlinks=False)
+                if (
+                    not stat.S_ISDIR(before.st_mode)
+                    or stat.S_ISLNK(before.st_mode)
+                    or directory.resolve(strict=True) != directory
+                ):
+                    raise OSError("business directory identity is invalid")
                 with os.scandir(directory) as iterator:
                     children = sorted(iterator, key=lambda item: item.name)
             except OSError as exc:
@@ -965,18 +1247,162 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                         raise OSError("workspace entry is not canonical")
                 except OSError as exc:
                     raise _Blocked("workspace_invalid") from exc
+                if relative == ".ai-project-director":
+                    if not stat.S_ISDIR(metadata.st_mode):
+                        raise _Blocked("workspace_invalid")
+                    self._validate_internal_control_tree(path)
+                    continue
+                if self._is_internal_path(relative):
+                    raise _Blocked("workspace_invalid")
+                counters["entries"] += 1
+                if counters["entries"] > _MAX_WORKSPACE_ENTRIES:
+                    raise _Blocked("workspace_invalid")
                 if stat.S_ISLNK(metadata.st_mode):
                     raise _Blocked("workspace_invalid")
                 if stat.S_ISDIR(metadata.st_mode):
-                    entries.append((relative, "directory"))
+                    counters["directories"] += 1
+                    if counters["directories"] > _MAX_WORKSPACE_DIRECTORIES:
+                        raise _Blocked("workspace_invalid")
+                    entries.append(
+                        ProjectDirectorBoundedReworkWorkspaceBusinessEntry(
+                            relative_path=relative,
+                            entry_type="directory",
+                        )
+                    )
                     walk(path)
                 elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
-                    entries.append((relative, "file"))
+                    file_size, content_sha256 = self._hash_business_regular_file(
+                        path,
+                        expected=metadata,
+                    )
+                    counters["files"] += 1
+                    counters["bytes"] += file_size
+                    if (
+                        counters["files"] > _MAX_WORKSPACE_FILES
+                        or counters["bytes"] > _MAX_WORKSPACE_TOTAL_BYTES
+                    ):
+                        raise _Blocked("workspace_invalid")
+                    entries.append(
+                        ProjectDirectorBoundedReworkWorkspaceBusinessEntry(
+                            relative_path=relative,
+                            entry_type="file",
+                            file_size=file_size,
+                            content_sha256=content_sha256,
+                        )
+                    )
                 else:
                     raise _Blocked("workspace_invalid")
+            try:
+                after = directory.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise _Blocked("workspace_invalid") from exc
+            if self._stat_identity(before) != self._stat_identity(after):
+                raise _Blocked("workspace_invalid")
 
-        walk(workspace)
-        return tuple(entries)
+        try:
+            walk(workspace)
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise _Blocked("workspace_invalid") from exc
+        inventory = tuple(sorted(entries, key=lambda item: item.relative_path))
+        return _WorkspaceBusinessIdentity(
+            manifest_fingerprint=(
+                ProjectDirectorBoundedReworkCandidateManifest.compute_workspace_business_manifest_fingerprint(
+                    inventory
+                )
+            ),
+            content_fingerprint=(
+                ProjectDirectorBoundedReworkCandidateManifest.compute_workspace_business_content_fingerprint(
+                    inventory
+                )
+            ),
+            inventory=inventory,
+        )
+
+    @staticmethod
+    def _validate_internal_control_tree(path: Path) -> None:
+        try:
+            before = path.stat(follow_symlinks=False)
+            if (
+                not stat.S_ISDIR(before.st_mode)
+                or stat.S_ISLNK(before.st_mode)
+                or path.resolve(strict=True) != path
+            ):
+                raise OSError("internal control directory identity is invalid")
+            with os.scandir(path) as iterator:
+                children = list(iterator)
+            if len(children) != 1 or children[0].name != "workspace-manifest.json":
+                raise OSError("internal control directory has unexpected entries")
+            manifest_path = Path(children[0].path)
+            manifest_stat = children[0].stat(follow_symlinks=False)
+            if (
+                not stat.S_ISREG(manifest_stat.st_mode)
+                or stat.S_ISLNK(manifest_stat.st_mode)
+                or manifest_stat.st_nlink != 1
+                or manifest_stat.st_size > _MAX_INTERNAL_MANIFEST_BYTES
+                or manifest_path.resolve(strict=True) != manifest_path
+            ):
+                raise OSError("internal manifest identity is invalid")
+            after = path.stat(follow_symlinks=False)
+            if ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(
+                before
+            ) != ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(after):
+                raise OSError("internal control directory changed during inspection")
+        except OSError as exc:
+            raise _Blocked("workspace_invalid") from exc
+
+    @staticmethod
+    def _hash_business_regular_file(
+        path: Path,
+        *,
+        expected: os.stat_result,
+    ) -> tuple[int, str]:
+        if expected.st_size > _MAX_WORKSPACE_FILE_BYTES:
+            raise _Blocked("workspace_invalid")
+        flags = os.O_RDONLY
+        if not hasattr(os, "O_NOFOLLOW"):
+            raise _Blocked("workspace_invalid")
+        flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as exc:
+            raise _Blocked("workspace_invalid") from exc
+        digest = hashlib.sha256()
+        read_bytes = 0
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(
+                    expected
+                )
+                != ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(
+                    opened
+                )
+            ):
+                raise _Blocked("workspace_invalid")
+            while True:
+                chunk = os.read(descriptor, _READ_CHUNK_BYTES)
+                if not chunk:
+                    break
+                read_bytes += len(chunk)
+                if read_bytes > _MAX_WORKSPACE_FILE_BYTES:
+                    raise _Blocked("workspace_invalid")
+                digest.update(chunk)
+            after = os.fstat(descriptor)
+        except OSError as exc:
+            raise _Blocked("workspace_invalid") from exc
+        finally:
+            os.close(descriptor)
+        if (
+            read_bytes != expected.st_size
+            or ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(
+                expected
+            )
+            != ProjectDirectorBoundedReworkCandidateDiffService._stat_identity(after)
+        ):
+            raise _Blocked("workspace_invalid")
+        return read_bytes, digest.hexdigest()
 
     def _load_persisted_records(
         self,
@@ -1070,7 +1496,9 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         outcome = lineage.outcome
         package = lineage.package
         if (
-            manifest.candidate_manifest_id != outcome.candidate_manifest_id
+            manifest.source_outcome_id != outcome.outcome_id
+            or manifest.created_at != outcome.created_at
+            or manifest.candidate_manifest_id != outcome.candidate_manifest_id
             or manifest.candidate_manifest_fingerprint
             != outcome.candidate_manifest_fingerprint
             or manifest.source_outcome_fingerprint != outcome.outcome_fingerprint
@@ -1100,6 +1528,8 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             != outcome.workspace_after_content_fingerprint
             or candidate_diff.source_outcome_fingerprint
             != outcome.outcome_fingerprint
+            or candidate_diff.source_outcome_id != outcome.outcome_id
+            or candidate_diff.created_at != outcome.created_at
             or candidate_diff.candidate_manifest_id
             != manifest.candidate_manifest_id
             or candidate_diff.candidate_manifest_fingerprint
@@ -1170,7 +1600,15 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                     raise _Blocked("workspace_invalid")
             elif current is None or current.content_sha256 != entry.content_sha256:
                 raise _Blocked("workspace_invalid")
-        self._workspace_inventory(workspace)
+        business_identity = self._workspace_business_identity(workspace)
+        if (
+            business_identity.inventory != manifest.workspace_business_inventory
+            or business_identity.manifest_fingerprint
+            != manifest.workspace_business_manifest_fingerprint
+            or business_identity.content_fingerprint
+            != manifest.workspace_business_content_fingerprint
+        ):
+            raise _Blocked("workspace_invalid")
 
     def _iter_session_messages(self, session_id: UUID) -> list[ProjectDirectorMessage]:
         messages: list[ProjectDirectorMessage] = []
@@ -1333,7 +1771,47 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         manifest_path: Path | None,
         original_manifest: _ManifestFileState | None,
         written_manifest_bytes: bytes | None,
+        write_receipt: _ManifestWriteReceipt | None,
+        lineage: _P25GLineage,
+        lock_descriptor: int,
+        candidate_manifest: ProjectDirectorBoundedReworkCandidateManifest | None,
+        candidate_diff: ProjectDirectorBoundedReworkCandidateDiff | None,
     ) -> PreparedProjectDirectorBoundedReworkCandidateDiff:
+        try:
+            self._validate_workspace_lock_identity(lock_descriptor, lineage)
+            records = self._load_persisted_records(
+                session_id=lineage.outcome.authority.session_id,
+                source_outcome_id=lineage.outcome.outcome_id,
+            )
+            if records.manifest is not None or records.candidate_diff is not None:
+                if (
+                    candidate_manifest is not None
+                    and candidate_diff is not None
+                    and (
+                        records.manifest != candidate_manifest
+                        or records.candidate_diff != candidate_diff
+                    )
+                ):
+                    raise _Blocked("history_invalid")
+                self._validate_replay_records(records=records, lineage=lineage)
+                self._validate_replay_workspace(records=records, lineage=lineage)
+                self._rollback_read_transaction()
+                return self._replayed(records)
+            self._rollback_read_transaction()
+        except (
+            SQLAlchemyError,
+            OSError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+            ValidationError,
+        ):
+            self._rollback_read_transaction()
+            return self._blocked(
+                "human_escalation_required",
+                recovery_required=True,
+                human_escalation_required=True,
+            )
         if (
             manifest_path is None
             or original_manifest is None
@@ -1345,17 +1823,25 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             if (
                 current.content_sha256 == original_manifest.content_sha256
                 and current.content == original_manifest.content
+                and self._stat_identity(current.stat_result)
+                == self._stat_identity(original_manifest.stat_result)
             ):
                 return self._blocked(reason)
-            if current.content != written_manifest_bytes:
-                return self._blocked(
-                    "human_escalation_required",
-                    recovery_required=True,
-                    human_escalation_required=True,
-                )
-            self._atomic_replace_manifest(
+            written_sha256 = hashlib.sha256(written_manifest_bytes).hexdigest()
+            if (
+                write_receipt is None
+                or not write_receipt.replaced_by_call
+                or current.content != written_manifest_bytes
+                or current.content_sha256 != written_sha256
+                or self._stat_identity(current.stat_result)
+                != self._stat_identity(write_receipt.state.stat_result)
+            ):
+                raise OSError("internal manifest rollback ownership is absent")
+            self._validate_workspace_lock_identity(lock_descriptor, lineage)
+            self._compare_and_replace_manifest(
                 path=manifest_path,
-                content=original_manifest.content,
+                expected=write_receipt.state,
+                desired=original_manifest.content,
                 mode=stat.S_IMODE(original_manifest.stat_result.st_mode),
             )
             restored = self._read_manifest_state(manifest_path)
@@ -1392,8 +1878,18 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         parts = PurePosixPath(path).parts
         return bool(
             parts
-            and parts[0]
-            in {".git", ".ai-project-director", ".ai-dev-orchestrator", ".orchestrator"}
+            and any(
+                part
+                in {
+                    ".git",
+                    ".ai-project-director",
+                    ".ai-dev-orchestrator",
+                    ".orchestrator",
+                    "workspace-manifest.json",
+                    "workspace_manifest.json",
+                }
+                for part in parts
+            )
         )
 
     def _rollback_read_transaction(self) -> None:

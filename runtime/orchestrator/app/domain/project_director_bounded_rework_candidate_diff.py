@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from typing import Literal, TypeAlias
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
@@ -36,6 +36,9 @@ P25_BOUNDED_REWORK_CANDIDATE_DIFF_SCHEMA_VERSION = "p25-g-candidate-diff.v1"
 P25_BOUNDED_REWORK_CANDIDATE_DIFF_REPLAY_SCHEMA_VERSION = (
     "p25-g-candidate-diff-replay.v1"
 )
+P25_BOUNDED_REWORK_CANDIDATE_DIFF_NAMESPACE = UUID(
+    "629d94ab-0673-5bee-99d9-a9af55f50b18"
+)
 P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH = (
     ".ai-project-director/workspace-manifest.json"
 )
@@ -46,6 +49,40 @@ CandidateDiffNonConvergenceReason: TypeAlias = Literal[
     "empty_diff",
     "unchanged_diff",
 ]
+WorkspaceBusinessEntryType: TypeAlias = Literal["file", "directory"]
+
+
+class ProjectDirectorBoundedReworkWorkspaceBusinessEntry(DomainModel):
+    """One bounded non-control workspace entry persisted by P25-G."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    relative_path: str = Field(min_length=1, max_length=2_000)
+    entry_type: WorkspaceBusinessEntryType
+    file_size: int | None = Field(default=None, ge=0)
+    content_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @field_validator("relative_path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return validate_repository_relative_path(value)
+
+    @field_validator("content_sha256")
+    @classmethod
+    def validate_content_hash(cls, value: str | None) -> str | None:
+        return require_optional_sha256(
+            value,
+            label="P25-G workspace business content hash",
+        )
+
+    @model_validator(mode="after")
+    def validate_entry(self) -> "ProjectDirectorBoundedReworkWorkspaceBusinessEntry":
+        if self.entry_type == "directory":
+            if self.file_size is not None or self.content_sha256 is not None:
+                raise ValueError("business directories cannot carry file content")
+        elif self.file_size is None or self.content_sha256 is None:
+            raise ValueError("business files require size and content identity")
+        return self
 
 
 class ProjectDirectorBoundedReworkCandidateManifestEntry(DomainModel):
@@ -112,6 +149,18 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
     workspace_before_content_fingerprint: str = Field(min_length=64, max_length=64)
     workspace_after_manifest_fingerprint: str = Field(min_length=64, max_length=64)
     workspace_after_content_fingerprint: str = Field(min_length=64, max_length=64)
+    workspace_business_manifest_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+    )
+    workspace_business_content_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+    )
+    workspace_business_inventory: tuple[
+        ProjectDirectorBoundedReworkWorkspaceBusinessEntry,
+        ...,
+    ]
 
     changed_files: tuple[ProjectDirectorBoundedReworkCandidateManifestEntry, ...]
     internal_manifest_file_path: Literal[
@@ -136,6 +185,8 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
         "workspace_before_content_fingerprint",
         "workspace_after_manifest_fingerprint",
         "workspace_after_content_fingerprint",
+        "workspace_business_manifest_fingerprint",
+        "workspace_business_content_fingerprint",
         "internal_manifest_content_sha256",
     )
     @classmethod
@@ -161,6 +212,41 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
         validate_unique_paths(paths, allow_empty=False)
         if paths != tuple(sorted(paths)):
             raise ValueError("P25-G manifest entries must be sorted")
+        business_paths = tuple(
+            item.relative_path for item in self.workspace_business_inventory
+        )
+        validate_unique_paths(business_paths, allow_empty=True)
+        if business_paths != tuple(sorted(business_paths)):
+            raise ValueError("P25-G workspace business entries must be sorted")
+        expected_business_manifest = (
+            self.compute_workspace_business_manifest_fingerprint(
+                self.workspace_business_inventory
+            )
+        )
+        expected_business_content = (
+            self.compute_workspace_business_content_fingerprint(
+                self.workspace_business_inventory
+            )
+        )
+        if (
+            self.workspace_business_manifest_fingerprint
+            != expected_business_manifest
+            or self.workspace_business_content_fingerprint
+            != expected_business_content
+        ):
+            raise ValueError("P25-G workspace business identity does not match")
+        business_files = {
+            item.relative_path: item
+            for item in self.workspace_business_inventory
+            if item.entry_type == "file"
+        }
+        for entry in self.changed_files:
+            current = business_files.get(entry.relative_path)
+            if entry.deleted:
+                if current is not None:
+                    raise ValueError("deleted candidate path remains in business inventory")
+            elif current is None or current.content_sha256 != entry.content_sha256:
+                raise ValueError("candidate content does not match business inventory")
         expected_identity = self.compute_candidate_manifest_identity_fingerprint(
             candidate_manifest_id=self.candidate_manifest_id,
             source_claim_id=self.source_claim_id,
@@ -189,6 +275,13 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
             workspace_after_content_fingerprint=(
                 self.workspace_after_content_fingerprint
             ),
+            workspace_business_manifest_fingerprint=(
+                self.workspace_business_manifest_fingerprint
+            ),
+            workspace_business_content_fingerprint=(
+                self.workspace_business_content_fingerprint
+            ),
+            workspace_business_inventory=self.workspace_business_inventory,
             changed_files=self.changed_files,
         )
         if self.candidate_manifest_replay_key != expected_replay:
@@ -247,6 +340,12 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
         candidate_manifest_fingerprint: str,
         workspace_after_manifest_fingerprint: str,
         workspace_after_content_fingerprint: str,
+        workspace_business_manifest_fingerprint: str,
+        workspace_business_content_fingerprint: str,
+        workspace_business_inventory: tuple[
+            ProjectDirectorBoundedReworkWorkspaceBusinessEntry,
+            ...,
+        ],
         changed_files: tuple[ProjectDirectorBoundedReworkCandidateManifestEntry, ...],
     ) -> str:
         return compute_p25_contract_sha256(
@@ -264,7 +363,51 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
                 "workspace_after_content_fingerprint": (
                     workspace_after_content_fingerprint
                 ),
+                "workspace_business_manifest_fingerprint": (
+                    workspace_business_manifest_fingerprint
+                ),
+                "workspace_business_content_fingerprint": (
+                    workspace_business_content_fingerprint
+                ),
+                "workspace_business_inventory": workspace_business_inventory,
                 "changed_files": changed_files,
+            }
+        )
+
+    @staticmethod
+    def compute_workspace_business_manifest_fingerprint(
+        inventory: tuple[ProjectDirectorBoundedReworkWorkspaceBusinessEntry, ...],
+    ) -> str:
+        return compute_p25_contract_sha256(
+            {
+                "schema_version": "p25-g-workspace-business-manifest.v1",
+                "entries": [
+                    {
+                        "relative_path": entry.relative_path,
+                        "entry_type": entry.entry_type,
+                        "file_size": entry.file_size,
+                    }
+                    for entry in inventory
+                ],
+            }
+        )
+
+    @staticmethod
+    def compute_workspace_business_content_fingerprint(
+        inventory: tuple[ProjectDirectorBoundedReworkWorkspaceBusinessEntry, ...],
+    ) -> str:
+        return compute_p25_contract_sha256(
+            {
+                "schema_version": "p25-g-workspace-business-content.v1",
+                "files": [
+                    {
+                        "relative_path": entry.relative_path,
+                        "file_size": entry.file_size,
+                        "content_sha256": entry.content_sha256,
+                    }
+                    for entry in inventory
+                    if entry.entry_type == "file"
+                ],
             }
         )
 
@@ -422,6 +565,16 @@ class ProjectDirectorBoundedReworkCandidateDiff(DomainModel):
             raise ValueError("P25-G diff must bind the authority's exact Task and Run")
         if self.rework_attempt_limit != P25_BOUNDED_REWORK_ATTEMPT_LIMIT:
             raise ValueError("P25-G diff attempt limit must equal three")
+        if self.candidate_diff_id in {
+            self.source_outcome_id,
+            self.source_claim_id,
+            self.source_reservation_id,
+            self.source_package_id,
+            self.candidate_manifest_id,
+            self.exact_task_id,
+            self.exact_run_id,
+        }:
+            raise ValueError("P25-G diff identity must be distinct from its lineage")
         entry_paths = tuple(item.relative_path for item in self.diff_entries)
         validate_unique_paths(entry_paths, allow_empty=False)
         if entry_paths != self.scope_paths:
@@ -466,6 +619,11 @@ class ProjectDirectorBoundedReworkCandidateDiff(DomainModel):
             new_diff_sha256=self.new_diff_sha256,
         ):
             raise ValueError("P25-G candidate diff replay key does not match")
+        if self.candidate_diff_id != uuid5(
+            P25_BOUNDED_REWORK_CANDIDATE_DIFF_NAMESPACE,
+            self.candidate_diff_replay_key,
+        ):
+            raise ValueError("P25-G candidate diff identity is not deterministic")
         if self.candidate_diff_fingerprint != self.compute_fingerprint():
             raise ValueError("P25-G candidate diff fingerprint does not match")
         return self
@@ -503,6 +661,7 @@ __all__ = (
     "CandidateDiffStatus",
     "CandidateFileOperation",
     "P25_BOUNDED_REWORK_CANDIDATE_DIFF_REPLAY_SCHEMA_VERSION",
+    "P25_BOUNDED_REWORK_CANDIDATE_DIFF_NAMESPACE",
     "P25_BOUNDED_REWORK_CANDIDATE_DIFF_SCHEMA_VERSION",
     "P25_BOUNDED_REWORK_CANDIDATE_MANIFEST_IDENTITY_SCHEMA_VERSION",
     "P25_BOUNDED_REWORK_CANDIDATE_MANIFEST_REPLAY_SCHEMA_VERSION",
@@ -512,4 +671,6 @@ __all__ = (
     "ProjectDirectorBoundedReworkCandidateDiffEntry",
     "ProjectDirectorBoundedReworkCandidateManifest",
     "ProjectDirectorBoundedReworkCandidateManifestEntry",
+    "ProjectDirectorBoundedReworkWorkspaceBusinessEntry",
+    "WorkspaceBusinessEntryType",
 )
