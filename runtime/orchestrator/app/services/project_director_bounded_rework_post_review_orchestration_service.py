@@ -96,6 +96,23 @@ class ProjectDirectorBoundedReworkPostReviewOrchestrationService:
                 blocked_reasons=revalidated.blocked_reasons,
             )
 
+        existing_summary = self._post_review_automation_service.revalidate_existing_post_review_summary(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_review_outcome_message_id,
+        )
+        if existing_summary.blocked_reasons:
+            return OrchestratedProjectDirectorBoundedReworkPostReview(
+                status="blocked",
+                source_review_outcome=revalidated.review_outcome,
+                source_review_outcome_message=revalidated.review_outcome_message,
+                disposition=None,
+                disposition_message=None,
+                p22_summary=None,
+                p22_summary_message=None,
+                blocked_reasons=existing_summary.blocked_reasons,
+            )
+
         disposition = self._disposition_service.compute_candidate_diff_review_disposition(
             session_id=session_id,
             source_task_id=source_task_id,
@@ -118,9 +135,37 @@ class ProjectDirectorBoundedReworkPostReviewOrchestrationService:
             source_task_id=source_task_id,
             source_review_message_id=source_review_outcome_message_id,
         )
+        persisted_summary = self._post_review_automation_service.revalidate_existing_post_review_summary(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_review_outcome_message_id,
+        )
+        summary_identity_conflict = bool(
+            persisted_summary.blocked_reasons
+            or not persisted_summary.summary_exists
+            or p22.message is None
+            or persisted_summary.message is None
+            or persisted_summary.message.id != p22.message.id
+            or (
+                existing_summary.summary_exists
+                and existing_summary.message is not None
+                and persisted_summary.message.id != existing_summary.message.id
+            )
+        )
+        if summary_identity_conflict:
+            return OrchestratedProjectDirectorBoundedReworkPostReview(
+                status="blocked",
+                source_review_outcome=revalidated.review_outcome,
+                source_review_outcome_message=revalidated.review_outcome_message,
+                disposition=disposition.result,
+                disposition_message=disposition.message,
+                p22_summary=p22.result,
+                p22_summary_message=p22.message,
+                blocked_reasons=("post_review_orchestration_replay_conflict",),
+            )
         if p22.result.orchestration_status == "blocked":
             status: BoundedReworkPostReviewOrchestrationStatus = "blocked"
-        elif p22.result.resumed_from_existing_evidence:
+        elif existing_summary.summary_exists:
             status = "post_review_replayed"
         else:
             status = "post_review_orchestrated"

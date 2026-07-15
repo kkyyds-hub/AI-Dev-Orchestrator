@@ -102,6 +102,16 @@ class PreparedProjectDirectorPostReviewAutomation:
 
 
 @dataclass(frozen=True, slots=True)
+class RevalidatedProjectDirectorPostReviewSummary:
+    """Readonly exact-summary lookup for one persisted review identity."""
+
+    summary_exists: bool
+    result: ProjectDirectorPostReviewAutomationResult | None
+    message: ProjectDirectorMessage | None
+    blocked_reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _StepContract:
     source_detail: str
     intent: str
@@ -209,6 +219,49 @@ class ProjectDirectorPostReviewAutomationService:
         self._handoff_service = handoff_service
         self._human_escalation_package_service = human_escalation_package_service
         self._freshness_service = freshness_service
+
+    def revalidate_existing_post_review_summary(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_message_id: UUID,
+    ) -> RevalidatedProjectDirectorPostReviewSummary:
+        """Return missing, one exact valid summary, or a fail-closed conflict."""
+
+        caller_had_transaction = self._message_repository._session.in_transaction()
+        try:
+            summary = self._scan_summary(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=source_review_message_id,
+            )
+        finally:
+            if (
+                not caller_had_transaction
+                and self._message_repository._session.in_transaction()
+            ):
+                self._message_repository._session.rollback()
+        if summary.conflict:
+            return RevalidatedProjectDirectorPostReviewSummary(
+                summary_exists=False,
+                result=None,
+                message=None,
+                blocked_reasons=("post_review_orchestration_replay_conflict",),
+            )
+        if summary.result is None or summary.message is None:
+            return RevalidatedProjectDirectorPostReviewSummary(
+                summary_exists=False,
+                result=None,
+                message=None,
+                blocked_reasons=(),
+            )
+        return RevalidatedProjectDirectorPostReviewSummary(
+            summary_exists=True,
+            result=summary.result,
+            message=summary.message,
+            blocked_reasons=(),
+        )
 
     def orchestrate_post_review(
         self,
@@ -1122,4 +1175,5 @@ __all__ = (
     "P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL",
     "PreparedProjectDirectorPostReviewAutomation",
     "ProjectDirectorPostReviewAutomationService",
+    "RevalidatedProjectDirectorPostReviewSummary",
 )

@@ -12,6 +12,10 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from app.domain.project_director_bounded_rework_review_reentry import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION,
+    ProjectDirectorBoundedReworkReviewInvocationOutcome,
+)
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
     ProjectDirectorMessageRiskLevel,
@@ -35,6 +39,12 @@ from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
 from app.repositories.task_repository import TaskRepository
+from app.services.project_director_bounded_rework_review_execution_service import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE,
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL,
+    ProjectDirectorBoundedReworkReviewExecutionService,
+)
 from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
     P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
     P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL,
@@ -129,6 +139,7 @@ class _ValidatedEscalationDispositionEvidence:
 
 @dataclass(frozen=True, slots=True)
 class _ValidatedStrictReviewEvidence:
+    source_review_kind: str
     output: ProjectDirectorSandboxCandidateDiffValidatedReviewOutput
     source_preflight_message_id: UUID
     source_diff_message_id: UUID
@@ -137,6 +148,14 @@ class _ValidatedStrictReviewEvidence:
     review_prompt_sha256: str
     review_scope_paths: list[str]
     review_output_schema_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedReviewSource:
+    source_review_kind: str
+    message: ProjectDirectorMessage
+    action: dict[str, Any]
+    outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome | None = None
 
 
 class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
@@ -389,14 +408,14 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         source_review_message = self._message_repository.get_by_id(
             evidence.source_review_message_id
         )
-        source_review_action = self._source_review_action(
+        source_review = self._source_review_action(
             source_review_message=source_review_message,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=blocked_reasons,
         )
         blocked_reasons = self._dedupe(blocked_reasons)
-        if blocked_reasons or source_review_action is None:
+        if blocked_reasons or source_review is None:
             return blocked_result()
 
         revalidate_fingerprint = (
@@ -426,7 +445,7 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             return blocked_result()
 
         review_evidence = self._strict_review_evidence(
-            source_review_action=source_review_action,
+            source_review=source_review,
             session_id=session_id,
             source_task_id=source_task_id,
             blocked_reasons=blocked_reasons,
@@ -435,7 +454,11 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             review_evidence is not None
             and not self._strict_review_binding_matches(evidence, review_evidence)
         ):
-            blocked_reasons.append("exact_p21_c_review_evidence_binding_mismatch")
+            blocked_reasons.append(
+                "exact_p21_c_review_evidence_binding_mismatch"
+                if review_evidence.source_review_kind == "p21_c"
+                else "exact_p25_h_review_evidence_binding_mismatch"
+            )
         blocked_reasons = self._dedupe(blocked_reasons)
         if blocked_reasons or review_evidence is None:
             return blocked_result()
@@ -516,7 +539,8 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
                 role=ProjectDirectorMessageRole.ASSISTANT,
                 content=(
                     "A single-source human escalation package was prepared from "
-                    "exact persisted P21-D-B and P21-C evidence and is waiting for "
+                    "exact persisted P21-D-B and validated review evidence and is "
+                    "waiting for "
                     "a future structured human decision. No human decision has "
                     "been recorded, no execution has started, and no file write, "
                     "patch, or Git write has been authorized. "
@@ -760,7 +784,7 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         session_id: UUID,
         source_task_id: UUID,
         blocked_reasons: list[str],
-    ) -> dict[str, Any] | None:
+    ) -> _NormalizedReviewSource | None:
         if source_review_message is None:
             blocked_reasons.append("source_review_message_missing")
             return None
@@ -772,11 +796,6 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             blocked_reasons.append("source_review_message_role_invalid")
         if source_review_message.source != ProjectDirectorMessageSource.SYSTEM:
             blocked_reasons.append("source_review_message_source_invalid")
-        if (
-            source_review_message.intent
-            != "sandbox_candidate_diff_readonly_review_execution"
-        ):
-            blocked_reasons.append("source_review_message_intent_invalid")
         if source_review_message.requires_confirmation is not False:
             blocked_reasons.append(
                 "source_review_message_confirmation_contract_invalid"
@@ -786,6 +805,90 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             != ProjectDirectorMessageRiskLevel.HIGH
         ):
             blocked_reasons.append("source_review_message_risk_level_invalid")
+
+        p25_marked = bool(
+            source_review_message.intent == P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT
+            or source_review_message.source_detail
+            == P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL
+            or any(
+                isinstance(action, dict)
+                and (
+                    action.get("type")
+                    == P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE
+                    or action.get("schema_version")
+                    == P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION
+                )
+                for action in source_review_message.suggested_actions
+            )
+        )
+        if p25_marked:
+            if (
+                source_review_message.intent
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT
+                or source_review_message.source_detail
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL
+                or len(source_review_message.suggested_actions) != 1
+                or not isinstance(source_review_message.suggested_actions[0], dict)
+                or source_review_message.suggested_actions[0].get("type")
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE
+                or source_review_message.suggested_actions[0].get("schema_version")
+                != P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION
+            ):
+                blocked_reasons.append("p25_h_review_outcome_marker_invalid")
+                return None
+            action = source_review_message.suggested_actions[0]
+            payload = dict(action)
+            payload.pop("type", None)
+            try:
+                outcome = (
+                    ProjectDirectorBoundedReworkReviewInvocationOutcome.model_validate(
+                        payload
+                    )
+                )
+            except (TypeError, ValueError, ValidationError):
+                blocked_reasons.append("p25_h_review_outcome_domain_invalid")
+                return None
+            if not ProjectDirectorBoundedReworkReviewExecutionService.persisted_review_invocation_outcome_message_is_valid(
+                source_review_message,
+                outcome,
+            ):
+                blocked_reasons.append("p25_h_review_outcome_message_invalid")
+            if (
+                outcome.authority.session_id != session_id
+                or outcome.exact_task_id != source_task_id
+            ):
+                blocked_reasons.append("p25_h_review_outcome_authority_mismatch")
+            if (
+                outcome.review_outcome_fingerprint != outcome.compute_fingerprint()
+                or outcome.review_result_fingerprint
+                != ProjectDirectorBoundedReworkReviewExecutionService.rebuild_persisted_review_result_fingerprint(
+                    outcome
+                )
+            ):
+                blocked_reasons.append("p25_h_review_outcome_fingerprint_mismatch")
+            if (
+                outcome.outcome_status != "validated_output"
+                or outcome.adapter_result is None
+                or outcome.adapter_result.adapter_status != "validated_output"
+                or not self._is_sha256(outcome.review_semantic_fingerprint)
+                or outcome.recovery_required is not False
+                or outcome.human_escalation_required is not False
+                or outcome.safe_error_code is not None
+                or outcome.blocked_reasons
+            ):
+                blocked_reasons.append("p25_h_review_outcome_not_validated")
+            return _NormalizedReviewSource(
+                source_review_kind="p25_h",
+                message=source_review_message,
+                action=action,
+                outcome=outcome,
+            )
+
+        if (
+            source_review_message.intent
+            != "sandbox_candidate_diff_readonly_review_execution"
+        ):
+            blocked_reasons.append("source_review_message_intent_invalid")
         if (
             source_review_message.source_detail
             != P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL
@@ -804,18 +907,27 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         ):
             blocked_reasons.append("p21_c_readonly_review_execution_record_missing")
             return None
-        return action
+        return _NormalizedReviewSource(
+            source_review_kind="p21_c",
+            message=source_review_message,
+            action=action,
+        )
 
     @classmethod
     def _strict_review_evidence(
         cls,
         *,
-        source_review_action: dict[str, Any],
+        source_review: _NormalizedReviewSource,
         session_id: UUID,
         source_task_id: UUID,
         blocked_reasons: list[str],
     ) -> _ValidatedStrictReviewEvidence | None:
-        action = source_review_action
+        if source_review.source_review_kind == "p25_h":
+            return cls._strict_p25_h_review_evidence(
+                source_review=source_review,
+                blocked_reasons=blocked_reasons,
+            )
+        action = source_review.action
 
         source_preflight_message_id = cls._uuid_from_action(
             action, "source_preflight_message_id"
@@ -870,6 +982,7 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
         ):
             return None
         return _ValidatedStrictReviewEvidence(
+            source_review_kind="p21_c",
             output=output,
             source_preflight_message_id=source_preflight_message_id,
             source_diff_message_id=source_diff_message_id,
@@ -878,6 +991,61 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
             review_prompt_sha256=review_prompt_sha256,
             review_scope_paths=review_scope_paths,
             review_output_schema_version=review_output_schema_version,
+        )
+
+    @classmethod
+    def _strict_p25_h_review_evidence(
+        cls,
+        *,
+        source_review: _NormalizedReviewSource,
+        blocked_reasons: list[str],
+    ) -> _ValidatedStrictReviewEvidence | None:
+        outcome = source_review.outcome
+        adapter_result = outcome.adapter_result if outcome is not None else None
+        if outcome is None or adapter_result is None:
+            blocked_reasons.append("p25_h_review_outcome_not_validated")
+            return None
+
+        review_scope_paths = list(outcome.review_scope_paths)
+        if (
+            outcome.requested_reviewer_executor not in _VALID_REVIEWER_EXECUTORS
+            or not cls._is_sha256(outcome.source_candidate_diff_sha256)
+            or not cls._is_sha256(outcome.review_prompt_sha256)
+            or not review_scope_paths
+            or outcome.review_output_schema_version != REVIEW_OUTPUT_SCHEMA_VERSION
+        ):
+            blocked_reasons.append("source_review_binding_invalid")
+
+        output_payload = {
+            "review_status": adapter_result.review_status,
+            "verdict": adapter_result.verdict,
+            "risk_level": adapter_result.risk_level,
+            "summary": adapter_result.summary,
+            "findings": [
+                finding.model_dump(mode="python")
+                for finding in adapter_result.findings
+            ],
+            "recommended_next_step": adapter_result.recommended_next_step,
+        }
+        try:
+            output = ProjectDirectorSandboxCandidateDiffValidatedReviewOutput.model_validate(
+                output_payload
+            )
+        except ValidationError:
+            blocked_reasons.append("source_review_strict_output_invalid")
+            return None
+        if blocked_reasons:
+            return None
+        return _ValidatedStrictReviewEvidence(
+            source_review_kind="p25_h",
+            output=output,
+            source_preflight_message_id=outcome.preflight_id,
+            source_diff_message_id=outcome.source_candidate_diff_message_id,
+            requested_reviewer_executor=outcome.requested_reviewer_executor,
+            source_diff_sha256=outcome.source_candidate_diff_sha256,
+            review_prompt_sha256=outcome.review_prompt_sha256,
+            review_scope_paths=review_scope_paths,
+            review_output_schema_version=outcome.review_output_schema_version,
         )
 
     def _prior_escalation_package_exists(
