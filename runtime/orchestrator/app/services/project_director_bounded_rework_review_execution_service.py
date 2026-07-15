@@ -439,6 +439,93 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
                 caller_had_transaction=caller_had_transaction
             )
 
+    def revalidate_review_outcome_for_candidate_diff(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_candidate_diff_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkReviewOutcome:
+        """Locate the unique H-B attempt/outcome bound to one candidate diff."""
+
+        caller_had_transaction = self._message_repository._session.in_transaction()
+        try:
+            history = self._load_history(session_id)
+            attempts = [
+                item
+                for item in history.attempts
+                if item[1].source_candidate_diff_message_id
+                == source_candidate_diff_message_id
+            ]
+            outcomes = [
+                item
+                for item in history.outcomes
+                if item[1].source_candidate_diff_message_id
+                == source_candidate_diff_message_id
+            ]
+            if len(attempts) > 1 or len(outcomes) > 1:
+                raise _Blocked("history_invalid")
+            if not attempts:
+                if outcomes:
+                    raise _Blocked("history_invalid")
+                return self._revalidated_outcome_result(
+                    status="blocked",
+                    blocked_reasons=("review_reentry_failed",),
+                )
+
+            attempt_message, attempt = attempts[0]
+            if attempt.exact_task_id != source_task_id or any(
+                outcome.exact_task_id != source_task_id
+                for _, outcome in outcomes
+            ):
+                raise _Blocked("history_invalid")
+            if outcomes and outcomes[0][1].review_attempt_id != attempt.review_attempt_id:
+                raise _Blocked("history_invalid")
+            outcome_message_id = (
+                outcomes[0][0].id
+                if outcomes
+                else uuid5(
+                    P25_BOUNDED_REWORK_REVIEW_OUTCOME_NAMESPACE,
+                    attempt.review_attempt_replay_key,
+                )
+            )
+            result = self.revalidate_persisted_review_invocation_outcome(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_outcome_message_id=outcome_message_id,
+            )
+            if (
+                result.review_attempt is not None
+                and (
+                    result.review_attempt != attempt
+                    or result.review_attempt_message != attempt_message
+                    or result.review_attempt.source_candidate_diff_message_id
+                    != source_candidate_diff_message_id
+                )
+            ):
+                raise _Blocked("history_invalid")
+            if (
+                result.review_outcome is not None
+                and result.review_outcome.source_candidate_diff_message_id
+                != source_candidate_diff_message_id
+            ):
+                raise _Blocked("history_invalid")
+            return result
+        except _Blocked as exc:
+            return self._revalidated_outcome_result(
+                status="blocked",
+                blocked_reasons=(str(exc.reason),),
+            )
+        except (SQLAlchemyError, OSError, RuntimeError, TypeError, ValueError, ValidationError):
+            return self._revalidated_outcome_result(
+                status="blocked",
+                blocked_reasons=("history_invalid",),
+            )
+        finally:
+            self._cleanup_local_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
+
     def _execute_once(
         self,
         *,

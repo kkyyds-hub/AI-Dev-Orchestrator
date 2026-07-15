@@ -281,6 +281,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             source_task_id=source_task_id,
             source_candidate_diff_message_id=source_candidate_diff_message_id,
             validate_workspace=True,
+            allow_non_convergence=False,
             transaction_cleanup_mode="cleanup_local_read_transaction",
         )
 
@@ -298,6 +299,43 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             source_task_id=source_task_id,
             source_candidate_diff_message_id=source_candidate_diff_message_id,
             validate_workspace=False,
+            allow_non_convergence=False,
+            transaction_cleanup_mode="preserve_caller_transaction",
+        )
+
+    def revalidate_persisted_candidate_diff_for_convergence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_candidate_diff_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+        """Rebuild immutable P25-G lineage for a readonly convergence decision."""
+
+        return self._revalidate_persisted_candidate_diff(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_candidate_diff_message_id=source_candidate_diff_message_id,
+            validate_workspace=False,
+            allow_non_convergence=True,
+            transaction_cleanup_mode="cleanup_local_read_transaction",
+        )
+
+    def revalidate_persisted_candidate_diff_for_convergence_persistence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_candidate_diff_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkCandidateDiff:
+        """Rebuild convergence lineage without closing the caller's transaction."""
+
+        return self._revalidate_persisted_candidate_diff(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_candidate_diff_message_id=source_candidate_diff_message_id,
+            validate_workspace=False,
+            allow_non_convergence=True,
             transaction_cleanup_mode="preserve_caller_transaction",
         )
 
@@ -308,6 +346,7 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         source_task_id: UUID,
         source_candidate_diff_message_id: UUID,
         validate_workspace: bool,
+        allow_non_convergence: bool,
         transaction_cleanup_mode: Literal[
             "cleanup_local_read_transaction",
             "preserve_caller_transaction",
@@ -370,12 +409,13 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             ):
                 raise _Blocked("history_invalid")
             self._validate_replay_records(records=records, lineage=lineage)
-            self._validate_review_reentry_candidate_diff(
+            self._validate_persisted_candidate_diff_lineage(
                 candidate_diff=records.candidate_diff,
                 candidate_diff_message=records.diff_message,
                 candidate_manifest=records.manifest,
                 lineage=lineage,
                 source_candidate_diff_message_id=source_candidate_diff_message_id,
+                allow_non_convergence=allow_non_convergence,
             )
             if validate_workspace:
                 self._validate_replay_workspace(records=records, lineage=lineage)
@@ -1716,17 +1756,18 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             raise _Blocked("history_invalid")
 
     @staticmethod
-    def _validate_review_reentry_candidate_diff(
+    def _validate_persisted_candidate_diff_lineage(
         *,
         candidate_diff: ProjectDirectorBoundedReworkCandidateDiff,
         candidate_diff_message: ProjectDirectorMessage,
         candidate_manifest: ProjectDirectorBoundedReworkCandidateManifest,
         lineage: _P25GLineage,
         source_candidate_diff_message_id: UUID,
+        allow_non_convergence: bool,
     ) -> None:
         if candidate_diff_message.id != source_candidate_diff_message_id:
             raise _Blocked("authority_invalid")
-        if (
+        if not allow_non_convergence and (
             candidate_diff.diff_status != "generated"
             or candidate_diff.non_convergence_reason is not None
             or not candidate_diff.unified_diff_text
