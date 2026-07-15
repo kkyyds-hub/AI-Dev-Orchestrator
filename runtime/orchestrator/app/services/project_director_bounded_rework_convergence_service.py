@@ -21,6 +21,9 @@ from app.domain.project_director_bounded_rework_convergence import (
 from app.domain.project_director_bounded_rework_contract import (
     compute_p25_contract_sha256,
 )
+from app.domain.project_director_bounded_rework_instruction_package import (
+    ProjectDirectorBoundedReworkInstructionPackage,
+)
 from app.domain.project_director_bounded_rework_review_reentry import (
     ProjectDirectorBoundedReworkReviewInvocationOutcome,
 )
@@ -109,6 +112,20 @@ class ProjectDirectorBoundedReworkConvergenceResult:
 class RevalidatedProjectDirectorBoundedReworkNextAttemptDecision:
     decision: ProjectDirectorBoundedReworkConvergenceDecision | None
     decision_message: ProjectDirectorMessage | None
+    candidate_diff: ProjectDirectorBoundedReworkCandidateDiff | None
+    candidate_diff_message: ProjectDirectorMessage | None
+    review_outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome | None
+    review_outcome_message: ProjectDirectorMessage | None
+    p22_summary: ProjectDirectorPostReviewAutomationResult | None
+    p22_summary_message: ProjectDirectorMessage | None
+    blocked_reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedProjectDirectorBoundedReworkTerminalDecision:
+    decision: ProjectDirectorBoundedReworkConvergenceDecision | None
+    decision_message: ProjectDirectorMessage | None
+    package: ProjectDirectorBoundedReworkInstructionPackage | None
     candidate_diff: ProjectDirectorBoundedReworkCandidateDiff | None
     candidate_diff_message: ProjectDirectorMessage | None
     review_outcome: ProjectDirectorBoundedReworkReviewInvocationOutcome | None
@@ -429,6 +446,167 @@ class ProjectDirectorBoundedReworkConvergenceService:
             return self._empty_next_attempt_revalidation("history_invalid")
         finally:
             if not caller_transaction_active and session.in_transaction():
+                session.rollback()
+
+    def revalidate_terminal_escalation_decision(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_convergence_decision_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkTerminalDecision:
+        """Rebuild one terminal decision using ordinary immutable reads."""
+
+        return self._revalidate_terminal_escalation_decision(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_convergence_decision_message_id=(
+                source_convergence_decision_message_id
+            ),
+            persistence_revalidation=False,
+        )
+
+    def revalidate_terminal_escalation_decision_for_persistence(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_convergence_decision_message_id: UUID,
+    ) -> RevalidatedProjectDirectorBoundedReworkTerminalDecision:
+        """Rebuild one terminal decision without owning the caller transaction."""
+
+        if not self._message_repository._session.in_transaction():
+            return self._empty_terminal_revalidation("persistence_failed")
+        return self._revalidate_terminal_escalation_decision(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_convergence_decision_message_id=(
+                source_convergence_decision_message_id
+            ),
+            persistence_revalidation=True,
+        )
+
+    def _revalidate_terminal_escalation_decision(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_convergence_decision_message_id: UUID,
+        persistence_revalidation: bool,
+    ) -> RevalidatedProjectDirectorBoundedReworkTerminalDecision:
+        session = self._message_repository._session
+        caller_transaction_active = session.in_transaction()
+        try:
+            source_message = self._message_repository.get_by_id(
+                source_convergence_decision_message_id
+            )
+            if source_message is None:
+                return self._empty_terminal_revalidation(
+                    "source_convergence_decision_missing"
+                )
+            try:
+                action = self._decision_action(source_message)
+                if action is None:
+                    raise _Blocked("source_convergence_decision_invalid")
+                payload = dict(action)
+                payload.pop("type", None)
+                source_decision = (
+                    ProjectDirectorBoundedReworkConvergenceDecision.model_validate(
+                        payload
+                    )
+                )
+                if not self._decision_message_valid(
+                    source_message,
+                    source_decision,
+                ):
+                    raise _Blocked("source_convergence_decision_invalid")
+            except (TypeError, ValueError, ValidationError, _Blocked):
+                return self._empty_terminal_revalidation(
+                    "source_convergence_decision_invalid"
+                )
+
+            decisions = [
+                item
+                for item in self._load_decision_history(session_id)
+                if item[1].id == source_convergence_decision_message_id
+            ]
+            if len(decisions) != 1:
+                return self._empty_terminal_revalidation("history_invalid")
+            persisted, persisted_message = decisions[0]
+            if (
+                persisted != source_decision
+                or persisted.authority.session_id != session_id
+                or persisted.authority.source_task_id != source_task_id
+            ):
+                return self._empty_terminal_revalidation(
+                    "source_convergence_decision_invalid"
+                )
+
+            evaluation = self._evaluate(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_candidate_diff_message_id=(
+                    persisted.source_candidate_diff_message_id
+                ),
+                persistence_revalidation=persistence_revalidation,
+            )
+            if evaluation.status != "ready" or evaluation.decision is None:
+                reason = (
+                    evaluation.blocked_reasons[0]
+                    if evaluation.blocked_reasons
+                    else "terminal_escalation_evidence_invalid"
+                )
+                return self._terminal_revalidation_from_evaluation(
+                    evaluation,
+                    decision=persisted,
+                    decision_message=persisted_message,
+                    blocked_reasons=(reason,),
+                )
+
+            rebuilt = evaluation.decision
+            if persisted.model_dump(
+                mode="python",
+                exclude={"created_at"},
+            ) != rebuilt.model_dump(mode="python", exclude={"created_at"}):
+                return self._terminal_revalidation_from_evaluation(
+                    evaluation,
+                    decision=persisted,
+                    decision_message=persisted_message,
+                    blocked_reasons=("source_convergence_decision_invalid",),
+                )
+
+            if persisted.decision_type == "CONVERGED":
+                blocked_reasons = ("convergence_already_terminal",)
+            elif persisted.decision_type == "NEXT_ATTEMPT_ELIGIBLE":
+                blocked_reasons = ("next_attempt_still_eligible",)
+            elif (
+                persisted.decision_type != "ESCALATE_TO_HUMAN"
+                or not persisted.human_escalation_required
+                or not persisted.automatic_processing_terminal
+                or persisted.next_attempt_eligible
+                or persisted.next_rework_attempt_index is not None
+            ):
+                blocked_reasons = ("source_convergence_decision_invalid",)
+            else:
+                blocked_reasons = ()
+            return self._terminal_revalidation_from_evaluation(
+                evaluation,
+                decision=persisted,
+                decision_message=persisted_message,
+                blocked_reasons=blocked_reasons,
+            )
+        except _Blocked:
+            return self._empty_terminal_revalidation("history_invalid")
+        except SQLAlchemyError:
+            return self._empty_terminal_revalidation("persistence_failed")
+        except (RuntimeError, TypeError, ValueError, ValidationError):
+            return self._empty_terminal_revalidation("history_invalid")
+        finally:
+            if (
+                not persistence_revalidation
+                and not caller_transaction_active
+                and session.in_transaction()
+            ):
                 session.rollback()
 
     def _evaluate(
@@ -1122,6 +1300,48 @@ class ProjectDirectorBoundedReworkConvergenceService:
             blocked_reasons=(reason,),
         )
 
+    @staticmethod
+    def _terminal_revalidation_from_evaluation(
+        evaluation: _DecisionEvaluation,
+        *,
+        decision: ProjectDirectorBoundedReworkConvergenceDecision,
+        decision_message: ProjectDirectorMessage,
+        blocked_reasons: tuple[str, ...],
+    ) -> RevalidatedProjectDirectorBoundedReworkTerminalDecision:
+        review = evaluation.review
+        p22 = evaluation.p22
+        return RevalidatedProjectDirectorBoundedReworkTerminalDecision(
+            decision=decision,
+            decision_message=decision_message,
+            package=evaluation.candidate.package,
+            candidate_diff=evaluation.candidate.candidate_diff,
+            candidate_diff_message=evaluation.candidate.candidate_diff_message,
+            review_outcome=(review.review_outcome if review is not None else None),
+            review_outcome_message=(
+                review.review_outcome_message if review is not None else None
+            ),
+            p22_summary=(p22.result if p22 is not None else None),
+            p22_summary_message=(p22.message if p22 is not None else None),
+            blocked_reasons=blocked_reasons,
+        )
+
+    @staticmethod
+    def _empty_terminal_revalidation(
+        reason: str,
+    ) -> RevalidatedProjectDirectorBoundedReworkTerminalDecision:
+        return RevalidatedProjectDirectorBoundedReworkTerminalDecision(
+            decision=None,
+            decision_message=None,
+            package=None,
+            candidate_diff=None,
+            candidate_diff_message=None,
+            review_outcome=None,
+            review_outcome_message=None,
+            p22_summary=None,
+            p22_summary_message=None,
+            blocked_reasons=(reason,),
+        )
+
 
 __all__ = (
     "ConvergencePersistenceStatus",
@@ -1131,5 +1351,6 @@ __all__ = (
     "ProjectDirectorBoundedReworkConvergenceResult",
     "ProjectDirectorBoundedReworkConvergenceService",
     "RevalidatedProjectDirectorBoundedReworkNextAttemptDecision",
+    "RevalidatedProjectDirectorBoundedReworkTerminalDecision",
     "compute_canonical_blocking_findings_fingerprint",
 )
