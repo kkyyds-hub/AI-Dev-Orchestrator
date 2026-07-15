@@ -41,6 +41,19 @@ class ProjectDirectorProtectedTransitionDispatchIntentResult(DomainModel):
     source_consumption_message_id: UUID | None = None
     source_handoff_message_id: UUID | None = None
     source_freshness_message_id: UUID | None = None
+    source_p25_convergence_decision_message_id: UUID | None = None
+    source_p25_convergence_decision_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+    )
+    source_p25_convergence_decision_replay_key: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+    )
+    source_p25_candidate_diff_message_id: UUID | None = None
+    source_p25_review_outcome_message_id: UUID | None = None
 
     disposition_type: Literal["AUTO_CONTINUE", "AUTO_REWORK"] | None = None
     transition_kind: str | None = None
@@ -122,11 +135,34 @@ class ProjectDirectorProtectedTransitionDispatchIntentResult(DomainModel):
 
         return ensure_utc_datetime(value)
 
+    @field_validator(
+        "source_p25_convergence_decision_fingerprint",
+        "source_p25_convergence_decision_replay_key",
+        mode="after",
+    )
+    @classmethod
+    def validate_optional_p25_hash(cls, value: str | None) -> str | None:
+        if value is not None and not _LOWER_HEX_SHA256.match(value):
+            raise ValueError("P25 convergence gate hash must be lowercase SHA-256")
+        return value
+
     @model_validator(mode="after")
     def validate_intent_state(
         self,
     ) -> "ProjectDirectorProtectedTransitionDispatchIntentResult":
         """校验 prepared 与 blocked 两种终态的严格边界。"""
+
+        p25_gate_values = (
+            self.source_p25_convergence_decision_message_id,
+            self.source_p25_convergence_decision_fingerprint,
+            self.source_p25_convergence_decision_replay_key,
+            self.source_p25_candidate_diff_message_id,
+            self.source_p25_review_outcome_message_id,
+        )
+        if any(value is not None for value in p25_gate_values) and any(
+            value is None for value in p25_gate_values
+        ):
+            raise ValueError("P25 convergence gate fields must be all present or absent")
 
         if self.intent_status == "blocked":
             if not self.blocked_reasons:
@@ -195,6 +231,15 @@ class ProjectDirectorProtectedTransitionDispatchIntentResult(DomainModel):
             raise ValueError("disposition 与调度映射不一致")
         if self.transition_authority != "AUTOMATED_DISPOSITION":
             raise ValueError("prepared 调度意图必须来自自动 disposition")
+        if all(value is not None for value in p25_gate_values) and (
+            self.dispatch_kind != "auto_rework"
+            or self.disposition_type != "AUTO_REWORK"
+            or self.target_task_strategy != "source_task_rework"
+            or self.source_review_message_id
+            != self.source_p25_review_outcome_message_id
+            or self.rework_attempt_index not in {1, 2}
+        ):
+            raise ValueError("P25 convergence gate is invalid for this dispatch intent")
         return self
 
 

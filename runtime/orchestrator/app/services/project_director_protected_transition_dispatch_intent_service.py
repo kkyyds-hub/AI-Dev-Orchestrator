@@ -10,6 +10,9 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from app.domain.project_director_bounded_rework_convergence import (
+    ProjectDirectorBoundedReworkConvergenceDecision,
+)
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
     ProjectDirectorMessageRiskLevel,
@@ -51,6 +54,9 @@ from app.services.project_director_post_review_automation_service import (
     P22_POST_REVIEW_AUTOMATION_ACTION_TYPE,
     P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL,
     POST_REVIEW_AUTOMATION_SCHEMA_VERSION,
+)
+from app.services.project_director_bounded_rework_convergence_service import (
+    ProjectDirectorBoundedReworkConvergenceService,
 )
 from app.services.project_director_protected_transition_evidence_freshness_service import (
     P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_ACTION_TYPE,
@@ -128,6 +134,10 @@ class _EvidenceChain:
     handoff: ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffResult
     freshness: ProjectDirectorProtectedTransitionEvidenceFreshnessResult
     review_semantic_fingerprint: str
+    p25_convergence_decision: (
+        ProjectDirectorBoundedReworkConvergenceDecision | None
+    ) = None
+    p25_convergence_decision_message: ProjectDirectorMessage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,10 +160,22 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
         session_repository: ProjectDirectorSessionRepository,
         message_repository: ProjectDirectorMessageRepository,
         task_repository: TaskRepository,
+        bounded_rework_convergence_service: (
+            ProjectDirectorBoundedReworkConvergenceService | None
+        ) = None,
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
         self._task_repository = task_repository
+        self._bounded_rework_convergence_service = (
+            bounded_rework_convergence_service
+        )
+        if (
+            bounded_rework_convergence_service is not None
+            and bounded_rework_convergence_service._message_repository
+            is not message_repository
+        ):
+            raise ValueError("P23 and P25-I-B must share one message repository")
 
     def prepare_protected_transition_dispatch_intent(
         self,
@@ -256,6 +278,7 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             session_id=session_id,
             source_task_id=source_task_id,
             project_id=session.project_id,
+            source_p22_summary_message_id=result.source_p22_summary_message_id,
             summary=summary,
         )
         if chain_reasons or chain is None:
@@ -277,7 +300,11 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             == result.source_p22_summary_message_id
             and item[0].dispatch_kind == result.dispatch_kind
         ]
-        _attempt_index, attempt_invalid = self._rework_attempt_index(
+        decision_matches = self._p25_decision_intent_matches(
+            history=history,
+            chain=chain,
+        )
+        attempt_index, attempt_invalid = self._rework_attempt_index(
             history=history,
             replay_matches=replay_matches,
             dispatch_kind=result.dispatch_kind or "",
@@ -287,11 +314,22 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             or attempt_invalid
             or len(replay_matches) != 1
             or replay_matches[0][1].id != source_intent_message_id
+            or len(decision_matches) > 1
+            or (decision_matches and decision_matches != replay_matches)
         ):
             return RevalidatedPersistedProtectedTransitionDispatchIntent(
                 result=result,
                 message=source_message,
                 blocked_reasons=["dispatch_intent_replay_conflict"],
+            )
+        if self._p25_attempt_history_invalid(
+            chain=chain,
+            attempt_index=attempt_index,
+        ):
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=result,
+                message=source_message,
+                blocked_reasons=["rework_attempt_history_invalid"],
             )
 
         dispatch_kind, target_strategy = self._dispatch_mapping(
@@ -309,10 +347,15 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             attempt_index=result.rework_attempt_index,
         )
         if expected.dispatch_intent_fingerprint != result.dispatch_intent_fingerprint:
+            reason = (
+                "convergence_decision_conflict"
+                if chain.p25_convergence_decision is not None
+                else "source_dispatch_intent_invalid"
+            )
             return RevalidatedPersistedProtectedTransitionDispatchIntent(
                 result=result,
                 message=source_message,
-                blocked_reasons=["source_dispatch_intent_invalid"],
+                blocked_reasons=[reason],
             )
         return RevalidatedPersistedProtectedTransitionDispatchIntent(
             result=result,
@@ -357,6 +400,19 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             project_id=session.project_id,
             source_message_id=source_message_id,
         )
+        if (
+            reasons == ["source_p22_summary_human_route_unhandled"]
+            and summary is not None
+        ):
+            p25_terminal_reason = self._p25_terminal_reason_for_summary(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                project_id=session.project_id,
+                source_p22_summary_message_id=source_message_id,
+                summary=summary,
+            )
+            if p25_terminal_reason is not None:
+                reasons = [p25_terminal_reason]
         if reasons or summary is None or summary_action is None:
             return self._blocked(
                 session_id=session_id,
@@ -370,6 +426,7 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             session_id=session_id,
             source_task_id=source_task_id,
             project_id=session.project_id,
+            source_p22_summary_message_id=source_message_id,
             summary=summary,
         )
         if reasons or chain is None:
@@ -424,6 +481,23 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
                 target_strategy=target_strategy,
                 reasons=["dispatch_intent_replay_conflict"],
             )
+        decision_matches = self._p25_decision_intent_matches(
+            history=history,
+            chain=chain,
+        )
+        if len(decision_matches) > 1 or (
+            decision_matches and decision_matches != replay_matches
+        ):
+            return self._blocked_from_chain(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_message_id=source_message_id,
+                project_id=session.project_id,
+                chain=chain,
+                dispatch_kind=dispatch_kind,
+                target_strategy=target_strategy,
+                reasons=["dispatch_intent_replay_conflict"],
+            )
 
         attempt_index, attempt_invalid = self._rework_attempt_index(
             history=history,
@@ -439,6 +513,21 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
                 chain=chain,
                 dispatch_kind=dispatch_kind,
                 target_strategy=target_strategy,
+                reasons=["rework_attempt_history_invalid"],
+            )
+        if self._p25_attempt_history_invalid(
+            chain=chain,
+            attempt_index=attempt_index,
+        ):
+            return self._blocked_from_chain(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_message_id=source_message_id,
+                project_id=session.project_id,
+                chain=chain,
+                dispatch_kind=dispatch_kind,
+                target_strategy=target_strategy,
+                attempt_index=attempt_index,
                 reasons=["rework_attempt_history_invalid"],
             )
         if (
@@ -504,6 +593,15 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             )
 
         action = candidate.model_dump(mode="json")
+        for field_name in (
+            "source_p25_convergence_decision_message_id",
+            "source_p25_convergence_decision_fingerprint",
+            "source_p25_convergence_decision_replay_key",
+            "source_p25_candidate_diff_message_id",
+            "source_p25_review_outcome_message_id",
+        ):
+            if action.get(field_name) is None:
+                action.pop(field_name, None)
         action.update(
             {
                 "type": P23_PROTECTED_TRANSITION_DISPATCH_INTENT_ACTION_TYPE,
@@ -592,7 +690,7 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             summary.orchestration_status == "waiting_for_human"
             or summary.route == "human_escalation"
         ):
-            return None, None, ["source_p22_summary_human_route_unhandled"]
+            return summary, action, ["source_p22_summary_human_route_unhandled"]
         if summary.orchestration_status != "ready_for_future_transition":
             return None, None, ["source_p22_summary_not_ready"]
         expected = {
@@ -612,12 +710,71 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             return None, None, ["source_p22_summary_mapping_invalid"]
         return summary, action, []
 
+    def _p25_terminal_reason_for_summary(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        project_id: UUID,
+        source_p22_summary_message_id: UUID,
+        summary: ProjectDirectorPostReviewAutomationResult,
+    ) -> str | None:
+        review_message = self._message_repository.get_by_id(
+            summary.source_review_message_id
+        )
+        if review_message is None:
+            return None
+        legacy_action = self._exact_action(
+            message=review_message,
+            role=ProjectDirectorMessageRole.ASSISTANT,
+            intent="sandbox_candidate_diff_readonly_review_execution",
+            source_detail=P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL,
+            action_type=P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
+            schema_version=None,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=project_id,
+        )
+        if legacy_action is not None:
+            return None
+        if (
+            review_message.intent
+            == "sandbox_candidate_diff_readonly_review_execution"
+            or review_message.source_detail
+            == P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL
+            or any(
+                isinstance(action, dict)
+                and action.get("type")
+                == P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE
+                for action in review_message.suggested_actions
+            )
+        ):
+            return None
+        if self._bounded_rework_convergence_service is None:
+            return "next_attempt_decision_missing"
+        revalidated = (
+            self._bounded_rework_convergence_service
+            .revalidate_next_attempt_decision_for_p22_summary(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_p22_summary_message_id=source_p22_summary_message_id,
+            )
+        )
+        if "convergence_already_terminal" in revalidated.blocked_reasons:
+            return "p25_convergence_terminal"
+        if "convergence_requires_human_escalation" in revalidated.blocked_reasons:
+            return "p25_human_escalation_required"
+        if revalidated.blocked_reasons:
+            return revalidated.blocked_reasons[0]
+        return "convergence_decision_conflict"
+
     def _load_exact_evidence_chain(
         self,
         *,
         session_id: UUID,
         source_task_id: UUID,
         project_id: UUID,
+        source_p22_summary_message_id: UUID,
         summary: ProjectDirectorPostReviewAutomationResult,
     ) -> tuple[_EvidenceChain | None, list[str]]:
         ids_and_missing_reasons = (
@@ -668,6 +825,86 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             source_task_id=source_task_id,
             project_id=project_id,
         )
+        p25_decision: ProjectDirectorBoundedReworkConvergenceDecision | None = None
+        p25_decision_message: ProjectDirectorMessage | None = None
+        if review_action is None:
+            legacy_review_marked = bool(
+                review_message.intent
+                == "sandbox_candidate_diff_readonly_review_execution"
+                or review_message.source_detail
+                == P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_SOURCE_DETAIL
+                or any(
+                    isinstance(action, dict)
+                    and action.get("type")
+                    == P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE
+                    for action in review_message.suggested_actions
+                )
+            )
+            if legacy_review_marked:
+                return None, ["source_evidence_chain_invalid"]
+            if self._bounded_rework_convergence_service is None:
+                return None, ["next_attempt_decision_missing"]
+
+            p25_gate = (
+                self._bounded_rework_convergence_service
+                .revalidate_next_attempt_decision_for_p22_summary(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_p22_summary_message_id=(
+                        source_p22_summary_message_id
+                    ),
+                )
+            )
+            if p25_gate.blocked_reasons:
+                reason = p25_gate.blocked_reasons[0]
+                reason = {
+                    "convergence_already_terminal": "p25_convergence_terminal",
+                    "convergence_requires_human_escalation": (
+                        "p25_human_escalation_required"
+                    ),
+                }.get(reason, reason)
+                return None, [reason]
+            p25_decision = p25_gate.decision
+            p25_decision_message = p25_gate.decision_message
+            candidate_diff = p25_gate.candidate_diff
+            outcome = p25_gate.review_outcome
+            outcome_message = p25_gate.review_outcome_message
+            p22_summary = p25_gate.p22_summary
+            p22_message = p25_gate.p22_summary_message
+            if (
+                summary.disposition_type != "AUTO_REWORK"
+                or summary.route != "bounded_automatic_rework"
+                or p25_decision is None
+                or p25_decision_message is None
+                or candidate_diff is None
+                or outcome is None
+                or outcome_message is None
+                or p22_summary is None
+                or p22_message is None
+                or p22_message.id != source_p22_summary_message_id
+                or p22_summary != summary
+                or outcome_message.id != summary.source_review_message_id
+                or outcome_message != review_message
+                or p25_decision.source_review_outcome_message_id
+                != review_message.id
+                or p25_decision.source_candidate_diff_message_id
+                != candidate_diff.candidate_diff_id
+                or outcome.source_candidate_diff_message_id
+                != candidate_diff.candidate_diff_id
+                or outcome.source_candidate_diff_sha256
+                != candidate_diff.new_diff_sha256
+                or p25_decision.source_review_result_fingerprint
+                != outcome.review_result_fingerprint
+                or p25_decision.current_review_semantic_fingerprint
+                != outcome.review_semantic_fingerprint
+            ):
+                return None, ["convergence_decision_conflict"]
+            review_action = (
+                review_message.suggested_actions[0]
+                if len(review_message.suggested_actions) == 1
+                and isinstance(review_message.suggested_actions[0], dict)
+                else None
+            )
         disposition_action = self._exact_action(
             message=disposition_message,
             role=ProjectDirectorMessageRole.ASSISTANT,
@@ -771,6 +1008,15 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
         )
         if review_revalidation.blocked_reasons:
             return None, ["source_evidence_chain_invalid"]
+        if p25_decision is not None and (
+            review_revalidation.review_result_fingerprint
+            != p25_decision.source_review_result_fingerprint
+            or review_revalidation.source_diff_message_id
+            != p25_decision.source_candidate_diff_message_id
+            or review_revalidation.source_diff_sha256
+            != p25_decision.current_diff_sha256
+        ):
+            return None, ["convergence_decision_conflict"]
         freshness_revalidation = (
             ProjectDirectorProtectedTransitionEvidenceFreshnessService
             .revalidate_persisted_protected_transition_freshness_fingerprint(
@@ -896,12 +1142,22 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
         ):
             return None, ["source_evidence_chain_invalid"]
 
-        semantic_fingerprint = self._review_semantic_fingerprint(
-            review_action=review_action,
-            expected_scope_paths=freshness.reviewed_scope_paths,
+        semantic_fingerprint = (
+            p25_decision.current_review_semantic_fingerprint
+            if p25_decision is not None
+            else self._review_semantic_fingerprint(
+                review_action=review_action,
+                expected_scope_paths=freshness.reviewed_scope_paths,
+            )
         )
         if semantic_fingerprint is None:
             return None, ["source_evidence_chain_invalid"]
+        if (
+            p25_decision is not None
+            and semantic_fingerprint
+            != p25_decision.current_review_semantic_fingerprint
+        ):
+            return None, ["convergence_decision_conflict"]
         return (
             _EvidenceChain(
                 summary=summary,
@@ -912,6 +1168,8 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
                 handoff=handoff,
                 freshness=freshness,
                 review_semantic_fingerprint=semantic_fingerprint,
+                p25_convergence_decision=p25_decision,
+                p25_convergence_decision_message=p25_decision_message,
             ),
             [],
         )
@@ -1036,6 +1294,47 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             return replay_matches[0][0].rework_attempt_index, False
         return (max(indexes) + 1 if indexes else 0), False
 
+    @staticmethod
+    def _p25_decision_intent_matches(
+        *,
+        history: _IntentHistory,
+        chain: _EvidenceChain,
+    ) -> list[
+        tuple[
+            ProjectDirectorProtectedTransitionDispatchIntentResult,
+            ProjectDirectorMessage,
+        ]
+    ]:
+        decision_message = chain.p25_convergence_decision_message
+        if decision_message is None:
+            return []
+        return [
+            item
+            for item in history.valid_intents
+            if item[0].source_p25_convergence_decision_message_id
+            == decision_message.id
+        ]
+
+    @staticmethod
+    def _p25_attempt_history_invalid(
+        *,
+        chain: _EvidenceChain,
+        attempt_index: int,
+    ) -> bool:
+        decision = chain.p25_convergence_decision
+        if decision is None:
+            return False
+        return bool(
+            decision.next_rework_attempt_index is None
+            or decision.next_rework_attempt_index != attempt_index
+            or decision.current_rework_attempt_index + 1
+            != decision.next_rework_attempt_index
+            or decision.next_rework_attempt_index >= decision.rework_attempt_limit
+            or decision.rework_attempt_limit
+            != PROTECTED_TRANSITION_REWORK_ATTEMPT_LIMIT
+            or attempt_index not in {1, 2}
+        )
+
     def _prepared_result(
         self,
         *,
@@ -1049,6 +1348,8 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
         target_strategy: str,
         attempt_index: int,
     ) -> ProjectDirectorProtectedTransitionDispatchIntentResult:
+        p25_decision = chain.p25_convergence_decision
+        p25_decision_message = chain.p25_convergence_decision_message
         result = ProjectDirectorProtectedTransitionDispatchIntentResult(
             intent_status="prepared",
             dispatch_intent_id=dispatch_intent_id,
@@ -1066,6 +1367,29 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             source_consumption_message_id=chain.summary.source_consumption_message_id,
             source_handoff_message_id=chain.summary.source_handoff_message_id,
             source_freshness_message_id=chain.summary.source_freshness_message_id,
+            source_p25_convergence_decision_message_id=(
+                p25_decision_message.id if p25_decision_message is not None else None
+            ),
+            source_p25_convergence_decision_fingerprint=(
+                p25_decision.decision_fingerprint
+                if p25_decision is not None
+                else None
+            ),
+            source_p25_convergence_decision_replay_key=(
+                p25_decision.decision_replay_key
+                if p25_decision is not None
+                else None
+            ),
+            source_p25_candidate_diff_message_id=(
+                p25_decision.source_candidate_diff_message_id
+                if p25_decision is not None
+                else None
+            ),
+            source_p25_review_outcome_message_id=(
+                p25_decision.source_review_outcome_message_id
+                if p25_decision is not None
+                else None
+            ),
             disposition_type=chain.summary.disposition_type,
             transition_kind=chain.summary.transition_kind,
             transition_authority=chain.summary.transition_authority,
@@ -1133,6 +1457,26 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             "rework_attempt_index": result.rework_attempt_index,
             "rework_attempt_limit": result.rework_attempt_limit,
         }
+        if result.source_p25_convergence_decision_message_id is not None:
+            payload.update(
+                {
+                    "source_p25_convergence_decision_message_id": str(
+                        result.source_p25_convergence_decision_message_id
+                    ),
+                    "source_p25_convergence_decision_fingerprint": (
+                        result.source_p25_convergence_decision_fingerprint
+                    ),
+                    "source_p25_convergence_decision_replay_key": (
+                        result.source_p25_convergence_decision_replay_key
+                    ),
+                    "source_p25_candidate_diff_message_id": str(
+                        result.source_p25_candidate_diff_message_id
+                    ),
+                    "source_p25_review_outcome_message_id": str(
+                        result.source_p25_review_outcome_message_id
+                    ),
+                }
+            )
         return (
             ProjectDirectorProtectedTransitionDispatchIntentService
             ._canonical_fingerprint(payload)
