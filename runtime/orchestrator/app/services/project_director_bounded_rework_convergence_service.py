@@ -67,6 +67,15 @@ _CANONICAL_BLOCKING_FINDINGS_SCHEMA_VERSION = (
     "p25-i-b-canonical-blocking-findings.v1"
 )
 _PAGE_SIZE = 200
+_P25_SPECIFIC_TERMINAL_REASONS = frozenset(
+    {
+        "empty_diff",
+        "unchanged_diff",
+        "repeated_review_semantic_fingerprint",
+        "repeated_canonical_blocking_findings",
+        "attempt_limit_exhausted",
+    }
+)
 _FALSE_BOUNDARIES = (
     "next_p23_intent_created=false",
     "next_p23_consumption_created=false",
@@ -420,7 +429,15 @@ class ProjectDirectorBoundedReworkConvergenceService:
             if persisted.decision_type == "CONVERGED":
                 blocked_reasons = ("convergence_already_terminal",)
             elif persisted.decision_type == "ESCALATE_TO_HUMAN":
-                blocked_reasons = ("convergence_requires_human_escalation",)
+                if persisted.decision_reason == "high_review_risk":
+                    blocked_reasons = ("convergence_requires_human_escalation",)
+                elif (
+                    persisted.decision_reason
+                    in _P25_SPECIFIC_TERMINAL_REASONS
+                ):
+                    blocked_reasons = ("convergence_already_terminal",)
+                else:
+                    blocked_reasons = ("convergence_decision_conflict",)
             elif (
                 persisted.decision_type != "NEXT_ATTEMPT_ELIGIBLE"
                 or persisted.decision_reason != "changed_blocking_findings"

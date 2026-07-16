@@ -133,6 +133,11 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
         self._run_repository = run_repository
         self._agent_session_repository = agent_session_repository
         self._dispatch_consumption_service = dispatch_consumption_service
+        self._dispatch_intent_service = (
+            dispatch_consumption_service
+            ._preflight_service
+            ._dispatch_intent_service
+        )
         self._freshness_service = freshness_service
         self._budget_guard_service = budget_guard_service
         self._require_shared_sqlalchemy_session()
@@ -374,6 +379,17 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
                 run=d1.run,
                 blocked_reasons=["source_evidence_chain_invalid"],
             )
+        authority_reasons = self._p25_bounded_auto_rework_authority_reasons(
+            consumption=consumption,
+        )
+        if authority_reasons:
+            return RevalidatedPersistedProtectedTransitionWorkerStartReservation(
+                result=result,
+                message=message,
+                task=task,
+                run=d1.run,
+                blocked_reasons=authority_reasons,
+            )
 
         run = self._run_repository.get_by_id(result.run_id)
         if run is None:
@@ -516,13 +532,12 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
                 values=values,
             )
         values.update(self._values_from_consumption(consumption))
-        if (
-            consumption.disposition_type,
-            consumption.dispatch_kind,
-            consumption.target_task_strategy,
-        ) == ("AUTO_REWORK", "auto_rework", "source_task_rework"):
+        authority_reasons = self._p25_bounded_auto_rework_authority_reasons(
+            consumption=consumption,
+        )
+        if authority_reasons:
             return self._blocked(
-                reasons=[AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION],
+                reasons=authority_reasons,
                 values=values,
             )
         current = self._evaluate_current_reservation_eligibility(
@@ -647,7 +662,18 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
             if not routing_valid:
                 reasons.append("reserved_run_routing_metadata_invalid")
 
-        current_freshness = self._freshness_service.revalidate_current_automatic_transition_evidence_from_persisted_freshness(
+        freshness_service = self._freshness_service
+        if (
+            consumption.disposition_type,
+            consumption.dispatch_kind,
+            consumption.target_task_strategy,
+        ) == ("AUTO_REWORK", "auto_rework", "source_task_rework"):
+            freshness_service = (
+                self._dispatch_consumption_service
+                ._preflight_service
+                ._freshness_service
+            )
+        current_freshness = freshness_service.revalidate_current_automatic_transition_evidence_from_persisted_freshness(
             session_id=consumption.session_id,
             source_task_id=consumption.source_task_id,
             source_freshness_message_id=consumption.source_freshness_message_id,
@@ -687,6 +713,82 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
             values=values,
             blocked_reasons=list(dict.fromkeys(reasons)),
         )
+
+    def _p25_bounded_auto_rework_authority_reasons(
+        self,
+        *,
+        consumption: ProjectDirectorProtectedTransitionDispatchConsumptionResult,
+    ) -> list[str]:
+        """Require the exact revalidated P25 authority for AUTO_REWORK."""
+
+        if (
+            consumption.disposition_type,
+            consumption.dispatch_kind,
+            consumption.target_task_strategy,
+        ) != ("AUTO_REWORK", "auto_rework", "source_task_rework"):
+            return []
+        if consumption.source_intent_message_id is None:
+            return [AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION]
+
+        revalidated = (
+            self._dispatch_intent_service
+            .revalidate_persisted_protected_transition_dispatch_intent(
+                session_id=consumption.session_id,
+                source_task_id=consumption.source_task_id,
+                source_intent_message_id=consumption.source_intent_message_id,
+            )
+        )
+        intent = revalidated.result
+        if revalidated.blocked_reasons or intent is None:
+            return [AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION]
+
+        exact_bindings = (
+            (getattr(intent, "intent_status", None), "prepared"),
+            (
+                getattr(intent, "dispatch_intent_id", None),
+                consumption.source_dispatch_intent_id,
+            ),
+            (
+                getattr(intent, "dispatch_intent_fingerprint", None),
+                consumption.source_dispatch_intent_fingerprint,
+            ),
+            (
+                getattr(intent, "source_p22_summary_message_id", None),
+                consumption.source_p22_summary_message_id,
+            ),
+            (
+                getattr(intent, "source_review_message_id", None),
+                consumption.source_review_message_id,
+            ),
+            (getattr(intent, "disposition_type", None), "AUTO_REWORK"),
+            (getattr(intent, "dispatch_kind", None), "auto_rework"),
+            (
+                getattr(intent, "target_task_strategy", None),
+                "source_task_rework",
+            ),
+            (
+                getattr(intent, "rework_attempt_index", None),
+                consumption.rework_attempt_index,
+            ),
+            (
+                getattr(intent, "rework_attempt_limit", None),
+                consumption.rework_attempt_limit,
+            ),
+        )
+        p25_gate_values = (
+            getattr(intent, "source_p25_convergence_decision_message_id", None),
+            getattr(intent, "source_p25_convergence_decision_fingerprint", None),
+            getattr(intent, "source_p25_convergence_decision_replay_key", None),
+            getattr(intent, "source_p25_candidate_diff_message_id", None),
+            getattr(intent, "source_p25_review_outcome_message_id", None),
+        )
+        if (
+            any(left != right for left, right in exact_bindings)
+            or any(value is None for value in p25_gate_values)
+            or getattr(intent, "rework_attempt_index", None) not in {1, 2}
+        ):
+            return [AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION]
+        return []
 
     def _scan_reservation_history(
         self,
@@ -1061,6 +1163,16 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
 
     def _require_shared_sqlalchemy_session(self) -> None:
         session = self._message_repository._session
+        intent_session_repository = getattr(
+            self._dispatch_intent_service,
+            "_session_repository",
+            None,
+        )
+        intent_session = (
+            intent_session_repository._session
+            if intent_session_repository is not None
+            else self._dispatch_intent_service._message_repository._session
+        )
         dependencies = (
             self._session_repository._session,
             self._task_repository.session,
@@ -1082,6 +1194,14 @@ class ProjectDirectorProtectedTransitionWorkerStartReservationService:
             or self._freshness_service._task_repository is not self._task_repository
         ):
             raise ValueError("B1 revalidation services must share repository instances")
+        if (
+            self._dispatch_intent_service._message_repository
+            is not self._message_repository
+            or intent_session is not self._session_repository._session
+            or self._dispatch_intent_service._task_repository
+            is not self._task_repository
+        ):
+            raise ValueError("B1 intent revalidation must share repository instances")
 
     @staticmethod
     def _forbidden_actions() -> list[str]:
