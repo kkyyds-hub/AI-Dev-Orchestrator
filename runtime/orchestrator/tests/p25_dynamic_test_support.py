@@ -595,141 +595,6 @@ def _seed_p22_summary_message(
     return summary_id
 
 
-def _seed_convergence_decision_message(
-    session: Session,
-    *,
-    session_id: UUID,
-    task_id: UUID,
-    project_id: UUID,
-    decision_id: UUID | None = None,
-    decision_type: str = "CONVERGED",
-    decision_reason: str = "review_converged",
-    source_candidate_diff_message_id: UUID | None = None,
-    source_review_outcome_message_id: UUID | None = None,
-    source_p22_summary_message_id: UUID | None = None,
-    seq_no: int = 50,
-) -> UUID:
-    """Seed a P25-I-B convergence decision message."""
-    decision_id = decision_id or uuid4()
-    source_candidate_diff_message_id = source_candidate_diff_message_id or uuid4()
-    source_review_outcome_message_id = source_review_outcome_message_id or uuid4()
-    source_p22_summary_message_id = source_p22_summary_message_id or uuid4()
-
-    now = datetime.now(timezone.utc).isoformat()
-    authority = {
-        "session_id": str(session_id),
-        "project_id": str(project_id),
-    }
-    action = {
-        "type": P25_BOUNDED_REWORK_CONVERGENCE_DECISION_ACTION_TYPE,
-        "schema_version": P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SCHEMA_VERSION,
-        "decision_id": str(decision_id),
-        "decision_fingerprint": CONVERGENCE_FINGERPRINT,
-        "decision_replay_key": SHA256(str(decision_id).encode()),
-        "created_at": now,
-        "decision_type": decision_type,
-        "decision_reason": decision_reason,
-        "source_candidate_diff_message_id": str(source_candidate_diff_message_id),
-        "source_candidate_diff_id": str(source_candidate_diff_message_id),
-        "source_candidate_diff_fingerprint": CANDIDATE_DIFF_FINGERPRINT,
-        "source_review_outcome_message_id": str(source_review_outcome_message_id),
-        "source_review_outcome_id": str(source_review_outcome_message_id),
-        "source_review_outcome_fingerprint": OUTCOME_FINGERPRINT,
-        "source_p22_summary_message_id": str(source_p22_summary_message_id),
-        "source_package_id": str(uuid4()),
-        "authority": authority,
-        "exact_task_id": str(task_id),
-        "exact_run_id": str(uuid4()),
-        "rework_attempt_index": 0,
-        "rework_attempt_limit": 3,
-        "review_result_fingerprint": REVIEW_RESULT_FINGERPRINT,
-        "review_semantic_fingerprint": REVIEW_SEMANTIC_FINGERPRINT,
-        "canonical_blocking_findings_fingerprint": None,
-        "previous_diff_sha256": PREVIOUS_DIFF_SHA256,
-        "new_diff_sha256": NEW_DIFF_SHA256,
-        "review_verdict": "no_blocking_findings",
-        "review_risk_level": "low",
-    }
-    session.add(
-        ProjectDirectorMessageTable(
-            id=decision_id, session_id=session_id, role="assistant",
-            content=f"P25 convergence decision: {decision_type} ({decision_reason})",
-            sequence_no=seq_no,
-            intent="bounded_rework_convergence_decision",
-            source="system",
-            source_detail=P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SOURCE_DETAIL,
-            suggested_actions_json=json.dumps([action]),
-            requires_confirmation=False, risk_level="high",
-            related_project_id=project_id, related_task_id=task_id,
-        )
-    )
-    session.commit()
-    return decision_id
-
-
-def _seed_p25_terminal_escalation_message(
-    session: Session,
-    *,
-    session_id: UUID,
-    task_id: UUID,
-    project_id: UUID,
-    terminal_id: UUID | None = None,
-    source_convergence_decision_id: UUID | None = None,
-    escalation_reason: str = "attempt_limit_exhausted",
-    seq_no: int = 60,
-) -> UUID:
-    """Seed a P25-I-C2 terminal escalation package message."""
-    terminal_id = terminal_id or uuid4()
-    source_convergence_decision_id = source_convergence_decision_id or uuid4()
-
-    now = datetime.now(timezone.utc).isoformat()
-    authority = {
-        "session_id": str(session_id),
-        "project_id": str(project_id),
-    }
-    action = {
-        "type": P25_BOUNDED_REWORK_TERMINAL_ESCALATION_ACTION_TYPE,
-        "schema_version": P25_BOUNDED_REWORK_TERMINAL_ESCALATION_SCHEMA_VERSION,
-        "package_id": str(terminal_id),
-        "package_fingerprint": TERMINAL_FINGERPRINT,
-        "package_replay_key": SHA256(str(terminal_id).encode()),
-        "created_at": now,
-        "escalation_reason": escalation_reason,
-        "source_convergence_decision_message_id": str(source_convergence_decision_id),
-        "source_convergence_decision_id": str(source_convergence_decision_id),
-        "source_convergence_decision_fingerprint": CONVERGENCE_FINGERPRINT,
-        "source_package_id": str(uuid4()),
-        "source_package_fingerprint": PACKAGE_FINGERPRINT,
-        "authority": authority,
-        "exact_task_id": str(task_id),
-        "exact_run_id": str(uuid4()),
-        "rework_attempt_index": 0,
-        "rework_attempt_limit": 3,
-        "review_result_fingerprint": REVIEW_RESULT_FINGERPRINT,
-        "review_semantic_fingerprint": REVIEW_SEMANTIC_FINGERPRINT,
-        "canonical_blocking_findings_fingerprint": None,
-        "findings": [],
-        "escalation_summary": f"Terminal escalation: {escalation_reason}",
-        "automatic_processing_terminal": True,
-        "ai_project_director_total_loop": "Partial",
-    }
-    session.add(
-        ProjectDirectorMessageTable(
-            id=terminal_id, session_id=session_id, role="assistant",
-            content=f"P25 terminal escalation package: {escalation_reason}",
-            sequence_no=seq_no,
-            intent="bounded_rework_terminal_escalation_package",
-            source="system",
-            source_detail=P25_BOUNDED_REWORK_TERMINAL_ESCALATION_SOURCE_DETAIL,
-            suggested_actions_json=json.dumps([action]),
-            requires_confirmation=False, risk_level="high",
-            related_project_id=project_id, related_task_id=task_id,
-        )
-    )
-    session.commit()
-    return terminal_id
-
-
 # ── Fakes ─────────────────────────────────────────────────────────────
 
 
@@ -842,6 +707,7 @@ class FakeReviewExecutionService:
         self,
         *,
         message_repository: ProjectDirectorMessageRepository | None = None,
+        status: str = "validated_output",
         blocked_reasons: tuple[str, ...] = (),
         review_outcome: Any | None = None,
         review_outcome_message: ProjectDirectorMessage | None = None,
@@ -849,6 +715,7 @@ class FakeReviewExecutionService:
         self._message_repository = message_repository or type(
             "FakeMsgRepo", (), {"_session": None, "sqlite_immediate_transaction": lambda self: _noop_context()}
         )()
+        self._status = status
         self._blocked_reasons = blocked_reasons
         self._review_outcome = review_outcome
         self._review_outcome_message = review_outcome_message
@@ -860,9 +727,9 @@ class FakeReviewExecutionService:
         source_task_id: UUID,
         source_candidate_diff_message_id: UUID,
     ) -> FakeRevalidatedReviewOutcome:
-        if self._blocked_reasons:
+        if self._status != "validated_output" or self._blocked_reasons:
             return FakeRevalidatedReviewOutcome(
-                status="blocked",
+                status=self._status,
                 blocked_reasons=self._blocked_reasons,
             )
         return FakeRevalidatedReviewOutcome(
@@ -920,41 +787,6 @@ class FakePostReviewAutomationService:
             message=self._message,
             blocked_reasons=(),
         )
-
-
-# ── Canonical Findings Fingerprint (duplicated to avoid circular import) ──
-
-
-def compute_canonical_blocking_findings_fingerprint(findings):
-    """Hash the order-independent medium/high blocking-finding projection.
-
-    This is a standalone copy of the production function to avoid circular imports
-    in the test module. The production implementation is in
-    app.services.project_director_bounded_rework_convergence_service.
-    """
-    finding_hashes = []
-    for finding in findings:
-        severity = finding.get("severity") if isinstance(finding, dict) else getattr(finding, "severity", None)
-        if severity not in {"medium", "high"}:
-            continue
-        title = finding.get("title") if isinstance(finding, dict) else getattr(finding, "title", None)
-        evidence_paths = finding.get("evidence_paths") if isinstance(finding, dict) else getattr(finding, "evidence_paths", None)
-        recommended_action = finding.get("recommended_action") if isinstance(finding, dict) else getattr(finding, "recommended_action", None)
-        if (
-            not isinstance(title, str) or not title.strip()
-            or not isinstance(recommended_action, str) or not recommended_action.strip()
-            or not isinstance(evidence_paths, (list, tuple)) or not evidence_paths
-            or any(not isinstance(p, str) or not p for p in evidence_paths)
-        ):
-            raise ValueError("blocking finding projection is invalid")
-        projection = {
-            "severity": severity,
-            "title": title,
-            "evidence_paths": sorted(evidence_paths),
-            "recommended_action": recommended_action,
-        }
-        finding_hashes.append(SHA256(json.dumps(projection, sort_keys=True).encode()))
-    return SHA256(json.dumps({"schema_version": "p25-i-b-canonical-blocking-findings.v1", "finding_hashes": sorted(set(finding_hashes))}, sort_keys=True).encode())
 
 
 # ── Context Manager Helper ────────────────────────────────────────────

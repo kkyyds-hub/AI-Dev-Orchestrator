@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import UUID, uuid4, uuid5
 
 import pytest
@@ -26,8 +27,18 @@ from app.domain.project_director_bounded_rework_terminal_escalation import (
     ProjectDirectorBoundedReworkTerminalEscalationFinding,
     ProjectDirectorBoundedReworkTerminalEscalationPackage,
 )
+from app.domain.project_director_message import ProjectDirectorMessage
 from app.domain.project_director_post_review_automation import (
     ProjectDirectorPostReviewAutomationResult,
+)
+from app.domain.project_director_sandbox_candidate_diff_review_output import (
+    ProjectDirectorSandboxCandidateDiffReviewFinding,
+)
+from app.services.project_director_bounded_rework_convergence_service import (
+    compute_canonical_blocking_findings_fingerprint,
+)
+from app.services.project_director_bounded_rework_terminal_escalation_service import (
+    ProjectDirectorBoundedReworkTerminalEscalationService,
 )
 from tests.p25_dynamic_test_support import (
     CONVERGENCE_FINGERPRINT,
@@ -73,11 +84,11 @@ from tests.p25_dynamic_test_support import (
     _seed_candidate_diff_message,
     _seed_p22_summary_message,
     _seed_p25_package_message,
-    _seed_p25_terminal_escalation_message,
     _seed_review_outcome_message,
     count_messages_by_source_detail,
     get_messages_by_source_detail,
     make_convergence_service,
+    make_repos,
     make_terminal_escalation_service,
     make_test_engine,
     make_session_factory,
@@ -374,30 +385,34 @@ class TestCanonicalBlockingFindings:
     """Test the canonical blocking findings fingerprint function."""
 
     def test_fingerprint_is_order_independent(self):
-        from tests.p25_dynamic_test_support import compute_canonical_blocking_findings_fingerprint
-        f1 = {"severity": "high", "title": "A", "evidence_paths": ["b.py", "a.py"], "recommended_action": "Fix"}
-        f2 = {"severity": "high", "title": "A", "evidence_paths": ["a.py", "b.py"], "recommended_action": "Fix"}
+        f1 = SimpleNamespace(severity="high", title="A", evidence_paths=["b.py", "a.py"], recommended_action="Fix")
+        f2 = SimpleNamespace(severity="high", title="A", evidence_paths=["a.py", "b.py"], recommended_action="Fix")
         assert compute_canonical_blocking_findings_fingerprint([f1]) == compute_canonical_blocking_findings_fingerprint([f2])
 
     def test_different_findings_produce_different_fingerprints(self):
-        from tests.p25_dynamic_test_support import compute_canonical_blocking_findings_fingerprint
-        f1 = {"severity": "high", "title": "A", "evidence_paths": ["a.py"], "recommended_action": "Fix A"}
-        f2 = {"severity": "high", "title": "B", "evidence_paths": ["a.py"], "recommended_action": "Fix B"}
+        f1 = SimpleNamespace(severity="high", title="A", evidence_paths=["a.py"], recommended_action="Fix A")
+        f2 = SimpleNamespace(severity="high", title="B", evidence_paths=["a.py"], recommended_action="Fix B")
         assert compute_canonical_blocking_findings_fingerprint([f1]) != compute_canonical_blocking_findings_fingerprint([f2])
 
     def test_low_severity_excluded(self):
-        from tests.p25_dynamic_test_support import compute_canonical_blocking_findings_fingerprint
-        f_low = {"severity": "low", "title": "Low", "evidence_paths": ["a.py"], "recommended_action": "Fix"}
-        f_high = {"severity": "high", "title": "High", "evidence_paths": ["a.py"], "recommended_action": "Fix"}
-        assert compute_canonical_blocking_findings_fingerprint([f_low]) != compute_canonical_blocking_findings_fingerprint([f_high])
+        f_low = SimpleNamespace(severity="low", title="Low", evidence_paths=["a.py"], recommended_action="Fix")
+        assert compute_canonical_blocking_findings_fingerprint([f_low]) == compute_canonical_blocking_findings_fingerprint([])
 
     def test_empty_findings_produces_stable_fingerprint(self):
-        from tests.p25_dynamic_test_support import compute_canonical_blocking_findings_fingerprint
-        # Production returns a stable hash for empty findings
         fp1 = compute_canonical_blocking_findings_fingerprint([])
         fp2 = compute_canonical_blocking_findings_fingerprint([])
         assert fp1 == fp2
         assert len(fp1) == 64
+
+    def test_malformed_blocking_finding_rejected(self):
+        malformed = SimpleNamespace(
+            severity="high",
+            title="",
+            evidence_paths=["a.py"],
+            recommended_action="Fix",
+        )
+        with pytest.raises(ValueError, match="projection is invalid"):
+            compute_canonical_blocking_findings_fingerprint([malformed])
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -598,26 +613,27 @@ class TestReplayAndPersistence:
         session.close()
 
     def test_decision_and_terminal_message_no_duplicate(self, session_local):
-        from tests.p25_dynamic_test_support import make_repos
-        session, msg_repo, sess_repo, task_repo = make_repos(session_local)
-        ids = seed_base_records(session)
-
-        decision_id = _seed_convergence_decision_message_helper(session, ids=ids)
-        term_id = _seed_p25_terminal_escalation_message(
-            session, session_id=ids["session_id"], task_id=ids["task_id"],
-            project_id=ids["project_id"],
-            source_convergence_decision_id=decision_id,
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=2,
         )
-
+        convergence = _persist_real_decision(scenario)
+        terminal = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert terminal.status == "package_prepared"
         assert count_messages_by_source_detail(
-            msg_repo, ids["session_id"],
+            scenario.msg_repo, scenario.ids["session_id"],
             P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SOURCE_DETAIL,
         ) == 1
         assert count_messages_by_source_detail(
-            msg_repo, ids["session_id"],
+            scenario.msg_repo, scenario.ids["session_id"],
             P25_BOUNDED_REWORK_TERMINAL_ESCALATION_SOURCE_DETAIL,
         ) == 1
-        session.close()
+        scenario.session.close()
 
 
 class TestTerminalEscalationService:
@@ -641,7 +657,7 @@ class TestTerminalEscalationService:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _seed_convergence_decision_message_helper(
+def _seed_malformed_convergence_history(
     session,
     *,
     ids: dict,
@@ -649,6 +665,7 @@ def _seed_convergence_decision_message_helper(
     decision_reason: str = "review_converged",
     seq_no: int = 50,
 ) -> UUID:
+    """Inject a hand-built invalid final marker only for fail-closed tests."""
     decision_id = uuid4()
     candidate_diff_id = uuid4()
     review_outcome_id = uuid4()
@@ -739,31 +756,29 @@ class TestSensitiveContentBoundary:
     """No prompt, stdout, stderr, command, env, token, secret, or API key in messages."""
 
     def test_terminal_package_message_has_no_sensitive_content(self, session_local):
-        from tests.p25_dynamic_test_support import make_repos
-
-        session, msg_repo, sess_repo, task_repo = make_repos(session_local)
-        ids = seed_base_records(session)
-
-        _seed_p25_terminal_escalation_message(
-            session, session_id=ids["session_id"], task_id=ids["task_id"],
-            project_id=ids["project_id"],
+        sentinel = "P25_J_A_SECRET_SENTINEL_7f91c2"
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=2,
+            sentinel=sentinel,
         )
-
-        msgs, _ = msg_repo.list_by_session_id(session_id=ids["session_id"], limit=200)
-        sensitive = {"prompt", "stdout", "stderr", "command", "env", "token", "secret", "api_key", "password"}
-        for msg in msgs:
-            content_lower = msg.content.lower()
-            for word in sensitive:
-                assert word not in content_lower or word in ("command",), f"Sensitive word '{word}' found in message content"
-            # Also check action JSON
-            actions = msg.suggested_actions
-            for action in actions:
-                action_str = json.dumps(action).lower()
-                for word in sensitive:
-                    if word in ("token", "secret", "api_key", "password"):
-                        assert word not in action_str, f"Sensitive word '{word}' found in action JSON"
-
-        session.close()
+        convergence = _persist_real_decision(scenario)
+        terminal = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert terminal.message is not None
+        payload = json.dumps(
+            [
+                convergence.decision_message.model_dump(mode="json"),
+                terminal.message.model_dump(mode="json"),
+            ],
+            sort_keys=True,
+        )
+        assert sentinel not in payload
+        scenario.session.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -866,37 +881,28 @@ class TestMessageSeeding:
         assert msg.source_detail == P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL
         session.close()
 
-    def test_seed_convergence_decision(self, session_local):
-        from tests.p25_dynamic_test_support import make_repos
-        session, msg_repo, _, _ = make_repos(session_local)
-        ids = seed_base_records(session)
+    def test_real_convergence_decision(self, session_local):
+        scenario = _real_service_scenario(session_local, mode="converged")
+        result = _persist_real_decision(scenario)
+        assert result.status == "decision_persisted"
+        assert result.decision_message is not None
+        scenario.session.close()
 
-        decision_id = _seed_convergence_decision_message_helper(
-            session, ids=ids,
+    def test_real_terminal_escalation(self, session_local):
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=2,
         )
-
-        msg = msg_repo.get_by_id(decision_id)
-        assert msg is not None
-        assert msg.source_detail == P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SOURCE_DETAIL
-        action = msg.suggested_actions[0]
-        assert action["type"] == P25_BOUNDED_REWORK_CONVERGENCE_DECISION_ACTION_TYPE
-        assert action["schema_version"] == P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SCHEMA_VERSION
-        session.close()
-
-    def test_seed_terminal_escalation(self, session_local):
-        from tests.p25_dynamic_test_support import make_repos
-        session, msg_repo, _, _ = make_repos(session_local)
-        ids = seed_base_records(session)
-
-        term_id = _seed_p25_terminal_escalation_message(
-            session, session_id=ids["session_id"], task_id=ids["task_id"],
-            project_id=ids["project_id"],
+        convergence = _persist_real_decision(scenario)
+        result = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
         )
-
-        msg = msg_repo.get_by_id(term_id)
-        assert msg is not None
-        assert msg.source_detail == P25_BOUNDED_REWORK_TERMINAL_ESCALATION_SOURCE_DETAIL
-        session.close()
+        assert result.status == "package_prepared"
+        assert result.message is not None
+        scenario.session.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -908,16 +914,19 @@ class TestFalseBoundaryFlags:
     """Domain objects enforce all false boundaries."""
 
     def test_terminal_package_write_flags(self, session_local):
-        from tests.p25_dynamic_test_support import make_repos
-        session, msg_repo, _, _ = make_repos(session_local)
-        ids = seed_base_records(session)
-
-        term_id = _seed_p25_terminal_escalation_message(
-            session, session_id=ids["session_id"], task_id=ids["task_id"],
-            project_id=ids["project_id"],
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=2,
         )
-
-        msg = msg_repo.get_by_id(term_id)
+        convergence = _persist_real_decision(scenario)
+        terminal = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        msg = terminal.message
+        assert msg is not None
         action = msg.suggested_actions[0]
         for flag in [
             "human_decision_recorded", "approval_request_created",
@@ -932,7 +941,7 @@ class TestFalseBoundaryFlags:
 
         assert action.get("automatic_processing_terminal", True) is True
         assert action.get("ai_project_director_total_loop") == "Partial"
-        session.close()
+        scenario.session.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -971,6 +980,568 @@ class TestDatabaseIsolation:
         ) == 0
 
         session.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# L. Real production Service dynamic verification
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _persist_upstream_fact(
+    msg_repo,
+    *,
+    ids: dict[str, UUID],
+    message_id: UUID,
+    source_detail: str,
+    content: str,
+) -> ProjectDirectorMessage:
+    message = ProjectDirectorMessage(
+        id=message_id,
+        session_id=ids["session_id"],
+        role="assistant",
+        content=content,
+        sequence_no=msg_repo.get_next_sequence_no(session_id=ids["session_id"]),
+        intent="p25_j_upstream_test_evidence",
+        related_project_id=ids["project_id"],
+        related_task_id=ids["task_id"],
+        source="system",
+        source_detail=source_detail,
+        suggested_actions=[{"type": "p25_j_upstream_test_evidence"}],
+        requires_confirmation=False,
+        risk_level="high",
+    )
+    persisted = msg_repo.create(message)
+    msg_repo.commit()
+    return persisted
+
+
+def _review_finding(
+    title: str,
+    *,
+    summary: str = "A blocking issue remains.",
+    severity: str = "high",
+) -> ProjectDirectorSandboxCandidateDiffReviewFinding:
+    return ProjectDirectorSandboxCandidateDiffReviewFinding(
+        finding_id=title.lower().replace(" ", "-"),
+        severity=severity,
+        title=title,
+        summary=summary,
+        evidence_paths=["src/example.py"],
+        recommended_action=f"Resolve {title.lower()}.",
+    )
+
+
+def _real_service_scenario(
+    session_local,
+    *,
+    mode: str,
+    attempt_index: int = 0,
+    sentinel: str | None = None,
+):
+    session, msg_repo, _sess_repo, _task_repo = make_repos(session_local)
+    ids = seed_base_records(session)
+    authority = _authority(
+        session_id=ids["session_id"],
+        project_id=ids["project_id"],
+        task_id=ids["task_id"],
+    )
+
+    previous_finding = _review_finding("Previous guard")
+    current_finding = _review_finding(
+        "Previous guard" if mode == "repeated_findings" else "Current guard",
+        summary=sentinel or "A current blocking issue remains.",
+    )
+    package = SimpleNamespace(
+        package_id=uuid4(),
+        package_fingerprint="1" * 64,
+        authority=authority,
+        rework_attempt_index=attempt_index,
+        blocking_findings=(previous_finding,),
+    )
+    candidate_id = uuid4()
+    candidate_message = _persist_upstream_fact(
+        msg_repo,
+        ids=ids,
+        message_id=candidate_id,
+        source_detail=P25_BOUNDED_REWORK_CANDIDATE_DIFF_SOURCE_DETAIL,
+        content="Persisted P25 candidate diff evidence.",
+    )
+    non_convergence = mode in {"empty_diff", "unchanged_diff"}
+    previous_diff_sha256 = PREVIOUS_DIFF_SHA256
+    current_diff_sha256 = (
+        previous_diff_sha256 if non_convergence else NEW_DIFF_SHA256
+    )
+    candidate_diff = SimpleNamespace(
+        candidate_diff_id=candidate_id,
+        candidate_diff_fingerprint="2" * 64,
+        candidate_diff_replay_key=SHA256(f"candidate-{candidate_id}".encode()),
+        diff_status="non_convergence" if non_convergence else "generated",
+        non_convergence_reason=mode if non_convergence else None,
+        authority=authority,
+        source_attempt_id=uuid4(),
+        rework_attempt_index=attempt_index,
+        rework_attempt_limit=3,
+        previous_diff_sha256=previous_diff_sha256,
+        new_diff_sha256=current_diff_sha256,
+    )
+    invocation_outcome = SimpleNamespace(outcome_id=uuid4())
+
+    review_message_id = uuid4()
+    review_message = _persist_upstream_fact(
+        msg_repo,
+        ids=ids,
+        message_id=review_message_id,
+        source_detail=P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL,
+        content="Persisted P25 readonly review outcome evidence.",
+    )
+    if mode == "converged":
+        verdict = "no_blocking_findings"
+        risk_level = "low"
+        findings = []
+        disposition_type = "AUTO_CONTINUE"
+        route = "automatic_continuation"
+        orchestration_status = "ready_for_future_transition"
+    elif mode == "high_risk":
+        verdict = "changes_required"
+        risk_level = "high"
+        findings = [current_finding]
+        disposition_type = "ESCALATE_TO_HUMAN"
+        route = "human_escalation"
+        orchestration_status = "waiting_for_human"
+    else:
+        verdict = "changes_required"
+        risk_level = "medium"
+        findings = [current_finding]
+        disposition_type = "AUTO_REWORK"
+        route = "bounded_automatic_rework"
+        orchestration_status = "ready_for_future_transition"
+
+    current_semantic = (
+        authority.source_review_semantic_fingerprint
+        if mode == "repeated_semantic"
+        else "e" * 64
+    )
+    adapter = SimpleNamespace(
+        verdict=verdict,
+        risk_level=risk_level,
+        findings=findings,
+        summary=sentinel or "Review completed.",
+        raw_output=sentinel or "validated",
+        stdout=sentinel or "",
+        stderr=sentinel or "",
+        command=sentinel or "",
+        environment={"ACCESS_TOKEN": sentinel} if sentinel else {},
+    )
+    review_outcome = SimpleNamespace(
+        outcome_status="validated_output",
+        adapter_result=adapter,
+        review_outcome_id=review_message_id,
+        review_outcome_fingerprint="3" * 64,
+        review_outcome_replay_key=SHA256(f"review-{review_message_id}".encode()),
+        review_result_fingerprint="4" * 64,
+        review_semantic_fingerprint=current_semantic,
+        source_candidate_diff_message_id=candidate_id,
+    )
+
+    p22_message_id = uuid4()
+    p22_message = _persist_upstream_fact(
+        msg_repo,
+        ids=ids,
+        message_id=p22_message_id,
+        source_detail=P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL,
+        content="Persisted P22 summary evidence.",
+    )
+    human_package_id = uuid4() if mode == "high_risk" else None
+    summary = SimpleNamespace(
+        orchestration_status=orchestration_status,
+        disposition_type=disposition_type,
+        route=route,
+        source_review_message_id=review_message_id,
+        source_human_escalation_package_message_id=human_package_id,
+    )
+
+    candidate_svc = FakeCandidateDiffService(
+        message_repository=msg_repo,
+        candidate_diff=candidate_diff,
+        candidate_diff_message=candidate_message,
+        package=package,
+        invocation_outcome=invocation_outcome,
+    )
+    review_status = "recovery_required" if mode == "claim_without_outcome" else "validated_output"
+    review_svc = FakeReviewExecutionService(
+        message_repository=msg_repo,
+        status=review_status,
+        blocked_reasons=("claim_without_outcome",) if mode == "claim_without_outcome" else (),
+        review_outcome=review_outcome,
+        review_outcome_message=review_message,
+    )
+    p22_svc = FakePostReviewAutomationService(
+        message_repository=msg_repo,
+        result=summary,
+        message=p22_message,
+    )
+    convergence_svc, _same_session, _same_repo = make_convergence_service(
+        session_local,
+        msg_repo=msg_repo,
+        candidate_diff_svc=candidate_svc,
+        review_execution_svc=review_svc,
+        post_review_automation_svc=p22_svc,
+    )
+    terminal_svc = ProjectDirectorBoundedReworkTerminalEscalationService(
+        message_repository=msg_repo,
+        convergence_service=convergence_svc,
+    )
+    return SimpleNamespace(
+        ids=ids,
+        session=session,
+        msg_repo=msg_repo,
+        convergence_service=convergence_svc,
+        terminal_service=terminal_svc,
+        candidate_diff=candidate_diff,
+        candidate_message=candidate_message,
+        review_outcome=review_outcome,
+        review_message=review_message,
+        p22_message=p22_message,
+        human_package_id=human_package_id,
+    )
+
+
+def _persist_real_decision(scenario):
+    result = scenario.convergence_service.decide_bounded_rework_convergence(
+        session_id=scenario.ids["session_id"],
+        source_task_id=scenario.ids["task_id"],
+        source_candidate_diff_message_id=scenario.candidate_message.id,
+    )
+    return result
+
+
+class TestRealConvergenceService:
+    @pytest.mark.parametrize(
+        "mode,attempt_index,decision_type,reason,next_index",
+        [
+            ("empty_diff", 0, "ESCALATE_TO_HUMAN", "empty_diff", None),
+            ("unchanged_diff", 0, "ESCALATE_TO_HUMAN", "unchanged_diff", None),
+            ("repeated_semantic", 0, "ESCALATE_TO_HUMAN", "repeated_review_semantic_fingerprint", None),
+            ("repeated_findings", 0, "ESCALATE_TO_HUMAN", "repeated_canonical_blocking_findings", None),
+            ("changed_findings", 2, "ESCALATE_TO_HUMAN", "attempt_limit_exhausted", None),
+            ("converged", 0, "CONVERGED", "review_converged", None),
+            ("changed_findings", 0, "NEXT_ATTEMPT_ELIGIBLE", "changed_blocking_findings", 1),
+            ("changed_findings", 1, "NEXT_ATTEMPT_ELIGIBLE", "changed_blocking_findings", 2),
+        ],
+    )
+    def test_decision_matrix_and_exact_replay(
+        self,
+        session_local,
+        mode,
+        attempt_index,
+        decision_type,
+        reason,
+        next_index,
+    ):
+        scenario = _real_service_scenario(
+            session_local,
+            mode=mode,
+            attempt_index=attempt_index,
+        )
+        first = _persist_real_decision(scenario)
+        assert first.status == "decision_persisted"
+        assert first.decision is not None
+        assert first.decision_message is not None
+        decision = first.decision
+        assert decision.decision_type == decision_type
+        assert decision.decision_reason == reason
+        assert decision.next_rework_attempt_index == next_index
+        assert decision.source_candidate_diff_message_id == scenario.candidate_message.id
+        if mode not in {"empty_diff", "unchanged_diff"}:
+            assert decision.source_review_outcome_message_id == scenario.review_message.id
+            assert decision.source_p22_summary_message_id == scenario.p22_message.id
+        assert decision.decision_fingerprint == decision.compute_fingerprint()
+
+        second = _persist_real_decision(scenario)
+        assert second.status == "decision_replayed"
+        assert second.decision == first.decision
+        assert second.decision_message == first.decision_message
+        assert count_messages_by_source_detail(
+            scenario.msg_repo,
+            scenario.ids["session_id"],
+            P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SOURCE_DETAIL,
+        ) == 1
+        scenario.session.close()
+
+    def test_claim_without_outcome_does_not_persist(self, session_local):
+        scenario = _real_service_scenario(
+            session_local,
+            mode="claim_without_outcome",
+        )
+        result = _persist_real_decision(scenario)
+        assert result.status == "recovery_required"
+        assert result.blocked_reasons == ("claim_without_outcome",)
+        assert result.decision is None
+        assert count_messages_by_source_detail(
+            scenario.msg_repo,
+            scenario.ids["session_id"],
+            P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SOURCE_DETAIL,
+        ) == 0
+        scenario.session.close()
+
+    def test_caller_owned_transaction_is_not_committed(self, session_local):
+        scenario = _real_service_scenario(session_local, mode="changed_findings")
+        transaction = scenario.session.begin()
+        result = _persist_real_decision(scenario)
+        assert result.status == "blocked"
+        assert result.blocked_reasons == ("persistence_failed",)
+        assert scenario.session.in_transaction()
+        transaction.rollback()
+        assert not scenario.session.in_transaction()
+        scenario.session.close()
+
+    def test_persistence_revalidation_preserves_caller_transaction(self, session_local):
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=0,
+        )
+        persisted = _persist_real_decision(scenario)
+        assert persisted.decision_message is not None
+        transaction = scenario.session.begin()
+        revalidated = scenario.convergence_service.revalidate_terminal_escalation_decision_for_persistence(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=persisted.decision_message.id,
+        )
+        assert revalidated.blocked_reasons == ("next_attempt_still_eligible",)
+        assert scenario.session.in_transaction()
+        transaction.rollback()
+        scenario.session.close()
+
+    def test_persistence_revalidation_without_transaction_fails_closed(self, session_local):
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=2,
+        )
+        persisted = _persist_real_decision(scenario)
+        assert persisted.decision_message is not None
+        assert not scenario.session.in_transaction()
+        revalidated = scenario.convergence_service.revalidate_terminal_escalation_decision_for_persistence(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=persisted.decision_message.id,
+        )
+        assert revalidated.blocked_reasons == ("persistence_failed",)
+        assert not scenario.session.in_transaction()
+        scenario.session.close()
+
+    @pytest.mark.parametrize("marker_kind", ["partial", "duplicate"])
+    def test_malformed_convergence_history_fails_closed(
+        self,
+        session_local,
+        marker_kind,
+    ):
+        scenario = _real_service_scenario(session_local, mode="changed_findings")
+        if marker_kind == "partial":
+            _seed_malformed_convergence_history(
+                scenario.session,
+                ids=scenario.ids,
+                decision_type="NEXT_ATTEMPT_ELIGIBLE",
+                decision_reason="changed_blocking_findings",
+            )
+        else:
+            valid = _persist_real_decision(scenario)
+            assert valid.decision_message is not None
+            duplicate = ProjectDirectorMessage(
+                **{
+                    **valid.decision_message.model_dump(mode="python"),
+                    "id": uuid4(),
+                    "sequence_no": scenario.msg_repo.get_next_sequence_no(
+                        session_id=scenario.ids["session_id"]
+                    ),
+                }
+            )
+            scenario.msg_repo.create(duplicate)
+            scenario.msg_repo.commit()
+        before = count_messages_by_source_detail(
+            scenario.msg_repo,
+            scenario.ids["session_id"],
+            P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SOURCE_DETAIL,
+        )
+        scenario.session.rollback()
+        result = _persist_real_decision(scenario)
+        assert result.status == "blocked"
+        expected_reason = (
+            "history_invalid"
+            if marker_kind == "partial"
+            else "convergence_decision_conflict"
+        )
+        assert result.blocked_reasons == (expected_reason,)
+        assert count_messages_by_source_detail(
+            scenario.msg_repo,
+            scenario.ids["session_id"],
+            P25_BOUNDED_REWORK_CONVERGENCE_DECISION_SOURCE_DETAIL,
+        ) == before
+        scenario.session.close()
+
+
+class TestRealTerminalEscalationService:
+    @pytest.mark.parametrize(
+        "mode,attempt_index,reason",
+        [
+            ("empty_diff", 0, "empty_diff"),
+            ("unchanged_diff", 0, "unchanged_diff"),
+            ("repeated_semantic", 0, "repeated_review_semantic_fingerprint"),
+            ("repeated_findings", 0, "repeated_canonical_blocking_findings"),
+            ("changed_findings", 2, "attempt_limit_exhausted"),
+        ],
+    )
+    def test_terminal_package_prepared_then_replayed(
+        self,
+        session_local,
+        mode,
+        attempt_index,
+        reason,
+    ):
+        scenario = _real_service_scenario(
+            session_local,
+            mode=mode,
+            attempt_index=attempt_index,
+        )
+        convergence = _persist_real_decision(scenario)
+        assert convergence.decision_message is not None
+        first = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert first.status == "package_prepared"
+        assert first.package is not None
+        assert first.message is not None
+        assert first.package.decision_reason == reason
+        assert first.package.source_convergence_decision_message_id == convergence.decision_message.id
+        assert first.package.source_candidate_diff_message_id == scenario.candidate_message.id
+        assert all(
+            finding.finding_source
+            == ("prior_review" if mode in {"empty_diff", "unchanged_diff"} else "current_review")
+            for finding in first.package.unresolved_blocking_findings
+        )
+
+        second = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert second.status == "package_replayed"
+        assert second.package == first.package
+        assert second.message == first.message
+        assert count_messages_by_source_detail(
+            scenario.msg_repo,
+            scenario.ids["session_id"],
+            P25_BOUNDED_REWORK_TERMINAL_ESCALATION_SOURCE_DETAIL,
+        ) == 1
+        scenario.session.close()
+
+    @pytest.mark.parametrize("mode,attempt_index", [("converged", 0), ("changed_findings", 0)])
+    def test_non_terminal_decisions_do_not_create_package(
+        self,
+        session_local,
+        mode,
+        attempt_index,
+    ):
+        scenario = _real_service_scenario(
+            session_local,
+            mode=mode,
+            attempt_index=attempt_index,
+        )
+        convergence = _persist_real_decision(scenario)
+        assert convergence.decision_message is not None
+        result = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert result.status == "blocked"
+        expected = "convergence_already_terminal" if mode == "converged" else "next_attempt_still_eligible"
+        assert result.blocked_reasons == (expected,)
+        assert result.message is None
+        scenario.session.close()
+
+    def test_sensitive_sentinel_not_projected_to_final_records(self, session_local):
+        sentinel = "P25_J_A_SECRET_SENTINEL_7f91c2"
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=2,
+            sentinel=sentinel,
+        )
+        convergence = _persist_real_decision(scenario)
+        assert convergence.decision_message is not None
+        terminal = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert terminal.message is not None
+        for message in (convergence.decision_message, terminal.message):
+            serialized = json.dumps(
+                {
+                    "content": message.content,
+                    "suggested_actions": message.suggested_actions,
+                    "forbidden_actions": message.forbidden_actions_detected,
+                },
+                default=str,
+            )
+            assert sentinel not in serialized
+        scenario.session.close()
+
+    @pytest.mark.parametrize("marker_kind", ["partial", "duplicate"])
+    def test_malformed_terminal_history_fails_closed(
+        self,
+        session_local,
+        marker_kind,
+    ):
+        scenario = _real_service_scenario(
+            session_local,
+            mode="changed_findings",
+            attempt_index=2,
+        )
+        convergence = _persist_real_decision(scenario)
+        prepared = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert prepared.message is not None
+        action = (
+            {"type": P25_BOUNDED_REWORK_TERMINAL_ESCALATION_ACTION_TYPE}
+            if marker_kind == "partial"
+            else prepared.message.suggested_actions[0]
+        )
+        malformed = ProjectDirectorMessage(
+            id=uuid4(),
+            session_id=scenario.ids["session_id"],
+            role="assistant",
+            content=prepared.message.content,
+            sequence_no=scenario.msg_repo.get_next_sequence_no(
+                session_id=scenario.ids["session_id"]
+            ),
+            intent=prepared.message.intent,
+            related_project_id=scenario.ids["project_id"],
+            related_task_id=scenario.ids["task_id"],
+            source="system",
+            source_detail=P25_BOUNDED_REWORK_TERMINAL_ESCALATION_SOURCE_DETAIL,
+            suggested_actions=[action],
+            requires_confirmation=False,
+            risk_level="high",
+        )
+        scenario.msg_repo.create(malformed)
+        scenario.msg_repo.commit()
+        result = scenario.terminal_service.prepare_bounded_rework_terminal_escalation(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_convergence_decision_message_id=convergence.decision_message.id,
+        )
+        assert result.status == "blocked"
+        assert result.blocked_reasons == ("history_invalid",)
+        scenario.session.close()
 
     def test_different_sessions_are_isolated(self, session_local):
         from tests.p25_dynamic_test_support import make_repos

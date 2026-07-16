@@ -1612,6 +1612,10 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
         source_task_id: UUID,
         source_project_id: UUID | None,
     ) -> bool:
+        from app.services.project_director_bounded_rework_review_execution_service import (
+            P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+        )
+
         return bool(
             message is not None
             and message.session_id == session_id
@@ -1619,7 +1623,11 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             and message.related_task_id == source_task_id
             and message.role == ProjectDirectorMessageRole.ASSISTANT
             and message.source == ProjectDirectorMessageSource.SYSTEM
-            and message.intent == "sandbox_candidate_diff_readonly_review_execution"
+            and message.intent
+            in (
+                "sandbox_candidate_diff_readonly_review_execution",
+                P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+            )
             and message.requires_confirmation is False
             and message.risk_level == ProjectDirectorMessageRiskLevel.HIGH
         )

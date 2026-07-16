@@ -46,7 +46,7 @@ from app.services.project_director_sandbox_candidate_diff_review_disposition_con
 )
 from app.services.project_director_sandbox_candidate_diff_review_disposition_handoff_service import (
     DISPOSITION_HANDOFF_SCHEMA_VERSION,
-    MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
+    MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE,
     P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE,
     P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
     PreparedSandboxCandidateDiffReviewDispositionHandoff,
@@ -162,14 +162,20 @@ def _seed_base_records(session: Session) -> None:
 def _seed_c2_consumed_message(
     session: Session,
     *,
+    source_task_id: UUID = TASK_ID,
     disposition_type: str = "AUTO_CONTINUE",
     consumption_id: UUID | None = None,
     c2_msg_id: UUID | None = None,
     seq_no: int = 100,
+    source_review_message_id: UUID | None = None,
+    source_disposition_message_id: UUID | None = None,
+    source_diff_message_id: UUID | None = None,
+    disposition_id: UUID | None = None,
+    review_result_fingerprint: str | None = None,
 ) -> tuple[UUID, UUID]:
     consumption_id = consumption_id or uuid4()
     c2_msg_id = c2_msg_id or uuid4()
-    review_fingerprint_sha = "a" * 64
+    review_fingerprint_sha = review_result_fingerprint or "a" * 64
     diff_sha = "b" * 64
     review_prompt_sha = "c" * 64
     scope = ["src/example.py"]
@@ -180,12 +186,12 @@ def _seed_c2_consumed_message(
         "consumption_id": str(consumption_id),
         "consumed_at": datetime.now(timezone.utc).isoformat(),
         "session_id": str(SESSION_ID),
-        "source_task_id": str(TASK_ID),
+        "source_task_id": str(source_task_id),
         "source_consumption_preflight_message_id": str(uuid4()),
-        "source_disposition_message_id": str(uuid4()),
-        "source_review_message_id": str(uuid4()),
-        "source_diff_message_id": str(uuid4()),
-        "disposition_id": str(uuid4()),
+        "source_disposition_message_id": str(source_disposition_message_id or uuid4()),
+        "source_review_message_id": str(source_review_message_id or uuid4()),
+        "source_diff_message_id": str(source_diff_message_id or uuid4()),
+        "disposition_id": str(disposition_id or uuid4()),
         "disposition_type": disposition_type,
         "disposition_reason": (
             "review_has_no_blocking_findings"
@@ -236,106 +242,11 @@ def _seed_c2_consumed_message(
             requires_confirmation=False,
             risk_level="high",
             related_project_id=PROJECT_ID,
-            related_task_id=TASK_ID,
+            related_task_id=source_task_id,
         )
     )
     session.commit()
     return c2_msg_id, consumption_id
-
-
-def _seed_handoff_message(
-    session: Session,
-    *,
-    source_consumption_message_id: UUID,
-    disposition_type: str = "AUTO_CONTINUE",
-    handoff_status: str = "prepared",
-    rework_handoff_prepared: bool = False,
-    seq_no: int = 200,
-) -> UUID:
-    handoff_msg_id = uuid4()
-    sha = hashlib.sha256(b"handoff").hexdigest()
-    action: dict[str, Any] = {
-        "type": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE,
-        "schema_version": DISPOSITION_HANDOFF_SCHEMA_VERSION,
-        "handoff_status": handoff_status,
-        "handoff_id": str(uuid4()),
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
-        "handoff_kind": (
-            "automatic_continuation"
-            if disposition_type == "AUTO_CONTINUE"
-            else "bounded_automatic_rework"
-        ),
-        "session_id": str(SESSION_ID),
-        "source_task_id": str(TASK_ID),
-        "source_consumption_message_id": str(source_consumption_message_id),
-        "source_consumption_id": str(uuid4()),
-        "source_consumption_preflight_message_id": str(uuid4()),
-        "source_disposition_message_id": str(uuid4()),
-        "source_review_message_id": str(uuid4()),
-        "source_diff_message_id": str(uuid4()),
-        "disposition_id": str(uuid4()),
-        "disposition_type": disposition_type,
-        "disposition_reason": "review_has_no_blocking_findings",
-        "review_result_fingerprint": sha,
-        "revalidated_review_result_fingerprint": sha,
-        "reviewed_diff_sha256": sha,
-        "persisted_source_diff_sha256": sha,
-        "current_diff_sha256": sha,
-        "review_prompt_sha256": sha,
-        "reviewed_scope_paths": ["src/example.py"],
-        "persisted_source_scope_paths": ["src/example.py"],
-        "current_scope_paths": ["src/example.py"],
-        "review_output_schema_version": REVIEW_OUTPUT_SCHEMA_VERSION,
-        "source_review_verdict": "no_blocking_findings",
-        "source_review_risk_level": "low",
-        "workspace_path": "/tmp/ws",
-        "workspace_path_within_root": True,
-        "source_consumption_validated": True,
-        "replay_check_completed": True,
-        "prior_handoff_detected": False,
-        "prior_rework_handoff_count": 0,
-        "rework_attempt_number": 1 if disposition_type == "AUTO_REWORK" else 0,
-        "rework_attempt_limit": MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
-        "bounded_rework_budget_exhausted": False,
-        "rework_non_convergence_detected": False,
-        "continuation_handoff_prepared": disposition_type == "AUTO_CONTINUE",
-        "rework_handoff_prepared": rework_handoff_prepared,
-        "blocked_reasons": [],
-        "continuation_started": False,
-        "rework_started": False,
-        "human_escalation_package_created": False,
-        "human_decision_recorded": False,
-        "main_project_file_written": False,
-        "sandbox_file_written": False,
-        "manifest_file_written": False,
-        "diff_file_written": False,
-        "patch_applied": False,
-        "git_write_performed": False,
-        "worktree_created": False,
-        "worker_started": False,
-        "task_created": False,
-        "run_created": False,
-        "gate_allows_write": False,
-        "ai_project_director_total_loop": "Partial",
-    }
-    session.add(
-        ProjectDirectorMessageTable(
-            id=handoff_msg_id,
-            session_id=SESSION_ID,
-            role="assistant",
-            content="Handoff prepared.",
-            sequence_no=seq_no,
-            source="system",
-            source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
-            suggested_actions_json=json.dumps([action]),
-            requires_confirmation=False,
-            risk_level="high",
-            related_project_id=PROJECT_ID,
-            related_task_id=TASK_ID,
-        )
-    )
-    session.commit()
-    return handoff_msg_id
 
 
 def _seed_filler_messages(
@@ -364,11 +275,13 @@ def _seed_filler_messages(
 def _c3_prepare_handoff(
     SessionLocal,
     c2_msg_id: UUID,
+    *,
+    source_task_id: UUID = TASK_ID,
 ) -> tuple[UUID, int]:
     svc, session = _make_c3_service(SessionLocal)
     result = svc.prepare_candidate_diff_review_disposition_handoff(
         session_id=SESSION_ID,
-        source_task_id=TASK_ID,
+        source_task_id=source_task_id,
         source_message_id=c2_msg_id,
     )
     assert result.result.handoff_status == "prepared"
@@ -437,8 +350,8 @@ class TestConstants:
     def test_disposition_handoff_schema_version(self) -> None:
         assert DISPOSITION_HANDOFF_SCHEMA_VERSION == "p21-d-c3.v1"
 
-    def test_max_automatic_rework_handoffs_per_task(self) -> None:
-        assert MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK == 1
+    def test_max_automatic_rework_handoffs_per_review_lineage(self) -> None:
+        assert MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE == 1
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1672,7 +1585,7 @@ class TestAutoContinueSuccess:
         assert r.workspace_path_within_root is True
         assert r.replay_check_completed is True
         assert r.prior_handoff_detected is False
-        assert r.rework_attempt_limit == MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK
+        assert r.rework_attempt_limit == MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE
         session.close()
 
 
@@ -2118,7 +2031,7 @@ class TestAppendOnlyPersistence:
         assert act["prior_handoff_detected"] is False
         assert act["prior_rework_handoff_count"] == 0
         assert act["rework_attempt_number"] == 0
-        assert act["rework_attempt_limit"] == MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK
+        assert act["rework_attempt_limit"] == MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE
         assert act["continuation_handoff_prepared"] is True
         assert act["rework_handoff_prepared"] is False
         assert act["blocked_reasons"] == []
@@ -2232,39 +2145,68 @@ class TestCrossPageReplay:
 
 
 class TestAutoReworkBudget:
-    def test_second_rework_blocked(self, db_engine) -> None:
+    def test_same_lineage_replay_blocked(self, db_engine) -> None:
+        """Same lineage (same C2): second call blocked with handoff_already_prepared."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-
-        c2_msg_1, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
-        )
-        c2_msg_2, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
-        )
-
-        _seed_handoff_message(
-            session,
-            source_consumption_message_id=c2_msg_1,
-            disposition_type="AUTO_REWORK",
-            rework_handoff_prepared=True,
+        c2_msg_id, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK",
         )
         session.close()
 
+        # First call: creates handoff
+        _c3_prepare_handoff(SessionLocal, c2_msg_id)
+
+        # Second call: same C2 → same lineage → replay blocked
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_msg_id,
+        )
+        assert result.result.handoff_status == "blocked"
+        assert result.result.prior_handoff_detected is True
+        assert "handoff_already_prepared" in result.result.blocked_reasons
+        assert result.message is None
+        session.close()
+
+    def test_different_lineage_not_blocked(self, db_engine) -> None:
+        """Different lineage (different C2): each gets its own handoff."""
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_msg_1, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK",
+        )
+        c2_msg_2, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK",
+        )
+        session.close()
+
+        # First handoff via real service
+        _c3_prepare_handoff(SessionLocal, c2_msg_1)
+
+        # Second handoff: different lineage → succeeds
         svc, session = _make_c3_service(SessionLocal)
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
             source_message_id=c2_msg_2,
         )
-        assert result.result.handoff_status == "blocked"
-        assert result.result.bounded_rework_budget_exhausted is True
-        assert result.result.rework_non_convergence_detected is True
-        assert "bounded_rework_budget_exhausted" in result.result.blocked_reasons
-        assert "rework_non_convergence" in result.result.blocked_reasons
-        assert result.result.prior_rework_handoff_count >= 1
-        assert result.message is None
+        assert result.result.handoff_status == "prepared"
+        assert result.result.prior_handoff_detected is False
+        assert result.message is not None
+
+        # Both handoffs persisted
+        count = session.execute(
+            text(
+                "SELECT COUNT(*) FROM project_director_messages "
+                "WHERE source_detail = :sd"
+            ),
+            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
+        ).scalar()
+        assert count == 2
         session.close()
 
 
@@ -2274,12 +2216,41 @@ class TestAutoReworkBudget:
 
 
 class TestCrossPageBudget:
-    def test_budget_detected_across_pages(self, db_engine) -> None:
+    def test_same_lineage_replay_across_pages(self, db_engine) -> None:
+        """Same lineage replay detected even across pages."""
+        SessionLocal = _make_session_factory(db_engine)
+        session = SessionLocal()
+        _seed_base_records(session)
+        c2_msg_id, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK",
+        )
+        session.close()
+
+        _, handoff_seq_no = _c3_prepare_handoff(SessionLocal, c2_msg_id)
+
+        session = SessionLocal()
+        _seed_filler_messages(session, handoff_seq_no + 1, 105)
+        session.close()
+
+        # Same C2 → same lineage → replay blocked across pages
+        svc, session = _make_c3_service(SessionLocal)
+        result = svc.prepare_candidate_diff_review_disposition_handoff(
+            session_id=SESSION_ID,
+            source_task_id=TASK_ID,
+            source_message_id=c2_msg_id,
+        )
+        assert result.result.handoff_status == "blocked"
+        assert result.result.prior_handoff_detected is True
+        assert result.message is None
+        session.close()
+
+    def test_different_lineage_across_pages(self, db_engine) -> None:
+        """Different lineage: each gets its own handoff across pages."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
         c2_msg_a, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            session, disposition_type="AUTO_REWORK",
         )
         session.close()
 
@@ -2290,7 +2261,7 @@ class TestCrossPageBudget:
         session.close()
 
         c2_msg_b, _ = _seed_c2_consumed_message(
-            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            SessionLocal(), disposition_type="AUTO_REWORK",
         )
 
         svc, session = _make_c3_service(SessionLocal)
@@ -2299,39 +2270,9 @@ class TestCrossPageBudget:
             source_task_id=TASK_ID,
             source_message_id=c2_msg_b,
         )
-        assert result.result.handoff_status == "blocked"
-        assert result.result.source_consumption_validated is True
-        assert result.result.replay_check_completed is True
+        assert result.result.handoff_status == "prepared"
         assert result.result.prior_handoff_detected is False
-        assert result.result.prior_rework_handoff_count == 1
-        assert result.result.bounded_rework_budget_exhausted is True
-        assert result.result.rework_non_convergence_detected is True
-        assert "bounded_rework_budget_exhausted" in result.result.blocked_reasons
-        assert "rework_non_convergence" in result.result.blocked_reasons
-        assert result.message is None
-
-        c3_rework_count = session.execute(
-            text(
-                "SELECT COUNT(*) FROM project_director_messages "
-                "WHERE source_detail = :sd "
-                "AND json_extract(suggested_actions_json, '$[0].disposition_type') = 'AUTO_REWORK' "
-                "AND json_extract(suggested_actions_json, '$[0].handoff_status') = 'prepared'"
-            ),
-            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
-        ).scalar()
-        assert c3_rework_count == 1
-        c3_b_count = session.execute(
-            text(
-                "SELECT COUNT(*) FROM project_director_messages "
-                "WHERE source_detail = :sd "
-                "AND json_extract(suggested_actions_json, '$[0].source_consumption_message_id') = :cid"
-            ),
-            {
-                "sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
-                "cid": str(c2_msg_b),
-            },
-        ).scalar()
-        assert c3_b_count == 0
+        assert result.message is not None
         session.close()
 
 
@@ -2374,7 +2315,11 @@ def _seed_non_matching_handoff(
             "source_diff_message_id": str(uuid4()),
             "disposition_id": str(uuid4()),
             "disposition_type": disposition_type,
-            "disposition_reason": "review_changes_required",
+            "disposition_reason": (
+                "review_has_no_blocking_findings"
+                if disposition_type == "AUTO_CONTINUE"
+                else "review_changes_required"
+            ),
             "review_result_fingerprint": sha,
             "revalidated_review_result_fingerprint": sha,
             "reviewed_diff_sha256": sha,
@@ -2393,12 +2338,12 @@ def _seed_non_matching_handoff(
             "replay_check_completed": True,
             "prior_handoff_detected": False,
             "prior_rework_handoff_count": 0,
-            "rework_attempt_number": 1,
-            "rework_attempt_limit": MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
+            "rework_attempt_number": 0 if disposition_type == "AUTO_CONTINUE" else 1,
+            "rework_attempt_limit": MAX_AUTOMATIC_REWORK_HANDOFFS_PER_REVIEW_LINEAGE,
             "bounded_rework_budget_exhausted": False,
             "rework_non_convergence_detected": False,
-            "continuation_handoff_prepared": False,
-            "rework_handoff_prepared": rework_handoff_prepared,
+            "continuation_handoff_prepared": disposition_type == "AUTO_CONTINUE",
+            "rework_handoff_prepared": rework_handoff_prepared if disposition_type != "AUTO_CONTINUE" else False,
             "blocked_reasons": [],
             "continuation_started": False,
             "rework_started": False,
@@ -2419,20 +2364,38 @@ def _seed_non_matching_handoff(
         }
     else:
         action = {"type": action_type, "handoff_status": handoff_status}
+    _HANDOFF_CONTENT = (
+        "A bounded disposition handoff was prepared only. No continuation or "
+        "rework execution was started, no Task, Run, Worker, or worktree was "
+        "created, no file was written, no patch was applied, and no Git write "
+        "was performed. AI Project Director total loop remains Partial."
+    )
+    _HANDOFF_FORBIDDEN_ACTIONS = [
+        "no_continuation_start", "no_rework_start",
+        "no_human_escalation_package", "no_human_decision",
+        "no_workspace_write", "no_main_project_file_write",
+        "no_manifest_write", "no_diff_file_write",
+        "no_patch_apply", "no_product_runtime_git_write",
+        "no_worker_dispatch", "no_task_creation",
+        "no_run_creation", "no_worktree_creation",
+    ]
     session.add(
         ProjectDirectorMessageTable(
             id=uuid4(),
             session_id=SESSION_ID,
             role="assistant",
-            content="Other task handoff.",
+            content=_HANDOFF_CONTENT,
             sequence_no=500,
             source="system",
             source_detail=source_detail,
+            intent="sandbox_candidate_diff_review_disposition_handoff",
             suggested_actions_json=json.dumps([action]),
             requires_confirmation=False,
             risk_level="high",
             related_project_id=PROJECT_ID,
             related_task_id=source_task_id,
+            forbidden_actions_detected_json=json.dumps(_HANDOFF_FORBIDDEN_ACTIONS),
+            token_count=None,
         )
     )
     session.commit()
@@ -2441,6 +2404,7 @@ def _seed_non_matching_handoff(
 
 class TestBudgetCounting:
     def test_non_matching_handoffs_not_counted(self, db_engine) -> None:
+        """Handoff for different task does not block current task's handoff."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
@@ -2461,94 +2425,22 @@ class TestBudgetCounting:
                 acceptance_criteria=acceptance,
             )
         )
-        session.flush()
-
-        other_c2_msg, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
-        )
-
-        sha = hashlib.sha256(b"other").hexdigest()
-        other_handoff_action = {
-            "type": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_ACTION_TYPE,
-            "schema_version": DISPOSITION_HANDOFF_SCHEMA_VERSION,
-            "handoff_status": "prepared",
-            "handoff_id": str(uuid4()),
-            "prepared_at": datetime.now(timezone.utc).isoformat(),
-            "handoff_kind": "bounded_automatic_rework",
-            "session_id": str(SESSION_ID),
-            "source_task_id": str(other_task_id),
-            "source_consumption_message_id": str(other_c2_msg),
-            "source_consumption_id": str(uuid4()),
-            "source_consumption_preflight_message_id": str(uuid4()),
-            "source_disposition_message_id": str(uuid4()),
-            "source_review_message_id": str(uuid4()),
-            "source_diff_message_id": str(uuid4()),
-            "disposition_id": str(uuid4()),
-            "disposition_type": "AUTO_REWORK",
-            "disposition_reason": "review_changes_required",
-            "review_result_fingerprint": sha,
-            "revalidated_review_result_fingerprint": sha,
-            "reviewed_diff_sha256": sha,
-            "persisted_source_diff_sha256": sha,
-            "current_diff_sha256": sha,
-            "review_prompt_sha256": sha,
-            "reviewed_scope_paths": ["src/example.py"],
-            "persisted_source_scope_paths": ["src/example.py"],
-            "current_scope_paths": ["src/example.py"],
-            "review_output_schema_version": REVIEW_OUTPUT_SCHEMA_VERSION,
-            "source_review_verdict": "changes_required",
-            "source_review_risk_level": "low",
-            "workspace_path": "/tmp/ws",
-            "workspace_path_within_root": True,
-            "source_consumption_validated": True,
-            "replay_check_completed": True,
-            "prior_handoff_detected": False,
-            "prior_rework_handoff_count": 0,
-            "rework_attempt_number": 1,
-            "rework_attempt_limit": MAX_AUTOMATIC_REWORK_HANDOFFS_PER_TASK,
-            "bounded_rework_budget_exhausted": False,
-            "rework_non_convergence_detected": False,
-            "continuation_handoff_prepared": False,
-            "rework_handoff_prepared": True,
-            "blocked_reasons": [],
-            "continuation_started": False,
-            "rework_started": False,
-            "human_escalation_package_created": False,
-            "human_decision_recorded": False,
-            "main_project_file_written": False,
-            "sandbox_file_written": False,
-            "manifest_file_written": False,
-            "diff_file_written": False,
-            "patch_applied": False,
-            "git_write_performed": False,
-            "worktree_created": False,
-            "worker_started": False,
-            "task_created": False,
-            "run_created": False,
-            "gate_allows_write": False,
-            "ai_project_director_total_loop": "Partial",
-        }
-        session.add(
-            ProjectDirectorMessageTable(
-                id=uuid4(),
-                session_id=SESSION_ID,
-                role="assistant",
-                content="Other task handoff.",
-                sequence_no=500,
-                source="system",
-                source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL,
-                suggested_actions_json=json.dumps([other_handoff_action]),
-                requires_confirmation=False,
-                risk_level="high",
-                related_project_id=PROJECT_ID,
-                related_task_id=other_task_id,
-            )
-        )
         session.commit()
+        other_c2_msg, _ = _seed_c2_consumed_message(
+            session,
+            source_task_id=other_task_id,
+            disposition_type="AUTO_REWORK",
+        )
         session.close()
 
+        _c3_prepare_handoff(
+            SessionLocal,
+            other_c2_msg,
+            source_task_id=other_task_id,
+        )
+
         new_c2_msg, _ = _seed_c2_consumed_message(
-            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            SessionLocal(), disposition_type="AUTO_REWORK",
         )
 
         svc, session = _make_c3_service(SessionLocal)
@@ -2558,10 +2450,10 @@ class TestBudgetCounting:
             source_message_id=new_c2_msg,
         )
         assert result.result.handoff_status == "prepared"
-        assert result.result.prior_rework_handoff_count == 0
         session.close()
 
     def test_different_source_task_id(self, db_engine) -> None:
+        """Handoff for different task has different lineage → ignored."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
@@ -2582,40 +2474,52 @@ class TestBudgetCounting:
             )
         )
         session.commit()
+        other_c2, _ = _seed_c2_consumed_message(
+            session,
+            source_task_id=other_task_id,
+            disposition_type="AUTO_REWORK",
+        )
         session.close()
-        _seed_non_matching_handoff(SessionLocal, source_task_id=other_task_id)
+        _c3_prepare_handoff(
+            SessionLocal,
+            other_c2,
+            source_task_id=other_task_id,
+        )
 
         new_c2, _ = _seed_c2_consumed_message(
-            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            SessionLocal(), disposition_type="AUTO_REWORK",
         )
         svc, session = _make_c3_service(SessionLocal)
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
         )
         assert result.result.handoff_status == "prepared"
-        assert result.result.prior_rework_handoff_count == 0
         session.close()
 
     def test_auto_continue_disposition(self, db_engine) -> None:
+        """Handoff with AUTO_CONTINUE disposition has different lineage → ignored."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-        session.commit()
+        continue_c2, _ = _seed_c2_consumed_message(
+            session,
+            disposition_type="AUTO_CONTINUE",
+        )
         session.close()
-        _seed_non_matching_handoff(SessionLocal, disposition_type="AUTO_CONTINUE")
+        _c3_prepare_handoff(SessionLocal, continue_c2)
 
         new_c2, _ = _seed_c2_consumed_message(
-            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            SessionLocal(), disposition_type="AUTO_REWORK",
         )
         svc, session = _make_c3_service(SessionLocal)
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
         )
         assert result.result.handoff_status == "prepared"
-        assert result.result.prior_rework_handoff_count == 0
         session.close()
 
-    def test_blocked_action_status(self, db_engine) -> None:
+    def test_blocked_action_status_causes_conflict(self, db_engine) -> None:
+        """Malformed marker (blocked status with prepared fields) → history conflict."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
@@ -2624,17 +2528,18 @@ class TestBudgetCounting:
         _seed_non_matching_handoff(SessionLocal, handoff_status="blocked")
 
         new_c2, _ = _seed_c2_consumed_message(
-            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            SessionLocal(), disposition_type="AUTO_REWORK",
         )
         svc, session = _make_c3_service(SessionLocal)
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
         )
-        assert result.result.handoff_status == "prepared"
-        assert result.result.prior_rework_handoff_count == 0
+        assert result.result.handoff_status == "blocked"
+        assert "handoff_history_conflict" in result.result.blocked_reasons
         session.close()
 
-    def test_rework_not_prepared(self, db_engine) -> None:
+    def test_rework_not_prepared_causes_conflict(self, db_engine) -> None:
+        """Malformed marker (prepared but rework_handoff_prepared=false) → conflict."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
@@ -2643,17 +2548,18 @@ class TestBudgetCounting:
         _seed_non_matching_handoff(SessionLocal, rework_handoff_prepared=False)
 
         new_c2, _ = _seed_c2_consumed_message(
-            SessionLocal(), disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            SessionLocal(), disposition_type="AUTO_REWORK",
         )
         svc, session = _make_c3_service(SessionLocal)
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
         )
-        assert result.result.handoff_status == "prepared"
-        assert result.result.prior_rework_handoff_count == 0
+        assert result.result.handoff_status == "blocked"
+        assert "handoff_history_conflict" in result.result.blocked_reasons
         session.close()
 
-    def test_wrong_c3_source_detail(self, db_engine) -> None:
+    def test_wrong_c3_source_detail_causes_conflict(self, db_engine) -> None:
+        """Malformed handoff marker (wrong source_detail) causes history conflict."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
@@ -2668,11 +2574,12 @@ class TestBudgetCounting:
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
         )
-        assert result.result.handoff_status == "prepared"
-        assert result.result.prior_rework_handoff_count == 0
+        assert result.result.handoff_status == "blocked"
+        assert "handoff_history_conflict" in result.result.blocked_reasons
         session.close()
 
-    def test_wrong_c3_action_type(self, db_engine) -> None:
+    def test_wrong_c3_action_type_causes_conflict(self, db_engine) -> None:
+        """Malformed handoff marker (wrong action_type) causes history conflict."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
@@ -2687,8 +2594,8 @@ class TestBudgetCounting:
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=new_c2,
         )
-        assert result.result.handoff_status == "prepared"
-        assert result.result.prior_rework_handoff_count == 0
+        assert result.result.handoff_status == "blocked"
+        assert "handoff_history_conflict" in result.result.blocked_reasons
         session.close()
 
 
@@ -2698,26 +2605,23 @@ class TestBudgetCounting:
 
 
 class TestAutoContinueAfterRework:
-    def test_continue_not_blocked_by_rework_count(self, db_engine) -> None:
+    def test_continue_not_blocked_by_rework_handoff(self, db_engine) -> None:
+        """AUTO_CONTINUE lineage not blocked by prior AUTO_REWORK handoff (different lineage)."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-
         c2_rework, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+            session, disposition_type="AUTO_REWORK",
         )
-        _seed_handoff_message(
-            session,
-            source_consumption_message_id=c2_rework,
-            disposition_type="AUTO_REWORK",
-            rework_handoff_prepared=True,
-        )
-
         c2_continue, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_CONTINUE", c2_msg_id=uuid4()
+            session, disposition_type="AUTO_CONTINUE",
         )
         session.close()
 
+        # Create AUTO_REWORK handoff via real service
+        _c3_prepare_handoff(SessionLocal, c2_rework)
+
+        # AUTO_CONTINUE lineage should succeed (different lineage)
         svc, session = _make_c3_service(SessionLocal)
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID,
@@ -2727,11 +2631,8 @@ class TestAutoContinueAfterRework:
         assert result.result.handoff_status == "prepared"
         assert result.result.disposition_type == "AUTO_CONTINUE"
         assert result.result.handoff_kind == "automatic_continuation"
-        assert result.result.prior_rework_handoff_count == 1
         assert result.result.continuation_handoff_prepared is True
         assert result.result.rework_handoff_prepared is False
-        assert result.result.bounded_rework_budget_exhausted is False
-        assert result.result.rework_non_convergence_detected is False
         assert result.result.blocked_reasons == []
         assert result.message is not None
         session.close()
@@ -2906,16 +2807,13 @@ class TestConcurrentSameConsumption:
 
 
 class TestConcurrentReworkConsumptions:
-    def test_two_rework_consumptions_one_prepared_one_replay_blocked(self, db_engine) -> None:
+    def test_same_lineage_concurrent_one_prepared_one_blocked(self, db_engine) -> None:
+        """Same lineage concurrent: one prepared, one blocked (replay)."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-
-        c2_rework_1, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
-        )
-        c2_rework_2, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        c2_msg_id, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK",
         )
         session.close()
 
@@ -2943,7 +2841,7 @@ class TestConcurrentReworkConsumptions:
                 result = svc.prepare_candidate_diff_review_disposition_handoff(
                     session_id=SESSION_ID,
                     source_task_id=TASK_ID,
-                    source_message_id=c2_rework_1,
+                    source_message_id=c2_msg_id,
                 )
                 results.append(result)
             except Exception as e:
@@ -2967,7 +2865,7 @@ class TestConcurrentReworkConsumptions:
                 result = svc.prepare_candidate_diff_review_disposition_handoff(
                     session_id=SESSION_ID,
                     source_task_id=TASK_ID,
-                    source_message_id=c2_rework_2,
+                    source_message_id=c2_msg_id,
                 )
                 results.append(result)
             except Exception as e:
@@ -3010,40 +2908,13 @@ class TestConcurrentReworkConsumptions:
         blocked_result = next(r for r in results if r.result.handoff_status == "blocked")
 
         assert prepared_result.result.handoff_kind == "bounded_automatic_rework"
-        assert prepared_result.result.rework_attempt_number == 1
-        assert prepared_result.result.rework_attempt_limit == 1
         assert prepared_result.message is not None
 
-        assert blocked_result.result.source_consumption_validated is True
-        assert blocked_result.result.replay_check_completed is True
-        assert blocked_result.result.prior_handoff_detected is False
-        assert blocked_result.result.prior_rework_handoff_count == 1
-        assert blocked_result.result.bounded_rework_budget_exhausted is True
-        assert blocked_result.result.rework_non_convergence_detected is True
-        assert "bounded_rework_budget_exhausted" in blocked_result.result.blocked_reasons
-        assert "rework_non_convergence" in blocked_result.result.blocked_reasons
+        assert blocked_result.result.prior_handoff_detected is True
+        assert "handoff_already_prepared" in blocked_result.result.blocked_reasons
         assert blocked_result.message is None
 
         verify = SessionLocal()
-        rework_count = verify.execute(
-            text(
-                "SELECT COUNT(*) FROM project_director_messages "
-                "WHERE source_detail = :sd "
-                "AND json_extract(suggested_actions_json, '$[0].disposition_type') = 'AUTO_REWORK' "
-                "AND json_extract(suggested_actions_json, '$[0].handoff_status') = 'prepared'"
-            ),
-            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
-        ).scalar()
-        assert rework_count == 1
-        r1_count = verify.execute(
-            text(
-                "SELECT COUNT(*) FROM project_director_messages "
-                "WHERE source_detail = :sd "
-                "AND json_extract(suggested_actions_json, '$[0].rework_attempt_number') = 1"
-            ),
-            {"sd": P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_HANDOFF_SOURCE_DETAIL},
-        ).scalar()
-        assert r1_count == 1
         total_c3 = verify.execute(
             text(
                 "SELECT COUNT(*) FROM project_director_messages "
@@ -3172,28 +3043,26 @@ class TestLockRelease:
         verify.commit()
         verify.close()
 
-    def test_budget_blocked_releases_lock(self, db_engine) -> None:
+    def test_replay_blocked_releases_lock(self, db_engine) -> None:
+        """Same-lineage replay blocked releases SQLite lock."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-        c2_a, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
-        )
-        c2_b, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        c2_msg_id, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK",
         )
         session.close()
 
-        _c3_prepare_handoff(SessionLocal, c2_a)
+        _c3_prepare_handoff(SessionLocal, c2_msg_id)
 
         svc, session = _make_c3_service(SessionLocal)
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
-            source_message_id=c2_b,
+            source_message_id=c2_msg_id,
         )
         assert result.result.handoff_status == "blocked"
-        assert result.result.bounded_rework_budget_exhausted is True
+        assert result.result.prior_handoff_detected is True
         session.close()
 
         verify = SessionLocal()
@@ -3293,19 +3162,17 @@ class TestNoSideEffects:
         assert post_sess.execute(text("SELECT COUNT(*) FROM runs")).scalar() == run_count_before
         post_sess.close()
 
-    def test_task_and_run_count_unchanged_after_budget_blocked(self, db_engine) -> None:
+    def test_task_and_run_count_unchanged_after_replay_blocked(self, db_engine) -> None:
+        """Same-lineage replay blocked does not create tasks or runs."""
         SessionLocal = _make_session_factory(db_engine)
         session = SessionLocal()
         _seed_base_records(session)
-        c2_a, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
-        )
-        c2_b, _ = _seed_c2_consumed_message(
-            session, disposition_type="AUTO_REWORK", c2_msg_id=uuid4()
+        c2_msg_id, _ = _seed_c2_consumed_message(
+            session, disposition_type="AUTO_REWORK",
         )
         session.close()
 
-        _c3_prepare_handoff(SessionLocal, c2_a)
+        _c3_prepare_handoff(SessionLocal, c2_msg_id)
 
         pre_sess = SessionLocal()
         task_count_before = pre_sess.execute(
@@ -3320,10 +3187,10 @@ class TestNoSideEffects:
         result = svc.prepare_candidate_diff_review_disposition_handoff(
             session_id=SESSION_ID,
             source_task_id=TASK_ID,
-            source_message_id=c2_b,
+            source_message_id=c2_msg_id,
         )
         assert result.result.handoff_status == "blocked"
-        assert result.result.bounded_rework_budget_exhausted is True
+        assert result.result.prior_handoff_detected is True
         session.close()
 
         post_sess = SessionLocal()

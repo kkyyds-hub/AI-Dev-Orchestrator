@@ -870,7 +870,9 @@ class ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService:
                 outcome.outcome_status != "validated_output"
                 or outcome.adapter_result is None
                 or outcome.adapter_result.adapter_status != "validated_output"
-                or not self._is_sha256(outcome.review_semantic_fingerprint)
+                or not ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService._is_sha256(
+                    outcome.review_semantic_fingerprint
+                )
                 or outcome.recovery_required is not False
                 or outcome.human_escalation_required is not False
                 or outcome.safe_error_code is not None
