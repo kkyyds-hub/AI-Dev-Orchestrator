@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from app.core.db_tables import ProjectDirectorMessageTable
+from app.core.db_tables import ProjectDirectorMessageTable, TaskTable
+from app.domain.project_role import ProjectRoleCode
+from app.domain.run import (
+    RunBudgetPressureLevel,
+    RunBudgetStrategyAction,
+    RunRoutingScoreItem,
+    RunStrategyDecision,
+)
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
 )
@@ -39,29 +46,157 @@ from app.services.project_director_protected_transition_dispatch_intent_service 
 from app.services.project_director_protected_transition_evidence_freshness_service import (
     ProjectDirectorProtectedTransitionEvidenceFreshnessService,
 )
+from app.services.task_readiness_service import TaskReadinessResult
+from app.services.task_router_service import TaskRoutingCandidate
 from tests.p23_test_support import (
     FakeBudgetGuardService,
     FakeTaskReadinessService,
-    FakeTaskRouterService,
     FakeTaskStateMachineService,
-    _P25EvidenceDiff,
-    _P25EvidenceHandoff,
-    _create_p25_repository_and_workspace,
-    _make_p22_service,
-    _persist_minimal_p25_control_plane,
-    _seed_real_p20_p21_review_chain,
     make_repos,
     make_session_factory,
     make_test_engine,
     seed_base_records,
 )
+from tests.p25_package_real_chain_fixture_support import (
+    _P25EvidenceDiff,
+    _P25EvidenceHandoff,
+    _create_p25_repository_and_workspace,
+    _persist_minimal_p25_control_plane,
+    _seed_real_p20_p21_review_chain,
+)
+
+
+class P25FakeTaskRouterService:
+    """P25-local router fixture independent of uncommitted P23 test support."""
+
+    def evaluate_exact_task_for_dispatch(self, *, task):
+        return TaskRoutingCandidate(
+            task=task,
+            readiness=TaskReadinessResult(
+                task_id=task.id,
+                ready_for_execution=True,
+                blocking_signals=[],
+                blocking_reasons=[],
+                dependency_items=[],
+            ),
+            ready=True,
+            routing_score=1.0,
+            route_reason="test",
+            routing_score_breakdown=[
+                RunRoutingScoreItem(
+                    code="test", label="Test", score=1.0, detail="test"
+                )
+            ],
+            execution_attempts=0,
+            recent_failure_count=0,
+            budget_pressure_level=RunBudgetPressureLevel.NORMAL,
+            budget_action=RunBudgetStrategyAction.FULL_SPEED,
+            budget_strategy_code="normal",
+            budget_score_adjustment=0.0,
+            project_stage=None,
+            owner_role_code=ProjectRoleCode.ARCHITECT,
+            upstream_role_code=None,
+            downstream_role_code=None,
+            dispatch_status="dispatched",
+            handoff_reason="test",
+            matched_terms=(),
+            model_name="test-model",
+            model_tier="standard",
+            selected_skill_codes=("test-skill",),
+            selected_skill_names=("Test skill",),
+            strategy_code="normal",
+            strategy_summary="Normal execution",
+            strategy_reasons=[],
+            strategy_decision=RunStrategyDecision(
+                budget_pressure_level=RunBudgetPressureLevel.NORMAL,
+                budget_action=RunBudgetStrategyAction.FULL_SPEED,
+                strategy_code="normal",
+                summary="Normal execution",
+                owner_role_code=ProjectRoleCode.ARCHITECT,
+                model_name="test-model",
+                model_tier="standard",
+                selected_skill_codes=("test-skill",),
+                selected_skill_names=("Test skill",),
+            ),
+        )
+
+
+def _make_p22_service(
+    session,
+    msg_repo,
+    sess_repo,
+    task_repo,
+    *,
+    candidate_diff_service=None,
+    review_handoff_service=None,
+):
+    """Create a real P22 service with all real sub-services."""
+    from app.services.project_director_post_review_automation_service import (
+        ProjectDirectorPostReviewAutomationService,
+    )
+    from app.services.project_director_sandbox_candidate_diff_review_disposition_consumption_preflight_service import (
+        ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService,
+    )
+    from app.services.project_director_sandbox_candidate_diff_review_disposition_consumption_service import (
+        ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService,
+    )
+    from app.services.project_director_sandbox_candidate_diff_review_disposition_handoff_service import (
+        ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService,
+    )
+    from app.services.project_director_sandbox_candidate_diff_review_disposition_service import (
+        ProjectDirectorSandboxCandidateDiffReviewDispositionService,
+    )
+    from app.services.project_director_sandbox_candidate_diff_review_human_escalation_package_service import (
+        ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService,
+    )
+    from tests.p23_test_support import _StubDiff, _StubHandoff
+
+    return ProjectDirectorPostReviewAutomationService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        disposition_service=ProjectDirectorSandboxCandidateDiffReviewDispositionService(
+            session_repository=sess_repo,
+            message_repository=msg_repo,
+        ),
+        preflight_service=ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionPreflightService(
+            session_repository=sess_repo,
+            message_repository=msg_repo,
+        ),
+        consumption_service=ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService(
+            session_repository=sess_repo,
+            message_repository=msg_repo,
+            task_repository=task_repo,
+            review_handoff_service=review_handoff_service or _StubHandoff(),
+            candidate_diff_service=candidate_diff_service or _StubDiff(),
+        ),
+        handoff_service=ProjectDirectorSandboxCandidateDiffReviewDispositionHandoffService(
+            session_repository=sess_repo,
+            message_repository=msg_repo,
+            task_repository=task_repo,
+        ),
+        human_escalation_package_service=ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService(
+            session_repository=sess_repo,
+            message_repository=msg_repo,
+            task_repository=task_repo,
+        ),
+        freshness_service=ProjectDirectorProtectedTransitionEvidenceFreshnessService(
+            session_repository=sess_repo,
+            message_repository=msg_repo,
+            task_repository=task_repo,
+            review_handoff_service=review_handoff_service or _StubHandoff(),
+            candidate_diff_service=candidate_diff_service or _StubDiff(),
+        ),
+    )
 
 
 @dataclass(slots=True)
 class RealP25AttemptZeroPackageContext:
     engine: object
+    session_local: object
     session: object
     msg_repo: object
+    environment: dict[str, object]
     session_id: UUID
     project_id: UUID
     task_id: UUID
@@ -91,6 +226,10 @@ def build_real_p25_attempt_zero_package_context(
         task_id=task_id,
         task_status="pending",
     )
+    task_row = setup_session.get(TaskTable, task_id)
+    assert task_row is not None
+    task_row.owner_role_code = "architect"
+    setup_session.commit()
     setup_session.close()
 
     session, msg_repo, session_repo, task_repo, run_repo, _ = make_repos(session_local)
@@ -182,7 +321,7 @@ def build_real_p25_attempt_zero_package_context(
         preflight_service=preflight_service,
         task_readiness_service=FakeTaskReadinessService(),
         task_state_machine_service=FakeTaskStateMachineService(),
-        task_router_service=FakeTaskRouterService(),
+        task_router_service=P25FakeTaskRouterService(),
         budget_guard_service=FakeBudgetGuardService(session=session),
     )
     root_preflight = preflight_service.prepare_protected_transition_dispatch_consumption_preflight(
@@ -217,8 +356,10 @@ def build_real_p25_attempt_zero_package_context(
     )
     return RealP25AttemptZeroPackageContext(
         engine=engine,
+        session_local=session_local,
         session=session,
         msg_repo=msg_repo,
+        environment=environment,
         session_id=session_id,
         project_id=project_id,
         task_id=task_id,
