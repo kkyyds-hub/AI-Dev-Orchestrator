@@ -172,6 +172,8 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
     ) -> PreparedProjectDirectorBoundedReworkInstructionPackage:
         """Prepare from three locators; all semantic authority is reconstructed."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         try:
             initial_authority = self._revalidate_authority(
                 session_id=session_id,
@@ -180,6 +182,11 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
                     source_p23_dispatch_consumption_message_id
                 ),
             )
+            # Authority revalidation is a read-only preflight, but SQLAlchemy
+            # autobegin leaves the session active. Release only this service's
+            # read transaction before the exact SQLite write reservation.
+            if not caller_had_transaction and session.in_transaction():
+                session.rollback()
             initial_evidence_resolution = (
                 self._evidence_resolver.resolve_bounded_rework_evidence_snapshot(
                     session_id=session_id,
