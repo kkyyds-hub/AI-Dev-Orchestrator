@@ -53,6 +53,7 @@ from tests.p23_test_support import (
     SpyAgentConversationService,
     make_b1_service,
     make_d1_service,
+    make_p25_auto_rework_d3_stack,
     make_repos,
     make_session_factory,
     make_task_worker,
@@ -335,45 +336,71 @@ class TestB2InvocationBehavior:
         engine.dispose()
 
     def test_b2_returned_auto_rework_marks_only_rework_started(self, tmp_path):
-        """AUTO_REWORK returned outcome: continuation_started=False, rework_started=True."""
+        """P25-authorized AUTO_REWORK returns one exact rework outcome."""
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
-        ctx = prepare_valid_b1_reservation(
+        fake_worker = FakeTaskWorker()
+        ctx = make_p25_auto_rework_d3_stack(
             sf,
-            session_id=uuid4(), task_id=uuid4(), project_id=uuid4(),
-            disposition_type="AUTO_REWORK", dispatch_kind="auto_rework",
+            fake_worker=fake_worker,
         )
 
-        ids = ctx["ids"]
-        b1_result = ctx["b1_result"]
+        preflight = ctx["preflight_svc"].prepare_protected_transition_dispatch_consumption_preflight(
+            session_id=ctx["session_id"],
+            source_task_id=ctx["task_id"],
+            source_message_id=ctx["intent_result"].message.id,
+        )
+        assert preflight.result.preflight_status == "ready"
+        d1_result = ctx["d1_svc"].consume_protected_transition_dispatch_preflight(
+            session_id=ctx["session_id"],
+            source_task_id=ctx["task_id"],
+            source_message_id=preflight.message.id,
+        )
+        assert d1_result.result.consumption_status == "reserved_for_worker_start"
+        b1_result = ctx["b1_svc"].prepare_protected_transition_worker_start_reservation(
+            session_id=ctx["session_id"],
+            source_task_id=ctx["task_id"],
+            source_message_id=d1_result.message.id,
+        )
+        assert b1_result.result.reservation_status == "reserved"
+
         msg_repo = ctx["msg_repo"]
-        task_repo = ctx["task_repo"]
-        run_repo = ctx["run_repo"]
-
-        task_id = ids["task_id"]
-        run_id = ctx["d1_result"].result.run_id
-
-        fake_worker = FakeTaskWorker(
-            session=msg_repo._session,
-            result=_make_fake_worker_result(
-                task_id=task_id, run_id=run_id, disposition_type="AUTO_REWORK",
-            ),
-        )
-        b2_svc, _ = _make_b2_service(
-            sf,
-            msg_repo=msg_repo, task_repo=task_repo, run_repo=run_repo,
-            agent_sess_repo=ctx["agent_sess_repo"], b1_svc=ctx["b1_svc"],
-            fake_worker=fake_worker, d1_svc=ctx["d1_svc"],
+        task_id = ctx["task_id"]
+        run_id = d1_result.result.run_id
+        fake_worker._result = _make_fake_worker_result(
+            task_id=task_id, run_id=run_id, disposition_type="AUTO_REWORK",
         )
 
-        result = b2_svc.invoke_reserved_protected_transition_worker(
-            session_id=ids["session_id"],
-            source_task_id=ids["task_id"],
+        result = ctx["b2_svc"].invoke_reserved_protected_transition_worker(
+            session_id=ctx["session_id"],
+            source_task_id=ctx["task_id"],
             source_message_id=b1_result.message.id,
         )
 
+        assert result.claim.claim_status == "claimed"
+        assert result.outcome.outcome_status == "returned"
         assert result.outcome.continuation_started is False
         assert result.outcome.rework_started is True
+        assert result.outcome.product_runtime_git_write_allowed is False
+        assert len(fake_worker.run_reserved_once_calls) == 1
+
+        replay = ctx["b2_svc"].invoke_reserved_protected_transition_worker(
+            session_id=ctx["session_id"],
+            source_task_id=ctx["task_id"],
+            source_message_id=b1_result.message.id,
+        )
+        assert replay.outcome.outcome_id == result.outcome.outcome_id
+        assert len(fake_worker.run_reserved_once_calls) == 1
+        assert count_messages_by_source_detail(
+            msg_repo,
+            ctx["session_id"],
+            P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+        ) == 1
+        assert count_messages_by_source_detail(
+            msg_repo,
+            ctx["session_id"],
+            P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ) == 1
 
         engine.dispose()
 

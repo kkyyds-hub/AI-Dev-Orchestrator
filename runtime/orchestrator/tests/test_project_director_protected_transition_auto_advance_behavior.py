@@ -64,6 +64,7 @@ from tests.p23_test_support import (
     FakeTaskRouterService,
     FakeTaskWorker,
     make_d3_worker_result,
+    make_p25_auto_rework_d3_stack,
     make_real_d3_stack,
     make_repos,
     make_session_factory,
@@ -248,14 +249,14 @@ class TestD3AutoAdvanceBehavior:
         engine.dispose()
 
     def test_d3_first_auto_rework_starts_only_rework(self, tmp_path):
-        """AUTO_REWORK first run: rework_started=True, continuation_started=False."""
-        engine, sf, ctx, task_id, run_id = _create_d3_with_fake_worker(
-            tmp_path,
-            verdict="changes_required",
-            risk_level="medium",
-            disposition_type="AUTO_REWORK",
-            dispatch_kind="auto_rework",
+        """P25-authorized AUTO_REWORK starts the Worker exactly once."""
+        engine = make_test_engine(str(tmp_path / "test.db"))
+        fake_worker = FakeTaskWorker()
+        ctx = make_p25_auto_rework_d3_stack(
+            make_session_factory(engine),
+            fake_worker=fake_worker,
         )
+        task_id = ctx["task_id"]
 
         def success_worker(*, task_id, run_id):
             ctx["fake_worker"].run_reserved_once_calls.append({"task_id": task_id, "run_id": run_id})
@@ -269,6 +270,19 @@ class TestD3AutoAdvanceBehavior:
             )
 
         ctx["fake_worker"].run_reserved_once = success_worker
+
+        intent = ctx["intent_result"].result
+        assert ctx["convergence"].decision.decision_type == "NEXT_ATTEMPT_ELIGIBLE"
+        assert intent.rework_attempt_index == 1
+        assert all(
+            (
+                intent.source_p25_convergence_decision_message_id,
+                intent.source_p25_convergence_decision_fingerprint,
+                intent.source_p25_convergence_decision_replay_key,
+                intent.source_p25_candidate_diff_message_id,
+                intent.source_p25_review_outcome_message_id,
+            )
+        )
 
         result = ctx["d3_svc"].advance_post_review_protected_transition(
             session_id=ctx["session_id"],
@@ -286,12 +300,29 @@ class TestD3AutoAdvanceBehavior:
 
         # Evidence counts
         counts = count_p23_evidence(ctx["msg_repo"], ctx["session_id"])
-        for sd, count in counts.items():
-            assert count == 1, f"Expected 1 for {sd}, got {count}"
+        assert counts[P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL] == 2
+        for sd in (
+            P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_PREFLIGHT_SOURCE_DETAIL,
+            P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
+            P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
+            P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
+            P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
+        ):
+            assert counts[sd] == 1, f"Expected 1 for {sd}, got {counts[sd]}"
 
         runs = ctx["run_repo"].list_by_task_id(task_id)
         assert len(runs) == 1
         assert len(ctx["fake_worker"].run_reserved_once_calls) == 1
+
+        replay = ctx["d3_svc"].advance_post_review_protected_transition(
+            session_id=ctx["session_id"],
+            source_task_id=ctx["task_id"],
+            source_review_message_id=ctx["review_msg_id"],
+        )
+        assert replay.auto_advance_status == "blocked"
+        assert len(ctx["fake_worker"].run_reserved_once_calls) == 1
+        assert counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL] == 1
+        assert counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL] == 1
 
         engine.dispose()
 

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import threading
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import UUID, uuid4, uuid5
 
 import pytest
+from sqlalchemy import text
 
+from app.core.db_tables import ProjectDirectorMessageTable
 from app.domain.project_director_bounded_rework_contract import (
     ProjectDirectorBoundedReworkAuthorityEnvelope,
 )
@@ -38,11 +42,19 @@ from app.services.project_director_protected_transition_dispatch_intent_service 
     P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
     ProjectDirectorProtectedTransitionDispatchIntentService,
 )
+from app.services.project_director_protected_transition_dispatch_consumption_preflight_service import (
+    ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService,
+)
 from tests.p23_test_support import (
     DIFF_SHA256,
+    FakeBudgetGuardService,
+    FakeTaskReadinessService,
+    FakeTaskStateMachineService,
     _make_p22_service,
     _seed_p21_c_review_chain,
     count_messages_by_source_detail,
+    make_b1_service,
+    make_d1_service,
     make_repos,
     make_session_factory,
     make_test_engine,
@@ -99,13 +111,15 @@ def _persist_valid_review_outcome(
     authority: ProjectDirectorBoundedReworkAuthorityEnvelope,
     candidate_diff_id: UUID,
     attempt_index: int,
+    verdict: str = "changes_required",
     risk_level: str = "medium",
+    summary_suffix: str = "",
 ) -> tuple[ProjectDirectorBoundedReworkReviewInvocationOutcome, ProjectDirectorMessage]:
     finding = ProjectDirectorSandboxCandidateDiffReviewFinding(
         finding_id=f"finding-{attempt_index}",
         severity="medium",
         title=f"Fresh guard {attempt_index}",
-        summary="A fresh blocking issue remains.",
+        summary=f"A fresh blocking issue remains. {summary_suffix}".strip(),
         evidence_paths=["src/example.py"],
         recommended_action="Resolve the fresh blocking issue.",
     )
@@ -127,10 +141,10 @@ def _persist_valid_review_outcome(
         semantics_valid=True,
         evidence_scope_valid=True,
         review_status="reviewed",
-        verdict="changes_required",
+        verdict=verdict,
         risk_level=risk_level,
-        summary=f"Fresh review {attempt_index} completed.",
-        findings=[finding],
+        summary=f"Fresh review {attempt_index} completed. {summary_suffix}".strip(),
+        findings=[] if verdict != "changes_required" else [finding],
         recommended_next_step="Prepare the next bounded rework attempt.",
     )
     attempt_replay_key = _sha(f"attempt-replay-{attempt_index}-{candidate_diff_id}")
@@ -205,7 +219,9 @@ def _persist_valid_review_outcome(
         content=(
             "P25 bounded rework review outcome persisted: "
             f"{outcome.review_outcome_id} attempt {outcome.review_attempt_id} "
-            "status validated_output verdict changes_required summary validated_review_output"
+            "status validated_output "
+            f"verdict {outcome.adapter_result.verdict} "
+            "summary validated_review_output"
         ),
         sequence_no=msg_repo.get_next_sequence_no(session_id=ids["session_id"]),
         intent=P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
@@ -284,8 +300,19 @@ def _persist_candidate_message(*, msg_repo, ids: dict[str, UUID], candidate_id: 
     return persisted
 
 
-def _prepare_scenario(session_local, *, target_index: int):
-    session, msg_repo, sess_repo, task_repo, *_ = make_repos(session_local)
+def _prepare_scenario(
+    session_local,
+    *,
+    target_index: int,
+    prepare_final_intent: bool = True,
+    persist_final_convergence: bool = True,
+    final_verdict: str = "changes_required",
+    final_risk_level: str = "medium",
+    final_summary_suffix: str = "",
+):
+    session, msg_repo, sess_repo, task_repo, run_repo, *_ = make_repos(
+        session_local
+    )
     ids = seed_base_records(session)
     p22_service = _make_p22_service(session, msg_repo, sess_repo, task_repo)
     initial_review_id = _seed_p21_c_review_chain(
@@ -335,6 +362,21 @@ def _prepare_scenario(session_local, *, target_index: int):
             authority=authority,
             candidate_diff_id=candidate_id,
             attempt_index=attempt_index,
+            verdict=(
+                final_verdict
+                if attempt_index == target_index - 1
+                else "changes_required"
+            ),
+            risk_level=(
+                final_risk_level
+                if attempt_index == target_index - 1
+                else "medium"
+            ),
+            summary_suffix=(
+                final_summary_suffix
+                if attempt_index == target_index - 1
+                else ""
+            ),
         )
         p22_summary = p22_service.orchestrate_post_review(
             session_id=ids["session_id"],
@@ -344,7 +386,13 @@ def _prepare_scenario(session_local, *, target_index: int):
         assert p22_summary.result.orchestration_status == "ready_for_future_transition", (
             p22_summary.result.blocked_reasons
         )
-        assert p22_summary.result.disposition_type == "AUTO_REWORK"
+        if outcome.adapter_result.verdict == "changes_required":
+            assert p22_summary.result.disposition_type in {
+                "AUTO_REWORK",
+                "ESCALATE_TO_HUMAN",
+            }
+        else:
+            assert p22_summary.result.disposition_type == "AUTO_CONTINUE"
         previous_finding = ProjectDirectorSandboxCandidateDiffReviewFinding(
             finding_id=f"previous-{attempt_index}",
             severity="high",
@@ -392,37 +440,105 @@ def _prepare_scenario(session_local, *, target_index: int):
             review_execution_svc=review_service,
             post_review_automation_svc=p22_service,
         )
-        convergence = convergence_service.decide_bounded_rework_convergence(
-            session_id=ids["session_id"],
-            source_task_id=ids["task_id"],
-            source_candidate_diff_message_id=candidate_id,
+        should_persist_convergence = (
+            persist_final_convergence or attempt_index < target_index - 1
         )
+        convergence = (
+            convergence_service.decide_bounded_rework_convergence(
+                session_id=ids["session_id"],
+                source_task_id=ids["task_id"],
+                source_candidate_diff_message_id=candidate_id,
+            )
+            if should_persist_convergence
+            else None
+        )
+        if convergence is None:
+            latest = SimpleNamespace(
+                prepared=None,
+                intent_service=ProjectDirectorProtectedTransitionDispatchIntentService(
+                    session_repository=sess_repo,
+                    message_repository=msg_repo,
+                    task_repository=task_repo,
+                    bounded_rework_convergence_service=convergence_service,
+                ),
+                convergence=None,
+                convergence_service=convergence_service,
+                candidate_service=candidate_service,
+                review_service=review_service,
+                candidate_message=candidate_message,
+                candidate_diff=candidate_diff,
+                package=package,
+                outcome=outcome,
+                outcome_message=outcome_message,
+                p22_summary=p22_summary,
+            )
+            continue
         assert convergence.status == "decision_persisted"
-        assert convergence.decision.decision_type == "NEXT_ATTEMPT_ELIGIBLE"
-        assert convergence.decision.next_rework_attempt_index == attempt_index + 1
+        expected_converged = outcome.adapter_result.verdict != "changes_required"
+        expected_terminal = (
+            attempt_index + 1 >= candidate_diff.rework_attempt_limit
+            or outcome.adapter_result.risk_level == "high"
+        )
+        if expected_converged:
+            assert convergence.decision.decision_type == "CONVERGED"
+            assert convergence.decision.decision_reason == "review_converged"
+        elif expected_terminal:
+            assert convergence.decision.decision_type == "ESCALATE_TO_HUMAN"
+            assert convergence.decision.decision_reason in {
+                "attempt_limit_exhausted",
+                "high_review_risk",
+            }
+        else:
+            assert convergence.decision.decision_type == "NEXT_ATTEMPT_ELIGIBLE"
+            assert convergence.decision.next_rework_attempt_index == attempt_index + 1
         intent_service = ProjectDirectorProtectedTransitionDispatchIntentService(
             session_repository=sess_repo,
             message_repository=msg_repo,
             task_repository=task_repo,
             bounded_rework_convergence_service=convergence_service,
         )
-        prepared = intent_service.prepare_protected_transition_dispatch_intent(
-            session_id=ids["session_id"],
-            source_task_id=ids["task_id"],
-            source_message_id=p22_summary.message.id,
+        should_prepare = (
+            not expected_terminal
+            and not expected_converged
+            and (prepare_final_intent or attempt_index < target_index - 1)
+        )
+        prepared = (
+            intent_service.prepare_protected_transition_dispatch_intent(
+                session_id=ids["session_id"],
+                source_task_id=ids["task_id"],
+                source_message_id=p22_summary.message.id,
+            )
+            if should_prepare
+            else None
         )
         latest = SimpleNamespace(
             prepared=prepared,
             intent_service=intent_service,
             convergence=convergence,
+            convergence_service=convergence_service,
+            candidate_service=candidate_service,
+            review_service=review_service,
             candidate_message=candidate_message,
+            candidate_diff=candidate_diff,
+            package=package,
+            outcome=outcome,
             outcome_message=outcome_message,
             p22_summary=p22_summary,
         )
-        prior_intent = prepared
-        prior_summary = p22_summary
-        prior_review_id = outcome_message.id
-    return SimpleNamespace(session=session, msg_repo=msg_repo, ids=ids, latest=latest)
+        if prepared is not None:
+            prior_intent = prepared
+            prior_summary = p22_summary
+            prior_review_id = outcome_message.id
+    return SimpleNamespace(
+        session=session,
+        msg_repo=msg_repo,
+        sess_repo=sess_repo,
+        task_repo=task_repo,
+        run_repo=run_repo,
+        ids=ids,
+        p22_service=p22_service,
+        latest=latest,
+    )
 
 
 @pytest.mark.parametrize("target_index", [1, 2])
@@ -580,4 +696,620 @@ def test_high_risk_reuses_p21_d_package_and_p23_blocks(session_local):
     assert p23.result.intent_status == "blocked"
     assert p23.result.blocked_reasons == ["p25_human_escalation_required"]
     assert p23.message is None
+    package_count = count_messages_by_source_detail(
+        msg_repo,
+        ids["session_id"],
+        "p21_d_sandbox_candidate_diff_review_human_escalation_package_prepared",
+    )
+    session.rollback()
+    replay = p23_service.prepare_protected_transition_dispatch_intent(
+        session_id=ids["session_id"],
+        source_task_id=ids["task_id"],
+        source_message_id=p22_summary.message.id,
+    )
+    assert replay.result.blocked_reasons == ["p25_human_escalation_required"]
+    assert replay.message is None
+    assert count_messages_by_source_detail(
+        msg_repo,
+        ids["session_id"],
+        "p21_d_sandbox_candidate_diff_review_human_escalation_package_prepared",
+    ) == package_count
+    assert count_messages_by_source_detail(
+        msg_repo,
+        ids["session_id"],
+        P25_BOUNDED_REWORK_TERMINAL_ESCALATION_SOURCE_DETAIL,
+    ) == 0
+    assert count_messages_by_source_detail(
+        msg_repo,
+        ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    ) == 0
     session.close()
+
+
+_DELETE = object()
+_P23_SENTINEL = "P25_J_A_P23_SECRET_SENTINEL_91ab73"
+
+
+def _call_latest_p23(scenario):
+    if scenario.session.in_transaction():
+        scenario.session.rollback()
+    return scenario.latest.intent_service.prepare_protected_transition_dispatch_intent(
+        session_id=scenario.ids["session_id"],
+        source_task_id=scenario.ids["task_id"],
+        source_message_id=scenario.latest.p22_summary.message.id,
+    )
+
+
+def _tamper_action(scenario, message_id, field, value):
+    row = scenario.session.get(ProjectDirectorMessageTable, message_id)
+    assert row is not None
+    actions = json.loads(row.suggested_actions_json)
+    assert len(actions) == 1
+    if value is _DELETE:
+        actions[0].pop(field, None)
+    else:
+        actions[0][field] = value
+    row.suggested_actions_json = json.dumps(actions)
+    scenario.session.commit()
+
+
+def _clone_message(scenario, message, *, action_updates=None, metadata_updates=None):
+    payload = message.model_dump()
+    payload.update(
+        id=uuid4(),
+        sequence_no=scenario.msg_repo.get_next_sequence_no(
+            session_id=scenario.ids["session_id"]
+        ),
+    )
+    actions = json.loads(json.dumps(payload["suggested_actions"], default=str))
+    if action_updates:
+        for field, value in action_updates.items():
+            if value is _DELETE:
+                actions[0].pop(field, None)
+            else:
+                actions[0][field] = value
+    payload["suggested_actions"] = actions
+    if metadata_updates:
+        payload.update(metadata_updates)
+    cloned = scenario.msg_repo.create(ProjectDirectorMessage.model_validate(payload))
+    scenario.msg_repo.commit()
+    return cloned
+
+
+def test_missing_convergence_decision_blocks_without_p23_write(session_local):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+        persist_final_convergence=False,
+    )
+    before = count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    )
+    scenario.session.rollback()
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["next_attempt_decision_missing"]
+    assert result.message is None
+    assert count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    ) == before
+    scenario.session.close()
+
+
+def test_converged_decision_is_terminal_for_p23(session_local):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+        final_verdict="no_blocking_findings",
+    )
+    assert scenario.latest.convergence.decision.decision_type == "CONVERGED"
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["p25_convergence_terminal"]
+    assert result.message is None
+    scenario.session.close()
+
+
+def test_attempt_limit_decision_is_terminal_for_p23(session_local):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=3,
+        prepare_final_intent=False,
+    )
+    decision = scenario.latest.convergence.decision
+    assert decision.decision_type == "ESCALATE_TO_HUMAN"
+    assert decision.decision_reason == "attempt_limit_exhausted"
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["p25_convergence_terminal"]
+    assert result.message is None
+    scenario.session.close()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("decision_fingerprint", "d" * 64),
+        ("decision_replay_key", "c" * 64),
+        ("decision_type", "CONVERGED"),
+    ],
+)
+def test_tampered_convergence_decision_blocks_p23(
+    session_local,
+    field,
+    value,
+):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+    )
+    _tamper_action(
+        scenario,
+        scenario.latest.convergence.decision_message.id,
+        field,
+        value,
+    )
+    result = _call_latest_p23(scenario)
+    assert result.result.intent_status == "blocked"
+    assert result.result.blocked_reasons == ["history_invalid"]
+    assert result.message is None
+    scenario.session.close()
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("candidate_diff_id", uuid4()),
+        ("candidate_diff_fingerprint", "f" * 64),
+    ],
+)
+def test_candidate_diff_revalidation_conflict_blocks_p23(
+    session_local,
+    attribute,
+    value,
+):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+    )
+    current = scenario.latest.candidate_service._candidate_diff
+    values = vars(current).copy()
+    values[attribute] = value
+    scenario.latest.candidate_service._candidate_diff = SimpleNamespace(**values)
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["convergence_decision_conflict"]
+    assert result.message is None
+    scenario.session.close()
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "review_result_fingerprint",
+        "review_semantic_fingerprint",
+    ],
+)
+def test_review_outcome_revalidation_conflict_blocks_p23(
+    session_local,
+    attribute,
+):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+    )
+    scenario.latest.review_service._review_outcome = (
+        scenario.latest.outcome.model_copy(update={attribute: "e" * 64})
+    )
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["convergence_decision_conflict"]
+    assert result.message is None
+    scenario.session.close()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source_review_outcome_message_id", str(uuid4())),
+        ("source_p22_summary_message_id", str(uuid4())),
+    ],
+)
+def test_persisted_binding_tamper_fails_closed(
+    session_local,
+    field,
+    value,
+):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+    )
+    _tamper_action(
+        scenario,
+        scenario.latest.convergence.decision_message.id,
+        field,
+        value,
+    )
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["history_invalid"]
+    assert result.message is None
+    scenario.session.close()
+
+
+def test_attempt_history_gap_blocks_p23(session_local):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=2,
+        prepare_final_intent=False,
+    )
+    history, _ = scenario.msg_repo.list_by_session_id(
+        session_id=scenario.ids["session_id"], limit=200
+    )
+    index_one = [
+        item
+        for item in history
+        if item.source_detail
+        == P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL
+        and item.suggested_actions[0].get("rework_attempt_index") == 1
+    ]
+    assert len(index_one) == 1
+    row = scenario.session.get(ProjectDirectorMessageTable, index_one[0].id)
+    scenario.session.delete(row)
+    scenario.session.commit()
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["rework_attempt_history_invalid"]
+    assert result.message is None
+    scenario.session.close()
+
+
+@pytest.mark.parametrize("target_index", [1, 2])
+def test_persisted_intent_revalidates_exact_p25_bindings(
+    session_local,
+    target_index,
+):
+    scenario = _prepare_scenario(session_local, target_index=target_index)
+    message = scenario.latest.prepared.message
+    revalidated = (
+        scenario.latest.intent_service
+        .revalidate_persisted_protected_transition_dispatch_intent(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_intent_message_id=message.id,
+        )
+    )
+    assert revalidated.blocked_reasons == []
+    assert revalidated.result is not None
+    assert revalidated.result.rework_attempt_index == target_index
+    assert revalidated.result.source_p25_convergence_decision_message_id is not None
+    assert revalidated.result.source_p25_candidate_diff_message_id is not None
+    assert revalidated.result.source_p25_review_outcome_message_id is not None
+    scenario.session.close()
+
+
+def test_tampered_persisted_intent_fingerprint_fails_revalidation(session_local):
+    scenario = _prepare_scenario(session_local, target_index=1)
+    message = scenario.latest.prepared.message
+    _tamper_action(
+        scenario,
+        message.id,
+        "dispatch_intent_fingerprint",
+        "f" * 64,
+    )
+    revalidated = (
+        scenario.latest.intent_service
+        .revalidate_persisted_protected_transition_dispatch_intent(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_intent_message_id=message.id,
+        )
+    )
+    assert revalidated.result is None
+    assert revalidated.blocked_reasons == ["source_dispatch_intent_invalid"]
+    scenario.session.close()
+
+
+@pytest.mark.parametrize(
+    ("action_updates", "metadata_updates"),
+    [
+        ({"type": "wrong"}, None),
+        ({"schema_version": _DELETE}, None),
+        ({"source_p22_summary_message_id": _DELETE}, None),
+        (None, {"role": "user"}),
+        (None, {"source": "ai"}),
+        (None, {"risk_level": "low"}),
+        (None, {"requires_confirmation": True}),
+    ],
+)
+def test_partial_p23_marker_poisoning_fails_closed(
+    session_local,
+    action_updates,
+    metadata_updates,
+):
+    scenario = _prepare_scenario(session_local, target_index=1)
+    before = count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    )
+    _clone_message(
+        scenario,
+        scenario.latest.prepared.message,
+        action_updates=action_updates,
+        metadata_updates=metadata_updates,
+    )
+    result = _call_latest_p23(scenario)
+    assert result.result.intent_status == "blocked"
+    assert result.result.blocked_reasons == ["rework_attempt_history_invalid"]
+    assert result.message is None
+    assert count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    ) == before + 1
+    scenario.session.close()
+
+
+def test_missing_action_p23_marker_poisoning_fails_closed(session_local):
+    scenario = _prepare_scenario(session_local, target_index=1)
+    cloned = _clone_message(scenario, scenario.latest.prepared.message)
+    row = scenario.session.get(ProjectDirectorMessageTable, cloned.id)
+    row.suggested_actions_json = "[]"
+    scenario.session.commit()
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["rework_attempt_history_invalid"]
+    assert result.message is None
+    scenario.session.close()
+
+
+def test_duplicate_exact_p23_history_blocks_without_third_write(session_local):
+    scenario = _prepare_scenario(session_local, target_index=1)
+    _clone_message(scenario, scenario.latest.prepared.message)
+    before = count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    )
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["rework_attempt_history_invalid"]
+    assert result.message is None
+    assert count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    ) == before
+    scenario.session.close()
+
+
+def _thread_intent_service(session_local, scenario):
+    session, msg_repo, sess_repo, task_repo, *_ = make_repos(session_local)
+    candidate_service = FakeCandidateDiffService(
+        message_repository=msg_repo,
+        candidate_diff=scenario.latest.candidate_diff,
+        candidate_diff_message=msg_repo.get_by_id(
+            scenario.latest.candidate_message.id
+        ),
+        package=scenario.latest.package,
+        invocation_outcome=SimpleNamespace(
+            outcome_id=scenario.latest.outcome.source_executor_outcome_id
+        ),
+    )
+    review_service = FakeReviewExecutionService(
+        message_repository=msg_repo,
+        review_outcome=scenario.latest.outcome,
+        review_outcome_message=msg_repo.get_by_id(
+            scenario.latest.outcome_message.id
+        ),
+    )
+    p22_service = _make_p22_service(session, msg_repo, sess_repo, task_repo)
+    convergence_service, _, _ = make_convergence_service(
+        session_local,
+        msg_repo=msg_repo,
+        candidate_diff_svc=candidate_service,
+        review_execution_svc=review_service,
+        post_review_automation_svc=p22_service,
+    )
+    session.rollback()
+    return (
+        session,
+        ProjectDirectorProtectedTransitionDispatchIntentService(
+            session_repository=sess_repo,
+            message_repository=msg_repo,
+            task_repository=task_repo,
+            bounded_rework_convergence_service=convergence_service,
+        ),
+    )
+
+
+def test_concurrent_exact_p23_input_persists_once(session_local):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+    )
+    scenario.session.close()
+    barrier = threading.Barrier(2)
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        session = None
+        try:
+            session, service = _thread_intent_service(session_local, scenario)
+            barrier.wait()
+            prepared = service.prepare_protected_transition_dispatch_intent(
+                session_id=scenario.ids["session_id"],
+                source_task_id=scenario.ids["task_id"],
+                source_message_id=scenario.latest.p22_summary.message.id,
+            )
+            with lock:
+                results.append(prepared)
+        except BaseException as exc:
+            with lock:
+                errors.append(exc)
+        finally:
+            if session is not None:
+                session.close()
+
+    threads = [threading.Thread(target=invoke) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert len(results) == 2
+    assert {item.result.intent_status for item in results} == {"prepared"}
+    assert sorted(
+        item.result.resumed_from_existing_intent for item in results
+    ) == [False, True]
+    assert len({item.message.id for item in results}) == 1
+    check_session, check_repo, *_ = make_repos(session_local)
+    assert count_messages_by_source_detail(
+        check_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    ) == 2
+    check_session.close()
+
+
+def test_blocked_path_releases_lock_and_has_no_partial_writes(session_local):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        prepare_final_intent=False,
+        persist_final_convergence=False,
+    )
+    before_intents = count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    )
+    before_runs = len(
+        scenario.run_repo.list_by_task_id(scenario.ids["task_id"])
+    )
+    before_task = scenario.task_repo.get_by_id(scenario.ids["task_id"])
+    assert before_task is not None
+    before_task_status = before_task.status
+    worker_details = (
+        "p23_d2_worker_start_reserved",
+        "p23_d2_worker_invocation_claimed",
+        "p23_d2_worker_invocation_outcome_recorded",
+    )
+    before_worker_counts = {
+        detail: count_messages_by_source_detail(
+            scenario.msg_repo,
+            scenario.ids["session_id"],
+            detail,
+        )
+        for detail in worker_details
+    }
+    scenario.session.rollback()
+    result = _call_latest_p23(scenario)
+    assert result.result.blocked_reasons == ["next_attempt_decision_missing"]
+    assert result.message is None
+    assert count_messages_by_source_detail(
+        scenario.msg_repo,
+        scenario.ids["session_id"],
+        P23_PROTECTED_TRANSITION_DISPATCH_INTENT_SOURCE_DETAIL,
+    ) == before_intents
+    assert len(
+        scenario.run_repo.list_by_task_id(scenario.ids["task_id"])
+    ) == before_runs
+    assert (
+        scenario.task_repo.get_by_id(scenario.ids["task_id"]).status
+        == before_task_status
+    )
+    assert {
+        detail: count_messages_by_source_detail(
+            scenario.msg_repo,
+            scenario.ids["session_id"],
+            detail,
+        )
+        for detail in worker_details
+    } == before_worker_counts
+    scenario.session.close()
+
+    lock_session = session_local()
+    lock_session.execute(text("BEGIN IMMEDIATE"))
+    lock_session.commit()
+    lock_session.close()
+
+
+def test_p23_intent_does_not_project_sensitive_upstream_text(session_local):
+    scenario = _prepare_scenario(
+        session_local,
+        target_index=1,
+        final_summary_suffix=_P23_SENTINEL,
+    )
+    message = scenario.latest.prepared.message
+    serialized = json.dumps(message.model_dump(mode="json"), sort_keys=True)
+    assert _P23_SENTINEL not in serialized
+    scenario.session.close()
+
+
+def test_valid_p25_auto_rework_reaches_b1_reservation(session_local):
+    scenario = _prepare_scenario(session_local, target_index=1)
+    freshness_service = scenario.p22_service._freshness_service
+    preflight_service = (
+        ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService(
+            session_repository=scenario.sess_repo,
+            message_repository=scenario.msg_repo,
+            task_repository=scenario.task_repo,
+            dispatch_intent_service=scenario.latest.intent_service,
+            freshness_service=freshness_service,
+            task_readiness_service=FakeTaskReadinessService(),
+            task_state_machine_service=FakeTaskStateMachineService(),
+            budget_guard_service=FakeBudgetGuardService(
+                session=scenario.session
+            ),
+        )
+    )
+    preflight = (
+        preflight_service
+        .prepare_protected_transition_dispatch_consumption_preflight(
+            session_id=scenario.ids["session_id"],
+            source_task_id=scenario.ids["task_id"],
+            source_message_id=scenario.latest.prepared.message.id,
+        )
+    )
+    assert preflight.result.preflight_status == "ready"
+    assert preflight.message is not None
+
+    d1_service, *_ = make_d1_service(
+        session_local,
+        preflight_svc=preflight_service,
+        msg_repo=scenario.msg_repo,
+        task_repo=scenario.task_repo,
+        run_repo=scenario.run_repo,
+    )
+    d1 = d1_service.consume_protected_transition_dispatch_preflight(
+        session_id=scenario.ids["session_id"],
+        source_task_id=scenario.ids["task_id"],
+        source_message_id=preflight.message.id,
+    )
+    assert d1.result.consumption_status == "reserved_for_worker_start"
+    assert d1.message is not None
+
+    b1_service, *_ = make_b1_service(
+        session_local,
+        msg_repo=scenario.msg_repo,
+        task_repo=scenario.task_repo,
+        run_repo=scenario.run_repo,
+        d1_service=d1_service,
+    )
+    b1 = b1_service.prepare_protected_transition_worker_start_reservation(
+        session_id=scenario.ids["session_id"],
+        source_task_id=scenario.ids["task_id"],
+        source_message_id=d1.message.id,
+    )
+    assert b1.result.blocked_reasons == []
+    assert b1.result.reservation_status == "reserved"
+    assert b1.message is not None
+    scenario.session.close()

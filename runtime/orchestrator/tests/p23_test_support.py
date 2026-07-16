@@ -8,8 +8,9 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
@@ -1554,3 +1555,481 @@ def count_p23_evidence(msg_repo, session_id):
     ]:
         counts[sd] = sum(1 for m in msgs if m.source_detail == sd)
     return counts
+
+
+# ══════════════════════════════════════════════════════════════════════
+# P25 AUTO_REWORK D3 Stack (real P25 authority chain)
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _sha(label: str) -> str:
+    return hashlib.sha256(label.encode()).hexdigest()
+
+
+def make_p25_auto_rework_d3_stack(
+    session_local,
+    *,
+    session_id: UUID | None = None,
+    task_id: UUID | None = None,
+    project_id: UUID | None = None,
+    fake_worker=None,
+    rework_attempt_index: int = 1,
+):
+    """Build a full P25 AUTO_REWORK D3 stack with real P25 authority chain.
+
+    Creates: P25 candidate diff → P25 review outcome → P22 summary
+    → P25 convergence NEXT_ATTEMPT_ELIGIBLE → P23 intent with P25 authority
+    → D3 stack ready for advance_post_review_protected_transition.
+
+    Returns dict with all services, repos, IDs, fake worker, and P25 evidence.
+    """
+    # Deferred imports to avoid circular import at module level
+    from app.domain.project_director_bounded_rework_contract import (
+        ProjectDirectorBoundedReworkAuthorityEnvelope,
+    )
+    from app.domain.project_director_bounded_rework_review_reentry import (
+        P25_BOUNDED_REWORK_REVIEW_OUTCOME_NAMESPACE,
+        P25_BOUNDED_REWORK_REVIEW_OUTPUT_SCHEMA_VERSION,
+        ProjectDirectorBoundedReworkReviewInvocationOutcome,
+    )
+    from app.domain.project_director_sandbox_candidate_diff_readonly_reviewer_adapter import (
+        ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult,
+    )
+    from app.domain.project_director_sandbox_candidate_diff_review_output import (
+        ProjectDirectorSandboxCandidateDiffReviewFinding,
+    )
+    from app.services.project_director_bounded_rework_review_execution_service import (
+        ProjectDirectorBoundedReworkReviewExecutionService,
+    )
+    from tests.p25_dynamic_test_support import (
+        CANDIDATE_DIFF_FINGERPRINT,
+        CLAIM_FINGERPRINT,
+        MANIFEST_FINGERPRINT,
+        NEW_DIFF_SHA256,
+        OUTCOME_FINGERPRINT,
+        PACKAGE_FINGERPRINT,
+        PREVIOUS_DIFF_SHA256,
+        PROMPT_SHA256,
+        P25_BOUNDED_REWORK_CANDIDATE_DIFF_ACTION_TYPE,
+        P25_BOUNDED_REWORK_CANDIDATE_DIFF_INTENT,
+        P25_BOUNDED_REWORK_CANDIDATE_DIFF_SCHEMA_VERSION,
+        P25_BOUNDED_REWORK_CANDIDATE_DIFF_SOURCE_DETAIL,
+        P25_BOUNDED_REWORK_INSTRUCTION_PACKAGE_ACTION_TYPE,
+        P25_BOUNDED_REWORK_INSTRUCTION_PACKAGE_INTENT,
+        P25_BOUNDED_REWORK_INSTRUCTION_PACKAGE_SCHEMA_VERSION,
+        P25_BOUNDED_REWORK_INSTRUCTION_PACKAGE_SOURCE_DETAIL,
+        P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE,
+        P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+        P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION,
+        P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL,
+        REVIEW_RESULT_FINGERPRINT,
+        REVIEW_SEMANTIC_FINGERPRINT,
+        SHA256,
+        FakeCandidateDiffService,
+        FakeReviewExecutionService,
+        make_convergence_service,
+    )
+
+    session_id = session_id or uuid4()
+    task_id = task_id or uuid4()
+    project_id = project_id or uuid4()
+
+    # Step 1: Seed base records
+    s = session_local()
+    seed_base_records(
+        s,
+        project_id=project_id, session_id=session_id, task_id=task_id,
+        task_status="pending",
+    )
+    s.close()
+
+    # Step 2: Create the initial P21-C/P22/P23 chain that authorizes P25 rework.
+    session, msg_repo, sess_repo, task_repo, run_repo, agent_sess_repo = make_repos(session_local)
+    p22_svc = _make_p22_service(session, msg_repo, sess_repo, task_repo)
+    initial_review_id = _seed_p21_c_review_chain(
+        session,
+        session_id=session_id,
+        task_id=task_id,
+        project_id=project_id,
+        verdict="changes_required",
+        risk_level="medium",
+    )
+    initial_summary = p22_svc.orchestrate_post_review(
+        session_id=session_id,
+        source_task_id=task_id,
+        source_review_message_id=initial_review_id,
+    )
+    assert initial_summary.result.orchestration_status == "ready_for_future_transition"
+    prior_intent = ProjectDirectorProtectedTransitionDispatchIntentService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+    ).prepare_protected_transition_dispatch_intent(
+        session_id=session_id,
+        source_task_id=task_id,
+        source_message_id=initial_summary.message.id,
+    )
+    assert prior_intent.result.intent_status == "prepared"
+    assert prior_intent.result.rework_attempt_index == 0
+
+    # Step 3: Seed P25 candidate diff message
+    candidate_diff_id = uuid4()
+    candidate_write_id = uuid4()
+    candidate_write = ProjectDirectorMessage(
+        id=candidate_write_id,
+        session_id=session_id, role="assistant",
+        content="Candidate files written.",
+        sequence_no=msg_repo.get_next_sequence_no(session_id=session_id),
+        intent="sandbox_candidate_files_write",
+        related_project_id=project_id, related_task_id=task_id,
+        source="system",
+        source_detail="p21_c_sandbox_candidate_files_write_executed",
+        suggested_actions=[{
+            "type": "p21_c_sandbox_candidate_files_write_record",
+            "session_id": str(session_id),
+            "source_task_id": str(task_id),
+            "workspace_path": _WORKSPACE_PATH,
+        }],
+        requires_confirmation=False, risk_level="high",
+    )
+    msg_repo.create(candidate_write)
+    candidate_diff_msg = ProjectDirectorMessage(
+        id=candidate_diff_id,
+        session_id=session_id, role="assistant",
+        content="P25 bounded rework candidate diff.",
+        sequence_no=msg_repo.get_next_sequence_no(session_id=session_id),
+        intent=P25_BOUNDED_REWORK_CANDIDATE_DIFF_INTENT,
+        related_project_id=project_id, related_task_id=task_id,
+        source="system",
+        source_detail=P25_BOUNDED_REWORK_CANDIDATE_DIFF_SOURCE_DETAIL,
+        suggested_actions=[{
+            "type": P25_BOUNDED_REWORK_CANDIDATE_DIFF_ACTION_TYPE,
+            "source_message_id": str(candidate_write_id),
+            "workspace_path": _WORKSPACE_PATH,
+        }],
+        requires_confirmation=False, risk_level="high",
+    )
+    msg_repo.create(candidate_diff_msg)
+    msg_repo.commit()
+
+    # Step 4: Seed P25 review outcome message
+    attempt_replay_key = _sha(f"attempt-replay-{rework_attempt_index}-{candidate_diff_id}")
+    now = datetime.now(timezone.utc)
+    authority = ProjectDirectorBoundedReworkAuthorityEnvelope(
+        session_id=session_id,
+        project_id=project_id,
+        source_task_id=task_id,
+        target_task_id=task_id,
+        source_run_id=uuid4(),
+        source_review_message_id=initial_review_id,
+        source_review_fingerprint=_sha("source-review"),
+        source_review_semantic_fingerprint=_sha("previous-semantic"),
+        source_disposition_message_id=initial_summary.result.source_disposition_message_id,
+        source_p22_summary_message_id=initial_summary.message.id,
+        source_p23_dispatch_intent_id=prior_intent.message.id,
+        source_p23_dispatch_intent_fingerprint=_sha("source-intent"),
+        source_p23_dispatch_consumption_id=uuid4(),
+        source_p23_dispatch_consumption_fingerprint=_sha("source-consumption"),
+    )
+    finding = ProjectDirectorSandboxCandidateDiffReviewFinding(
+        finding_id=f"finding-{rework_attempt_index}",
+        severity="medium",
+        title=f"Fresh guard {rework_attempt_index}",
+        summary="A fresh blocking issue remains.",
+        evidence_paths=["src/example.py"],
+        recommended_action="Resolve the fresh blocking issue.",
+    )
+    adapter = ProjectDirectorSandboxCandidateDiffReadonlyReviewerAdapterResult(
+        adapter_status="validated_output",
+        requested_reviewer_executor="codex",
+        review_prompt_verified=True,
+        review_prompt_sha256=SHA256(f"prompt-{rework_attempt_index}".encode()),
+        review_prompt_bytes=100,
+        review_scope_paths=["src/example.py"],
+        review_output_schema_version=P25_BOUNDED_REWORK_REVIEW_OUTPUT_SCHEMA_VERSION,
+        transport_invoked=True,
+        transport_status="completed",
+        output_validation_status="validated",
+        raw_output_sha256=SHA256(f"raw-{rework_attempt_index}".encode()),
+        raw_output_bytes=100,
+        strict_json_valid=True,
+        schema_valid=True,
+        semantics_valid=True,
+        evidence_scope_valid=True,
+        review_status="reviewed",
+        verdict="changes_required",
+        risk_level="medium",
+        summary=f"Fresh review {rework_attempt_index} completed.",
+        findings=[finding],
+        recommended_next_step="Prepare the next bounded rework attempt.",
+    )
+    outcome_values = {
+        "review_outcome_id": uuid5(P25_BOUNDED_REWORK_REVIEW_OUTCOME_NAMESPACE, attempt_replay_key),
+        "review_outcome_replay_key": ProjectDirectorBoundedReworkReviewInvocationOutcome.compute_outcome_replay_key(
+            review_attempt_replay_key=attempt_replay_key,
+            source_candidate_diff_sha256=DIFF_SHA256,
+            review_prompt_sha256=adapter.review_prompt_sha256,
+            invocation_ordinal=0,
+        ),
+        "created_at": now,
+        "outcome_status": "validated_output",
+        "review_attempt_id": uuid4(),
+        "review_attempt_fingerprint": _sha(f"attempt-{rework_attempt_index}"),
+        "review_attempt_replay_key": attempt_replay_key,
+        "review_claim_id": uuid4(),
+        "review_claim_fingerprint": _sha(f"claim-{rework_attempt_index}"),
+        "preflight_id": uuid4(),
+        "preflight_fingerprint": _sha(f"preflight-{rework_attempt_index}"),
+        "source_candidate_diff_message_id": candidate_diff_id,
+        "source_candidate_diff_id": candidate_diff_id,
+        "source_candidate_diff_fingerprint": CANDIDATE_DIFF_FINGERPRINT,
+        "source_candidate_diff_sha256": DIFF_SHA256,
+        "source_candidate_manifest_id": uuid4(),
+        "source_candidate_manifest_fingerprint": MANIFEST_FINGERPRINT,
+        "source_executor_outcome_id": uuid4(),
+        "source_package_id": uuid4(),
+        "source_attempt_id": uuid4(),
+        "authority": authority,
+        "exact_task_id": task_id,
+        "exact_run_id": authority.source_run_id,
+        "rework_attempt_index": rework_attempt_index,
+        "rework_attempt_limit": 3,
+        "requested_reviewer_executor": "codex",
+        "review_prompt_sha256": adapter.review_prompt_sha256,
+        "review_prompt_bytes": adapter.review_prompt_bytes,
+        "review_scope_paths": ("src/example.py",),
+        "review_output_schema_version": P25_BOUNDED_REWORK_REVIEW_OUTPUT_SCHEMA_VERSION,
+        "invocation_ordinal": 0,
+        "adapter_result": adapter,
+        "review_semantic_fingerprint": ProjectDirectorBoundedReworkReviewExecutionService._review_semantic_fingerprint(
+            adapter_result=adapter,
+            source_candidate_diff_sha256=DIFF_SHA256,
+            review_scope_paths=("src/example.py",),
+        ),
+        "safe_error_code": None,
+        "blocked_reasons": (),
+        "recovery_required": False,
+        "human_escalation_required": False,
+    }
+    draft = ProjectDirectorBoundedReworkReviewInvocationOutcome.model_construct(
+        review_outcome_fingerprint="0" * 64,
+        review_result_fingerprint="0" * 64,
+        **outcome_values,
+    )
+    result_fingerprint = ProjectDirectorBoundedReworkReviewExecutionService.rebuild_persisted_review_result_fingerprint(draft)
+    fingerprint_draft = ProjectDirectorBoundedReworkReviewInvocationOutcome.model_construct(
+        review_outcome_fingerprint="0" * 64,
+        review_result_fingerprint=result_fingerprint,
+        **outcome_values,
+    )
+    outcome = ProjectDirectorBoundedReworkReviewInvocationOutcome(
+        review_outcome_fingerprint=fingerprint_draft.compute_fingerprint(),
+        review_result_fingerprint=result_fingerprint,
+        **outcome_values,
+    )
+    review_outcome_msg = ProjectDirectorMessage(
+        id=outcome.review_outcome_id,
+        session_id=session_id, role="assistant",
+        content=(
+            f"P25 bounded rework review outcome persisted: "
+            f"{outcome.review_outcome_id} attempt {outcome.review_attempt_id} "
+            f"status validated_output verdict changes_required summary validated_review_output"
+        ),
+        sequence_no=msg_repo.get_next_sequence_no(session_id=session_id),
+        intent=P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+        related_project_id=project_id, related_task_id=task_id,
+        source="system",
+        source_detail=P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL,
+        suggested_actions=[{"type": P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE, **outcome.model_dump(mode="json")}],
+        requires_confirmation=False, risk_level="high",
+        forbidden_actions_detected=[
+            "provider_called=false",
+            "main_project_write_allowed=false",
+            "product_runtime_git_write_allowed=false",
+            "patch_apply_allowed=false",
+            "git_write_allowed=false",
+            "task_created=false",
+            "run_created=false",
+        ],
+        created_at=now,
+    )
+    persisted_outcome = msg_repo.create(review_outcome_msg)
+    msg_repo.commit()
+
+    # Step 5: Create P22 summary via the real service
+    p22_summary = p22_svc.orchestrate_post_review(
+        session_id=session_id,
+        source_task_id=task_id,
+        source_review_message_id=outcome.review_outcome_id,
+    )
+    assert p22_summary.result.orchestration_status == "ready_for_future_transition", (
+        p22_summary.result.blocked_reasons
+    )
+    assert p22_summary.result.disposition_type == "AUTO_REWORK"
+
+    # Step 6: Create P25 convergence decision via real service
+    previous_finding = ProjectDirectorSandboxCandidateDiffReviewFinding(
+        finding_id=f"previous-{rework_attempt_index}",
+        severity="high",
+        title=f"Previous guard {rework_attempt_index}",
+        summary="A previous blocking issue remained.",
+        evidence_paths=["src/example.py"],
+        recommended_action="Resolve the previous blocking issue.",
+    )
+    package = SimpleNamespace(
+        package_id=uuid4(),
+        package_fingerprint=SHA256(f"package-{rework_attempt_index}".encode()),
+        authority=authority,
+        rework_attempt_index=rework_attempt_index - 1,
+        blocking_findings=(previous_finding,),
+    )
+    candidate_diff = SimpleNamespace(
+        candidate_diff_id=candidate_diff_id,
+        candidate_diff_fingerprint=CANDIDATE_DIFF_FINGERPRINT,
+        candidate_diff_replay_key=SHA256(f"candidate-replay-{candidate_diff_id}".encode()),
+        diff_status="generated",
+        non_convergence_reason=None,
+        authority=authority,
+        source_attempt_id=outcome.source_attempt_id,
+        rework_attempt_index=rework_attempt_index - 1,
+        rework_attempt_limit=3,
+        previous_diff_sha256=PREVIOUS_DIFF_SHA256,
+        new_diff_sha256=DIFF_SHA256,
+    )
+    candidate_service = FakeCandidateDiffService(
+        message_repository=msg_repo,
+        candidate_diff=candidate_diff,
+        candidate_diff_message=candidate_diff_msg,
+        package=package,
+        invocation_outcome=SimpleNamespace(outcome_id=outcome.source_executor_outcome_id),
+    )
+    review_service = FakeReviewExecutionService(
+        message_repository=msg_repo,
+        review_outcome=outcome,
+        review_outcome_message=persisted_outcome,
+    )
+    convergence_service, _, _ = make_convergence_service(
+        session_local,
+        msg_repo=msg_repo,
+        candidate_diff_svc=candidate_service,
+        review_execution_svc=review_service,
+        post_review_automation_svc=p22_svc,
+    )
+    convergence = convergence_service.decide_bounded_rework_convergence(
+        session_id=session_id,
+        source_task_id=task_id,
+        source_candidate_diff_message_id=candidate_diff_id,
+    )
+    assert convergence.status == "decision_persisted", convergence.blocked_reasons
+    assert convergence.decision.decision_type == "NEXT_ATTEMPT_ELIGIBLE"
+    assert convergence.decision.next_rework_attempt_index == rework_attempt_index
+
+    # Step 7: Create P23 intent via real service with convergence authority
+    intent_svc = ProjectDirectorProtectedTransitionDispatchIntentService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        bounded_rework_convergence_service=convergence_service,
+    )
+    intent_result = intent_svc.prepare_protected_transition_dispatch_intent(
+        session_id=session_id,
+        source_task_id=task_id,
+        source_message_id=p22_summary.message.id,
+    )
+    assert intent_result.result.intent_status == "prepared", intent_result.result.blocked_reasons
+    assert intent_result.result.rework_attempt_index == rework_attempt_index
+
+    # Step 8: Build remaining D3 stack services
+    freshness_svc = ProjectDirectorProtectedTransitionEvidenceFreshnessService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        review_handoff_service=_StubHandoff(),
+        candidate_diff_service=_StubDiff(),
+    )
+
+    preflight_svc = ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        dispatch_intent_service=intent_svc,
+        freshness_service=freshness_svc,
+        task_readiness_service=FakeTaskReadinessService(),
+        task_state_machine_service=FakeTaskStateMachineService(),
+        budget_guard_service=FakeBudgetGuardService(session=session),
+    )
+
+    d1_svc = ProjectDirectorProtectedTransitionDispatchConsumptionService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        run_repository=run_repo,
+        preflight_service=preflight_svc,
+        task_readiness_service=FakeTaskReadinessService(),
+        task_state_machine_service=FakeTaskStateMachineService(),
+        task_router_service=FakeTaskRouterService(),
+        budget_guard_service=FakeBudgetGuardService(session=session),
+    )
+
+    b1_svc = ProjectDirectorProtectedTransitionWorkerStartReservationService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        run_repository=run_repo,
+        agent_session_repository=agent_sess_repo,
+        dispatch_consumption_service=d1_svc,
+        freshness_service=freshness_svc,
+        budget_guard_service=FakeBudgetGuardService(session=session),
+    )
+
+    if fake_worker is None:
+        fake_worker = FakeTaskWorker(session=session)
+    else:
+        fake_worker.session = session
+
+    b2_svc = ProjectDirectorProtectedTransitionWorkerInvocationService(
+        session_repository=sess_repo,
+        message_repository=msg_repo,
+        task_repository=task_repo,
+        run_repository=run_repo,
+        agent_session_repository=agent_sess_repo,
+        worker_start_reservation_service=b1_svc,
+        freshness_service=freshness_svc,
+        task_worker=fake_worker,
+    )
+
+    d3_svc = ProjectDirectorProtectedTransitionAutoAdvanceService(
+        post_review_automation_service=p22_svc,
+        dispatch_intent_service=intent_svc,
+        dispatch_consumption_preflight_service=preflight_svc,
+        dispatch_consumption_service=d1_svc,
+        worker_start_reservation_service=b1_svc,
+        worker_invocation_service=b2_svc,
+    )
+
+    return {
+        "session": session,
+        "msg_repo": msg_repo,
+        "sess_repo": sess_repo,
+        "task_repo": task_repo,
+        "run_repo": run_repo,
+        "agent_sess_repo": agent_sess_repo,
+        "p22_svc": p22_svc,
+        "intent_svc": intent_svc,
+        "preflight_svc": preflight_svc,
+        "d1_svc": d1_svc,
+        "b1_svc": b1_svc,
+        "b2_svc": b2_svc,
+        "d3_svc": d3_svc,
+        "fake_worker": fake_worker,
+        "session_id": session_id,
+        "task_id": task_id,
+        "project_id": project_id,
+        "review_msg_id": outcome.review_outcome_id,
+        "convergence_service": convergence_service,
+        "convergence": convergence,
+        "intent_result": intent_result,
+        "p22_summary": p22_summary,
+        "candidate_diff_id": candidate_diff_id,
+        "review_outcome_id": outcome.review_outcome_id,
+    }
