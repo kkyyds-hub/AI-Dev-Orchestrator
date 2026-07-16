@@ -239,6 +239,8 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
     ) -> ProjectDirectorBoundedReworkEvidenceResolution:
         """Build one safe immutable snapshot without performing DB writes."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         try:
             snapshot = self._resolve(
                 session_id=session_id,
@@ -265,11 +267,15 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
                 snapshot=None,
                 blocked_reasons=("workspace_invalid",),
             )
-        return ProjectDirectorBoundedReworkEvidenceResolution(
-            status="resolved",
-            snapshot=snapshot,
-            blocked_reasons=(),
-        )
+        else:
+            return ProjectDirectorBoundedReworkEvidenceResolution(
+                status="resolved",
+                snapshot=snapshot,
+                blocked_reasons=(),
+            )
+        finally:
+            if not caller_had_transaction and session.in_transaction():
+                session.rollback()
 
     def revalidate_bounded_rework_evidence_snapshot(
         self,
