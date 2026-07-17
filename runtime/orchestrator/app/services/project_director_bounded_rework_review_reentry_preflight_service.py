@@ -193,6 +193,8 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
     ) -> PreparedProjectDirectorBoundedReworkReviewReentry:
         """Persist or replay one fresh readonly review preflight and Claim."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         try:
             initial = self._candidate_diff_service.revalidate_persisted_candidate_diff_for_review_reentry(
                 session_id=session_id,
@@ -214,7 +216,11 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
                 review_prompt_bytes=review_prompt_bytes,
             )
 
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
+            if session.in_transaction():
+                raise _Blocked("history_invalid")
             with self._message_repository.sqlite_immediate_transaction():
                 current = self._candidate_diff_service.revalidate_persisted_candidate_diff_lineage_for_review_persistence(
                     session_id=session_id,
@@ -242,7 +248,9 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
         except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
             return self._blocked("history_invalid")
         finally:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
 
     def revalidate_persisted_review_reentry_claim_for_execution(
         self,
@@ -1185,8 +1193,15 @@ class ProjectDirectorBoundedReworkReviewReentryPreflightService:
             raise _Blocked("history_invalid")
         return candidate_diff
 
-    def _rollback_read_transaction(self) -> None:
-        if self._message_repository._session.in_transaction():
+    def _release_owned_read_transaction(
+        self,
+        *,
+        caller_had_transaction: bool,
+    ) -> None:
+        if (
+            not caller_had_transaction
+            and self._message_repository._session.in_transaction()
+        ):
             self._message_repository._session.rollback()
 
     @staticmethod
