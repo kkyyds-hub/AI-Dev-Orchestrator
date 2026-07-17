@@ -194,24 +194,34 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
     ) -> PreparedProjectDirectorBoundedReworkInvocationClaim:
         """Claim from three locators; all semantic values come from persistence."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         initial = self._attempt_reservation_service.revalidate_persisted_bounded_rework_attempt_reservation(
             session_id=session_id,
             source_task_id=source_task_id,
             source_reservation_message_id=source_reservation_message_id,
         )
         if initial.blocked_reasons:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked(initial.blocked_reasons[0])
         try:
             initial_snapshot = self._snapshot_for(initial)
         except _Blocked as exc:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked(exc.reason)
         except (OSError, RuntimeError, TypeError, ValueError):
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked("workspace_invalid")
 
-        self._rollback_read_transaction()
+        self._release_owned_read_transaction(
+            caller_had_transaction=caller_had_transaction
+        )
         try:
             with self._message_repository.sqlite_immediate_transaction():
                 current = self._attempt_reservation_service.revalidate_persisted_bounded_rework_attempt_reservation(
@@ -1218,9 +1228,14 @@ class ProjectDirectorBoundedReworkInvocationClaimService:
             return
         raise _Blocked("workspace_invalid")
 
-    def _rollback_read_transaction(self) -> None:
-        if self._message_repository._session.in_transaction():
-            self._message_repository._session.rollback()
+    def _release_owned_read_transaction(
+        self,
+        *,
+        caller_had_transaction: bool,
+    ) -> None:
+        session = self._message_repository._session
+        if not caller_had_transaction and session.in_transaction():
+            session.rollback()
 
     @staticmethod
     def _blocked(
