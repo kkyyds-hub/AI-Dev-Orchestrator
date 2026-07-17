@@ -173,6 +173,8 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
     ) -> ExecutedProjectDirectorBoundedReworkInvocation:
         """Execute only a Claim created by this coordinator invocation."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         phase_one = self._claim_service.claim_bounded_rework_invocation(
             session_id=session_id,
             source_task_id=source_task_id,
@@ -184,6 +186,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 source_task_id=source_task_id,
                 claim=phase_one.claim,
                 claim_message=phase_one.message,
+                caller_had_transaction=caller_had_transaction,
             )
         if phase_one.status != "claim_claimed":
             historical = self._claim_service.revalidate_persisted_bounded_rework_invocation_from_reservation(
@@ -191,7 +194,9 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 source_task_id=source_task_id,
                 source_reservation_message_id=source_reservation_message_id,
             )
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             if (
                 not historical.blocked_reasons
                 and historical.claim is not None
@@ -261,7 +266,9 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             or current.reservation is None
             or current.package is None
         ):
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked(
                 current.blocked_reasons[0]
                 if current.blocked_reasons
@@ -278,11 +285,14 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             )
             before_repository = self._snapshot_repository(current.package)
         except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._persist_pre_call_outcome(
                 current=current,
                 before_workspace=self._claim_snapshot(claim),
                 pre_call_error="workspace_invalid",
+                caller_had_transaction=caller_had_transaction,
             )
 
         pre_call_error = self._pre_call_error(
@@ -292,12 +302,15 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             repository=before_repository,
         )
         if pre_call_error is not None:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._persist_pre_call_outcome(
                 current=current,
                 before_workspace=before_workspace,
                 before_repository=before_repository,
                 pre_call_error=pre_call_error,
+                caller_had_transaction=caller_had_transaction,
             )
 
         try:
@@ -306,16 +319,27 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 package=current.package,
             )
         except (TypeError, ValueError, ValidationError):
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._persist_pre_call_outcome(
                 current=current,
                 before_workspace=before_workspace,
                 before_repository=before_repository,
                 pre_call_error="history_invalid",
+                caller_had_transaction=caller_had_transaction,
             )
 
         # End SQLAlchemy's read autobegin before crossing the external boundary.
-        self._rollback_read_transaction()
+        self._release_owned_read_transaction(
+            caller_had_transaction=caller_had_transaction
+        )
+        if session.in_transaction():
+            return self._blocked(
+                "history_invalid",
+                claim=claim,
+                claim_message=claim_message,
+            )
         executor_result: ProjectDirectorBoundedReworkExecutorResult | None = None
         executor_exception_type: str | None = None
         executor_result_invalid = False
@@ -333,7 +357,9 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             except (TypeError, ValueError, ValidationError):
                 executor_result_invalid = True
         finally:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
 
         after_workspace: BoundedReworkWorkspaceSnapshot | None = None
         after_repository: _RepositorySnapshot | None = None
@@ -375,6 +401,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
         return self._persist_outcome(
             current=current,
             observation=observation,
+            caller_had_transaction=caller_had_transaction,
         )
 
     def _replay_claim_outcome(
@@ -384,6 +411,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
         source_task_id: UUID,
         claim: ProjectDirectorBoundedReworkInvocationClaim | None,
         claim_message: ProjectDirectorMessage | None,
+        caller_had_transaction: bool,
     ) -> ExecutedProjectDirectorBoundedReworkInvocation:
         if claim is None or claim_message is None:
             return self._blocked("history_invalid")
@@ -392,7 +420,9 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             source_task_id=source_task_id,
             source_claim_message_id=claim.claim_id,
         )
-        self._rollback_read_transaction()
+        self._release_owned_read_transaction(
+            caller_had_transaction=caller_had_transaction
+        )
         if current.blocked_reasons:
             return self._blocked(
                 current.blocked_reasons[0],
@@ -430,6 +460,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
         before_workspace: BoundedReworkWorkspaceSnapshot,
         pre_call_error: BoundedReworkBlockedReason,
         before_repository: _RepositorySnapshot | None = None,
+        caller_had_transaction: bool,
     ) -> ExecutedProjectDirectorBoundedReworkInvocation:
         repository = before_repository or _RepositorySnapshot(
             head_sha="0" * 40,
@@ -449,6 +480,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 executor_started=False,
                 pre_call_error=pre_call_error,
             ),
+            caller_had_transaction=caller_had_transaction,
         )
 
     def _persist_outcome(
@@ -456,12 +488,15 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
         *,
         current: RevalidatedPersistedBoundedReworkInvocationClaim,
         observation: _ExecutionObservation,
+        caller_had_transaction: bool,
     ) -> ExecutedProjectDirectorBoundedReworkInvocation:
         claim = current.claim
         claim_message = current.message
         if claim is None or claim_message is None:
             return self._blocked("history_invalid")
-        self._rollback_read_transaction()
+        self._release_owned_read_transaction(
+            caller_had_transaction=caller_had_transaction
+        )
         try:
             with self._message_repository.sqlite_immediate_transaction():
                 if observation.executor_started:
@@ -532,7 +567,8 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 claim_message=claim_message,
             )
         except (SQLAlchemyError, OSError, RuntimeError, TypeError, ValueError, ValidationError):
-            self._message_repository._session.rollback()
+            if not caller_had_transaction:
+                self._message_repository._session.rollback()
             return self._blocked(
                 "persistence_failed",
                 claim=claim,
@@ -1230,9 +1266,14 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             created_at=outcome.created_at,
         )
 
-    def _rollback_read_transaction(self) -> None:
-        if self._message_repository._session.in_transaction():
-            self._message_repository._session.rollback()
+    def _release_owned_read_transaction(
+        self,
+        *,
+        caller_had_transaction: bool,
+    ) -> None:
+        session = self._message_repository._session
+        if not caller_had_transaction and session.in_transaction():
+            session.rollback()
 
     @staticmethod
     def _blocked(
