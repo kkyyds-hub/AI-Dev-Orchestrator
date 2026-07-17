@@ -227,6 +227,8 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
     ) -> PreparedProjectDirectorBoundedReworkCandidateDiff:
         """Regenerate from persisted lineage without invoking an executor or reviewer."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         try:
             initial = self._load_lineage(
                 session_id=session_id,
@@ -241,16 +243,26 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             if records.manifest is not None or records.candidate_diff is not None:
                 self._validate_replay_records(records=records, lineage=initial)
         except _Blocked as exc:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked(exc.reason)
         except SQLAlchemyError:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked("persistence_failed")
         except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked("history_invalid")
 
-        self._rollback_read_transaction()
+        self._release_owned_read_transaction(
+            caller_had_transaction=caller_had_transaction
+        )
+        if session.in_transaction():
+            return self._blocked("history_invalid")
         try:
             lock_descriptor = self._acquire_workspace_lock(initial)
         except (OSError, RuntimeError, TypeError, ValueError, _Blocked):
@@ -2153,6 +2165,17 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
     def _rollback_read_transaction(self) -> None:
         if self._message_repository._session.in_transaction():
             self._message_repository._session.rollback()
+
+    def _release_owned_read_transaction(
+        self,
+        *,
+        caller_had_transaction: bool,
+    ) -> None:
+        """Release only the read autobegin started by this public entrypoint."""
+
+        session = self._message_repository._session
+        if not caller_had_transaction and session.in_transaction():
+            session.rollback()
 
     def _cleanup_revalidation_transaction(
         self,
