@@ -189,22 +189,37 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
     ) -> ExecutedProjectDirectorBoundedReworkReadonlyReview:
         """Rebuild exact persisted evidence, call the reviewer once, and persist outcome."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         initial = self._preflight_service.revalidate_persisted_review_reentry_claim_for_execution(
             session_id=session_id,
             source_task_id=source_task_id,
             source_review_claim_message_id=source_review_claim_message_id,
         )
         if initial.blocked_reasons:
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked(initial.blocked_reasons[0])
 
         try:
             prompt = self._rebuild_prompt(initial)
         except _Blocked as exc:
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked(exc.reason)
         except (TypeError, ValueError, ValidationError):
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
             return self._blocked("review_reentry_failed")
 
-        self._rollback_read_transaction()
+        self._release_owned_read_transaction(
+            caller_had_transaction=caller_had_transaction
+        )
+        if session.in_transaction():
+            return self._blocked("history_invalid")
         try:
             with self._message_repository.sqlite_immediate_transaction():
                 current = self._preflight_service.revalidate_persisted_review_reentry_claim_for_persistence(
@@ -234,7 +249,9 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
         except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
             return self._blocked("history_invalid")
         finally:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
 
         try:
             observation = self._execute_once(current=current, prompt=prompt)
@@ -246,7 +263,11 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
         except (TypeError, ValueError, ValidationError):
             return self._recovery_required(attempt=attempt, attempt_message=persisted_attempt_message)
 
-        self._rollback_read_transaction()
+        self._release_owned_read_transaction(
+            caller_had_transaction=caller_had_transaction
+        )
+        if session.in_transaction():
+            return self._blocked("history_invalid")
         try:
             with self._message_repository.sqlite_immediate_transaction():
                 final = self._preflight_service.revalidate_persisted_review_reentry_claim_for_persistence(
@@ -319,7 +340,9 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
                 attempt_message=persisted_attempt_message,
             )
         finally:
-            self._rollback_read_transaction()
+            self._release_owned_read_transaction(
+                caller_had_transaction=caller_had_transaction
+            )
 
     def revalidate_persisted_review_invocation_outcome(
         self,
@@ -724,7 +747,7 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
                 review_attempt_replay_key=attempt.review_attempt_replay_key,
                 source_candidate_diff_sha256=current.candidate_diff.new_diff_sha256,
                 review_prompt_sha256=current.preflight.review_prompt_sha256,
-                invocation_ordinal=current.preflight.invocation_ordinal,
+                invocation_ordinal=current.review_claim.invocation_ordinal,
             )
         )
         values = {
@@ -767,7 +790,7 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             "review_output_schema_version": (
                 current.preflight.review_output_schema_version
             ),
-            "invocation_ordinal": current.preflight.invocation_ordinal,
+            "invocation_ordinal": current.review_claim.invocation_ordinal,
             "adapter_result": adapter_result,
             "review_result_fingerprint": self._review_result_fingerprint(
                 current=current,
@@ -1176,7 +1199,7 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             == current.preflight.requested_reviewer_executor
             and attempt.review_output_schema_version
             == current.preflight.review_output_schema_version
-            and attempt.invocation_ordinal == current.preflight.invocation_ordinal
+            and attempt.invocation_ordinal == current.review_claim.invocation_ordinal
         )
 
     def _outcome_binds_current(
@@ -1230,7 +1253,7 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             == current.preflight.requested_reviewer_executor
             and outcome.review_output_schema_version
             == current.preflight.review_output_schema_version
-            and outcome.invocation_ordinal == current.preflight.invocation_ordinal
+            and outcome.invocation_ordinal == current.review_claim.invocation_ordinal
         )
 
     def _build_attempt_message(
@@ -1564,8 +1587,17 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             and message.estimated_cost is None
         )
 
-    def _rollback_read_transaction(self) -> None:
-        if self._message_repository._session.in_transaction():
+    def _release_owned_read_transaction(
+        self,
+        *,
+        caller_had_transaction: bool,
+    ) -> None:
+        """Release a read autobegin only when this entrypoint owns it."""
+
+        if (
+            not caller_had_transaction
+            and self._message_repository._session.in_transaction()
+        ):
             self._message_repository._session.rollback()
 
     def _cleanup_local_read_transaction(
