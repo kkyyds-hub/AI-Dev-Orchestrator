@@ -61,6 +61,9 @@ from app.services.project_director_sandbox_candidate_diff_review_disposition_ser
 from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
     REVIEW_OUTPUT_SCHEMA_VERSION,
 )
+from app.services.project_director_post_review_source_evidence_resolver import (
+    ProjectDirectorPostReviewSourceEvidenceResolver,
+)
 from app.services.project_director_sandbox_candidate_diff_review_handoff_service import (
     ProjectDirectorSandboxCandidateDiffReviewHandoffService,
 )
@@ -211,12 +214,14 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             ProjectDirectorSandboxCandidateDiffReviewHandoffService | None
         ) = None,
         candidate_diff_service: ProjectDirectorSandboxCandidateDiffService | None = None,
+        source_evidence_resolver: ProjectDirectorPostReviewSourceEvidenceResolver | None = None,
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
         self._task_repository = task_repository
         self._review_handoff_service = review_handoff_service
         self._candidate_diff_service = candidate_diff_service
+        self._source_evidence_resolver = source_evidence_resolver
 
     def prepare_protected_transition_evidence_freshness_gate(
         self,
@@ -758,6 +763,107 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
                 replay_check_completed=True,
                 blocked_reasons=blocked_reasons,
             )
+
+        if self._source_evidence_resolver is not None:
+            resolved = self._source_evidence_resolver.resolve(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=evidence.source_review_message_id,
+            )
+            if resolved.source_review_kind == "p25_h":
+                if (
+                    resolved.blocked_reasons
+                    or resolved.source_preflight_message_id
+                    != evidence.source_review_preflight_message_id
+                    or resolved.source_diff_message_id != evidence.source_diff_message_id
+                    or resolved.source_diff_sha256 != evidence.reviewed_diff_sha256
+                    or resolved.review_result_fingerprint
+                    != evidence.review_result_fingerprint
+                    or resolved.review_prompt_sha256 != evidence.review_prompt_sha256
+                    or list(resolved.review_scope_paths)
+                    != evidence.reviewed_scope_paths
+                    or resolved.review_output_schema_version
+                    != evidence.review_output_schema_version
+                    or resolved.source_review_verdict != evidence.source_review_verdict
+                    or resolved.source_review_risk_level
+                    != evidence.source_review_risk_level
+                    or resolved.exact_task_id != source_task_id
+                    or not resolved.workspace_path
+                ):
+                    blocked_reasons.extend(resolved.blocked_reasons or ("review_source_binding_mismatch",))
+                    return self._blocked_result(
+                        source_message_id=source_message_id,
+                        source_task_id=source_task_id,
+                        validated_at=normalized_validated_at,
+                        evidence=evidence,
+                        history=history,
+                        revalidated_review_fingerprint="",
+                        persisted_source_diff_sha256="",
+                        persisted_source_scope_paths=[],
+                        current_diff_sha256="",
+                        current_scope_paths=[],
+                        workspace_path="",
+                        workspace_path_within_root=False,
+                        source_review_validated=False,
+                        review_fingerprint_revalidated=False,
+                        source_diff_revalidated=False,
+                        current_workspace_revalidated=False,
+                        current_diff_regenerated=False,
+                        ordered_scope_revalidated=False,
+                        replay_check_completed=True,
+                        blocked_reasons=blocked_reasons,
+                    )
+                result_values = self._ready_result_values(
+                    freshness_validation_id=uuid4(),
+                    source_message_id=source_message_id,
+                    source_task_id=source_task_id,
+                    validated_at=normalized_validated_at,
+                    evidence=evidence,
+                    history=history,
+                    revalidated_review_fingerprint=resolved.review_result_fingerprint,
+                    persisted_source_diff_sha256=resolved.source_diff_sha256,
+                    persisted_source_scope_paths=list(resolved.review_scope_paths),
+                    current_diff_sha256=resolved.source_diff_sha256,
+                    current_scope_paths=list(resolved.review_scope_paths),
+                    workspace_path=resolved.workspace_path,
+                )
+                fingerprint_basis = ProjectDirectorProtectedTransitionEvidenceFreshnessResult(
+                    freshness_evidence_fingerprint="0" * 64,
+                    **result_values,
+                )
+                result = ProjectDirectorProtectedTransitionEvidenceFreshnessResult(
+                    freshness_evidence_fingerprint=self._canonical_payload_fingerprint(
+                        self._freshness_evidence_canonical_payload(
+                            session_id=session_id,
+                            result=fingerprint_basis,
+                        )
+                    ),
+                    **result_values,
+                )
+                message = self._message_repository.create(ProjectDirectorMessage(
+                    session_id=session_id,
+                    role=ProjectDirectorMessageRole.ASSISTANT,
+                    content="P25-H/P25-G evidence was revalidated for a future protected transition guardrail.",
+                    sequence_no=self._message_repository.get_next_sequence_no(session_id=session_id),
+                    intent="protected_transition_evidence_freshness",
+                    related_project_id=session_obj.project_id,
+                    related_task_id=source_task_id,
+                    source=ProjectDirectorMessageSource.SYSTEM,
+                    source_detail=P21_D_PROTECTED_TRANSITION_EVIDENCE_FRESHNESS_SOURCE_DETAIL,
+                    suggested_actions=[self._freshness_action(
+                        session_id=session_id,
+                        source_task_id=source_task_id,
+                        result=result,
+                    )],
+                    requires_confirmation=False,
+                    risk_level=ProjectDirectorMessageRiskLevel.HIGH,
+                    forbidden_actions_detected=self._forbidden_actions(),
+                    created_at=normalized_validated_at,
+                ))
+                return PreparedProjectDirectorProtectedTransitionEvidenceFreshness(
+                    result=result,
+                    message=message,
+                )
 
         source_review_message = self._message_repository.get_by_id(
             evidence.source_review_message_id

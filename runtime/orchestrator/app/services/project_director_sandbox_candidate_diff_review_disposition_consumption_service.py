@@ -40,6 +40,10 @@ from app.services.project_director_sandbox_candidate_diff_review_disposition_ser
 from app.services.project_director_sandbox_candidate_diff_review_execution_preflight_service import (
     REVIEW_OUTPUT_SCHEMA_VERSION,
 )
+from app.services.project_director_post_review_source_evidence_resolver import (
+    ProjectDirectorPostReviewSourceEvidenceResolver,
+    ResolvedProjectDirectorPostReviewSourceEvidence,
+)
 from app.services.project_director_sandbox_candidate_diff_review_handoff_service import (
     ProjectDirectorSandboxCandidateDiffReviewHandoffService,
 )
@@ -124,12 +128,14 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService:
             ProjectDirectorSandboxCandidateDiffReviewHandoffService | None
         ) = None,
         candidate_diff_service: ProjectDirectorSandboxCandidateDiffService | None = None,
+        source_evidence_resolver: ProjectDirectorPostReviewSourceEvidenceResolver | None = None,
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
         self._task_repository = task_repository
         self._review_handoff_service = review_handoff_service
         self._candidate_diff_service = candidate_diff_service
+        self._source_evidence_resolver = source_evidence_resolver
 
     def prepare_candidate_diff_review_disposition_consumption(
         self,
@@ -218,6 +224,22 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService:
         blocked_reasons = self._dedupe(blocked_reasons)
         if blocked_reasons or c1_evidence is None or session_obj is None:
             return blocked_result()
+
+        if self._source_evidence_resolver is not None:
+            p25_evidence = self._source_evidence_resolver.resolve(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=c1_evidence.source_review_message_id,
+            )
+            if p25_evidence.source_review_kind == "p25_h":
+                return self._prepare_p25_h_consumption(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_consumption_preflight_message_id=source_message_id,
+                    session_project_id=session_obj.project_id,
+                    evidence=c1_evidence,
+                    resolved=p25_evidence,
+                )
 
         source_review_message = self._message_repository.get_by_id(
             c1_evidence.source_review_message_id
@@ -471,6 +493,127 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService:
             result=result,
             message=message,
         )
+
+    def _prepare_p25_h_consumption(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_consumption_preflight_message_id: UUID,
+        session_project_id: UUID,
+        evidence: _ValidatedC1Evidence,
+        resolved: ResolvedProjectDirectorPostReviewSourceEvidence,
+    ) -> PreparedSandboxCandidateDiffReviewDispositionConsumption:
+        if (
+            resolved.blocked_reasons
+            or resolved.source_preflight_message_id != evidence.source_preflight_message_id
+            or resolved.source_diff_message_id != evidence.source_diff_message_id
+            or resolved.source_diff_sha256 != evidence.source_diff_sha256
+            or resolved.review_result_fingerprint != evidence.review_result_fingerprint
+            or resolved.review_prompt_sha256 != evidence.review_prompt_sha256
+            or list(resolved.review_scope_paths) != evidence.review_scope_paths
+            or resolved.review_output_schema_version != evidence.review_output_schema_version
+            or resolved.source_review_verdict != evidence.source_review_verdict
+            or resolved.source_review_risk_level != evidence.source_review_risk_level
+            or resolved.exact_task_id != source_task_id
+            or not resolved.workspace_path
+        ):
+            return PreparedSandboxCandidateDiffReviewDispositionConsumption(
+                result=self._blocked_result(
+                    source_consumption_preflight_message_id=source_consumption_preflight_message_id,
+                    evidence=evidence,
+                    revalidation=None,
+                    persisted_source_diff_sha256="",
+                    persisted_source_scope_paths=[],
+                    current_diff_sha256="",
+                    current_scope_paths=[],
+                    workspace_path="",
+                    workspace_path_within_root=False,
+                    source_diff_revalidated=False,
+                    current_diff_regenerated=False,
+                    replay_check_completed=True,
+                    prior_consumption_detected=False,
+                    blocked_reasons=list(resolved.blocked_reasons)
+                    or ["review_source_binding_mismatch"],
+                ),
+                message=None,
+            )
+        if self._prior_consumption_exists(
+            session_id=session_id,
+            source_consumption_preflight_message_id=source_consumption_preflight_message_id,
+        ):
+            return PreparedSandboxCandidateDiffReviewDispositionConsumption(
+                result=self._blocked_result(
+                    source_consumption_preflight_message_id=source_consumption_preflight_message_id,
+                    evidence=evidence,
+                    revalidation=None,
+                    persisted_source_diff_sha256=resolved.source_diff_sha256,
+                    persisted_source_scope_paths=list(resolved.review_scope_paths),
+                    current_diff_sha256=resolved.source_diff_sha256,
+                    current_scope_paths=list(resolved.review_scope_paths),
+                    workspace_path=resolved.workspace_path,
+                    workspace_path_within_root=True,
+                    source_diff_revalidated=True,
+                    current_diff_regenerated=True,
+                    replay_check_completed=True,
+                    prior_consumption_detected=True,
+                    blocked_reasons=["disposition_already_consumed"],
+                ),
+                message=None,
+            )
+        consumed_at = datetime.now(timezone.utc)
+        result = ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionResult(
+            consumption_status="consumed",
+            consumption_id=uuid4(),
+            source_consumption_preflight_message_id=source_consumption_preflight_message_id,
+            source_disposition_message_id=evidence.source_disposition_message_id,
+            source_review_message_id=evidence.source_review_message_id,
+            source_diff_message_id=evidence.source_diff_message_id,
+            disposition_id=evidence.disposition_id,
+            disposition_type=evidence.disposition_type,
+            review_result_fingerprint=evidence.review_result_fingerprint,
+            revalidated_review_result_fingerprint=resolved.review_result_fingerprint,
+            reviewed_diff_sha256=resolved.source_diff_sha256,
+            persisted_source_diff_sha256=resolved.source_diff_sha256,
+            current_diff_sha256=resolved.source_diff_sha256,
+            reviewed_scope_paths=list(resolved.review_scope_paths),
+            persisted_source_scope_paths=list(resolved.review_scope_paths),
+            current_scope_paths=list(resolved.review_scope_paths),
+            workspace_path=resolved.workspace_path,
+            workspace_path_within_root=True,
+            source_diff_revalidated=True,
+            current_diff_regenerated=True,
+            evidence_fresh=True,
+            disposition_consumed=True,
+            continuation_eligible=evidence.disposition_type == "AUTO_CONTINUE",
+            rework_eligible=evidence.disposition_type == "AUTO_REWORK",
+            replay_check_completed=True,
+            prior_consumption_detected=False,
+            consumed_at=consumed_at,
+        )
+        message = self._message_repository.create(ProjectDirectorMessage(
+            session_id=session_id,
+            role=ProjectDirectorMessageRole.ASSISTANT,
+            content="A fresh automatic review disposition was consumed for a future bounded handoff.",
+            sequence_no=self._message_repository.get_next_sequence_no(session_id=session_id),
+            intent="sandbox_candidate_diff_review_disposition_consumption",
+            related_project_id=session_project_id,
+            related_task_id=source_task_id,
+            source=ProjectDirectorMessageSource.SYSTEM,
+            source_detail=P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_DISPOSITION_CONSUMED_SOURCE_DETAIL,
+            suggested_actions=[self._consumption_action(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_consumption_preflight_message_id=source_consumption_preflight_message_id,
+                evidence=evidence,
+                result=result,
+            )],
+            requires_confirmation=False,
+            risk_level=ProjectDirectorMessageRiskLevel.HIGH,
+            forbidden_actions_detected=["no_continuation_start", "no_rework_start", "no_product_runtime_git_write"],
+            created_at=consumed_at,
+        ))
+        return PreparedSandboxCandidateDiffReviewDispositionConsumption(result=result, message=message)
 
     @staticmethod
     def _source_c1_action(

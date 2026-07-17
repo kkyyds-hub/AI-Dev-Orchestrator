@@ -79,6 +79,9 @@ from app.services.project_director_sandbox_candidate_diff_review_human_escalatio
     P21_D_SANDBOX_CANDIDATE_DIFF_REVIEW_HUMAN_ESCALATION_PACKAGE_SOURCE_DETAIL,
     ProjectDirectorSandboxCandidateDiffReviewHumanEscalationPackageService,
 )
+from app.services.project_director_post_review_source_evidence_resolver import (
+    ProjectDirectorPostReviewSourceEvidenceResolver,
+)
 
 
 P22_POST_REVIEW_AUTOMATION_SOURCE_DETAIL = (
@@ -219,6 +222,15 @@ class ProjectDirectorPostReviewAutomationService:
         self._handoff_service = handoff_service
         self._human_escalation_package_service = human_escalation_package_service
         self._freshness_service = freshness_service
+
+    def configure_p25_h_source_evidence_resolver(
+        self,
+        resolver: ProjectDirectorPostReviewSourceEvidenceResolver,
+    ) -> None:
+        """Bind the readonly P25-H authority bridge for H-C orchestration only."""
+
+        self._consumption_service._source_evidence_resolver = resolver
+        self._freshness_service._source_evidence_resolver = resolver
 
     def revalidate_existing_post_review_summary(
         self,

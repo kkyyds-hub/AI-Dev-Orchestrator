@@ -22,6 +22,9 @@ from app.services.project_director_bounded_rework_review_execution_service impor
 from app.services.project_director_post_review_automation_service import (
     ProjectDirectorPostReviewAutomationService,
 )
+from app.services.project_director_post_review_source_evidence_resolver import (
+    ProjectDirectorPostReviewSourceEvidenceResolver,
+)
 from app.services.project_director_sandbox_candidate_diff_review_disposition_service import (
     ProjectDirectorSandboxCandidateDiffReviewDispositionService,
 )
@@ -67,6 +70,11 @@ class ProjectDirectorBoundedReworkPostReviewOrchestrationService:
             is not disposition_service
         ):
             raise ValueError("P25-H-C dependencies must share disposition evidence")
+        self._post_review_automation_service.configure_p25_h_source_evidence_resolver(
+            ProjectDirectorPostReviewSourceEvidenceResolver(
+                review_execution_service=review_execution_service,
+            )
+        )
 
     def orchestrate_fresh_post_review(
         self,
@@ -75,6 +83,17 @@ class ProjectDirectorBoundedReworkPostReviewOrchestrationService:
         source_task_id: UUID,
         source_review_outcome_message_id: UUID,
     ) -> OrchestratedProjectDirectorBoundedReworkPostReview:
+        if self._review_execution_service._message_repository._session.in_transaction():
+            return OrchestratedProjectDirectorBoundedReworkPostReview(
+                status="blocked",
+                source_review_outcome=None,
+                source_review_outcome_message=None,
+                disposition=None,
+                disposition_message=None,
+                p22_summary=None,
+                p22_summary_message=None,
+                blocked_reasons=("history_invalid",),
+            )
         revalidated = self._review_execution_service.revalidate_persisted_review_invocation_outcome(
             session_id=session_id,
             source_task_id=source_task_id,
