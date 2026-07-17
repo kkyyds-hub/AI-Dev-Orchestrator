@@ -864,6 +864,32 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
                     result=result,
                     message=message,
                 )
+            if resolved.source_review_kind == "invalid":
+                blocked_reasons.extend(
+                    resolved.blocked_reasons or ("p25_h_marker_invalid",)
+                )
+                return self._blocked_result(
+                    source_message_id=source_message_id,
+                    source_task_id=source_task_id,
+                    validated_at=normalized_validated_at,
+                    evidence=evidence,
+                    history=history,
+                    revalidated_review_fingerprint="",
+                    persisted_source_diff_sha256="",
+                    persisted_source_scope_paths=[],
+                    current_diff_sha256="",
+                    current_scope_paths=[],
+                    workspace_path="",
+                    workspace_path_within_root=False,
+                    source_review_validated=False,
+                    review_fingerprint_revalidated=False,
+                    source_diff_revalidated=False,
+                    current_workspace_revalidated=False,
+                    current_diff_regenerated=False,
+                    ordered_scope_revalidated=False,
+                    replay_check_completed=True,
+                    blocked_reasons=blocked_reasons,
+                )
 
         source_review_message = self._message_repository.get_by_id(
             evidence.source_review_message_id

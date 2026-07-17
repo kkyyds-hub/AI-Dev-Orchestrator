@@ -240,6 +240,11 @@ class ProjectDirectorSandboxCandidateDiffReviewDispositionConsumptionService:
                     evidence=c1_evidence,
                     resolved=p25_evidence,
                 )
+            if p25_evidence.source_review_kind == "invalid":
+                blocked_reasons.extend(
+                    p25_evidence.blocked_reasons or ("p25_h_marker_invalid",)
+                )
+                return blocked_result()
 
         source_review_message = self._message_repository.get_by_id(
             c1_evidence.source_review_message_id

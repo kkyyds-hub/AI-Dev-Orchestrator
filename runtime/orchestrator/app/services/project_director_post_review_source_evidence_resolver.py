@@ -9,14 +9,18 @@ from uuid import UUID
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
 )
+from app.domain.project_director_bounded_rework_review_reentry import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION,
+)
 from app.services.project_director_bounded_rework_review_execution_service import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE,
     P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
     P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL,
     ProjectDirectorBoundedReworkReviewExecutionService,
 )
 
 
-PostReviewSourceKind = Literal["p21_c", "p25_h"]
+PostReviewSourceKind = Literal["p21_c", "p25_h", "invalid"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,8 +65,11 @@ class ProjectDirectorPostReviewSourceEvidenceResolver:
         source_review_message_id: UUID,
     ) -> ResolvedProjectDirectorPostReviewSourceEvidence:
         message = self._message_repository.get_by_id(source_review_message_id)
-        if not self._is_p25_h_outcome_message(message):
-            return self._blocked(source_review_message_id, "source_review_kind_unsupported")
+        source_kind = self._source_kind(message)
+        if source_kind == "p21_c":
+            return self._legacy(source_review_message_id)
+        if source_kind == "invalid":
+            return self._blocked(source_review_message_id, "p25_h_marker_invalid")
 
         revalidated = (
             self._review_execution_service.revalidate_persisted_review_invocation_outcome(
@@ -136,13 +143,45 @@ class ProjectDirectorPostReviewSourceEvidenceResolver:
         )
 
     @staticmethod
-    def _is_p25_h_outcome_message(message: object) -> bool:
-        return bool(
-            message is not None
-            and getattr(message, "intent", None)
-            == P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT
-            and getattr(message, "source_detail", None)
-            == P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL
+    def _source_kind(message: object) -> PostReviewSourceKind:
+        if message is None:
+            return "invalid"
+        actions = getattr(message, "suggested_actions", None)
+        action = actions[0] if isinstance(actions, list) and len(actions) == 1 else None
+        action_type = action.get("type") if isinstance(action, dict) else None
+        schema_version = action.get("schema_version") if isinstance(action, dict) else None
+        markers = (
+            getattr(message, "intent", None) == P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+            getattr(message, "source_detail", None) == P25_BOUNDED_REWORK_REVIEW_OUTCOME_SOURCE_DETAIL,
+            action_type == P25_BOUNDED_REWORK_REVIEW_OUTCOME_ACTION_TYPE,
+            schema_version == P25_BOUNDED_REWORK_REVIEW_OUTCOME_SCHEMA_VERSION,
+        )
+        if not any(markers):
+            return "p21_c"
+        return "p25_h" if all(markers) else "invalid"
+
+    @staticmethod
+    def _legacy(
+        source_review_message_id: UUID,
+    ) -> ResolvedProjectDirectorPostReviewSourceEvidence:
+        return ResolvedProjectDirectorPostReviewSourceEvidence(
+            source_review_kind="p21_c",
+            source_review_message_id=source_review_message_id,
+            source_preflight_message_id=None,
+            source_diff_message_id=None,
+            source_diff_sha256="",
+            review_result_fingerprint="",
+            review_semantic_fingerprint=None,
+            requested_reviewer_executor=None,
+            review_prompt_sha256="",
+            review_scope_paths=(),
+            review_output_schema_version="",
+            source_review_verdict=None,
+            source_review_risk_level=None,
+            exact_task_id=None,
+            exact_run_id=None,
+            workspace_path=None,
+            blocked_reasons=(),
         )
 
     @staticmethod
@@ -151,7 +190,7 @@ class ProjectDirectorPostReviewSourceEvidenceResolver:
         *blocked_reasons: str,
     ) -> ResolvedProjectDirectorPostReviewSourceEvidence:
         return ResolvedProjectDirectorPostReviewSourceEvidence(
-            source_review_kind="p25_h",
+            source_review_kind="invalid",
             source_review_message_id=source_review_message_id,
             source_preflight_message_id=None,
             source_diff_message_id=None,
