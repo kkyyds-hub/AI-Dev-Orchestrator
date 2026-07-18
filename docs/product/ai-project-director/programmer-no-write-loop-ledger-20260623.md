@@ -2797,6 +2797,88 @@ P22 closure does not authorize actual continuation, actual rework, patch applica
 
 The next stage must be selected by the AI Project Director after independently re-inspecting the latest origin/main.
 
+## P25 Final Bounded Rework Closure
+
+### Implemented Scope
+
+P25 now closes the persisted bounded rework loop for attempt indexes `0`, `1`, and `2` only. P25-F records an explicit inherited candidate state for a successful no-write retry, and P25-G reconstructs it only when the source P25-G manifest, exact business inventory, and exact-base unified diff all still match the source candidate diff SHA.
+
+The lifecycle closeout is atomic for the source Task, exact Run, and append-only closure message:
+
+```text
+CONVERGED
+Task RUNNING -> COMPLETED
+Run RUNNING -> SUCCEEDED
+
+NEXT_ATTEMPT_ELIGIBLE
+Task RUNNING -> FAILED
+Run RUNNING -> FAILED / VERIFICATION_FAILED
+
+ESCALATE_TO_HUMAN
+Task RUNNING -> FAILED -> WAITING_HUMAN
+Run RUNNING -> FAILED
+```
+
+### Bounded Attempt Contract
+
+```text
+attempt limit = 3
+legal attempt indexes = 0, 1, 2
+attempt 3 = forbidden
+```
+
+- P23 is the only retry path from a failed attempt to the next exact Run.
+- Same-session and fresh-session replay reuse persisted evidence and do not re-call the bounded executor or readonly reviewer.
+- Every attempt retains distinct P23, package, reservation, claim, outcome, P25-G manifest/diff, P25-H review evidence, P22 summary, decision, and lifecycle closure identities.
+- Terminal `empty_diff`, `unchanged_diff`, repeated review semantic fingerprint, repeated canonical blocking findings, attempt-limit exhaustion, and high-review-risk paths each leave no Run in `RUNNING` and create at most one terminal escalation package.
+
+### Verification Evidence
+
+```text
+P25 lifecycle/final/terminal real chain: 13 passed
+P25 package/reservation real chain: 9 passed
+P25 all real-chain: 92 passed
+P25 bounded rework suite: 226 passed
+P25 dynamic suites: 95 passed
+P23 adjacent state/concurrency regression: 61 passed
+compileall app tests: passed
+
+P21-D-C2 historical contract debt: 17 failed, 121 passed
+No additional P21-D-C2 failure and no test ERROR was introduced.
+```
+
+### Permanent Boundaries
+
+```text
+product_runtime_git_write_allowed = false
+product_runtime_git_add = false
+product_runtime_git_commit = false
+product_runtime_git_push = false
+real_provider_call = false
+native_process_start = false
+generic Worker call = false in P25 real-chain coverage
+```
+
+### Final Stage Status
+
+```text
+P25-B package: Closed / Pass
+P25-D reservation: Closed / Pass
+P25-E invocation Claim: Closed / Pass
+P25-F invocation Outcome: Closed / Pass
+P25-G candidate diff: Closed / Pass
+P25-H review reentry: Closed / Pass
+P25-I convergence: Closed / Pass
+P25 attempt lifecycle closure: Closed / Pass
+P25 attempt 1 real bounded loop: Closed / Pass
+P25 terminal boundaries: Closed / Pass
+P25 overall: Closed / Pass
+
+AI Project Director total loop: Partial
+```
+
+This records implementation and local verification evidence only. The independent final Gate remains outside this ledger update.
+
 ---
 
 ## P23 Protected Transition Execution and Exact Worker Invocation
