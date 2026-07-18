@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -195,6 +196,39 @@ def _make_unified_diff(relative_path, old_content, new_content):
     return f"{diff_text}\n" if diff_text else ""
 
 
+def _initialize_exact_base_repository(repo_root) -> str:
+    for args in (
+        ("git", "init"),
+        ("git", "config", "user.email", "p21-d-c2@example.invalid"),
+        ("git", "config", "user.name", "P21-D-C2 contract test"),
+        ("git", "add", "src"),
+        ("git", "commit", "-m", "exact base"),
+    ):
+        subprocess.run(args, cwd=repo_root, check=True, capture_output=True)
+    return subprocess.run(
+        ("git", "rev-parse", "HEAD"),
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _commit_repository_change(repo_root, message: str) -> str:
+    for args in (
+        ("git", "add", "src"),
+        ("git", "commit", "-m", message),
+    ):
+        subprocess.run(args, cwd=repo_root, check=True, capture_output=True)
+    return subprocess.run(
+        ("git", "rev-parse", "HEAD"),
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
 def _compute_review_result_fingerprint(
     *,
     session_id=SESSION_ID,
@@ -249,6 +283,7 @@ def _setup_filesystem(tmp_path):
     repo_root.mkdir()
     (repo_root / "src").mkdir()
     (repo_root / "src" / "example.py").write_text(TARGET_CONTENT, encoding="utf-8")
+    base_commit_sha = _initialize_exact_base_repository(repo_root)
 
     workspace_root = (tmp_path / "project-director" / "sandbox-workspaces").resolve()
     workspace_root.mkdir(parents=True)
@@ -275,6 +310,7 @@ def _setup_filesystem(tmp_path):
 
     return {
         "repo_root": repo_root,
+        "base_commit_sha": base_commit_sha,
         "workspace_root": workspace_root,
         "workspace_path": workspace_path,
         "unified_diff_text": unified_diff_text,
@@ -2331,6 +2367,29 @@ class TestPersistedSourceDiffValidation:
 
 
 class TestCandidateFileFreshness:
+    def test_base_commit_unavailable_remains_fail_closed(
+        self, seeded_session, fs_info, monkeypatch
+    ) -> None:
+        def _missing_head(_repo_root, *, blocked_reasons):
+            blocked_reasons.append("base_commit_unavailable")
+            return None
+
+        monkeypatch.setattr(
+            ProjectDirectorSandboxCandidateDiffService,
+            "_read_repository_head",
+            staticmethod(_missing_head),
+        )
+        svc, session = _make_c2_service(seeded_session, fs_info)
+        result = svc.prepare_candidate_diff_review_disposition_consumption(
+            session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
+        )
+        assert result.result.consumption_status == "blocked"
+        assert result.result.current_diff_regenerated is False
+        assert "current_diff_regeneration_failed" in result.result.blocked_reasons
+        assert "review_evidence_stale" in result.result.blocked_reasons
+        assert result.message is None
+        session.close()
+
     def test_candidate_file_stale(self, seeded_session, fs_info) -> None:
         rel = fs_info.get("relative_path", "src/example.py")
         (fs_info["workspace_path"] / rel).write_text("stale content\n", encoding="utf-8")
@@ -2414,6 +2473,7 @@ class TestMainTargetFreshness:
     def test_target_file_stale(self, seeded_session, fs_info) -> None:
         rel = fs_info.get("relative_path", "src/example.py")
         (fs_info["repo_root"] / rel).write_text("modified target\n", encoding="utf-8")
+        assert _commit_repository_change(fs_info["repo_root"], "target drift") != fs_info["base_commit_sha"]
         svc, session = _make_c2_service(seeded_session, fs_info)
         result = svc.prepare_candidate_diff_review_disposition_consumption(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
@@ -2435,6 +2495,7 @@ class TestMainTargetFreshness:
         assert expected_diff
         assert len(expected_diff.encode("utf-8")) <= persisted_diff_bytes
         (fs_info["repo_root"] / rel).write_text(changed_target, encoding="utf-8")
+        assert _commit_repository_change(fs_info["repo_root"], "target drift") != fs_info["base_commit_sha"]
         svc, session = _make_c2_service(seeded_session, fs_info)
         result = svc.prepare_candidate_diff_review_disposition_consumption(
             session_id=SESSION_ID, source_task_id=TASK_ID, source_message_id=C1_PREFLIGHT_MSG_ID,
@@ -2628,6 +2689,7 @@ def _setup_two_file_fixture(tmp_path):
     (repo_root / "src").mkdir()
     (repo_root / "src" / "a.py").write_text("old a\n", encoding="utf-8")
     (repo_root / "src" / "b.py").write_text("old b\n", encoding="utf-8")
+    base_commit_sha = _initialize_exact_base_repository(repo_root)
 
     workspace_root = (tmp_path / "project-director" / "sandbox-workspaces").resolve()
     workspace_root.mkdir(parents=True)
@@ -2666,6 +2728,7 @@ def _setup_two_file_fixture(tmp_path):
 
     return {
         "repo_root": repo_root,
+        "base_commit_sha": base_commit_sha,
         "workspace_root": workspace_root,
         "workspace_path": workspace_path,
         "unified_diff_text": unified_diff_text,
@@ -3068,6 +3131,7 @@ class TestLargeDiffR1:
         repo_root.mkdir()
         (repo_root / "src").mkdir()
         (repo_root / "src" / "big.py").write_text(old_content, encoding="utf-8")
+        _initialize_exact_base_repository(repo_root)
 
         workspace_root = (tmp_path / "project-director" / "sandbox-workspaces").resolve()
         workspace_root.mkdir(parents=True)
