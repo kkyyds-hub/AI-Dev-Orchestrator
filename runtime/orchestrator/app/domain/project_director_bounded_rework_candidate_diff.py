@@ -163,6 +163,12 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
     ]
 
     changed_files: tuple[ProjectDirectorBoundedReworkCandidateManifestEntry, ...]
+    candidate_state_inherited: bool = False
+    inherited_source_diff_sha256: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+    )
     internal_manifest_file_path: Literal[
         ".ai-project-director/workspace-manifest.json"
     ] = P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH
@@ -193,6 +199,17 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
     def validate_hashes(cls, value: str) -> str:
         return require_sha256(value, label="P25-G candidate manifest hash")
 
+    @field_validator("inherited_source_diff_sha256")
+    @classmethod
+    def validate_optional_inherited_source_diff_hash(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        return require_optional_sha256(
+            value,
+            label="P25-G inherited candidate source diff hash",
+        )
+
     @field_validator("base_commit_sha")
     @classmethod
     def validate_base_commit(cls, value: str) -> str:
@@ -209,7 +226,7 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
         if self.rework_attempt_limit != P25_BOUNDED_REWORK_ATTEMPT_LIMIT:
             raise ValueError("P25-G manifest attempt limit must equal three")
         paths = tuple(item.relative_path for item in self.changed_files)
-        validate_unique_paths(paths, allow_empty=False)
+        validate_unique_paths(paths, allow_empty=True)
         if paths != tuple(sorted(paths)):
             raise ValueError("P25-G manifest entries must be sorted")
         business_paths = tuple(
@@ -247,6 +264,16 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
                     raise ValueError("deleted candidate path remains in business inventory")
             elif current is None or current.content_sha256 != entry.content_sha256:
                 raise ValueError("candidate content does not match business inventory")
+        if self.candidate_state_inherited:
+            if (
+                not self.changed_files
+                or self.inherited_source_diff_sha256 is None
+            ):
+                raise ValueError(
+                    "inherited candidate state requires a source-bound nonempty candidate diff"
+                )
+        elif self.inherited_source_diff_sha256 is not None:
+            raise ValueError("non-inherited candidate state cannot carry a source diff")
         expected_identity = self.compute_candidate_manifest_identity_fingerprint(
             candidate_manifest_id=self.candidate_manifest_id,
             source_claim_id=self.source_claim_id,
@@ -261,6 +288,8 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
                 self.workspace_after_content_fingerprint
             ),
             changed_files=self.changed_files,
+            candidate_state_inherited=self.candidate_state_inherited,
+            inherited_source_diff_sha256=self.inherited_source_diff_sha256,
         )
         if self.candidate_manifest_fingerprint != expected_identity:
             raise ValueError("P25-G candidate manifest identity does not match P25-F")
@@ -300,11 +329,12 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
         workspace_after_manifest_fingerprint: str,
         workspace_after_content_fingerprint: str,
         changed_files: tuple[ProjectDirectorBoundedReworkCandidateManifestEntry, ...],
+        candidate_state_inherited: bool = False,
+        inherited_source_diff_sha256: str | None = None,
     ) -> str:
         """Reproduce the exact candidate identity persisted by P25-F."""
 
-        return compute_p25_contract_sha256(
-            {
+        payload = {
                 "schema_version": (
                     P25_BOUNDED_REWORK_CANDIDATE_MANIFEST_IDENTITY_SCHEMA_VERSION
                 ),
@@ -326,10 +356,17 @@ class ProjectDirectorBoundedReworkCandidateManifest(DomainModel):
                         "content_sha256": entry.content_sha256,
                         "deleted": entry.deleted,
                     }
-                    for entry in changed_files
+                    for entry in (
+                        () if candidate_state_inherited else changed_files
+                    )
                 ],
-            }
-        )
+        }
+        if candidate_state_inherited:
+            if inherited_source_diff_sha256 is None:
+                raise ValueError("inherited candidate state requires a source diff hash")
+            payload["candidate_state_inherited"] = True
+            payload["inherited_source_diff_sha256"] = inherited_source_diff_sha256
+        return compute_p25_contract_sha256(payload)
 
     @staticmethod
     def compute_replay_key(
@@ -550,7 +587,7 @@ class ProjectDirectorBoundedReworkCandidateDiff(DomainModel):
     @field_validator("scope_paths")
     @classmethod
     def validate_scope_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        values = validate_unique_paths(values, allow_empty=False)
+        values = validate_unique_paths(values, allow_empty=True)
         if values != tuple(sorted(values)):
             raise ValueError("P25-G diff scope paths must be sorted")
         return values
@@ -576,7 +613,7 @@ class ProjectDirectorBoundedReworkCandidateDiff(DomainModel):
         }:
             raise ValueError("P25-G diff identity must be distinct from its lineage")
         entry_paths = tuple(item.relative_path for item in self.diff_entries)
-        validate_unique_paths(entry_paths, allow_empty=False)
+        validate_unique_paths(entry_paths, allow_empty=True)
         if entry_paths != self.scope_paths:
             raise ValueError("P25-G diff entries must exactly match manifest scope")
         if self.unified_diff_text != "".join(
@@ -600,7 +637,13 @@ class ProjectDirectorBoundedReworkCandidateDiff(DomainModel):
             ):
                 raise ValueError("generated P25-G diff requires new non-empty content")
         elif self.non_convergence_reason == "empty_diff":
-            if self.unified_diff_text:
+            if (
+                self.unified_diff_text
+                or self.diff_entries
+                or self.scope_paths
+                or self.diff_bytes != 0
+                or self.diff_file_count != 0
+            ):
                 raise ValueError("empty-diff non-convergence facts are contradictory")
         elif self.non_convergence_reason == "unchanged_diff":
             if (

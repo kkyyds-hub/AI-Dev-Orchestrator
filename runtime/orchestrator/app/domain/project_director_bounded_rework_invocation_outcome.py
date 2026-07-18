@@ -139,6 +139,7 @@ class ProjectDirectorBoundedReworkInvocationOutcome(DomainModel):
         max_length=64,
     )
     candidate_files_changed: bool
+    candidate_state_inherited: bool = False
     recovery_required: bool
     human_escalation_required: bool
 
@@ -307,26 +308,36 @@ class ProjectDirectorBoundedReworkInvocationOutcome(DomainModel):
             )
         if self.candidate_files_changed:
             if (
-                self.side_effect_state != "observed"
+                self.candidate_state_inherited
+                or self.side_effect_state != "observed"
                 or not self.declared_changed_paths
                 or not self.observed_changed_paths
                 or self.candidate_manifest_id is None
                 or self.candidate_manifest_fingerprint is None
             ):
                 raise ValueError("changed candidate files require manifest-bound paths")
-        elif (
-            self.declared_changed_paths
-            or self.observed_changed_paths
-            or self.candidate_manifest_id is not None
-            or self.candidate_manifest_fingerprint is not None
-        ):
+        elif self.declared_changed_paths or self.observed_changed_paths:
             raise ValueError("unchanged candidate state cannot carry changed-file facts")
+        elif (self.candidate_manifest_id is None) != (
+            self.candidate_manifest_fingerprint is None
+        ):
+            raise ValueError("unchanged candidate manifest identity must be complete")
+        if self.candidate_state_inherited and (
+            self.candidate_files_changed
+            or self.rework_attempt_index == 0
+            or self.side_effect_state != "none"
+            or self.outcome_status != "returned"
+            or not self.executor_result_valid
+            or self.candidate_manifest_id is None
+            or self.candidate_manifest_fingerprint is None
+        ):
+            raise ValueError(
+                "inherited candidate state requires a later successful no-side-effect attempt"
+            )
         if self.side_effect_state == "none" and (
             self.candidate_files_changed
             or self.declared_changed_paths
             or self.observed_changed_paths
-            or self.candidate_manifest_id is not None
-            or self.candidate_manifest_fingerprint is not None
         ):
             raise ValueError("no side effects cannot carry candidate change facts")
 

@@ -809,7 +809,23 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 redacted_error_summary = "Workspace changes could not be represented safely"
 
         candidate_files_changed = bool(persisted_observed_paths)
-        candidate_manifest_id = uuid4() if candidate_files_changed else None
+        candidate_state_inherited = bool(
+            outcome_status == "returned"
+            and executor_result_valid
+            and not candidate_files_changed
+            and claim.rework_attempt_index > 0
+            and package.source_candidate_diff_message_id is not None
+            and package.source_candidate_diff_sha256 is not None
+        )
+        candidate_manifest_id = (
+            uuid4()
+            if (
+                outcome_status == "returned"
+                and executor_result_valid
+                and after_workspace is not None
+            )
+            else None
+        )
         candidate_manifest_fingerprint = None
         if candidate_manifest_id is not None and after_workspace is not None:
             candidate_manifest_fingerprint = self._candidate_manifest_fingerprint(
@@ -819,6 +835,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                 package=package,
                 after_workspace=after_workspace,
                 observed_paths=persisted_observed_paths,
+                candidate_state_inherited=candidate_state_inherited,
             )
 
         values = {
@@ -873,6 +890,7 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
             "candidate_manifest_id": candidate_manifest_id,
             "candidate_manifest_fingerprint": candidate_manifest_fingerprint,
             "candidate_files_changed": candidate_files_changed,
+            "candidate_state_inherited": candidate_state_inherited,
             "recovery_required": recovery_required,
             "human_escalation_required": human_escalation_required,
             "product_runtime_git_write_allowed": False,
@@ -1007,10 +1025,10 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
         package: ProjectDirectorBoundedReworkInstructionPackage,
         after_workspace: BoundedReworkWorkspaceSnapshot,
         observed_paths: tuple[str, ...],
+        candidate_state_inherited: bool,
     ) -> str:
         after_entries = {item.path: item for item in after_workspace.file_entries}
-        return compute_p25_contract_sha256(
-            {
+        payload = {
                 "schema_version": _CANDIDATE_MANIFEST_SCHEMA_VERSION,
                 "candidate_manifest_id": candidate_manifest_id,
                 "claim_id": claim.claim_id,
@@ -1032,8 +1050,13 @@ class ProjectDirectorBoundedReworkInvocationOutcomeService:
                     }
                     for path in observed_paths
                 ],
-            }
-        )
+        }
+        if candidate_state_inherited:
+            payload["candidate_state_inherited"] = True
+            payload["inherited_source_diff_sha256"] = (
+                package.source_candidate_diff_sha256
+            )
+        return compute_p25_contract_sha256(payload)
 
     @staticmethod
     def _git_activity_kinds(

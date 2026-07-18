@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -797,7 +798,12 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             != outcome.workspace_after_content_fingerprint
         ):
             raise _Blocked("workspace_invalid")
-        business_entries = self._business_entries_from_outcome(outcome, snapshot)
+        business_entries = self._business_entries_from_outcome(
+            outcome,
+            snapshot,
+            package=package,
+            workspace_business_identity=before_business_identity,
+        )
         for path, _ in business_entries:
             if not any(
                 path_is_within_scope(path, allowed)
@@ -816,15 +822,12 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             )
             for path, content_sha256 in business_entries
         )
-        identity_projection = (
-            self._candidate_diff_service.build_readonly_diff_from_exact_base(
-                repository_root=repository_root,
-                workspace_path=workspace_path,
-                base_commit_sha=package.base_commit_sha,
-                candidate_entries=candidate_inputs,
-                max_diff_bytes=_MAX_DIFF_BYTES,
-                render_unified_diff=False,
-            )
+        identity_projection = self._exact_base_projection(
+            repository_root=repository_root,
+            workspace_path=workspace_path,
+            base_commit_sha=package.base_commit_sha,
+            candidate_entries=candidate_inputs,
+            render_unified_diff=False,
         )
         changed_files = tuple(
             ProjectDirectorBoundedReworkCandidateManifestEntry(
@@ -850,6 +853,12 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
                     outcome.workspace_after_content_fingerprint
                 ),
                 changed_files=changed_files,
+                candidate_state_inherited=outcome.candidate_state_inherited,
+                inherited_source_diff_sha256=(
+                    package.source_candidate_diff_sha256
+                    if outcome.candidate_state_inherited
+                    else None
+                ),
             )
         )
         if recomputed_manifest_fingerprint != outcome.candidate_manifest_fingerprint:
@@ -919,6 +928,12 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             ),
             "workspace_business_inventory": before_business_identity.inventory,
             "changed_files": changed_files,
+            "candidate_state_inherited": outcome.candidate_state_inherited,
+            "inherited_source_diff_sha256": (
+                package.source_candidate_diff_sha256
+                if outcome.candidate_state_inherited
+                else None
+            ),
             "internal_manifest_file_path": P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH,
         }
         manifest_path = workspace_path / P25_BOUNDED_REWORK_INTERNAL_MANIFEST_PATH
@@ -951,14 +966,21 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             **manifest_values,
             internal_manifest_content_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
         )
-        projection = self._candidate_diff_service.build_readonly_diff_from_exact_base(
+        projection = self._exact_base_projection(
             repository_root=repository_root,
             workspace_path=workspace_path,
             base_commit_sha=package.base_commit_sha,
             candidate_entries=candidate_inputs,
-            max_diff_bytes=_MAX_DIFF_BYTES,
             render_unified_diff=True,
         )
+        if outcome.candidate_state_inherited and (
+            not projection.unified_diff_text
+            or hashlib.sha256(
+                projection.unified_diff_text.encode("utf-8")
+            ).hexdigest()
+            != package.source_candidate_diff_sha256
+        ):
+            raise _Blocked("source_diff_mismatch")
         identity_entries = tuple(
             (
                 item.relative_path,
@@ -1012,6 +1034,65 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             snapshot,
             before_business_identity,
             business_entries,
+        )
+
+    def _exact_base_projection(
+        self,
+        *,
+        repository_root: Path,
+        workspace_path: Path,
+        base_commit_sha: str,
+        candidate_entries: tuple[ExactBaseCandidateDiffInputEntry, ...],
+        render_unified_diff: bool,
+    ) -> ExactBaseCandidateDiffProjection:
+        if candidate_entries:
+            return self._candidate_diff_service.build_readonly_diff_from_exact_base(
+                repository_root=repository_root,
+                workspace_path=workspace_path,
+                base_commit_sha=base_commit_sha,
+                candidate_entries=candidate_entries,
+                max_diff_bytes=_MAX_DIFF_BYTES,
+                render_unified_diff=render_unified_diff,
+            )
+        try:
+            resolved_repository = repository_root.resolve(strict=True)
+            resolved_workspace = workspace_path.resolve(strict=True)
+            repository_stat = repository_root.lstat()
+            workspace_stat = workspace_path.lstat()
+        except (OSError, RuntimeError) as exc:
+            raise ExactBaseCandidateDiffError("workspace_invalid") from exc
+        if (
+            resolved_repository != repository_root
+            or resolved_workspace != workspace_path
+            or not stat.S_ISDIR(repository_stat.st_mode)
+            or not stat.S_ISDIR(workspace_stat.st_mode)
+            or stat.S_ISLNK(repository_stat.st_mode)
+            or stat.S_ISLNK(workspace_stat.st_mode)
+            or len(base_commit_sha) != 40
+            or any(char not in "0123456789abcdef" for char in base_commit_sha)
+        ):
+            raise ExactBaseCandidateDiffError("workspace_invalid")
+        try:
+            completed = subprocess.run(
+                ["git", "cat-file", "-e", f"{base_commit_sha}^{{commit}}"],
+                cwd=resolved_repository,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ExactBaseCandidateDiffError("source_diff_mismatch") from exc
+        if completed.returncode != 0:
+            raise ExactBaseCandidateDiffError("source_diff_mismatch")
+        return ExactBaseCandidateDiffProjection(
+            base_commit_sha=base_commit_sha,
+            base_content_source="exact_git_commit_object",
+            readonly_base_snapshot_verified=True,
+            diff_entries=(),
+            unified_diff_text="",
+            diff_bytes=0,
+            diff_file_count=0,
         )
 
     def _build_candidate_diff(
@@ -1180,8 +1261,6 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             raise _Blocked("human_escalation_required")
         if outcome.scope_validation_status != "valid":
             raise _Blocked("scope_invalid")
-        if outcome.side_effect_state != "observed":
-            raise _Blocked("workspace_invalid")
         required = (
             outcome.outcome_status == "returned",
             outcome.executor_attempted,
@@ -1190,16 +1269,26 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             not outcome.executor_raised,
             outcome.executor_result_valid,
             not outcome.recovery_required,
-            outcome.candidate_files_changed,
             outcome.candidate_manifest_id is not None,
             outcome.candidate_manifest_fingerprint is not None,
-            bool(outcome.declared_changed_paths),
-            bool(outcome.observed_changed_paths),
             outcome.declared_changed_paths == outcome.observed_changed_paths,
             outcome.workspace_after_manifest_fingerprint is not None,
             outcome.workspace_after_content_fingerprint is not None,
         )
         if not all(required):
+            raise _Blocked("history_invalid")
+        if outcome.candidate_files_changed:
+            if (
+                outcome.side_effect_state != "observed"
+                or not outcome.declared_changed_paths
+                or not outcome.observed_changed_paths
+            ):
+                raise _Blocked("history_invalid")
+        elif (
+            outcome.side_effect_state != "none"
+            or outcome.declared_changed_paths
+            or outcome.observed_changed_paths
+        ):
             raise _Blocked("history_invalid")
 
     def _snapshot_workspace(
@@ -1218,7 +1307,17 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
         self,
         outcome: ProjectDirectorBoundedReworkInvocationOutcome,
         snapshot: BoundedReworkWorkspaceSnapshot,
+        *,
+        package: ProjectDirectorBoundedReworkInstructionPackage,
+        workspace_business_identity: _WorkspaceBusinessIdentity,
     ) -> tuple[tuple[str, str | None], ...]:
+        if outcome.candidate_state_inherited:
+            return self._inherited_candidate_business_entries(
+                outcome=outcome,
+                package=package,
+                snapshot=snapshot,
+                workspace_business_identity=workspace_business_identity,
+            )
         by_path = {item.path: item for item in snapshot.file_entries}
         entries: list[tuple[str, str | None]] = []
         for path in outcome.observed_changed_paths:
@@ -1227,6 +1326,127 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             current = by_path.get(path)
             entries.append((path, current.content_sha256 if current else None))
         return tuple(entries)
+
+    def _inherited_candidate_business_entries(
+        self,
+        *,
+        outcome: ProjectDirectorBoundedReworkInvocationOutcome,
+        package: ProjectDirectorBoundedReworkInstructionPackage,
+        snapshot: BoundedReworkWorkspaceSnapshot,
+        workspace_business_identity: _WorkspaceBusinessIdentity,
+    ) -> tuple[tuple[str, str | None], ...]:
+        if (
+            package.source_candidate_diff_message_id is None
+            or package.source_candidate_diff_sha256 is None
+            or package.base_commit_sha is None
+            or package.base_snapshot_fingerprint is None
+        ):
+            raise _Blocked("history_invalid")
+        source_diff_message = self._message_repository.get_by_id(
+            package.source_candidate_diff_message_id
+        )
+        if source_diff_message is None:
+            raise _Blocked("history_invalid")
+        source_diff = self._parse_persisted_candidate_diff(source_diff_message)
+        if (
+            source_diff_message.session_id != outcome.authority.session_id
+            or source_diff_message.related_project_id != outcome.authority.project_id
+            or source_diff_message.related_task_id != outcome.exact_task_id
+            or source_diff.diff_status != "generated"
+            or source_diff.non_convergence_reason is not None
+            or not source_diff.diff_entries
+            or not source_diff.unified_diff_text
+            or source_diff.new_diff_sha256 != package.source_candidate_diff_sha256
+            or source_diff.base_commit_sha != package.base_commit_sha
+            or source_diff.base_snapshot_fingerprint != package.base_snapshot_fingerprint
+            or source_diff.exact_task_id != outcome.exact_task_id
+        ):
+            raise _Blocked("source_diff_mismatch")
+        source_manifest_message = self._message_repository.get_by_id(
+            source_diff.candidate_manifest_id
+        )
+        if source_manifest_message is None:
+            raise _Blocked("history_invalid")
+        source_manifest = self._parse_persisted_candidate_manifest(
+            source_manifest_message
+        )
+        if (
+            source_manifest_message.session_id != outcome.authority.session_id
+            or source_manifest_message.related_project_id != outcome.authority.project_id
+            or source_manifest_message.related_task_id != outcome.exact_task_id
+            or source_manifest.candidate_manifest_id
+            != source_diff.candidate_manifest_id
+            or source_manifest.candidate_manifest_fingerprint
+            != source_diff.candidate_manifest_fingerprint
+            or source_manifest.exact_task_id != outcome.exact_task_id
+            or source_manifest.base_commit_sha != package.base_commit_sha
+            or source_manifest.base_snapshot_fingerprint
+            != package.base_snapshot_fingerprint
+            or source_manifest.workspace_business_manifest_fingerprint
+            != workspace_business_identity.manifest_fingerprint
+            or source_manifest.workspace_business_content_fingerprint
+            != workspace_business_identity.content_fingerprint
+            or source_manifest.workspace_business_inventory
+            != workspace_business_identity.inventory
+        ):
+            raise _Blocked("source_diff_mismatch")
+        by_path = {item.path: item for item in snapshot.file_entries}
+        entries: list[tuple[str, str | None]] = []
+        for entry in source_diff.diff_entries:
+            if not any(
+                path_is_within_scope(entry.relative_path, allowed)
+                for allowed in package.allowed_scope_paths
+            ) or any(
+                path_is_within_scope(entry.relative_path, forbidden)
+                for forbidden in package.forbidden_scope_paths
+            ):
+                raise _Blocked("scope_invalid")
+            current = by_path.get(entry.relative_path)
+            current_content_sha256 = current.content_sha256 if current else None
+            if current_content_sha256 != entry.candidate_content_sha256:
+                raise _Blocked("source_diff_mismatch")
+            entries.append((entry.relative_path, current_content_sha256))
+        return tuple(entries)
+
+    @staticmethod
+    def _parse_persisted_candidate_diff(
+        message: ProjectDirectorMessage,
+    ) -> ProjectDirectorBoundedReworkCandidateDiff:
+        if (
+            len(message.suggested_actions) != 1
+            or not isinstance(message.suggested_actions[0], dict)
+        ):
+            raise _Blocked("history_invalid")
+        payload = dict(message.suggested_actions[0])
+        if payload.pop("type", None) != P25_BOUNDED_REWORK_CANDIDATE_DIFF_ACTION_TYPE:
+            raise _Blocked("history_invalid")
+        candidate_diff = ProjectDirectorBoundedReworkCandidateDiff.model_validate(payload)
+        if not ProjectDirectorBoundedReworkCandidateDiffService._diff_message_valid(
+            message,
+            candidate_diff,
+        ):
+            raise _Blocked("history_invalid")
+        return candidate_diff
+
+    @staticmethod
+    def _parse_persisted_candidate_manifest(
+        message: ProjectDirectorMessage,
+    ) -> ProjectDirectorBoundedReworkCandidateManifest:
+        if (
+            len(message.suggested_actions) != 1
+            or not isinstance(message.suggested_actions[0], dict)
+        ):
+            raise _Blocked("history_invalid")
+        payload = dict(message.suggested_actions[0])
+        if payload.pop("type", None) != P25_BOUNDED_REWORK_CANDIDATE_MANIFEST_ACTION_TYPE:
+            raise _Blocked("history_invalid")
+        manifest = ProjectDirectorBoundedReworkCandidateManifest.model_validate(payload)
+        if not ProjectDirectorBoundedReworkCandidateDiffService._manifest_message_valid(
+            message,
+            manifest,
+        ):
+            raise _Blocked("history_invalid")
+        return manifest
 
     def _read_and_validate_internal_manifest(
         self,
@@ -1408,6 +1628,8 @@ class ProjectDirectorBoundedReworkCandidateDiffService:
             or self._business_entries_from_outcome(
                 lineage.outcome,
                 after_snapshot,
+                package=lineage.package,
+                workspace_business_identity=after_business_identity,
             ) != expected_business_entries
         ):
             raise _Blocked("workspace_invalid")
