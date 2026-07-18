@@ -1558,6 +1558,24 @@ Preflight is not consumption execution.
 - No patch apply.
 - No Git write.
 
+### P21-D-C2 Historical Contract Debt Closure
+
+- Original baseline: `17 failed, 121 passed, 0 ERROR`.
+- Final targeted contract suite: `139 passed, 0 failed, 0 ERROR`.
+- Root-cause classification:
+  - Fixture invalid: the historical C2 fixtures created ordinary target directories after P21-C-F adopted an exact persisted Git-base contract. Current production correctly failed closed with `base_commit_unavailable`.
+  - Stale historical test: two target-freshness assertions treated uncommitted worktree edits as base drift. The current contract reads exact Git commit objects, so the tests now advance the base commit to prove the real drift behavior.
+- Production repair: none. The P21-C exact-base freshness check remains strict; the C2 service was not relaxed for invalid historical evidence.
+- Test evolution: C2 fixtures now initialize minimal Git repositories and persist a base commit; the suite explicitly verifies that an unavailable base commit stays fail closed.
+- P21-C legacy path: preserved through `139 passed` C2 and `433 passed` P21-D-C1/C2/C3 disposition regression; automatic consumption still validates the legacy review/diff/workspace chain.
+- P25-H bridge: preserved by the P25 bounded-rework suite (`226 passed`) and all P25 real-chain tests (`92 passed`); no P25 implementation, attempt limit, terminal rule, or runtime Git boundary changed.
+- Caller-owned transaction, persistence-failure retry, SQLite immediate concurrency, same-session/fresh-session replay, and paginated replay contracts are covered by the passing C2 suite.
+- P22 post-review regression: `95 passed`.
+- P23 protected-transition regression: `61 passed`.
+- P21-D-C2: Closed / Pass.
+- P21-D-C2 historical contract debt: Closed / Pass.
+- AI Project Director total loop remains `Partial`; this is local implementation and verification evidence awaiting independent review.
+
 ---
 
 ## P21-D-C3 Bounded Automatic Disposition Handoff
@@ -2843,8 +2861,8 @@ P25 dynamic suites: 95 passed
 P23 adjacent state/concurrency regression: 61 passed
 compileall app tests: passed
 
-P21-D-C2 historical contract debt: 17 failed, 121 passed
-No additional P21-D-C2 failure and no test ERROR was introduced.
+P21-D-C2 historical contract debt: Closed / Pass
+current verification: 139 passed, 0 failed, 0 ERROR
 ```
 
 ### Permanent Boundaries
