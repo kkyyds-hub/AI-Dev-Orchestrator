@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Literal
 from uuid import UUID
@@ -22,6 +22,12 @@ from app.domain.project_director_bounded_rework_contract import (
     ProjectDirectorBoundedReworkWorkspaceBinding,
     compute_p25_contract_sha256,
     validate_repository_relative_path,
+)
+from app.domain.project_director_bounded_rework_candidate_diff import (
+    ProjectDirectorBoundedReworkCandidateDiff,
+)
+from app.domain.project_director_protected_transition_dispatch_intent import (
+    ProjectDirectorProtectedTransitionDispatchIntentResult,
 )
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
@@ -76,6 +82,10 @@ from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.project_director_protected_transition_evidence_freshness_service import (
     ProjectDirectorProtectedTransitionEvidenceFreshnessService,
+)
+from app.services.project_director_bounded_rework_review_outcome_evidence_adapter import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+    ProjectDirectorBoundedReworkReviewOutcomeEvidenceAdapter,
 )
 from app.services.project_director_sandbox_candidate_diff_readonly_review_execution_service import (
     P21_C_SANDBOX_CANDIDATE_DIFF_READONLY_REVIEW_EXECUTION_ACTION_TYPE,
@@ -135,6 +145,9 @@ class ProjectDirectorBoundedReworkEvidenceSnapshot:
     source_review_message_id: UUID
     source_review_fingerprint: str
     source_review_semantic_fingerprint: str
+    root_review_message_id: UUID
+    root_review_fingerprint: str
+    root_review_semantic_fingerprint: str
     source_freshness_message_id: UUID
 
     review_output: ProjectDirectorSandboxCandidateDiffValidatedReviewOutput
@@ -239,6 +252,7 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
     ) -> ProjectDirectorBoundedReworkEvidenceResolution:
         """Build one safe immutable snapshot without performing DB writes."""
 
+        caller_had_transaction = self._message_repository._session.in_transaction()
         try:
             snapshot = self._resolve(
                 session_id=session_id,
@@ -265,11 +279,18 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
                 snapshot=None,
                 blocked_reasons=("workspace_invalid",),
             )
-        return ProjectDirectorBoundedReworkEvidenceResolution(
-            status="resolved",
-            snapshot=snapshot,
-            blocked_reasons=(),
-        )
+        else:
+            return ProjectDirectorBoundedReworkEvidenceResolution(
+                status="resolved",
+                snapshot=snapshot,
+                blocked_reasons=(),
+            )
+        finally:
+            if (
+                not caller_had_transaction
+                and self._message_repository._session.in_transaction()
+            ):
+                self._message_repository._session.rollback()
 
     def revalidate_bounded_rework_evidence_snapshot(
         self,
@@ -317,6 +338,23 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
         source_freshness_message_id: UUID,
         source_diff_message_id: UUID,
     ) -> ProjectDirectorBoundedReworkEvidenceSnapshot:
+        review_message = self._message_repository.get_by_id(source_review_message_id)
+        if (
+            review_message is not None
+            and review_message.intent == P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT
+        ):
+            return self._resolve_p25_h_review_outcome(
+                session_id=session_id,
+                project_id=project_id,
+                source_task_id=source_task_id,
+                source_run_id=source_run_id,
+                source_review_message_id=source_review_message_id,
+                source_review_fingerprint=source_review_fingerprint,
+                source_review_semantic_fingerprint=source_review_semantic_fingerprint,
+                source_freshness_message_id=source_freshness_message_id,
+                source_diff_message_id=source_diff_message_id,
+            )
+
         task = self._task_repository.get_by_id(source_task_id)
         run = self._run_repository.get_by_id(source_run_id)
         if (
@@ -328,9 +366,6 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
         ):
             raise _Blocked("authority_invalid")
 
-        review_message = self._message_repository.get_by_id(
-            source_review_message_id
-        )
         review_action = self._exact_action(
             review_message,
             session_id=session_id,
@@ -637,6 +672,9 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
             "source_review_message_id": source_review_message_id,
             "source_review_fingerprint": source_review_fingerprint,
             "source_review_semantic_fingerprint": source_review_semantic_fingerprint,
+            "root_review_message_id": source_review_message_id,
+            "root_review_fingerprint": source_review_fingerprint,
+            "root_review_semantic_fingerprint": source_review_semantic_fingerprint,
             "source_freshness_message_id": source_freshness_message_id,
             "review_output": review_output,
             "review_scope_paths": review_scope,
@@ -667,6 +705,217 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
             **payload,
             snapshot_fingerprint=compute_p25_contract_sha256(payload),
         )
+
+    def _resolve_p25_h_review_outcome(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_run_id: UUID,
+        source_review_message_id: UUID,
+        source_review_fingerprint: str,
+        source_review_semantic_fingerprint: str,
+        source_freshness_message_id: UUID,
+        source_diff_message_id: UUID,
+    ) -> ProjectDirectorBoundedReworkEvidenceSnapshot:
+        """Keep P25-H current evidence while rebuilding immutable P21-C facts."""
+
+        current = ProjectDirectorBoundedReworkReviewOutcomeEvidenceAdapter(
+            message_repository=self._message_repository
+        ).load_validated_outcome(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            source_review_outcome_message_id=source_review_message_id,
+        )
+        outcome = current.outcome
+        if (
+            outcome is None
+            or current.message is None
+            or outcome.review_outcome_id != source_review_message_id
+            or outcome.review_result_fingerprint != source_review_fingerprint
+            or outcome.review_semantic_fingerprint != source_review_semantic_fingerprint
+            or outcome.exact_run_id != source_run_id
+            or outcome.authority.session_id != session_id
+            or outcome.authority.project_id != project_id
+            or outcome.authority.source_task_id != source_task_id
+            or outcome.rework_attempt_limit != 3
+        ):
+            raise _Blocked("authority_invalid")
+
+        self._revalidate_current_p25_freshness(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_review_message_id,
+            source_review_fingerprint=source_review_fingerprint,
+            source_freshness_message_id=source_freshness_message_id,
+            source_diff_message_id=source_diff_message_id,
+        )
+        candidate_diff = self._load_p25_candidate_diff(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            source_candidate_diff_message_id=source_diff_message_id,
+            outcome=outcome,
+        )
+        parent_intent = self._load_parent_p23_intent(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            source_intent_message_id=outcome.authority.source_p23_dispatch_intent_id,
+        )
+        if (
+            parent_intent.source_review_message_id
+            != outcome.authority.source_review_message_id
+            or parent_intent.review_result_fingerprint
+            != outcome.authority.source_review_fingerprint
+            or parent_intent.review_semantic_fingerprint
+            != outcome.authority.source_review_semantic_fingerprint
+            or parent_intent.source_freshness_message_id is None
+        ):
+            raise _Blocked("history_invalid")
+
+        root = self._resolve(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            source_run_id=outcome.authority.source_run_id,
+            source_review_message_id=outcome.authority.source_review_message_id,
+            source_review_fingerprint=outcome.authority.source_review_fingerprint,
+            source_review_semantic_fingerprint=(
+                outcome.authority.source_review_semantic_fingerprint
+            ),
+            source_freshness_message_id=parent_intent.source_freshness_message_id,
+            source_diff_message_id=parent_intent.source_p25_candidate_diff_message_id
+            or self._review_source_diff_message_id(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=outcome.authority.source_review_message_id,
+            ),
+        )
+        adapter = outcome.adapter_result
+        if adapter is None:
+            raise _Blocked("review_findings_invalid")
+        review_output = ProjectDirectorSandboxCandidateDiffValidatedReviewOutput(
+            review_status=adapter.review_status,
+            verdict=adapter.verdict,
+            risk_level=adapter.risk_level,
+            summary=adapter.summary,
+            findings=adapter.findings,
+            recommended_next_step=adapter.recommended_next_step,
+        )
+        payload = {
+            **{
+                name: getattr(root, name)
+                for name in ProjectDirectorBoundedReworkEvidenceSnapshot.__dataclass_fields__
+            },
+            "source_review_message_id": source_review_message_id,
+            "source_review_fingerprint": source_review_fingerprint,
+            "source_review_semantic_fingerprint": source_review_semantic_fingerprint,
+            "source_freshness_message_id": source_freshness_message_id,
+            "review_output": review_output,
+            "review_scope_paths": tuple(outcome.review_scope_paths),
+            "source_candidate_diff_message_id": candidate_diff.candidate_diff_id,
+            "source_candidate_diff_sha256": candidate_diff.new_diff_sha256,
+            "source_candidate_diff_fingerprint": candidate_diff.candidate_diff_fingerprint,
+            "source_candidate_diff_paths": tuple(candidate_diff.scope_paths),
+        }
+        payload.pop("snapshot_fingerprint")
+        return ProjectDirectorBoundedReworkEvidenceSnapshot(
+            **payload,
+            snapshot_fingerprint=compute_p25_contract_sha256(payload),
+        )
+
+    def _revalidate_current_p25_freshness(self, **values: Any) -> None:
+        freshness = self._freshness_service.revalidate_current_automatic_transition_evidence_from_persisted_freshness(
+            session_id=values["session_id"],
+            source_task_id=values["source_task_id"],
+            source_freshness_message_id=values["source_freshness_message_id"],
+        )
+        if (
+            freshness.freshness_status != "ready"
+            or freshness.blocked_reasons
+            or freshness.source_review_message_id != values["source_review_message_id"]
+            or freshness.source_diff_message_id != values["source_diff_message_id"]
+            or freshness.review_result_fingerprint != values["source_review_fingerprint"]
+        ):
+            raise _Blocked("source_diff_mismatch")
+
+    def _load_p25_candidate_diff(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_candidate_diff_message_id: UUID,
+        outcome: Any,
+    ) -> ProjectDirectorBoundedReworkCandidateDiff:
+        message = self._message_repository.get_by_id(source_candidate_diff_message_id)
+        action = self._exact_action(
+            message,
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="bounded_rework_candidate_diff",
+            source_detail="p25_g_candidate_diff_generated",
+            action_type="p25_bounded_rework_candidate_diff_record",
+        )
+        diff = self._domain_from_action(ProjectDirectorBoundedReworkCandidateDiff, action)
+        if (
+            diff.candidate_diff_id != source_candidate_diff_message_id
+            or diff.diff_status != "generated"
+            or diff.candidate_diff_fingerprint != outcome.source_candidate_diff_fingerprint
+            or diff.new_diff_sha256 != outcome.source_candidate_diff_sha256
+            or diff.source_package_id != outcome.source_package_id
+            or diff.source_attempt_id != outcome.source_attempt_id
+            or diff.source_outcome_id != outcome.source_executor_outcome_id
+            or diff.authority != outcome.authority
+            or diff.exact_task_id != outcome.exact_task_id
+            or diff.exact_run_id != outcome.exact_run_id
+            or diff.rework_attempt_index != outcome.rework_attempt_index
+            or diff.rework_attempt_limit != outcome.rework_attempt_limit
+        ):
+            raise _Blocked("history_invalid")
+        return diff
+
+    def _load_parent_p23_intent(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_intent_message_id: UUID,
+    ) -> ProjectDirectorProtectedTransitionDispatchIntentResult:
+        action = self._exact_action(
+            self._message_repository.get_by_id(source_intent_message_id),
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            intent="protected_transition_dispatch_intent",
+            source_detail="p23_protected_transition_dispatch_intent_prepared",
+            action_type="p23_protected_transition_dispatch_intent_record",
+        )
+        return self._domain_from_action(
+            ProjectDirectorProtectedTransitionDispatchIntentResult, action
+        )
+
+    def _review_source_diff_message_id(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_message_id: UUID,
+    ) -> UUID:
+        review = ProjectDirectorSandboxCandidateDiffReviewDispositionService.revalidate_persisted_review_result_fingerprint(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_message_id=source_review_message_id,
+            source_review_message=self._message_repository.get_by_id(source_review_message_id),
+        )
+        if review.blocked_reasons or review.source_diff_message_id is None:
+            raise _Blocked("history_invalid")
+        return review.source_diff_message_id
 
     def _workspace_evidence_chain(
         self,

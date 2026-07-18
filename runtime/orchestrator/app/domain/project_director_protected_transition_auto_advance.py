@@ -17,6 +17,8 @@ ProtectedTransitionAutoAdvanceStatus = Literal[
     "worker_not_invoked",
     "worker_returned",
     "worker_raised",
+    "bounded_rework_outcome_recorded",
+    "bounded_rework_outcome_replayed",
 ]
 
 
@@ -35,6 +37,10 @@ class ProjectDirectorProtectedTransitionAutoAdvanceResult(DomainModel):
     source_dispatch_intent_message_id: UUID | None = None
     source_dispatch_consumption_preflight_message_id: UUID | None = None
     source_dispatch_consumption_message_id: UUID | None = None
+    source_p25_package_message_id: UUID | None = None
+    source_p25_attempt_reservation_message_id: UUID | None = None
+    source_p25_invocation_claim_message_id: UUID | None = None
+    source_p25_invocation_outcome_message_id: UUID | None = None
     source_worker_start_reservation_message_id: UUID | None = None
     source_worker_invocation_claim_message_id: UUID | None = None
     source_worker_invocation_outcome_message_id: UUID | None = None
@@ -70,6 +76,9 @@ class ProjectDirectorProtectedTransitionAutoAdvanceResult(DomainModel):
     rework_started: bool = False
     human_recovery_required: bool = False
     worker_reported_git_write_activity: bool = False
+    p25_execution_status: Literal["outcome_recorded", "outcome_replayed"] | None = None
+    p25_recovery_required: bool = False
+    p25_human_escalation_required: bool = False
 
     resumed_from_existing_evidence: bool = False
     blocked_reasons: list[str] = Field(default_factory=list)
@@ -118,6 +127,10 @@ class ProjectDirectorProtectedTransitionAutoAdvanceResult(DomainModel):
                 self.source_dispatch_intent_message_id,
                 self.source_dispatch_consumption_preflight_message_id,
                 self.source_dispatch_consumption_message_id,
+                self.source_p25_package_message_id,
+                self.source_p25_attempt_reservation_message_id,
+                self.source_p25_invocation_claim_message_id,
+                self.source_p25_invocation_outcome_message_id,
                 self.source_worker_start_reservation_message_id,
                 self.source_worker_invocation_claim_message_id,
                 self.source_worker_invocation_outcome_message_id,
@@ -130,6 +143,9 @@ class ProjectDirectorProtectedTransitionAutoAdvanceResult(DomainModel):
                 or self.continuation_started
                 or self.rework_started
                 or self.human_recovery_required
+                or self.p25_execution_status is not None
+                or self.p25_recovery_required
+                or self.p25_human_escalation_required
                 or self.blocked_reasons
             ):
                 raise ValueError("waiting_for_human evidence is inconsistent")
@@ -156,6 +172,7 @@ class ProjectDirectorProtectedTransitionAutoAdvanceResult(DomainModel):
                 or self.worker_raised
                 or self.continuation_started
                 or self.rework_started
+                or self.p25_execution_status is not None
             ):
                 raise ValueError("worker_not_invoked requires its durable B2 outcome")
         elif status == "worker_returned":
@@ -167,8 +184,39 @@ class ProjectDirectorProtectedTransitionAutoAdvanceResult(DomainModel):
                 or not self.worker_call_attempted
                 or not self.worker_returned
                 or self.worker_raised
+                or self.p25_execution_status is not None
             ):
                 raise ValueError("worker_returned requires its durable B2 outcome")
+        elif status in {
+            "bounded_rework_outcome_recorded",
+            "bounded_rework_outcome_replayed",
+        }:
+            if (
+                self.disposition_type != "AUTO_REWORK"
+                or self.source_dispatch_consumption_message_id is None
+                or self.source_p25_package_message_id is None
+                or self.source_p25_attempt_reservation_message_id is None
+                or self.source_p25_invocation_claim_message_id is None
+                or self.source_p25_invocation_outcome_message_id is None
+                or self.p25_execution_status
+                != (
+                    "outcome_recorded"
+                    if status == "bounded_rework_outcome_recorded"
+                    else "outcome_replayed"
+                )
+                or self.continuation_started
+                or not self.rework_started
+                or self.worker_invocation_claimed
+                or self.worker_call_attempted
+                or self.worker_returned
+                or self.worker_raised
+                or self.source_worker_start_reservation_message_id is not None
+                or self.source_worker_invocation_claim_message_id is not None
+                or self.source_worker_invocation_outcome_message_id is not None
+            ):
+                raise ValueError("bounded rework D3 status requires exact P25 lineage")
+            if self.p25_human_escalation_required and not self.p25_recovery_required:
+                raise ValueError("bounded rework human escalation requires recovery")
         elif (
             self.source_worker_invocation_claim_message_id is None
             or self.source_worker_invocation_outcome_message_id is None
@@ -178,6 +226,7 @@ class ProjectDirectorProtectedTransitionAutoAdvanceResult(DomainModel):
             or self.worker_returned
             or not self.worker_raised
             or not self.human_recovery_required
+            or self.p25_execution_status is not None
         ):
             raise ValueError("worker_raised requires durable recovery evidence")
         return self

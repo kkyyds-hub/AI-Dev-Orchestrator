@@ -50,6 +50,10 @@ from app.services.project_director_bounded_rework_evidence_resolver import (
     ProjectDirectorBoundedReworkEvidenceResolver,
     ProjectDirectorBoundedReworkEvidenceSnapshot,
 )
+from app.services.project_director_bounded_rework_review_outcome_evidence_adapter import (
+    P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT,
+    ProjectDirectorBoundedReworkReviewOutcomeEvidenceAdapter,
+)
 from app.services.project_director_protected_transition_dispatch_consumption_service import (
     ProjectDirectorProtectedTransitionDispatchConsumptionService,
 )
@@ -618,23 +622,54 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
         review_message = self._message_repository.get_by_id(
             intent.source_review_message_id
         )
-        review_revalidation = ProjectDirectorSandboxCandidateDiffReviewDispositionService.revalidate_persisted_review_result_fingerprint(
-            session_id=session_id,
-            source_task_id=source_task_id,
-            source_review_message_id=intent.source_review_message_id,
-            source_review_message=review_message,
-        )
         if (
-            review_revalidation.blocked_reasons
-            or review_revalidation.source_diff_message_id is None
-            or review_revalidation.review_result_fingerprint
-            != intent.review_result_fingerprint
-            or review_revalidation.source_diff_sha256 != intent.source_diff_sha256
-            or tuple(review_revalidation.review_scope_paths or ())
-            != tuple(intent.review_scope_paths)
-            or review_revalidation.verdict != "changes_required"
+            review_message is not None
+            and review_message.intent == P25_BOUNDED_REWORK_REVIEW_OUTCOME_INTENT
         ):
-            raise _Blocked("authority_invalid")
+            current_review = ProjectDirectorBoundedReworkReviewOutcomeEvidenceAdapter(
+                message_repository=self._message_repository
+            ).load_validated_outcome(
+                session_id=session_id,
+                project_id=consumption.project_id,
+                source_task_id=source_task_id,
+                source_review_outcome_message_id=intent.source_review_message_id,
+            )
+            outcome = current_review.outcome
+            if (
+                outcome is None
+                or outcome.review_result_fingerprint != intent.review_result_fingerprint
+                or outcome.review_semantic_fingerprint
+                != intent.review_semantic_fingerprint
+                or outcome.source_candidate_diff_sha256 != intent.source_diff_sha256
+                or tuple(outcome.review_scope_paths) != tuple(intent.review_scope_paths)
+                or outcome.adapter_result is None
+                or outcome.adapter_result.verdict != "changes_required"
+                or outcome.authority.source_task_id != source_task_id
+                or outcome.authority.source_run_id != run.id
+                or outcome.rework_attempt_index != intent.rework_attempt_index
+                or outcome.rework_attempt_limit != P25_BOUNDED_REWORK_ATTEMPT_LIMIT
+            ):
+                raise _Blocked("authority_invalid")
+            source_diff_message_id = outcome.source_candidate_diff_message_id
+        else:
+            review_revalidation = ProjectDirectorSandboxCandidateDiffReviewDispositionService.revalidate_persisted_review_result_fingerprint(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=intent.source_review_message_id,
+                source_review_message=review_message,
+            )
+            if (
+                review_revalidation.blocked_reasons
+                or review_revalidation.source_diff_message_id is None
+                or review_revalidation.review_result_fingerprint
+                != intent.review_result_fingerprint
+                or review_revalidation.source_diff_sha256 != intent.source_diff_sha256
+                or tuple(review_revalidation.review_scope_paths or ())
+                != tuple(intent.review_scope_paths)
+                or review_revalidation.verdict != "changes_required"
+            ):
+                raise _Blocked("authority_invalid")
+            source_diff_message_id = review_revalidation.source_diff_message_id
 
         try:
             authority = ProjectDirectorBoundedReworkAuthorityEnvelope(
@@ -668,7 +703,7 @@ class ProjectDirectorBoundedReworkPackagePreparationService:
         return _AuthorityContext(
             authority=authority,
             source_freshness_message_id=intent.source_freshness_message_id,
-            source_diff_message_id=review_revalidation.source_diff_message_id,
+            source_diff_message_id=source_diff_message_id,
             rework_attempt_index=intent.rework_attempt_index,
             rework_attempt_limit=intent.rework_attempt_limit,
         )

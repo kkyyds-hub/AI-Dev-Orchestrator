@@ -272,15 +272,18 @@ class ProjectDirectorBoundedReworkAttemptReservationService:
     ) -> PreparedProjectDirectorBoundedReworkAttemptReservation:
         """Reserve from three locators; all semantic values come from persistence."""
 
+        session = self._message_repository._session
+        caller_had_transaction = session.in_transaction()
         initial = self._package_preparation_service.revalidate_persisted_bounded_rework_instruction_package(
             session_id=session_id,
             source_task_id=source_task_id,
             source_package_message_id=source_package_message_id,
         )
         # Read-only preflight uses SQLAlchemy autobegin. Release it before the
-        # exact reservation phase acquires SQLite's write reservation.
-        if self._message_repository._session.in_transaction():
-            self._message_repository._session.rollback()
+        # exact reservation phase acquires SQLite's write reservation, without
+        # rolling back a transaction owned by the caller.
+        if not caller_had_transaction and session.in_transaction():
+            session.rollback()
         if initial.blocked_reasons:
             return self._blocked(initial.blocked_reasons[0])
         if initial.package is None or initial.message is None:

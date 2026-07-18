@@ -335,14 +335,15 @@ class TestB2InvocationBehavior:
 
         engine.dispose()
 
-    def test_b2_returned_auto_rework_marks_only_rework_started(self, tmp_path):
-        """P25-authorized AUTO_REWORK returns one exact rework outcome."""
+    def test_b2_auto_rework_fail_closed_before_generic_claim(self, tmp_path):
+        """AUTO_REWORK must fail closed before generic B2 creates any evidence."""
         engine = make_test_engine(str(tmp_path / "test.db"))
         sf = make_session_factory(engine)
         fake_worker = FakeTaskWorker()
         ctx = make_p25_auto_rework_d3_stack(
             sf,
             fake_worker=fake_worker,
+            tmp_path=tmp_path,
         )
 
         preflight = ctx["preflight_svc"].prepare_protected_transition_dispatch_consumption_preflight(
@@ -377,30 +378,36 @@ class TestB2InvocationBehavior:
             source_message_id=b1_result.message.id,
         )
 
-        assert result.claim.claim_status == "claimed"
-        assert result.outcome.outcome_status == "returned"
-        assert result.outcome.continuation_started is False
-        assert result.outcome.rework_started is True
-        assert result.outcome.product_runtime_git_write_allowed is False
-        assert len(fake_worker.run_reserved_once_calls) == 1
+        assert result.claim is None
+        assert result.claim_message is None
+        assert result.outcome is None
+        assert result.outcome_message is None
+        assert result.blocked_reasons == [
+            "auto_rework_requires_p25_bounded_reservation"
+        ]
+        assert len(fake_worker.run_reserved_once_calls) == 0
 
         replay = ctx["b2_svc"].invoke_reserved_protected_transition_worker(
             session_id=ctx["session_id"],
             source_task_id=ctx["task_id"],
             source_message_id=b1_result.message.id,
         )
-        assert replay.outcome.outcome_id == result.outcome.outcome_id
-        assert len(fake_worker.run_reserved_once_calls) == 1
+        assert replay.claim is None
+        assert replay.outcome is None
+        assert replay.blocked_reasons == [
+            "auto_rework_requires_p25_bounded_reservation"
+        ]
+        assert len(fake_worker.run_reserved_once_calls) == 0
         assert count_messages_by_source_detail(
             msg_repo,
             ctx["session_id"],
             P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
-        ) == 1
+        ) == 0
         assert count_messages_by_source_detail(
             msg_repo,
             ctx["session_id"],
             P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
-        ) == 1
+        ) == 0
 
         engine.dispose()
 

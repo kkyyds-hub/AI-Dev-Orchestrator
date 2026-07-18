@@ -40,6 +40,7 @@ from app.services.project_director_protected_transition_evidence_freshness_servi
     ProjectDirectorProtectedTransitionEvidenceFreshnessService,
 )
 from app.services.project_director_protected_transition_worker_start_reservation_service import (
+    AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION,
     ProjectDirectorProtectedTransitionWorkerStartReservationService,
     RevalidatedCurrentProtectedTransitionWorkerStartReservation,
 )
@@ -358,6 +359,14 @@ class ProjectDirectorProtectedTransitionWorkerInvocationService:
         if persisted.blocked_reasons or reservation is None:
             return self._blocked(
                 persisted.blocked_reasons or ["source_reservation_invalid"]
+            )
+        if (
+            reservation.disposition_type,
+            reservation.dispatch_kind,
+            reservation.target_task_strategy,
+        ) == ("AUTO_REWORK", "auto_rework", "source_task_rework"):
+            return self._blocked(
+                [AUTO_REWORK_REQUIRES_P25_BOUNDED_RESERVATION]
             )
 
         history = self._scan_history(

@@ -248,28 +248,16 @@ class TestD3AutoAdvanceBehavior:
 
         engine.dispose()
 
-    def test_d3_first_auto_rework_starts_only_rework(self, tmp_path):
-        """P25-authorized AUTO_REWORK starts the Worker exactly once."""
+    def test_d3_first_auto_rework_routes_to_p25_bounded_execution(self, tmp_path):
+        """AUTO_REWORK must route through the dedicated P25 execution path."""
         engine = make_test_engine(str(tmp_path / "test.db"))
         fake_worker = FakeTaskWorker()
         ctx = make_p25_auto_rework_d3_stack(
             make_session_factory(engine),
             fake_worker=fake_worker,
+            tmp_path=tmp_path,
         )
         task_id = ctx["task_id"]
-
-        def success_worker(*, task_id, run_id):
-            ctx["fake_worker"].run_reserved_once_calls.append({"task_id": task_id, "run_id": run_id})
-            ctx["task_repo"].set_status(task_id, TaskStatus.COMPLETED)
-            ctx["run_repo"].finish_run(run_id, status=RunStatus.SUCCEEDED, result_summary="done")
-            ctx["msg_repo"]._session.commit()
-            return make_d3_worker_result(
-                task_id=task_id,
-                run_id=run_id,
-                disposition_type="AUTO_REWORK",
-            )
-
-        ctx["fake_worker"].run_reserved_once = success_worker
 
         intent = ctx["intent_result"].result
         assert ctx["convergence"].decision.decision_type == "NEXT_ATTEMPT_ELIGIBLE"
@@ -290,13 +278,20 @@ class TestD3AutoAdvanceBehavior:
             source_review_message_id=ctx["review_msg_id"],
         )
 
-        assert result.auto_advance_status == "worker_returned"
+        assert result.auto_advance_status == "bounded_rework_outcome_recorded"
         assert result.route == "bounded_automatic_rework"
         assert result.disposition_type == "AUTO_REWORK"
         assert result.dispatch_kind == "auto_rework"
         assert result.target_task_strategy == "source_task_rework"
         assert result.continuation_started is False
         assert result.rework_started is True
+        assert result.source_p25_package_message_id is not None
+        assert result.source_p25_attempt_reservation_message_id is not None
+        assert result.source_p25_invocation_claim_message_id is not None
+        assert result.source_p25_invocation_outcome_message_id is not None
+        assert result.p25_execution_status == "outcome_recorded"
+        assert result.p25_recovery_required is False
+        assert result.p25_human_escalation_required is False
 
         # Evidence counts
         counts = count_p23_evidence(ctx["msg_repo"], ctx["session_id"])
@@ -304,25 +299,28 @@ class TestD3AutoAdvanceBehavior:
         for sd in (
             P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_PREFLIGHT_SOURCE_DETAIL,
             P23_PROTECTED_TRANSITION_DISPATCH_CONSUMPTION_SOURCE_DETAIL,
-            P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL,
-            P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL,
-            P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL,
         ):
             assert counts[sd] == 1, f"Expected 1 for {sd}, got {counts[sd]}"
+        assert counts[P23_PROTECTED_TRANSITION_WORKER_START_RESERVATION_SOURCE_DETAIL] == 0
+        assert counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL] == 0
+        assert counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL] == 0
 
         runs = ctx["run_repo"].list_by_task_id(task_id)
         assert len(runs) == 1
-        assert len(ctx["fake_worker"].run_reserved_once_calls) == 1
+        assert len(ctx["fake_worker"].run_reserved_once_calls) == 0
+        assert ctx["fake_bounded_executor"].calls == 1
 
         replay = ctx["d3_svc"].advance_post_review_protected_transition(
             session_id=ctx["session_id"],
             source_task_id=ctx["task_id"],
             source_review_message_id=ctx["review_msg_id"],
         )
-        assert replay.auto_advance_status == "blocked"
-        assert len(ctx["fake_worker"].run_reserved_once_calls) == 1
-        assert counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL] == 1
-        assert counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL] == 1
+        assert replay.auto_advance_status == "bounded_rework_outcome_replayed"
+        assert len(ctx["fake_worker"].run_reserved_once_calls) == 0
+        assert ctx["fake_bounded_executor"].calls == 1
+        replay_counts = count_p23_evidence(ctx["msg_repo"], ctx["session_id"])
+        assert replay_counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_CLAIM_SOURCE_DETAIL] == 0
+        assert replay_counts[P23_PROTECTED_TRANSITION_WORKER_INVOCATION_OUTCOME_SOURCE_DETAIL] == 0
 
         engine.dispose()
 

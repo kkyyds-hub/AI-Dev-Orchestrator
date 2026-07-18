@@ -11,6 +11,9 @@ from app.domain.project_director_protected_transition_auto_advance import (
 from app.services.project_director_post_review_automation_service import (
     ProjectDirectorPostReviewAutomationService,
 )
+from app.services.project_director_bounded_rework_execution_orchestration_service import (
+    ProjectDirectorBoundedReworkExecutionOrchestrationService,
+)
 from app.services.project_director_protected_transition_dispatch_consumption_preflight_service import (
     ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService,
 )
@@ -40,6 +43,9 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
         dispatch_consumption_service: ProjectDirectorProtectedTransitionDispatchConsumptionService,
         worker_start_reservation_service: ProjectDirectorProtectedTransitionWorkerStartReservationService,
         worker_invocation_service: ProjectDirectorProtectedTransitionWorkerInvocationService,
+        bounded_rework_execution_orchestration_service: (
+            ProjectDirectorBoundedReworkExecutionOrchestrationService | None
+        ) = None,
     ) -> None:
         self._post_review_automation_service = post_review_automation_service
         self._dispatch_intent_service = dispatch_intent_service
@@ -49,6 +55,9 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
         self._dispatch_consumption_service = dispatch_consumption_service
         self._worker_start_reservation_service = worker_start_reservation_service
         self._worker_invocation_service = worker_invocation_service
+        self._bounded_rework_execution_orchestration_service = (
+            bounded_rework_execution_orchestration_service
+        )
         self._require_shared_sqlalchemy_session()
 
     def advance_post_review_protected_transition(
@@ -218,6 +227,91 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
                 run_id=consumption.result.run_id,
             )
             d1_completed = True
+
+            if (
+                consumption.result.disposition_type,
+                consumption.result.dispatch_kind,
+                consumption.result.target_task_strategy,
+            ) == ("AUTO_REWORK", "auto_rework", "source_task_rework"):
+                if (
+                    self._bounded_rework_execution_orchestration_service
+                    is None
+                ):
+                    return self._blocked(
+                        state,
+                        current_step="bounded_rework_execution",
+                        reasons=["bounded_rework_execution_service_missing"],
+                    )
+                state["current_step"] = "bounded_rework_execution"
+                execution = self._bounded_rework_execution_orchestration_service.execute_bounded_rework_from_consumption(
+                    session_id=session_id,
+                    source_task_id=source_task_id,
+                    source_p23_dispatch_consumption_message_id=(
+                        consumption.message.id
+                    ),
+                )
+                self._merge_replay_from_value(
+                    state, execution.resumed_from_existing_evidence
+                )
+                if execution.package_message is not None:
+                    state["source_p25_package_message_id"] = (
+                        execution.package_message.id
+                    )
+                if execution.reservation_message is not None:
+                    state["source_p25_attempt_reservation_message_id"] = (
+                        execution.reservation_message.id
+                    )
+                if execution.claim_message is not None:
+                    state["source_p25_invocation_claim_message_id"] = (
+                        execution.claim_message.id
+                    )
+                if execution.outcome_message is not None:
+                    state["source_p25_invocation_outcome_message_id"] = (
+                        execution.outcome_message.id
+                    )
+                if execution.package is not None:
+                    self._merge_common_result(state, execution.package)
+                if execution.reservation is not None:
+                    self._merge_common_result(state, execution.reservation)
+                if execution.claim is not None:
+                    self._merge_common_result(state, execution.claim)
+                if execution.outcome is not None:
+                    self._merge_common_result(state, execution.outcome)
+                if execution.status == "blocked":
+                    return self._blocked(
+                        state,
+                        current_step="bounded_rework_execution",
+                        reasons=list(execution.blocked_reasons)
+                        or ["bounded_rework_execution_blocked"],
+                    )
+                if execution.status == "recovery_required":
+                    return self._result(
+                        state,
+                        auto_advance_status="recovery_required",
+                        current_step="bounded_rework_execution",
+                        rework_started=True,
+                        human_recovery_required=True,
+                        blocked_reasons=self._reasons(
+                            list(execution.blocked_reasons),
+                            "bounded_rework_execution_recovery_required",
+                        ),
+                    )
+                status_map = {
+                    "outcome_recorded": "bounded_rework_outcome_recorded",
+                    "outcome_replayed": "bounded_rework_outcome_replayed",
+                }
+                return self._result(
+                    state,
+                    auto_advance_status=status_map[execution.status],
+                    current_step="bounded_rework_execution",
+                    rework_started=True,
+                    p25_execution_status=execution.status,
+                    p25_recovery_required=execution.recovery_required,
+                    p25_human_escalation_required=(
+                        execution.human_escalation_required
+                    ),
+                    blocked_reasons=list(execution.blocked_reasons),
+                )
 
             state["current_step"] = "worker_start_reservation"
             reservation = self._worker_start_reservation_service.find_persisted_protected_transition_worker_start_reservation(
@@ -432,6 +526,12 @@ class ProjectDirectorProtectedTransitionAutoAdvanceService:
             self._worker_start_reservation_service,
             self._worker_invocation_service,
         )
+        if (
+            self._bounded_rework_execution_orchestration_service is not None
+            and self._bounded_rework_execution_orchestration_service._message_repository
+            is not self._worker_invocation_service._message_repository
+        ):
+            raise ValueError("D3 services must share one ProjectDirectorMessageRepository")
         repositories = tuple(service._message_repository for service in services)
         repository = repositories[0]
         if any(candidate is not repository for candidate in repositories[1:]):
