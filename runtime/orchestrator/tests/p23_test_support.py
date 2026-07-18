@@ -443,6 +443,11 @@ class FakeIntentService:
             "blocked_reasons": [],
         })()
 
+    def revalidate_persisted_only_protected_transition_dispatch_intent(self, **kwargs):
+        return self.revalidate_persisted_protected_transition_dispatch_intent(
+            **kwargs
+        )
+
 
 def seed_intent_message(
     session: Session,

@@ -316,7 +316,7 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
                 blocked_reasons=["source_preflight_not_ready"],
             )
 
-        intent_revalidation = self._dispatch_intent_service.revalidate_persisted_protected_transition_dispatch_intent(
+        intent_revalidation = self._dispatch_intent_service.revalidate_persisted_only_protected_transition_dispatch_intent(
             session_id=session_id,
             source_task_id=source_task_id,
             source_intent_message_id=persisted.source_intent_message_id,
@@ -677,7 +677,7 @@ class ProjectDirectorProtectedTransitionDispatchConsumptionPreflightService:
             )
             if message.related_task_id != source_task_id and not claims_task:
                 continue
-            revalidated = self._dispatch_intent_service.revalidate_persisted_protected_transition_dispatch_intent(
+            revalidated = self._dispatch_intent_service.revalidate_persisted_only_protected_transition_dispatch_intent(
                 session_id=session_id,
                 source_task_id=source_task_id,
                 source_intent_message_id=message.id,

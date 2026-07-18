@@ -6,9 +6,9 @@ import hashlib
 import json
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -113,6 +113,14 @@ from app.services.project_director_sandbox_write_preflight_service import (
     P20_SANDBOX_WRITE_PREFLIGHT_SOURCE_DETAIL,
 )
 
+if TYPE_CHECKING:
+    from app.services.project_director_bounded_rework_review_execution_service import (
+        ProjectDirectorBoundedReworkReviewExecutionService,
+    )
+    from app.services.project_director_protected_transition_dispatch_intent_service import (
+        ProjectDirectorProtectedTransitionDispatchIntentService,
+    )
+
 
 _LOWER_HEX_GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _LOWER_HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -121,7 +129,17 @@ _PLAN_LOCATOR = re.compile(
 )
 
 EvidenceResolutionStatus = Literal["resolved", "blocked"]
+BoundedReworkReviewSourceKind = Literal["p21_c", "p25_h", "invalid"]
 RepositoryHeadReader = Callable[[str], str]
+
+_P25_H_REVIEW_OUTCOME_INTENT = "bounded_rework_review_reentry_invocation_outcome"
+_P25_H_REVIEW_OUTCOME_SOURCE_DETAIL = (
+    "p25_h_bounded_rework_review_invocation_outcome_persisted"
+)
+_P25_H_REVIEW_OUTCOME_ACTION_TYPE = (
+    "p25_h_bounded_rework_review_invocation_outcome_record"
+)
+_P25_H_REVIEW_OUTCOME_SCHEMA_VERSION = "p25-h-review-invocation-outcome.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +225,9 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
         verification_config_repository: ProjectDirectorVerificationConfigRepository,
         repository_workspace_repository: RepositoryWorkspaceRepository,
         freshness_service: ProjectDirectorProtectedTransitionEvidenceFreshnessService,
+        dispatch_intent_service: (
+            "ProjectDirectorProtectedTransitionDispatchIntentService | None"
+        ) = None,
         repository_head_reader: RepositoryHeadReader | None = None,
     ) -> None:
         self._message_repository = message_repository
@@ -220,9 +241,52 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
         self._verification_config_repository = verification_config_repository
         self._repository_workspace_repository = repository_workspace_repository
         self._freshness_service = freshness_service
+        self._dispatch_intent_services = (
+            [dispatch_intent_service] if dispatch_intent_service is not None else []
+        )
+        self._p25_h_review_revalidators: list[
+            tuple[
+                ProjectDirectorBoundedReworkReviewExecutionService,
+                ProjectDirectorProtectedTransitionEvidenceFreshnessService,
+            ]
+        ] = []
         self._repository_head_reader = (
             repository_head_reader or self._read_repository_head
         )
+
+    def configure_p25_h_review_execution_service(
+        self,
+        review_execution_service: "ProjectDirectorBoundedReworkReviewExecutionService",
+        *,
+        freshness_service: ProjectDirectorProtectedTransitionEvidenceFreshnessService
+        | None = None,
+        dispatch_intent_service: (
+            "ProjectDirectorProtectedTransitionDispatchIntentService | None"
+        ) = None,
+    ) -> None:
+        """Attach the independently constructed P25-H readonly revalidator once."""
+
+        if review_execution_service._message_repository is not self._message_repository:
+            raise ValueError("P25-H review execution must share one message repository")
+        if (
+            freshness_service is not None
+            and freshness_service._message_repository is not self._message_repository
+        ):
+            raise ValueError("P25-H freshness service must share one message repository")
+        effective_freshness = freshness_service or self._freshness_service
+        if not any(
+            configured_service is review_execution_service
+            for configured_service, _configured_freshness
+            in self._p25_h_review_revalidators
+        ):
+            self._p25_h_review_revalidators.append(
+                (review_execution_service, effective_freshness)
+            )
+        if (
+            dispatch_intent_service is not None
+            and dispatch_intent_service not in self._dispatch_intent_services
+        ):
+            self._dispatch_intent_services.append(dispatch_intent_service)
 
     def resolve_bounded_rework_evidence_snapshot(
         self,
@@ -311,6 +375,48 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
         return resolution
 
     def _resolve(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_run_id: UUID,
+        source_review_message_id: UUID,
+        source_review_fingerprint: str,
+        source_review_semantic_fingerprint: str,
+        source_freshness_message_id: UUID,
+        source_diff_message_id: UUID,
+    ) -> ProjectDirectorBoundedReworkEvidenceSnapshot:
+        source_kind = self._review_source_kind(
+            self._message_repository.get_by_id(source_review_message_id)
+        )
+        if source_kind == "invalid":
+            raise _Blocked("history_invalid")
+        if source_kind == "p25_h":
+            return self._resolve_p25_h(
+                session_id=session_id,
+                project_id=project_id,
+                source_task_id=source_task_id,
+                source_run_id=source_run_id,
+                source_review_message_id=source_review_message_id,
+                source_review_fingerprint=source_review_fingerprint,
+                source_review_semantic_fingerprint=source_review_semantic_fingerprint,
+                source_freshness_message_id=source_freshness_message_id,
+                source_diff_message_id=source_diff_message_id,
+            )
+        return self._resolve_p21_c(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            source_run_id=source_run_id,
+            source_review_message_id=source_review_message_id,
+            source_review_fingerprint=source_review_fingerprint,
+            source_review_semantic_fingerprint=source_review_semantic_fingerprint,
+            source_freshness_message_id=source_freshness_message_id,
+            source_diff_message_id=source_diff_message_id,
+        )
+
+    def _resolve_p21_c(
         self,
         *,
         session_id: UUID,
@@ -673,6 +779,264 @@ class ProjectDirectorBoundedReworkEvidenceResolver:
             **payload,
             snapshot_fingerprint=compute_p25_contract_sha256(payload),
         )
+
+    def _resolve_p25_h(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        source_task_id: UUID,
+        source_run_id: UUID,
+        source_review_message_id: UUID,
+        source_review_fingerprint: str,
+        source_review_semantic_fingerprint: str,
+        source_freshness_message_id: UUID,
+        source_diff_message_id: UUID,
+    ) -> ProjectDirectorBoundedReworkEvidenceSnapshot:
+        """Project current P25-H/P25-G evidence over immutable P21-C controls."""
+
+        task = self._task_repository.get_by_id(source_task_id)
+        run = self._run_repository.get_by_id(source_run_id)
+        if (
+            task is None
+            or task.project_id != project_id
+            or run is None
+            or run.task_id != source_task_id
+            or run.strategy_decision is None
+            or not self._p25_h_review_revalidators
+            or not self._dispatch_intent_services
+        ):
+            raise _Blocked("authority_invalid")
+
+        revalidated = None
+        p25_h_freshness_service = None
+        for review_execution_service, freshness_service in self._p25_h_review_revalidators:
+            candidate = review_execution_service.revalidate_persisted_review_invocation_outcome(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_outcome_message_id=source_review_message_id,
+                for_evidence_resolution=True,
+            )
+            if candidate.status == "validated_output" and not candidate.blocked_reasons:
+                revalidated = candidate
+                p25_h_freshness_service = freshness_service
+                break
+        if revalidated is None or p25_h_freshness_service is None:
+            raise _Blocked("p25_h_revalidation_invalid")
+        outcome = revalidated.review_outcome
+        outcome_message = revalidated.review_outcome_message
+        preflight = revalidated.preflight
+        review_claim = revalidated.review_claim
+        candidate_diff = revalidated.candidate_diff
+        candidate_manifest = revalidated.candidate_manifest
+        previous_package = revalidated.package
+        if (
+            revalidated.status != "validated_output"
+            or revalidated.blocked_reasons
+            or outcome is None
+            or outcome_message is None
+            or preflight is None
+            or review_claim is None
+            or candidate_diff is None
+            or candidate_manifest is None
+            or previous_package is None
+            or outcome.outcome_status != "validated_output"
+            or outcome.adapter_result is None
+            or outcome.adapter_result.verdict != "changes_required"
+            or outcome_message.id != source_review_message_id
+            or outcome.review_result_fingerprint != source_review_fingerprint
+            or outcome.review_semantic_fingerprint != source_review_semantic_fingerprint
+            or outcome.exact_task_id != source_task_id
+            or outcome.authority.session_id != session_id
+            or outcome.preflight_id != preflight.preflight_id
+            or outcome.preflight_fingerprint != preflight.preflight_fingerprint
+            or outcome.source_candidate_diff_message_id != candidate_diff.candidate_diff_id
+            or outcome.source_candidate_diff_id != candidate_diff.candidate_diff_id
+            or outcome.source_candidate_diff_fingerprint
+            != candidate_diff.candidate_diff_fingerprint
+            or outcome.source_candidate_diff_sha256 != candidate_diff.new_diff_sha256
+            or outcome.source_candidate_manifest_id != candidate_manifest.candidate_manifest_id
+            or outcome.source_candidate_manifest_fingerprint
+            != candidate_manifest.candidate_manifest_fingerprint
+            or outcome.authority != candidate_diff.authority
+            or outcome.exact_run_id != candidate_diff.exact_run_id
+            or outcome.rework_attempt_index != candidate_diff.rework_attempt_index
+        ):
+            raise _Blocked("p25_h_revalidation_invalid")
+
+        current_diff_paths = self._normalized_paths(
+            tuple(entry.relative_path for entry in candidate_diff.diff_entries),
+            allow_empty=False,
+        )
+        current_review_scope = self._normalized_paths(
+            tuple(outcome.review_scope_paths), allow_empty=False
+        )
+        if (
+            candidate_diff.candidate_diff_id != source_diff_message_id
+            or candidate_diff.diff_status != "generated"
+            or candidate_diff.non_convergence_reason is not None
+            or candidate_diff.exact_task_id != source_task_id
+            or candidate_diff.exact_run_id != outcome.exact_run_id
+            or candidate_diff.rework_attempt_index != outcome.rework_attempt_index
+            or candidate_diff.rework_attempt_limit != 3
+            or candidate_diff.authority != outcome.authority
+            or candidate_diff.source_package_id != previous_package.package_id
+            or candidate_diff.source_attempt_id != outcome.source_attempt_id
+            or candidate_diff.source_outcome_id != outcome.source_executor_outcome_id
+            or candidate_diff.new_diff_sha256 != outcome.source_candidate_diff_sha256
+            or current_diff_paths != tuple(candidate_diff.scope_paths)
+            or current_diff_paths != current_review_scope
+            or candidate_diff.product_runtime_git_write_allowed is not False
+        ):
+            raise _Blocked("p25_h_current_diff_invalid")
+
+        freshness_message = self._message_repository.get_by_id(
+            source_freshness_message_id
+        )
+        freshness = ProjectDirectorProtectedTransitionEvidenceFreshnessService._trusted_freshness(
+            message=freshness_message,
+            source_project_id=project_id,
+        ) if freshness_message is not None else None
+        if (
+            freshness is None
+            or freshness.freshness_status != "ready"
+            or freshness.source_review_message_id != source_review_message_id
+            or freshness.source_diff_message_id != source_diff_message_id
+            or freshness.review_result_fingerprint != source_review_fingerprint
+            or freshness.reviewed_diff_sha256 != candidate_diff.new_diff_sha256
+            or tuple(freshness.reviewed_scope_paths) != current_review_scope
+            or tuple(freshness.current_scope_paths) != current_review_scope
+            or not freshness.workspace_path_within_root
+        ):
+            raise _Blocked("p25_h_freshness_invalid")
+
+        if (
+            previous_package.package_status != "prepared"
+            or previous_package.authority is None
+            or previous_package.authority != outcome.authority
+            or previous_package.rework_attempt_index != outcome.rework_attempt_index
+            or previous_package.source_candidate_diff_message_id is None
+            or previous_package.authority.source_p23_dispatch_intent_id is None
+        ):
+            raise _Blocked("p25_h_previous_package_invalid")
+        parent = None
+        for dispatch_intent_service in self._dispatch_intent_services:
+            candidate = dispatch_intent_service.revalidate_persisted_only_protected_transition_dispatch_intent(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_intent_message_id=(
+                    previous_package.authority.source_p23_dispatch_intent_id
+                ),
+            )
+            if not candidate.blocked_reasons and candidate.result is not None:
+                parent = candidate
+                break
+        if parent is None:
+            raise _Blocked("p25_h_parent_intent_invalid")
+        parent_intent = parent.result
+        if (
+            parent.blocked_reasons
+            or parent_intent is None
+            or parent.message is None
+            or parent_intent.intent_status != "prepared"
+            or parent_intent.dispatch_intent_id != parent.message.id
+            or parent_intent.source_review_message_id
+            != previous_package.authority.source_review_message_id
+            or parent_intent.review_result_fingerprint
+            != previous_package.authority.source_review_fingerprint
+            or parent_intent.review_semantic_fingerprint
+            != previous_package.authority.source_review_semantic_fingerprint
+            or parent_intent.source_freshness_message_id is None
+        ):
+            raise _Blocked("p25_h_parent_intent_invalid")
+
+        root = self._resolve(
+            session_id=session_id,
+            project_id=project_id,
+            source_task_id=source_task_id,
+            source_run_id=previous_package.authority.source_run_id,
+            source_review_message_id=parent_intent.source_review_message_id,
+            source_review_fingerprint=parent_intent.review_result_fingerprint,
+            source_review_semantic_fingerprint=(
+                parent_intent.review_semantic_fingerprint
+            ),
+            source_freshness_message_id=parent_intent.source_freshness_message_id,
+            source_diff_message_id=previous_package.source_candidate_diff_message_id,
+        )
+        if root.source_candidate_diff_message_id != previous_package.source_candidate_diff_message_id:
+            raise _Blocked("p25_h_root_diff_invalid")
+        if root.repository_binding != previous_package.repository_binding:
+            raise _Blocked("p25_h_root_repository_invalid")
+        if previous_package.workspace_binding is None:
+            raise _Blocked("p25_h_root_workspace_invalid")
+        if root.base_commit_sha != previous_package.base_commit_sha:
+            raise _Blocked("p25_h_root_base_commit_invalid")
+        if root.base_snapshot_fingerprint != previous_package.base_snapshot_fingerprint:
+            raise _Blocked("p25_h_root_base_snapshot_invalid")
+
+        plan, _ = self._confirmed_plan(task.source_draft_id, session_id, project_id)
+        skill_config = self._skill_binding_config_repository.get_by_plan_version_id(
+            plan.id
+        )
+        if skill_config is None:
+            raise _Blocked("authority_invalid")
+        selected_model, selected_skills, selected_role = self._execution_config(
+            run=run,
+            task=task,
+            skill_config=skill_config,
+        )
+        if (
+            selected_model != root.selected_model
+            or selected_skills != root.selected_skills
+            or selected_role != root.selected_role
+        ):
+            raise _Blocked("authority_invalid")
+
+        payload = {
+            **asdict(root),
+            "source_run_id": source_run_id,
+            "source_review_message_id": source_review_message_id,
+            "source_review_fingerprint": source_review_fingerprint,
+            "source_review_semantic_fingerprint": source_review_semantic_fingerprint,
+            "source_freshness_message_id": source_freshness_message_id,
+            "review_output": outcome.adapter_result,
+            "review_scope_paths": current_review_scope,
+            "workspace_binding": previous_package.workspace_binding,
+            "workspace_binding_fingerprint": (
+                previous_package.workspace_binding.workspace_binding_fingerprint
+            ),
+            "source_candidate_diff_message_id": source_diff_message_id,
+            "source_candidate_diff_sha256": candidate_diff.new_diff_sha256,
+            "source_candidate_diff_fingerprint": candidate_diff.candidate_diff_fingerprint,
+            "source_candidate_diff_paths": current_diff_paths,
+            "selected_model": selected_model,
+            "selected_skills": selected_skills,
+            "selected_role": selected_role,
+        }
+        payload.pop("snapshot_fingerprint", None)
+        return ProjectDirectorBoundedReworkEvidenceSnapshot(
+            **payload,
+            snapshot_fingerprint=compute_p25_contract_sha256(payload),
+        )
+
+    @staticmethod
+    def _review_source_kind(
+        message: ProjectDirectorMessage | None,
+    ) -> BoundedReworkReviewSourceKind:
+        if message is None:
+            return "invalid"
+        actions = message.suggested_actions
+        action = actions[0] if len(actions) == 1 and isinstance(actions[0], dict) else None
+        markers = (
+            message.intent == _P25_H_REVIEW_OUTCOME_INTENT,
+            message.source_detail == _P25_H_REVIEW_OUTCOME_SOURCE_DETAIL,
+            action is not None and action.get("type") == _P25_H_REVIEW_OUTCOME_ACTION_TYPE,
+            action is not None
+            and action.get("schema_version") == _P25_H_REVIEW_OUTCOME_SCHEMA_VERSION,
+        )
+        if not any(markers):
+            return "p21_c"
+        return "p25_h" if all(markers) else "invalid"
 
     def _workspace_evidence_chain(
         self,

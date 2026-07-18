@@ -389,6 +389,24 @@ class RunRepository:
     ) -> Run:
         """Finalize a run with summary, token estimate, quality gate and cost."""
 
+        persisted_run = self.finish_run_no_event(
+            run_id, status=status, result_summary=result_summary, provider_key=provider_key,
+            prompt_template_key=prompt_template_key, prompt_template_version=prompt_template_version,
+            prompt_char_count=prompt_char_count, token_accounting_mode=token_accounting_mode,
+            provider_receipt_id=provider_receipt_id, total_tokens=total_tokens,
+            token_pricing_source=token_pricing_source, prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens, estimated_cost=estimated_cost,
+            cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
+            cache_hit=cache_hit, cache_source=cache_source, verification_mode=verification_mode,
+            verification_template=verification_template, verification_command=verification_command,
+            verification_summary=verification_summary, failure_category=failure_category,
+            quality_gate_passed=quality_gate_passed,
+        )
+        self.publish_finished(persisted_run)
+        return persisted_run
+
+    def finish_run_no_event(self, run_id: UUID, *, status: RunStatus, result_summary: str, provider_key: str | None = None, prompt_template_key: str | None = None, prompt_template_version: str | None = None, prompt_char_count: int = 0, token_accounting_mode: str | None = None, provider_receipt_id: str | None = None, total_tokens: int = 0, token_pricing_source: str | None = None, prompt_tokens: int = 0, completion_tokens: int = 0, estimated_cost: float = 0.0, cache_read_tokens: int = 0, cache_write_tokens: int = 0, cache_hit: bool = False, cache_source: str | None = None, verification_mode: str | None = None, verification_template: str | None = None, verification_command: str | None = None, verification_summary: str | None = None, failure_category: RunFailureCategory | None = None, quality_gate_passed: bool | None = None) -> Run:
+        """Finalize one Run inside a caller-owned atomic transaction without events."""
         run_row = self.session.get(RunTable, run_id)
         if run_row is None:
             raise ValueError(f"Run not found: {run_id}")
@@ -420,11 +438,11 @@ class RunRepository:
         self.session.flush()
 
         persisted_run = self._to_domain(run_row)
-        event_stream_service.publish_run_updated(
-            run=persisted_run,
-            reason=RunEventReason.FINISHED,
-        )
         return persisted_run
+
+    @staticmethod
+    def publish_finished(run: Run) -> None:
+        event_stream_service.publish_run_updated(run=run, reason=RunEventReason.FINISHED)
 
     @staticmethod
     def _serialize_routing_score_breakdown(

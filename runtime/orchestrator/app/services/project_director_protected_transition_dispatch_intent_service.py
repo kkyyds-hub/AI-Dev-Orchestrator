@@ -365,6 +365,127 @@ class ProjectDirectorProtectedTransitionDispatchIntentService:
             blocked_reasons=[],
         )
 
+    def revalidate_persisted_only_protected_transition_dispatch_intent(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_intent_message_id: UUID,
+    ) -> RevalidatedPersistedProtectedTransitionDispatchIntent:
+        """Revalidate immutable P23-B evidence after its reserved Run changes state."""
+
+        source_message = self._message_repository.get_by_id(
+            source_intent_message_id
+        )
+        if source_message is None:
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=None,
+                message=None,
+                blocked_reasons=["source_dispatch_intent_missing"],
+            )
+        if source_message.session_id != session_id:
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=None,
+                message=source_message,
+                blocked_reasons=["source_dispatch_intent_session_mismatch"],
+            )
+        if source_message.related_task_id != source_task_id:
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=None,
+                message=source_message,
+                blocked_reasons=["source_dispatch_intent_task_mismatch"],
+            )
+
+        session = self._session_repository.get_by_id(session_id)
+        task = self._task_repository.get_by_id(source_task_id)
+        if session is None or session.project_id is None:
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=None,
+                message=source_message,
+                blocked_reasons=["source_dispatch_intent_invalid"],
+            )
+        if task is None or task.project_id != session.project_id:
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=None,
+                message=source_message,
+                blocked_reasons=["source_dispatch_intent_project_mismatch"],
+            )
+
+        result = self._trusted_persisted_intent(
+            message=source_message,
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=session.project_id,
+        )
+        if result is None:
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=None,
+                message=source_message,
+                blocked_reasons=["source_dispatch_intent_invalid"],
+            )
+        if result.intent_status != "prepared":
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=result,
+                message=source_message,
+                blocked_reasons=["source_dispatch_intent_not_prepared"],
+            )
+
+        summary, _summary_action, summary_reasons = self._trusted_p22_summary(
+            message=self._message_repository.get_by_id(
+                result.source_p22_summary_message_id
+            ),
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=session.project_id,
+            source_message_id=result.source_p22_summary_message_id,
+        )
+        if summary_reasons or summary is None:
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=result,
+                message=source_message,
+                blocked_reasons=["source_p22_summary_invalid"],
+            )
+        if (
+            result.source_review_message_id != summary.source_review_message_id
+            or result.disposition_type != summary.disposition_type
+            or result.transition_kind != summary.transition_kind
+            or result.transition_authority != summary.transition_authority
+        ):
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=result,
+                message=source_message,
+                blocked_reasons=["source_evidence_chain_invalid"],
+            )
+
+        history = self._scan_intent_history(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            project_id=session.project_id,
+        )
+        replay_matches = [
+            item
+            for item in history.valid_intents
+            if item[0].source_p22_summary_message_id
+            == result.source_p22_summary_message_id
+            and item[0].dispatch_kind == result.dispatch_kind
+        ]
+        if (
+            history.invalid
+            or len(replay_matches) != 1
+            or replay_matches[0][1].id != source_intent_message_id
+            or replay_matches[0][0] != result
+        ):
+            return RevalidatedPersistedProtectedTransitionDispatchIntent(
+                result=result,
+                message=source_message,
+                blocked_reasons=["dispatch_intent_replay_conflict"],
+            )
+        return RevalidatedPersistedProtectedTransitionDispatchIntent(
+            result=result,
+            message=source_message,
+            blocked_reasons=[],
+        )
+
     def _prepare_protected_transition_dispatch_intent(
         self,
         *,

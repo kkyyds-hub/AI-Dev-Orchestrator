@@ -350,6 +350,7 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
         session_id: UUID,
         source_task_id: UUID,
         source_review_outcome_message_id: UUID,
+        for_evidence_resolution: bool = False,
     ) -> RevalidatedProjectDirectorBoundedReworkReviewOutcome:
         """Rebuild one exact validated H-B outcome without writes or reviewer calls."""
 
@@ -377,10 +378,11 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
                     raise _Blocked("history_invalid")
                 if expected_attempts:
                     attempt_message, attempt = expected_attempts[0]
-                    current = self._preflight_service.revalidate_persisted_review_reentry_claim_for_execution(
+                    current = self._revalidate_claim(
                         session_id=session_id,
                         source_task_id=source_task_id,
                         source_review_claim_message_id=attempt.review_claim_id,
+                        for_evidence_resolution=for_evidence_resolution,
                     )
                     if (
                         current.blocked_reasons
@@ -413,10 +415,11 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
                 raise _Blocked("history_invalid")
             attempt_message, attempt = attempt_matches[0]
 
-            current = self._preflight_service.revalidate_persisted_review_reentry_claim_for_execution(
+            current = self._revalidate_claim(
                 session_id=session_id,
                 source_task_id=source_task_id,
                 source_review_claim_message_id=outcome.review_claim_id,
+                for_evidence_resolution=for_evidence_resolution,
             )
             if current.blocked_reasons:
                 raise _Blocked(current.blocked_reasons[0])
@@ -461,6 +464,26 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
             self._cleanup_local_read_transaction(
                 caller_had_transaction=caller_had_transaction
             )
+
+    def _revalidate_claim(
+        self,
+        *,
+        session_id: UUID,
+        source_task_id: UUID,
+        source_review_claim_message_id: UUID,
+        for_evidence_resolution: bool,
+    ):
+        if for_evidence_resolution:
+            return self._preflight_service.revalidate_persisted_review_reentry_claim_for_persistence(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_claim_message_id=source_review_claim_message_id,
+            )
+        return self._preflight_service.revalidate_persisted_review_reentry_claim_for_execution(
+            session_id=session_id,
+            source_task_id=source_task_id,
+            source_review_claim_message_id=source_review_claim_message_id,
+        )
 
     def revalidate_review_outcome_for_candidate_diff(
         self,
@@ -891,7 +914,6 @@ class ProjectDirectorBoundedReworkReviewExecutionService:
                 "findings": findings,
                 "recommended_next_step": adapter_result.recommended_next_step,
                 "review_scope_paths": review_scope_paths,
-                "source_candidate_diff_sha256": source_candidate_diff_sha256,
             }
         )
 

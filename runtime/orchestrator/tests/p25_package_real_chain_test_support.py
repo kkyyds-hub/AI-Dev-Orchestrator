@@ -347,6 +347,7 @@ def build_real_p25_attempt_zero_package_context(
         verification_config_repository=ProjectDirectorVerificationConfigRepository(session),
         repository_workspace_repository=RepositoryWorkspaceRepository(session),
         freshness_service=freshness_service,
+        dispatch_intent_service=root_intent_service,
     )
     package_service = ProjectDirectorBoundedReworkPackagePreparationService(
         message_repository=msg_repo,

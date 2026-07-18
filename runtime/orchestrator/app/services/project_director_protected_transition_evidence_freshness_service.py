@@ -437,6 +437,90 @@ class ProjectDirectorProtectedTransitionEvidenceFreshnessService:
             if any(left != right for left, right in exact_bindings):
                 blocked_reasons.append("source_freshness_invalid")
 
+        if evidence is not None and self._source_evidence_resolver is not None:
+            resolved = self._source_evidence_resolver.resolve(
+                session_id=session_id,
+                source_task_id=source_task_id,
+                source_review_message_id=evidence.source_review_message_id,
+            )
+            if resolved.source_review_kind == "p25_h":
+                if (
+                    resolved.blocked_reasons
+                    or resolved.source_preflight_message_id
+                    != evidence.source_review_preflight_message_id
+                    or resolved.source_diff_message_id != evidence.source_diff_message_id
+                    or resolved.source_diff_sha256 != evidence.reviewed_diff_sha256
+                    or resolved.review_result_fingerprint
+                    != evidence.review_result_fingerprint
+                    or resolved.review_prompt_sha256 != evidence.review_prompt_sha256
+                    or list(resolved.review_scope_paths) != evidence.reviewed_scope_paths
+                    or resolved.review_output_schema_version
+                    != evidence.review_output_schema_version
+                    or resolved.source_review_verdict != evidence.source_review_verdict
+                    or resolved.source_review_risk_level
+                    != evidence.source_review_risk_level
+                    or resolved.exact_task_id != source_task_id
+                    or not resolved.workspace_path
+                ):
+                    blocked_reasons.extend(
+                        resolved.blocked_reasons or ("review_source_binding_mismatch",)
+                    )
+                blocked_reasons = self._dedupe(blocked_reasons)
+                current_fingerprint = self._canonical_payload_fingerprint(
+                    {
+                        "session_id": str(session_id),
+                        "source_task_id": str(source_task_id),
+                        "source_freshness_message_id": str(
+                            source_freshness_message_id
+                        ),
+                        "source_transition_message_id": str(
+                            persisted.source_transition_message_id if persisted else None
+                        ),
+                        "source_review_message_id": str(
+                            persisted.source_review_message_id if persisted else None
+                        ),
+                        "source_diff_message_id": str(
+                            persisted.source_diff_message_id if persisted else None
+                        ),
+                        "transition_kind": persisted.transition_kind if persisted else None,
+                        "transition_authority": (
+                            persisted.transition_authority if persisted else None
+                        ),
+                        "review_result_fingerprint": review_result_fingerprint,
+                        "persisted_freshness_evidence_fingerprint": persisted_fingerprint,
+                        "reviewed_diff_sha256": reviewed_diff_sha256,
+                        "current_diff_sha256": resolved.source_diff_sha256,
+                        "reviewed_scope_paths": reviewed_scope_paths,
+                        "current_scope_paths": list(resolved.review_scope_paths),
+                        "workspace_path": resolved.workspace_path,
+                        "workspace_path_within_root": bool(resolved.workspace_path),
+                    }
+                )
+                return RevalidatedCurrentProtectedTransitionEvidenceFreshness(
+                    freshness_status="blocked" if blocked_reasons else "ready",
+                    source_freshness_message_id=source_freshness_message_id,
+                    source_transition_message_id=(
+                        persisted.source_transition_message_id if persisted else None
+                    ),
+                    source_review_message_id=(
+                        persisted.source_review_message_id if persisted else None
+                    ),
+                    source_diff_message_id=(
+                        persisted.source_diff_message_id if persisted else None
+                    ),
+                    persisted_freshness_evidence_fingerprint=persisted_fingerprint,
+                    current_freshness_fingerprint=current_fingerprint,
+                    reviewed_diff_sha256=reviewed_diff_sha256,
+                    current_diff_sha256=resolved.source_diff_sha256,
+                    reviewed_scope_paths=reviewed_scope_paths,
+                    current_scope_paths=list(resolved.review_scope_paths),
+                    workspace_path=resolved.workspace_path,
+                    workspace_path_within_root=bool(resolved.workspace_path),
+                    review_result_fingerprint=review_result_fingerprint,
+                    validated_at=validated_at,
+                    blocked_reasons=blocked_reasons,
+                )
+
         review_revalidation: RevalidatedPersistedReviewResultFingerprint | None = None
         source_review_message = None
         if evidence is not None:
