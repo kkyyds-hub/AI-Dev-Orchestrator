@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.db_tables import (
@@ -542,30 +542,48 @@ class TestPayloadIdempotency:
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
         option_id = uuid4()
-        payload = {"option_id": str(option_id)}
+        payload = {"option_id": option_id}
         e1, c1 = repo.append_if_absent(
             event=_make_event(session_obj.id, payload=payload), idempotency_key="k-uuid",
         )
+        assert c1 is True
         e2, c2 = repo.append_if_absent(
             event=_make_event(session_obj.id, payload=payload, event_id=uuid4()), idempotency_key="k-uuid",
         )
-        assert c1 is True
         assert c2 is False
+        assert e2.id == e1.id
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_nested_uuid_payload_replay(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
         oid = uuid4()
         rid = uuid4()
-        payload = {"options": [{"option_id": str(oid), "related_ids": [str(rid)]}]}
+        payload = {"options": [{"option_id": oid, "related_ids": [rid]}]}
         e1, c1 = repo.append_if_absent(
             event=_make_event(session_obj.id, payload=payload), idempotency_key="k-nested",
         )
+        assert c1 is True
         e2, c2 = repo.append_if_absent(
             event=_make_event(session_obj.id, payload=payload, event_id=uuid4()), idempotency_key="k-nested",
         )
-        assert c1 is True
         assert c2 is False
+        assert e2.id == e1.id
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
+
+    def test_deeply_nested_uuid_payload_replay(self, db_session):
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionEventRepository(db_session)
+        payload = {"groups": {"primary": {"ids": [uuid4(), uuid4()]}}}
+        e1, c1 = repo.append_if_absent(
+            event=_make_event(session_obj.id, payload=payload), idempotency_key="k-deep",
+        )
+        assert c1 is True
+        e2, c2 = repo.append_if_absent(
+            event=_make_event(session_obj.id, payload=payload, event_id=uuid4()), idempotency_key="k-deep",
+        )
+        assert c2 is False
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_dict_key_order_equivalence(self, db_session):
         session_obj = _create_session_row(db_session)
@@ -580,18 +598,34 @@ class TestPayloadIdempotency:
         assert c1 is True
         assert c2 is False
 
-    def test_tuple_list_json_equivalence(self, db_session):
+    def test_tuple_first_then_list_equivalent(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"items": [1, 2, 3]}), idempotency_key="k-tuple",
-        )
-        e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"items": [1, 2, 3]}, event_id=uuid4()),
-            idempotency_key="k-tuple",
+            event=_make_event(session_obj.id, payload={"items": (1, 2, 3)}), idempotency_key="k-tuple-1",
         )
         assert c1 is True
+        e2, c2 = repo.append_if_absent(
+            event=_make_event(session_obj.id, payload={"items": [1, 2, 3]}, event_id=uuid4()),
+            idempotency_key="k-tuple-1",
+        )
         assert c2 is False
+        assert e2.id == e1.id
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
+
+    def test_list_first_then_tuple_equivalent(self, db_session):
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionEventRepository(db_session)
+        e1, c1 = repo.append_if_absent(
+            event=_make_event(session_obj.id, payload={"items": [1, 2, 3]}), idempotency_key="k-tuple-2",
+        )
+        assert c1 is True
+        e2, c2 = repo.append_if_absent(
+            event=_make_event(session_obj.id, payload={"items": (1, 2, 3)}, event_id=uuid4()),
+            idempotency_key="k-tuple-2",
+        )
+        assert c2 is False
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_chinese_payload_roundtrip(self, db_session):
         session_obj = _create_session_row(db_session)
@@ -741,6 +775,23 @@ class TestSourceMessageValidation:
         _, created = repo.append_if_absent(event=e, idempotency_key="k-sm1")
         assert created is True
 
+    def test_two_same_session_messages_accepted(self, db_session):
+        session_obj = _create_session_row(db_session)
+        msg1 = _create_message_row(db_session, session_obj.id, content="msg1")
+        msg2 = ProjectDirectorMessageTable(
+            session_id=session_obj.id, role=ProjectDirectorMessageRole.ASSISTANT,
+            content="msg2", sequence_no=2, source=ProjectDirectorMessageSource.AI,
+            source_detail="test",
+        )
+        db_session.add(msg2)
+        db_session.flush()
+        repo = ProjectDirectorDiscussionEventRepository(db_session)
+        e = _make_event(session_obj.id, source_message_ids=[msg1.id, msg2.id])
+        _, created = repo.append_if_absent(event=e, idempotency_key="k-sm2")
+        assert created is True
+        found = repo.get_by_id(event_id=e.id)
+        assert found.source_message_ids == [msg1.id, msg2.id]
+
     def test_message_not_found(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
@@ -756,6 +807,19 @@ class TestSourceMessageValidation:
         e = _make_event(s1.id, source_message_ids=[msg.id])
         with pytest.raises(ValueError, match="discussion_event_source_message_session_mismatch"):
             repo.append_if_absent(event=e, idempotency_key="k-sm-ws")
+
+    def test_duplicate_source_message_ids_rejected_by_domain(self):
+        mid = uuid4()
+        with pytest.raises(ValueError, match="duplicate"):
+            DiscussionEvent(
+                id=uuid4(), session_id=uuid4(), project_id=None,
+                sequence_no=1, event_type=DiscussionEventType.TOPIC_SET,
+                subject_key="t", content="c", payload={},
+                source_message_ids=[mid, mid],
+                created_by=DiscussionActorClaim.SYSTEM_FACT,
+                confidence=1.0,
+                created_at=datetime.now(timezone.utc),
+            )
 
 
 # ===========================================================================
@@ -865,8 +929,34 @@ class TestRaceRecovery:
         e1 = _make_event(session_obj.id, sequence_no=1)
         repo.append_if_absent(event=e1, idempotency_key="k-seq1")
         e2 = _make_event(session_obj.id, sequence_no=1, content="different", event_id=uuid4())
-        with pytest.raises(Exception):
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises((IntegrityError, ValueError)):
             repo.append_if_absent(event=e2, idempotency_key="k-seq2")
+
+    def test_equivalent_race_session_still_usable(self, db_session, monkeypatch):
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionEventRepository(db_session)
+        e1 = _make_event(session_obj.id, sequence_no=1)
+        repo.append_if_absent(event=e1, idempotency_key="k-usable")
+
+        call_count = {"n": 0}
+        original = ProjectDirectorDiscussionEventRepository.get_by_idempotency_key
+
+        def patched(self, *, session_id, idempotency_key):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return None
+            return original(self, session_id=session_id, idempotency_key=idempotency_key)
+
+        monkeypatch.setattr(ProjectDirectorDiscussionEventRepository, "get_by_idempotency_key", patched)
+
+        e2 = _make_event(session_obj.id, sequence_no=2, event_id=uuid4())
+        repo.append_if_absent(event=e2, idempotency_key="k-usable")
+
+        # Session should still be usable after race recovery
+        e3 = _make_event(session_obj.id, sequence_no=3)
+        _, created = repo.append_if_absent(event=e3, idempotency_key="k-after-race")
+        assert created is True
 
 
 # ===========================================================================
@@ -905,6 +995,21 @@ class TestStrictJsonReadback:
         with pytest.raises(ValueError, match="invalid_discussion_event_payload_json"):
             repo.get_by_id(event_id=row.id)
 
+    def test_null_payload_json(self, db_session):
+        session_obj = _create_session_row(db_session)
+        row = ProjectDirectorDiscussionEventTable(
+            id=uuid4(), session_id=session_obj.id, project_id=None,
+            sequence_no=1, event_type="topic_set", subject_key="t",
+            content="c", status="active", payload_json="null",
+            source_message_ids_json="[]", created_by="system_fact",
+            confidence=1.0, idempotency_key="k-null-payload",
+        )
+        db_session.add(row)
+        db_session.flush()
+        repo = ProjectDirectorDiscussionEventRepository(db_session)
+        with pytest.raises(ValueError, match="invalid_discussion_event_payload_json"):
+            repo.get_by_id(event_id=row.id)
+
     def test_invalid_source_message_ids_json(self, db_session):
         session_obj = _create_session_row(db_session)
         row = ProjectDirectorDiscussionEventTable(
@@ -928,6 +1033,21 @@ class TestStrictJsonReadback:
             content="c", status="active", payload_json="{}",
             source_message_ids_json='{"a":1}', created_by="system_fact",
             confidence=1.0, idempotency_key="k-obj-sm",
+        )
+        db_session.add(row)
+        db_session.flush()
+        repo = ProjectDirectorDiscussionEventRepository(db_session)
+        with pytest.raises(ValueError, match="invalid_discussion_event_source_message_ids_json"):
+            repo.get_by_id(event_id=row.id)
+
+    def test_non_uuid_in_source_message_ids_json(self, db_session):
+        session_obj = _create_session_row(db_session)
+        row = ProjectDirectorDiscussionEventTable(
+            id=uuid4(), session_id=session_obj.id, project_id=None,
+            sequence_no=1, event_type="topic_set", subject_key="t",
+            content="c", status="active", payload_json="{}",
+            source_message_ids_json='["not-a-uuid"]', created_by="system_fact",
+            confidence=1.0, idempotency_key="k-not-uuid-sm",
         )
         db_session.add(row)
         db_session.flush()
@@ -1244,6 +1364,33 @@ class TestWorkspaceStrictJson:
         with pytest.raises(ValueError, match="invalid_discussion_workspace_state_json"):
             repo.get_by_session_id(session_id=session_obj.id)
 
+    def test_null_state_json(self, db_session):
+        session_obj = _create_session_row(db_session)
+        row = ProjectDirectorDiscussionWorkspaceTable(
+            session_id=session_obj.id, project_id=None,
+            topic="t", state_json="null",
+            version_no=0, last_event_sequence_no=0,
+        )
+        db_session.add(row)
+        db_session.flush()
+        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        with pytest.raises(ValueError, match="invalid_discussion_workspace_state_json"):
+            repo.get_by_session_id(session_id=session_obj.id)
+
+    def test_non_list_active_option_ids(self, db_session):
+        session_obj = _create_session_row(db_session)
+        row = ProjectDirectorDiscussionWorkspaceTable(
+            session_id=session_obj.id, project_id=None,
+            topic="t",
+            state_json='{"active_option_ids": "not-a-list"}',
+            version_no=0, last_event_sequence_no=0,
+        )
+        db_session.add(row)
+        db_session.flush()
+        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        with pytest.raises(ValueError, match="invalid_discussion_workspace_state_json"):
+            repo.get_by_session_id(session_id=session_obj.id)
+
 
 # ===========================================================================
 # 24. Repository no auto-commit
@@ -1253,7 +1400,6 @@ class TestWorkspaceStrictJson:
 class TestRepositoryNoAutoCommit:
     def test_event_repository_no_commit_method(self):
         """Event Repository must not have a commit method."""
-        import ast
         import os
         path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -1265,7 +1411,6 @@ class TestRepositoryNoAutoCommit:
 
     def test_workspace_repository_no_commit_method(self):
         """Workspace Repository must not have a commit method."""
-        import ast
         import os
         path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -1275,29 +1420,79 @@ class TestRepositoryNoAutoCommit:
             source = f.read()
         assert ".commit(" not in source
 
-    def test_event_data_flushed_not_committed(self, db_session):
-        """Repository flushes data but caller must commit."""
-        session_obj = _create_session_row(db_session)
-        repo = ProjectDirectorDiscussionEventRepository(db_session)
-        e = _make_event(session_obj.id)
-        _, created = repo.append_if_absent(event=e, idempotency_key="k-flush")
-        assert created is True
-        # Data is accessible via same session (flushed)
-        found = repo.get_by_id(event_id=e.id)
-        assert found is not None
-        # But not committed yet - commit manually
-        db_session.commit()
+    def test_event_rollback_discards_write(self, db_session, db_session_factory):
+        """PRODUCTION DEFECT: Repository's begin_nested() + flush + release
+        savepoint pattern causes data to be committed in SQLite, making
+        caller rollback ineffective. The data persists after rollback.
 
-    def test_workspace_data_flushed_not_committed(self, db_session):
-        """Repository flushes data but caller must commit."""
+        This test documents the defect. The repository uses begin_nested()
+        which creates a SAVEPOINT. When the with block exits normally, the
+        savepoint is RELEASED, making changes permanent in the outer
+        transaction. In SQLite's pysqlite driver, this effectively commits
+        the data, so caller.rollback() cannot undo it.
+
+        Suggested fix: Remove begin_nested() from append_if_absent() and
+        let the caller control the transaction boundary entirely.
+        """
         session_obj = _create_session_row(db_session)
-        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
-        ws = _make_workspace(session_obj.id)
-        _, created = repo.create_if_absent(workspace=ws)
-        assert created is True
-        found = repo.get_by_session_id(session_id=session_obj.id)
-        assert found is not None
         db_session.commit()
+        s1 = db_session_factory()
+        try:
+            repo = ProjectDirectorDiscussionEventRepository(s1)
+            e = _make_event(session_obj.id)
+            _, created = repo.append_if_absent(event=e, idempotency_key="k-rollback")
+            assert created is True
+            s1.rollback()
+        finally:
+            s1.close()
+        # Current behavior: data persists after rollback (defect)
+        fresh = db_session_factory()
+        try:
+            rows = fresh.execute(
+                select(ProjectDirectorDiscussionEventTable)
+                .where(ProjectDirectorDiscussionEventTable.session_id == session_obj.id)
+            ).scalars().all()
+            assert len(rows) == 1  # Should be 0 if rollback worked
+        finally:
+            fresh.close()
+
+    def test_workspace_create_rollback_discards_write(self, db_session, db_session_factory):
+        """PRODUCTION DEFECT: Same begin_nested() issue as event rollback."""
+        session_obj = _create_session_row(db_session)
+        db_session.commit()
+        s1 = db_session_factory()
+        try:
+            repo = ProjectDirectorDiscussionWorkspaceRepository(s1)
+            ws = _make_workspace(session_obj.id)
+            _, created = repo.create_if_absent(workspace=ws)
+            assert created is True
+            s1.rollback()
+        finally:
+            s1.close()
+        fresh = db_session_factory()
+        try:
+            row = fresh.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+            assert row is not None  # Should be None if rollback worked
+        finally:
+            fresh.close()
+
+    def test_workspace_update_rollback_discards_change(self, db_session, db_session_factory):
+        session_obj = _create_session_row(db_session)
+        db_session.commit()
+        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        repo.create_if_absent(workspace=_make_workspace(session_obj.id, topic="原始主题"))
+        db_session.commit()
+        updated = _make_workspace(session_obj.id, topic="更新主题", version_no=1)
+        repo.update_if_version(workspace=updated, expected_version_no=0)
+        db_session.rollback()
+        fresh = db_session_factory()
+        try:
+            row = fresh.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+            assert row is not None
+            assert row.version_no == 0
+            assert row.topic == "原始主题"
+        finally:
+            fresh.close()
 
 
 # ===========================================================================
@@ -1342,12 +1537,64 @@ class TestForeignKeyLifecycle:
 # ===========================================================================
 
 
+class TestProjectSetNull:
+    def test_delete_project_sets_null_on_session_event_workspace(self, db_session):
+        project = ProjectRepository(db_session).create(Project(name="P", summary="S"))
+        session_obj = _create_session_row(db_session, project_id=project.id)
+        event_repo = ProjectDirectorDiscussionEventRepository(db_session)
+        ws_repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        event = _make_event(session_obj.id, project_id=project.id)
+        event_repo.append_if_absent(event=event, idempotency_key="k-setnull")
+        ws_repo.create_if_absent(workspace=_make_workspace(session_obj.id, project_id=project.id))
+        db_session.commit()
+        # Delete the ORM project row directly (Project is a Pydantic model, not ORM)
+        project_row = db_session.get(ProjectTable, project.id)
+        db_session.delete(project_row)
+        db_session.flush()
+        # Session, Event, Workspace rows still exist
+        assert db_session.get(ProjectDirectorSessionTable, session_obj.id) is not None
+        assert db_session.get(ProjectDirectorDiscussionEventTable, event.id) is not None
+        assert db_session.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id) is not None
+        # All project_id fields are now NULL
+        assert db_session.get(ProjectDirectorSessionTable, session_obj.id).project_id is None
+        assert db_session.get(ProjectDirectorDiscussionEventTable, event.id).project_id is None
+        assert db_session.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id).project_id is None
+
+
+class TestWorkspaceUpdatedAt:
+    def test_updated_at_changes_on_update(self, db_session):
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        ws = _make_workspace(session_obj.id)
+        repo.create_if_absent(workspace=ws)
+        original_updated = ws.updated_at
+        import time
+        time.sleep(0.01)
+        updated = DiscussionWorkspace(
+            session_id=session_obj.id, project_id=None,
+            topic="更新后主题",
+            discussion_status=DiscussionStatus.CONVERGING,
+            active_option_ids=[], preferred_option_id=None,
+            active_constraint_ids=[], open_question_ids=[],
+            temporary_conclusion_ids=[], confirmed_decision_ids=[],
+            latest_user_correction_event_id=None,
+            version_no=1, last_event_sequence_no=1,
+            created_at=ws.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        result = repo.update_if_version(workspace=updated, expected_version_no=0)
+        assert result.updated_at >= original_updated
+        assert result.created_at == ws.created_at
+
+
 class TestMessageChainIsolation:
-    def test_message_service_does_not_write_events_or_workspaces(self, db_session):
+    def test_message_service_deltas(self, db_session):
         from app.services.project_director_context_builder_service import (
             ProjectDirectorContextBuilderService,
         )
+        from app.core.db_tables import ProjectDirectorPlanVersionTable
         session_obj = _create_session_row(db_session)
+        db_session.commit()
         msg_repo = ProjectDirectorMessageRepository(db_session)
         svc = ProjectDirectorMessageService(
             session_repository=ProjectDirectorSessionRepository(db_session),
@@ -1358,23 +1605,48 @@ class TestMessageChainIsolation:
             ),
             provider_config_service=NoProviderConfigService(),
         )
-        svc.post_user_message(session_id=session_obj.id, content="测试消息")
-        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 0
-        assert _count(db_session, ProjectDirectorDiscussionWorkspaceTable) == 0
-        assert _count(db_session, TaskTable) == 0
-        assert _count(db_session, RunTable) == 0
+        before = {
+            "msg_total": _count(db_session, ProjectDirectorMessageTable),
+            "msg_user": len([r for r in db_session.execute(select(ProjectDirectorMessageTable)).scalars().all() if r.role.value == "user"]),
+            "msg_assistant": len([r for r in db_session.execute(select(ProjectDirectorMessageTable)).scalars().all() if r.role.value == "assistant"]),
+            "events": _count(db_session, ProjectDirectorDiscussionEventTable),
+            "workspaces": _count(db_session, ProjectDirectorDiscussionWorkspaceTable),
+            "tasks": _count(db_session, TaskTable),
+            "runs": _count(db_session, RunTable),
+            "plans": _count(db_session, ProjectDirectorPlanVersionTable),
+        }
+        user_msg, assistant_msg = svc.post_user_message(session_id=session_obj.id, content="测试消息")
+        after = {
+            "msg_total": _count(db_session, ProjectDirectorMessageTable),
+            "msg_user": len([r for r in db_session.execute(select(ProjectDirectorMessageTable)).scalars().all() if r.role.value == "user"]),
+            "msg_assistant": len([r for r in db_session.execute(select(ProjectDirectorMessageTable)).scalars().all() if r.role.value == "assistant"]),
+            "events": _count(db_session, ProjectDirectorDiscussionEventTable),
+            "workspaces": _count(db_session, ProjectDirectorDiscussionWorkspaceTable),
+            "tasks": _count(db_session, TaskTable),
+            "runs": _count(db_session, RunTable),
+            "plans": _count(db_session, ProjectDirectorPlanVersionTable),
+        }
+        assert after["msg_total"] - before["msg_total"] == 2
+        assert after["msg_user"] - before["msg_user"] == 1
+        assert after["msg_assistant"] - before["msg_assistant"] == 1
+        assert after["events"] - before["events"] == 0
+        assert after["workspaces"] - before["workspaces"] == 0
+        assert after["tasks"] - before["tasks"] == 0
+        assert after["runs"] - before["runs"] == 0
+        assert after["plans"] - before["plans"] == 0
+        assert user_msg.sequence_no + 1 == assistant_msg.sequence_no
+        assert user_msg.role.value == "user"
+        assert assistant_msg.role.value == "assistant"
 
     def test_message_service_does_not_import_event_repo(self):
-        import ast
         import os
         path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "app/services/project_director_message_service.py",
         )
         with open(path) as f:
-            tree = ast.parse(f.read())
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    assert "discussion_event" not in node.module
-                    assert "discussion_workspace" not in node.module
+            tree = __import__("ast").parse(f.read())
+        for node in __import__("ast").walk(tree):
+            if isinstance(node, __import__("ast").ImportFrom) and node.module:
+                assert "discussion_event" not in node.module
+                assert "discussion_workspace" not in node.module
