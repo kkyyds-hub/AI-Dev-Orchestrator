@@ -49,6 +49,26 @@ class PreparedDiscussionEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscussionDeltaOperationIdentity:
+    """Deterministic persistence identity for one candidate operation."""
+
+    operation_index: int
+    event_id: UUID
+    idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedOperation:
+    """Internal canonical operation details shared by Gate and replay lookup."""
+
+    identity: DiscussionDeltaOperationIdentity
+    event_type: DiscussionEventType
+    payload: dict[str, Any]
+    subject_key: str
+    operation_hash: str
+
+
+@dataclass(frozen=True, slots=True)
 class GovernedDiscussionDeltaResult:
     """Pure admission result and its derived workspace projection."""
 
@@ -256,14 +276,16 @@ class ProjectDirectorDiscussionDeltaGateService:
                 assistant_message_id=assistant_message.id,
             )
             self._validate_operation_authority(operation)
-            payload = self._normalized_payload(operation)
-            subject_key = self._subject_key(operation)
-            operation_hash = self._operation_hash(
-                operation=operation, payload=payload, subject_key=subject_key
+            prepared_operation = self._prepare_operation(
+                session_id=session_id,
+                assistant_message_id=assistant_message.id,
+                operation_index=operation_index,
+                operation=operation,
+                event_type=event_type,
             )
-            if operation_hash in seen_operation_hashes:
+            if prepared_operation.operation_hash in seen_operation_hashes:
                 raise ValueError("discussion_delta_duplicate_operation")
-            seen_operation_hashes.add(operation_hash)
+            seen_operation_hashes.add(prepared_operation.operation_hash)
 
             target = self._validate_supersedes(
                 operation=operation,
@@ -277,15 +299,12 @@ class ProjectDirectorDiscussionDeltaGateService:
                 confirmation_reasons=confirmation_reasons,
             )
             event = DiscussionEvent(
-                id=uuid5(
-                    _EVENT_NAMESPACE,
-                    f"{session_id.hex}:{assistant_message.id.hex}:{operation_index}:{operation_hash}",
-                ),
+                id=prepared_operation.identity.event_id,
                 session_id=session_id,
                 project_id=project_id,
                 sequence_no=start_sequence_no + operation_index,
-                event_type=event_type,
-                subject_key=subject_key,
+                event_type=prepared_operation.event_type,
+                subject_key=prepared_operation.subject_key,
                 content=operation.content,
                 status=(
                     DiscussionEventStatus.CONFIRMED
@@ -293,7 +312,7 @@ class ProjectDirectorDiscussionDeltaGateService:
                     or operation.actor_claim == DiscussionActorClaim.FORMAL_PROJECT_FACT
                     else DiscussionEventStatus.ACTIVE
                 ),
-                payload=payload,
+                payload=prepared_operation.payload,
                 source_message_ids=list(operation.source_message_ids),
                 supersedes_event_id=operation.supersedes_event_id,
                 created_by=operation.actor_claim,
@@ -319,9 +338,7 @@ class ProjectDirectorDiscussionDeltaGateService:
                 PreparedDiscussionEvent(
                     operation_index=operation_index,
                     event=event,
-                    idempotency_key=(
-                        f"p26-d1:{assistant_message.id.hex}:{operation_index}:{operation_hash}"
-                    ),
+                    idempotency_key=prepared_operation.identity.idempotency_key,
                 )
             )
 
@@ -344,6 +361,81 @@ class ProjectDirectorDiscussionDeltaGateService:
             prepared_events=tuple(prepared_events),
             projected_workspace=projected_workspace,
             confirmation_reasons=(),
+        )
+
+    def prepare_replay_identities(
+        self,
+        *,
+        session_id: UUID,
+        assistant_message: ProjectDirectorMessage,
+        delta: DiscussionDelta,
+    ) -> tuple[DiscussionDeltaOperationIdentity, ...]:
+        """Return the identities used by :meth:`evaluate_delta` without writes."""
+
+        self._validate_assistant_message(assistant_message, session_id)
+        return tuple(
+            item.identity
+            for item in self._prepare_operations(
+                session_id=session_id,
+                assistant_message_id=assistant_message.id,
+                delta=delta,
+            )
+        )
+
+    @staticmethod
+    def _prepare_operations(
+        *,
+        session_id: UUID,
+        assistant_message_id: UUID,
+        delta: DiscussionDelta,
+    ) -> tuple[_PreparedOperation, ...]:
+        prepared: list[_PreparedOperation] = []
+        for operation_index, operation in enumerate(delta.operations):
+            event_type = _OPERATION_EVENT_TYPES.get(operation.op)
+            if event_type is None:
+                raise ValueError("discussion_delta_operation_not_supported")
+            prepared.append(
+                ProjectDirectorDiscussionDeltaGateService._prepare_operation(
+                    session_id=session_id,
+                    assistant_message_id=assistant_message_id,
+                    operation_index=operation_index,
+                    operation=operation,
+                    event_type=event_type,
+                )
+            )
+        return tuple(prepared)
+
+    @staticmethod
+    def _prepare_operation(
+        *,
+        session_id: UUID,
+        assistant_message_id: UUID,
+        operation_index: int,
+        operation: DiscussionDeltaOperation,
+        event_type: DiscussionEventType,
+    ) -> _PreparedOperation:
+        payload = ProjectDirectorDiscussionDeltaGateService._normalized_payload(operation)
+        subject_key = ProjectDirectorDiscussionDeltaGateService._subject_key(operation)
+        operation_hash = ProjectDirectorDiscussionDeltaGateService._operation_hash(
+            operation=operation, payload=payload, subject_key=subject_key
+        )
+        return _PreparedOperation(
+            identity=DiscussionDeltaOperationIdentity(
+                operation_index=operation_index,
+                event_id=uuid5(
+                    _EVENT_NAMESPACE,
+                    f"{session_id.hex}:{assistant_message_id.hex}:{operation_index}:"
+                    f"{operation_hash}",
+                ),
+                idempotency_key=(
+                    f"p26-d1:{assistant_message_id.hex}:"
+                    f"{operation_index}:{operation_hash}"
+                ),
+            ),
+            event_type=event_type,
+            payload=payload,
+            subject_key=subject_key,
+            operation_hash=operation_hash,
         )
 
     @staticmethod
