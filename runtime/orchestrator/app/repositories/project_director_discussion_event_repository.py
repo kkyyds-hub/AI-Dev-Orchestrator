@@ -35,11 +35,6 @@ class ProjectDirectorDiscussionEventRepository:
         """Append once, or return an equivalent prior event for a replay."""
 
         normalized_key = self._validate_idempotency_key(idempotency_key)
-
-        self._validate_session_project(event)
-        self._validate_source_messages(event)
-        self._validate_supersedes_target(event)
-
         existing = self.get_by_idempotency_key(
             session_id=event.session_id,
             idempotency_key=normalized_key,
@@ -47,6 +42,10 @@ class ProjectDirectorDiscussionEventRepository:
         if existing is not None:
             self._ensure_idempotency_equivalent(existing, event)
             return existing, False
+
+        self._validate_session_project(event)
+        self._validate_source_messages(event)
+        self._validate_supersedes_target(event)
 
         row = self._to_row(event, idempotency_key=normalized_key)
         try:
@@ -250,7 +249,6 @@ class ProjectDirectorDiscussionEventRepository:
             "subject_key",
             "content",
             "status",
-            "payload",
             "source_message_ids",
             "supersedes_event_id",
             "created_by",
@@ -262,5 +260,15 @@ class ProjectDirectorDiscussionEventRepository:
             "interaction_case_id",
             "external_context_pack_id",
         )
-        if any(getattr(existing, field) != getattr(incoming, field) for field in fields):
+        if (
+            any(getattr(existing, field) != getattr(incoming, field) for field in fields)
+            or cls._canonical_payload(existing.payload)
+            != cls._canonical_payload(incoming.payload)
+        ):
             raise ValueError("discussion_event_idempotency_conflict")
+
+    @classmethod
+    def _canonical_payload(cls, payload: dict[str, Any]) -> str:
+        """Return the persisted JSON representation used for payload equivalence."""
+
+        return cls._json_dump(payload)
