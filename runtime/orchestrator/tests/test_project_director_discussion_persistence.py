@@ -11,9 +11,10 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.db import begin_sqlite_transaction, configure_sqlite
 from app.core.db_tables import (
     ORMBase,
     ProjectDirectorDiscussionEventTable,
@@ -68,9 +69,8 @@ from app.services.provider_config_service import OpenAIProviderRuntimeConfig
 def db_engine(tmp_path):
     db_path = tmp_path / "p26c1-test.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
-    with engine.connect() as conn:
-        conn.execute(text("PRAGMA foreign_keys=ON"))
-        conn.commit()
+    event.listen(engine, "connect", configure_sqlite)
+    event.listen(engine, "begin", begin_sqlite_transaction)
     ORMBase.metadata.create_all(bind=engine)
     return engine
 
@@ -930,7 +930,7 @@ class TestRaceRecovery:
         repo.append_if_absent(event=e1, idempotency_key="k-seq1")
         e2 = _make_event(session_obj.id, sequence_no=1, content="different", event_id=uuid4())
         from sqlalchemy.exc import IntegrityError
-        with pytest.raises((IntegrityError, ValueError)):
+        with pytest.raises(IntegrityError):
             repo.append_if_absent(event=e2, idempotency_key="k-seq2")
 
     def test_equivalent_race_session_still_usable(self, db_session, monkeypatch):
@@ -1421,19 +1421,7 @@ class TestRepositoryNoAutoCommit:
         assert ".commit(" not in source
 
     def test_event_rollback_discards_write(self, db_session, db_session_factory):
-        """PRODUCTION DEFECT: Repository's begin_nested() + flush + release
-        savepoint pattern causes data to be committed in SQLite, making
-        caller rollback ineffective. The data persists after rollback.
-
-        This test documents the defect. The repository uses begin_nested()
-        which creates a SAVEPOINT. When the with block exits normally, the
-        savepoint is RELEASED, making changes permanent in the outer
-        transaction. In SQLite's pysqlite driver, this effectively commits
-        the data, so caller.rollback() cannot undo it.
-
-        Suggested fix: Remove begin_nested() from append_if_absent() and
-        let the caller control the transaction boundary entirely.
-        """
+        """Caller rollback must discard event writes via savepoint."""
         session_obj = _create_session_row(db_session)
         db_session.commit()
         s1 = db_session_factory()
@@ -1442,22 +1430,22 @@ class TestRepositoryNoAutoCommit:
             e = _make_event(session_obj.id)
             _, created = repo.append_if_absent(event=e, idempotency_key="k-rollback")
             assert created is True
+            assert s1.in_transaction() is True
             s1.rollback()
         finally:
             s1.close()
-        # Current behavior: data persists after rollback (defect)
         fresh = db_session_factory()
         try:
             rows = fresh.execute(
                 select(ProjectDirectorDiscussionEventTable)
                 .where(ProjectDirectorDiscussionEventTable.session_id == session_obj.id)
             ).scalars().all()
-            assert len(rows) == 1  # Should be 0 if rollback worked
+            assert len(rows) == 0
         finally:
             fresh.close()
 
     def test_workspace_create_rollback_discards_write(self, db_session, db_session_factory):
-        """PRODUCTION DEFECT: Same begin_nested() issue as event rollback."""
+        """Caller rollback must discard workspace create via savepoint."""
         session_obj = _create_session_row(db_session)
         db_session.commit()
         s1 = db_session_factory()
@@ -1466,23 +1454,27 @@ class TestRepositoryNoAutoCommit:
             ws = _make_workspace(session_obj.id)
             _, created = repo.create_if_absent(workspace=ws)
             assert created is True
+            assert s1.in_transaction() is True
             s1.rollback()
         finally:
             s1.close()
         fresh = db_session_factory()
         try:
             row = fresh.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
-            assert row is not None  # Should be None if rollback worked
+            assert row is None
         finally:
             fresh.close()
 
     def test_workspace_update_rollback_discards_change(self, db_session, db_session_factory):
+        """Caller rollback must discard workspace update, restoring original state."""
         session_obj = _create_session_row(db_session)
         db_session.commit()
         repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
-        repo.create_if_absent(workspace=_make_workspace(session_obj.id, topic="原始主题"))
+        original_ws = _make_workspace(session_obj.id, topic="原始主题")
+        repo.create_if_absent(workspace=original_ws)
         db_session.commit()
-        updated = _make_workspace(session_obj.id, topic="更新主题", version_no=1)
+        original_updated_at = original_ws.updated_at
+        updated = _make_workspace(session_obj.id, topic="更新主题", version_no=1, last_event_sequence_no=5)
         repo.update_if_version(workspace=updated, expected_version_no=0)
         db_session.rollback()
         fresh = db_session_factory()
@@ -1491,8 +1483,235 @@ class TestRepositoryNoAutoCommit:
             assert row is not None
             assert row.version_no == 0
             assert row.topic == "原始主题"
+            assert row.last_event_sequence_no == 0
         finally:
             fresh.close()
+
+
+# ===========================================================================
+# 24b. Callback verification and engine.begin() regression
+# ===========================================================================
+
+
+class TestCallbackVerification:
+    def test_connect_callback_registered(self, db_engine):
+        assert event.contains(db_engine, "connect", configure_sqlite)
+
+    def test_begin_callback_registered(self, db_engine):
+        assert event.contains(db_engine, "begin", begin_sqlite_transaction)
+
+    def test_pragma_foreign_keys_enabled(self, db_engine):
+        with db_engine.connect() as conn:
+            result = conn.execute(text("PRAGMA foreign_keys")).scalar()
+            assert result == 1
+
+    def test_pragma_journal_mode_wal(self, db_engine):
+        with db_engine.connect() as conn:
+            result = conn.execute(text("PRAGMA journal_mode")).scalar()
+            assert result == "wal"
+
+    def test_dbapi_isolation_level_none(self, db_engine):
+        with db_engine.connect() as conn:
+            dbapi_conn = conn.connection.dbapi_connection
+            assert dbapi_conn.isolation_level is None
+
+
+class TestEngineBeginRegression:
+    def test_engine_begin_commit(self, db_engine):
+        with db_engine.begin() as conn:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS _test_begin (id INTEGER PRIMARY KEY)"))
+            conn.execute(text("INSERT INTO _test_begin (id) VALUES (1)"))
+        with db_engine.connect() as conn:
+            count = conn.execute(text("SELECT COUNT(*) FROM _test_begin")).scalar()
+            assert count == 1
+
+    def test_engine_begin_rollback(self, db_engine):
+        with db_engine.connect() as conn:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS _test_begin2 (id INTEGER PRIMARY KEY)"))
+            conn.commit()
+        try:
+            with db_engine.begin() as conn:
+                conn.execute(text("INSERT INTO _test_begin2 (id) VALUES (2)"))
+                raise RuntimeError("force rollback")
+        except RuntimeError:
+            pass
+        with db_engine.connect() as conn:
+            count = conn.execute(text("SELECT COUNT(*) FROM _test_begin2")).scalar()
+            assert count == 0
+
+
+class TestAtomicOuterTransaction:
+    def test_message_event_workspace_rollback_all_or_nothing(self, db_session, db_session_factory):
+        """All writes in a single caller transaction must rollback together."""
+        session_obj = _create_session_row(db_session)
+        db_session.commit()
+        s1 = db_session_factory()
+        try:
+            msg = ProjectDirectorMessageTable(
+                session_id=session_obj.id, role=ProjectDirectorMessageRole.USER,
+                content="原子事务测试", sequence_no=1,
+                source=ProjectDirectorMessageSource.SYSTEM, source_detail="test",
+            )
+            s1.add(msg)
+            s1.flush()
+            event_repo = ProjectDirectorDiscussionEventRepository(s1)
+            e = _make_event(session_obj.id)
+            event_repo.append_if_absent(event=e, idempotency_key="k-atomic")
+            ws_repo = ProjectDirectorDiscussionWorkspaceRepository(s1)
+            ws_repo.create_if_absent(workspace=_make_workspace(session_obj.id))
+            s1.rollback()
+        finally:
+            s1.close()
+        fresh = db_session_factory()
+        try:
+            msg_count = len(fresh.execute(
+                select(ProjectDirectorMessageTable)
+                .where(ProjectDirectorMessageTable.session_id == session_obj.id)
+            ).scalars().all())
+            evt_count = len(fresh.execute(
+                select(ProjectDirectorDiscussionEventTable)
+                .where(ProjectDirectorDiscussionEventTable.session_id == session_obj.id)
+            ).scalars().all())
+            ws_row = fresh.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+            assert msg_count == 0
+            assert evt_count == 0
+            assert ws_row is None
+        finally:
+            fresh.close()
+
+    def test_commit_control_group_event(self, db_session, db_session_factory):
+        """Caller commit must persist event."""
+        session_obj = _create_session_row(db_session)
+        db_session.commit()
+        s1 = db_session_factory()
+        try:
+            repo = ProjectDirectorDiscussionEventRepository(s1)
+            e = _make_event(session_obj.id)
+            repo.append_if_absent(event=e, idempotency_key="k-commit-evt")
+            s1.commit()
+        finally:
+            s1.close()
+        fresh = db_session_factory()
+        try:
+            rows = fresh.execute(
+                select(ProjectDirectorDiscussionEventTable)
+                .where(ProjectDirectorDiscussionEventTable.session_id == session_obj.id)
+            ).scalars().all()
+            assert len(rows) == 1
+        finally:
+            fresh.close()
+
+    def test_commit_control_group_workspace_create(self, db_session, db_session_factory):
+        """Caller commit must persist workspace."""
+        session_obj = _create_session_row(db_session)
+        db_session.commit()
+        s1 = db_session_factory()
+        try:
+            repo = ProjectDirectorDiscussionWorkspaceRepository(s1)
+            repo.create_if_absent(workspace=_make_workspace(session_obj.id))
+            s1.commit()
+        finally:
+            s1.close()
+        fresh = db_session_factory()
+        try:
+            row = fresh.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+            assert row is not None
+            assert row.version_no == 0
+        finally:
+            fresh.close()
+
+    def test_commit_control_group_workspace_update(self, db_session, db_session_factory):
+        """Caller commit must persist workspace update."""
+        session_obj = _create_session_row(db_session)
+        db_session.commit()
+        s1 = db_session_factory()
+        try:
+            repo = ProjectDirectorDiscussionWorkspaceRepository(s1)
+            repo.create_if_absent(workspace=_make_workspace(session_obj.id))
+            s1.commit()
+            updated = _make_workspace(session_obj.id, topic="更新后", version_no=1, last_event_sequence_no=3)
+            repo.update_if_version(workspace=updated, expected_version_no=0)
+            s1.commit()
+        finally:
+            s1.close()
+        fresh = db_session_factory()
+        try:
+            row = fresh.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+            assert row is not None
+            assert row.version_no == 1
+            assert row.topic == "更新后"
+            assert row.last_event_sequence_no == 3
+        finally:
+            fresh.close()
+
+
+class TestWorkspaceCreateRaceRecovery:
+    def test_race_recovery_equivalent(self, db_session, monkeypatch):
+        """Workspace create race with equivalent incoming returns existing."""
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        ws = _make_workspace(session_obj.id, topic="原始")
+        repo.create_if_absent(workspace=ws)
+        db_session.commit()
+        call_count = {"n": 0}
+        original = ProjectDirectorDiscussionWorkspaceRepository.get_by_session_id
+
+        def patched(self, *, session_id):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return None
+            return original(self, session_id=session_id)
+
+        monkeypatch.setattr(ProjectDirectorDiscussionWorkspaceRepository, "get_by_session_id", patched)
+        ws2 = _make_workspace(session_obj.id, topic="原始")
+        result, created = repo.create_if_absent(workspace=ws2)
+        assert created is False
+        assert result.session_id == session_obj.id
+        assert _count(db_session, ProjectDirectorDiscussionWorkspaceTable) == 1
+
+    def test_race_recovery_mismatch_still_rejected(self, db_session, monkeypatch):
+        """Workspace create race with mismatched project_id still rejected."""
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        ws = _make_workspace(session_obj.id, topic="原始")
+        repo.create_if_absent(workspace=ws)
+        db_session.commit()
+        call_count = {"n": 0}
+        original = ProjectDirectorDiscussionWorkspaceRepository.get_by_session_id
+
+        def patched(self, *, session_id):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return None
+            return original(self, session_id=session_id)
+
+        monkeypatch.setattr(ProjectDirectorDiscussionWorkspaceRepository, "get_by_session_id", patched)
+        ws2 = _make_workspace(session_obj.id, topic="原始", project_id=uuid4())
+        with pytest.raises(ValueError, match="discussion_workspace_project_session_mismatch"):
+            repo.create_if_absent(workspace=ws2)
+
+    def test_race_session_still_usable(self, db_session, monkeypatch):
+        """Session remains usable after workspace race recovery."""
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionWorkspaceRepository(db_session)
+        ws = _make_workspace(session_obj.id)
+        repo.create_if_absent(workspace=ws)
+        db_session.commit()
+        call_count = {"n": 0}
+        original = ProjectDirectorDiscussionWorkspaceRepository.get_by_session_id
+
+        def patched(self, *, session_id):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return None
+            return original(self, session_id=session_id)
+
+        monkeypatch.setattr(ProjectDirectorDiscussionWorkspaceRepository, "get_by_session_id", patched)
+        ws2 = _make_workspace(session_obj.id)
+        repo.create_if_absent(workspace=ws2)
+        # Session still usable
+        found = repo.get_by_session_id(session_id=session_obj.id)
+        assert found is not None
 
 
 # ===========================================================================
