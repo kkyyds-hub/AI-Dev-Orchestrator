@@ -544,7 +544,7 @@ _RISK_PHRASE_MAP: dict[str, tuple[str, ...]] = {
         "合并代码", "创建 PR", "合并 PR",
     ),
     "deployment": ("部署", "上线", "发布到服务器"),
-    "publish": ("正式发布", "发布版本", "发布应用"),
+    "publish": ("正式发布", "发布版本", "发布应用", "发布这个版本", "发布该版本", "发布此版本", "发布新版本"),
     "destructive_database_change": (
         "删除表", "清空数据库", "删除数据库", "drop table", "truncate table",
         "破坏性 migration",
@@ -581,9 +581,9 @@ class TestDeterministicConversationRiskScanner:
             phrase.lower() in matched.matched_phrase.lower()
 
     def test_total_risk_phrase_count(self):
-        """Verify 54 total phrases across 11 categories."""
+        """Verify 58 total phrases across 11 categories."""
         total = sum(len(v) for v in _RISK_PHRASE_MAP.values())
-        assert total == 54
+        assert total == 58
         assert len(_RISK_PHRASE_MAP) == 11
 
     # Case insensitivity for English phrases
@@ -765,6 +765,58 @@ class TestProviderFirstInterpretation:
         result = svc.interpret(content="测试", model_name="m", request_id="r")
         # Only the outcome is returned, no side-effect artifacts
         assert isinstance(result, TurnInterpretationOutcome)
+
+    def test_provider_overrides_fallback_for_deployment_discussion(self):
+        """Provider can correctly classify deployment discussion as non-action,
+        overriding what would be a general_discussion fallback."""
+        call_count = 0
+        def fake_provider(model: str, prompt: str, req_id: str):
+            nonlocal call_count
+            call_count += 1
+            return json.dumps(_valid_interpretation_dict(
+                conversation_mode="solution_exploration",
+                primary_intent="discuss_deployment_architecture",
+                confidence=0.8,
+                formal_action_requested=False,
+                hypothetical_action=False,
+                needs_discussion_history=True,
+            )), "r-001"
+
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=fake_provider)
+        result = svc.interpret(
+            content="我们讨论一下部署架构的优缺点。",
+            model_name="m",
+            request_id="r",
+        )
+        assert result.source == DirectorResponseSource.PROVIDER
+        assert result.interpretation.conversation_mode == ConversationMode.SOLUTION_EXPLORATION
+        assert result.interpretation.formal_action_requested is False
+        assert call_count == 1
+
+    def test_provider_overrides_fallback_for_publish_command(self):
+        """Provider can classify '马上发布这个版本' as non-action,
+        overriding the fallback's action_request classification."""
+        call_count = 0
+        def fake_provider(model: str, prompt: str, req_id: str):
+            nonlocal call_count
+            call_count += 1
+            return json.dumps(_valid_interpretation_dict(
+                conversation_mode="general_discussion",
+                primary_intent="discuss_publish",
+                confidence=0.6,
+                formal_action_requested=False,
+                hypothetical_action=False,
+            )), "r-001"
+
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=fake_provider)
+        result = svc.interpret(
+            content="马上发布这个版本。",
+            model_name="m",
+            request_id="r",
+        )
+        assert result.source == DirectorResponseSource.PROVIDER
+        assert result.interpretation.formal_action_requested is False
+        assert call_count == 1
 
 
 # ===========================================================================
@@ -1057,40 +1109,271 @@ class TestCoreSemanticUseCases:
 
 
 class TestSemanticBoundary:
-    def test_risk_word_not_execution_command(self):
-        """Risk word present. '部署' is both risk word and action marker,
-        so fallback classifies as action_request — not a conflict."""
+    # --- P26-B1-R1: deployment / plan discussion boundaries ---
+
+    def test_deployment_topic_discussion_is_not_action_request(self):
+        """Discussion about deployment architecture is not an action request.
+        Discussion/query markers block action classification."""
         content = "我们讨论一下部署架构的优缺点。"
         svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
         result = svc.interpret(content=content, model_name="m", request_id="r")
-        # "部署" is in both risk words and action markers → action_request
-        assert result.interpretation.formal_action_requested is True
-        assert result.risk_semantic_conflict is False
+        assert result.interpretation.conversation_mode == ConversationMode.GENERAL_DISCUSSION
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_scan.has_side_effect_signal is True
+        assert result.risk_semantic_conflict is True
+        assert result.source == DirectorResponseSource.RULE_FALLBACK
+        assert result.fallback_reason == "provider_unavailable"
 
-    def test_risk_word_option_comparison(self):
-        content = "请比较部署方案 A 和 B，先不要执行。"
+    def test_deployment_risk_query_not_action(self):
+        content = "部署方案有哪些风险？"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.risk_scan.has_side_effect_signal is True
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+        assert result.interpretation.conversation_mode == ConversationMode.GENERAL_DISCUSSION
+        assert result.risk_semantic_conflict is True
+
+    def test_how_to_deploy_not_action(self):
+        content = "如何部署这个项目？"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+        assert result.interpretation.conversation_mode == ConversationMode.GENERAL_DISCUSSION
+        assert result.risk_semantic_conflict is True
+
+    def test_deployment_option_comparison(self):
+        content = "请比较部署方案 A 和 B。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.OPTION_COMPARISON
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_scan.has_side_effect_signal is True
+        assert result.risk_semantic_conflict is True
+
+    def test_auto_publish_comparison(self):
+        content = "对比自动发布和手动发布的优缺点。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.OPTION_COMPARISON
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+
+    def test_git_push_pr_comparison(self):
+        content = "比较 git push 与 PR 合并两种流程。"
         svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
         result = svc.interpret(content=content, model_name="m", request_id="r")
         assert result.interpretation.conversation_mode == ConversationMode.OPTION_COMPARISON
         assert result.interpretation.formal_action_requested is False
 
+    def test_plan_modification_risk_analysis(self):
+        content = "分析一下修改计划可能造成的问题。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+        assert result.interpretation.conversation_mode == ConversationMode.GENERAL_DISCUSSION
+        assert result.risk_scan.has_side_effect_signal is True
+        assert result.risk_semantic_conflict is True
+
+    # --- P26-B1-R1: explicit commands remain action_request ---
+
+    def test_explicit_deploy_command_is_action(self):
+        content = "请部署这个版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_scan.has_side_effect_signal is True
+        assert result.risk_semantic_conflict is False
+
+    def test_create_task_and_start_codex_is_action(self):
+        content = "创建任务并启动 Codex。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_semantic_conflict is False
+
+    # --- P26-B1-R2: publish action commands ---
+
+    def test_publish_this_version_is_action(self):
+        """马上发布这个版本 → action_request with publish signal."""
+        content = "马上发布这个版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        publish_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "publish"]
+        assert len(publish_signals) >= 1
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_semantic_conflict is False
+
+    def test_publish_that_version_is_action(self):
+        """请发布该版本 → action_request with publish signal."""
+        content = "请发布该版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        publish_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "publish"]
+        assert len(publish_signals) >= 1
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+        assert result.risk_semantic_conflict is False
+
+    def test_publish_this_version_now_is_action(self):
+        """现在就发布此版本 → action_request with publish signal."""
+        content = "现在就发布此版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        publish_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "publish"]
+        assert len(publish_signals) >= 1
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+
+    def test_publish_new_version_is_action(self):
+        """直接发布新版本 → action_request with publish signal."""
+        content = "直接发布新版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        publish_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "publish"]
+        assert len(publish_signals) >= 1
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+
+    def test_go_online_this_version_is_action(self):
+        """马上上线这个版本 → action_request with deployment signal."""
+        content = "马上上线这个版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        deployment_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "deployment"]
+        assert len(deployment_signals) >= 1
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_semantic_conflict is False
+
+    def test_please_go_online_is_action(self):
+        """请上线这个版本 → action_request with deployment signal."""
+        content = "请上线这个版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        deployment_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "deployment"]
+        assert len(deployment_signals) >= 1
+        assert result.interpretation.conversation_mode == ConversationMode.ACTION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+
+    # --- P26-B1-R2: publish semantic non-action boundaries ---
+
+    def test_publish_flow_discussion_not_action(self):
+        """讨论一下发布流程 → discussion, not action."""
+        content = "讨论一下发布流程的优缺点。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.formal_action_requested is False
+
+    def test_publish_new_version_risk_query(self):
+        """发布新版本有哪些风险 → discussion with risk signal."""
+        content = "发布新版本有哪些风险？"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.GENERAL_DISCUSSION
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_scan.has_side_effect_signal is True
+        assert result.risk_semantic_conflict is True
+
+    def test_auto_publish_vs_manual_comparison(self):
+        """对比自动发布和手动发布 → option_comparison."""
+        content = "对比自动发布和手动发布的优缺点。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.OPTION_COMPARISON
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+
+    def test_publish_version_comparison(self):
+        """比较发布版本和暂不发布 → option_comparison with risk signal."""
+        content = "比较发布版本和暂不发布两个方案。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.OPTION_COMPARISON
+        assert result.interpretation.formal_action_requested is False
+        assert result.risk_scan.has_side_effect_signal is True
+        assert result.risk_semantic_conflict is True
+
+    # --- P26-B1-R2: negation and hypothetical boundaries ---
+
+    def test_negate_publish_not_action(self):
+        """请不要发布这个版本 → not action."""
+        content = "请不要发布这个版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        publish_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "publish"]
+        assert len(publish_signals) >= 1
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is False
+        assert result.risk_semantic_conflict is True
+
+    def test_negate_go_online_not_action(self):
+        """请不要上线这个版本 → not action."""
+        content = "请不要上线这个版本。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        deployment_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "deployment"]
+        assert len(deployment_signals) >= 1
+        assert result.interpretation.formal_action_requested is False
+        assert result.risk_semantic_conflict is True
+
+    def test_hypothetical_publish_risk(self):
+        """假如未来自动发布新版本 → solution_exploration + hypothetical."""
+        content = "假如未来自动发布新版本，会有什么风险？"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        publish_signals = [s for s in result.risk_scan.signals if s.signal_type.value == "publish"]
+        assert len(publish_signals) >= 1
+        assert result.interpretation.conversation_mode == ConversationMode.SOLUTION_EXPLORATION
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is True
+        assert result.risk_semantic_conflict is False
+
+    # --- Original core boundaries (P26-B1) ---
+
     def test_explicit_negation_not_action(self):
         content = "请不要启动 Codex。"
         svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
         result = svc.interpret(content=content, model_name="m", request_id="r")
-        # Negation prevents action request classification
         assert result.interpretation.formal_action_requested is False
-        # Risk signal present but not formal/hypothetical → conflict
+        assert result.risk_scan.has_side_effect_signal is True
         assert result.risk_semantic_conflict is True
+
+    def test_hypothetical_risk_discussion(self):
+        content = "假如未来自动启动 Codex，会有什么风险？"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.SOLUTION_EXPLORATION
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.hypothetical_action is True
+        assert result.risk_semantic_conflict is False
+
+    def test_status_query_boundary(self):
+        content = "当前 P26 做到哪了？"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.STATUS_QUERY
+        assert result.interpretation.formal_action_requested is False
+        assert result.interpretation.needs_formal_fact_context is True
 
     def test_mixed_negation_and_real_command(self):
         """Mixed negation + command: diagnostic only, not a production defect."""
         content = "不要修改计划，但立即创建任务并启动 Codex。"
         svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
         result = svc.interpret(content=content, model_name="m", request_id="r")
-        # Risk signals must be complete
         assert result.risk_scan.has_side_effect_signal is True
-        # No side effects
         assert result.source == DirectorResponseSource.RULE_FALLBACK
 
     def test_general_discussion_fallback(self):
