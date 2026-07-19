@@ -98,6 +98,10 @@ class DeterministicConversationRiskScanner:
             "正式发布",
             "发布版本",
             "发布应用",
+            "发布这个版本",
+            "发布该版本",
+            "发布此版本",
+            "发布新版本",
         ),
         ConversationRiskSignalType.DESTRUCTIVE_DATABASE_CHANGE: (
             "删除表",
@@ -242,6 +246,7 @@ class ProjectDirectorTurnInterpreterService:
         "推送",
         "合并",
         "部署",
+        "上线",
         "发布",
         "应用",
     )
