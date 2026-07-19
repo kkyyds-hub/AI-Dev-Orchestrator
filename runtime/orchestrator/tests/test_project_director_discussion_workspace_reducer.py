@@ -1855,3 +1855,106 @@ class TestIntegrationCallerRollback:
             persisted = ws_repo.get_by_session_id(session_id=sid)
             assert persisted.version_no == 1
             assert persisted.topic == "原始主题"
+
+
+# ===========================================================================
+# P26-D1-A-R1: Option replacement lineage regression
+# ===========================================================================
+
+
+class TestOptionReplacementLineage:
+    """Direct Reducer regression for the _is_option_replacement fix."""
+
+    def test_single_level_replacement(self):
+        """OPTION_ADDED(O) → OPTION_UPDATED(O, supersedes E1) keeps O active."""
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        oid = uuid4()
+        e1 = _option_event(seq=1, option_id=oid, event_type=DiscussionEventType.OPTION_ADDED, event_id=uuid4())
+        e2 = _option_event(
+            seq=2, option_id=oid, event_type=DiscussionEventType.OPTION_UPDATED,
+            supersedes_event_id=e1.id, content="更新内容",
+        )
+        res = _resolve(reducer, [e1, e2])
+        eff_ids = {e.id for e in res.effective_events}
+        assert e2.id in eff_ids
+        assert e1.id in res.superseded_event_ids
+        assert e1.id in {e.id for e in res.historical_events}
+        ws = _rebuild(reducer, [e1, e2])
+        assert oid in ws.active_option_ids
+        assert ws.active_option_ids == [oid]
+        assert ws.last_event_sequence_no == 2
+
+    def test_two_level_replacement_chain(self):
+        """OPTION_ADDED(O) → UPDATED(O, supersedes E1) → UPDATED(O, supersedes E2).
+        Only E3 is effective; E1 and E2 are historical."""
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        oid = uuid4()
+        e1 = _option_event(seq=1, option_id=oid, event_type=DiscussionEventType.OPTION_ADDED, event_id=uuid4())
+        e2 = _option_event(
+            seq=2, option_id=oid, event_type=DiscussionEventType.OPTION_UPDATED,
+            supersedes_event_id=e1.id, content="更新1", event_id=uuid4(),
+        )
+        e3 = _option_event(
+            seq=3, option_id=oid, event_type=DiscussionEventType.OPTION_UPDATED,
+            supersedes_event_id=e2.id, content="更新2",
+        )
+        res = _resolve(reducer, [e1, e2, e3])
+        eff_ids = {e.id for e in res.effective_events}
+        hist_ids = {e.id for e in res.historical_events}
+        assert eff_ids == {e3.id}
+        assert e1.id in hist_ids and e2.id in hist_ids
+        assert res.superseded_event_ids == frozenset({e1.id, e2.id})
+        ws = _rebuild(reducer, [e1, e2, e3])
+        assert ws.active_option_ids == [oid]
+        assert ws.last_event_sequence_no == 3
+
+    def test_standalone_update_without_supersede_raises(self):
+        """OPTION_UPDATED(O) with no supersedes → not active → raises."""
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        oid = uuid4()
+        e = _option_event(seq=1, option_id=oid, event_type=DiscussionEventType.OPTION_UPDATED)
+        with pytest.raises(ValueError, match="discussion_workspace_reducer_option_not_active"):
+            _rebuild(reducer, [e])
+
+    def test_cross_option_replacement_raises(self):
+        """OPTION_UPDATED(option B, supersedes OPTION_ADDED(option A)) → not active."""
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        oid_a, oid_b = uuid4(), uuid4()
+        e1 = _option_event(seq=1, option_id=oid_a, event_type=DiscussionEventType.OPTION_ADDED, event_id=uuid4())
+        e2 = _option_event(
+            seq=2, option_id=oid_b, event_type=DiscussionEventType.OPTION_UPDATED,
+            supersedes_event_id=e1.id, content="跨选项更新",
+        )
+        with pytest.raises(ValueError, match="discussion_workspace_reducer_option_not_active"):
+            _rebuild(reducer, [e1, e2])
+
+    def test_rejected_target_not_used_for_replacement(self):
+        """OPTION_UPDATED supersedes a rejected OPTION_ADDED → raises."""
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        oid = uuid4()
+        e1 = _option_event(
+            seq=1, option_id=oid, event_type=DiscussionEventType.OPTION_ADDED,
+            status=DiscussionEventStatus.REJECTED, event_id=uuid4(),
+        )
+        e2 = _option_event(
+            seq=2, option_id=oid, event_type=DiscussionEventType.OPTION_UPDATED,
+            supersedes_event_id=e1.id, content="更新被拒绝的",
+        )
+        with pytest.raises(ValueError, match="discussion_workspace_reducer_option_not_active"):
+            _rebuild(reducer, [e1, e2])
+
+    def test_replacement_input_immutability(self):
+        """Reducer does not mutate input events or list order."""
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        oid = uuid4()
+        e1 = _option_event(seq=1, option_id=oid, event_type=DiscussionEventType.OPTION_ADDED, event_id=uuid4())
+        e2 = _option_event(
+            seq=2, option_id=oid, event_type=DiscussionEventType.OPTION_UPDATED,
+            supersedes_event_id=e1.id, content="更新",
+        )
+        events = [e1, e2]
+        dumps_before = [e.model_dump(mode="python") for e in events]
+        order_before = [e.id for e in events]
+        _rebuild(reducer, events)
+        assert [e.model_dump(mode="python") for e in events] == dumps_before
+        assert [e.id for e in events] == order_before
