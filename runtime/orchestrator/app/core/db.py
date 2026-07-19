@@ -174,12 +174,20 @@ SessionLocal = sessionmaker(
 
 @event.listens_for(engine, "connect")
 def configure_sqlite(connection: sqlite3.Connection, _: object) -> None:
-    """Apply a few pragmatic SQLite settings for local development."""
+    """Configure SQLite so SQLAlchemy explicitly controls transactions."""
 
+    connection.isolation_level = None
     cursor = connection.cursor()
     cursor.execute("PRAGMA foreign_keys = ON")
     cursor.execute("PRAGMA journal_mode = WAL")
     cursor.close()
+
+
+@event.listens_for(engine, "begin")
+def begin_sqlite_transaction(connection) -> None:
+    """Start the outer SQLite transaction before SAVEPOINT operations."""
+
+    connection.exec_driver_sql("BEGIN")
 
 
 def migrate_database_schema() -> None:
