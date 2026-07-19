@@ -1083,6 +1083,243 @@ class TestReplayStateMismatch:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 12a. Real D2 state mismatch — new message + REPLAYED (§6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRealNewMessageReplayed:
+    """New assistant message + real D2 returns REPLAYED → mismatch."""
+
+    def test_real_d2_replayed_rolls_back_new_message(self, factory):
+        # 1. Seed session + user message
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            db.commit()
+
+        asst = assistant_msg()
+        delta = make_delta(make_operation())
+        avail = [user_msg()]
+
+        # 2. Use real D2 to pre-create events/workspace (no message persistence)
+        with factory() as db:
+            d2 = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            d2_result = d2.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=asst, available_messages=avail,
+                delta=delta, occurred_at=FIXED_TIME,
+            )
+            assert d2_result.status is DiscussionDeltaApplyStatus.APPLIED
+            db.commit()
+
+        # DB state: user msg exists, assistant msg does NOT, event exists, workspace exists
+        with factory() as db:
+            assert _count_messages(db, SESSION_ID) == 1
+            assert _count_events(db, SESSION_ID) == 1
+            ws_row = _get_workspace(db)
+            assert ws_row is not None
+            ws_version_before = ws_row.version_no
+            ws_cursor_before = ws_row.last_event_sequence_no
+            ws_updated_before = ws_row.updated_at
+
+        # 3. Recording spy wrapping real D2
+        class RecordingRealD2:
+            def __init__(self, session):
+                self._real = ProjectDirectorDiscussionDeltaApplyService(session)
+                self.recorded_statuses: list = []
+
+            def apply_delta(self, **kwargs):
+                result = self._real.apply_delta(**kwargs)
+                self.recorded_statuses.append(result.status)
+                return result
+
+        # 4. Call coordinator — message is new, D2 returns REPLAYED
+        with factory() as db:
+            recorder = RecordingRealD2(db)
+            svc = ProjectDirectorDiscussionTurnPersistenceService(
+                session=db, delta_apply_service=recorder,
+            )
+
+            # Input snapshots for immutability
+            asst_dump = asst.model_dump(mode="python")
+            delta_dump = delta.model_dump(mode="python")
+            avail_dumps = [m.model_dump(mode="python") for m in avail]
+
+            with pytest.raises(ValueError, match="discussion_turn_replay_state_mismatch"):
+                svc.persist_assistant_turn(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=asst, available_messages=avail,
+                    delta=delta, occurred_at=FIXED_TIME,
+                )
+
+            # Verify real D2 returned REPLAYED
+            assert recorder.recorded_statuses == [DiscussionDeltaApplyStatus.REPLAYED]
+
+            # Savepoint rolled back new message
+            assert _count_messages(db, SESSION_ID) == 1  # only user msg
+            # Original events/workspace unchanged
+            assert _count_events(db, SESSION_ID) == 1
+            ws_row = _get_workspace(db)
+            assert ws_row.version_no == ws_version_before
+            assert ws_row.last_event_sequence_no == ws_cursor_before
+            assert ws_row.updated_at == ws_updated_before
+
+            # Session still usable
+            db.execute(select(ProjectDirectorMessageTable).limit(1))
+
+            # Input immutability
+            assert asst.model_dump(mode="python") == asst_dump
+            assert delta.model_dump(mode="python") == delta_dump
+            assert [m.model_dump(mode="python") for m in avail] == avail_dumps
+
+            db.rollback()
+
+        # 5. After rollback, everything preserved
+        with factory() as db:
+            assert _count_messages(db, SESSION_ID) == 1
+            assert _count_events(db, SESSION_ID) == 1
+            assert _get_workspace(db) is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 12b. Real D2 state mismatch — existing message + APPLIED (§7)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRealExistingMessageApplied:
+    """Existing assistant message + real D2 returns APPLIED → mismatch."""
+
+    def test_real_d2_applied_rolls_back_events_and_workspace(self, factory):
+        # 1. Seed session + user message + assistant message
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            db.commit()
+
+        asst = assistant_msg()
+        delta = make_delta(make_operation())
+        avail = [user_msg()]
+
+        # Pre-persist the assistant message via real repo
+        with factory() as db:
+            repo = ProjectDirectorMessageRepository(db)
+            repo.create(asst)
+            db.commit()
+
+        # DB: user msg + assistant msg exist, no events, no workspace
+        with factory() as db:
+            assert _count_messages(db, SESSION_ID) == 2
+            assert _count_events(db, SESSION_ID) == 0
+            assert _count_workspaces(db) == 0
+
+        # 2. Recording spy wrapping real D2
+        class RecordingRealD2:
+            def __init__(self, session):
+                self._real = ProjectDirectorDiscussionDeltaApplyService(session)
+                self.recorded_statuses: list = []
+
+            def apply_delta(self, **kwargs):
+                result = self._real.apply_delta(**kwargs)
+                self.recorded_statuses.append(result.status)
+                return result
+
+        # 3. Call coordinator — message exists, D2 returns APPLIED
+        with factory() as db:
+            recorder = RecordingRealD2(db)
+            svc = ProjectDirectorDiscussionTurnPersistenceService(
+                session=db, delta_apply_service=recorder,
+            )
+
+            # Input snapshots
+            asst_dump = asst.model_dump(mode="python")
+            delta_dump = delta.model_dump(mode="python")
+            avail_dumps = [m.model_dump(mode="python") for m in avail]
+
+            with pytest.raises(ValueError, match="discussion_turn_replay_state_mismatch"):
+                svc.persist_assistant_turn(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=asst, available_messages=avail,
+                    delta=delta, occurred_at=FIXED_TIME,
+                )
+
+            # Verify real D2 actually returned APPLIED
+            assert recorder.recorded_statuses == [DiscussionDeltaApplyStatus.APPLIED]
+
+            # Outer savepoint rolled back D2's writes
+            assert _count_messages(db, SESSION_ID) == 2  # user + assistant preserved
+            assert _count_events(db, SESSION_ID) == 0    # D2 events rolled back
+            assert _count_workspaces(db) == 0            # D2 workspace rolled back
+
+            # Session still usable
+            db.execute(select(ProjectDirectorMessageTable).limit(1))
+
+            # Input immutability
+            assert asst.model_dump(mode="python") == asst_dump
+            assert delta.model_dump(mode="python") == delta_dump
+            assert [m.model_dump(mode="python") for m in avail] == avail_dumps
+
+            db.rollback()
+
+        # 4. After rollback, original state preserved
+        with factory() as db:
+            assert _count_messages(db, SESSION_ID) == 2
+            assert _count_events(db, SESSION_ID) == 0
+            assert _count_workspaces(db) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 12c. Explicit occurred_at propagation (§9)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestOccurredAtReal:
+    def test_explicit_time_propagated_to_event(self, factory):
+        """occurred_at != assistant.created_at → event uses occurred_at."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            db.commit()
+
+        t1 = datetime(2026, 7, 19, 8, 30, tzinfo=timezone.utc)
+        t2 = datetime(2026, 7, 19, 10, 0, tzinfo=timezone.utc)
+        asst = assistant_msg(created_at=t1)
+
+        with factory() as db:
+            svc = ProjectDirectorDiscussionTurnPersistenceService(session=db)
+            result = svc.persist_assistant_turn(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=asst, available_messages=[user_msg()],
+                delta=make_delta(make_operation()),
+                occurred_at=t2,
+            )
+            evt = result.delta_apply_result.persisted_events[0].event
+            assert evt.created_at == t2
+            assert evt.created_at != t1
+            db.rollback()
+
+    def test_none_occurred_at_uses_d2_default(self, factory):
+        """occurred_at=None → D2 uses assistant_message.created_at."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            db.commit()
+
+        asst = assistant_msg()
+        with factory() as db:
+            svc = ProjectDirectorDiscussionTurnPersistenceService(session=db)
+            result = svc.persist_assistant_turn(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=asst, available_messages=[user_msg()],
+                delta=make_delta(make_operation()),
+                occurred_at=None,
+            )
+            evt = result.delta_apply_result.persisted_events[0].event
+            # D2 default: assistant_message.created_at = FIXED_TIME
+            assert evt.created_at == FIXED_TIME
+            db.rollback()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 12. State combination matrix (injected)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1278,6 +1515,43 @@ class TestStateCombinationMatrix:
                     assistant_message=asst, available_messages=[user_msg()],
                     delta=make_delta(make_operation()),
                 )
+            db.rollback()
+
+    def test_existing_message_nonempty_no_changes_raises(self, factory):
+        """Existing message + non-empty delta + D2 NO_CHANGES → mismatch."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            db.commit()
+        asst = assistant_msg()
+        # First: create message
+        with factory() as db:
+            svc = ProjectDirectorDiscussionTurnPersistenceService(
+                session=db,
+                delta_apply_service=self._make_d2_spy(DiscussionDeltaApplyStatus.APPLIED),
+            )
+            svc.persist_assistant_turn(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=asst, available_messages=[user_msg()],
+                delta=make_delta(),
+            )
+            db.commit()
+        # Second: existing message + non-empty delta + NO_CHANGES = mismatch
+        with factory() as db:
+            msg_before = _count_messages(db, SESSION_ID)
+            svc = ProjectDirectorDiscussionTurnPersistenceService(
+                session=db,
+                delta_apply_service=self._make_d2_spy(DiscussionDeltaApplyStatus.NO_CHANGES),
+            )
+            with pytest.raises(ValueError, match="discussion_turn_replay_state_mismatch"):
+                svc.persist_assistant_turn(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=asst, available_messages=[user_msg()],
+                    delta=make_delta(make_operation()),
+                )
+            assert _count_messages(db, SESSION_ID) == msg_before
+            assert _count_events(db, SESSION_ID) == 0
+            assert _count_workspaces(db) == 0
             db.rollback()
 
 
