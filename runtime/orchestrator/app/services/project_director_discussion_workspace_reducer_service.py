@@ -143,7 +143,15 @@ class ProjectDirectorDiscussionWorkspaceReducerService:
                     if option_id not in active_option_ids:
                         active_option_ids.append(option_id)
                 elif event_type == DiscussionEventType.OPTION_UPDATED:
-                    self._require_active_option(option_id, active_option_ids)
+                    if option_id not in active_option_ids:
+                        if self._is_option_replacement(
+                            event=event,
+                            event_by_id=event_by_id,
+                            option_id=option_id,
+                        ):
+                            active_option_ids.append(option_id)
+                        else:
+                            self._require_active_option(option_id, active_option_ids)
                 elif event_type == DiscussionEventType.OPTION_PREFERRED:
                     self._require_active_option(option_id, active_option_ids)
                     preferred_option_id = option_id
@@ -258,6 +266,39 @@ class ProjectDirectorDiscussionWorkspaceReducerService:
     def _require_active_option(option_id: UUID, active_option_ids: list[UUID]) -> None:
         if option_id not in active_option_ids:
             raise ValueError("discussion_workspace_reducer_option_not_active")
+
+    @classmethod
+    def _is_option_replacement(
+        cls,
+        *,
+        event: DiscussionEvent,
+        event_by_id: dict[UUID, DiscussionEvent],
+        option_id: UUID,
+    ) -> bool:
+        """Return whether an update replaces an earlier active option lineage."""
+
+        current = event
+        while current.event_type == DiscussionEventType.OPTION_UPDATED:
+            target_id = current.supersedes_event_id
+            if target_id is None:
+                return False
+            target = event_by_id.get(target_id)
+            if (
+                target is None
+                or target.sequence_no >= current.sequence_no
+                or target.status not in _EFFECTIVE_EVENT_STATUSES
+                or target.event_type
+                not in {
+                    DiscussionEventType.OPTION_ADDED,
+                    DiscussionEventType.OPTION_UPDATED,
+                }
+                or cls._option_id(target) != option_id
+            ):
+                return False
+            if target.event_type == DiscussionEventType.OPTION_ADDED:
+                return True
+            current = target
+        return False
 
     @staticmethod
     def _validate_target_event_types(
