@@ -160,14 +160,80 @@ class ProjectDirectorTurnInterpreterService:
         "按这个结论生成草案",
         "正式化为计划草案",
     )
-    _ACTION_REQUEST_MARKERS = (
+    _EXPLICIT_REQUEST_CONTEXT_MARKERS = (
         "请",
         "帮我",
-        "现在",
         "立即",
         "马上",
+        "现在就",
         "直接",
         "开始",
+    )
+    _DISCUSSION_OR_QUERY_MARKERS = (
+        "讨论",
+        "分析",
+        "解释",
+        "说明",
+        "比较",
+        "对比",
+        "评估",
+        "风险",
+        "优缺点",
+        "如何",
+        "怎么",
+    )
+    _EXPLICIT_OPERATION_PHRASES = (
+        "创建任务",
+        "新建任务",
+        "生成任务",
+        "派发任务",
+        "启动 Worker",
+        "运行 Worker",
+        "派发 Worker",
+        "启动工作器",
+        "启动执行器",
+        "运行执行器",
+        "启动 Codex",
+        "运行 Codex",
+        "调用 Codex",
+        "启动 Claude Code",
+        "运行 Claude Code",
+        "调用 Claude Code",
+        "开始执行",
+        "立即执行",
+        "修改计划",
+        "调整计划",
+        "修改草案",
+        "调整草案",
+        "改验收标准",
+        "修改验收标准",
+        "应用草案",
+        "应用计划",
+        "确认并应用",
+        "执行计划",
+        "删除任务",
+        "取消任务",
+        "移除任务",
+        "git add",
+        "git commit",
+        "git push",
+        "提交代码",
+        "推送代码",
+        "合并代码",
+        "创建 PR",
+        "合并 PR",
+        "正式发布",
+        "发布版本",
+        "发布应用",
+        "发布到服务器",
+        "删除表",
+        "清空数据库",
+        "删除数据库",
+        "drop table",
+        "truncate table",
+        "破坏性 migration",
+    )
+    _CONTEXTUAL_OPERATION_MARKERS = (
         "执行",
         "创建",
         "修改",
@@ -460,9 +526,15 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
 
     @classmethod
     def _is_explicit_action_request(cls, content: str) -> bool:
-        return cls._contains_any(content, cls._ACTION_REQUEST_MARKERS) and not cls._contains_any(
-            content, cls._NEGATED_ACTION_MARKERS
-        )
+        if cls._contains_any(content, cls._NEGATED_ACTION_MARKERS):
+            return False
+        if cls._contains_any(content, cls._DISCUSSION_OR_QUERY_MARKERS):
+            return False
+        if cls._contains_any(content, cls._EXPLICIT_OPERATION_PHRASES):
+            return True
+        return cls._contains_any(
+            content, cls._EXPLICIT_REQUEST_CONTEXT_MARKERS
+        ) and cls._contains_any(content, cls._CONTEXTUAL_OPERATION_MARKERS)
 
     @staticmethod
     def _has_risk_semantic_conflict(
