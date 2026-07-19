@@ -1749,6 +1749,758 @@ class TestWorkspaceVersionIncrement:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 19. Mixed inserted — real branch (§8)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestMixedInsertedRealBranch:
+    def test_mixed_true_false_triggers_partial_replay(self, factory):
+        """First append returns inserted=True, second returns inserted=False
+        within the same apply savepoint → partial_replay, all rolled back."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        delta = make_delta(
+            make_operation(content="a"),
+            make_operation(content="b"),
+        )
+        gate = ProjectDirectorDiscussionDeltaGateService()
+        identities = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=delta,
+        )
+
+        class MixedInsertRepo:
+            """First append: real insert (True). Second: pre-insert then real append (False)."""
+            def __init__(self, real, session):
+                self._real = real
+                self._session = session
+                self._call = 0
+                self.call_log: list[tuple[int, bool]] = []
+
+            def list_by_session_id(self, **kw):
+                return self._real.list_by_session_id(**kw)
+
+            def get_by_idempotency_key(self, **kw):
+                return self._real.get_by_idempotency_key(**kw)
+
+            def get_next_sequence_no(self, **kw):
+                return self._real.get_next_sequence_no(**kw)
+
+            def append_if_absent(self, *, event, idempotency_key):
+                self._call += 1
+                if self._call == 1:
+                    result = self._real.append_if_absent(
+                        event=event, idempotency_key=idempotency_key,
+                    )
+                    self.call_log.append((1, result[1]))
+                    return result
+                # Second call: pre-insert via real repo in a nested savepoint,
+                # then call real append again → returns (existing, False)
+                self._real.append_if_absent(
+                    event=event, idempotency_key=idempotency_key,
+                )
+                result = self._real.append_if_absent(
+                    event=event, idempotency_key=idempotency_key,
+                )
+                self.call_log.append((2, result[1]))
+                return result
+
+        with factory() as db:
+            real_repo = ProjectDirectorDiscussionEventRepository(db)
+            proxy = MixedInsertRepo(real_repo, db)
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc._events = proxy
+
+            with pytest.raises(ValueError, match="discussion_delta_apply_partial_replay"):
+                svc.apply_delta(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=assistant_msg(),
+                    available_messages=[user_msg()],
+                    delta=delta,
+                )
+            db.rollback()
+
+        # Verify proxy actually entered mixed branch
+        assert len(proxy.call_log) == 2
+        assert proxy.call_log[0] == (1, True)   # first: inserted
+        assert proxy.call_log[1] == (2, False)  # second: not inserted
+
+        # Savepoint rolled back everything
+        with factory() as db:
+            assert _count_events(db, SESSION_ID) == 0
+            assert _count_workspaces(db) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 20. Exact concurrent replay — real branch (§9)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestExactConcurrentReplayRealBranch:
+    def test_preflight_miss_append_returns_existing(self, factory):
+        """Preflight sees nothing, but append returns existing events → REPLAYED."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        delta = make_delta(make_operation())
+        gate = ProjectDirectorDiscussionDeltaGateService()
+        result = gate.evaluate_delta(
+            session_id=SESSION_ID, project_id=None,
+            assistant_message=assistant_msg(),
+            available_messages=[user_msg()],
+            current_events=[], current_workspace=None,
+            delta=delta, start_sequence_no=1,
+        )
+
+        # Pre-persist event and workspace
+        with factory() as db:
+            event_repo = ProjectDirectorDiscussionEventRepository(db)
+            ws_repo = ProjectDirectorDiscussionWorkspaceRepository(db)
+            prepared = result.prepared_events[0]
+            event_repo.append_if_absent(
+                event=prepared.event, idempotency_key=prepared.idempotency_key,
+            )
+            empty_ws = ProjectDirectorDiscussionWorkspaceReducerService().rebuild_workspace(
+                session_id=SESSION_ID, project_id=None, events=[], version_no=0,
+                created_at=FIXED_TIME, updated_at=FIXED_TIME,
+            )
+            ws_repo.create_if_absent(workspace=empty_ws)
+            projected_ws = ProjectDirectorDiscussionWorkspaceReducerService().rebuild_workspace(
+                session_id=SESSION_ID, project_id=None,
+                events=[prepared.event], version_no=1,
+                created_at=FIXED_TIME, updated_at=FIXED_TIME,
+            )
+            ws_repo.update_if_version(workspace=projected_ws, expected_version_no=0)
+            db.commit()
+
+        # Proxy: hide from preflight reads, let append see real DB
+        preflight_calls = {"list": 0, "idem": 0, "ws": 0}
+
+        class HideFromPreflightEventRepo:
+            def __init__(self, real):
+                self._real = real
+
+            def list_by_session_id(self, **kw):
+                preflight_calls["list"] += 1
+                if preflight_calls["list"] == 1:
+                    return []  # stale preflight
+                return self._real.list_by_session_id(**kw)
+
+            def get_by_idempotency_key(self, **kw):
+                preflight_calls["idem"] += 1
+                if preflight_calls["idem"] <= len(delta.operations):
+                    return None  # stale preflight
+                return self._real.get_by_idempotency_key(**kw)
+
+            def get_next_sequence_no(self, **kw):
+                return 1  # stale
+
+            def append_if_absent(self, **kw):
+                return self._real.append_if_absent(**kw)
+
+        class HideFromPreflightWSRepo:
+            def __init__(self, real):
+                self._real = real
+
+            def get_by_session_id(self, **kw):
+                preflight_calls["ws"] += 1
+                if preflight_calls["ws"] == 1:
+                    return None  # stale preflight
+                return self._real.get_by_session_id(**kw)
+
+            def create_if_absent(self, **kw):
+                return self._real.create_if_absent(**kw)
+
+            def update_if_version(self, **kw):
+                return self._real.update_if_version(**kw)
+
+        with factory() as db:
+            real_event_repo = ProjectDirectorDiscussionEventRepository(db)
+            real_ws_repo = ProjectDirectorDiscussionWorkspaceRepository(db)
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc._events = HideFromPreflightEventRepo(real_event_repo)
+            svc._workspaces = HideFromPreflightWSRepo(real_ws_repo)
+
+            r = svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=delta,
+            )
+            assert r.status is DiscussionDeltaApplyStatus.REPLAYED
+            assert r.inserted_event_count == 0
+            assert r.workspace_changed is False
+            assert all(not pe.inserted for pe in r.persisted_events)
+            assert r.workspace.version_no == 1
+            assert r.workspace.last_event_sequence_no == 1
+            db.rollback()
+
+        # Verify proxy actually hid preflight
+        assert preflight_calls["list"] >= 1
+        assert preflight_calls["idem"] >= 1
+        assert preflight_calls["ws"] >= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 21. Workspace cursor mismatch (§10)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestReplayWorkspaceCursorMismatch:
+    def test_cursor_less_than_event_sequence(self, factory):
+        """Workspace cursor < replay event sequence → mismatch error."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        delta = make_delta(make_operation())
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=delta,
+            )
+            db.commit()
+
+        # Tamper workspace cursor to 0
+        with factory() as db:
+            ws_row = _get_workspace(db)
+            assert ws_row is not None
+            ws_row.last_event_sequence_no = 0
+            db.commit()
+
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            with pytest.raises(ValueError, match="discussion_delta_apply_replay_workspace_mismatch"):
+                svc.apply_delta(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=assistant_msg(),
+                    available_messages=[user_msg()],
+                    delta=delta,
+                )
+            db.rollback()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 22. Workspace projection mismatch (§11)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestReplayWorkspaceProjectionMismatch:
+    def test_tampered_topic(self, factory):
+        """Workspace topic tampered → projection mismatch on replay."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        delta = make_delta(
+            make_operation(op=DiscussionDeltaOperationType.SET_TOPIC, content="正确主题"),
+        )
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=delta,
+            )
+            db.commit()
+
+        # Tamper topic
+        with factory() as db:
+            ws_row = _get_workspace(db)
+            assert ws_row is not None
+            ws_row.topic = "tampered"
+            db.commit()
+
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            with pytest.raises(ValueError, match="discussion_delta_apply_replay_workspace_mismatch"):
+                svc.apply_delta(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=assistant_msg(),
+                    available_messages=[user_msg()],
+                    delta=delta,
+                )
+            db.rollback()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 23. Sequential replay immutability (§12)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestReplayImmutability:
+    def test_replay_preserves_all_db_state(self, factory):
+        """Replay must not change any DB state."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        delta = make_delta(make_operation())
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=delta,
+            )
+            db.commit()
+
+        # Snapshot DB state
+        with factory() as db:
+            event_count_before = _count_events(db, SESSION_ID)
+            msg_count_before = _count_messages(db, SESSION_ID)
+            ws_row = _get_workspace(db)
+            ws_version_before = ws_row.version_no
+            ws_cursor_before = ws_row.last_event_sequence_no
+            ws_updated_at_before = ws_row.updated_at
+            ws_topic_before = ws_row.topic
+            ws_state_before = ws_row.state_json
+            # Read event details
+            event_rows = db.execute(
+                select(ProjectDirectorDiscussionEventTable)
+                .where(ProjectDirectorDiscussionEventTable.session_id == SESSION_ID)
+            ).scalars().all()
+            event_payloads_before = [r.payload_json for r in event_rows]
+            event_created_ats_before = [r.created_at for r in event_rows]
+
+        # Replay
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            r = svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=delta,
+            )
+            assert r.status is DiscussionDeltaApplyStatus.REPLAYED
+            db.rollback()
+
+        # Verify DB unchanged
+        with factory() as db:
+            assert _count_events(db, SESSION_ID) == event_count_before
+            assert _count_messages(db, SESSION_ID) == msg_count_before
+            ws_row = _get_workspace(db)
+            assert ws_row.version_no == ws_version_before
+            assert ws_row.last_event_sequence_no == ws_cursor_before
+            assert ws_row.updated_at == ws_updated_at_before
+            assert ws_row.topic == ws_topic_before
+            assert ws_row.state_json == ws_state_before
+            event_rows = db.execute(
+                select(ProjectDirectorDiscussionEventTable)
+                .where(ProjectDirectorDiscussionEventTable.session_id == SESSION_ID)
+            ).scalars().all()
+            assert [r.payload_json for r in event_rows] == event_payloads_before
+            assert [r.created_at for r in event_rows] == event_created_ats_before
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 24. Gate identity helper — extended (§13)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestGateIdentityExtended:
+    def test_supersede_operation_identity(self):
+        """Identity for set_topic supersedes matches evaluate_delta."""
+        gate = ProjectDirectorDiscussionDeltaGateService()
+        topic_evt = DiscussionEvent(
+            id=uuid4(), session_id=SESSION_ID, project_id=None,
+            sequence_no=1, event_type=DiscussionEventType.TOPIC_SET,
+            subject_key="topic", content="旧", status=DiscussionEventStatus.ACTIVE,
+            payload={}, source_message_ids=[SYSTEM_ID],
+            created_by=DiscussionActorClaim.SYSTEM_FACT, confidence=1.0,
+            created_at=FIXED_TIME,
+        )
+        delta = make_delta(make_operation(
+            op=DiscussionDeltaOperationType.SET_TOPIC,
+            supersedes_event_id=topic_evt.id, content="新",
+        ))
+        identities = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=delta,
+        )
+        result = gate.evaluate_delta(
+            session_id=SESSION_ID, project_id=None,
+            assistant_message=assistant_msg(),
+            available_messages=[user_msg()],
+            current_events=[topic_evt], current_workspace=None,
+            delta=delta, start_sequence_no=2,
+        )
+        assert identities[0].event_id == result.prepared_events[0].event.id
+        assert identities[0].idempotency_key == result.prepared_events[0].idempotency_key
+
+    def test_payload_key_ordering_same_identity(self):
+        """Payload key order doesn't affect identity."""
+        gate = ProjectDirectorDiscussionDeltaGateService()
+        d1 = make_delta(make_operation(payload={"a": 1, "b": 2}))
+        d2 = make_delta(make_operation(payload={"b": 2, "a": 1}))
+        i1 = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=d1,
+        )
+        i2 = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=d2,
+        )
+        assert i1[0].event_id == i2[0].event_id
+        assert i1[0].idempotency_key == i2[0].idempotency_key
+
+    def test_uuid_string_vs_object_same_identity(self):
+        """UUID object and equivalent string produce same identity."""
+        gate = ProjectDirectorDiscussionDeltaGateService()
+        oid = uuid4()
+        d1 = make_delta(make_operation(
+            op=DiscussionDeltaOperationType.ADD_OPTION,
+            target_id=oid, payload={"option_id": oid},
+        ))
+        d2 = make_delta(make_operation(
+            op=DiscussionDeltaOperationType.ADD_OPTION,
+            target_id=oid, payload={"option_id": str(oid)},
+        ))
+        i1 = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=d1,
+        )
+        i2 = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=d2,
+        )
+        assert i1[0].event_id == i2[0].event_id
+        assert i1[0].idempotency_key == i2[0].idempotency_key
+
+    def test_subject_key_trim_same_identity(self):
+        """Leading/trailing spaces in subject_key are trimmed to same identity."""
+        gate = ProjectDirectorDiscussionDeltaGateService()
+        d1 = make_delta(make_operation(subject_key="  custom-key  "))
+        d2 = make_delta(make_operation(subject_key="custom-key"))
+        i1 = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=d1,
+        )
+        i2 = gate.prepare_replay_identities(
+            session_id=SESSION_ID, assistant_message=assistant_msg(), delta=d2,
+        )
+        assert i1[0].event_id == i2[0].event_id
+        assert i1[0].idempotency_key == i2[0].idempotency_key
+
+    def test_unsupported_operation_rejected(self, monkeypatch):
+        """Removing an operation from the mapping → not_supported for both paths."""
+        from app.services.project_director_discussion_delta_gate_service import (
+            _OPERATION_EVENT_TYPES,
+        )
+        removed = _OPERATION_EVENT_TYPES.pop(DiscussionDeltaOperationType.ADD_CONCERN)
+        try:
+            gate = ProjectDirectorDiscussionDeltaGateService()
+            delta = make_delta(make_operation(op=DiscussionDeltaOperationType.ADD_CONCERN))
+            with pytest.raises(ValueError, match="discussion_delta_operation_not_supported"):
+                gate.prepare_replay_identities(
+                    session_id=SESSION_ID, assistant_message=assistant_msg(), delta=delta,
+                )
+            with pytest.raises(ValueError, match="discussion_delta_operation_not_supported"):
+                gate.evaluate_delta(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=assistant_msg(),
+                    available_messages=[user_msg()],
+                    current_events=[], current_workspace=None,
+                    delta=delta, start_sequence_no=1,
+                )
+        finally:
+            _OPERATION_EVENT_TYPES[DiscussionDeltaOperationType.ADD_CONCERN] = removed
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 25. Error propagation — extended (§14)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestErrorPropagationExtended:
+    def test_source_message_session_mismatch(self, factory):
+        """available_messages with wrong session_id → source_message_session_mismatch."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        other_session = uuid4()
+        wrong_msg = make_message(
+            message_id=uuid4(), session_id=other_session,
+            role=ProjectDirectorMessageRole.USER,
+        )
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            with pytest.raises(ValueError, match="discussion_delta_source_message_session_mismatch"):
+                svc.apply_delta(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=assistant_msg(),
+                    available_messages=[wrong_msg],
+                    delta=make_delta(make_operation(
+                        source_message_ids=[wrong_msg.id],
+                    )),
+                )
+            db.rollback()
+
+    def test_repo_source_message_session_mismatch(self, factory):
+        """Repository-level source session mismatch propagates unchanged."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        class SourceMismatchRepo:
+            """Proxy that makes append_if_absent raise source_message_session_mismatch."""
+            def __init__(self, real):
+                self._real = real
+
+            def list_by_session_id(self, **kw):
+                return self._real.list_by_session_id(**kw)
+
+            def get_by_idempotency_key(self, **kw):
+                return self._real.get_by_idempotency_key(**kw)
+
+            def get_next_sequence_no(self, **kw):
+                return self._real.get_next_sequence_no(**kw)
+
+            def append_if_absent(self, **kw):
+                raise ValueError("discussion_event_source_message_session_mismatch")
+
+        with factory() as db:
+            real_repo = ProjectDirectorDiscussionEventRepository(db)
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc._events = SourceMismatchRepo(real_repo)
+
+            with pytest.raises(ValueError, match="discussion_event_source_message_session_mismatch"):
+                svc.apply_delta(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=assistant_msg(),
+                    available_messages=[user_msg()],
+                    delta=make_delta(make_operation()),
+                )
+            db.rollback()
+
+    def test_workspace_project_session_mismatch_not_mapped(self, factory):
+        """workspace_project_session_mismatch is NOT mapped to concurrent_workspace_conflict."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        class ProjectMismatchWSRepo:
+            def __init__(self, real):
+                self._real = real
+
+            def get_by_session_id(self, **kw):
+                return self._real.get_by_session_id(**kw)
+
+            def create_if_absent(self, **kw):
+                raise ValueError("discussion_workspace_project_session_mismatch")
+
+            def update_if_version(self, **kw):
+                return self._real.update_if_version(**kw)
+
+        with factory() as db:
+            real_ws = ProjectDirectorDiscussionWorkspaceRepository(db)
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc._workspaces = ProjectMismatchWSRepo(real_ws)
+
+            with pytest.raises(ValueError, match="discussion_workspace_project_session_mismatch"):
+                svc.apply_delta(
+                    session_id=SESSION_ID, project_id=None,
+                    assistant_message=assistant_msg(),
+                    available_messages=[user_msg()],
+                    delta=make_delta(make_operation()),
+                )
+            db.rollback()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 26. REPLAYED input immutability (§15)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestReplayedInputImmutability:
+    def test_inputs_unchanged_after_replayed(self, factory):
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        # First apply
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=make_delta(make_operation()),
+            )
+            db.commit()
+
+        # Replay with input snapshots
+        msg = assistant_msg()
+        delta = make_delta(make_operation())
+        msgs = [user_msg()]
+        before = (
+            msg.model_dump(mode="python"),
+            delta.model_dump(mode="python"),
+            [m.model_dump(mode="python") for m in msgs],
+        )
+
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            r = svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=msg, available_messages=msgs, delta=delta,
+            )
+            assert r.status is DiscussionDeltaApplyStatus.REPLAYED
+            after = (
+                msg.model_dump(mode="python"),
+                delta.model_dump(mode="python"),
+                [m.model_dump(mode="python") for m in msgs],
+            )
+            assert after == before
+            db.rollback()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 27. Frozen contract — actual field assignment (§16)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestFrozenContractActual:
+    def test_applied_event_field_assignment_raises(self, factory):
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            result = svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=make_delta(make_operation()),
+            )
+            pe = result.persisted_events[0]
+            with pytest.raises(FrozenInstanceError):
+                pe.operation_index = 99
+            with pytest.raises(FrozenInstanceError):
+                pe.inserted = False
+            with pytest.raises(FrozenInstanceError):
+                pe.idempotency_key = "changed"
+            db.rollback()
+
+    def test_identity_field_assignment_raises(self):
+        ident = DiscussionDeltaOperationIdentity(
+            operation_index=0, event_id=uuid4(), idempotency_key="key",
+        )
+        with pytest.raises(FrozenInstanceError):
+            ident.operation_index = 1
+        with pytest.raises(FrozenInstanceError):
+            ident.event_id = uuid4()
+        with pytest.raises(FrozenInstanceError):
+            ident.idempotency_key = "changed"
+
+    def test_apply_result_field_assignment_raises(self, factory):
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            result = svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=make_delta(make_operation()),
+            )
+            with pytest.raises(FrozenInstanceError):
+                result.status = DiscussionDeltaApplyStatus.NO_CHANGES
+            with pytest.raises(FrozenInstanceError):
+                result.inserted_event_count = 0
+            with pytest.raises(FrozenInstanceError):
+                result.workspace_changed = False
+            db.rollback()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 28. Workspace version/cursor unchanged on replay (extra assertion)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestReplayWorkspaceUnchanged:
+    def test_replay_does_not_advance_version_or_cursor(self, factory):
+        """Replay must return exact same workspace version/cursor/updated_at."""
+        with factory() as db:
+            _seed_session(db)
+            _seed_message(db, SESSION_ID, message_id=USER_ID)
+            _seed_message(db, SESSION_ID, message_id=ASSISTANT_ID,
+                          role=ProjectDirectorMessageRole.ASSISTANT)
+            db.commit()
+
+        delta = make_delta(make_operation())
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=delta,
+            )
+            db.commit()
+
+        with factory() as db:
+            ws_row = _get_workspace(db)
+            orig_version = ws_row.version_no
+            orig_cursor = ws_row.last_event_sequence_no
+            orig_updated = ws_row.updated_at
+
+        with factory() as db:
+            svc = ProjectDirectorDiscussionDeltaApplyService(session=db)
+            r = svc.apply_delta(
+                session_id=SESSION_ID, project_id=None,
+                assistant_message=assistant_msg(),
+                available_messages=[user_msg()],
+                delta=delta,
+            )
+            assert r.status is DiscussionDeltaApplyStatus.REPLAYED
+            assert r.workspace.version_no == orig_version
+            assert r.workspace.last_event_sequence_no == orig_cursor
+            # updated_at must not change
+            ws_row = _get_workspace(db)
+            assert ws_row.updated_at == orig_updated
+            db.rollback()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Helpers for factory fixture reuse
 # ═══════════════════════════════════════════════════════════════════════════
 
