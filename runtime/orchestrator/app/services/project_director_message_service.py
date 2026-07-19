@@ -9,7 +9,7 @@ repository writes.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from uuid import UUID, uuid4
 
@@ -19,6 +19,11 @@ from app.domain.project_director_conversation_router import (
     RouteDecision,
     SafetyRiskLevel,
 )
+from app.domain.project_director_conversation_intelligence import (
+    ConversationMode,
+    DirectorResponseSource,
+)
+from app.domain.project_director_semantic_turn import TurnInterpretationOutcome
 from app.domain.project_director_action_proposal import (
     DirectorActionProposal,
     DirectorActionProposalBuilder,
@@ -63,6 +68,9 @@ from app.services.project_director_context_assembler_service import (
     DirectorContextAssembly,
 )
 from app.services.provider_config_service import ProviderConfigService
+from app.services.project_director_turn_interpreter_service import (
+    ProjectDirectorTurnInterpreterService,
+)
 
 
 ProviderTextGenerator = Callable[[str, str, str], tuple[str, str | None]]
@@ -325,6 +333,7 @@ class ProjectDirectorMessageService:
         context_builder: ProjectDirectorContextBuilderService | None = None,
         provider_config_service: ProviderConfigService | None = None,
         provider_text_generator: ProviderTextGenerator | None = None,
+        turn_interpreter: ProjectDirectorTurnInterpreterService | None = None,
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
@@ -334,6 +343,7 @@ class ProjectDirectorMessageService:
         )
         self._provider_config_service = provider_config_service
         self._provider_text_generator = provider_text_generator
+        self._turn_interpreter = turn_interpreter
 
     def list_messages(
         self,
@@ -374,9 +384,18 @@ class ProjectDirectorMessageService:
             )
         )
 
-        route_decision = ConversationRouter.classify(
+        runtime_config = self._resolve_runtime_config()
+        interpretation_outcome = self._interpret_turn(
+            content=trimmed_content,
+            runtime_config=runtime_config,
+        )
+        legacy_route = ConversationRouter.classify(
             content=trimmed_content,
             current_session_exists=True,
+        )
+        route_decision = self._build_effective_route_decision(
+            legacy_route=legacy_route,
+            interpretation_outcome=interpretation_outcome,
         )
         challenge_seed = self._build_challenge_seed(
             user_content=trimmed_content,
@@ -407,6 +426,12 @@ class ProjectDirectorMessageService:
             challenge_seed=challenge_seed,
             action_proposal=action_proposal,
             conversion_draft=conversion_draft,
+            runtime_config=runtime_config,
+            interpretation_outcome=interpretation_outcome,
+        )
+        assistant_reply = self._with_semantic_metadata(
+            assistant_reply,
+            interpretation_outcome=interpretation_outcome,
         )
 
         assistant_message = self._message_repository.create(
@@ -612,6 +637,153 @@ class ProjectDirectorMessageService:
             return True
         return False
 
+    def _resolve_runtime_config(self) -> object | None:
+        provider_config_service = (
+            self._provider_config_service or ProviderConfigService()
+        )
+        try:
+            return provider_config_service.resolve_openai_runtime_config()
+        except Exception:  # noqa: BLE001 - chat must degrade safely
+            return None
+
+    def _interpret_turn(
+        self,
+        *,
+        content: str,
+        runtime_config: object | None,
+    ) -> TurnInterpretationOutcome:
+        model_name = "gpt-5.5"
+        if runtime_config is not None:
+            model_names = getattr(runtime_config, "model_names", {})
+            model_name = model_names.get(
+                "balanced",
+                next(iter(model_names.values()), model_name),
+            )
+
+        if runtime_config is None or not getattr(runtime_config, "api_key", None):
+            interpreter = ProjectDirectorTurnInterpreterService()
+        elif self._turn_interpreter is not None:
+            interpreter = self._turn_interpreter
+        else:
+            interpreter = ProjectDirectorTurnInterpreterService(
+                provider_text_generator=self._provider_text_generator
+                or (
+                    lambda configured_model, prompt, request_id: self._call_provider_text(
+                        runtime_config=runtime_config,
+                        model_name=configured_model,
+                        prompt_text=prompt,
+                        request_id=request_id,
+                    )
+                ),
+            )
+
+        return interpreter.interpret(
+            content=content,
+            model_name=model_name,
+            request_id=f"project-director-interpretation-{uuid4().hex[:12]}",
+        )
+
+    @staticmethod
+    def _build_effective_route_decision(
+        *,
+        legacy_route: RouteDecision,
+        interpretation_outcome: TurnInterpretationOutcome,
+    ) -> RouteDecision:
+        interpretation = interpretation_outcome.interpretation
+        mode = interpretation.conversation_mode
+        effective_intent = legacy_route.intent
+
+        if (
+            mode == ConversationMode.ACTION_REQUEST
+            and interpretation.formal_action_requested
+            and not interpretation.hypothetical_action
+        ):
+            effective_intent = ConversationIntent.REQUEST_ACTION
+        elif (
+            mode == ConversationMode.FORMALIZATION_REQUEST
+            and interpretation.formal_action_requested
+        ):
+            effective_intent = ConversationIntent.REQUEST_PLAN_CHANGE
+        elif (
+            interpretation.hypothetical_action
+            and not interpretation.formal_action_requested
+        ):
+            effective_intent = ConversationIntent.GENERAL_DISCUSSION
+        elif (
+            mode == ConversationMode.OPTION_COMPARISON
+            and not interpretation.formal_action_requested
+        ):
+            effective_intent = ConversationIntent.GENERAL_DISCUSSION
+        elif mode in {
+            ConversationMode.GENERAL_DISCUSSION,
+            ConversationMode.SOLUTION_EXPLORATION,
+            ConversationMode.CLARIFICATION,
+            ConversationMode.PREFERENCE_UPDATE,
+            ConversationMode.DECISION_CONFIRMATION,
+        } and not interpretation.formal_action_requested:
+            if legacy_route.intent in {
+                ConversationIntent.REQUEST_ACTION,
+                ConversationIntent.REQUEST_PLAN_CHANGE,
+            }:
+                effective_intent = ConversationIntent.GENERAL_DISCUSSION
+        elif mode == ConversationMode.STATUS_QUERY:
+            readonly_intents = {
+                ConversationIntent.ASK_CURRENT_CONTEXT,
+                ConversationIntent.ASK_PLAN,
+                ConversationIntent.ASK_RISKS,
+                ConversationIntent.ASK_NEXT_STEP,
+                ConversationIntent.ASK_INBOX,
+                ConversationIntent.ASK_CONVERSATION_LIST,
+                ConversationIntent.ASK_TASK_OR_RUN,
+                ConversationIntent.NAVIGATION_HELP,
+            }
+            effective_intent = (
+                legacy_route.intent
+                if legacy_route.intent in readonly_intents
+                else ConversationIntent.ASK_CURRENT_CONTEXT
+            )
+        elif mode == ConversationMode.CHALLENGE:
+            effective_intent = ConversationIntent.CHALLENGE_PLAN
+        elif mode == ConversationMode.CONSTRAINT_UPDATE:
+            effective_intent = (
+                ConversationIntent.REQUEST_PLAN_CHANGE
+                if interpretation.formal_action_requested
+                else ConversationIntent.GENERAL_DISCUSSION
+            )
+
+        return ConversationRouter.build_decision_for_intent(
+            intent=effective_intent,
+            confidence=interpretation.confidence,
+            reason=(
+                "p26_semantic_overlay; "
+                f"mode={mode.value}; legacy_intent={legacy_route.intent.value}"
+            ),
+            should_call_provider=True,
+        )
+
+    @classmethod
+    def _with_semantic_metadata(
+        cls,
+        reply: ChatGenerationResult,
+        *,
+        interpretation_outcome: TurnInterpretationOutcome,
+    ) -> ChatGenerationResult:
+        metadata = (
+            f"semantic_source={interpretation_outcome.source.value}; "
+            f"semantic_mode={interpretation_outcome.interpretation.conversation_mode.value}; "
+            "semantic_conflict="
+            f"{str(interpretation_outcome.risk_semantic_conflict).lower()}"
+        )
+        if interpretation_outcome.fallback_reason:
+            metadata += (
+                "; semantic_fallback_reason="
+                f"{interpretation_outcome.fallback_reason}"
+            )
+        separator = "; " if reply.source_detail else ""
+        available = 300 - len(separator) - len(metadata)
+        base = reply.source_detail[: max(0, available)]
+        return replace(reply, source_detail=f"{base}{separator}{metadata}"[:300])
+
     def _ensure_session_exists(self, session_id: UUID):
         session_obj = self._session_repository.get_by_id(session_id)
         if session_obj is None:
@@ -662,13 +834,10 @@ class ProjectDirectorMessageService:
         challenge_seed: UserChallengeSeed | None,
         action_proposal: DirectorActionProposal | None,
         conversion_draft: ConversationConversionDraft | None,
+        runtime_config: object | None,
+        interpretation_outcome: TurnInterpretationOutcome,
     ) -> ChatGenerationResult:
-        provider_config_service = (
-            self._provider_config_service or ProviderConfigService()
-        )
-        try:
-            runtime_config = provider_config_service.resolve_openai_runtime_config()
-        except Exception as exc:  # noqa: BLE001 - config failures must fallback safely
+        if runtime_config is None:
             return self._apply_route_safety(
                 ChatGenerationResult(
                     content=self._build_fallback_reply(
@@ -680,13 +849,14 @@ class ProjectDirectorMessageService:
                         challenge_seed=challenge_seed,
                         action_proposal=action_proposal,
                         conversion_draft=conversion_draft,
-                        reason=f"provider_config_unavailable:{exc}",
+                        reason="provider_config_unavailable",
                     ),
                     source=ProjectDirectorMessageSource.RULE_FALLBACK,
                     source_detail=self._truncate_source_detail(
                         self._source_detail_with_context_note(
                             self._source_detail_with_challenge_and_proposal(
-                                f"stage_7_e4_rule_fallback; reason=provider_config_unavailable:{exc}",
+                                "stage_7_e4_rule_fallback; "
+                                "reason=provider_config_unavailable",
                                 challenge_seed,
                                 action_proposal,
                                 conversion_draft,
@@ -721,6 +891,40 @@ class ProjectDirectorMessageService:
                     source_detail=self._source_detail_with_context_note(
                         self._source_detail_with_challenge_and_proposal(
                             "stage_7_e4_rule_fallback; reason=provider_not_configured",
+                            challenge_seed,
+                            action_proposal,
+                            conversion_draft,
+                        ),
+                        context_note,
+                    ),
+                    related_plan_version_id=self._context_plan_version_id(context),
+                    forbidden_actions_detected=list(_FORBIDDEN_MESSAGE_ACTIONS),
+                ),
+                route_decision=route_decision,
+                challenge_seed=challenge_seed,
+                action_proposal=action_proposal,
+                conversion_draft=conversion_draft,
+            )
+
+        if interpretation_outcome.source != DirectorResponseSource.PROVIDER:
+            return self._apply_route_safety(
+                ChatGenerationResult(
+                    content=self._build_fallback_reply(
+                        user_content=user_content,
+                        context=context,
+                        route_decision=route_decision,
+                        assembly=assembly,
+                        context_note=context_note,
+                        challenge_seed=challenge_seed,
+                        action_proposal=action_proposal,
+                        conversion_draft=conversion_draft,
+                        reason="semantic_interpretation_unavailable",
+                    ),
+                    source=ProjectDirectorMessageSource.RULE_FALLBACK,
+                    source_detail=self._source_detail_with_context_note(
+                        self._source_detail_with_challenge_and_proposal(
+                            "stage_7_e4_rule_fallback; "
+                            "reason=semantic_interpretation_unavailable",
                             challenge_seed,
                             action_proposal,
                             conversion_draft,
@@ -1138,11 +1342,9 @@ class ProjectDirectorMessageService:
             content=cls._sanitize_user_visible_text(reply.content)[:10_000],
             source=reply.source,
             source_detail=cls._truncate_source_detail(reply.source_detail),
-            intent=cls._message_intent_for_route(
-                route_decision,
-                challenge_seed,
-                action_proposal,
-                conversion_draft,
+            intent=_INTENT_TO_MESSAGE_INTENT.get(
+                route_decision.intent,
+                "general_discussion",
             ),
             related_plan_version_id=reply.related_plan_version_id,
             suggested_actions=cls._filter_suggested_actions_for_route(

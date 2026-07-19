@@ -223,6 +223,24 @@ class ConversationRouter:
         )
 
     @classmethod
+    def build_decision_for_intent(
+        cls,
+        *,
+        intent: ConversationIntent,
+        confidence: float,
+        reason: str,
+        should_call_provider: bool,
+    ) -> RouteDecision:
+        """Build a compatible decision without re-running keyword classification."""
+
+        return cls._build_decision(
+            intent=intent,
+            confidence=confidence,
+            reason=reason,
+            should_call_provider=should_call_provider,
+        )
+
+    @classmethod
     def _match_intent(cls, normalized: str) -> tuple[ConversationIntent, str | None]:
         """Return the highest-priority matching intent and keyword."""
 
