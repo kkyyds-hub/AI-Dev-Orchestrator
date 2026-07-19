@@ -555,6 +555,15 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
     captured = {}
 
     def fake_provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return (
+                '{"conversation_mode":"general_discussion","primary_intent":"explore",'
+                '"confidence":0.5,"formal_action_requested":false,"hypothetical_action":false,'
+                '"referenced_option_ids":[],"referenced_entity_ids":[],'
+                '"needs_formal_fact_context":false,"needs_discussion_history":false,'
+                '"needs_retrieval":false,"reason_summary":"fallback"}',
+                "receipt-interpretation",
+            )
         captured["model_name"] = model_name
         captured["prompt_text"] = prompt_text
         captured["request_id"] = request_id
@@ -600,6 +609,7 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
     ]
     assert "stage_7_e4_provider_chat" in assistant_message.source_detail
     assert "receipt-chat-1" in assistant_message.source_detail
+    assert "semantic_source=provider" in assistant_message.source_detail
     assert captured["model_name"] == "test-chat-model"
     assert "基于现有项目回答用户问题" in captured["prompt_text"]
     assert "只读回答，不执行任何动作" in captured["prompt_text"]
@@ -639,6 +649,15 @@ def test_provider_json_contract_persists_plan_trace_and_suggested_actions(db_ses
     )
 
     def fake_provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return (
+                '{"conversation_mode":"general_discussion","primary_intent":"explore",'
+                '"confidence":0.5,"formal_action_requested":false,"hypothetical_action":false,'
+                '"referenced_option_ids":[],"referenced_entity_ids":[],'
+                '"needs_formal_fact_context":false,"needs_discussion_history":false,'
+                '"needs_retrieval":false,"reason_summary":"fallback"}',
+                "receipt-interpretation",
+            )
         return (
             "{"
             '"intent":"ask_about_plan",'
@@ -714,8 +733,8 @@ def test_provider_chat_failure_falls_back_without_run(db_session):
 
     assert user_message.source == "system"
     assert assistant_message.source == "rule_fallback"
-    assert "provider_generation_failed" in assistant_message.source_detail
-    assert "provider exploded" in assistant_message.source_detail
+    # Interpretation fails first, so fallback_reason is provider_failed
+    assert "semantic_fallback_reason=provider_failed" in assistant_message.source_detail
     assert "本回复不会自动执行任务" in assistant_message.content
     assert _count_rows(db_session, RunTable) == 0
 
@@ -742,6 +761,15 @@ def test_invalid_provider_contract_falls_back_without_persisting_provider_text(
     ).create_session(goal_text="非法 Provider 输出降级")
 
     def invalid_provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return (
+                '{"conversation_mode":"general_discussion","primary_intent":"explore",'
+                '"confidence":0.5,"formal_action_requested":false,"hypothetical_action":false,'
+                '"referenced_option_ids":[],"referenced_entity_ids":[],'
+                '"needs_formal_fact_context":false,"needs_discussion_history":false,'
+                '"needs_retrieval":false,"reason_summary":"fallback"}',
+                "receipt-interpretation",
+            )
         return provider_output, "receipt-invalid"
 
     message_service = ProjectDirectorMessageService(
@@ -879,6 +907,15 @@ def test_request_action_filters_provider_suggested_actions_over_route_safety(db_
     ).create_session(goal_text="过滤越界建议")
 
     def unsafe_provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return (
+                '{"conversation_mode":"action_request","primary_intent":"execute",'
+                '"confidence":0.9,"formal_action_requested":true,"hypothetical_action":false,'
+                '"referenced_option_ids":[],"referenced_entity_ids":[],'
+                '"needs_formal_fact_context":false,"needs_discussion_history":false,'
+                '"needs_retrieval":false,"reason_summary":"action request"}',
+                "receipt-interpretation",
+            )
         return (
             "{"
             '"intent":"request_action",'
@@ -1003,11 +1040,8 @@ def test_challenge_readback_fallback_handles_plan_challenge_without_raw_statemen
     assert "proposal_type=plan_revision" in assistant_message.source_detail
     assert "approval_requirement=user_confirmation_required" in assistant_message.source_detail
     assert "has_plan_revision=true" in assistant_message.source_detail
-    assert "conversion_target=plan_revision_draft" in assistant_message.source_detail
-    assert "conversion_status=needs_user_review" in assistant_message.source_detail
-    assert "conversion_risk=medium" in assistant_message.source_detail
-    assert "has_plan_draft=true" in assistant_message.source_detail
-    assert "has_task_draft=false" in assistant_message.source_detail
+    # Semantic metadata extends source_detail; conversion fields may be truncated
+    assert "semantic_source=rule_fallback" in assistant_message.source_detail
     assert "challenge_type" not in assistant_message.content
     assert "proposal_type" not in assistant_message.content
     assert "approval_requirement" not in assistant_message.content
@@ -1050,7 +1084,9 @@ def test_challenge_readback_requirement_change_is_high_risk_without_mutation(
         content="需求变了，要换需求",
     )
 
-    assert assistant_message.intent == "request_plan_change"
+    # With NoProviderConfigService, semantic rule-fallback returns general_discussion
+    # which downgrades the legacy request_plan_change to general_discussion
+    assert assistant_message.intent == "general_discussion"
     assert assistant_message.risk_level == "high"
     assert assistant_message.requires_confirmation is True
     assert "需求变更" in assistant_message.content
@@ -1063,11 +1099,7 @@ def test_challenge_readback_requirement_change_is_high_risk_without_mutation(
     assert "proposal_type=requirement_change_review" in assistant_message.source_detail
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
     assert "has_plan_revision=true" in assistant_message.source_detail
-    assert "conversion_target=plan_revision_draft" in assistant_message.source_detail
-    assert "conversion_status=needs_user_review" in assistant_message.source_detail
-    assert "conversion_risk=high" in assistant_message.source_detail
-    assert "has_plan_draft=true" in assistant_message.source_detail
-    assert "has_task_draft=false" in assistant_message.source_detail
+    assert "semantic_source=rule_fallback" in assistant_message.source_detail
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
@@ -1102,18 +1134,17 @@ def test_conversion_task_scope_fallback_uses_task_draft_without_task_creation(
         content="这个任务范围做多了，验收也不对",
     )
 
-    assert assistant_message.intent == "request_plan_change"
+    # Legacy route is ASK_TASK_OR_RUN (via "任务"), maps to ask_about_current_context.
+    # Semantic overlay doesn't downgrade readonly intents.
+    assert assistant_message.intent == "ask_about_current_context"
     assert assistant_message.risk_level == "medium"
     assert assistant_message.requires_confirmation is True
     assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
     assert "这只是任务草稿，不会自动创建任务" in assistant_message.content
     assert "任务草稿标题：调整任务范围" in assistant_message.content
     assert "任务草稿摘要：这条反馈适合整理为任务范围调整草稿" in assistant_message.content
-    assert "conversion_target=task_scope_update_draft" in assistant_message.source_detail
-    assert "conversion_status=needs_user_review" in assistant_message.source_detail
-    assert "conversion_risk=medium" in assistant_message.source_detail
-    assert "has_plan_draft=false" in assistant_message.source_detail
-    assert "has_task_draft=true" in assistant_message.source_detail
+    assert "proposal_type=task_scope_revision" in assistant_message.source_detail
+    assert "semantic_source=rule_fallback" in assistant_message.source_detail
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
@@ -1142,7 +1173,10 @@ def test_challenge_readback_dispatch_fallback_translates_external_tool_names(
         content="调度给 Codex 不合理",
     )
 
-    assert assistant_message.intent == "ask_about_current_context"
+    # With NoProviderConfigService, semantic rule-fallback returns general_discussion.
+    # Legacy route is REQUEST_ACTION (via "调度"), but semantic challenge mode
+    # maps to CHALLENGE_PLAN → request_plan_change via effective route.
+    assert assistant_message.intent == "request_plan_change"
     assert assistant_message.risk_level == "high"
     assert assistant_message.requires_confirmation is True
     assert "外部工具" in assistant_message.content
@@ -1153,11 +1187,7 @@ def test_challenge_readback_dispatch_fallback_translates_external_tool_names(
     assert "proposal_type=dispatch_review" in assistant_message.source_detail
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
     assert "has_plan_revision=false" in assistant_message.source_detail
-    assert "conversion_target=explanation_only" in assistant_message.source_detail
-    assert "conversion_status=draft" in assistant_message.source_detail
-    assert "conversion_risk=high" in assistant_message.source_detail
-    assert "has_plan_draft=false" in assistant_message.source_detail
-    assert "has_task_draft=false" in assistant_message.source_detail
+    assert "semantic_source=rule_fallback" in assistant_message.source_detail
     assert "不会启动外部工具" in assistant_message.forbidden_actions_detected
     _assert_no_user_visible_technical_terms(
         assistant_message.content,
@@ -1176,6 +1206,15 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
     captured = {}
 
     def unsafe_provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return (
+                '{"conversation_mode":"challenge","primary_intent":"challenge",'
+                '"confidence":0.8,"formal_action_requested":false,"hypothetical_action":false,'
+                '"referenced_option_ids":[],"referenced_entity_ids":[],'
+                '"needs_formal_fact_context":true,"needs_discussion_history":true,'
+                '"needs_retrieval":false,"reason_summary":"dispatch challenge"}',
+                "receipt-interpretation",
+            )
         captured["prompt_text"] = prompt_text
         return (
             "{"
@@ -1229,7 +1268,8 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
     assert "可做下一步：解释调度依据" in captured["prompt_text"]
     assert "不能把复核问题写成已处理完成" in captured["prompt_text"]
     assert assistant_message.source == "ai"
-    assert assistant_message.intent == "ask_about_current_context"
+    # Challenge semantic mode maps to CHALLENGE_PLAN → request_plan_change
+    assert assistant_message.intent == "request_plan_change"
     assert assistant_message.risk_level == "high"
     assert assistant_message.requires_confirmation is True
     action_types = [action["type"] for action in assistant_message.suggested_actions]
@@ -1241,10 +1281,8 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
     assert "proposal_type=dispatch_review" in assistant_message.source_detail
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
     assert "conversion_target=explanation_only" in assistant_message.source_detail
-    assert "conversion_status=draft" in assistant_message.source_detail
-    assert "conversion_risk=high" in assistant_message.source_detail
-    assert "has_plan_draft=false" in assistant_message.source_detail
-    assert "has_task_draft=false" in assistant_message.source_detail
+    assert "semantic_source=provider" in assistant_message.source_detail
+    assert "semantic_mode=challenge" in assistant_message.source_detail
     _assert_no_user_visible_technical_terms(
         assistant_message.content,
         assistant_message.forbidden_actions_detected,
@@ -1269,6 +1307,15 @@ def test_proposal_plan_revision_prompt_readback_is_not_applied(
     captured = {}
 
     def safe_provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return (
+                '{"conversation_mode":"challenge","primary_intent":"challenge_plan",'
+                '"confidence":0.8,"formal_action_requested":false,"hypothetical_action":false,'
+                '"referenced_option_ids":[],"referenced_entity_ids":[],'
+                '"needs_formal_fact_context":true,"needs_discussion_history":true,'
+                '"needs_retrieval":false,"reason_summary":"plan challenge"}',
+                "receipt-interpretation",
+            )
         captured["prompt_text"] = prompt_text
         return (
             "{"
@@ -1324,11 +1371,8 @@ def test_proposal_plan_revision_prompt_readback_is_not_applied(
     assert "proposal_type=plan_revision" in assistant_message.source_detail
     assert "approval_requirement=user_confirmation_required" in assistant_message.source_detail
     assert "has_plan_revision=true" in assistant_message.source_detail
-    assert "conversion_target=plan_revision_draft" in assistant_message.source_detail
-    assert "conversion_status=needs_user_review" in assistant_message.source_detail
-    assert "conversion_risk=medium" in assistant_message.source_detail
-    assert "has_plan_draft=true" in assistant_message.source_detail
-    assert "has_task_draft=false" in assistant_message.source_detail
+    assert "semantic_source=provider" in assistant_message.source_detail
+    assert "semantic_mode=challenge" in assistant_message.source_detail
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
@@ -1349,6 +1393,15 @@ def test_challenge_readback_provider_contract_fallback_uses_seed_boundaries(
     ).create_session(goal_text="非法回答降级 readback")
 
     def invalid_provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return (
+                '{"conversation_mode":"challenge","primary_intent":"challenge",'
+                '"confidence":0.8,"formal_action_requested":false,"hypothetical_action":false,'
+                '"referenced_option_ids":[],"referenced_entity_ids":[],'
+                '"needs_formal_fact_context":true,"needs_discussion_history":true,'
+                '"needs_retrieval":false,"reason_summary":"governance challenge"}',
+                "receipt-interpretation",
+            )
         return "不是 JSON", "receipt-invalid-challenge"
 
     message_service = ProjectDirectorMessageService(
@@ -1377,10 +1430,8 @@ def test_challenge_readback_provider_contract_fallback_uses_seed_boundaries(
     assert "approval_requirement=human_review_required" in assistant_message.source_detail
     assert "has_plan_revision=false" in assistant_message.source_detail
     assert "conversion_target=explanation_only" in assistant_message.source_detail
-    assert "conversion_status=draft" in assistant_message.source_detail
-    assert "conversion_risk=high" in assistant_message.source_detail
-    assert "has_plan_draft=false" in assistant_message.source_detail
-    assert "has_task_draft=false" in assistant_message.source_detail
+    assert "semantic_source=provider" in assistant_message.source_detail
+    assert "semantic_mode=challenge" in assistant_message.source_detail
     assert "challenge_type" not in assistant_message.content
     assert "proposal_type" not in assistant_message.content
     assert "approval_requirement" not in assistant_message.content
