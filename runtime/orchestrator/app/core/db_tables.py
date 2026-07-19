@@ -9,6 +9,8 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    CheckConstraint,
+    Index,
     Integer,
     String,
     Text,
@@ -51,6 +53,12 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageRole,
     ProjectDirectorMessageSource,
     ProjectDirectorMessageRiskLevel,
+)
+from app.domain.project_director_discussion import (
+    DiscussionActorClaim,
+    DiscussionEventStatus,
+    DiscussionEventType,
+    DiscussionStatus,
 )
 from app.domain.project_role import ProjectRoleCode
 from app.domain.repository_snapshot import RepositorySnapshotStatus
@@ -1826,6 +1834,149 @@ class ProjectDirectorMessageTable(ORMBase):
         nullable=False,
         default=utc_now,
         index=True,
+    )
+
+
+class ProjectDirectorDiscussionEventTable(ORMBase):
+    """Append-only Project Director discussion evidence rows."""
+
+    __tablename__ = "project_director_discussion_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            "sequence_no",
+            name="uq_pd_discussion_events_session_sequence",
+        ),
+        UniqueConstraint(
+            "session_id",
+            "idempotency_key",
+            name="uq_pd_discussion_events_session_idempotency",
+        ),
+        CheckConstraint("sequence_no >= 1", name="ck_pd_discussion_events_sequence"),
+        CheckConstraint("confidence >= 0.0 AND confidence <= 1.0", name="ck_pd_discussion_events_confidence"),
+        CheckConstraint("length(idempotency_key) >= 1", name="ck_pd_discussion_events_idempotency_key"),
+        Index("ix_pd_discussion_events_session_event_type", "session_id", "event_type"),
+        Index("ix_pd_discussion_events_session_status", "session_id", "status"),
+        Index("ix_pd_discussion_events_supersedes", "supersedes_event_id"),
+        Index("ix_pd_discussion_events_created_at", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[DiscussionEventType] = mapped_column(
+        Enum(
+            DiscussionEventType,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    subject_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[DiscussionEventStatus] = mapped_column(
+        Enum(
+            DiscussionEventStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=DiscussionEventStatus.ACTIVE,
+    )
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    source_message_ids_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]"
+    )
+    supersedes_event_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_discussion_events.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_by: Mapped[DiscussionActorClaim] = mapped_column(
+        Enum(
+            DiscussionActorClaim,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+    # P27 provenance reservations; no cross-module foreign keys are imposed here.
+    source_surface: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_entity_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_entity_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True), nullable=True
+    )
+    trigger_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    interaction_case_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True), nullable=True
+    )
+    external_context_pack_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True), nullable=True
+    )
+
+
+class ProjectDirectorDiscussionWorkspaceTable(ORMBase):
+    """One derived discussion snapshot per Project Director session."""
+
+    __tablename__ = "project_director_discussion_workspaces"
+    __table_args__ = (
+        CheckConstraint("version_no >= 0", name="ck_pd_discussion_workspaces_version"),
+        CheckConstraint(
+            "last_event_sequence_no >= 0",
+            name="ck_pd_discussion_workspaces_last_event_sequence",
+        ),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    project_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    discussion_status: Mapped[DiscussionStatus] = mapped_column(
+        Enum(
+            DiscussionStatus,
+            native_enum=False,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=DiscussionStatus.EXPLORING,
+    )
+    state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_event_sequence_no: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
 
 

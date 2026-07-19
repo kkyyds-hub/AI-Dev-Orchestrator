@@ -144,7 +144,7 @@ class DiscussionEvent(DomainModel):
 
     id: UUID
     session_id: UUID
-    project_id: UUID
+    project_id: UUID | None = None
     sequence_no: int = Field(ge=1)
     event_type: DiscussionEventType
     subject_key: str
@@ -190,7 +190,7 @@ class DiscussionWorkspace(DomainModel):
     """Derived session snapshot, not the final source of project facts."""
 
     session_id: UUID
-    project_id: UUID
+    project_id: UUID | None = None
     topic: str
     discussion_status: DiscussionStatus = DiscussionStatus.EXPLORING
     active_option_ids: list[UUID] = Field(default_factory=list)
