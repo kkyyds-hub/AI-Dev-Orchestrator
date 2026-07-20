@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 import json
 from copy import deepcopy
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -21,7 +21,6 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.router import api_router
-from app.api.routes import project_director as project_director_route
 from app.core.db import get_db_session
 from app.core.db_tables import (
     ORMBase,
@@ -281,6 +280,55 @@ def _build_service(
         provider_config_service=effective_config,
         provider_text_generator=provider,
     )
+
+
+def _make_route_app(db, *, provider_config_cls=None, fake_provider_func=None):
+    """Create a FastAPI app with only get_db_session overridden,
+    and optionally monkeypatch ProviderConfigService and _call_provider_text.
+    Returns (app, call_records, cleanup_func).
+
+    Always restores _call_provider_text as a staticmethod descriptor,
+    even if a previous monkeypatch corrupted it to a plain function.
+    """
+    import app.services.project_director_message_service as msg_mod
+
+    call_records = []
+    orig_pcs = msg_mod.ProviderConfigService
+    orig_ct_raw = msg_mod.ProjectDirectorMessageService.__dict__.get("_call_provider_text")
+
+    if provider_config_cls is not None:
+        msg_mod.ProviderConfigService = provider_config_cls
+
+    if fake_provider_func is not None:
+        def _patched_ct(*, runtime_config, model_name, prompt_text, request_id):
+            call_records.append(request_id)
+            app_provider_models.append(model_name)
+            return fake_provider_func(model_name, prompt_text, request_id)
+        setattr(msg_mod.ProjectDirectorMessageService, "_call_provider_text", staticmethod(_patched_ct))
+
+    app = FastAPI()
+    app_provider_models = []
+    app.state.provider_models = app_provider_models
+    app.include_router(api_router)
+
+    def override_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db_session] = override_db
+
+    def _cleanup():
+        msg_mod.ProviderConfigService = orig_pcs
+        if orig_ct_raw is not None:
+            # Always restore as staticmethod to handle prior monkeypatch corruption
+            if isinstance(orig_ct_raw, staticmethod):
+                setattr(msg_mod.ProjectDirectorMessageService, "_call_provider_text", orig_ct_raw)
+            else:
+                setattr(msg_mod.ProjectDirectorMessageService, "_call_provider_text", staticmethod(orig_ct_raw))
+
+    return app, call_records, _cleanup
 
 
 # ── No-provider config (no API key) ─────────────────────────────────────────
@@ -1076,22 +1124,23 @@ class TestAPIRoute:
         db.commit()
         provider = _make_provider()
 
-        app = FastAPI()
-        app.include_router(api_router)
+        class PatchedProviderConfigService:
+            def resolve_openai_runtime_config(self):
+                return OpenAIProviderRuntimeConfig(
+                    **{"api_key": "test-key"},
+                    base_url="https://example.invalid/v1",
+                    timeout_seconds=1,
+                    source="saved_config",
+                    detected_provider_type="openai_compatible",
+                    model_preset="openai",
+                    model_names={"balanced": "test-balanced"},
+                )
 
-        def override_db():
-            try:
-                yield db
-            finally:
-                pass
-
-        app.dependency_overrides[get_db_session] = override_db
-
-        # Override _get_message_service to use our provider
-        def override_message_service():
-            return _build_service(db, provider=provider)
-
-        project_director_route._get_message_service = override_message_service
+        app, _, cleanup = _make_route_app(
+            db,
+            provider_config_cls=PatchedProviderConfigService,
+            fake_provider_func=provider,
+        )
         try:
             client = TestClient(app)
             response = client.post(
@@ -1122,6 +1171,7 @@ class TestAPIRoute:
             assert data["source"] == data["assistant_message"]["source"]
         finally:
             app.dependency_overrides.clear()
+            cleanup()
             db.close()
 
     def test_404_for_nonexistent_session(self, db_session_factory):
@@ -2594,19 +2644,17 @@ class TestInputImmutabilityFixed:
 
 
 class TestRealRouteFactory:
-    def test_real_route_factory_with_only_db_override(self, db_session_factory, monkeypatch):
+    def test_real_route_factory_with_only_db_override(self, db_session_factory):
         """Verify real _get_message_service runs the full F2 chain correctly.
 
         Only get_db_session is overridden. ProviderConfigService and
-        _call_provider_text are monkeypatched to avoid real network.
+        _call_provider_text are patched to avoid real network.
         The real _get_message_service, _resolve_shared_session, _interpret_turn,
         context builder, response engine, and turn persistence all run for real.
         """
         db = db_session_factory()
         _seed_session(db)
         db.commit()
-
-        call_records = []
 
         interp_data = {
             "conversation_mode": "general_discussion",
@@ -2623,7 +2671,6 @@ class TestRealRouteFactory:
         }
 
         def fake_provider(model_name, prompt_text, request_id):
-            call_records.append(request_id)
             if request_id.startswith("project-director-interpretation-"):
                 return json.dumps(interp_data), "receipt-interpret"
             envelope = {
@@ -2653,54 +2700,9 @@ class TestRealRouteFactory:
                     },
                 )
 
-        import app.services.project_director_message_service as msg_mod
-
-        monkeypatch.setattr(msg_mod, "ProviderConfigService", PatchedProviderConfigService)
-
-        # Patch _interpret_turn to use fake_provider directly, avoiding the
-        # staticmethod monkeypatch complexity.
-        orig_interpret = msg_mod.ProjectDirectorMessageService._interpret_turn
-
-        def patched_interpret(self, *, content, runtime_config):
-            from app.domain.project_director_semantic_turn import TurnInterpretationOutcome, ConversationRiskScan
-            interp_json = fake_provider("model", "", "project-director-interpretation-fake")[0]
-            interp = TurnInterpretation.model_validate_json(interp_json)
-            return TurnInterpretationOutcome(
-                interpretation=interp,
-                risk_scan=ConversationRiskScan(signals=[], has_side_effect_signal=False, reason_summary="no signals"),
-                source=DirectorResponseSource.PROVIDER,
-                source_detail="fake",
-                receipt_id="receipt-interpret",
-                provider_attempted=True,
-                fallback_reason=None,
-                risk_semantic_conflict=False,
-            )
-
-        monkeypatch.setattr(
-            msg_mod.ProjectDirectorMessageService,
-            "_interpret_turn",
-            patched_interpret,
+        app, call_records, cleanup = _make_route_app(
+            db, provider_config_cls=PatchedProviderConfigService, fake_provider_func=fake_provider
         )
-
-        def patched_resolve_provider(self, runtime_config):
-            return fake_provider
-
-        monkeypatch.setattr(
-            msg_mod.ProjectDirectorMessageService,
-            "_resolve_response_provider",
-            patched_resolve_provider,
-        )
-
-        app = FastAPI()
-        app.include_router(api_router)
-
-        def override_db():
-            try:
-                yield db
-            finally:
-                pass
-
-        app.dependency_overrides[get_db_session] = override_db
         try:
             client = TestClient(app)
             response = client.post(
@@ -2726,6 +2728,1202 @@ class TestRealRouteFactory:
             assert data["session_id"] == str(SESSION_ID)
         finally:
             app.dependency_overrides.clear()
+            cleanup()
+            db.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# R2 GAP CLOSERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── 5.1 Invalid Source Full-Turn Rollback ────────────────────────────────────
+
+
+class _FakeEnvelope:
+    """Envelope-like object with an invalid source for _map_response_source."""
+
+    def __init__(self, interpretation):
+        self.answer = "test"
+        self.turn_interpretation = interpretation
+        self.discussion_delta = DiscussionDelta()
+        self.formalization_proposal = None
+        self.requires_confirmation = False
+        self.source = object()  # not a valid DirectorResponseSource
+        self.source_detail = "test"
+
+
+class _InvalidSourceEngine:
+    """Response engine that returns an envelope with an invalid source."""
+
+    def __init__(self, interpretation):
+        self._interpretation = interpretation
+        self.call_count = 0
+
+    def generate_response(self, **kwargs):
+        self.call_count += 1
+        return _FakeEnvelope(self._interpretation)
+
+
+class TestInvalidSourceRollback:
+    def test_invalid_source_fails_closed_with_rollback(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        interp = TurnInterpretation(
+            conversation_mode=ConversationMode.GENERAL_DISCUSSION,
+            primary_intent="discuss",
+            confidence=0.8,
+            formal_action_requested=False,
+            hypothetical_action=False,
+            reason_summary="test",
+        )
+
+        from app.domain.project_director_semantic_turn import ConversationRiskScan, TurnInterpretationOutcome
+
+        class CountingInterpreter:
+            call_count = 0
+
+            def interpret(self, *, content, model_name, request_id):
+                CountingInterpreter.call_count += 1
+                return TurnInterpretationOutcome(
+                    interpretation=interp,
+                    risk_scan=ConversationRiskScan(signals=[], has_side_effect_signal=False, reason_summary="no signals"),
+                    source=DirectorResponseSource.PROVIDER,
+                    source_detail="test",
+                    receipt_id=None,
+                    provider_attempted=True,
+                    fallback_reason=None,
+                    risk_semantic_conflict=False,
+                )
+
+        engine = _InvalidSourceEngine(interp)
+        provider = _make_provider()
+        turn_persist = _CountingTurnPersistence()
+        rollback_count = {"n": 0}
+        commit_count = {"n": 0}
+        original_rollback = db.rollback
+        original_commit = db.commit
+
+        def counting_rollback():
+            rollback_count["n"] += 1
+            original_rollback()
+
+        def counting_commit():
+            commit_count["n"] += 1
+            original_commit()
+
+        db.rollback = counting_rollback
+        db.commit = counting_commit
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=provider,
+            turn_interpreter=CountingInterpreter(),
+            response_engine=engine,
+            discussion_turn_persistence=turn_persist,
+        )
+
+        with pytest.raises(ValueError, match="project_director_message_response_source_invalid"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="你好")
+
+        assert rollback_count["n"] == 1
+        assert commit_count["n"] == 0
+
+        db.rollback = original_rollback
+        db.commit = original_commit
+
+        messages = list(
+            db.execute(
+                select(ProjectDirectorMessageTable).where(
+                    ProjectDirectorMessageTable.session_id == SESSION_ID
+                )
+            ).scalars()
+        )
+        events = list(db.execute(select(ProjectDirectorDiscussionEventTable)).scalars())
+        workspaces = list(db.execute(select(ProjectDirectorDiscussionWorkspaceTable)).scalars())
+        assert len(messages) == 0
+        assert len(events) == 0
+        assert len(workspaces) == 0
+        assert CountingInterpreter.call_count == 1
+        assert len(provider.calls) <= 1
+        assert engine.call_count == 1
+        assert turn_persist.call_count == 0
+        db.close()
+
+    def test_invalid_source_fresh_session_readback(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        interp = TurnInterpretation(
+            conversation_mode=ConversationMode.GENERAL_DISCUSSION,
+            primary_intent="discuss",
+            confidence=0.8,
+            formal_action_requested=False,
+            hypothetical_action=False,
+            reason_summary="test",
+        )
+
+        from app.domain.project_director_semantic_turn import ConversationRiskScan, TurnInterpretationOutcome
+
+        class SilentInterpreter:
+            def interpret(self, *, content, model_name, request_id):
+                return TurnInterpretationOutcome(
+                    interpretation=interp,
+                    risk_scan=ConversationRiskScan(signals=[], has_side_effect_signal=False, reason_summary="no signals"),
+                    source=DirectorResponseSource.PROVIDER,
+                    source_detail="test",
+                    receipt_id=None,
+                    provider_attempted=True,
+                    fallback_reason=None,
+                    risk_semantic_conflict=False,
+                )
+
+        engine = _InvalidSourceEngine(interp)
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=_make_provider(),
+            turn_interpreter=SilentInterpreter(),
+            response_engine=engine,
+        )
+
+        with pytest.raises(ValueError, match="project_director_message_response_source_invalid"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="你好")
+
+        db.close()
+
+        db2 = db_session_factory()
+        messages = list(
+            db2.execute(
+                select(ProjectDirectorMessageTable).where(
+                    ProjectDirectorMessageTable.session_id == SESSION_ID
+                )
+            ).scalars()
+        )
+        events = list(db2.execute(select(ProjectDirectorDiscussionEventTable)).scalars())
+        workspaces = list(db2.execute(select(ProjectDirectorDiscussionWorkspaceTable)).scalars())
+        assert len(messages) == 0
+        assert len(events) == 0
+        assert len(workspaces) == 0
+        session_row = db2.get(ProjectDirectorSessionTable, SESSION_ID)
+        assert session_row is not None
+        db2.close()
+
+
+# ── 5.2 Shared Session Fail-Closed Spy ──────────────────────────────────────
+
+
+class _CountingContextBuilder:
+    def __init__(self):
+        self.call_count = 0
+
+    def build_context(self, **kwargs):
+        self.call_count += 1
+        raise RuntimeError("should not reach")
+
+
+class _CountingResponseEngine:
+    def __init__(self):
+        self.call_count = 0
+
+    def generate_response(self, **kwargs):
+        self.call_count += 1
+        raise RuntimeError("should not reach")
+
+
+class _CountingTurnPersistence:
+    def __init__(self):
+        self.call_count = 0
+
+    def persist_assistant_turn(self, **kwargs):
+        self.call_count += 1
+        raise RuntimeError("should not reach")
+
+
+class TestSharedSessionFailClosedSpy:
+    def test_unavailable_zero_calls_to_all_deps(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        provider = _make_provider()
+        ctx_builder = _CountingContextBuilder()
+        resp_engine = _CountingResponseEngine()
+        turn_persist = _CountingTurnPersistence()
+
+        session_repo = ProjectDirectorSessionRepository(db)
+        message_repo = ProjectDirectorMessageRepository(db)
+        message_repo._session = None
+
+        service = ProjectDirectorMessageService(
+            session_repository=session_repo,
+            message_repository=message_repo,
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=provider,
+            discussion_context_builder=ctx_builder,
+            response_engine=resp_engine,
+            discussion_turn_persistence=turn_persist,
+        )
+
+        with pytest.raises(ValueError, match="project_director_message_shared_session_unavailable"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="test")
+
+        assert len(provider.calls) == 0
+        assert ctx_builder.call_count == 0
+        assert resp_engine.call_count == 0
+        assert turn_persist.call_count == 0
+
+        messages = list(
+            db.execute(
+                select(ProjectDirectorMessageTable).where(
+                    ProjectDirectorMessageTable.session_id == SESSION_ID
+                )
+            ).scalars()
+        )
+        events = list(db.execute(select(ProjectDirectorDiscussionEventTable)).scalars())
+        workspaces = list(db.execute(select(ProjectDirectorDiscussionWorkspaceTable)).scalars())
+        assert len(messages) == 0
+        assert len(events) == 0
+        assert len(workspaces) == 0
+        db.close()
+
+    def test_mismatch_zero_calls_to_all_deps(self, db_session_factory):
+        db1 = db_session_factory()
+        db2 = db_session_factory()
+        _seed_session(db1)
+        db1.commit()
+
+        provider = _make_provider()
+        ctx_builder = _CountingContextBuilder()
+        resp_engine = _CountingResponseEngine()
+        turn_persist = _CountingTurnPersistence()
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db1),
+            message_repository=ProjectDirectorMessageRepository(db2),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=provider,
+            discussion_context_builder=ctx_builder,
+            response_engine=resp_engine,
+            discussion_turn_persistence=turn_persist,
+        )
+
+        with pytest.raises(ValueError, match="project_director_message_shared_session_mismatch"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="test")
+
+        assert len(provider.calls) == 0
+        assert ctx_builder.call_count == 0
+        assert resp_engine.call_count == 0
+        assert turn_persist.call_count == 0
+
+        messages = list(
+            db1.execute(
+                select(ProjectDirectorMessageTable).where(
+                    ProjectDirectorMessageTable.session_id == SESSION_ID
+                )
+            ).scalars()
+        )
+        events = list(db1.execute(select(ProjectDirectorDiscussionEventTable)).scalars())
+        workspaces = list(db1.execute(select(ProjectDirectorDiscussionWorkspaceTable)).scalars())
+        assert len(messages) == 0
+        assert len(events) == 0
+        assert len(workspaces) == 0
+        db1.close()
+        db2.close()
+
+
+# ── 5.3 API Delta requires_confirmation ─────────────────────────────────────
+
+
+class TestAPIDeltaConfirmation:
+    def test_api_delta_requires_confirmation(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        interp_data = {
+            "conversation_mode": "general_discussion",
+            "primary_intent": "discuss",
+            "confidence": 0.8,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": False,
+            "needs_retrieval": False,
+            "reason_summary": "test",
+        }
+
+        def fake_provider(model_name, prompt_text, request_id):
+            if request_id.startswith("project-director-interpretation-"):
+                return json.dumps(interp_data), "receipt-interpret"
+            prompt_data = json.loads(prompt_text)
+            reserved_id = prompt_data["context"]["reserved_assistant_message_id"]
+            op = {
+                "op": "request_formalization",
+                "target_id": None,
+                "subject_key": "formalization:request",
+                "content": "请求正式化",
+                "payload": {},
+                "source_message_ids": [reserved_id],
+                "actor_claim": "assistant_proposal",
+                "supersedes_event_id": None,
+            }
+            envelope = {
+                "answer": "需要你确认。",
+                "turn_interpretation": interp_data,
+                "discussion_delta": {"operations": [op]},
+                "formalization_proposal": None,
+                "requires_confirmation": False,
+                "source": "provider",
+                "source_detail": "test",
+            }
+            return json.dumps(envelope, ensure_ascii=False), "receipt-response"
+
+        class PatchedPCS:
+            def resolve_openai_runtime_config(self):
+                return OpenAIProviderRuntimeConfig(
+                    **{"api_key": "test-key"},
+                    base_url="https://example.invalid/v1",
+                    timeout_seconds=1,
+                    source="saved_config",
+                    detected_provider_type="openai_compatible",
+                    model_preset="openai",
+                    model_names={"balanced": "test-balanced"},
+                )
+
+        pv_before = len(list(db.execute(select(ProjectDirectorPlanVersionTable)).scalars()))
+        task_before = len(list(db.execute(select(TaskTable)).scalars()))
+        run_before = len(list(db.execute(select(RunTable)).scalars()))
+
+        app, _, cleanup = _make_route_app(db, provider_config_cls=PatchedPCS, fake_provider_func=fake_provider)
+        try:
+            client = TestClient(app)
+            response = client.post(
+                f"/project-director/sessions/{SESSION_ID}/messages",
+                json={"content": "请正式化"},
+            )
+            assert response.status_code == 201
+            data = response.json()
+
+            assert data["delta_apply_status"] == "requires_confirmation"
+            assert data["confirmation_reasons"] == [
+                "discussion_delta_user_confirmation_required:0"
+            ]
+            assert data["requires_confirmation"] is True
+            assert data["assistant_message"]["requires_confirmation"] is False
+
+            events = list(
+                db.execute(
+                    select(ProjectDirectorDiscussionEventTable).where(
+                        ProjectDirectorDiscussionEventTable.session_id == SESSION_ID
+                    )
+                ).scalars()
+            )
+            workspaces = list(
+                db.execute(
+                    select(ProjectDirectorDiscussionWorkspaceTable).where(
+                        ProjectDirectorDiscussionWorkspaceTable.session_id == SESSION_ID
+                    )
+                ).scalars()
+            )
+            pv_after = len(list(db.execute(select(ProjectDirectorPlanVersionTable)).scalars()))
+            task_after = len(list(db.execute(select(TaskTable)).scalars()))
+            run_after = len(list(db.execute(select(RunTable)).scalars()))
+
+            assert len(events) == 0
+            assert len(workspaces) == 0
+            assert pv_after == pv_before
+            assert task_after == task_before
+            assert run_after == run_before
+        finally:
+            app.dependency_overrides.clear()
+            cleanup()
+            db.close()
+
+
+# ── 5.4 API FormalizationProposal ───────────────────────────────────────────
+
+
+class TestAPIFormalizationProposal:
+    def test_api_formalization_proposal_two_turns(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        interp_data = {
+            "conversation_mode": "general_discussion",
+            "primary_intent": "discuss",
+            "confidence": 0.8,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": False,
+            "needs_retrieval": False,
+            "reason_summary": "test",
+        }
+        form_interp_data = {
+            "conversation_mode": "formalization_request",
+            "primary_intent": "formalize",
+            "confidence": 0.9,
+            "formal_action_requested": True,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": True,
+            "needs_discussion_history": True,
+            "needs_retrieval": False,
+            "reason_summary": "formalization",
+        }
+
+        turn_counter = {"n": 0}
+        prompt_grounding = {}
+
+        def fake_provider(model_name, prompt_text, request_id):
+            if request_id.startswith("project-director-interpretation-"):
+                if turn_counter["n"] == 0:
+                    return json.dumps(interp_data), "receipt-interpret"
+                return json.dumps(form_interp_data), "receipt-interpret"
+
+            prompt_data = json.loads(prompt_text)
+            current_user_id = prompt_data["context"]["current_user_message"]["id"]
+
+            if turn_counter["n"] == 0:
+                op = {
+                    "op": "set_topic",
+                    "target_id": None,
+                    "subject_key": "topic:test",
+                    "content": "测试主题",
+                    "payload": {},
+                    "source_message_ids": [current_user_id],
+                    "actor_claim": "user_explicit",
+                    "supersedes_event_id": None,
+                }
+                envelope = {
+                    "answer": "已设置主题。",
+                    "turn_interpretation": interp_data,
+                    "discussion_delta": {"operations": [op]},
+                    "formalization_proposal": None,
+                    "requires_confirmation": False,
+                    "source": "provider",
+                    "source_detail": "test",
+                }
+            else:
+                ws_data = prompt_data["context"].get("active_workspace")
+                ws_version = ws_data["workspace"]["version_no"] if ws_data else 0
+                active_events = ws_data.get("active_events", []) if ws_data else []
+                event_ids = [e["id"] for e in active_events] if active_events else []
+                prompt_grounding.update(
+                    current_user_id=current_user_id,
+                    workspace_version=ws_version,
+                    active_event_ids=event_ids,
+                )
+
+                proposal = {
+                    "proposal_id": str(uuid4()),
+                    "target": "plan_revision",
+                    "workspace_version": ws_version,
+                    "summary": "草案修改建议",
+                    "changes": [
+                        {
+                            "change_type": "add",
+                            "subject_key": "subject:test",
+                            "summary": "新增内容",
+                            "source_event_ids": event_ids if event_ids else [str(uuid4())],
+                        }
+                    ],
+                    "source_message_ids": [current_user_id],
+                    "risk_summary": "低风险",
+                    "requires_confirmation": True,
+                    "status": "proposed",
+                }
+                envelope = {
+                    "answer": "已生成草案修改建议。",
+                    "turn_interpretation": form_interp_data,
+                    "discussion_delta": {"operations": []},
+                    "formalization_proposal": proposal,
+                    "requires_confirmation": True,
+                    "source": "provider",
+                    "source_detail": "test",
+                }
+            return json.dumps(envelope, ensure_ascii=False), "receipt-response"
+
+        class PatchedPCS:
+            def resolve_openai_runtime_config(self):
+                return OpenAIProviderRuntimeConfig(
+                    **{"api_key": "test-key"},
+                    base_url="https://example.invalid/v1",
+                    timeout_seconds=1,
+                    source="saved_config",
+                    detected_provider_type="openai_compatible",
+                    model_preset="openai",
+                    model_names={"balanced": "test-balanced"},
+                )
+
+        pv_before = len(list(db.execute(select(ProjectDirectorPlanVersionTable)).scalars()))
+        task_before = len(list(db.execute(select(TaskTable)).scalars()))
+        run_before = len(list(db.execute(select(RunTable)).scalars()))
+        seed_session = db.get(ProjectDirectorSessionTable, SESSION_ID)
+        assert seed_session is not None
+        seed_session.goal_summary = "不得因 proposal 改写"
+        seed_session.constraints = "不得因 proposal 改写约束"
+        db.commit()
+        session_snapshot = (seed_session.goal_summary, seed_session.constraints)
+
+        app, _, cleanup = _make_route_app(db, provider_config_cls=PatchedPCS, fake_provider_func=fake_provider)
+        try:
+            client = TestClient(app)
+
+            # Turn 1: SET_TOPIC
+            turn_counter["n"] = 0
+            resp1 = client.post(
+                f"/project-director/sessions/{SESSION_ID}/messages",
+                json={"content": "设置主题"},
+            )
+            assert resp1.status_code == 201
+            data1 = resp1.json()
+            assert data1["delta_apply_status"] == "applied"
+
+            # Verify workspace exists after turn 1
+            ws_rows = list(
+                db.execute(
+                    select(ProjectDirectorDiscussionWorkspaceTable).where(
+                        ProjectDirectorDiscussionWorkspaceTable.session_id == SESSION_ID
+                    )
+                ).scalars()
+            )
+            assert len(ws_rows) == 1
+            ws_version_after_t1 = ws_rows[0].version_no
+            assert ws_version_after_t1 >= 1
+
+            event_rows = list(
+                db.execute(
+                    select(ProjectDirectorDiscussionEventTable).where(
+                        ProjectDirectorDiscussionEventTable.session_id == SESSION_ID
+                    )
+                ).scalars()
+            )
+            assert len(event_rows) >= 1
+
+            # Turn 2: Formalization
+            turn_counter["n"] = 1
+            resp2 = client.post(
+                f"/project-director/sessions/{SESSION_ID}/messages",
+                json={"content": "请正式修改草案"},
+            )
+            assert resp2.status_code == 201
+            data2 = resp2.json()
+
+            assert data2["formalization_proposal"] is not None
+            assert data2["formalization_proposal"]["target"] == "plan_revision"
+            assert data2["formalization_proposal"]["workspace_version"] == prompt_grounding["workspace_version"]
+            assert data2["formalization_proposal"]["workspace_version"] == ws_version_after_t1
+            assert data2["requires_confirmation"] is True
+            assert data2["assistant_message"]["suggested_actions"] == []
+
+            turn2_user_id = data2["user_message"]["id"]
+            proposal_source_ids = data2["formalization_proposal"]["source_message_ids"]
+            assert proposal_source_ids == [prompt_grounding["current_user_id"]]
+            assert proposal_source_ids == [turn2_user_id]
+            assert data2["formalization_proposal"]["changes"][0]["source_event_ids"] == prompt_grounding["active_event_ids"]
+
+            # No new events from proposal
+            event_rows_after = list(
+                db.execute(
+                    select(ProjectDirectorDiscussionEventTable).where(
+                        ProjectDirectorDiscussionEventTable.session_id == SESSION_ID
+                    )
+                ).scalars()
+            )
+            assert len(event_rows_after) == len(event_rows)
+
+            # No PlanVersion/Task/Run created
+            pv_after = len(list(db.execute(select(ProjectDirectorPlanVersionTable)).scalars()))
+            task_after = len(list(db.execute(select(TaskTable)).scalars()))
+            run_after = len(list(db.execute(select(RunTable)).scalars()))
+            assert pv_after == pv_before
+            assert task_after == task_before
+            assert run_after == run_before
+            session_after = db.get(ProjectDirectorSessionTable, SESSION_ID)
+            assert session_after is not None
+            assert (session_after.goal_summary, session_after.constraints) == session_snapshot
+        finally:
+            app.dependency_overrides.clear()
+            cleanup()
+            db.close()
+
+
+# ── 5.5 Final Commit Failure Fresh Session ──────────────────────────────────
+
+
+class TestFinalCommitFailureFreshSession:
+    def test_commit_failure_fresh_session_no_residuals(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        interp = json.loads(_make_interpretation_json())
+
+        def make_envelope(prompt_text):
+            prompt_data = json.loads(prompt_text)
+            current_user_id = prompt_data["context"]["current_user_message"]["id"]
+            op = {
+                "op": "set_topic",
+                "target_id": None,
+                "subject_key": "topic:commit-fresh",
+                "content": "提交测试",
+                "payload": {},
+                "source_message_ids": [current_user_id],
+                "actor_claim": "user_explicit",
+                "supersedes_event_id": None,
+            }
+            envelope = {
+                "answer": "已设置主题。",
+                "turn_interpretation": interp,
+                "discussion_delta": {"operations": [op]},
+                "formalization_proposal": None,
+                "requires_confirmation": False,
+                "source": "provider",
+                "source_detail": "test",
+            }
+            return json.dumps(envelope, ensure_ascii=False)
+
+        provider = DynamicResponseProvider(_make_interpretation_json(), make_envelope)
+        service = _build_service(db, provider=provider)
+
+        original_commit = db.commit
+        original_rollback = db.rollback
+        commit_attempt = {"n": 0}
+        successful_commits = {"n": 0}
+        rollback_count = {"n": 0}
+
+        def failing_commit():
+            commit_attempt["n"] += 1
+            raise RuntimeError("final commit exploded")
+
+        def counting_rollback():
+            rollback_count["n"] += 1
+            original_rollback()
+
+        db.commit = failing_commit
+        db.rollback = counting_rollback
+
+        with pytest.raises(RuntimeError, match="final commit exploded"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="提交测试")
+
+        assert commit_attempt["n"] == 1
+        assert successful_commits["n"] == 0
+        assert rollback_count["n"] == 1
+
+        # Session A can still SELECT after rollback
+        session_row = db.get(ProjectDirectorSessionTable, SESSION_ID)
+        assert session_row is not None
+
+        db.commit = original_commit
+        db.rollback = original_rollback
+        db.close()
+
+        # Fresh Session B
+        db2 = db_session_factory()
+        session_row_b = db2.get(ProjectDirectorSessionTable, SESSION_ID)
+        assert session_row_b is not None
+
+        messages = list(
+            db2.execute(
+                select(ProjectDirectorMessageTable).where(
+                    ProjectDirectorMessageTable.session_id == SESSION_ID
+                )
+            ).scalars()
+        )
+        events = list(
+            db2.execute(
+                select(ProjectDirectorDiscussionEventTable).where(
+                    ProjectDirectorDiscussionEventTable.session_id == SESSION_ID
+                )
+            ).scalars()
+        )
+        workspaces = list(
+            db2.execute(
+                select(ProjectDirectorDiscussionWorkspaceTable).where(
+                    ProjectDirectorDiscussionWorkspaceTable.session_id == SESSION_ID
+                )
+            ).scalars()
+        )
+        assert len(messages) == 0
+        assert len(events) == 0
+        assert len(workspaces) == 0
+        db2.close()
+
+
+# ── 5.6 Five Failure Path Transaction Counts ────────────────────────────────
+
+
+class TestFiveFailurePathTransactionCounts:
+    def _count_commit_rollback(self, db):
+        counts = {"commit": 0, "rollback": 0}
+        original_commit = db.commit
+        original_rollback = db.rollback
+
+        def counting_commit():
+            counts["commit"] += 1
+            original_commit()
+
+        def counting_rollback():
+            counts["rollback"] += 1
+            original_rollback()
+
+        db.commit = counting_commit
+        db.rollback = counting_rollback
+        return counts, original_commit, original_rollback
+
+    def _restore(self, db, original_commit, original_rollback):
+        db.commit = original_commit
+        db.rollback = original_rollback
+
+    def _fresh_session_assert_empty(self, db_session_factory, session_id):
+        db2 = db_session_factory()
+        messages = list(
+            db2.execute(
+                select(ProjectDirectorMessageTable).where(
+                    ProjectDirectorMessageTable.session_id == session_id
+                )
+            ).scalars()
+        )
+        events = list(db2.execute(select(ProjectDirectorDiscussionEventTable)).scalars())
+        workspaces = list(db2.execute(select(ProjectDirectorDiscussionWorkspaceTable)).scalars())
+        assert len(messages) == 0
+        assert len(events) == 0
+        assert len(workspaces) == 0
+        db2.close()
+
+    def test_context_builder_failure_transaction(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+        counts, oc, or_ = self._count_commit_rollback(db)
+
+        class ExplodingCtx:
+            def build_context(self, **kwargs):
+                raise RuntimeError("ctx exploded")
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=_make_provider(),
+            discussion_context_builder=ExplodingCtx(),
+        )
+        with pytest.raises(RuntimeError, match="ctx exploded"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="test")
+
+        assert counts["commit"] == 0
+        assert counts["rollback"] == 1
+        self._restore(db, oc, or_)
+        db.close()
+        self._fresh_session_assert_empty(db_session_factory, SESSION_ID)
+
+    def test_response_engine_contract_failure_transaction(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+        counts, oc, or_ = self._count_commit_rollback(db)
+
+        class ExplodingEngine:
+            def generate_response(self, **kwargs):
+                raise ValueError("director_response_context_session_mismatch")
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=_make_provider(),
+            response_engine=ExplodingEngine(),
+        )
+        with pytest.raises(ValueError, match="director_response_context_session_mismatch"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="test")
+
+        assert counts["commit"] == 0
+        assert counts["rollback"] == 1
+        self._restore(db, oc, or_)
+        db.close()
+        self._fresh_session_assert_empty(db_session_factory, SESSION_ID)
+
+    def test_turn_persistence_failure_transaction(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+        counts, oc, or_ = self._count_commit_rollback(db)
+
+        class ExplodingPersistence:
+            def persist_assistant_turn(self, **kwargs):
+                raise RuntimeError("persistence exploded")
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=_make_provider(),
+            discussion_turn_persistence=ExplodingPersistence(),
+        )
+        with pytest.raises(RuntimeError, match="persistence exploded"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="test")
+
+        assert counts["commit"] == 0
+        assert counts["rollback"] == 1
+        self._restore(db, oc, or_)
+        db.close()
+        self._fresh_session_assert_empty(db_session_factory, SESSION_ID)
+
+    def test_invalid_source_transaction(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+        counts, oc, or_ = self._count_commit_rollback(db)
+
+        interp = TurnInterpretation(
+            conversation_mode=ConversationMode.GENERAL_DISCUSSION,
+            primary_intent="discuss",
+            confidence=0.8,
+            formal_action_requested=False,
+            hypothetical_action=False,
+            reason_summary="test",
+        )
+        engine = _InvalidSourceEngine(interp)
+
+        from app.domain.project_director_semantic_turn import ConversationRiskScan, TurnInterpretationOutcome
+
+        class SilentInterpreter:
+            def interpret(self, *, content, model_name, request_id):
+                return TurnInterpretationOutcome(
+                    interpretation=interp,
+                    risk_scan=ConversationRiskScan(signals=[], has_side_effect_signal=False, reason_summary="no signals"),
+                    source=DirectorResponseSource.PROVIDER,
+                    source_detail="test",
+                    receipt_id=None,
+                    provider_attempted=True,
+                    fallback_reason=None,
+                    risk_semantic_conflict=False,
+                )
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=_make_provider(),
+            turn_interpreter=SilentInterpreter(),
+            response_engine=engine,
+        )
+        with pytest.raises(ValueError, match="project_director_message_response_source_invalid"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="test")
+
+        assert counts["commit"] == 0
+        assert counts["rollback"] == 1
+        self._restore(db, oc, or_)
+        db.close()
+        self._fresh_session_assert_empty(db_session_factory, SESSION_ID)
+
+    def test_final_commit_failure_transaction(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+        counts, oc, or_ = self._count_commit_rollback(db)
+
+        interp = json.loads(_make_interpretation_json())
+
+        def make_envelope(prompt_text):
+            prompt_data = json.loads(prompt_text)
+            current_user_id = prompt_data["context"]["current_user_message"]["id"]
+            op = {
+                "op": "set_topic",
+                "target_id": None,
+                "subject_key": "topic:tx-test",
+                "content": "事务测试",
+                "payload": {},
+                "source_message_ids": [current_user_id],
+                "actor_claim": "user_explicit",
+                "supersedes_event_id": None,
+            }
+            envelope = {
+                "answer": "已设置。",
+                "turn_interpretation": interp,
+                "discussion_delta": {"operations": [op]},
+                "formalization_proposal": None,
+                "requires_confirmation": False,
+                "source": "provider",
+                "source_detail": "test",
+            }
+            return json.dumps(envelope, ensure_ascii=False)
+
+        provider = DynamicResponseProvider(_make_interpretation_json(), make_envelope)
+        service = _build_service(db, provider=provider)
+
+        original_commit = db.commit
+
+        def failing_commit():
+            counts["commit"] += 1
+            raise RuntimeError("final commit exploded")
+
+        db.commit = failing_commit
+
+        with pytest.raises(RuntimeError, match="final commit exploded"):
+            service.post_user_message_turn(session_id=SESSION_ID, content="test")
+
+        assert counts["commit"] == 1
+        assert counts["rollback"] == 1
+
+        db.commit = original_commit
+        self._restore(db, oc, or_)
+        db.close()
+        self._fresh_session_assert_empty(db_session_factory, SESSION_ID)
+
+
+# ── 5.7 Real Input Object Immutability ──────────────────────────────────────
+
+
+class _CapturingContextBuilder:
+    """Captures the context object passed to build_context."""
+
+    def __init__(self, real_builder):
+        self._real = real_builder
+        self.captured = None
+
+    def build_context(self, **kwargs):
+        self.captured = kwargs
+        return self._real.build_context(**kwargs)
+
+
+class _CapturingResponseEngine:
+    """Captures context and interpretation passed to generate_response."""
+
+    def __init__(self, real_engine):
+        self._real = real_engine
+        self.captured_context = None
+        self.captured_interpretation = None
+        self.captured_envelope = None
+        self.context_snapshot = None
+        self.interpretation_snapshot = None
+        self.envelope_snapshot = None
+        self.delta_snapshot = None
+
+    def generate_response(self, **kwargs):
+        self.captured_context = kwargs.get("context")
+        self.captured_interpretation = kwargs.get("interpretation")
+        self.context_snapshot = deepcopy(self.captured_context)
+        self.interpretation_snapshot = deepcopy(self.captured_interpretation)
+        envelope = self._real.generate_response(**kwargs)
+        self.captured_envelope = envelope
+        self.envelope_snapshot = deepcopy(envelope)
+        self.delta_snapshot = deepcopy(envelope.discussion_delta)
+        return envelope
+
+
+class TestRealInputImmutability:
+    def test_interpretation_not_mutated(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        provider = _make_provider()
+        service = _build_service(db, provider=provider)
+        result = service.post_user_message_turn(session_id=SESSION_ID, content="你好")
+
+        interp_dump = result.response_envelope.turn_interpretation.model_dump(mode="python")
+        assert interp_dump["conversation_mode"].value == "general_discussion"
+        assert interp_dump["primary_intent"] == "discuss_current_topic"
+        assert interp_dump["confidence"] == 0.8
+        assert interp_dump["formal_action_requested"] is False
+        assert interp_dump["hypothetical_action"] is False
+        db.close()
+
+    def test_envelope_fields_preserved(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        provider = _make_provider()
+        service = _build_service(db, provider=provider)
+        result = service.post_user_message_turn(session_id=SESSION_ID, content="你好")
+
+        assert result.response_envelope.answer == "测试回答"
+        assert result.response_envelope.discussion_delta.operations == []
+        assert result.response_envelope.formalization_proposal is None
+        assert result.response_envelope.source.value == "provider"
+        assert result.response_envelope.requires_confirmation is False
+        db.close()
+
+    def test_context_builder_receives_correct_objects(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        provider = _make_provider()
+        real_builder = ProjectDirectorDiscussionContextBuilderService(session=db)
+        capturing = _CapturingContextBuilder(real_builder)
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=provider,
+            discussion_context_builder=capturing,
+        )
+        result = service.post_user_message_turn(session_id=SESSION_ID, content="你好")
+
+        assert capturing.captured is not None
+        assert capturing.captured["session_id"] == SESSION_ID
+        assert capturing.captured["current_user_message"].id == result.user_message.id
+        assert capturing.captured["current_user_message"].role == ProjectDirectorMessageRole.USER
+        assert capturing.captured["interpretation"].conversation_mode == ConversationMode.GENERAL_DISCUSSION
+        db.close()
+
+    def test_response_engine_receives_correct_objects(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        provider = _make_provider()
+        real_engine = ProjectDirectorResponseEngineService(provider_text_generator=provider)
+        capturing = _CapturingResponseEngine(real_engine)
+
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=provider,
+            response_engine=capturing,
+        )
+        result = service.post_user_message_turn(session_id=SESSION_ID, content="你好")
+
+        assert capturing.captured_context is not None
+        assert capturing.captured_interpretation is not None
+        assert capturing.captured_context.current_user_message.id == result.user_message.id
+        assert capturing.captured_interpretation.conversation_mode == ConversationMode.GENERAL_DISCUSSION
+        db.close()
+
+    def test_real_chain_input_objects_are_not_mutated(self, db_session_factory):
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        provider = _make_provider()
+        capturing = _CapturingResponseEngine(
+            ProjectDirectorResponseEngineService(provider_text_generator=provider)
+        )
+        service = ProjectDirectorMessageService(
+            session_repository=ProjectDirectorSessionRepository(db),
+            message_repository=ProjectDirectorMessageRepository(db),
+            provider_config_service=ConfiguredProviderConfigService(),
+            provider_text_generator=provider,
+            response_engine=capturing,
+        )
+
+        result = service.post_user_message_turn(session_id=SESSION_ID, content="你好")
+
+        assert isinstance(capturing.captured_interpretation, TurnInterpretation)
+        assert is_dataclass(capturing.captured_context)
+        assert isinstance(capturing.captured_envelope, DirectorResponseEnvelope)
+        assert isinstance(result.response_envelope.discussion_delta, DiscussionDelta)
+        assert capturing.captured_interpretation == capturing.interpretation_snapshot
+        assert asdict(capturing.captured_context) == asdict(capturing.context_snapshot)
+        assert capturing.captured_envelope == capturing.envelope_snapshot
+        assert result.response_envelope.discussion_delta == capturing.delta_snapshot
+        db.close()
+
+
+# ── 5.8 True Real Route Factory ─────────────────────────────────────────────
+
+
+class TestTrueRealRouteFactory:
+    def test_true_real_route_no_interpret_override(self, db_session_factory):
+        """Route factory test that only overrides get_db_session, ProviderConfigService,
+        and _call_provider_text. Does NOT override _interpret_turn,
+        _resolve_response_provider, or _get_message_service.
+        """
+        db = db_session_factory()
+        _seed_session(db)
+        db.commit()
+
+        interp_data = {
+            "conversation_mode": "general_discussion",
+            "primary_intent": "discuss",
+            "confidence": 0.8,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": False,
+            "needs_retrieval": False,
+            "reason_summary": "test",
+        }
+
+        def fake_provider(model_name, prompt_text, request_id):
+            if request_id.startswith("project-director-interpretation-"):
+                return json.dumps(interp_data), "receipt-interpret"
+            envelope = {
+                "answer": "真实路由测试回答",
+                "turn_interpretation": interp_data,
+                "discussion_delta": {"operations": []},
+                "formalization_proposal": None,
+                "requires_confirmation": False,
+                "source": "provider",
+                "source_detail": "test",
+            }
+            return json.dumps(envelope, ensure_ascii=False), "receipt-response"
+
+        config_calls = {"factory": 0, "resolve": 0}
+
+        class PatchedPCS:
+            def __init__(self):
+                config_calls["factory"] += 1
+
+            def resolve_openai_runtime_config(self):
+                config_calls["resolve"] += 1
+                return OpenAIProviderRuntimeConfig(
+                    **{"api_key": "test-key"},
+                    base_url="https://example.invalid/v1",
+                    timeout_seconds=1,
+                    source="saved_config",
+                    detected_provider_type="openai_compatible",
+                    model_preset="openai",
+                    model_names={"balanced": "test-balanced"},
+                )
+
+        app, call_records, cleanup = _make_route_app(db, provider_config_cls=PatchedPCS, fake_provider_func=fake_provider)
+        try:
+            client = TestClient(app)
+            response = client.post(
+                f"/project-director/sessions/{SESSION_ID}/messages",
+                json={"content": "你好"},
+            )
+            assert response.status_code == 201
+            data = response.json()
+
+            interp_calls = [r for r in call_records if r.startswith("project-director-interpretation-")]
+            resp_calls = [r for r in call_records if r.startswith("project-director-response-")]
+            assert len(interp_calls) == 1
+            assert len(resp_calls) == 1
+            assert config_calls == {"factory": 1, "resolve": 1}
+            assert app.state.provider_models == ["test-balanced", "test-balanced"]
+
+            assert data["source"] == "ai"
+            assert data["delta_apply_status"] == "no_changes"
+            assert data["messages"][0]["role"] == "user"
+            assert data["messages"][1]["role"] == "assistant"
+            assert data["discussion_workspace_version"] == 0
+            assert data["session_id"] == str(SESSION_ID)
+        finally:
+            app.dependency_overrides.clear()
+            cleanup()
             db.close()
 
 
