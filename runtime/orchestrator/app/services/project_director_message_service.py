@@ -21,6 +21,7 @@ from app.domain.project_director_conversation_router import (
 )
 from app.domain.project_director_conversation_intelligence import (
     ConversationMode,
+    DirectorResponseEnvelope,
     DirectorResponseSource,
 )
 from app.domain.project_director_semantic_turn import TurnInterpretationOutcome
@@ -67,7 +68,20 @@ from app.services.project_director_context_assembler_service import (
     DirectorContextAssemblerService,
     DirectorContextAssembly,
 )
+from app.services.project_director_discussion_context_builder_service import (
+    DiscussionContextAssembly,
+    ProjectDirectorDiscussionContextBuilderService,
+)
+from app.services.project_director_discussion_delta_apply_service import (
+    DiscussionDeltaApplyStatus,
+)
+from app.services.project_director_discussion_turn_persistence_service import (
+    ProjectDirectorDiscussionTurnPersistenceService,
+)
 from app.services.provider_config_service import ProviderConfigService
+from app.services.project_director_response_engine_service import (
+    ProjectDirectorResponseEngineService,
+)
 from app.services.project_director_turn_interpreter_service import (
     ProjectDirectorTurnInterpreterService,
 )
@@ -322,6 +336,18 @@ class ChatGenerationResult:
     forbidden_actions_detected: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectDirectorConversationTurnResult:
+    """Persisted P26 conversation turn and its structured response result."""
+
+    user_message: ProjectDirectorMessage
+    assistant_message: ProjectDirectorMessage
+    response_envelope: DirectorResponseEnvelope
+    delta_apply_status: DiscussionDeltaApplyStatus
+    discussion_workspace_version: int | None
+    confirmation_reasons: tuple[str, ...]
+
+
 class ProjectDirectorMessageService:
     """Conversation persistence with provider-first assistant chat fallback."""
 
@@ -334,6 +360,13 @@ class ProjectDirectorMessageService:
         provider_config_service: ProviderConfigService | None = None,
         provider_text_generator: ProviderTextGenerator | None = None,
         turn_interpreter: ProjectDirectorTurnInterpreterService | None = None,
+        discussion_context_builder: (
+            ProjectDirectorDiscussionContextBuilderService | None
+        ) = None,
+        response_engine: ProjectDirectorResponseEngineService | None = None,
+        discussion_turn_persistence: (
+            ProjectDirectorDiscussionTurnPersistenceService | None
+        ) = None,
     ) -> None:
         self._session_repository = session_repository
         self._message_repository = message_repository
@@ -344,6 +377,9 @@ class ProjectDirectorMessageService:
         self._provider_config_service = provider_config_service
         self._provider_text_generator = provider_text_generator
         self._turn_interpreter = turn_interpreter
+        self._discussion_context_builder = discussion_context_builder
+        self._response_engine = response_engine
+        self._discussion_turn_persistence = discussion_turn_persistence
 
     def list_messages(
         self,
@@ -365,96 +401,223 @@ class ProjectDirectorMessageService:
         session_id: UUID,
         content: str,
     ) -> tuple[ProjectDirectorMessage, ProjectDirectorMessage]:
+        result = self.post_user_message_turn(session_id=session_id, content=content)
+        return result.user_message, result.assistant_message
+
+    def post_user_message_turn(
+        self,
+        *,
+        session_id: UUID,
+        content: str,
+    ) -> ProjectDirectorConversationTurnResult:
+        shared_session = self._resolve_shared_session()
         session_obj = self._ensure_session_exists(session_id)
         trimmed_content = content.strip()
         if not trimmed_content:
             raise ValueError("content must not be empty or whitespace-only")
 
-        user_message = self._message_repository.create(
-            ProjectDirectorMessage(
-                session_id=session_id,
-                role=ProjectDirectorMessageRole.USER,
-                content=trimmed_content,
-                sequence_no=self._message_repository.get_next_sequence_no(
-                    session_id=session_id
-                ),
-                source=ProjectDirectorMessageSource.SYSTEM,
-                source_detail="user_submitted_message",
-                related_project_id=session_obj.project_id,
+        try:
+            user_message = self._message_repository.create(
+                ProjectDirectorMessage(
+                    session_id=session_id,
+                    role=ProjectDirectorMessageRole.USER,
+                    content=trimmed_content,
+                    sequence_no=self._message_repository.get_next_sequence_no(
+                        session_id=session_id
+                    ),
+                    source=ProjectDirectorMessageSource.SYSTEM,
+                    source_detail="user_submitted_message",
+                    related_project_id=session_obj.project_id,
+                )
             )
-        )
+            shared_session.flush()
 
-        runtime_config = self._resolve_runtime_config()
-        interpretation_outcome = self._interpret_turn(
-            content=trimmed_content,
-            runtime_config=runtime_config,
-        )
-        legacy_route = ConversationRouter.classify(
-            content=trimmed_content,
-            current_session_exists=True,
-        )
-        route_decision = self._build_effective_route_decision(
-            legacy_route=legacy_route,
-            interpretation_outcome=interpretation_outcome,
-        )
-        challenge_seed = self._build_challenge_seed(
-            user_content=trimmed_content,
-            route_decision=route_decision,
-            session_id=session_id,
-            project_id=session_obj.project_id,
-        )
-        action_proposal = (
-            DirectorActionProposalBuilder.build_from_challenge(challenge_seed)
-            if challenge_seed is not None
-            else None
-        )
-        conversion_draft = (
-            ConversationConversionBuilder.build_from_proposal(action_proposal)
-            if action_proposal is not None
-            else None
-        )
-        context, assembly, context_note = self._assemble_route_context(
-            session_id=session_id,
-            route_decision=route_decision,
-        )
-        assistant_reply = self._build_assistant_reply(
-            user_content=trimmed_content,
-            context=context,
-            route_decision=route_decision,
-            assembly=assembly,
-            context_note=context_note,
-            challenge_seed=challenge_seed,
-            action_proposal=action_proposal,
-            conversion_draft=conversion_draft,
-            runtime_config=runtime_config,
-            interpretation_outcome=interpretation_outcome,
-        )
-        assistant_reply = self._with_semantic_metadata(
-            assistant_reply,
-            interpretation_outcome=interpretation_outcome,
-        )
+            runtime_config = self._resolve_runtime_config()
+            interpretation_outcome = self._interpret_turn(
+                content=trimmed_content,
+                runtime_config=runtime_config,
+            )
+            interpretation = interpretation_outcome.interpretation
+            discussion_context_builder = (
+                self._discussion_context_builder
+                or ProjectDirectorDiscussionContextBuilderService(
+                    session=shared_session
+                )
+            )
+            discussion_context = discussion_context_builder.build_context(
+                session_id=session_id,
+                project_id=session_obj.project_id,
+                current_user_message=user_message,
+                interpretation=interpretation,
+            )
 
-        assistant_message = self._message_repository.create(
-            ProjectDirectorMessage(
+            assistant_message_id = uuid4()
+            model_name = self._resolve_balanced_model_name(runtime_config)
+            response_engine = self._response_engine or (
+                ProjectDirectorResponseEngineService(
+                    provider_text_generator=self._resolve_response_provider(
+                        runtime_config
+                    )
+                )
+            )
+            envelope = response_engine.generate_response(
+                context=discussion_context,
+                interpretation=interpretation,
+                assistant_message_id=assistant_message_id,
+                model_name=model_name,
+                request_id=f"project-director-response-{uuid4().hex[:12]}",
+            )
+
+            assistant_message = ProjectDirectorMessage(
+                id=assistant_message_id,
                 session_id=session_id,
                 role=ProjectDirectorMessageRole.ASSISTANT,
-                content=assistant_reply.content,
+                content=envelope.answer,
                 sequence_no=self._message_repository.get_next_sequence_no(
                     session_id=session_id
                 ),
-                intent=assistant_reply.intent,
-                related_plan_version_id=assistant_reply.related_plan_version_id,
+                intent=self._map_conversation_intent(
+                    envelope.turn_interpretation.conversation_mode
+                ),
+                related_plan_version_id=self._latest_plan_version_id(
+                    discussion_context
+                ),
                 related_project_id=session_obj.project_id,
-                source=assistant_reply.source,
-                source_detail=assistant_reply.source_detail,
-                suggested_actions=assistant_reply.suggested_actions,
-                requires_confirmation=assistant_reply.requires_confirmation,
-                risk_level=assistant_reply.risk_level,
-                forbidden_actions_detected=assistant_reply.forbidden_actions_detected,
+                source=self._map_response_source(envelope.source),
+                source_detail=envelope.source_detail,
+                suggested_actions=[],
+                requires_confirmation=envelope.requires_confirmation,
+                risk_level=self._response_risk_level(interpretation_outcome),
+                forbidden_actions_detected=[],
             )
+            turn_persistence = (
+                self._discussion_turn_persistence
+                or ProjectDirectorDiscussionTurnPersistenceService(
+                    session=shared_session
+                )
+            )
+            persisted_turn = turn_persistence.persist_assistant_turn(
+                session_id=session_id,
+                project_id=session_obj.project_id,
+                assistant_message=assistant_message,
+                available_messages=(
+                    *discussion_context.recent_raw_messages,
+                    user_message,
+                ),
+                delta=envelope.discussion_delta,
+                occurred_at=assistant_message.created_at,
+            )
+            delta_apply_result = persisted_turn.delta_apply_result
+            shared_session.commit()
+        except Exception:
+            shared_session.rollback()
+            raise
+
+        return ProjectDirectorConversationTurnResult(
+            user_message=user_message,
+            assistant_message=persisted_turn.assistant_message,
+            response_envelope=envelope,
+            delta_apply_status=delta_apply_result.status,
+            discussion_workspace_version=delta_apply_result.workspace.version_no,
+            confirmation_reasons=delta_apply_result.confirmation_reasons,
         )
-        self._message_repository.commit()
-        return user_message, assistant_message
+
+    def _resolve_shared_session(self) -> object:
+        message_session = getattr(self._message_repository, "_session", None)
+        session_session = getattr(self._session_repository, "_session", None)
+        if message_session is None or session_session is None:
+            raise ValueError("project_director_message_shared_session_unavailable")
+        if message_session is not session_session:
+            raise ValueError("project_director_message_shared_session_mismatch")
+        return message_session
+
+    def _resolve_response_provider(
+        self, runtime_config: object | None
+    ) -> ProviderTextGenerator | None:
+        if runtime_config is None or not getattr(runtime_config, "api_key", None):
+            return None
+        if self._provider_text_generator is not None:
+            return self._provider_text_generator
+        return lambda model, prompt, request_id: self._call_provider_text(
+            runtime_config=runtime_config,
+            model_name=model,
+            prompt_text=prompt,
+            request_id=request_id,
+        )
+
+    @staticmethod
+    def _resolve_balanced_model_name(runtime_config: object | None) -> str:
+        model_name = "gpt-5.5"
+        if runtime_config is None:
+            return model_name
+        model_names = getattr(runtime_config, "model_names", {})
+        return model_names.get("balanced", next(iter(model_names.values()), model_name))
+
+    @staticmethod
+    def _map_response_source(
+        source: DirectorResponseSource,
+    ) -> ProjectDirectorMessageSource:
+        mapping = {
+            DirectorResponseSource.PROVIDER: ProjectDirectorMessageSource.AI,
+            DirectorResponseSource.RULE_FALLBACK: (
+                ProjectDirectorMessageSource.RULE_FALLBACK
+            ),
+            DirectorResponseSource.SYSTEM: ProjectDirectorMessageSource.SYSTEM,
+        }
+        try:
+            return mapping[source]
+        except KeyError as exc:
+            raise ValueError(
+                "project_director_message_response_source_invalid"
+            ) from exc
+
+    @staticmethod
+    def _map_conversation_intent(mode: ConversationMode) -> str:
+        if mode == ConversationMode.STATUS_QUERY:
+            return "ask_about_current_context"
+        if mode == ConversationMode.FORMALIZATION_REQUEST:
+            return "request_plan_change"
+        if mode == ConversationMode.ACTION_REQUEST:
+            return "request_action"
+        if mode in {
+            ConversationMode.GENERAL_DISCUSSION,
+            ConversationMode.SOLUTION_EXPLORATION,
+            ConversationMode.OPTION_COMPARISON,
+            ConversationMode.CLARIFICATION,
+            ConversationMode.CHALLENGE,
+            ConversationMode.CONSTRAINT_UPDATE,
+            ConversationMode.PREFERENCE_UPDATE,
+            ConversationMode.DECISION_CONFIRMATION,
+        }:
+            return "general_discussion"
+        raise ValueError("project_director_message_intent_mode_invalid")
+
+    @staticmethod
+    def _latest_plan_version_id(
+        context: DiscussionContextAssembly,
+    ) -> UUID | None:
+        latest_plan_version = context.pinned_formal_facts.latest_plan_version
+        if not isinstance(latest_plan_version, dict):
+            return None
+        raw_id = latest_plan_version.get("id")
+        if isinstance(raw_id, UUID):
+            return raw_id
+        if not isinstance(raw_id, str):
+            return None
+        try:
+            return UUID(raw_id)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _response_risk_level(
+        interpretation_outcome: TurnInterpretationOutcome,
+    ) -> ProjectDirectorMessageRiskLevel:
+        if interpretation_outcome.risk_semantic_conflict:
+            return ProjectDirectorMessageRiskLevel.HIGH
+        if interpretation_outcome.interpretation.formal_action_requested:
+            return ProjectDirectorMessageRiskLevel.MEDIUM
+        return ProjectDirectorMessageRiskLevel.LOW
 
     def record_evidence_to_agent_dry_run(
         self,

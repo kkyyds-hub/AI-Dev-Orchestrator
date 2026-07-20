@@ -3773,7 +3773,7 @@ def post_session_message(
     """
 
     try:
-        user_message, assistant_message = message_service.post_user_message(
+        turn_result = message_service.post_user_message_turn(
             session_id=session_id,
             content=request.content,
         )
@@ -3789,6 +3789,8 @@ def post_session_message(
             detail=detail,
         ) from exc
 
+    user_message = turn_result.user_message
+    assistant_message = turn_result.assistant_message
     return PostProjectDirectorMessageResponse(
         session_id=session_id,
         user_message=ProjectDirectorMessageResponse.from_domain(user_message),
@@ -3798,6 +3800,15 @@ def post_session_message(
             ProjectDirectorMessageResponse.from_domain(assistant_message),
         ],
         source=assistant_message.source,
+        turn_interpretation=turn_result.response_envelope.turn_interpretation,
+        discussion_workspace_version=turn_result.discussion_workspace_version,
+        formalization_proposal=turn_result.response_envelope.formalization_proposal,
+        delta_apply_status=turn_result.delta_apply_status.value,
+        confirmation_reasons=list(turn_result.confirmation_reasons),
+        requires_confirmation=(
+            turn_result.response_envelope.requires_confirmation
+            or turn_result.delta_apply_status.value == "requires_confirmation"
+        ),
     )
 
 

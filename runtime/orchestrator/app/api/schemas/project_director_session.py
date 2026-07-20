@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -11,6 +12,10 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageRiskLevel,
     ProjectDirectorMessageRole,
     ProjectDirectorMessageSource,
+)
+from app.domain.project_director_conversation_intelligence import (
+    FormalizationProposal,
+    TurnInterpretation,
 )
 from app.domain.project_director_session import (
     ClarifyingAnswer,
@@ -171,6 +176,17 @@ class PostProjectDirectorMessageResponse(BaseModel):
     assistant_message: ProjectDirectorMessageResponse
     messages: list[ProjectDirectorMessageResponse]
     source: ProjectDirectorMessageSource = ProjectDirectorMessageSource.RULE_FALLBACK
+    turn_interpretation: TurnInterpretation
+    discussion_workspace_version: int | None = None
+    formalization_proposal: FormalizationProposal | None = None
+    delta_apply_status: Literal[
+        "applied",
+        "replayed",
+        "requires_confirmation",
+        "no_changes",
+    ]
+    confirmation_reasons: list[str] = Field(default_factory=list)
+    requires_confirmation: bool = False
     gate_conclusion: str = "Partial"
     forbidden_actions: list[str] = Field(
         default_factory=lambda: [
