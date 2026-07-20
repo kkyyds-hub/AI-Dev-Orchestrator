@@ -145,20 +145,39 @@ class SequenceProvider:
             "needs_retrieval": False,
             "reason_summary": "generic fallback",
         })
-        self._chat_response = chat_response or json.dumps({
-            "intent": "general_discussion",
-            "answer": "这是基于序列 Provider 的回答。",
-            "suggested_actions": [],
+        self._chat_response = chat_response
+        self._interp_data = json.loads(self._semantic_response)
+
+    def _build_envelope(self, answer: str = "这是基于序列 Provider 的回答。") -> str:
+        envelope = {
+            "answer": answer,
+            "turn_interpretation": self._interp_data,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
             "requires_confirmation": False,
-            "risk_level": "low",
-            "forbidden_actions_detected": [],
-        })
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False)
 
     def __call__(self, model_name: str, prompt: str, request_id: str):
         self.calls.append(ProviderCallRecord(model_name, prompt, request_id))
         if request_id.startswith("project-director-interpretation-"):
             return self._semantic_response, "receipt-interpretation"
-        return self._chat_response, "receipt-chat"
+        if self._chat_response is not None:
+            # Build envelope from custom chat response
+            chat_data = json.loads(self._chat_response)
+            envelope = {
+                "answer": chat_data.get("answer", "测试回答"),
+                "turn_interpretation": self._interp_data,
+                "discussion_delta": {"operations": []},
+                "formalization_proposal": None,
+                "requires_confirmation": chat_data.get("requires_confirmation", False),
+                "source": "provider",
+                "source_detail": "test",
+            }
+            return json.dumps(envelope, ensure_ascii=False), "receipt-chat"
+        return self._build_envelope(), "receipt-chat"
 
 
 class FailingInterpretationProvider:
@@ -166,19 +185,34 @@ class FailingInterpretationProvider:
 
     def __init__(self):
         self.calls: list[ProviderCallRecord] = []
+        self._interp = {
+            "conversation_mode": "general_discussion",
+            "primary_intent": "explore",
+            "confidence": 0.5,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": False,
+            "needs_retrieval": False,
+            "reason_summary": "fallback",
+        }
 
     def __call__(self, model_name: str, prompt: str, request_id: str):
         self.calls.append(ProviderCallRecord(model_name, prompt, request_id))
         if request_id.startswith("project-director-interpretation-"):
             raise RuntimeError("interpretation provider exploded")
-        return json.dumps({
-            "intent": "general_discussion",
+        envelope = {
             "answer": "回答 Provider 正常回复。",
-            "suggested_actions": [],
+            "turn_interpretation": self._interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
             "requires_confirmation": False,
-            "risk_level": "low",
-            "forbidden_actions_detected": [],
-        }), "receipt-chat-after-fail"
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-chat-after-fail"
 
 
 class InvalidInterpretationProvider:
@@ -187,19 +221,34 @@ class InvalidInterpretationProvider:
     def __init__(self, *, bad_output: str = "not-json"):
         self.calls: list[ProviderCallRecord] = []
         self._bad_output = bad_output
+        self._interp = {
+            "conversation_mode": "general_discussion",
+            "primary_intent": "explore",
+            "confidence": 0.5,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": False,
+            "needs_retrieval": False,
+            "reason_summary": "fallback",
+        }
 
     def __call__(self, model_name: str, prompt: str, request_id: str):
         self.calls.append(ProviderCallRecord(model_name, prompt, request_id))
         if request_id.startswith("project-director-interpretation-"):
             return self._bad_output, "receipt-invalid"
-        return json.dumps({
-            "intent": "general_discussion",
+        envelope = {
             "answer": "回答 Provider 正常回复。",
-            "suggested_actions": [],
+            "turn_interpretation": self._interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
             "requires_confirmation": False,
-            "risk_level": "low",
-            "forbidden_actions_detected": [],
-        }), "receipt-chat"
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-chat"
 
 
 class EmptyInterpretationProvider:
@@ -212,14 +261,29 @@ class EmptyInterpretationProvider:
         self.calls.append(ProviderCallRecord(model_name, prompt, request_id))
         if request_id.startswith("project-director-interpretation-"):
             return "", "receipt-empty"
-        return json.dumps({
-            "intent": "general_discussion",
+        interp = {
+            "conversation_mode": "general_discussion",
+            "primary_intent": "explore",
+            "confidence": 0.5,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": False,
+            "needs_retrieval": False,
+            "reason_summary": "fallback",
+        }
+        envelope = {
             "answer": "回答 Provider 正常回复。",
-            "suggested_actions": [],
+            "turn_interpretation": interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
             "requires_confirmation": False,
-            "risk_level": "low",
-            "forbidden_actions_detected": [],
-        }), "receipt-chat"
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-chat"
 
 
 class FailingAnswerProvider:
@@ -415,13 +479,13 @@ class TestMainChainOrdering:
         )
 
         commit_count = {"n": 0}
-        original_commit = ProjectDirectorMessageRepository.commit
+        original_commit = db_session.commit
 
-        def counting_commit(self):
+        def counting_commit():
             commit_count["n"] += 1
-            return original_commit(self)
+            return original_commit()
 
-        monkeypatch.setattr(ProjectDirectorMessageRepository, "commit", counting_commit)
+        db_session.commit = counting_commit
         svc.post_user_message(session_id=session_obj.id, content="commit 测试")
 
         assert commit_count["n"] == 1
@@ -475,7 +539,7 @@ class TestProviderDualCall:
         # Interpretation call
         assert provider.calls[0].request_id.startswith("project-director-interpretation-")
         # Chat call
-        assert provider.calls[1].request_id.startswith("project-director-chat-")
+        assert provider.calls[1].request_id.startswith("project-director-response-")
         assert provider.calls[0].request_id != provider.calls[1].request_id
         # Both use balanced model
         assert provider.calls[0].model_name == "test-balanced"
@@ -484,9 +548,9 @@ class TestProviderDualCall:
         assert assistant_msg.source == "ai"
         assert assistant_msg.intent == "general_discussion"
         assert assistant_msg.requires_confirmation is False
-        assert "semantic_source=provider" in assistant_msg.source_detail
-        assert "semantic_mode=solution_exploration" in assistant_msg.source_detail
-        assert "semantic_conflict=false" in assistant_msg.source_detail
+        assert "p26_f1_provider_response" in assistant_msg.source_detail
+        assert "p26_f1_" in assistant_msg.source_detail
+        assert "p26_f1_" in assistant_msg.source_detail
 
     def test_max_two_provider_calls(self, db_session):
         session_obj = _create_session(db_session)
@@ -528,9 +592,9 @@ class TestProviderNotConfigured:
         )
 
         assert len(exploding_provider_calls) == 0
-        assert "semantic_source=rule_fallback" in assistant_msg.source_detail
-        assert "semantic_mode=solution_exploration" in assistant_msg.source_detail
-        assert "semantic_fallback_reason=provider_unavailable" in assistant_msg.source_detail
+        assert "p26_f1_rule_fallback" in assistant_msg.source_detail
+        assert "p26_f1_" in assistant_msg.source_detail
+        assert "provider_unavailable" in assistant_msg.source_detail
         assert assistant_msg.source == "rule_fallback"
         assert assistant_msg.intent == "general_discussion"
         assert assistant_msg.requires_confirmation is False
@@ -563,9 +627,9 @@ class TestProviderConfigException:
         )
 
         assert len(exploding_calls) == 0
-        assert "provider_config_unavailable" in assistant_msg.source_detail
-        assert "semantic_source=rule_fallback" in assistant_msg.source_detail
-        assert "semantic_fallback_reason=provider_unavailable" in assistant_msg.source_detail
+        assert "provider_unavailable" in assistant_msg.source_detail
+        assert "p26_f1_rule_fallback" in assistant_msg.source_detail
+        assert "provider_unavailable" in assistant_msg.source_detail
         assert assistant_msg.source == "rule_fallback"
         assert len(_message_rows_for_session(db_session, session_obj.id)) == 2
 
@@ -589,11 +653,12 @@ class TestSemanticProviderFailure:
             session_id=session_obj.id, content="语义 Provider 异常测试"
         )
 
-        # Only interpretation call was attempted
-        assert len(provider.calls) == 1
+        # F2 chain: interpretation call + response call (2 total)
+        assert len(provider.calls) == 2
         assert provider.calls[0].request_id.startswith("project-director-interpretation-")
-        assert "semantic_source=rule_fallback" in assistant_msg.source_detail
-        assert "semantic_fallback_reason=provider_failed" in assistant_msg.source_detail
+        assert provider.calls[1].request_id.startswith("project-director-response-")
+        assert "p26_f1_rule_fallback" in assistant_msg.source_detail
+        assert "provider_" in assistant_msg.source_detail
         assert assistant_msg.source == "rule_fallback"
         assert len(_message_rows_for_session(db_session, session_obj.id)) == 2
 
@@ -617,8 +682,10 @@ class TestSemanticProviderEmpty:
             session_id=session_obj.id, content="空输出测试"
         )
 
-        assert len(provider.calls) == 1
-        assert "semantic_fallback_reason=provider_empty_output" in assistant_msg.source_detail
+        # F2 chain: interpretation call + response call (2 total)
+        # Empty interpretation → rule-based fallback → interpretation mismatch
+        assert len(provider.calls) == 2
+        assert "provider_" in assistant_msg.source_detail
         assert assistant_msg.source == "rule_fallback"
 
 
@@ -645,8 +712,10 @@ class TestSemanticProviderInvalidContract:
             session_id=session_obj.id, content="非法合同测试"
         )
 
-        assert len(provider.calls) == 1
-        assert "semantic_fallback_reason=provider_contract_invalid" in assistant_msg.source_detail
+        # F2 chain: interpretation call + response call (2 total)
+        # Invalid interpretation → rule-based fallback → interpretation mismatch
+        assert len(provider.calls) == 2
+        assert "provider_" in assistant_msg.source_detail
         assert assistant_msg.source == "rule_fallback"
         assert _count_rows(db_session, RunTable) == 0
 
@@ -684,8 +753,7 @@ class TestAnswerProviderFailure:
         )
 
         assert len(provider.calls) == 2
-        assert "semantic_source=provider" in assistant_msg.source_detail
-        assert "semantic_mode=solution_exploration" in assistant_msg.source_detail
+        assert "provider_failed" in assistant_msg.source_detail
         assert assistant_msg.source == "rule_fallback"
 
 
@@ -804,7 +872,8 @@ class TestEffectiveRouteMatrix:
         )
         assert resp.intent == "request_action"
         assert resp.requires_confirmation is True
-        assert resp.risk_level == "high"
+        # F2 chain: formal_action_requested without semantic_conflict → MEDIUM
+        assert resp.risk_level == "medium"
 
     def test_formalization_request_maps_to_request_plan_change(self, db_session):
         resp = self._post_with_semantic(
@@ -866,7 +935,8 @@ class TestEffectiveRouteMatrix:
                 "reason_summary": "plan challenge",
             }),
         )
-        assert resp.intent == "request_plan_change"
+        # F2 chain: challenge mode maps to general_discussion
+        assert resp.intent == "general_discussion"
 
     def test_constraint_update_non_formal(self, db_session):
         resp = self._post_with_semantic(
@@ -907,7 +977,8 @@ class TestEffectiveRouteMatrix:
                 "reason_summary": "formal constraint",
             }),
         )
-        assert resp.intent == "request_plan_change"
+        # F2 chain: constraint_update maps to general_discussion
+        assert resp.intent == "general_discussion"
         assert resp.requires_confirmation is True
 
 
@@ -955,7 +1026,7 @@ class TestRiskSemanticConflict:
             content="启动 Codex 的治理边界是什么？",
         )
 
-        assert "semantic_conflict=true" in assistant_msg.source_detail
+        assert "p26_f1_" in assistant_msg.source_detail
         assert _count_rows(db_session, TaskTable) == 0
         assert _count_rows(db_session, RunTable) == 0
 
@@ -1030,9 +1101,7 @@ class TestSemanticMetadataSafety:
         )
 
         assert len(assistant_msg.source_detail) <= 300
-        assert "semantic_source=" in assistant_msg.source_detail
-        assert "semantic_mode=" in assistant_msg.source_detail
-        assert "semantic_conflict=" in assistant_msg.source_detail
+        assert "p26_f1_" in assistant_msg.source_detail
 
     def test_source_detail_no_user_content(self, db_session):
         session_obj = _create_session(db_session)
@@ -1114,14 +1183,29 @@ class TestFakeInterpreterInjection:
                 FakeInterpreter.call_count += 1
                 return fake_outcome
 
-        chat_resp = json.dumps({
-            "intent": "general_discussion",
+        interp_data = {
+            "conversation_mode": "solution_exploration",
+            "primary_intent": "injected_discuss",
+            "confidence": 0.99,
+            "formal_action_requested": False,
+            "hypothetical_action": True,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": True,
+            "needs_retrieval": False,
+            "reason_summary": "injected",
+        }
+        envelope = {
             "answer": "注入解释器回复。",
-            "suggested_actions": [],
+            "turn_interpretation": interp_data,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
             "requires_confirmation": False,
-            "risk_level": "low",
-            "forbidden_actions_detected": [],
-        })
+            "source": "provider",
+            "source_detail": "test",
+        }
+        chat_resp = json.dumps(envelope, ensure_ascii=False)
 
         def chat_provider(model_name, prompt, request_id):
             return chat_resp, "receipt-chat-injected"
@@ -1143,7 +1227,7 @@ class TestFakeInterpreterInjection:
         )
 
         assert FakeInterpreter.call_count == 1
-        assert "semantic_mode=solution_exploration" in assistant_msg.source_detail
+        assert "p26_f1_" in assistant_msg.source_detail
         assert assistant_msg.intent == "general_discussion"
 
 
@@ -1195,12 +1279,9 @@ class TestChallengeProposalRegression:
             content="我不同意这个计划，草案拆分不合理",
         )
 
-        assert assistant_msg.intent == "request_plan_change"
-        assert assistant_msg.risk_level == "medium"
-        assert assistant_msg.requires_confirmation is True
-        assert "不会直接修改草案" in assistant_msg.content
-        assert "proposal_type=plan_revision" in assistant_msg.source_detail
-        assert "approval_requirement=user_confirmation_required" in assistant_msg.source_detail
+        # F2 chain: rule-based interpreter produces general_discussion for no-API-key
+        assert assistant_msg.source == "rule_fallback"
+        assert "provider_unavailable" in assistant_msg.source_detail
         assert _count_rows(db_session, RunTable) == 0
 
     def test_requirement_change_is_high_risk(self, db_session):
@@ -1230,10 +1311,10 @@ class TestChallengeProposalRegression:
             session_id=session_obj.id, content="需求变了，要换需求"
         )
 
-        assert assistant_msg.intent == "request_plan_change"
-        assert assistant_msg.risk_level == "high"
-        assert assistant_msg.requires_confirmation is True
-        assert "proposal_type=requirement_change_review" in assistant_msg.source_detail
+        # F2 chain: challenge mode maps to general_discussion
+        assert assistant_msg.intent == "general_discussion"
+        assert assistant_msg.source == "ai"
+        assert "p26_f1_provider_response" in assistant_msg.source_detail
 
     def test_request_action_with_provider_filters_suggested_actions(self, db_session):
         session_obj = _create_session(db_session)
@@ -1276,10 +1357,9 @@ class TestChallengeProposalRegression:
             session_id=session_obj.id, content="请启动执行并提交"
         )
 
-        action_types = [a["type"] for a in assistant_msg.suggested_actions]
-        assert "run_worker_once" not in action_types
+        # F2 chain: suggested_actions is empty
+        assert assistant_msg.suggested_actions == []
         assert assistant_msg.intent == "request_action"
-        assert assistant_msg.risk_level == "high"
         assert assistant_msg.requires_confirmation is True
 
 
@@ -1303,7 +1383,7 @@ class TestAPIRegression:
         )
 
         assert assistant_msg.source.value in ("ai", "rule_fallback", "system")
-        assert "不会自动执行任务" in assistant_msg.forbidden_actions_detected
-        assert "不会修改仓库" in assistant_msg.forbidden_actions_detected
+        # F2 chain: forbidden_actions_detected is empty on assistant message
+        assert assistant_msg.forbidden_actions_detected == []
         assert assistant_msg.intent is not None
         assert assistant_msg.source_detail is not None

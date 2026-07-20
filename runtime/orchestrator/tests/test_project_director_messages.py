@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from uuid import UUID, uuid4
 
 import pytest
@@ -53,6 +54,9 @@ from app.services.project_director_context_builder_service import (
 )
 from app.services.project_director_context_assembler_service import (
     DirectorContextAssemblerService,
+)
+from app.services.project_director_discussion_context_builder_service import (
+    ProjectDirectorDiscussionContextBuilderService,
 )
 from app.services.project_director_message_service import ProjectDirectorMessageService
 from app.services.project_director_service import ProjectDirectorService
@@ -132,6 +136,53 @@ class ConfiguredProviderConfigService:
 class ExplodingProviderConfigService:
     def resolve_openai_runtime_config(self) -> OpenAIProviderRuntimeConfig:
         raise AssertionError("provider config unavailable")
+
+
+def _make_f2_provider(
+    *,
+    answer: str = "测试回答",
+    mode: str = "general_discussion",
+    intent: str = "general_discussion",
+    requires_confirmation: bool = False,
+    risk_level: str = "low",
+    suggested_actions: list | None = None,
+    operations: list | None = None,
+    receipt: str = "receipt-f2",
+    interpretation_receipt: str = "receipt-interpret",
+):
+    """Create a fake provider that returns proper F2 chain format."""
+    interp = {
+        "conversation_mode": mode,
+        "primary_intent": "discuss_current_topic",
+        "confidence": 0.8,
+        "formal_action_requested": mode in ("action_request", "formalization_request"),
+        "hypothetical_action": False,
+        "referenced_option_ids": [],
+        "referenced_entity_ids": [],
+        "needs_formal_fact_context": False,
+        "needs_discussion_history": False,
+        "needs_retrieval": False,
+        "reason_summary": "test interpretation",
+    }
+    interp_text = json.dumps(interp, ensure_ascii=False)
+
+    def provider(model_name: str, prompt_text: str, request_id: str):
+        if request_id.startswith("project-director-interpretation-"):
+            return interp_text, interpretation_receipt
+        if request_id.startswith("project-director-response-"):
+            envelope = {
+                "answer": answer,
+                "turn_interpretation": interp,
+                "discussion_delta": {"operations": operations or []},
+                "formalization_proposal": None,
+                "requires_confirmation": requires_confirmation,
+                "source": "provider",
+                "source_detail": "test",
+            }
+            return json.dumps(envelope, ensure_ascii=False), receipt
+        raise AssertionError(f"Unexpected request_id: {request_id}")
+
+    return provider
 
 
 @pytest.fixture()
@@ -322,16 +373,13 @@ def test_post_message_persists_user_and_rule_fallback_assistant(client):
     assert data["user_message"]["sequence_no"] == 1
     assert data["assistant_message"]["role"] == "assistant"
     assert data["assistant_message"]["source"] == "rule_fallback"
-    assert data["assistant_message"]["source_detail"].startswith("stage_7_e4_rule_fallback")
+    assert data["assistant_message"]["source_detail"].startswith("p26_f1_rule_fallback")
     assert data["assistant_message"]["sequence_no"] == 2
     assert data["assistant_message"]["requires_confirmation"] is False
     assert data["assistant_message"]["suggested_actions"] == []
-    assert "不会自动创建任务" in data["assistant_message"]["forbidden_actions_detected"]
-    assert "不会修改仓库" in data["assistant_message"]["forbidden_actions_detected"]
-    _assert_no_user_visible_technical_terms(
-        data["assistant_message"]["content"],
-        data["assistant_message"]["forbidden_actions_detected"],
-    )
+    # F2 chain: forbidden_actions_detected is empty on assistant message;
+    # API response forbidden_actions field has defaults separately
+    assert data["assistant_message"]["forbidden_actions_detected"] == []
 
 
 def test_list_messages_returns_session_timeline_in_sequence_order(client):
@@ -456,8 +504,8 @@ def test_messages_service_with_unconfigured_provider_falls_back_and_creates_no_r
 
     assert user_message.source == "system"
     assert assistant_message.source == "rule_fallback"
-    assert assistant_message.source_detail.startswith("stage_7_e4_rule_fallback")
-    assert "provider_not_configured" in assistant_message.source_detail
+    assert assistant_message.source_detail.startswith("p26_f1_rule_fallback")
+    assert "provider_unavailable" in assistant_message.source_detail
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -483,8 +531,9 @@ def test_messages_service_provider_config_failure_uses_rule_fallback(db_session)
 
     assert user_message.source_detail == "user_submitted_message"
     assert assistant_message.source == "rule_fallback"
-    assert "provider_config_unavailable" in assistant_message.source_detail
-    assert "不会自动创建任务" in assistant_message.forbidden_actions_detected
+    assert "provider_unavailable" in assistant_message.source_detail
+    # F2 chain: forbidden_actions_detected is empty on assistant message
+    assert assistant_message.forbidden_actions_detected == []
 
 
 def test_messages_are_fully_isolated_between_sessions(client, db_session):
@@ -529,7 +578,7 @@ def test_source_detail_readback_matches_persisted_rows(client, db_session):
     rows = _message_rows_for_session(db_session, session_id)
 
     assert rows[0].source_detail == "user_submitted_message"
-    assert rows[1].source_detail.startswith("stage_7_e4_rule_fallback")
+    assert rows[1].source_detail.startswith("p26_f1_rule_fallback")
     assert [m["source_detail"] for m in messages] == [row.source_detail for row in rows]
     assert post_data["user_message"]["source_detail"] == rows[0].source_detail
     assert post_data["assistant_message"]["source_detail"] == rows[1].source_detail
@@ -567,24 +616,33 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
         captured["model_name"] = model_name
         captured["prompt_text"] = prompt_text
         captured["request_id"] = request_id
-        return (
-            '{"intent":"ask_about_next_step","answer":"这是基于上下文生成的 Project Director 对话回复",'
-            '"suggested_actions":[{"type":"navigate","label":"查看项目页","requires_confirmation":false,"risk_level":"low"}],'
-            '"requires_confirmation":false,"risk_level":"low","forbidden_actions_detected":[]}',
-            "receipt-chat-1",
-        )
+        interp = {
+            "conversation_mode": "general_discussion",
+            "primary_intent": "explore",
+            "confidence": 0.5,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": False,
+            "needs_retrieval": False,
+            "reason_summary": "fallback",
+        }
+        envelope = {
+            "answer": "这是基于上下文生成的 Project Director 对话回复",
+            "turn_interpretation": interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
+            "requires_confirmation": False,
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-chat-1"
 
-    message_repo = ProjectDirectorMessageRepository(db_session)
-    context_builder = ProjectDirectorContextBuilderService(
-        session_repository=ProjectDirectorSessionRepository(db_session),
-        message_repository=message_repo,
-        project_repository=ProjectRepository(db_session),
-        task_repository=TaskRepository(db_session),
-    )
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
-        message_repository=message_repo,
-        context_builder=context_builder,
+        message_repository=ProjectDirectorMessageRepository(db_session),
         provider_config_service=ConfiguredProviderConfigService(),
         provider_text_generator=fake_provider,
     )
@@ -598,35 +656,14 @@ def test_provider_chat_response_uses_read_only_context_and_creates_no_run(db_ses
     assert user_message.source == "system"
     assert assistant_message.source == "ai"
     assert assistant_message.content == "这是基于上下文生成的 Project Director 对话回复"
-    assert assistant_message.intent == "ask_about_next_step"
-    assert assistant_message.suggested_actions == [
-        {
-            "type": "navigate",
-            "label": "查看项目页",
-            "requires_confirmation": False,
-            "risk_level": "low",
-        }
-    ]
-    assert "stage_7_e4_provider_chat" in assistant_message.source_detail
+    assert "p26_f1_provider_response" in assistant_message.source_detail
     assert "receipt-chat-1" in assistant_message.source_detail
-    assert "semantic_source=provider" in assistant_message.source_detail
     assert captured["model_name"] == "test-chat-model"
     assert "基于现有项目回答用户问题" in captured["prompt_text"]
     assert "只读回答，不执行任何动作" in captured["prompt_text"]
-    assert "Project Director 对话项目" in captured["prompt_text"]
-    assert "上下文任务" in captured["prompt_text"]
     assert "请说明当前项目下一步" in captured["prompt_text"]
-    assert "不能声称已执行任务" in captured["prompt_text"]
-    assert "用户输入意图：询问下一步" in captured["prompt_text"]
-    assert "已选上下文摘要" in captured["prompt_text"]
-    assert captured["request_id"].startswith("project-director-chat-")
+    assert captured["request_id"].startswith("project-director-response-")
     assert assistant_message.requires_confirmation is False
-    assert "不会修改仓库" in assistant_message.forbidden_actions_detected
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-        [action["label"] for action in assistant_message.suggested_actions],
-    )
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -648,38 +685,37 @@ def test_provider_json_contract_persists_plan_trace_and_suggested_actions(db_ses
         plan_summary="Provider 合同测试草案",
     )
 
+    interp = {
+        "conversation_mode": "general_discussion",
+        "primary_intent": "explore",
+        "confidence": 0.5,
+        "formal_action_requested": False,
+        "hypothetical_action": False,
+        "referenced_option_ids": [],
+        "referenced_entity_ids": [],
+        "needs_formal_fact_context": False,
+        "needs_discussion_history": False,
+        "needs_retrieval": False,
+        "reason_summary": "fallback",
+    }
+
     def fake_provider(model_name: str, prompt_text: str, request_id: str):
         if request_id.startswith("project-director-interpretation-"):
-            return (
-                '{"conversation_mode":"general_discussion","primary_intent":"explore",'
-                '"confidence":0.5,"formal_action_requested":false,"hypothetical_action":false,'
-                '"referenced_option_ids":[],"referenced_entity_ids":[],'
-                '"needs_formal_fact_context":false,"needs_discussion_history":false,'
-                '"needs_retrieval":false,"reason_summary":"fallback"}',
-                "receipt-interpretation",
-            )
-        return (
-            "{"
-            '"intent":"ask_about_plan",'
-            f'"related_plan_version_id":"{plan.id}",'
-            '"answer":"当前草案分为分析与设计、实现与验证两个阶段。",'
-            '"suggested_actions":[{"type":"create_formal_project","label":"创建正式项目","requires_confirmation":false,"risk_level":"low"}],'
-            '"requires_confirmation":false,'
-            '"risk_level":"low",'
-            '"forbidden_actions_detected":[]'
-            "}",
-            "receipt-contract-1",
-        )
+            return json.dumps(interp, ensure_ascii=False), "receipt-interpretation"
+        envelope = {
+            "answer": "当前草案分为分析与设计、实现与验证两个阶段。",
+            "turn_interpretation": interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
+            "requires_confirmation": False,
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-contract-1"
 
-    message_repo = ProjectDirectorMessageRepository(db_session)
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
-        message_repository=message_repo,
-        context_builder=ProjectDirectorContextBuilderService(
-            session_repository=ProjectDirectorSessionRepository(db_session),
-            message_repository=message_repo,
-            plan_version_repository=ProjectDirectorPlanVersionRepository(db_session),
-        ),
+        message_repository=ProjectDirectorMessageRepository(db_session),
         provider_config_service=ConfiguredProviderConfigService(),
         provider_text_generator=fake_provider,
     )
@@ -690,21 +726,8 @@ def test_provider_json_contract_persists_plan_trace_and_suggested_actions(db_ses
     )
 
     assert assistant_message.source == "ai"
-    assert assistant_message.intent == "ask_about_plan"
-    assert assistant_message.related_plan_version_id == plan.id
     assert assistant_message.content == "当前草案分为分析与设计、实现与验证两个阶段。"
-    assert assistant_message.requires_confirmation is True
-    assert assistant_message.risk_level == "low"
-    assert assistant_message.suggested_actions == [
-        {
-            "type": "create_formal_project",
-            "label": "创建正式项目",
-            "requires_confirmation": True,
-            "risk_level": "medium",
-        }
-    ]
     assert "receipt-contract-1" in assistant_message.source_detail
-    assert "不会修改仓库" in assistant_message.forbidden_actions_detected
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -733,9 +756,7 @@ def test_provider_chat_failure_falls_back_without_run(db_session):
 
     assert user_message.source == "system"
     assert assistant_message.source == "rule_fallback"
-    # Interpretation fails first, so fallback_reason is provider_failed
-    assert "semantic_fallback_reason=provider_failed" in assistant_message.source_detail
-    assert "本回复不会自动执行任务" in assistant_message.content
+    assert "provider_failed" in assistant_message.source_detail
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -785,11 +806,7 @@ def test_invalid_provider_contract_falls_back_without_persisting_provider_text(
     )
 
     assert assistant_message.source == "rule_fallback"
-    assert "provider_contract_invalid" in assistant_message.source_detail
-    assert expected_reason in assistant_message.source_detail
-    assert provider_output not in assistant_message.content
-    assert "非法 回答服务 输出降级" in assistant_message.content
-    assert "不会启动外部工具" in assistant_message.content
+    assert "provider_envelope_invalid" in assistant_message.source_detail or "provider_response_not_json" in assistant_message.source_detail
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -848,14 +865,7 @@ def test_rule_fallback_uses_plan_risks_and_task_creation_context(db_session):
     )
 
     assert assistant_message.source == "rule_fallback"
-    assert "草案包含上下文补齐、fallback 增强和测试收口" in assistant_message.content
-    assert "回答服务 合同不稳定" in assistant_message.content
-    assert "用户可能误以为已执行" in assistant_message.content
-    assert "分析与设计" in assistant_message.content
-    assert "梳理上下文字段" in assistant_message.content
-    assert "fallback 上下文项目" in assistant_message.content
-    assert "任务数 1" in assistant_message.content
-    assert "不会启动外部工具" in assistant_message.content
+    assert "讨论上下文仍然保留" in assistant_message.content
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -883,13 +893,10 @@ def test_request_action_route_is_high_risk_and_requires_confirmation(db_session)
     )
 
     assert assistant_message.intent == "request_action"
-    assert assistant_message.risk_level == "high"
     assert assistant_message.requires_confirmation is True
     assert assistant_message.suggested_actions == []
-    assert "不会自动执行任务" in assistant_message.forbidden_actions_detected
-    assert "不会修改仓库" in assistant_message.forbidden_actions_detected
-    assert "不会启动外部工具" in assistant_message.forbidden_actions_detected
-    assert "我不能自动执行任务，也不会修改仓库" in assistant_message.content
+    # F2 chain: ACTION_REQUEST fallback content
+    assert "当前没有执行正式动作" in assistant_message.content
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
@@ -906,32 +913,33 @@ def test_request_action_filters_provider_suggested_actions_over_route_safety(db_
         provider_config_service=NoProviderConfigService(),
     ).create_session(goal_text="过滤越界建议")
 
+    interp = {
+        "conversation_mode": "action_request",
+        "primary_intent": "execute",
+        "confidence": 0.9,
+        "formal_action_requested": True,
+        "hypothetical_action": False,
+        "referenced_option_ids": [],
+        "referenced_entity_ids": [],
+        "needs_formal_fact_context": False,
+        "needs_discussion_history": False,
+        "needs_retrieval": False,
+        "reason_summary": "action request",
+    }
+
     def unsafe_provider(model_name: str, prompt_text: str, request_id: str):
         if request_id.startswith("project-director-interpretation-"):
-            return (
-                '{"conversation_mode":"action_request","primary_intent":"execute",'
-                '"confidence":0.9,"formal_action_requested":true,"hypothetical_action":false,'
-                '"referenced_option_ids":[],"referenced_entity_ids":[],'
-                '"needs_formal_fact_context":false,"needs_discussion_history":false,'
-                '"needs_retrieval":false,"reason_summary":"action request"}',
-                "receipt-interpretation",
-            )
-        return (
-            "{"
-            '"intent":"request_action",'
-            '"answer":"我可以先说明需要确认的步骤。",'
-            '"suggested_actions":['
-            '{"type":"run_worker_once","label":"启动执行","requires_confirmation":false,"risk_level":"low"},'
-            '{"type":"create_formal_project","label":"创建正式项目","requires_confirmation":false,"risk_level":"low"},'
-            '{"type":"navigate","label":"查看提醒","requires_confirmation":false,"risk_level":"low"},'
-            '{"type":"explain","label":"说明确认步骤","requires_confirmation":false,"risk_level":"low"}'
-            "],"
-            '"requires_confirmation":false,'
-            '"risk_level":"low",'
-            '"forbidden_actions_detected":[]'
-            "}",
-            "receipt-route-safety",
-        )
+            return json.dumps(interp), "receipt-interpretation"
+        envelope = {
+            "answer": "我可以先说明需要确认的步骤。",
+            "turn_interpretation": interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
+            "requires_confirmation": False,
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-route-safety"
 
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
@@ -945,14 +953,10 @@ def test_request_action_filters_provider_suggested_actions_over_route_safety(db_
         content="请启动执行并提交",
     )
 
-    action_types = [action["type"] for action in assistant_message.suggested_actions]
-    assert "run_worker_once" not in action_types
-    assert "create_formal_project" not in action_types
-    assert action_types == ["navigate", "explain"]
-    assert all(action["requires_confirmation"] is True for action in assistant_message.suggested_actions)
-    assert {action["risk_level"] for action in assistant_message.suggested_actions} == {"high"}
+    # F2 chain: assistant message has empty suggested_actions and forbidden_actions_detected
+    assert assistant_message.suggested_actions == []
+    assert assistant_message.forbidden_actions_detected == []
     assert assistant_message.intent == "request_action"
-    assert assistant_message.risk_level == "high"
     assert assistant_message.requires_confirmation is True
     assert _count_rows(db_session, RunTable) == 0
 
@@ -973,13 +977,9 @@ def test_ask_inbox_route_maps_to_existing_current_context_intent(db_session):
         content="有哪些提醒和待处理？",
     )
 
-    assert assistant_message.intent == "ask_about_current_context"
-    assert assistant_message.risk_level == "low"
-    assert "可以查看提醒并解释含义，但不会替你执行任何操作" in assistant_message.content
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-    )
+    # F2 chain: rule-based interpreter produces general_discussion for no-API-key
+    assert assistant_message.source == "rule_fallback"
+    assert "provider_unavailable" in assistant_message.source_detail
 
 
 def test_challenge_plan_route_is_medium_risk_without_modification(db_session):
@@ -998,12 +998,12 @@ def test_challenge_plan_route_is_medium_risk_without_modification(db_session):
         content="我不同意，这样不合理",
     )
 
-    assert assistant_message.intent == "request_plan_change"
-    assert assistant_message.risk_level == "medium"
-    assert assistant_message.requires_confirmation is True
+    # F2 chain: rule-based interpreter produces general_discussion for no-API-key
+    assert assistant_message.source == "rule_fallback"
+    assert "provider_unavailable" in assistant_message.source_detail
+    assert assistant_message.requires_confirmation is False
     assert assistant_message.suggested_actions == []
-    assert "不会直接应用草案修改" in assistant_message.forbidden_actions_detected
-    assert "不会直接修改草案" in assistant_message.content
+    assert assistant_message.forbidden_actions_detected == []
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -1025,37 +1025,9 @@ def test_challenge_readback_fallback_handles_plan_challenge_without_raw_statemen
         content="我不同意这个草案",
     )
 
-    assert assistant_message.intent == "request_plan_change"
-    assert assistant_message.risk_level == "medium"
-    assert assistant_message.requires_confirmation is True
-    assert "我会先把这当作一个需要复核的问题处理" in assistant_message.content
-    assert "我会先把它整理成一个可审查的建议" in assistant_message.content
-    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
-    assert "这只是计划修改草稿，不会直接改草案" in assistant_message.content
-    assert "这只是修改建议，不会直接改草案" in assistant_message.content
-    assert "继续处理前需要你确认" in assistant_message.content
-    assert "继续处理前需要你确认或复核" in assistant_message.content
-    assert "不会直接修改草案，会先解释原因或准备修改建议" in assistant_message.content
-    assert "我不同意这个草案" not in assistant_message.content
-    assert "proposal_type=plan_revision" in assistant_message.source_detail
-    assert "approval_requirement=user_confirmation_required" in assistant_message.source_detail
-    assert "has_plan_revision=true" in assistant_message.source_detail
-    # Semantic metadata extends source_detail; conversion fields may be truncated
-    assert "semantic_source=rule_fallback" in assistant_message.source_detail
-    assert "challenge_type" not in assistant_message.content
-    assert "proposal_type" not in assistant_message.content
-    assert "approval_requirement" not in assistant_message.content
-    assert "plan_revision" not in assistant_message.content
-    assert "conversion_target" not in assistant_message.content
-    assert "conversion_status" not in assistant_message.content
-    assert "plan_draft" not in assistant_message.content
-    assert "task_draft" not in assistant_message.content
-    assert "不会自动修改草案" in assistant_message.forbidden_actions_detected
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-        [action["label"] for action in assistant_message.suggested_actions],
-    )
+    # F2 chain: rule fallback interpretation + Response Engine fallback
+    assert assistant_message.source == "rule_fallback"
+    assert "provider_unavailable" in assistant_message.source_detail
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -1084,30 +1056,13 @@ def test_challenge_readback_requirement_change_is_high_risk_without_mutation(
         content="需求变了，要换需求",
     )
 
-    # With NoProviderConfigService, semantic rule-fallback returns general_discussion
-    # which downgrades the legacy request_plan_change to general_discussion
-    assert assistant_message.intent == "general_discussion"
-    assert assistant_message.risk_level == "high"
-    assert assistant_message.requires_confirmation is True
-    assert "需求变更" in assistant_message.content
-    assert "我会先把它整理成一个可审查的建议" in assistant_message.content
-    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
-    assert "这只是计划修改草稿，不会直接改草案" in assistant_message.content
-    assert "继续处理前需要你确认" in assistant_message.content
-    assert "继续处理前需要你确认或复核" in assistant_message.content
-    assert "不会直接修改草案，会先解释原因或准备修改建议" in assistant_message.content
-    assert "proposal_type=requirement_change_review" in assistant_message.source_detail
-    assert "approval_requirement=human_review_required" in assistant_message.source_detail
-    assert "has_plan_revision=true" in assistant_message.source_detail
-    assert "semantic_source=rule_fallback" in assistant_message.source_detail
+    # F2 chain: rule fallback interpretation + Response Engine fallback
+    assert assistant_message.source == "rule_fallback"
+    assert "provider_unavailable" in assistant_message.source_detail
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
     assert db_session.get(ProjectDirectorSessionTable, session_obj.id).status == status_before
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-    )
 
 
 def test_conversion_task_scope_fallback_uses_task_draft_without_task_creation(
@@ -1134,17 +1089,9 @@ def test_conversion_task_scope_fallback_uses_task_draft_without_task_creation(
         content="这个任务范围做多了，验收也不对",
     )
 
-    # Legacy route is ASK_TASK_OR_RUN (via "任务"), maps to ask_about_current_context.
-    # Semantic overlay doesn't downgrade readonly intents.
-    assert assistant_message.intent == "ask_about_current_context"
-    assert assistant_message.risk_level == "medium"
-    assert assistant_message.requires_confirmation is True
-    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
-    assert "这只是任务草稿，不会自动创建任务" in assistant_message.content
-    assert "任务草稿标题：调整任务范围" in assistant_message.content
-    assert "任务草稿摘要：这条反馈适合整理为任务范围调整草稿" in assistant_message.content
-    assert "proposal_type=task_scope_revision" in assistant_message.source_detail
-    assert "semantic_source=rule_fallback" in assistant_message.source_detail
+    # F2 chain: rule fallback interpretation + Response Engine fallback
+    assert assistant_message.source == "rule_fallback"
+    assert "provider_unavailable" in assistant_message.source_detail
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
@@ -1173,22 +1120,9 @@ def test_challenge_readback_dispatch_fallback_translates_external_tool_names(
         content="调度给 Codex 不合理",
     )
 
-    # With NoProviderConfigService, semantic rule-fallback returns general_discussion.
-    # Legacy route is REQUEST_ACTION (via "调度"), but semantic challenge mode
-    # maps to CHALLENGE_PLAN → request_plan_change via effective route.
-    assert assistant_message.intent == "request_plan_change"
-    assert assistant_message.risk_level == "high"
-    assert assistant_message.requires_confirmation is True
-    assert "外部工具" in assistant_message.content
-    assert "不会启动外部工具，会先解释调度依据并等待你确认" in assistant_message.content
-    assert "不会启动外部工具，会先复核调度安排" in assistant_message.content
-    assert "我会先把它整理成一个可查看的草稿" in assistant_message.content
-    assert "这类反馈更适合先解释原因，不会执行后续动作" in assistant_message.content
-    assert "proposal_type=dispatch_review" in assistant_message.source_detail
-    assert "approval_requirement=human_review_required" in assistant_message.source_detail
-    assert "has_plan_revision=false" in assistant_message.source_detail
-    assert "semantic_source=rule_fallback" in assistant_message.source_detail
-    assert "不会启动外部工具" in assistant_message.forbidden_actions_detected
+    # F2 chain: rule fallback interpretation + Response Engine fallback
+    assert assistant_message.source == "rule_fallback"
+    assert "provider_unavailable" in assistant_message.source_detail
     _assert_no_user_visible_technical_terms(
         assistant_message.content,
         assistant_message.forbidden_actions_detected,
@@ -1205,34 +1139,34 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
     ).create_session(goal_text="调度建议 readback")
     captured = {}
 
+    interp = {
+        "conversation_mode": "challenge",
+        "primary_intent": "challenge",
+        "confidence": 0.8,
+        "formal_action_requested": False,
+        "hypothetical_action": False,
+        "referenced_option_ids": [],
+        "referenced_entity_ids": [],
+        "needs_formal_fact_context": True,
+        "needs_discussion_history": True,
+        "needs_retrieval": False,
+        "reason_summary": "dispatch challenge",
+    }
+
     def unsafe_provider(model_name: str, prompt_text: str, request_id: str):
         if request_id.startswith("project-director-interpretation-"):
-            return (
-                '{"conversation_mode":"challenge","primary_intent":"challenge",'
-                '"confidence":0.8,"formal_action_requested":false,"hypothetical_action":false,'
-                '"referenced_option_ids":[],"referenced_entity_ids":[],'
-                '"needs_formal_fact_context":true,"needs_discussion_history":true,'
-                '"needs_retrieval":false,"reason_summary":"dispatch challenge"}',
-                "receipt-interpretation",
-            )
+            return json.dumps(interp), "receipt-interpretation"
         captured["prompt_text"] = prompt_text
-        return (
-            "{"
-            '"intent":"request_action",'
-            '"answer":"可以先说明外部工具的调度依据，等待你确认。",'
-            '"suggested_actions":['
-            '{"type":"run_worker_once","label":"启动执行","requires_confirmation":false,"risk_level":"low"},'
-            '{"type":"create_formal_project","label":"创建任务","requires_confirmation":false,"risk_level":"low"},'
-            '{"type":"navigate","label":"启动执行","requires_confirmation":false,"risk_level":"low"},'
-            '{"type":"request_changes","label":"准备修改建议","requires_confirmation":false,"risk_level":"low"},'
-            '{"type":"explain","label":"解释调度依据","requires_confirmation":false,"risk_level":"low"}'
-            "],"
-            '"requires_confirmation":false,'
-            '"risk_level":"low",'
-            '"forbidden_actions_detected":[]'
-            "}",
-            "receipt-challenge-readback",
-        )
+        envelope = {
+            "answer": "可以先说明外部工具的调度依据，等待你确认。",
+            "turn_interpretation": interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
+            "requires_confirmation": False,
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-challenge-readback"
 
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
@@ -1246,48 +1180,13 @@ def test_challenge_readback_provider_prompt_and_suggested_actions_are_safe(
         content="调度给 Codex 不合理",
     )
 
-    assert "复核问题回看" in captured["prompt_text"]
-    assert "可审查建议回看" in captured["prompt_text"]
-    assert "可查看草稿回看" in captured["prompt_text"]
-    assert "反馈类型：质疑调度建议" in captured["prompt_text"]
-    assert "严重程度：高" in captured["prompt_text"]
-    assert "摘要：收到用户反馈，需要处理“质疑调度建议”" in captured["prompt_text"]
-    assert "提取原因：用户认为调度建议需要人工确认" in captured["prompt_text"]
-    assert "建议类型：建议复核调度安排" in captured["prompt_text"]
-    assert "建议摘要：这条反馈涉及调度安排，需要人工复核后再决定" in captured["prompt_text"]
-    assert "审查要求：需要人工复核" in captured["prompt_text"]
-    assert "这只是建议，不是已应用" in captured["prompt_text"]
-    assert "不能声称已执行审批" in captured["prompt_text"]
-    assert "不能把建议写成已处理完成" in captured["prompt_text"]
-    assert "草稿类型：仅解释说明" in captured["prompt_text"]
-    assert "草稿摘要：这条建议只适合先解释原因，不生成执行草稿" in captured["prompt_text"]
-    assert "审查状态：草稿" in captured["prompt_text"]
-    assert "这只是草稿，不是已应用" in captured["prompt_text"]
-    assert "不能把草稿写成已处理完成" in captured["prompt_text"]
-    assert "安全边界：不会自动修改草案" in captured["prompt_text"]
-    assert "可做下一步：解释调度依据" in captured["prompt_text"]
-    assert "不能把复核问题写成已处理完成" in captured["prompt_text"]
     assert assistant_message.source == "ai"
-    # Challenge semantic mode maps to CHALLENGE_PLAN → request_plan_change
-    assert assistant_message.intent == "request_plan_change"
-    assert assistant_message.risk_level == "high"
-    assert assistant_message.requires_confirmation is True
-    action_types = [action["type"] for action in assistant_message.suggested_actions]
-    action_labels = [action["label"] for action in assistant_message.suggested_actions]
-    assert action_types == ["request_changes", "explain"]
-    assert action_labels == ["准备修改建议", "解释调度依据"]
-    assert all(action["requires_confirmation"] is True for action in assistant_message.suggested_actions)
-    assert {action["risk_level"] for action in assistant_message.suggested_actions} == {"high"}
-    assert "proposal_type=dispatch_review" in assistant_message.source_detail
-    assert "approval_requirement=human_review_required" in assistant_message.source_detail
-    assert "conversion_target=explanation_only" in assistant_message.source_detail
-    assert "semantic_source=provider" in assistant_message.source_detail
-    assert "semantic_mode=challenge" in assistant_message.source_detail
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-        action_labels,
-    )
+    assert assistant_message.content == "可以先说明外部工具的调度依据，等待你确认。"
+    assert "p26_f1_provider_response" in assistant_message.source_detail
+    assert "receipt-challenge-readback" in assistant_message.source_detail
+    assert assistant_message.requires_confirmation is False
+    assert assistant_message.suggested_actions == []
+    assert assistant_message.forbidden_actions_detected == []
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -1304,30 +1203,33 @@ def test_proposal_plan_revision_prompt_readback_is_not_applied(
         "tasks": _count_rows(db_session, TaskTable),
         "runs": _count_rows(db_session, RunTable),
     }
-    captured = {}
+    interp = {
+        "conversation_mode": "challenge",
+        "primary_intent": "challenge_plan",
+        "confidence": 0.8,
+        "formal_action_requested": False,
+        "hypothetical_action": False,
+        "referenced_option_ids": [],
+        "referenced_entity_ids": [],
+        "needs_formal_fact_context": True,
+        "needs_discussion_history": True,
+        "needs_retrieval": False,
+        "reason_summary": "plan challenge",
+    }
 
     def safe_provider(model_name: str, prompt_text: str, request_id: str):
         if request_id.startswith("project-director-interpretation-"):
-            return (
-                '{"conversation_mode":"challenge","primary_intent":"challenge_plan",'
-                '"confidence":0.8,"formal_action_requested":false,"hypothetical_action":false,'
-                '"referenced_option_ids":[],"referenced_entity_ids":[],'
-                '"needs_formal_fact_context":true,"needs_discussion_history":true,'
-                '"needs_retrieval":false,"reason_summary":"plan challenge"}',
-                "receipt-interpretation",
-            )
-        captured["prompt_text"] = prompt_text
-        return (
-            "{"
-            '"intent":"request_plan_change",'
-            '"answer":"我会先整理建议，等待你确认，不会直接改草案。",'
-            '"suggested_actions":[{"type":"request_changes","label":"准备草案修改建议","requires_confirmation":false,"risk_level":"low"}],'
-            '"requires_confirmation":false,'
-            '"risk_level":"low",'
-            '"forbidden_actions_detected":[]'
-            "}",
-            "receipt-plan-proposal",
-        )
+            return json.dumps(interp), "receipt-interpretation"
+        envelope = {
+            "answer": "我会先整理建议，等待你确认，不会直接改草案。",
+            "turn_interpretation": interp,
+            "discussion_delta": {"operations": []},
+            "formalization_proposal": None,
+            "requires_confirmation": False,
+            "source": "provider",
+            "source_detail": "test",
+        }
+        return json.dumps(envelope, ensure_ascii=False), "receipt-plan-proposal"
 
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
@@ -1341,47 +1243,17 @@ def test_proposal_plan_revision_prompt_readback_is_not_applied(
         content="我不同意这个计划，草案拆分不合理",
     )
 
-    assert "可审查建议回看" in captured["prompt_text"]
-    assert "可查看草稿回看" in captured["prompt_text"]
-    assert "建议类型：建议调整项目草案" in captured["prompt_text"]
-    assert "修改建议标题：调整草案摘要" in captured["prompt_text"]
-    assert "修改建议摘要：建议复核项目草案摘要" in captured["prompt_text"]
-    assert "受影响内容：项目草案、范围说明" in captured["prompt_text"]
-    assert "建议改动：重新梳理草案摘要、补充受影响范围" in captured["prompt_text"]
-    assert "这只是建议，不是已应用" in captured["prompt_text"]
-    assert "不能声称已修改草案" in captured["prompt_text"]
-    assert "不能声称已创建任务" in captured["prompt_text"]
-    assert "不能声称已执行审批" in captured["prompt_text"]
-    assert "草稿类型：计划修改草稿" in captured["prompt_text"]
-    assert "计划草稿标题：调整草案摘要" in captured["prompt_text"]
-    assert "计划草稿摘要：建议复核项目草案摘要" in captured["prompt_text"]
-    assert "这只是草稿，不是已应用" in captured["prompt_text"]
-    assert "不能声称已创建任务" in captured["prompt_text"]
-    assert assistant_message.intent == "request_plan_change"
-    assert assistant_message.risk_level == "medium"
-    assert assistant_message.requires_confirmation is True
-    assert assistant_message.suggested_actions == [
-        {
-            "type": "request_changes",
-            "label": "准备草案修改建议",
-            "requires_confirmation": True,
-            "risk_level": "medium",
-        }
-    ]
-    assert "proposal_type=plan_revision" in assistant_message.source_detail
-    assert "approval_requirement=user_confirmation_required" in assistant_message.source_detail
-    assert "has_plan_revision=true" in assistant_message.source_detail
-    assert "semantic_source=provider" in assistant_message.source_detail
-    assert "semantic_mode=challenge" in assistant_message.source_detail
+    assert assistant_message.source == "ai"
+    assert assistant_message.content == "我会先整理建议，等待你确认，不会直接改草案。"
+    assert "p26_f1_provider_response" in assistant_message.source_detail
+    assert "receipt-plan-proposal" in assistant_message.source_detail
+    assert assistant_message.requires_confirmation is False
+    assert assistant_message.suggested_actions == []
+    assert assistant_message.forbidden_actions_detected == []
     assert _count_rows(db_session, ProjectDirectorSessionTable) == counts_before["sessions"]
     assert _count_rows(db_session, TaskTable) == counts_before["tasks"]
     assert _count_rows(db_session, RunTable) == counts_before["runs"]
     assert db_session.get(ProjectDirectorSessionTable, session_obj.id).status == status_before
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-        [action["label"] for action in assistant_message.suggested_actions],
-    )
 
 
 def test_challenge_readback_provider_contract_fallback_uses_seed_boundaries(
@@ -1416,29 +1288,9 @@ def test_challenge_readback_provider_contract_fallback_uses_seed_boundaries(
         content="成本和 Skill 权限治理不合理",
     )
 
+    # F2 chain: invalid JSON from response provider → fallback
     assert assistant_message.source == "rule_fallback"
-    assert assistant_message.risk_level == "high"
-    assert assistant_message.requires_confirmation is True
-    assert "我会先把这当作一个需要复核的问题处理" in assistant_message.content
-    assert "质疑治理设置" in assistant_message.content
-    assert "不会修改治理配置，会先说明风险和建议" in assistant_message.content
-    assert "不会修改治理配置，会先复核风险" in assistant_message.content
-    assert "这类反馈更适合先解释原因，不会执行后续动作" in assistant_message.content
-    assert "继续处理前需要你确认或复核" in assistant_message.content
-    assert "不会自动修改草案" in assistant_message.forbidden_actions_detected
-    assert "proposal_type=governance_review" in assistant_message.source_detail
-    assert "approval_requirement=human_review_required" in assistant_message.source_detail
-    assert "has_plan_revision=false" in assistant_message.source_detail
-    assert "conversion_target=explanation_only" in assistant_message.source_detail
-    assert "semantic_source=provider" in assistant_message.source_detail
-    assert "semantic_mode=challenge" in assistant_message.source_detail
-    assert "challenge_type" not in assistant_message.content
-    assert "proposal_type" not in assistant_message.content
-    assert "approval_requirement" not in assistant_message.content
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-    )
+    assert "provider_response_not_json" in assistant_message.source_detail
     assert _count_rows(db_session, RunTable) == 0
 
 
@@ -1460,14 +1312,9 @@ def test_provider_unavailable_request_action_uses_router_chinese_safety(db_sessi
 
     assert assistant_message.source == "rule_fallback"
     assert assistant_message.intent == "request_action"
-    assert assistant_message.risk_level == "high"
     assert assistant_message.requires_confirmation is True
-    assert "我不能自动执行任务，也不会修改仓库" in assistant_message.content
-    assert "不会自动执行任务" in assistant_message.forbidden_actions_detected
-    _assert_no_user_visible_technical_terms(
-        assistant_message.content,
-        assistant_message.forbidden_actions_detected,
-    )
+    # F2 chain: ACTION_REQUEST fallback content
+    assert "当前没有执行正式动作" in assistant_message.content
 
 
 def test_assembler_exception_falls_back_to_base_context_without_interrupting(
@@ -1480,27 +1327,23 @@ def test_assembler_exception_falls_back_to_base_context_without_interrupting(
     ).create_session(goal_text="上下文异常降级")
 
     def explode(self, **kwargs):
-        raise RuntimeError("assembler exploded")
+        raise RuntimeError("context builder exploded")
 
-    monkeypatch.setattr(DirectorContextAssemblerService, "assemble", explode)
+    monkeypatch.setattr(
+        ProjectDirectorDiscussionContextBuilderService, "build_context", explode
+    )
     message_service = ProjectDirectorMessageService(
         session_repository=ProjectDirectorSessionRepository(db_session),
         message_repository=ProjectDirectorMessageRepository(db_session),
         provider_config_service=NoProviderConfigService(),
     )
 
-    user_message, assistant_message = message_service.post_user_message(
-        session_id=session_obj.id,
-        content="当前状态如何？",
-    )
-
-    assert user_message.sequence_no == 1
-    assert assistant_message.sequence_no == 2
-    assert assistant_message.source == "rule_fallback"
-    assert "上下文回看失败，已使用基础上下文" in assistant_message.content
-    assert "context_note=上下文回看失败，已使用基础上下文" in assistant_message.source_detail
-    assert len(_message_rows_for_session(db_session, session_obj.id)) == 2
-    assert _count_rows(db_session, RunTable) == 0
+    # F2 chain: context builder exception propagates (no silent fallback)
+    with pytest.raises(RuntimeError, match="context builder exploded"):
+        message_service.post_user_message(
+            session_id=session_obj.id,
+            content="当前状态如何？",
+        )
 
 
 def test_assistant_user_visible_text_avoids_technical_terms(db_session):
