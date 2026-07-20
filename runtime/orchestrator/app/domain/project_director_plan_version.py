@@ -9,9 +9,10 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel
+from app.domain.project_director_conversation_intelligence import FormalizationTarget
 from app.domain.project_role import ProjectRoleCode
 
 
@@ -144,6 +145,53 @@ class ProjectDirectorPlanVersion(DomainModel):
     source: str = Field(default="rule_fallback", max_length=40)
     source_detail: str = Field(default="deterministic_plan_generation", max_length=1000)
     forbidden_actions: list[str] = Field(default_factory=list)
+    formalization_target: FormalizationTarget | None = None
+    formalization_workspace_version: int | None = None
+    formalization_source_message_ids: list[UUID] = Field(default_factory=list)
+    formalization_source_event_ids: list[UUID] = Field(default_factory=list)
     confirmed_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now())
     updated_at: datetime = Field(default_factory=lambda: datetime.now())
+
+    @field_validator(
+        "formalization_source_message_ids",
+        "formalization_source_event_ids",
+    )
+    @classmethod
+    def reject_duplicate_formalization_source_ids(
+        cls,
+        value: list[UUID],
+    ) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("Formalization source IDs cannot contain duplicates.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_formalization_provenance(self) -> "ProjectDirectorPlanVersion":
+        has_target = self.formalization_target is not None
+        source_ids_present = bool(
+            self.formalization_source_message_ids
+            or self.formalization_source_event_ids
+        )
+
+        if not has_target:
+            if self.formalization_workspace_version is not None or source_ids_present:
+                raise ValueError(
+                    "Non-formalized plan versions cannot retain formalization provenance."
+                )
+            return self
+
+        if self.formalization_target != FormalizationTarget.PLAN_REVISION:
+            raise ValueError("Unsupported formalization target.")
+        if (
+            self.formalization_workspace_version is None
+            or self.formalization_workspace_version < 1
+        ):
+            raise ValueError(
+                "Formalized plan versions require a workspace version of at least 1."
+            )
+        if not self.formalization_source_message_ids:
+            raise ValueError("Formalized plan versions require source messages.")
+        if not self.formalization_source_event_ids:
+            raise ValueError("Formalized plan versions require source events.")
+        return self

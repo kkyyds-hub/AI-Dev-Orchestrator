@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db_tables import ProjectDirectorPlanVersionTable
 from app.domain._base import ensure_utc_datetime
+from app.domain.project_director_conversation_intelligence import FormalizationTarget
 from app.domain.project_director_plan_version import (
     AgentTeamSuggestion,
     ComplexityAssessment,
@@ -36,7 +37,27 @@ class ProjectDirectorPlanVersionRepository:
     def create(
         self, plan_version: ProjectDirectorPlanVersion
     ) -> ProjectDirectorPlanVersion:
-        row = ProjectDirectorPlanVersionTable(
+        persisted_plan_version = self.create_no_commit(plan_version)
+        self._session.commit()
+        return self.get_by_id(persisted_plan_version.id) or persisted_plan_version
+
+    def create_no_commit(
+        self,
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> ProjectDirectorPlanVersion:
+        """Persist a draft inside the caller-owned transaction without committing."""
+
+        row = self._to_row(plan_version)
+        self._session.add(row)
+        self._session.flush()
+        self._session.refresh(row)
+        return self._to_domain(row)
+
+    @staticmethod
+    def _to_row(
+        plan_version: ProjectDirectorPlanVersion,
+    ) -> ProjectDirectorPlanVersionTable:
+        return ProjectDirectorPlanVersionTable(
             id=plan_version.id,
             session_id=plan_version.session_id,
             project_id=plan_version.project_id,
@@ -73,14 +94,24 @@ class ProjectDirectorPlanVersionRepository:
             source=plan_version.source,
             source_detail=plan_version.source_detail,
             forbidden_actions_json=json.dumps(plan_version.forbidden_actions),
+            formalization_target=(
+                plan_version.formalization_target.value
+                if plan_version.formalization_target is not None
+                else None
+            ),
+            formalization_workspace_version=(
+                plan_version.formalization_workspace_version
+            ),
+            formalization_source_message_ids_json=json.dumps(
+                [str(item) for item in plan_version.formalization_source_message_ids]
+            ),
+            formalization_source_event_ids_json=json.dumps(
+                [str(item) for item in plan_version.formalization_source_event_ids]
+            ),
             confirmed_at=plan_version.confirmed_at,
             created_at=plan_version.created_at,
             updated_at=plan_version.updated_at,
         )
-        self._session.add(row)
-        self._session.commit()
-        self._session.refresh(row)
-        return self._to_domain(row)
 
     def get_by_id(self, plan_version_id: UUID) -> ProjectDirectorPlanVersion | None:
         row = self._session.get(ProjectDirectorPlanVersionTable, plan_version_id)
@@ -183,6 +214,23 @@ class ProjectDirectorPlanVersionRepository:
         result = self._session.execute(stmt).scalar_one_or_none()
         return (result or 0) + 1
 
+    def get_by_formalization_source(
+        self,
+        *,
+        session_id: UUID,
+        target: FormalizationTarget,
+        workspace_version: int,
+    ) -> ProjectDirectorPlanVersion | None:
+        row = self._session.execute(
+            select(ProjectDirectorPlanVersionTable).where(
+                ProjectDirectorPlanVersionTable.session_id == session_id,
+                ProjectDirectorPlanVersionTable.formalization_target == target.value,
+                ProjectDirectorPlanVersionTable.formalization_workspace_version
+                == workspace_version,
+            )
+        ).scalar_one_or_none()
+        return self._to_domain(row) if row is not None else None
+
     def update(
         self, plan_version: ProjectDirectorPlanVersion
     ) -> ProjectDirectorPlanVersion:
@@ -226,6 +274,18 @@ class ProjectDirectorPlanVersionRepository:
         row.source = plan_version.source
         row.source_detail = plan_version.source_detail
         row.forbidden_actions_json = json.dumps(plan_version.forbidden_actions)
+        row.formalization_target = (
+            plan_version.formalization_target.value
+            if plan_version.formalization_target is not None
+            else None
+        )
+        row.formalization_workspace_version = plan_version.formalization_workspace_version
+        row.formalization_source_message_ids_json = json.dumps(
+            [str(item) for item in plan_version.formalization_source_message_ids]
+        )
+        row.formalization_source_event_ids_json = json.dumps(
+            [str(item) for item in plan_version.formalization_source_event_ids]
+        )
         row.confirmed_at = plan_version.confirmed_at
         row.updated_at = datetime.now(timezone.utc)
 
@@ -264,6 +324,26 @@ class ProjectDirectorPlanVersionRepository:
         except (json.JSONDecodeError, TypeError, ValidationError):
             pass
         return fallback
+
+    @staticmethod
+    def _parse_uuid_list(
+        raw_json: str | None,
+        *,
+        field_name: str,
+        row_id: UUID,
+    ) -> list[UUID]:
+        if raw_json is None or raw_json == "":
+            return []
+        try:
+            raw = json.loads(raw_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError(f"invalid_plan_version_{field_name}_json:{row_id}") from exc
+        if not isinstance(raw, list):
+            raise ValueError(f"invalid_plan_version_{field_name}_json:{row_id}")
+        try:
+            return [UUID(str(item)) for item in raw]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid_plan_version_{field_name}_json:{row_id}") from exc
 
     @staticmethod
     def _to_domain(
@@ -343,6 +423,32 @@ class ProjectDirectorPlanVersionRepository:
         except (json.JSONDecodeError, TypeError):
             pass
 
+        formalization_target_raw = getattr(row, "formalization_target", None)
+        if formalization_target_raw is None:
+            formalization_target = None
+        else:
+            try:
+                formalization_target = FormalizationTarget(formalization_target_raw)
+            except ValueError as exc:
+                raise ValueError(
+                    f"invalid_plan_version_formalization_target:{row.id}"
+                ) from exc
+
+        formalization_source_message_ids = (
+            ProjectDirectorPlanVersionRepository._parse_uuid_list(
+                getattr(row, "formalization_source_message_ids_json", None),
+                field_name="formalization_source_message_ids",
+                row_id=row.id,
+            )
+        )
+        formalization_source_event_ids = (
+            ProjectDirectorPlanVersionRepository._parse_uuid_list(
+                getattr(row, "formalization_source_event_ids_json", None),
+                field_name="formalization_source_event_ids",
+                row_id=row.id,
+            )
+        )
+
         return ProjectDirectorPlanVersion(
             id=row.id,
             session_id=row.session_id,
@@ -367,6 +473,14 @@ class ProjectDirectorPlanVersionRepository:
                 or "deterministic_plan_generation"
             ),
             forbidden_actions=forbidden,
+            formalization_target=formalization_target,
+            formalization_workspace_version=getattr(
+                row,
+                "formalization_workspace_version",
+                None,
+            ),
+            formalization_source_message_ids=formalization_source_message_ids,
+            formalization_source_event_ids=formalization_source_event_ids,
             confirmed_at=ensure_utc_datetime(row.confirmed_at),
             created_at=ensure_utc_datetime(row.created_at) or datetime.now(timezone.utc),
             updated_at=ensure_utc_datetime(row.updated_at) or datetime.now(timezone.utc),

@@ -103,7 +103,18 @@ _PROJECT_DIRECTOR_PLAN_VERSION_TABLE_COLUMN_UPGRADES = {
     "complexity_assessment_json": "ALTER TABLE project_director_plan_versions ADD COLUMN complexity_assessment_json TEXT NOT NULL DEFAULT '{}'",
     "source": "ALTER TABLE project_director_plan_versions ADD COLUMN source TEXT NOT NULL DEFAULT 'rule_fallback'",
     "source_detail": "ALTER TABLE project_director_plan_versions ADD COLUMN source_detail TEXT NOT NULL DEFAULT 'deterministic_plan_generation'",
+    "formalization_target": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_target VARCHAR(40)",
+    "formalization_workspace_version": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_workspace_version INTEGER",
+    "formalization_source_message_ids_json": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_source_message_ids_json TEXT NOT NULL DEFAULT '[]'",
+    "formalization_source_event_ids_json": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_source_event_ids_json TEXT NOT NULL DEFAULT '[]'",
 }
+
+_PROJECT_DIRECTOR_PLAN_VERSION_INDEXES = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_pd_plan_formalization_source "
+    "ON project_director_plan_versions("
+    "session_id, formalization_target, formalization_workspace_version"
+    ")",
+)
 
 _PROJECT_DIRECTOR_MESSAGES_TABLE_CREATE = """
 CREATE TABLE IF NOT EXISTS project_director_messages (
@@ -217,6 +228,9 @@ def migrate_database_schema() -> None:
             connection.exec_driver_sql(index_statement)
         for statement in statements:
             connection.exec_driver_sql(statement)
+        if "project_director_plan_versions" in table_names:
+            for index_statement in _PROJECT_DIRECTOR_PLAN_VERSION_INDEXES:
+                connection.exec_driver_sql(index_statement)
 
 
 def _backfill_run_ai_summaries() -> None:

@@ -20,6 +20,7 @@ from app.domain.project_director_plan_version import (
     SkillBindingSuggestion as SkillBindingSuggestionDomain,
     VerificationMechanismSuggestion as VerificationMechanismSuggestionDomain,
 )
+from app.domain.project_director_conversation_intelligence import FormalizationTarget
 
 
 class PlanPhaseResponse(BaseModel):
@@ -224,6 +225,10 @@ class PlanVersionResponse(BaseModel):
     source_detail: str = Field(default="")
     normalization_warnings: list[str] = Field(default_factory=list)
     forbidden_actions: list[str] = Field(default_factory=list)
+    formalization_target: FormalizationTarget | None = None
+    formalization_workspace_version: int | None = None
+    formalization_source_message_ids: list[UUID] = Field(default_factory=list)
+    formalization_source_event_ids: list[UUID] = Field(default_factory=list)
     confirmed_at: str | None
     created_at: str
     updated_at: str
@@ -281,6 +286,10 @@ class PlanVersionResponse(BaseModel):
                 pv.source_detail
             ),
             forbidden_actions=pv.forbidden_actions,
+            formalization_target=pv.formalization_target,
+            formalization_workspace_version=pv.formalization_workspace_version,
+            formalization_source_message_ids=pv.formalization_source_message_ids,
+            formalization_source_event_ids=pv.formalization_source_event_ids,
             confirmed_at=pv.confirmed_at.isoformat() if pv.confirmed_at else None,
             created_at=pv.created_at.isoformat(),
             updated_at=pv.updated_at.isoformat(),
@@ -289,6 +298,28 @@ class PlanVersionResponse(BaseModel):
             needs_user_confirmation=needs_confirmation,
             gate_conclusion=gate,
         )
+
+
+class FormalizeDiscussionRequest(BaseModel):
+    workspace_version: int = Field(ge=1)
+    target: Literal["plan_revision"]
+    user_confirmed: bool = False
+
+
+class FormalizeDiscussionResponse(BaseModel):
+    session_id: UUID
+    workspace_version: int
+    target: Literal["plan_revision"]
+    source_message_ids: list[UUID]
+    source_event_ids: list[UUID]
+    idempotent_replay: bool
+    plan_version: PlanVersionResponse
+    task_created: bool = False
+    run_created: bool = False
+    worker_started: bool = False
+    executor_started: bool = False
+    repository_write_performed: bool = False
+    gate_conclusion: str = "Partial"
 
 
 class PlanVersionListResponse(BaseModel):

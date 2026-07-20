@@ -1155,7 +1155,6 @@ class ProjectDirectorPlanService:
         session_obj = self._session_repo.get_by_id(session_id)
         if session_obj is None:
             raise ValueError(f"Session {session_id} not found")
-
         if session_obj.status != ProjectDirectorSessionStatus.CONFIRMED:
             raise ValueError(
                 f"Session is in '{session_obj.status}' status. "
@@ -1164,9 +1163,8 @@ class ProjectDirectorPlanService:
             )
 
         version_no = self._plan_repo.get_next_version_no(session_id)
-
-        plan_draft = self._generate_plan_draft(
-            session_obj,
+        plan_draft = self.generate_plan_draft(
+            session_id=session_id,
             revision_notes=revision_notes,
         )
 
@@ -1198,6 +1196,28 @@ class ProjectDirectorPlanService:
         )
 
         return self._plan_repo.create(plan_version)
+
+    def generate_plan_draft(
+        self,
+        *,
+        session_id: UUID,
+        revision_notes: str = "",
+    ) -> PlanGenerationResult:
+        """Generate a review-only plan draft without persisting a PlanVersion."""
+
+        session_obj = self._session_repo.get_by_id(session_id)
+        if session_obj is None:
+            raise ValueError(f"Session {session_id} not found")
+        if session_obj.status != ProjectDirectorSessionStatus.CONFIRMED:
+            raise ValueError(
+                f"Session is in '{session_obj.status}' status. "
+                f"Only confirmed sessions can generate plan versions. "
+                f"Please confirm the goal first."
+            )
+        return self._generate_plan_draft(
+            session_obj,
+            revision_notes=revision_notes,
+        )
 
     def _generate_plan_draft(
         self,

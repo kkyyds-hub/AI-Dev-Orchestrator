@@ -1984,6 +1984,15 @@ class ProjectDirectorPlanVersionTable(ORMBase):
     """AI Project Director plan version rows — reviewable drafts, not real tasks."""
 
     __tablename__ = "project_director_plan_versions"
+    __table_args__ = (
+        Index(
+            "uq_pd_plan_formalization_source",
+            "session_id",
+            "formalization_target",
+            "formalization_workspace_version",
+            unique=True,
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(SqlUuid(as_uuid=True), primary_key=True, default=uuid4)
     session_id: Mapped[UUID] = mapped_column(
@@ -2041,6 +2050,23 @@ class ProjectDirectorPlanVersionTable(ORMBase):
     )
     forbidden_actions_json: Mapped[str] = mapped_column(
         Text, nullable=False, default="[]"
+    )
+    formalization_target: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    formalization_workspace_version: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    formalization_source_message_ids_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+        server_default="[]",
+    )
+    formalization_source_event_ids_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+        server_default="[]",
     )
     confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

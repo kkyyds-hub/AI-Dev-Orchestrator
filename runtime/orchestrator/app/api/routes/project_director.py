@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import get_db_session
 from app.api.schemas.project_director_plan import (
+    FormalizeDiscussionRequest,
+    FormalizeDiscussionResponse,
     PlanVersionListResponse,
     PlanVersionResponse,
     PlanVersionReviewResponse,
@@ -53,6 +55,7 @@ from app.domain.project_director_plan_version import (
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
 )
+from app.domain.project_director_conversation_intelligence import FormalizationTarget
 from app.domain.project_director_agent_team_config import (
     AgentTeamConfigStatus,
     ProjectDirectorAgentTeamConfig,
@@ -88,6 +91,12 @@ from app.repositories.project_director_session_repository import (
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
 )
+from app.repositories.project_director_discussion_event_repository import (
+    ProjectDirectorDiscussionEventRepository,
+)
+from app.repositories.project_director_discussion_workspace_repository import (
+    ProjectDirectorDiscussionWorkspaceRepository,
+)
 from app.repositories.project_director_task_creation_repository import (
     ProjectDirectorTaskCreationRecordRepository,
 )
@@ -114,6 +123,9 @@ from app.services.project_director_context_builder_service import (
 from app.services.project_director_plan_service import (
     ProjectDirectorPlanGenerationError,
     ProjectDirectorPlanService,
+)
+from app.services.project_director_discussion_formalization_service import (
+    ProjectDirectorDiscussionFormalizationService,
 )
 from app.services.project_director_service import ProjectDirectorService
 from app.services.project_director_message_service import ProjectDirectorMessageService
@@ -1577,6 +1589,26 @@ def _get_plan_service(
     return ProjectDirectorPlanService(
         plan_version_repository=plan_repo,
         session_repository=session_repo,
+    )
+
+
+def _get_discussion_formalization_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ProjectDirectorDiscussionFormalizationService:
+    plan_version_repository = ProjectDirectorPlanVersionRepository(session)
+    session_repository = ProjectDirectorSessionRepository(session)
+    return ProjectDirectorDiscussionFormalizationService(
+        session_repository=session_repository,
+        discussion_workspace_repository=ProjectDirectorDiscussionWorkspaceRepository(
+            session
+        ),
+        discussion_event_repository=ProjectDirectorDiscussionEventRepository(session),
+        message_repository=ProjectDirectorMessageRepository(session),
+        plan_version_repository=plan_version_repository,
+        plan_service=ProjectDirectorPlanService(
+            plan_version_repository=plan_version_repository,
+            session_repository=session_repository,
+        ),
     )
 
 
@@ -3946,6 +3978,62 @@ def create_plan_version(
         ) from exc
 
     return PlanVersionResponse.from_domain(plan_version)
+
+
+@router.post(
+    "/sessions/{session_id}/discussion/formalize",
+    response_model=FormalizeDiscussionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Formally create a review-only plan draft from a discussion workspace",
+)
+def formalize_discussion(
+    session_id: UUID,
+    request: FormalizeDiscussionRequest,
+    formalization_service: Annotated[
+        ProjectDirectorDiscussionFormalizationService,
+        Depends(_get_discussion_formalization_service),
+    ],
+) -> FormalizeDiscussionResponse:
+    """Create one pending review draft after an explicit user confirmation."""
+
+    try:
+        result = formalization_service.formalize_discussion(
+            session_id=session_id,
+            workspace_version=request.workspace_version,
+            target=FormalizationTarget(request.target),
+            user_confirmed=request.user_confirmed,
+        )
+    except ProjectDirectorPlanGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        detail = str(exc)
+        if detail.startswith("Session ") and detail.endswith(" not found"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from exc
+        if detail.startswith("project_director_formalization_"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
+    return FormalizeDiscussionResponse(
+        session_id=session_id,
+        workspace_version=result.workspace_version,
+        target=result.target.value,
+        source_message_ids=list(result.source_message_ids),
+        source_event_ids=list(result.source_event_ids),
+        idempotent_replay=result.idempotent_replay,
+        plan_version=PlanVersionResponse.from_domain(result.plan_version),
+    )
 
 
 @router.get(
