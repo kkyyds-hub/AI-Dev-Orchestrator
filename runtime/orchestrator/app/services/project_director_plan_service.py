@@ -1367,30 +1367,10 @@ class ProjectDirectorPlanService:
                 f"Only 'pending_confirmation' plan versions can be rejected."
             )
 
-        updated = ProjectDirectorPlanVersion(
-            id=plan_version.id,
-            session_id=plan_version.session_id,
-            project_id=plan_version.project_id,
-            version_no=plan_version.version_no,
+        updated = self._copy_plan_version_with_status(
+            plan_version,
             status=PlanVersionStatus.REJECTED,
-            plan_summary=plan_version.plan_summary,
-            phases=plan_version.phases,
-            proposed_tasks=plan_version.proposed_tasks,
-            acceptance_criteria=plan_version.acceptance_criteria,
-            risks=plan_version.risks,
-            project_scope=plan_version.project_scope,
-            agent_team_suggestions=plan_version.agent_team_suggestions,
-            skill_binding_suggestions=plan_version.skill_binding_suggestions,
-            verification_mechanisms=plan_version.verification_mechanisms,
-            repository_binding_suggestions=plan_version.repository_binding_suggestions,
-            deliverable_boundaries=plan_version.deliverable_boundaries,
-            complexity_assessment=plan_version.complexity_assessment,
-            source=plan_version.source,
-            source_detail=plan_version.source_detail,
-            forbidden_actions=plan_version.forbidden_actions,
             confirmed_at=None,
-            created_at=plan_version.created_at,
-            updated_at=datetime.now(timezone.utc),
         )
         return self._plan_repo.update(updated)
 
@@ -1410,6 +1390,8 @@ class ProjectDirectorPlanService:
             )
 
         original = self._require_pending_plan_version(plan_version_id)
+        # A replacement is an ordinary draft: the formalization source can have
+        # only one PlanVersion because its workspace provenance is unique.
         replacement = self.create_plan_version(
             session_id=original.session_id,
             revision_notes=normalized_feedback,
@@ -1436,6 +1418,23 @@ class ProjectDirectorPlanService:
     ) -> ProjectDirectorPlanVersion | None:
         """Return the plan version or None."""
         return self._plan_repo.get_by_id(plan_version_id)
+
+    @staticmethod
+    def _copy_plan_version_with_status(
+        plan_version: ProjectDirectorPlanVersion,
+        *,
+        status: PlanVersionStatus,
+        confirmed_at: datetime | None,
+    ) -> ProjectDirectorPlanVersion:
+        """Transition lifecycle fields without dropping review provenance."""
+
+        return plan_version.model_copy(
+            update={
+                "status": status,
+                "confirmed_at": confirmed_at,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
 
     def list_plan_versions(
         self, session_id: UUID
@@ -1474,57 +1473,17 @@ class ProjectDirectorPlanService:
             plan_version.session_id
         )
         if existing_confirmed is not None:
-            superseded = ProjectDirectorPlanVersion(
-                id=existing_confirmed.id,
-                session_id=existing_confirmed.session_id,
-                project_id=existing_confirmed.project_id,
-                version_no=existing_confirmed.version_no,
+            superseded = self._copy_plan_version_with_status(
+                existing_confirmed,
                 status=PlanVersionStatus.SUPERSEDED,
-                plan_summary=existing_confirmed.plan_summary,
-                phases=existing_confirmed.phases,
-                proposed_tasks=existing_confirmed.proposed_tasks,
-                acceptance_criteria=existing_confirmed.acceptance_criteria,
-                risks=existing_confirmed.risks,
-                project_scope=existing_confirmed.project_scope,
-                agent_team_suggestions=existing_confirmed.agent_team_suggestions,
-                skill_binding_suggestions=existing_confirmed.skill_binding_suggestions,
-                verification_mechanisms=existing_confirmed.verification_mechanisms,
-                repository_binding_suggestions=existing_confirmed.repository_binding_suggestions,
-                deliverable_boundaries=existing_confirmed.deliverable_boundaries,
-                complexity_assessment=existing_confirmed.complexity_assessment,
-                source=existing_confirmed.source,
-                source_detail=existing_confirmed.source_detail,
-                forbidden_actions=existing_confirmed.forbidden_actions,
                 confirmed_at=existing_confirmed.confirmed_at,
-                created_at=existing_confirmed.created_at,
-                updated_at=datetime.now(timezone.utc),
             )
             self._plan_repo.update(superseded)
 
-        updated = ProjectDirectorPlanVersion(
-            id=plan_version.id,
-            session_id=plan_version.session_id,
-            project_id=plan_version.project_id,
-            version_no=plan_version.version_no,
+        updated = self._copy_plan_version_with_status(
+            plan_version,
             status=PlanVersionStatus.CONFIRMED,
-            plan_summary=plan_version.plan_summary,
-            phases=plan_version.phases,
-            proposed_tasks=plan_version.proposed_tasks,
-            acceptance_criteria=plan_version.acceptance_criteria,
-            risks=plan_version.risks,
-            project_scope=plan_version.project_scope,
-            agent_team_suggestions=plan_version.agent_team_suggestions,
-            skill_binding_suggestions=plan_version.skill_binding_suggestions,
-            verification_mechanisms=plan_version.verification_mechanisms,
-            repository_binding_suggestions=plan_version.repository_binding_suggestions,
-            deliverable_boundaries=plan_version.deliverable_boundaries,
-            complexity_assessment=plan_version.complexity_assessment,
-            source=plan_version.source,
-            source_detail=plan_version.source_detail,
-            forbidden_actions=plan_version.forbidden_actions,
             confirmed_at=datetime.now(timezone.utc),
-            created_at=plan_version.created_at,
-            updated_at=datetime.now(timezone.utc),
         )
 
         return self._plan_repo.update(updated)

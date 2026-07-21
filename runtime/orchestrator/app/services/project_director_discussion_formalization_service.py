@@ -162,45 +162,49 @@ class ProjectDirectorDiscussionFormalizationService:
                 source_message_ids=source_message_ids,
                 plan_draft=plan_draft,
             )
+        except BaseException:
+            shared_session.rollback()
+            raise
+
+        try:
             persisted_plan_version = self._plan_version_repository.create_no_commit(
                 plan_version
             )
             shared_session.commit()
-            return self._result(
-                persisted_plan_version,
-                workspace_version=workspace_version,
-                target=target,
-                source_event_ids=source_event_ids,
-                source_message_ids=source_message_ids,
-                idempotent_replay=False,
-            )
-        except IntegrityError as exc:
+        except IntegrityError:
             shared_session.rollback()
             existing = self._plan_version_repository.get_by_formalization_source(
                 session_id=session_id,
                 target=target,
                 workspace_version=workspace_version,
             )
-            if existing is not None:
-                self._ensure_existing_provenance(
-                    existing,
-                    source_event_ids=source_event_ids,
-                    source_message_ids=source_message_ids,
-                )
-                return self._result(
-                    existing,
-                    workspace_version=workspace_version,
-                    target=target,
-                    source_event_ids=source_event_ids,
-                    source_message_ids=source_message_ids,
-                    idempotent_replay=True,
-                )
-            raise ValueError(
-                "project_director_formalization_idempotency_conflict"
-            ) from exc
+            if existing is None:
+                raise
+            self._ensure_existing_provenance(
+                existing,
+                source_event_ids=source_event_ids,
+                source_message_ids=source_message_ids,
+            )
+            return self._result(
+                existing,
+                workspace_version=workspace_version,
+                target=target,
+                source_event_ids=source_event_ids,
+                source_message_ids=source_message_ids,
+                idempotent_replay=True,
+            )
         except BaseException:
             shared_session.rollback()
             raise
+
+        return self._result(
+            persisted_plan_version,
+            workspace_version=workspace_version,
+            target=target,
+            source_event_ids=source_event_ids,
+            source_message_ids=source_message_ids,
+            idempotent_replay=False,
+        )
 
     def _require_shared_session(self) -> Session:
         repositories = (
