@@ -33,12 +33,16 @@ from app.core.db import (
     migrate_database_schema,
 )
 from app.core.db_tables import (
+    AgentSessionTable,
     ORMBase,
     ProjectDirectorDiscussionEventTable,
     ProjectDirectorDiscussionWorkspaceTable,
     ProjectDirectorMessageTable,
     ProjectDirectorPlanVersionTable,
     ProjectDirectorSessionTable,
+    ProjectTable,
+    RunTable,
+    TaskTable,
 )
 from app.domain.project_director_conversation_intelligence import FormalizationTarget
 from app.domain.project_director_discussion import (
@@ -59,7 +63,6 @@ from app.domain.project_director_plan_version import (
 )
 from app.domain.project_director_session import ProjectDirectorSessionStatus
 from app.domain.project_role import ProjectRoleCode
-from app.core.db_tables import ProjectTable
 from app.repositories.project_director_discussion_event_repository import (
     ProjectDirectorDiscussionEventRepository,
 )
@@ -409,6 +412,16 @@ def _count_plan_versions(db_session: Session) -> int:
     return db_session.execute(
         select(func.count()).select_from(ProjectDirectorPlanVersionTable)
     ).scalar_one()
+
+
+def _count_agent_sessions(session: Session) -> int:
+    return session.execute(
+        select(func.count()).select_from(AgentSessionTable)
+    ).scalar_one()
+
+
+def _count_table(session: Session, table) -> int:
+    return session.execute(select(func.count()).select_from(table)).scalar_one()
 
 
 class SessionTransactionSpy:
@@ -2237,10 +2250,8 @@ class TestIntegrityErrorRaceReadback:
     """§11.2 Unique index race: IntegrityError → rollback → read existing."""
 
     def test_real_integrity_error_race_recovery(self, db_session_factory):
-        """Three-session race: setup_session seeds data, winner_session inserts
-        a competing PlanVersion, service_session runs formalization with staged
-        pre-read that returns None on first call so the service proceeds to
-        create_no_commit → real IntegrityError → rollback → readback."""
+        """Three-session race: setup seeds data, winner inserts competing PlanVersion,
+        service runs formalization with staged pre-read. Uses controlled Provider spy."""
         # ── Session 1: setup ──────────────────────────────────────────────
         setup = db_session_factory()
         try:
@@ -2252,10 +2263,8 @@ class TestIntegrityErrorRaceReadback:
         # ── Session 2: winner inserts competing PlanVersion ───────────────
         winner = db_session_factory()
         try:
-            # Compute provenance from the seeded events
             evt_repo = ProjectDirectorDiscussionEventRepository(winner)
             events = evt_repo.list_by_session_id(session_id=SESSION_ID)
-            msg_repo = ProjectDirectorMessageRepository(winner)
             msg_ids = []
             for evt in events:
                 for mid in evt.source_message_ids:
@@ -2295,7 +2304,11 @@ class TestIntegrityErrorRaceReadback:
         # ── Session 3: service attempts formalization ─────────────────────
         svc_session = db_session_factory()
         try:
-            svc = _build_formalization_service(svc_session, provider_configured=False)
+            provider_spy = _ProviderSpy()
+            svc = _build_formalization_service(
+                svc_session, provider_configured=True, provider_text_generator=provider_spy,
+            )
+            fake_config = svc._plan_service._provider_config_service
             repo = svc._plan_version_repository
 
             # Stage the pre-read: first call returns None, subsequent calls use real
@@ -2305,11 +2318,20 @@ class TestIntegrityErrorRaceReadback:
             def staged_get(*, session_id, target, workspace_version):
                 lookup_calls[0] += 1
                 if lookup_calls[0] == 1:
-                    return None  # hide the existing row on first pre-read
+                    return None
                 return real_get(session_id=session_id, target=target, workspace_version=workspace_version)
+
+            # Count create_no_commit calls
+            real_create = repo.create_no_commit
+            create_calls = [0]
+
+            def counted_create(plan_version):
+                create_calls[0] += 1
+                return real_create(plan_version)
 
             with (
                 patch.object(repo, "get_by_formalization_source", staged_get),
+                patch.object(repo, "create_no_commit", counted_create),
                 SessionTransactionSpy(svc_session) as txspy,
             ):
                 result = svc.formalize_discussion(
@@ -2321,24 +2343,22 @@ class TestIntegrityErrorRaceReadback:
 
             # ── Strong assertions ─────────────────────────────────────────
             assert lookup_calls[0] >= 2                    # pre-read + recovery read
+            assert create_calls[0] == 1                    # create_no_commit executed once
             assert txspy.commit_count == 0                 # no successful commit
             assert txspy.rollback_count == 1               # IntegrityError triggers rollback
             assert result.idempotent_replay is True
             assert result.plan_version.id == winner_id     # reads back the race winner
+            assert fake_config.resolve_calls == 1          # Provider config resolved
+            assert len(provider_spy.calls) == 1            # Provider text called once
 
             # Provenance must match
             assert list(result.source_message_ids) == msg_ids
             assert list(result.source_event_ids) == evt_ids
 
-            # Provider was called (rule_fallback since no API key)
-            assert result.plan_version.source == "rule_fallback"
-
             # Fresh session: only 1 PlanVersion exists
             fresh = db_session_factory()
             try:
-                count = fresh.execute(
-                    select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-                ).scalar_one()
+                count = _count_table(fresh, ProjectDirectorPlanVersionTable)
                 assert count == 1
             finally:
                 fresh.close()
@@ -2600,44 +2620,62 @@ class TestFreshSessionFullReadback:
     """§7 Fresh session verifies no side-effects beyond the PlanVersion."""
 
     def test_fresh_session_no_side_effects(self, db_session_factory):
-        """Full before/after snapshot: every entity type, counts, and content."""
+        """Full before/after snapshot: Project, Session, Message, Event, Workspace, counts."""
         # ── Setup ─────────────────────────────────────────────────────────
         setup = db_session_factory()
         try:
             _seed_ready_to_formalize(setup)
             setup.commit()
 
-            # ── Pre-snapshot ──────────────────────────────────────────────
-            pre_pv_count = setup.execute(
-                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-            ).scalar_one()
-
-            sess_repo = ProjectDirectorSessionRepository(setup)
-            pre_sess = sess_repo.get_by_id(SESSION_ID)
-            pre_sess_snapshot = {
-                "id": pre_sess.id,
-                "project_id": pre_sess.project_id,
-                "goal_text": pre_sess.goal_text,
-                "goal_summary": pre_sess.goal_summary,
-                "constraints": pre_sess.constraints,
-                "status": pre_sess.status,
-                "confirmed_at": pre_sess.confirmed_at,
+            # ── Pre-snapshot: counts ──────────────────────────────────────
+            pre_counts = {
+                "project": _count_table(setup, ProjectTable),
+                "pv": _count_table(setup, ProjectDirectorPlanVersionTable),
+                "task": _count_table(setup, TaskTable),
+                "run": _count_table(setup, RunTable),
+                "agent_session": _count_agent_sessions(setup),
+                "msg": _count_table(setup, ProjectDirectorMessageTable),
+                "evt": _count_table(setup, ProjectDirectorDiscussionEventTable),
+                "ws": _count_table(setup, ProjectDirectorDiscussionWorkspaceTable),
             }
 
+            # ── Pre-snapshot: Project ─────────────────────────────────────
+            proj_row = setup.get(ProjectTable, PROJECT_ID)
+            pre_proj = {c: getattr(proj_row, c) for c in [
+                "id", "name", "summary", "status", "stage",
+                "sop_template_code", "stage_history_json", "team_assembly_json",
+                "team_policy_json", "budget_policy_json",
+            ]} if proj_row else None
+
+            # ── Pre-snapshot: Session ─────────────────────────────────────
+            sess_repo = ProjectDirectorSessionRepository(setup)
+            pre_sess = sess_repo.get_by_id(SESSION_ID)
+            pre_sess_snap = {k: getattr(pre_sess, k) for k in [
+                "id", "project_id", "goal_text", "goal_summary", "constraints",
+                "status", "confirmed_at", "clarifying_questions", "clarifying_answers",
+            ]}
+
+            # ── Pre-snapshot: Messages ────────────────────────────────────
+            msg_repo = ProjectDirectorMessageRepository(setup)
+            pre_msgs, _ = msg_repo.list_by_session_id(session_id=SESSION_ID)
+            pre_msg_snaps = [{k: getattr(m, k) for k in [
+                "id", "session_id", "role", "content", "sequence_no",
+                "source", "source_detail", "risk_level",
+            ]} for m in pre_msgs]
+
+            # ── Pre-snapshot: Events ──────────────────────────────────────
+            evt_repo = ProjectDirectorDiscussionEventRepository(setup)
+            pre_evts = evt_repo.list_by_session_id(session_id=SESSION_ID)
+            pre_evt_snaps = [{k: getattr(e, k) for k in [
+                "id", "session_id", "project_id", "sequence_no", "event_type",
+                "subject_key", "content", "status", "payload",
+                "source_message_ids", "supersedes_event_id", "created_by", "confidence",
+            ]} for e in pre_evts]
+
+            # ── Pre-snapshot: Workspace ───────────────────────────────────
             ws_repo = ProjectDirectorDiscussionWorkspaceRepository(setup)
             pre_ws = ws_repo.get_by_session_id(session_id=SESSION_ID)
             pre_ws_dump = pre_ws.model_dump() if pre_ws else None
-
-            pre_evt_count = setup.execute(
-                select(func.count()).select_from(ProjectDirectorDiscussionEventTable)
-            ).scalar_one()
-            pre_msg_count = setup.execute(
-                select(func.count()).select_from(ProjectDirectorMessageTable)
-            ).scalar_one()
-
-            from app.core.db_tables import TaskTable, RunTable
-            pre_task_count = setup.execute(select(func.count()).select_from(TaskTable)).scalar_one()
-            pre_run_count = setup.execute(select(func.count()).select_from(RunTable)).scalar_one()
 
             # ── Execute formalization ─────────────────────────────────────
             svc = _build_formalization_service(setup, provider_configured=False)
@@ -2653,11 +2691,25 @@ class TestFreshSessionFullReadback:
         # ── Fresh session post-snapshot ───────────────────────────────────
         fresh = db_session_factory()
         try:
-            # PlanVersion increased by exactly 1
-            post_pv_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-            ).scalar_one()
-            assert post_pv_count == pre_pv_count + 1
+            # Counts
+            post_counts = {
+                "project": _count_table(fresh, ProjectTable),
+                "pv": _count_table(fresh, ProjectDirectorPlanVersionTable),
+                "task": _count_table(fresh, TaskTable),
+                "run": _count_table(fresh, RunTable),
+                "agent_session": _count_agent_sessions(fresh),
+                "msg": _count_table(fresh, ProjectDirectorMessageTable),
+                "evt": _count_table(fresh, ProjectDirectorDiscussionEventTable),
+                "ws": _count_table(fresh, ProjectDirectorDiscussionWorkspaceTable),
+            }
+            assert post_counts["project"] == pre_counts["project"]
+            assert post_counts["pv"] == pre_counts["pv"] + 1
+            assert post_counts["task"] == pre_counts["task"]
+            assert post_counts["run"] == pre_counts["run"]
+            assert post_counts["agent_session"] == pre_counts["agent_session"]
+            assert post_counts["msg"] == pre_counts["msg"]
+            assert post_counts["evt"] == pre_counts["evt"]
+            assert post_counts["ws"] == pre_counts["ws"]
 
             # PlanVersion content
             repo = ProjectDirectorPlanVersionRepository(fresh)
@@ -2670,48 +2722,53 @@ class TestFreshSessionFullReadback:
             assert readback.status == PlanVersionStatus.PENDING_CONFIRMATION
             assert readback.confirmed_at is None
 
-            # Session unchanged — full snapshot comparison
+            # Project unchanged
+            proj_row = fresh.get(ProjectTable, PROJECT_ID)
+            assert proj_row is not None
+            for c in ["id", "name", "summary", "status", "stage",
+                       "sop_template_code", "stage_history_json", "team_assembly_json",
+                       "team_policy_json", "budget_policy_json"]:
+                assert getattr(proj_row, c) == pre_proj[c], f"Project.{c} changed"
+
+            # Session unchanged — full snapshot
             sess_repo = ProjectDirectorSessionRepository(fresh)
             post_sess = sess_repo.get_by_id(SESSION_ID)
             assert post_sess is not None
-            assert post_sess.id == pre_sess_snapshot["id"]
-            assert post_sess.project_id == pre_sess_snapshot["project_id"]
-            assert post_sess.goal_text == pre_sess_snapshot["goal_text"]
-            assert post_sess.goal_summary == pre_sess_snapshot["goal_summary"]
-            assert post_sess.constraints == pre_sess_snapshot["constraints"]
-            assert post_sess.status == pre_sess_snapshot["status"]
-            assert post_sess.confirmed_at == pre_sess_snapshot["confirmed_at"]
+            for k in ["id", "project_id", "goal_text", "goal_summary", "constraints",
+                       "status", "confirmed_at", "clarifying_questions", "clarifying_answers"]:
+                assert getattr(post_sess, k) == pre_sess_snap[k], f"Session.{k} changed"
 
-            # Workspace unchanged — full model_dump comparison
+            # Messages unchanged — content snapshot
+            msg_repo = ProjectDirectorMessageRepository(fresh)
+            post_msgs, _ = msg_repo.list_by_session_id(session_id=SESSION_ID)
+            assert len(post_msgs) == len(pre_msg_snaps)
+            for post_m, pre_snap in zip(post_msgs, pre_msg_snaps):
+                for k, v in pre_snap.items():
+                    assert getattr(post_m, k) == v, f"Message.{k} changed"
+
+            # Events unchanged — content snapshot
+            evt_repo = ProjectDirectorDiscussionEventRepository(fresh)
+            post_evts = evt_repo.list_by_session_id(session_id=SESSION_ID)
+            assert len(post_evts) == len(pre_evt_snaps)
+            for post_e, pre_snap in zip(post_evts, pre_evt_snaps):
+                for k, v in pre_snap.items():
+                    actual = getattr(post_e, k)
+                    # payload comparison: normalize dicts
+                    if k == "payload":
+                        assert actual == v, f"Event.{k} changed"
+                    else:
+                        assert actual == v, f"Event.{k} changed"
+
+            # Workspace unchanged — full model_dump
             ws_repo = ProjectDirectorDiscussionWorkspaceRepository(fresh)
             post_ws = ws_repo.get_by_session_id(session_id=SESSION_ID)
             assert post_ws is not None
             post_ws_dump = post_ws.model_dump()
-            # Compare all non-timestamp fields
             for key in ["session_id", "project_id", "topic", "discussion_status",
                         "active_option_ids", "preferred_option_id", "active_constraint_ids",
                         "open_question_ids", "temporary_conclusion_ids", "confirmed_decision_ids",
                         "latest_user_correction_event_id", "version_no", "last_event_sequence_no"]:
                 assert post_ws_dump[key] == pre_ws_dump[key], f"Workspace.{key} changed"
-
-            # Event count and content unchanged
-            post_evt_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorDiscussionEventTable)
-            ).scalar_one()
-            assert post_evt_count == pre_evt_count
-
-            # Message count unchanged
-            post_msg_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorMessageTable)
-            ).scalar_one()
-            assert post_msg_count == pre_msg_count
-
-            # Task/Run counts unchanged
-            from app.core.db_tables import TaskTable, RunTable
-            post_task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
-            assert post_task_count == pre_task_count
-            post_run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
-            assert post_run_count == pre_run_count
         finally:
             fresh.close()
 
@@ -2737,10 +2794,10 @@ class TestFreshSessionFullReadback:
 
         fresh = db_session_factory()
         try:
-            count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-            ).scalar_one()
-            assert count == 0
+            assert _count_table(fresh, ProjectDirectorPlanVersionTable) == 0
+            assert _count_table(fresh, TaskTable) == 0
+            assert _count_table(fresh, RunTable) == 0
+            assert _count_agent_sessions(fresh) == 0
         finally:
             fresh.close()
 
@@ -3137,27 +3194,39 @@ class TestApiErrorMapping:
         assert resolve_mock.call_count == 1
         assert provider_mock.call_count == 1
 
-        # Fresh session: no PlanVersion, Task, Run, AgentSession
+        # Fresh session: full no-side-effect verification
         fresh = db_session_factory()
         try:
-            pv_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-            ).scalar_one()
-            assert pv_count == 0
-            from app.core.db_tables import TaskTable, RunTable
-            task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
-            assert task_count == 0
-            run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
-            assert run_count == 0
-            # Workspace/Event/Session unchanged
-            ws_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorDiscussionWorkspaceTable)
-            ).scalar_one()
-            assert ws_count == 1
-            evt_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorDiscussionEventTable)
-            ).scalar_one()
-            assert evt_count == 1
+            assert _count_table(fresh, ProjectDirectorPlanVersionTable) == 0
+            assert _count_table(fresh, TaskTable) == 0
+            assert _count_table(fresh, RunTable) == 0
+            assert _count_agent_sessions(fresh) == 0
+
+            # Session content unchanged
+            sess_repo = ProjectDirectorSessionRepository(fresh)
+            sess = sess_repo.get_by_id(SESSION_ID)
+            assert sess is not None
+            assert sess.status == ProjectDirectorSessionStatus.CONFIRMED
+            assert sess.goal_text == "测试目标：构建一个系统"
+
+            # Message content unchanged
+            msg_repo = ProjectDirectorMessageRepository(fresh)
+            msgs, _ = msg_repo.list_by_session_id(session_id=SESSION_ID)
+            assert len(msgs) == 1
+            assert msgs[0].role == ProjectDirectorMessageRole.USER
+
+            # Event content unchanged
+            evt_repo = ProjectDirectorDiscussionEventRepository(fresh)
+            evts = evt_repo.list_by_session_id(session_id=SESSION_ID)
+            assert len(evts) == 1
+            assert evts[0].event_type == DiscussionEventType.TOPIC_SET
+
+            # Workspace content unchanged
+            ws_repo = ProjectDirectorDiscussionWorkspaceRepository(fresh)
+            ws = ws_repo.get_by_session_id(session_id=SESSION_ID)
+            assert ws is not None
+            assert ws.topic == "测试主题"
+            assert ws.version_no == 1
         finally:
             fresh.close()
 
@@ -3200,19 +3269,13 @@ class TestApiNormalMessageNoAutoFormalize:
         )
         assert resp.status_code == 201
 
-        # Fresh session: PlanVersion count unchanged
+        # Fresh session: PlanVersion count unchanged, no execution entities
         fresh = db_session_factory()
         try:
-            post_pv_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-            ).scalar_one()
-            assert post_pv_count == pre_pv_count
-
-            from app.core.db_tables import TaskTable, RunTable
-            task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
-            assert task_count == 0
-            run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
-            assert run_count == 0
+            assert _count_table(fresh, ProjectDirectorPlanVersionTable) == pre_pv_count
+            assert _count_table(fresh, TaskTable) == 0
+            assert _count_table(fresh, RunTable) == 0
+            assert _count_agent_sessions(fresh) == 0
         finally:
             fresh.close()
 
@@ -3398,18 +3461,12 @@ class TestExistingApiCompatibility:
         assert replacement["formalization_source_message_ids"] == []
         assert replacement["formalization_source_event_ids"] == []
 
-        # Fresh session: PlanVersion count increased by 2 (original + replacement)
+        # Fresh session: PlanVersion count increased by 2, no execution entities
         fresh = db_session_factory()
         try:
-            post_pv_count = fresh.execute(
-                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-            ).scalar_one()
-            assert post_pv_count == pre_pv_count + 2
-
-            from app.core.db_tables import TaskTable, RunTable
-            task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
-            assert task_count == 0
-            run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
-            assert run_count == 0
+            assert _count_table(fresh, ProjectDirectorPlanVersionTable) == pre_pv_count + 2
+            assert _count_table(fresh, TaskTable) == 0
+            assert _count_table(fresh, RunTable) == 0
+            assert _count_agent_sessions(fresh) == 0
         finally:
             fresh.close()
