@@ -411,6 +411,37 @@ def _count_plan_versions(db_session: Session) -> int:
     ).scalar_one()
 
 
+class TransactionSpy:
+    """Reusable commit/rollback spy — instance-scoped, does not pollute global Session."""
+
+    def __init__(self):
+        self.commit_count = 0
+        self.rollback_count = 0
+
+    def __enter__(self):
+        spy = self
+        original_commit = Session.commit
+        original_rollback = Session.rollback
+
+        def spy_commit(sess):
+            spy.commit_count += 1
+            return original_commit(sess)
+
+        def spy_rollback(sess):
+            spy.rollback_count += 1
+            return original_rollback(sess)
+
+        self._patch_commit = patch.object(Session, "commit", spy_commit)
+        self._patch_rollback = patch.object(Session, "rollback", spy_rollback)
+        self._patch_commit.start()
+        self._patch_rollback.start()
+        return self
+
+    def __exit__(self, *args):
+        self._patch_commit.stop()
+        self._patch_rollback.stop()
+
+
 def _rebuild_and_persist_workspace(
     db_session: Session,
     events: list[DiscussionEvent],
@@ -1658,6 +1689,35 @@ class TestProjectionMismatch:
                 "discussion_status",
                 lambda ws: setattr(ws, "discussion_status", DiscussionStatus.CONVERGING),
             ),
+            (
+                "active_option_ids",
+                lambda ws: setattr(ws, "active_option_ids", [uuid4()]),
+            ),
+            (
+                "preferred_option_id",
+                lambda ws: (setattr(ws, "active_option_ids", [uuid4()]),
+                            setattr(ws, "preferred_option_id", ws.active_option_ids[0])),
+            ),
+            (
+                "active_constraint_ids",
+                lambda ws: setattr(ws, "active_constraint_ids", [uuid4()]),
+            ),
+            (
+                "open_question_ids",
+                lambda ws: setattr(ws, "open_question_ids", [uuid4()]),
+            ),
+            (
+                "temporary_conclusion_ids",
+                lambda ws: setattr(ws, "temporary_conclusion_ids", [uuid4()]),
+            ),
+            (
+                "confirmed_decision_ids",
+                lambda ws: setattr(ws, "confirmed_decision_ids", [uuid4()]),
+            ),
+            (
+                "latest_user_correction_event_id",
+                lambda ws: setattr(ws, "latest_user_correction_event_id", uuid4()),
+            ),
         ],
     )
     def test_projection_mismatch_fails(self, db_session, field, modify):
@@ -1687,6 +1747,47 @@ class TestProjectionMismatch:
                 target=FormalizationTarget.PLAN_REVISION,
                 user_confirmed=True,
             )
+        assert _count_plan_versions(db_session) == 0
+
+    def test_last_event_sequence_no_too_low(self, db_session):
+        """last_event_sequence_no < actual → history_ahead."""
+        msg_id = _seed_message(db_session)
+        evt1 = _make_event(sequence_no=1, event_type=DiscussionEventType.TOPIC_SET,
+                           content="主题", source_message_ids=[msg_id])
+        evt2 = _make_event(sequence_no=2, event_type=DiscussionEventType.FORMALIZATION_REQUESTED,
+                           content="请求", source_message_ids=[msg_id])
+        _persist_event(db_session, evt1)
+        _persist_event(db_session, evt2)
+        _seed_session(db_session)
+        ws = _make_workspace(topic="主题", discussion_status=DiscussionStatus.READY_TO_FORMALIZE,
+                             version_no=1, last_event_sequence_no=1)
+        _persist_workspace(db_session, ws)
+
+        svc = _build_formalization_service(db_session)
+        with pytest.raises(ValueError, match="event_history_ahead"):
+            svc.formalize_discussion(
+                session_id=SESSION_ID, workspace_version=1,
+                target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+            )
+        assert _count_plan_versions(db_session) == 0
+
+    def test_last_event_sequence_no_too_high(self, db_session):
+        """last_event_sequence_no > actual → history_mismatch."""
+        msg_id = _seed_message(db_session)
+        evt = _make_event(sequence_no=1, event_type=DiscussionEventType.TOPIC_SET,
+                          content="主题", source_message_ids=[msg_id])
+        _persist_event(db_session, evt)
+        _seed_session(db_session)
+        ws = _make_workspace(topic="主题", discussion_status=DiscussionStatus.EXPLORING,
+                             version_no=1, last_event_sequence_no=5)
+        _persist_workspace(db_session, ws)
+
+        svc = _build_formalization_service(db_session)
+        with pytest.raises(ValueError, match="event_history_mismatch"):
+            svc.formalize_discussion(
+                session_id=SESSION_ID, workspace_version=1,
+                target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+            )
 
 
 class TestInvalidOptionId:
@@ -1715,15 +1816,14 @@ class TestInvalidOptionId:
         _persist_workspace(db_session, ws)
 
         svc = _build_formalization_service(db_session)
-        # The workspace projection won't match because the event has no option_id
-        # so rebuild_workspace can't process it, or formalization detects the issue
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="option_id_invalid"):
             svc.formalize_discussion(
                 session_id=SESSION_ID,
                 workspace_version=1,
                 target=FormalizationTarget.PLAN_REVISION,
                 user_confirmed=True,
             )
+        assert _count_plan_versions(db_session) == 0
 
     def test_invalid_option_id_format(self, db_session):
         msg_id = _seed_message(db_session)
@@ -2139,26 +2239,70 @@ class TestNormalIdempotency:
 class TestIntegrityErrorRaceReadback:
     """§11.2 Unique index race: IntegrityError → rollback → read existing."""
 
-    def test_race_condition_returns_existing(self, db_session):
+    def test_real_integrity_error_race_recovery(self, db_session, db_session_factory):
+        """Simulate a real unique index collision: first call succeeds, then we
+        tamper the DB so the provenance check passes on the idempotent readback."""
         _seed_ready_to_formalize(db_session)
         svc = _build_formalization_service(db_session, provider_configured=False)
 
-        # First call succeeds
+        # First call succeeds and returns the real plan version
         result1 = svc.formalize_discussion(
             session_id=SESSION_ID,
             workspace_version=1,
             target=FormalizationTarget.PLAN_REVISION,
             user_confirmed=True,
         )
-        # Second call hits idempotency path normally
+        real_id = result1.plan_version.id
+        real_msg_ids = list(result1.source_message_ids)
+        real_evt_ids = list(result1.source_event_ids)
+
+        # Now delete the row and re-insert with a DIFFERENT id but same provenance
+        # to simulate a race where another process inserted first
+        db_session.execute(
+            text("DELETE FROM project_director_plan_versions WHERE id = :id"),
+            {"id": str(real_id).replace("-", "")},
+        )
+        db_session.flush()
+
+        race_winner_id = uuid4()
+        db_session.execute(
+            text(
+                "INSERT INTO project_director_plan_versions "
+                "(id, session_id, version_no, status, plan_summary, "
+                "phases_json, proposed_tasks_json, acceptance_criteria_json, "
+                "risks_json, project_scope_json, agent_team_suggestions_json, "
+                "skill_binding_suggestions_json, verification_mechanisms_json, "
+                "repository_binding_suggestions_json, deliverable_boundaries_json, "
+                "complexity_assessment_json, source, source_detail, forbidden_actions_json, "
+                "formalization_target, formalization_workspace_version, "
+                "formalization_source_message_ids_json, formalization_source_event_ids_json, "
+                "created_at, updated_at) VALUES (:id, :sid, 1, 'pending_confirmation', "
+                "'竞争方计划', '[]', '[]', '[]', '[]', '{}', '[]', '[]', '[]', '[]', '[]', '{}', "
+                "'rule_fallback', 'race_winner', '[]', "
+                "'plan_revision', 1, :msg_json, :evt_json, :now, :now)"
+            ),
+            {
+                "id": str(race_winner_id).replace("-", ""),
+                "sid": str(SESSION_ID).replace("-", ""),
+                "msg_json": json.dumps([str(mid) for mid in real_msg_ids]),
+                "evt_json": json.dumps([str(eid) for eid in real_evt_ids]),
+                "now": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        db_session.flush()
+
+        # Second call: create_no_commit hits IntegrityError, service reads back
+        # the race winner and checks provenance (which matches)
         result2 = svc.formalize_discussion(
             session_id=SESSION_ID,
             workspace_version=1,
             target=FormalizationTarget.PLAN_REVISION,
             user_confirmed=True,
         )
+
         assert result2.idempotent_replay is True
-        assert result2.plan_version.id == result1.plan_version.id
+        assert result2.plan_version.id == race_winner_id
+        assert _count_plan_versions(db_session) == 1
 
 
 class TestProvenanceConflict:
@@ -2253,6 +2397,299 @@ class TestCommitFailure:
 
 
 # ===========================================================================
+# §11.6 Transaction count matrix
+# ===========================================================================
+
+
+class TestTransactionMatrix:
+    """§6 Verify commit/rollback counts for each code path."""
+
+    def test_success_create_commit_rollback(self, db_session):
+        _seed_ready_to_formalize(db_session)
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        with TransactionSpy() as txspy:
+            result = svc.formalize_discussion(
+                session_id=SESSION_ID, workspace_version=1,
+                target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+            )
+        assert txspy.commit_count == 1
+        assert txspy.rollback_count == 0
+        assert result.idempotent_replay is False
+
+    def test_idempotent_replay_no_extra_commit(self, db_session):
+        _seed_ready_to_formalize(db_session)
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        svc.formalize_discussion(
+            session_id=SESSION_ID, workspace_version=1,
+            target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+        )
+        with TransactionSpy() as txspy:
+            svc.formalize_discussion(
+                session_id=SESSION_ID, workspace_version=1,
+                target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+            )
+        # Idempotent replay path: commit=0, rollback=0 (returns early)
+        assert txspy.commit_count == 0
+        assert txspy.rollback_count == 0
+
+    @pytest.mark.parametrize(
+        "label,setup_kwargs",
+        [
+            ("user_confirmed=False", {"user_confirmed": False}),
+            ("workspace_version_mismatch", {"workspace_version": 999}),
+        ],
+    )
+    def test_gate_failure_no_commit_rollback(self, db_session, label, setup_kwargs):
+        _seed_ready_to_formalize(db_session)
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        kwargs = {"session_id": SESSION_ID, "workspace_version": 1,
+                  "target": FormalizationTarget.PLAN_REVISION, "user_confirmed": True}
+        kwargs.update(setup_kwargs)
+        with TransactionSpy() as txspy:
+            with pytest.raises(ValueError):
+                svc.formalize_discussion(**kwargs)
+        assert txspy.commit_count == 0
+        assert txspy.rollback_count == 1
+        assert _count_plan_versions(db_session) == 0
+
+    def test_history_ahead_transaction(self, db_session):
+        msg_id = _seed_message(db_session)
+        evt1 = _make_event(sequence_no=1, event_type=DiscussionEventType.TOPIC_SET,
+                           content="主题", source_message_ids=[msg_id])
+        evt2 = _make_event(sequence_no=2, event_type=DiscussionEventType.FORMALIZATION_REQUESTED,
+                           content="请求", source_message_ids=[msg_id])
+        _persist_event(db_session, evt1)
+        _persist_event(db_session, evt2)
+        _seed_session(db_session)
+        ws = _make_workspace(topic="主题", discussion_status=DiscussionStatus.READY_TO_FORMALIZE,
+                             version_no=1, last_event_sequence_no=1)
+        _persist_workspace(db_session, ws)
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        with TransactionSpy() as txspy:
+            with pytest.raises(ValueError, match="event_history_ahead"):
+                svc.formalize_discussion(
+                    session_id=SESSION_ID, workspace_version=1,
+                    target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+                )
+        assert txspy.commit_count == 0
+        assert txspy.rollback_count == 1
+
+    def test_source_message_not_found_transaction(self, db_session):
+        _seed_session(db_session)
+        fake_msg_id = uuid4()
+        evt = _make_event(sequence_no=1, event_type=DiscussionEventType.TOPIC_SET,
+                          content="主题", source_message_ids=[fake_msg_id])
+        _persist_event(db_session, evt)
+        ws = _make_workspace(topic="主题", discussion_status=DiscussionStatus.EXPLORING,
+                             version_no=1, last_event_sequence_no=1)
+        _persist_workspace(db_session, ws)
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        with TransactionSpy() as txspy:
+            with pytest.raises(ValueError, match="source_message_not_found"):
+                svc.formalize_discussion(
+                    session_id=SESSION_ID, workspace_version=1,
+                    target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+                )
+        assert txspy.commit_count == 0
+        assert txspy.rollback_count == 1
+
+    def test_unrelated_integrity_error_transaction(self, db_session):
+        _seed_ready_to_formalize(db_session)
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        original_create = ProjectDirectorPlanVersionRepository.create_no_commit
+
+        def failing_create(self_repo, plan_version):
+            result = original_create(self_repo, plan_version)
+            raise IntegrityError("UNRELATED", {}, Exception("fake"))
+
+        with TransactionSpy() as txspy:
+            with patch.object(ProjectDirectorPlanVersionRepository, "create_no_commit", failing_create):
+                with pytest.raises(IntegrityError):
+                    svc.formalize_discussion(
+                        session_id=SESSION_ID, workspace_version=1,
+                        target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+                    )
+        assert txspy.rollback_count >= 1
+        # IntegrityError is not converted to ValueError
+        db_session.rollback()
+
+    def test_commit_failure_transaction(self, db_session):
+        _seed_ready_to_formalize(db_session)
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        original_commit = Session.commit
+        commit_attempts = [0]
+        rollback_count = [0]
+        original_rollback = Session.rollback
+
+        def failing_commit(self_sess):
+            commit_attempts[0] += 1
+            raise RuntimeError("commit failed")
+
+        def counting_rollback(self_sess):
+            rollback_count[0] += 1
+            return original_rollback(self_sess)
+
+        with (
+            patch.object(Session, "commit", failing_commit),
+            patch.object(Session, "rollback", counting_rollback),
+        ):
+            with pytest.raises(RuntimeError, match="commit failed"):
+                svc.formalize_discussion(
+                    session_id=SESSION_ID, workspace_version=1,
+                    target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+                )
+        assert commit_attempts[0] == 1
+        assert rollback_count[0] >= 1
+        db_session.rollback()
+
+
+# ===========================================================================
+# §11.7 Expanded fresh session readback — full side-effect verification
+# ===========================================================================
+
+
+class TestFreshSessionFullReadback:
+    """§7 Fresh session verifies no side-effects beyond the PlanVersion."""
+
+    def test_fresh_session_no_side_effects(self, db_session, db_session_factory):
+        """After successful formalization, verify all counts and content in a fresh session."""
+        _seed_ready_to_formalize(db_session)
+
+        # Snapshot before
+        pre_pv_count = _count_plan_versions(db_session)
+
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        result = svc.formalize_discussion(
+            session_id=SESSION_ID, workspace_version=1,
+            target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+        )
+        pv_id = result.plan_version.id
+        db_session.commit()
+
+        # Fresh session B
+        fresh = db_session_factory()
+        try:
+            # PlanVersion increased by exactly 1
+            post_pv_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
+            assert post_pv_count == pre_pv_count + 1
+
+            # PlanVersion content
+            repo = ProjectDirectorPlanVersionRepository(fresh)
+            readback = repo.get_by_id(pv_id)
+            assert readback is not None
+            assert readback.formalization_target == FormalizationTarget.PLAN_REVISION
+            assert readback.formalization_workspace_version == 1
+            assert list(readback.formalization_source_message_ids) == list(result.source_message_ids)
+            assert list(readback.formalization_source_event_ids) == list(result.source_event_ids)
+            assert readback.status == PlanVersionStatus.PENDING_CONFIRMATION
+            assert readback.confirmed_at is None
+
+            # Session unchanged
+            sess_repo = ProjectDirectorSessionRepository(fresh)
+            sess = sess_repo.get_by_id(SESSION_ID)
+            assert sess is not None
+            assert sess.goal_text == "测试目标：构建一个系统"
+            assert sess.goal_summary == "测试目标摘要"
+            assert sess.constraints == ""
+            assert sess.status == ProjectDirectorSessionStatus.CONFIRMED
+            assert sess.project_id == PROJECT_ID
+
+            # Workspace unchanged
+            ws_repo = ProjectDirectorDiscussionWorkspaceRepository(fresh)
+            ws = ws_repo.get_by_session_id(session_id=SESSION_ID)
+            assert ws is not None
+            assert ws.version_no == 1
+            assert ws.last_event_sequence_no == 1
+
+            # Event count unchanged
+            event_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorDiscussionEventTable)
+            ).scalar_one()
+            assert event_count == 1
+
+            # Message count unchanged
+            msg_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorMessageTable)
+            ).scalar_one()
+            assert msg_count == 1
+
+            # No Tasks, Runs, or AgentSessions created
+            from app.core.db_tables import TaskTable, RunTable
+            task_count = fresh.execute(
+                select(func.count()).select_from(TaskTable)
+            ).scalar_one()
+            assert task_count == 0
+            run_count = fresh.execute(
+                select(func.count()).select_from(RunTable)
+            ).scalar_one()
+            assert run_count == 0
+        finally:
+            fresh.close()
+
+    def test_gate_failure_no_half_persisted_plan_version(self, db_session, db_session_factory):
+        """After a gate failure, fresh session confirms no PlanVersion was created."""
+        _seed_ready_to_formalize(db_session)
+        db_session.commit()
+
+        svc = _build_formalization_service(db_session, provider_configured=False)
+        with pytest.raises(ValueError, match="workspace_version_mismatch"):
+            svc.formalize_discussion(
+                session_id=SESSION_ID, workspace_version=999,
+                target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+            )
+        db_session.rollback()
+
+        fresh = db_session_factory()
+        try:
+            count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
+            assert count == 0
+        finally:
+            fresh.close()
+
+
+# ===========================================================================
+# §11.8 Worker/Executor static boundary
+# ===========================================================================
+
+
+class TestWorkerExecutorBoundary:
+    """§8 Static contract: formalization chain must not reference Worker/Executor."""
+
+    def test_formalization_service_no_worker_references(self):
+        """Read the formalization service source and verify no Worker/Executor calls."""
+        import inspect as stdlib_inspect
+        from app.services.project_director_discussion_formalization_service import (
+            ProjectDirectorDiscussionFormalizationService,
+        )
+        source = stdlib_inspect.getsource(ProjectDirectorDiscussionFormalizationService)
+        forbidden = [
+            "WorkerPool", "worker_pool", "create_task", "create_run",
+            "AgentSessionService", "planning/apply", "apply-local",
+            "LocalGitWriteService",
+        ]
+        for term in forbidden:
+            assert term not in source, f"Forbidden term {term!r} found in formalization service"
+
+    def test_formalize_route_no_worker_references(self):
+        """Read the formalize route source and verify no Worker/Executor calls."""
+        import inspect as stdlib_inspect
+        from app.api.routes.project_director import formalize_discussion, _get_discussion_formalization_service
+        for func in (formalize_discussion, _get_discussion_formalization_service):
+            source = stdlib_inspect.getsource(func)
+            forbidden = [
+                "WorkerPool", "worker_pool", "create_task", "create_run",
+                "AgentSessionService", "planning/apply", "apply-local",
+                "LocalGitWriteService",
+            ]
+            for term in forbidden:
+                assert term not in source, f"Forbidden term {term!r} found in {func.__name__}"
+
+
+# ===========================================================================
 # §12 Plan review lifecycle with provenance
 # ===========================================================================
 
@@ -2273,6 +2710,11 @@ class TestPlanReviewLifecycle:
 
     def test_reject_preserves_provenance(self, db_session):
         pv = self._create_formalized_plan(db_session)
+        original_target = pv.formalization_target
+        original_ws_version = pv.formalization_workspace_version
+        original_msg_ids = list(pv.formalization_source_message_ids)
+        original_evt_ids = list(pv.formalization_source_event_ids)
+
         repo = ProjectDirectorPlanVersionRepository(db_session)
         plan_svc = ProjectDirectorPlanService(
             plan_version_repository=repo,
@@ -2281,13 +2723,18 @@ class TestPlanReviewLifecycle:
         )
         rejected = plan_svc.reject_plan_version(pv.id)
         assert rejected.status == PlanVersionStatus.REJECTED
-        assert rejected.formalization_target == FormalizationTarget.PLAN_REVISION
-        assert rejected.formalization_workspace_version == 1
-        assert len(rejected.formalization_source_message_ids) > 0
-        assert len(rejected.formalization_source_event_ids) > 0
+        assert rejected.formalization_target == original_target
+        assert rejected.formalization_workspace_version == original_ws_version
+        assert list(rejected.formalization_source_message_ids) == original_msg_ids
+        assert list(rejected.formalization_source_event_ids) == original_evt_ids
 
     def test_confirm_preserves_provenance(self, db_session):
         pv = self._create_formalized_plan(db_session)
+        original_target = pv.formalization_target
+        original_ws_version = pv.formalization_workspace_version
+        original_msg_ids = list(pv.formalization_source_message_ids)
+        original_evt_ids = list(pv.formalization_source_event_ids)
+
         repo = ProjectDirectorPlanVersionRepository(db_session)
         plan_svc = ProjectDirectorPlanService(
             plan_version_repository=repo,
@@ -2296,37 +2743,63 @@ class TestPlanReviewLifecycle:
         )
         confirmed = plan_svc.confirm_plan_version(pv.id)
         assert confirmed.status == PlanVersionStatus.CONFIRMED
-        assert confirmed.formalization_target == FormalizationTarget.PLAN_REVISION
-        assert confirmed.formalization_workspace_version == 1
-        assert len(confirmed.formalization_source_message_ids) > 0
-        assert len(confirmed.formalization_source_event_ids) > 0
+        assert confirmed.formalization_target == original_target
+        assert confirmed.formalization_workspace_version == original_ws_version
+        assert list(confirmed.formalization_source_message_ids) == original_msg_ids
+        assert list(confirmed.formalization_source_event_ids) == original_evt_ids
 
     def test_supersede_preserves_old_provenance(self, db_session):
         pv = self._create_formalized_plan(db_session)
+        original_target = pv.formalization_target
+        original_ws_version = pv.formalization_workspace_version
+        original_msg_ids = list(pv.formalization_source_message_ids)
+        original_evt_ids = list(pv.formalization_source_event_ids)
+
         repo = ProjectDirectorPlanVersionRepository(db_session)
         plan_svc = ProjectDirectorPlanService(
             plan_version_repository=repo,
             session_repository=ProjectDirectorSessionRepository(db_session),
             provider_config_service=_FakeProviderConfigService(configured=False),
         )
+        # Confirm A
         plan_svc.confirm_plan_version(pv.id)
 
-        # Create a new version that supersedes the old one
-        new_pv = ProjectDirectorPlanVersion(
+        # Create a plain pending_confirmation B
+        pv_b = ProjectDirectorPlanVersion(
             id=uuid4(),
             session_id=SESSION_ID,
             version_no=2,
-            plan_summary="new plan",
-            status=PlanVersionStatus.CONFIRMED,
+            plan_summary="新计划",
+            status=PlanVersionStatus.PENDING_CONFIRMATION,
         )
-        repo.create(new_pv)
-        # Supersede old one
-        old = repo.get_by_id(pv.id)
-        assert old is not None
-        # The confirm_plan_version already superseded if there was an existing confirmed
+        repo.create(pv_b)
+        # Confirm B → supersedes A
+        confirmed_b = plan_svc.confirm_plan_version(pv_b.id)
+
+        # Read back A
+        old_a = repo.get_by_id(pv.id)
+        assert old_a is not None
+        assert old_a.status == PlanVersionStatus.SUPERSEDED
+        # A provenance unchanged
+        assert old_a.formalization_target == original_target
+        assert old_a.formalization_workspace_version == original_ws_version
+        assert list(old_a.formalization_source_message_ids) == original_msg_ids
+        assert list(old_a.formalization_source_event_ids) == original_evt_ids
+
+        # B is confirmed, plain plan version
+        assert confirmed_b.status == PlanVersionStatus.CONFIRMED
+        assert confirmed_b.formalization_target is None
+        assert confirmed_b.formalization_workspace_version is None
+        assert confirmed_b.formalization_source_message_ids == []
+        assert confirmed_b.formalization_source_event_ids == []
 
     def test_request_changes_creates_replacement_without_provenance(self, db_session):
         pv = self._create_formalized_plan(db_session)
+        original_target = pv.formalization_target
+        original_ws_version = pv.formalization_workspace_version
+        original_msg_ids = list(pv.formalization_source_message_ids)
+        original_evt_ids = list(pv.formalization_source_event_ids)
+
         repo = ProjectDirectorPlanVersionRepository(db_session)
         provider_spy = _ProviderSpy()
         plan_svc = ProjectDirectorPlanService(
@@ -2339,12 +2812,15 @@ class TestPlanReviewLifecycle:
             plan_version_id=pv.id, feedback="需要修改"
         )
 
-        # Original should be rejected
+        # Original should be rejected with provenance unchanged
         original = repo.get_by_id(pv.id)
         assert original.status == PlanVersionStatus.REJECTED
-        assert original.formalization_target == FormalizationTarget.PLAN_REVISION
+        assert original.formalization_target == original_target
+        assert original.formalization_workspace_version == original_ws_version
+        assert list(original.formalization_source_message_ids) == original_msg_ids
+        assert list(original.formalization_source_event_ids) == original_evt_ids
 
-        # Replacement is a plain plan version
+        # Replacement is a plain plan version — strict empty provenance
         assert replacement.formalization_target is None
         assert replacement.formalization_workspace_version is None
         assert replacement.formalization_source_message_ids == []
@@ -2444,6 +2920,7 @@ class TestApiErrorMapping:
             },
         )
         assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
 
     def test_user_not_confirmed_409(self, db_session, client):
         _seed_ready_to_formalize(db_session)
@@ -2458,6 +2935,7 @@ class TestApiErrorMapping:
             },
         )
         assert resp.status_code == 409
+        assert "user_confirmation_required" in resp.json()["detail"]
 
     def test_session_not_confirmed_409(self, db_session, client):
         _seed_session(db_session)
@@ -2474,6 +2952,7 @@ class TestApiErrorMapping:
             },
         )
         assert resp.status_code == 409
+        assert "session_not_confirmed" in resp.json()["detail"]
 
     def test_workspace_not_found_409(self, db_session, client):
         _seed_session(db_session)
@@ -2488,6 +2967,7 @@ class TestApiErrorMapping:
             },
         )
         assert resp.status_code == 409
+        assert "workspace_not_found" in resp.json()["detail"]
 
     def test_workspace_version_mismatch_409(self, db_session, client):
         _seed_ready_to_formalize(db_session, workspace_version=1)
@@ -2502,6 +2982,7 @@ class TestApiErrorMapping:
             },
         )
         assert resp.status_code == 409
+        assert "workspace_version_mismatch" in resp.json()["detail"]
 
     def test_workspace_version_zero_422(self, db_session, client):
         _seed_ready_to_formalize(db_session, workspace_version=0)
@@ -2516,18 +2997,37 @@ class TestApiErrorMapping:
             },
         )
         assert resp.status_code == 422
+        # Pydantic catches workspace_version=0 at request validation level
+        detail = resp.json()["detail"]
+        assert isinstance(detail, list)
+        assert any("workspace_version" in str(err.get("loc", [])) for err in detail)
 
     def test_provider_generation_failure_422(self, db_session, client):
         _seed_ready_to_formalize(db_session)
         db_session.commit()
 
-        # Patch the provider to raise
-        def failing_generator(**kwargs):
+        # Monkeypatch ProviderConfigService to return a configured API key
+        # and _call_provider_text to raise
+        configured_config = SimpleNamespace(
+            api_key="test-key",
+            base_url="https://provider.invalid/v1",
+            timeout_seconds=1,
+            detected_provider_type="openai_compatible",
+            model_names={"balanced": "test-model"},
+        )
+
+        def failing_provider_call(**kwargs):
             raise RuntimeError("provider exploded")
 
-        with patch(
-            "app.services.project_director_plan_service.ProjectDirectorPlanService._call_provider_text",
-            staticmethod(failing_generator),
+        with (
+            patch(
+                "app.services.provider_config_service.ProviderConfigService.resolve_openai_runtime_config",
+                return_value=configured_config,
+            ),
+            patch(
+                "app.services.project_director_plan_service.ProjectDirectorPlanService._call_provider_text",
+                staticmethod(failing_provider_call),
+            ),
         ):
             resp = client.post(
                 f"/project-director/sessions/{SESSION_ID}/discussion/formalize",
@@ -2537,9 +3037,13 @@ class TestApiErrorMapping:
                     "user_confirmed": True,
                 },
             )
-            # With no API key configured, it falls back to rule_fallback, so let's
-            # configure the provider to force a failure
-            pass  # The test may need adjustment based on actual fallback behavior
+        assert resp.status_code == 422
+        assert "provider" in resp.json()["detail"].lower() or "generation" in resp.json()["detail"].lower()
+        # Fresh session: no PlanVersion created
+        count = db_session.execute(
+            select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+        ).scalar_one()
+        assert count == 0
 
 
 class TestApiNormalMessageNoAutoFormalize:
@@ -2569,12 +3073,22 @@ class TestApiNormalMessageNoAutoFormalize:
             f"/project-director/sessions/{SESSION_ID}/messages",
             json={"content": "请帮我正式化"},
         )
-        # It may return 200/201 but must NOT create a PlanVersion
-        # Count plan versions
+        # Must NOT create a PlanVersion regardless of response status
         count = db_session.execute(
             select(func.count()).select_from(ProjectDirectorPlanVersionTable)
         ).scalar_one()
         assert count == 0
+
+        # Also verify no Tasks or Runs
+        from app.core.db_tables import TaskTable, RunTable
+        task_count = db_session.execute(
+            select(func.count()).select_from(TaskTable)
+        ).scalar_one()
+        assert task_count == 0
+        run_count = db_session.execute(
+            select(func.count()).select_from(RunTable)
+        ).scalar_one()
+        assert run_count == 0
 
 
 # ===========================================================================
@@ -2592,28 +3106,20 @@ class TestExistingApiCompatibility:
 
         resp = client.post(
             f"/project-director/sessions/{SESSION_ID}/plan-versions",
-            json={
-                "plan_summary": "测试计划",
-                "phases": [],
-                "proposed_tasks": [],
-                "acceptance_criteria": [],
-                "risks": [],
-            },
         )
-        # Should succeed (201 or 200 depending on implementation)
-        if resp.status_code in (200, 201):
-            data = resp.json()
-            assert data["formalization_target"] is None
-            assert data["formalization_workspace_version"] is None
-            assert data["formalization_source_message_ids"] == []
-            assert data["formalization_source_event_ids"] == []
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["formalization_target"] is None
+        assert data["formalization_workspace_version"] is None
+        assert data["formalization_source_message_ids"] == []
+        assert data["formalization_source_event_ids"] == []
 
     def test_list_plan_versions_includes_formalization(self, db_session, client):
         _seed_ready_to_formalize(db_session)
         db_session.commit()
 
         # Create a formalized plan version
-        client.post(
+        resp_create = client.post(
             f"/project-director/sessions/{SESSION_ID}/discussion/formalize",
             json={
                 "workspace_version": 1,
@@ -2621,11 +3127,94 @@ class TestExistingApiCompatibility:
                 "user_confirmed": True,
             },
         )
+        assert resp_create.status_code == 201
 
         # List should include formalization fields
         resp = client.get(f"/project-director/sessions/{SESSION_ID}/plan-versions")
-        if resp.status_code == 200:
-            versions = resp.json().get("plan_versions", [])
-            assert len(versions) > 0
-            formalized = versions[0]
-            assert formalized["formalization_target"] == "plan_revision"
+        assert resp.status_code == 200
+        versions = resp.json()["plan_versions"]
+        assert len(versions) > 0
+        formalized = versions[0]
+        assert formalized["formalization_target"] == "plan_revision"
+        assert formalized["formalization_workspace_version"] == 1
+        assert len(formalized["formalization_source_message_ids"]) > 0
+        assert len(formalized["formalization_source_event_ids"]) > 0
+
+    def test_get_single_plan_version_has_provenance(self, db_session, client):
+        """GET /plan-versions/{id} returns formalization provenance."""
+        _seed_ready_to_formalize(db_session)
+        db_session.commit()
+
+        resp_create = client.post(
+            f"/project-director/sessions/{SESSION_ID}/discussion/formalize",
+            json={
+                "workspace_version": 1,
+                "target": "plan_revision",
+                "user_confirmed": True,
+            },
+        )
+        assert resp_create.status_code == 201
+        pv_id = resp_create.json()["plan_version"]["id"]
+
+        resp = client.get(f"/project-director/plan-versions/{pv_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["formalization_target"] == "plan_revision"
+        assert data["formalization_workspace_version"] == 1
+        assert data["formalization_source_message_ids"] == resp_create.json()["source_message_ids"]
+        assert data["formalization_source_event_ids"] == resp_create.json()["source_event_ids"]
+
+    def test_confirm_plan_version_preserves_provenance(self, db_session, client):
+        """POST /plan-versions/{id}/confirm preserves formalization provenance."""
+        _seed_ready_to_formalize(db_session)
+        db_session.commit()
+
+        resp_create = client.post(
+            f"/project-director/sessions/{SESSION_ID}/discussion/formalize",
+            json={
+                "workspace_version": 1,
+                "target": "plan_revision",
+                "user_confirmed": True,
+            },
+        )
+        assert resp_create.status_code == 201
+        pv_id = resp_create.json()["plan_version"]["id"]
+        original_msg_ids = resp_create.json()["source_message_ids"]
+        original_evt_ids = resp_create.json()["source_event_ids"]
+
+        resp = client.post(f"/project-director/plan-versions/{pv_id}/confirm")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "confirmed"
+        assert data["formalization_target"] == "plan_revision"
+        assert data["formalization_source_message_ids"] == original_msg_ids
+        assert data["formalization_source_event_ids"] == original_evt_ids
+
+    def test_reject_plan_version_preserves_provenance(self, db_session, client):
+        """POST /plan-versions/{id}/review reject preserves formalization provenance."""
+        _seed_ready_to_formalize(db_session)
+        db_session.commit()
+
+        resp_create = client.post(
+            f"/project-director/sessions/{SESSION_ID}/discussion/formalize",
+            json={
+                "workspace_version": 1,
+                "target": "plan_revision",
+                "user_confirmed": True,
+            },
+        )
+        assert resp_create.status_code == 201
+        pv_id = resp_create.json()["plan_version"]["id"]
+        original_msg_ids = resp_create.json()["source_message_ids"]
+        original_evt_ids = resp_create.json()["source_event_ids"]
+
+        resp = client.post(
+            f"/project-director/plan-versions/{pv_id}/review",
+            json={"action": "reject", "feedback": "需要修改"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["reviewed_plan_version"]
+        assert data["status"] == "rejected"
+        assert data["formalization_target"] == "plan_revision"
+        assert data["formalization_source_message_ids"] == original_msg_ids
+        assert data["formalization_source_event_ids"] == original_evt_ids
