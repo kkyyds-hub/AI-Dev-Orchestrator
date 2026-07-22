@@ -47,6 +47,7 @@ from app.api.schemas.project_director_workbench import (
     ConversationTimelineResponse,
     DirectorInboxItemResponse,
     DirectorInboxResponse,
+    DiscussionWorkspaceResponse,
     TaskCreationResponse,
     WorkbenchResumableSessionSummary,
     WorkbenchResumableSessionsResponse,
@@ -5117,6 +5118,7 @@ class WorkbenchResumeResponse(BaseModel):
     plan_version: PlanVersionResponse | None = None
     task_creation: TaskCreationResponse | None = None
     recent_messages: list[ProjectDirectorMessageResponse] = Field(default_factory=list)
+    discussion_workspace: DiscussionWorkspaceResponse | None = None
     source: str = Field(default="none")
     next_action: str = Field(default="暂无可恢复的 Project Director 流程。")
 
@@ -5206,6 +5208,9 @@ def _build_workbench_resume_for_session(
     session_obj,
     plan_repo: ProjectDirectorPlanVersionRepository,
 ) -> WorkbenchResumeResponse:
+    workspace = ProjectDirectorDiscussionWorkspaceRepository(
+        db_session
+    ).get_by_session_id(session_id=session_obj.id)
     latest_plan_version = _latest_resumable_plan_for_session(
         plan_repo=plan_repo,
         session_id=session_obj.id,
@@ -5230,6 +5235,11 @@ def _build_workbench_resume_for_session(
         recent_messages=_recent_message_responses(
             db_session=db_session,
             session_id=session_obj.id,
+        ),
+        discussion_workspace=(
+            DiscussionWorkspaceResponse.from_domain(workspace)
+            if workspace is not None
+            else None
         ),
         source=(
             "backend_recent_task_creation"
@@ -5395,6 +5405,9 @@ def get_workbench_resume(
             plan_repo=plan_repo,
             plan_version_id=plan_version.id,
         )
+        workspace = ProjectDirectorDiscussionWorkspaceRepository(
+            db_session
+        ).get_by_session_id(session_id=session_obj.id)
         return WorkbenchResumeResponse(
             session=SessionResponse.from_domain(session_obj),
             plan_version=PlanVersionResponse.from_domain(plan_version),
@@ -5402,6 +5415,11 @@ def get_workbench_resume(
             recent_messages=_recent_message_responses(
                 db_session=db_session,
                 session_id=session_obj.id,
+            ),
+            discussion_workspace=(
+                DiscussionWorkspaceResponse.from_domain(workspace)
+                if workspace is not None
+                else None
             ),
             source=(
                 "backend_recent_task_creation"

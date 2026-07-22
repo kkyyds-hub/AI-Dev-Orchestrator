@@ -1,11 +1,12 @@
 import { Bot, FolderKanban } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   useConfirmProjectDirectorGoal,
   useCreateProjectDirectorPlanVersion,
   useCreateProjectDirectorSession,
   useCreateProjectDirectorTaskQueue,
+  useFormalizeProjectDirectorDiscussion,
   usePostProjectDirectorSessionMessage,
   useProjectDirectorSessionMessages,
   useProjectDirectorWorkbenchResume,
@@ -15,6 +16,8 @@ import {
 import type {
   ClarifyingQuestion,
   ProjectDirectorMessage,
+  ProjectDirectorDiscussionWorkspace,
+  ProjectDirectorFormalizationProposal,
   ProjectDirectorPlanReviewAction,
   ProjectDirectorPlanVersion,
   ProjectDirectorSession,
@@ -25,6 +28,8 @@ import { WorkbenchPlanFlowCard } from "../ui-selection-lab/components/WorkbenchP
 import { WorkbenchPromptBox } from "../ui-selection-lab/components/WorkbenchPromptBox";
 import {
   WorkbenchClarificationPanel,
+  WorkbenchDiscussionStateBar,
+  WorkbenchFormalizationProposalCard,
   type WorkbenchClarificationQuestion,
 } from "../ui-selection-lab/components/WorkbenchUserDecisionSurfaces";
 import type { MockMessage } from "../ui-selection-lab/mockInteractions";
@@ -104,6 +109,13 @@ function useProjectDirectorWorkbenchAdapter(input: {
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [planFeedback, setPlanFeedback] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [discussionWorkspace, setDiscussionWorkspace] =
+    useState<ProjectDirectorDiscussionWorkspace | null>(null);
+  const [formalizationProposal, setFormalizationProposal] =
+    useState<ProjectDirectorFormalizationProposal | null>(null);
+  const [formalizationError, setFormalizationError] = useState<string | null>(null);
+  const contextKey = `${input.mode}:${input.projectId ?? "none"}:${input.resumeSessionId ?? "none"}`;
+  const contextKeyRef = useRef(contextKey);
 
   const createSessionMutation = useCreateProjectDirectorSession();
   const postMessageMutation = usePostProjectDirectorSessionMessage();
@@ -112,14 +124,19 @@ function useProjectDirectorWorkbenchAdapter(input: {
   const createPlanVersionMutation = useCreateProjectDirectorPlanVersion();
   const reviewPlanVersionMutation = useReviewProjectDirectorPlanVersion();
   const createTaskQueueMutation = useCreateProjectDirectorTaskQueue();
+  const formalizeDiscussionMutation = useFormalizeProjectDirectorDiscussion();
   const resumeQuery = useProjectDirectorWorkbenchResume({
     mode: input.mode,
     projectId: input.mode === "project" ? input.projectId : null,
-    sessionId: input.resumeSessionId,
+    sessionId: session?.id ?? input.resumeSessionId,
   }, {
-    enabled: Boolean(input.resumeSessionId),
+    enabled: Boolean(session?.id ?? input.resumeSessionId),
   });
   const messagesQuery = useProjectDirectorSessionMessages(session?.id ?? null);
+
+  useEffect(() => {
+    contextKeyRef.current = contextKey;
+  }, [contextKey]);
 
   useEffect(() => {
     setSession(null);
@@ -129,6 +146,9 @@ function useProjectDirectorWorkbenchAdapter(input: {
     setAnswerDrafts({});
     setPlanFeedback("");
     setStatusMessage(null);
+    setDiscussionWorkspace(null);
+    setFormalizationProposal(null);
+    setFormalizationError(null);
   }, [input.mode, input.projectId, input.resumeSessionId]);
 
   useEffect(() => {
@@ -136,19 +156,31 @@ function useProjectDirectorWorkbenchAdapter(input: {
     if (!resume?.session) {
       return;
     }
+    if (contextKeyRef.current !== contextKey) {
+      return;
+    }
 
     setSession(resume.session);
     setPlanVersion(resume.plan_version);
     setTaskCreation(resume.task_creation);
     setMessageTimeline(resume.recent_messages ?? []);
+    setDiscussionWorkspace(resume.discussion_workspace);
+    setFormalizationProposal((current) =>
+      current?.workspace_version === resume.discussion_workspace?.version_no
+        ? current
+        : null,
+    );
     setStatusMessage(resume.next_action || null);
-  }, [resumeQuery.data]);
+  }, [contextKey, resumeQuery.data]);
 
   useEffect(() => {
     if (messagesQuery.data?.messages) {
+      if (contextKeyRef.current !== contextKey) {
+        return;
+      }
       setMessageTimeline(messagesQuery.data.messages);
     }
-  }, [messagesQuery.data]);
+  }, [contextKey, messagesQuery.data]);
 
   const isMutating =
     createSessionMutation.isPending ||
@@ -157,7 +189,8 @@ function useProjectDirectorWorkbenchAdapter(input: {
     confirmGoalMutation.isPending ||
     createPlanVersionMutation.isPending ||
     reviewPlanVersionMutation.isPending ||
-    createTaskQueueMutation.isPending;
+    createTaskQueueMutation.isPending ||
+    formalizeDiscussionMutation.isPending;
 
   const requiredQuestions =
     session?.clarifying_questions.filter((question) => question.required) ?? [];
@@ -172,23 +205,44 @@ function useProjectDirectorWorkbenchAdapter(input: {
     }
 
     if (session) {
+      const requestContextKey = contextKeyRef.current;
       const result = await postMessageMutation.mutateAsync({
         sessionId: session.id,
         content: trimmed,
       });
-      setMessageTimeline(result.messages);
+      if (contextKeyRef.current !== requestContextKey) {
+        return;
+      }
+      setMessageTimeline((current) =>
+        mergeProjectDirectorMessages(current, [result.user_message, result.assistant_message]),
+      );
+      setFormalizationProposal(result.formalization_proposal);
+      setFormalizationError(null);
       setStatusMessage("AI 项目主管已回复。");
+      const resumeResult = await resumeQuery.refetch();
+      if (contextKeyRef.current === requestContextKey && resumeResult.data?.session) {
+        setDiscussionWorkspace(resumeResult.data.discussion_workspace);
+        setPlanVersion(resumeResult.data.plan_version);
+        setTaskCreation(resumeResult.data.task_creation);
+      }
       return;
     }
 
+    const requestContextKey = contextKeyRef.current;
     const createdSession = await createSessionMutation.mutateAsync({
       goal_text: trimmed,
       project_id: input.mode === "project" ? input.projectId : null,
       constraints: "",
     });
+    if (contextKeyRef.current !== requestContextKey) {
+      return;
+    }
     setSession(createdSession);
     setPlanVersion(null);
     setTaskCreation(null);
+    setDiscussionWorkspace(null);
+    setFormalizationProposal(null);
+    setFormalizationError(null);
     setStatusMessage(createdSession.next_action);
   }
 
@@ -204,10 +258,14 @@ function useProjectDirectorWorkbenchAdapter(input: {
       }))
       .filter((answer) => answer.answer.length > 0);
 
+    const requestContextKey = contextKeyRef.current;
     const updatedSession = await submitAnswersMutation.mutateAsync({
       sessionId: session.id,
       answers,
     });
+    if (contextKeyRef.current !== requestContextKey) {
+      return;
+    }
     setSession(updatedSession);
     setStatusMessage(updatedSession.next_action);
   }
@@ -217,9 +275,13 @@ function useProjectDirectorWorkbenchAdapter(input: {
       return;
     }
 
+    const requestContextKey = contextKeyRef.current;
     const updatedSession = await confirmGoalMutation.mutateAsync({
       sessionId: session.id,
     });
+    if (contextKeyRef.current !== requestContextKey) {
+      return;
+    }
     setSession(updatedSession);
     setStatusMessage(updatedSession.next_action);
   }
@@ -229,9 +291,13 @@ function useProjectDirectorWorkbenchAdapter(input: {
       return;
     }
 
+    const requestContextKey = contextKeyRef.current;
     const createdPlanVersion = await createPlanVersionMutation.mutateAsync({
       sessionId: session.id,
     });
+    if (contextKeyRef.current !== requestContextKey) {
+      return;
+    }
     setPlanVersion(createdPlanVersion);
     setPlanFeedback("");
     setStatusMessage(createdPlanVersion.next_action);
@@ -242,11 +308,15 @@ function useProjectDirectorWorkbenchAdapter(input: {
       return;
     }
 
+    const requestContextKey = contextKeyRef.current;
     const result = await reviewPlanVersionMutation.mutateAsync({
       planVersionId: planVersion.id,
       action,
       feedback: planFeedback,
     });
+    if (contextKeyRef.current !== requestContextKey) {
+      return;
+    }
     const nextPlan = result.replacement_plan_version ?? result.reviewed_plan_version;
     setPlanVersion(nextPlan);
     setPlanFeedback("");
@@ -259,11 +329,58 @@ function useProjectDirectorWorkbenchAdapter(input: {
       return;
     }
 
+    const requestContextKey = contextKeyRef.current;
     const createdTaskQueue = await createTaskQueueMutation.mutateAsync({
       planVersionId: planVersion.id,
     });
+    if (contextKeyRef.current !== requestContextKey) {
+      return;
+    }
     setTaskCreation(createdTaskQueue);
     setStatusMessage(createdTaskQueue.next_action);
+  }
+
+  async function handleFormalizeDiscussion() {
+    if (!session || !discussionWorkspace || formalizeDiscussionMutation.isPending) {
+      return;
+    }
+
+    const requestContextKey = contextKeyRef.current;
+    setFormalizationError(null);
+    try {
+      const result = await formalizeDiscussionMutation.mutateAsync({
+        sessionId: session.id,
+        workspaceVersion: discussionWorkspace.version_no,
+      });
+      if (contextKeyRef.current !== requestContextKey) {
+        return;
+      }
+      setPlanVersion(result.plan_version);
+      setTaskCreation(null);
+      setFormalizationProposal(null);
+      setFormalizationError(null);
+      setStatusMessage(result.plan_version.next_action);
+    } catch (error) {
+      if (contextKeyRef.current !== requestContextKey) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "生成计划草案失败，请重试。";
+      if (message.startsWith("project_director_formalization_")) {
+        setFormalizationProposal(null);
+        setFormalizationError("讨论状态已更新，请重新确认");
+        const resumeResult = await resumeQuery.refetch();
+        if (contextKeyRef.current === requestContextKey && resumeResult.data?.session) {
+          setSession(resumeResult.data.session);
+          setPlanVersion(resumeResult.data.plan_version);
+          setTaskCreation(resumeResult.data.task_creation);
+          setMessageTimeline(resumeResult.data.recent_messages ?? []);
+        setDiscussionWorkspace(resumeResult.data.discussion_workspace);
+      }
+      setStatusMessage("讨论状态已更新，请重新确认");
+      return;
+      }
+      setFormalizationError(message);
+    }
   }
 
   const messages = useMemo(
@@ -291,7 +408,7 @@ function useProjectDirectorWorkbenchAdapter(input: {
     ],
   );
 
-  const topSurface = session?.status === "clarifying" ? (
+  const workflowSurface = session?.status === "clarifying" ? (
     <WorkbenchClarificationPanel
       questions={session.clarifying_questions.map(mapClarifyingQuestion)}
       answers={answerDrafts}
@@ -313,7 +430,7 @@ function useProjectDirectorWorkbenchAdapter(input: {
         void handleConfirmGoal();
       }}
     />
-  ) : session?.status === "confirmed" && !planVersion ? (
+  ) : session?.status === "confirmed" && !planVersion && !discussionWorkspace ? (
     <GoalConfirmationPanel
       summary={session.goal_summary || session.goal_text}
       disabled={createPlanVersionMutation.isPending}
@@ -322,6 +439,37 @@ function useProjectDirectorWorkbenchAdapter(input: {
         void handleCreatePlanVersion();
       }}
     />
+  ) : null;
+
+  const shouldShowFormalizationCard = Boolean(
+    discussionWorkspace &&
+      (
+        (formalizationProposal?.requires_confirmation &&
+          formalizationProposal.workspace_version === discussionWorkspace.version_no) ||
+        (discussionWorkspace.discussion_status === "ready_to_formalize" &&
+          (!planVersion || planVersion.formalization_workspace_version !== discussionWorkspace.version_no))
+      ),
+  );
+
+  const topSurface = workflowSurface || discussionWorkspace || shouldShowFormalizationCard ? (
+    <div className="grid gap-5">
+      <WorkbenchDiscussionStateBar workspace={discussionWorkspace} />
+      {formalizationError && !shouldShowFormalizationCard ? (
+        <p className="text-sm text-[#F0A6A6]">{formalizationError}</p>
+      ) : null}
+      {workflowSurface}
+      {shouldShowFormalizationCard && discussionWorkspace ? (
+        <WorkbenchFormalizationProposalCard
+          workspace={discussionWorkspace}
+          proposal={formalizationProposal}
+          disabled={formalizeDiscussionMutation.isPending}
+          errorMessage={formalizationError}
+          onConfirm={() => {
+            void handleFormalizeDiscussion();
+          }}
+        />
+      ) : null}
+    </div>
   ) : null;
 
   const planFlowCard = planVersion ? (
@@ -517,12 +665,32 @@ function mapPlanVersionToPlanFlowState(
         label: "任务",
         value: `${planVersion.proposed_tasks.length} 个拟议任务，确认后再创建正式任务队列。`,
       },
+      ...(planVersion.formalization_target === "plan_revision"
+        ? [
+            {
+              label: "来源",
+              value: `讨论工作区 v${planVersion.formalization_workspace_version}，基于 ${planVersion.formalization_source_message_ids.length} 条消息和 ${planVersion.formalization_source_event_ids.length} 条讨论记录。`,
+            },
+          ]
+        : []),
     ],
     milestones:
       planVersion.acceptance_criteria.length > 0
         ? planVersion.acceptance_criteria.slice(0, 4)
         : ["确认计划草案", "创建正式项目", "后续进入执行和成果跟踪"],
   };
+}
+
+function mergeProjectDirectorMessages(
+  current: ProjectDirectorMessage[],
+  additions: ProjectDirectorMessage[],
+): ProjectDirectorMessage[] {
+  const messagesById = new Map(
+    [...current, ...additions].map((message) => [message.id, message]),
+  );
+  return [...messagesById.values()].sort(
+    (left, right) => left.sequence_no - right.sequence_no,
+  );
 }
 
 function GoalConfirmationPanel({

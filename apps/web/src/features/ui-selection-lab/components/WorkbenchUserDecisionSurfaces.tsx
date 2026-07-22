@@ -8,6 +8,11 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import type {
+  ProjectDirectorDiscussionWorkspace,
+  ProjectDirectorFormalizationProposal,
+} from "../../project-director/types";
+
 import {
   Button,
   Dialog,
@@ -81,6 +86,116 @@ export type WorkbenchClarificationQuestion = {
   hint: string;
   required?: boolean;
 };
+
+const discussionStatusLabels: Record<ProjectDirectorDiscussionWorkspace["discussion_status"], string> = {
+  exploring: "探索中",
+  comparing: "对比方案",
+  converging: "正在收敛",
+  ready_to_formalize: "可整理为计划",
+  formalized: "已整理",
+  paused: "已暂停",
+};
+
+export function WorkbenchDiscussionStateBar({
+  workspace,
+}: {
+  workspace: ProjectDirectorDiscussionWorkspace | null;
+}) {
+  if (!workspace || workspace.version_no < 1) {
+    return null;
+  }
+
+  return (
+    <section
+      data-testid="workbench-discussion-state"
+      className="w-full max-w-[880px] border-y border-[#2A2A2A] py-3"
+    >
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#8A8A8A]">
+        <span className="max-w-full truncate text-sm font-medium text-white">{workspace.topic}</span>
+        <span>{discussionStatusLabels[workspace.discussion_status]}</span>
+        <span>候选方案 {workspace.active_option_ids.length}</span>
+        <span>约束 {workspace.active_constraint_ids.length}</span>
+        <span>待解决问题 {workspace.open_question_ids.length}</span>
+        <span>工作区 v{workspace.version_no}</span>
+      </div>
+    </section>
+  );
+}
+
+export function WorkbenchFormalizationProposalCard({
+  workspace,
+  proposal,
+  disabled,
+  errorMessage,
+  onConfirm,
+}: {
+  workspace: ProjectDirectorDiscussionWorkspace;
+  proposal: ProjectDirectorFormalizationProposal | null;
+  disabled: boolean;
+  errorMessage: string | null;
+  onConfirm: () => void;
+}) {
+  const matchingProposal =
+    proposal?.requires_confirmation && proposal.workspace_version === workspace.version_no
+      ? proposal
+      : null;
+
+  return (
+    <section
+      data-testid="workbench-formalization-proposal"
+      className="w-full max-w-[880px] border border-[#2A2A2A] bg-[#0B0B0B] p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#8A8A8A]">
+            讨论正式化
+          </div>
+          <h3 className="mt-2 text-lg font-semibold text-white">
+            {matchingProposal ? "确认生成计划草案" : "讨论已准备整理为计划草案"}
+          </h3>
+        </div>
+        <span className="text-xs text-[#8A8A8A]">工作区 v{workspace.version_no}</span>
+      </div>
+
+      {matchingProposal ? (
+        <div className="mt-4 space-y-3 text-sm leading-6 text-[#C7C7C7]">
+          <p>{matchingProposal.summary}</p>
+          <ul className="space-y-1.5 text-[#8A8A8A]">
+            {matchingProposal.changes.map((change) => (
+              <li key={`${change.change_type}-${change.subject_key}`}>
+                {change.summary}
+              </li>
+            ))}
+          </ul>
+          <p className="border-l border-[#3A3A3A] pl-3 text-xs text-[#8A8A8A]">
+            风险：{matchingProposal.risk_summary}
+          </p>
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm text-[#8A8A8A]">
+          <span>{workspace.topic}</span>
+          <span>{discussionStatusLabels[workspace.discussion_status]}</span>
+          <span>候选方案 {workspace.active_option_ids.length}</span>
+          <span>约束 {workspace.active_constraint_ids.length}</span>
+          <span>待解决问题 {workspace.open_question_ids.length}</span>
+        </div>
+      )}
+
+      {errorMessage ? <p className="mt-4 text-sm text-[#F0A6A6]">{errorMessage}</p> : null}
+
+      <div className="mt-5 flex justify-end border-t border-[#1F1F1F] pt-4">
+        <Button
+          data-testid="workbench-formalize-confirm"
+          size="sm"
+          disabled={disabled}
+          onClick={onConfirm}
+        >
+          {disabled ? "生成中..." : "生成计划草案"}
+        </Button>
+      </div>
+    </section>
+  );
+}
 
 export function WorkbenchClarificationPanel({
   questions = clarificationQuestions,

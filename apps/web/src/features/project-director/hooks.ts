@@ -5,6 +5,7 @@ import {
   confirmProjectDirectorGoal,
   confirmProjectDirectorPlanVersion,
   createProjectDirectorPlanVersion,
+  formalizeProjectDirectorDiscussion,
   createProjectDirectorSession,
   fetchProjectDirectorAgentTeamConfig,
   fetchProjectDirectorRepositoryBindingConfig,
@@ -191,6 +192,27 @@ export function useConfirmProjectDirectorGoal() {
 export function useCreateProjectDirectorPlanVersion() {
   return useMutation({
     mutationFn: createProjectDirectorPlanVersion,
+  });
+}
+
+export function useFormalizeProjectDirectorDiscussion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: formalizeProjectDirectorDiscussion,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "session-messages", result.session_id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-director", "workbench-resume"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["project-director", "conversation"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-director", "conversations"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-director", "inbox"] }),
+      ]);
+    },
   });
 }
 

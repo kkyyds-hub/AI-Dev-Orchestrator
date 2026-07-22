@@ -313,7 +313,12 @@ export interface ProjectDirectorPlanVersion {
   complexity_assessment: ProjectDirectorComplexityAssessment;
   source?: "ai" | "rule_fallback" | string;
   source_detail?: string;
+  normalization_warnings?: string[];
   forbidden_actions: string[];
+  formalization_target: ProjectDirectorFormalizationTarget | null;
+  formalization_workspace_version: number | null;
+  formalization_source_message_ids: string[];
+  formalization_source_event_ids: string[];
   confirmed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -370,12 +375,94 @@ export interface PostProjectDirectorMessageInput {
   content: string;
 }
 
+export type ProjectDirectorDiscussionStatus =
+  | "exploring"
+  | "comparing"
+  | "converging"
+  | "ready_to_formalize"
+  | "formalized"
+  | "paused";
+
+export interface ProjectDirectorDiscussionWorkspace {
+  session_id: string;
+  project_id: string | null;
+  topic: string;
+  discussion_status: ProjectDirectorDiscussionStatus;
+  active_option_ids: string[];
+  preferred_option_id: string | null;
+  active_constraint_ids: string[];
+  open_question_ids: string[];
+  temporary_conclusion_ids: string[];
+  confirmed_decision_ids: string[];
+  latest_user_correction_event_id: string | null;
+  version_no: number;
+  last_event_sequence_no: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProjectDirectorConversationMode =
+  | "general_discussion"
+  | "solution_exploration"
+  | "option_comparison"
+  | "clarification"
+  | "challenge"
+  | "constraint_update"
+  | "preference_update"
+  | "decision_confirmation"
+  | "formalization_request"
+  | "action_request"
+  | "status_query";
+
+export interface ProjectDirectorTurnInterpretation {
+  conversation_mode: ProjectDirectorConversationMode;
+  primary_intent: string;
+  confidence: number;
+  formal_action_requested: boolean;
+  hypothetical_action: boolean;
+  referenced_option_ids: string[];
+  referenced_entity_ids: string[];
+  needs_formal_fact_context: boolean;
+  needs_discussion_history: boolean;
+  needs_retrieval: boolean;
+  reason_summary: string;
+}
+
+export type ProjectDirectorFormalizationTarget = "plan_revision";
+
+export type ProjectDirectorFormalizationChangeType = "add" | "update" | "remove";
+
+export interface ProjectDirectorFormalizationChange {
+  change_type: ProjectDirectorFormalizationChangeType;
+  subject_key: string;
+  summary: string;
+  source_event_ids: string[];
+}
+
+export interface ProjectDirectorFormalizationProposal {
+  proposal_id: string;
+  target: ProjectDirectorFormalizationTarget;
+  workspace_version: number;
+  summary: string;
+  changes: ProjectDirectorFormalizationChange[];
+  source_message_ids: string[];
+  risk_summary: string;
+  requires_confirmation: true;
+  status: "proposed";
+}
+
 export interface PostProjectDirectorMessageResponse {
   session_id: string;
   user_message: ProjectDirectorMessage;
   assistant_message: ProjectDirectorMessage;
   messages: ProjectDirectorMessage[];
   source: ProjectDirectorMessageSource;
+  turn_interpretation: ProjectDirectorTurnInterpretation;
+  discussion_workspace_version: number | null;
+  formalization_proposal: ProjectDirectorFormalizationProposal | null;
+  delta_apply_status: "applied" | "replayed" | "requires_confirmation" | "no_changes";
+  confirmation_reasons: string[];
+  requires_confirmation: boolean;
   gate_conclusion: string;
   forbidden_actions: string[];
 }
@@ -555,6 +642,7 @@ export interface ProjectDirectorWorkbenchResume {
   plan_version: ProjectDirectorPlanVersion | null;
   task_creation: ProjectDirectorTaskCreationResponse | null;
   recent_messages: ProjectDirectorMessage[];
+  discussion_workspace: ProjectDirectorDiscussionWorkspace | null;
   source:
     | "backend_recent_plan"
     | "backend_recent_session"
@@ -642,6 +730,27 @@ export interface ConfirmProjectDirectorGoalInput {
 
 export interface CreateProjectDirectorPlanVersionInput {
   sessionId: string;
+}
+
+export interface FormalizeProjectDirectorDiscussionInput {
+  sessionId: string;
+  workspaceVersion: number;
+}
+
+export interface FormalizeProjectDirectorDiscussionResponse {
+  session_id: string;
+  workspace_version: number;
+  target: "plan_revision";
+  source_message_ids: string[];
+  source_event_ids: string[];
+  idempotent_replay: boolean;
+  plan_version: ProjectDirectorPlanVersion;
+  task_created: false;
+  run_created: false;
+  worker_started: false;
+  executor_started: false;
+  repository_write_performed: false;
+  gate_conclusion: string;
 }
 
 export interface FetchProjectDirectorWorkbenchResumeInput {

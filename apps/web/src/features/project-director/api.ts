@@ -4,6 +4,8 @@ import type {
   ConfirmProjectDirectorGoalInput,
   ConfirmProjectDirectorPlanVersionInput,
   CreateProjectDirectorPlanVersionInput,
+  FormalizeProjectDirectorDiscussionInput,
+  FormalizeProjectDirectorDiscussionResponse,
   CreateProjectDirectorSessionInput,
   CreateProjectDirectorTaskQueueInput,
   FetchProjectDirectorWorkbenchResumeInput,
@@ -164,6 +166,22 @@ export function createProjectDirectorPlanVersion(
     `/project-director/sessions/${input.sessionId}/plan-versions`,
     {
       method: "POST",
+    },
+  );
+}
+
+export function formalizeProjectDirectorDiscussion(
+  input: FormalizeProjectDirectorDiscussionInput,
+): Promise<FormalizeProjectDirectorDiscussionResponse> {
+  return requestJson<FormalizeProjectDirectorDiscussionResponse>(
+    `/project-director/sessions/${input.sessionId}/discussion/formalize`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        workspace_version: input.workspaceVersion,
+        target: "plan_revision",
+        user_confirmed: true,
+      }),
     },
   );
 }

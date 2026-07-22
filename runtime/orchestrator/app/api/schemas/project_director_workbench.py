@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.domain.project_director_plan_version import PlanVersionStatus
+from app.domain.project_director_discussion import DiscussionWorkspace
 from app.domain.project_director_session import ProjectDirectorSessionStatus
 from app.services.project_director_conversation_service import (
     ConversationKind,
@@ -35,6 +36,48 @@ class TaskCreationResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     forbidden_actions: list[str] = Field(default_factory=list)
     gate_conclusion: str
+
+
+class DiscussionWorkspaceResponse(BaseModel):
+    """Read-only discussion workspace projection for the workbench."""
+
+    session_id: UUID
+    project_id: UUID | None
+    topic: str
+    discussion_status: str
+    active_option_ids: list[UUID] = Field(default_factory=list)
+    preferred_option_id: UUID | None = None
+    active_constraint_ids: list[UUID] = Field(default_factory=list)
+    open_question_ids: list[UUID] = Field(default_factory=list)
+    temporary_conclusion_ids: list[UUID] = Field(default_factory=list)
+    confirmed_decision_ids: list[UUID] = Field(default_factory=list)
+    latest_user_correction_event_id: UUID | None = None
+    version_no: int
+    last_event_sequence_no: int
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_domain(
+        cls, workspace: DiscussionWorkspace
+    ) -> "DiscussionWorkspaceResponse":
+        return cls(
+            session_id=workspace.session_id,
+            project_id=workspace.project_id,
+            topic=workspace.topic,
+            discussion_status=workspace.discussion_status.value,
+            active_option_ids=workspace.active_option_ids,
+            preferred_option_id=workspace.preferred_option_id,
+            active_constraint_ids=workspace.active_constraint_ids,
+            open_question_ids=workspace.open_question_ids,
+            temporary_conclusion_ids=workspace.temporary_conclusion_ids,
+            confirmed_decision_ids=workspace.confirmed_decision_ids,
+            latest_user_correction_event_id=workspace.latest_user_correction_event_id,
+            version_no=workspace.version_no,
+            last_event_sequence_no=workspace.last_event_sequence_no,
+            created_at=workspace.created_at.isoformat(),
+            updated_at=workspace.updated_at.isoformat(),
+        )
 
 
 class ConversationListItemResponse(BaseModel):
