@@ -411,35 +411,32 @@ def _count_plan_versions(db_session: Session) -> int:
     ).scalar_one()
 
 
-class TransactionSpy:
-    """Reusable commit/rollback spy — instance-scoped, does not pollute global Session."""
+class SessionTransactionSpy:
+    """Instance-scoped commit/rollback spy — only wraps the given session instance."""
 
-    def __init__(self):
+    def __init__(self, session: Session):
+        self._session = session
         self.commit_count = 0
         self.rollback_count = 0
+        self._original_commit = session.commit
+        self._original_rollback = session.rollback
+
+    def _spy_commit(self):
+        self.commit_count += 1
+        return self._original_commit()
+
+    def _spy_rollback(self):
+        self.rollback_count += 1
+        return self._original_rollback()
 
     def __enter__(self):
-        spy = self
-        original_commit = Session.commit
-        original_rollback = Session.rollback
-
-        def spy_commit(sess):
-            spy.commit_count += 1
-            return original_commit(sess)
-
-        def spy_rollback(sess):
-            spy.rollback_count += 1
-            return original_rollback(sess)
-
-        self._patch_commit = patch.object(Session, "commit", spy_commit)
-        self._patch_rollback = patch.object(Session, "rollback", spy_rollback)
-        self._patch_commit.start()
-        self._patch_rollback.start()
+        self._session.commit = self._spy_commit
+        self._session.rollback = self._spy_rollback
         return self
 
     def __exit__(self, *args):
-        self._patch_commit.stop()
-        self._patch_rollback.stop()
+        self._session.commit = self._original_commit
+        self._session.rollback = self._original_rollback
 
 
 def _rebuild_and_persist_workspace(
@@ -2239,70 +2236,114 @@ class TestNormalIdempotency:
 class TestIntegrityErrorRaceReadback:
     """§11.2 Unique index race: IntegrityError → rollback → read existing."""
 
-    def test_real_integrity_error_race_recovery(self, db_session, db_session_factory):
-        """Simulate a real unique index collision: first call succeeds, then we
-        tamper the DB so the provenance check passes on the idempotent readback."""
-        _seed_ready_to_formalize(db_session)
-        svc = _build_formalization_service(db_session, provider_configured=False)
+    def test_real_integrity_error_race_recovery(self, db_session_factory):
+        """Three-session race: setup_session seeds data, winner_session inserts
+        a competing PlanVersion, service_session runs formalization with staged
+        pre-read that returns None on first call so the service proceeds to
+        create_no_commit → real IntegrityError → rollback → readback."""
+        # ── Session 1: setup ──────────────────────────────────────────────
+        setup = db_session_factory()
+        try:
+            _seed_ready_to_formalize(setup)
+            setup.commit()
+        finally:
+            setup.close()
 
-        # First call succeeds and returns the real plan version
-        result1 = svc.formalize_discussion(
-            session_id=SESSION_ID,
-            workspace_version=1,
-            target=FormalizationTarget.PLAN_REVISION,
-            user_confirmed=True,
-        )
-        real_id = result1.plan_version.id
-        real_msg_ids = list(result1.source_message_ids)
-        real_evt_ids = list(result1.source_event_ids)
+        # ── Session 2: winner inserts competing PlanVersion ───────────────
+        winner = db_session_factory()
+        try:
+            # Compute provenance from the seeded events
+            evt_repo = ProjectDirectorDiscussionEventRepository(winner)
+            events = evt_repo.list_by_session_id(session_id=SESSION_ID)
+            msg_repo = ProjectDirectorMessageRepository(winner)
+            msg_ids = []
+            for evt in events:
+                for mid in evt.source_message_ids:
+                    if mid not in msg_ids:
+                        msg_ids.append(mid)
+            evt_ids = [evt.id for evt in events]
 
-        # Now delete the row and re-insert with a DIFFERENT id but same provenance
-        # to simulate a race where another process inserted first
-        db_session.execute(
-            text("DELETE FROM project_director_plan_versions WHERE id = :id"),
-            {"id": str(real_id).replace("-", "")},
-        )
-        db_session.flush()
+            winner_id = uuid4()
+            winner.execute(
+                text(
+                    "INSERT INTO project_director_plan_versions "
+                    "(id, session_id, version_no, status, plan_summary, "
+                    "phases_json, proposed_tasks_json, acceptance_criteria_json, "
+                    "risks_json, project_scope_json, agent_team_suggestions_json, "
+                    "skill_binding_suggestions_json, verification_mechanisms_json, "
+                    "repository_binding_suggestions_json, deliverable_boundaries_json, "
+                    "complexity_assessment_json, source, source_detail, forbidden_actions_json, "
+                    "formalization_target, formalization_workspace_version, "
+                    "formalization_source_message_ids_json, formalization_source_event_ids_json, "
+                    "created_at, updated_at) VALUES (:id, :sid, 1, 'pending_confirmation', "
+                    "'竞争方计划', '[]', '[]', '[]', '[]', '{}', '[]', '[]', '[]', '[]', '[]', '{}', "
+                    "'rule_fallback', 'race_winner', '[]', "
+                    "'plan_revision', 1, :msg_json, :evt_json, :now, :now)"
+                ),
+                {
+                    "id": str(winner_id).replace("-", ""),
+                    "sid": str(SESSION_ID).replace("-", ""),
+                    "msg_json": json.dumps([str(mid) for mid in msg_ids]),
+                    "evt_json": json.dumps([str(eid) for eid in evt_ids]),
+                    "now": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            winner.commit()
+        finally:
+            winner.close()
 
-        race_winner_id = uuid4()
-        db_session.execute(
-            text(
-                "INSERT INTO project_director_plan_versions "
-                "(id, session_id, version_no, status, plan_summary, "
-                "phases_json, proposed_tasks_json, acceptance_criteria_json, "
-                "risks_json, project_scope_json, agent_team_suggestions_json, "
-                "skill_binding_suggestions_json, verification_mechanisms_json, "
-                "repository_binding_suggestions_json, deliverable_boundaries_json, "
-                "complexity_assessment_json, source, source_detail, forbidden_actions_json, "
-                "formalization_target, formalization_workspace_version, "
-                "formalization_source_message_ids_json, formalization_source_event_ids_json, "
-                "created_at, updated_at) VALUES (:id, :sid, 1, 'pending_confirmation', "
-                "'竞争方计划', '[]', '[]', '[]', '[]', '{}', '[]', '[]', '[]', '[]', '[]', '{}', "
-                "'rule_fallback', 'race_winner', '[]', "
-                "'plan_revision', 1, :msg_json, :evt_json, :now, :now)"
-            ),
-            {
-                "id": str(race_winner_id).replace("-", ""),
-                "sid": str(SESSION_ID).replace("-", ""),
-                "msg_json": json.dumps([str(mid) for mid in real_msg_ids]),
-                "evt_json": json.dumps([str(eid) for eid in real_evt_ids]),
-                "now": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-        db_session.flush()
+        # ── Session 3: service attempts formalization ─────────────────────
+        svc_session = db_session_factory()
+        try:
+            svc = _build_formalization_service(svc_session, provider_configured=False)
+            repo = svc._plan_version_repository
 
-        # Second call: create_no_commit hits IntegrityError, service reads back
-        # the race winner and checks provenance (which matches)
-        result2 = svc.formalize_discussion(
-            session_id=SESSION_ID,
-            workspace_version=1,
-            target=FormalizationTarget.PLAN_REVISION,
-            user_confirmed=True,
-        )
+            # Stage the pre-read: first call returns None, subsequent calls use real
+            real_get = repo.get_by_formalization_source
+            lookup_calls = [0]
 
-        assert result2.idempotent_replay is True
-        assert result2.plan_version.id == race_winner_id
-        assert _count_plan_versions(db_session) == 1
+            def staged_get(*, session_id, target, workspace_version):
+                lookup_calls[0] += 1
+                if lookup_calls[0] == 1:
+                    return None  # hide the existing row on first pre-read
+                return real_get(session_id=session_id, target=target, workspace_version=workspace_version)
+
+            with (
+                patch.object(repo, "get_by_formalization_source", staged_get),
+                SessionTransactionSpy(svc_session) as txspy,
+            ):
+                result = svc.formalize_discussion(
+                    session_id=SESSION_ID,
+                    workspace_version=1,
+                    target=FormalizationTarget.PLAN_REVISION,
+                    user_confirmed=True,
+                )
+
+            # ── Strong assertions ─────────────────────────────────────────
+            assert lookup_calls[0] >= 2                    # pre-read + recovery read
+            assert txspy.commit_count == 0                 # no successful commit
+            assert txspy.rollback_count == 1               # IntegrityError triggers rollback
+            assert result.idempotent_replay is True
+            assert result.plan_version.id == winner_id     # reads back the race winner
+
+            # Provenance must match
+            assert list(result.source_message_ids) == msg_ids
+            assert list(result.source_event_ids) == evt_ids
+
+            # Provider was called (rule_fallback since no API key)
+            assert result.plan_version.source == "rule_fallback"
+
+            # Fresh session: only 1 PlanVersion exists
+            fresh = db_session_factory()
+            try:
+                count = fresh.execute(
+                    select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+                ).scalar_one()
+                assert count == 1
+            finally:
+                fresh.close()
+        finally:
+            svc_session.close()
 
 
 class TestProvenanceConflict:
@@ -2336,64 +2377,121 @@ class TestProvenanceConflict:
 
 
 class TestUnrelatedIntegrityError:
-    """§11.4 Unrelated IntegrityError must propagate, not be masked."""
+    """§11.4 Unrelated IntegrityError must propagate as IntegrityError, not ValueError."""
 
-    def test_unrelated_integrity_error_propagates(self, db_session):
-        _seed_ready_to_formalize(db_session)
-        svc = _build_formalization_service(db_session, provider_configured=False)
+    def test_unrelated_integrity_error_propagates(self, db_session_factory):
+        # Setup in one session
+        setup = db_session_factory()
+        try:
+            _seed_ready_to_formalize(setup)
+            setup.commit()
+        finally:
+            setup.close()
 
-        original_create = ProjectDirectorPlanVersionRepository.create_no_commit
+        svc_session = db_session_factory()
+        try:
+            svc = _build_formalization_service(svc_session, provider_configured=False)
 
-        def failing_create(self_repo, plan_version):
-            # First flush succeeds (for the real row), but then raise
-            result = original_create(self_repo, plan_version)
-            raise IntegrityError("UNRELATED", {}, Exception("fake"))
+            original_create = ProjectDirectorPlanVersionRepository.create_no_commit
 
-        with patch.object(
-            ProjectDirectorPlanVersionRepository,
-            "create_no_commit",
-            failing_create,
-        ):
-            with pytest.raises(IntegrityError):
-                svc.formalize_discussion(
-                    session_id=SESSION_ID,
-                    workspace_version=1,
-                    target=FormalizationTarget.PLAN_REVISION,
-                    user_confirmed=True,
-                )
-        # No half-persisted plan version
-        db_session.rollback()
-        assert _count_plan_versions(db_session) == 0
+            def failing_create(self_repo, plan_version):
+                original_create(self_repo, plan_version)
+                raise IntegrityError("UNRELATED", {}, Exception("fake"))
+
+            with (
+                patch.object(ProjectDirectorPlanVersionRepository, "create_no_commit", failing_create),
+                SessionTransactionSpy(svc_session) as txspy,
+            ):
+                with pytest.raises(IntegrityError):
+                    svc.formalize_discussion(
+                        session_id=SESSION_ID,
+                        workspace_version=1,
+                        target=FormalizationTarget.PLAN_REVISION,
+                        user_confirmed=True,
+                    )
+
+            assert txspy.commit_count == 0
+            assert txspy.rollback_count == 1
+
+            # Session still usable — no manual rollback needed
+            usable = svc_session.execute(select(func.count()).select_from(ProjectDirectorPlanVersionTable)).scalar_one()
+            assert usable == 0
+
+            # Fresh session: no PlanVersion
+            fresh = db_session_factory()
+            try:
+                count = fresh.execute(
+                    select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+                ).scalar_one()
+                assert count == 0
+            finally:
+                fresh.close()
+        finally:
+            svc_session.close()
 
 
 class TestCommitFailure:
     """§11.5 Non-IntegrityError commit failure."""
 
-    def test_commit_failure_rolls_back(self, db_session):
-        _seed_ready_to_formalize(db_session)
-        svc = _build_formalization_service(db_session, provider_configured=False)
+    def test_commit_failure_rolls_back(self, db_session_factory):
+        # Setup in one session
+        setup = db_session_factory()
+        try:
+            _seed_ready_to_formalize(setup)
+            setup.commit()
+        finally:
+            setup.close()
 
-        original_commit = Session.commit
+        svc_session = db_session_factory()
+        try:
+            svc = _build_formalization_service(svc_session, provider_configured=False)
 
-        call_count = [0]
+            commit_attempts = [0]
+            rollback_count = [0]
+            original_commit = svc_session.commit
+            original_rollback = svc_session.rollback
 
-        def failing_commit(self_sess):
-            call_count[0] += 1
-            if call_count[0] >= 1:
+            def failing_commit():
+                commit_attempts[0] += 1
                 raise RuntimeError("commit failed")
-            original_commit(self_sess)
 
-        with patch.object(Session, "commit", failing_commit):
-            with pytest.raises(RuntimeError, match="commit failed"):
-                svc.formalize_discussion(
-                    session_id=SESSION_ID,
-                    workspace_version=1,
-                    target=FormalizationTarget.PLAN_REVISION,
-                    user_confirmed=True,
-                )
-        # Session should still be usable after rollback
-        db_session.rollback()
-        assert _count_plan_versions(db_session) == 0
+            def counting_rollback():
+                rollback_count[0] += 1
+                return original_rollback()
+
+            svc_session.commit = failing_commit
+            svc_session.rollback = counting_rollback
+
+            try:
+                with pytest.raises(RuntimeError, match="commit failed"):
+                    svc.formalize_discussion(
+                        session_id=SESSION_ID,
+                        workspace_version=1,
+                        target=FormalizationTarget.PLAN_REVISION,
+                        user_confirmed=True,
+                    )
+            finally:
+                svc_session.commit = original_commit
+                svc_session.rollback = original_rollback
+
+            assert commit_attempts[0] == 1
+            assert rollback_count[0] == 1
+
+            # Session still usable — no manual rollback needed
+            usable = svc_session.execute(select(func.count()).select_from(ProjectDirectorPlanVersionTable)).scalar_one()
+            assert usable == 0
+
+            # Fresh session: no PlanVersion
+            fresh = db_session_factory()
+            try:
+                count = fresh.execute(
+                    select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+                ).scalar_one()
+                assert count == 0
+            finally:
+                fresh.close()
+        finally:
+            svc_session.close()
 
 
 # ===========================================================================
@@ -2402,12 +2500,12 @@ class TestCommitFailure:
 
 
 class TestTransactionMatrix:
-    """§6 Verify commit/rollback counts for each code path."""
+    """§6 Verify commit/rollback counts for each code path using instance-scoped spy."""
 
     def test_success_create_commit_rollback(self, db_session):
         _seed_ready_to_formalize(db_session)
         svc = _build_formalization_service(db_session, provider_configured=False)
-        with TransactionSpy() as txspy:
+        with SessionTransactionSpy(db_session) as txspy:
             result = svc.formalize_discussion(
                 session_id=SESSION_ID, workspace_version=1,
                 target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
@@ -2423,12 +2521,11 @@ class TestTransactionMatrix:
             session_id=SESSION_ID, workspace_version=1,
             target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
         )
-        with TransactionSpy() as txspy:
+        with SessionTransactionSpy(db_session) as txspy:
             svc.formalize_discussion(
                 session_id=SESSION_ID, workspace_version=1,
                 target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
             )
-        # Idempotent replay path: commit=0, rollback=0 (returns early)
         assert txspy.commit_count == 0
         assert txspy.rollback_count == 0
 
@@ -2445,7 +2542,7 @@ class TestTransactionMatrix:
         kwargs = {"session_id": SESSION_ID, "workspace_version": 1,
                   "target": FormalizationTarget.PLAN_REVISION, "user_confirmed": True}
         kwargs.update(setup_kwargs)
-        with TransactionSpy() as txspy:
+        with SessionTransactionSpy(db_session) as txspy:
             with pytest.raises(ValueError):
                 svc.formalize_discussion(**kwargs)
         assert txspy.commit_count == 0
@@ -2465,7 +2562,7 @@ class TestTransactionMatrix:
                              version_no=1, last_event_sequence_no=1)
         _persist_workspace(db_session, ws)
         svc = _build_formalization_service(db_session, provider_configured=False)
-        with TransactionSpy() as txspy:
+        with SessionTransactionSpy(db_session) as txspy:
             with pytest.raises(ValueError, match="event_history_ahead"):
                 svc.formalize_discussion(
                     session_id=SESSION_ID, workspace_version=1,
@@ -2484,7 +2581,7 @@ class TestTransactionMatrix:
                              version_no=1, last_event_sequence_no=1)
         _persist_workspace(db_session, ws)
         svc = _build_formalization_service(db_session, provider_configured=False)
-        with TransactionSpy() as txspy:
+        with SessionTransactionSpy(db_session) as txspy:
             with pytest.raises(ValueError, match="source_message_not_found"):
                 svc.formalize_discussion(
                     session_id=SESSION_ID, workspace_version=1,
@@ -2492,55 +2589,6 @@ class TestTransactionMatrix:
                 )
         assert txspy.commit_count == 0
         assert txspy.rollback_count == 1
-
-    def test_unrelated_integrity_error_transaction(self, db_session):
-        _seed_ready_to_formalize(db_session)
-        svc = _build_formalization_service(db_session, provider_configured=False)
-        original_create = ProjectDirectorPlanVersionRepository.create_no_commit
-
-        def failing_create(self_repo, plan_version):
-            result = original_create(self_repo, plan_version)
-            raise IntegrityError("UNRELATED", {}, Exception("fake"))
-
-        with TransactionSpy() as txspy:
-            with patch.object(ProjectDirectorPlanVersionRepository, "create_no_commit", failing_create):
-                with pytest.raises(IntegrityError):
-                    svc.formalize_discussion(
-                        session_id=SESSION_ID, workspace_version=1,
-                        target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
-                    )
-        assert txspy.rollback_count >= 1
-        # IntegrityError is not converted to ValueError
-        db_session.rollback()
-
-    def test_commit_failure_transaction(self, db_session):
-        _seed_ready_to_formalize(db_session)
-        svc = _build_formalization_service(db_session, provider_configured=False)
-        original_commit = Session.commit
-        commit_attempts = [0]
-        rollback_count = [0]
-        original_rollback = Session.rollback
-
-        def failing_commit(self_sess):
-            commit_attempts[0] += 1
-            raise RuntimeError("commit failed")
-
-        def counting_rollback(self_sess):
-            rollback_count[0] += 1
-            return original_rollback(self_sess)
-
-        with (
-            patch.object(Session, "commit", failing_commit),
-            patch.object(Session, "rollback", counting_rollback),
-        ):
-            with pytest.raises(RuntimeError, match="commit failed"):
-                svc.formalize_discussion(
-                    session_id=SESSION_ID, workspace_version=1,
-                    target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
-                )
-        assert commit_attempts[0] == 1
-        assert rollback_count[0] >= 1
-        db_session.rollback()
 
 
 # ===========================================================================
@@ -2551,22 +2599,58 @@ class TestTransactionMatrix:
 class TestFreshSessionFullReadback:
     """§7 Fresh session verifies no side-effects beyond the PlanVersion."""
 
-    def test_fresh_session_no_side_effects(self, db_session, db_session_factory):
-        """After successful formalization, verify all counts and content in a fresh session."""
-        _seed_ready_to_formalize(db_session)
+    def test_fresh_session_no_side_effects(self, db_session_factory):
+        """Full before/after snapshot: every entity type, counts, and content."""
+        # ── Setup ─────────────────────────────────────────────────────────
+        setup = db_session_factory()
+        try:
+            _seed_ready_to_formalize(setup)
+            setup.commit()
 
-        # Snapshot before
-        pre_pv_count = _count_plan_versions(db_session)
+            # ── Pre-snapshot ──────────────────────────────────────────────
+            pre_pv_count = setup.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
 
-        svc = _build_formalization_service(db_session, provider_configured=False)
-        result = svc.formalize_discussion(
-            session_id=SESSION_ID, workspace_version=1,
-            target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
-        )
-        pv_id = result.plan_version.id
-        db_session.commit()
+            sess_repo = ProjectDirectorSessionRepository(setup)
+            pre_sess = sess_repo.get_by_id(SESSION_ID)
+            pre_sess_snapshot = {
+                "id": pre_sess.id,
+                "project_id": pre_sess.project_id,
+                "goal_text": pre_sess.goal_text,
+                "goal_summary": pre_sess.goal_summary,
+                "constraints": pre_sess.constraints,
+                "status": pre_sess.status,
+                "confirmed_at": pre_sess.confirmed_at,
+            }
 
-        # Fresh session B
+            ws_repo = ProjectDirectorDiscussionWorkspaceRepository(setup)
+            pre_ws = ws_repo.get_by_session_id(session_id=SESSION_ID)
+            pre_ws_dump = pre_ws.model_dump() if pre_ws else None
+
+            pre_evt_count = setup.execute(
+                select(func.count()).select_from(ProjectDirectorDiscussionEventTable)
+            ).scalar_one()
+            pre_msg_count = setup.execute(
+                select(func.count()).select_from(ProjectDirectorMessageTable)
+            ).scalar_one()
+
+            from app.core.db_tables import TaskTable, RunTable
+            pre_task_count = setup.execute(select(func.count()).select_from(TaskTable)).scalar_one()
+            pre_run_count = setup.execute(select(func.count()).select_from(RunTable)).scalar_one()
+
+            # ── Execute formalization ─────────────────────────────────────
+            svc = _build_formalization_service(setup, provider_configured=False)
+            result = svc.formalize_discussion(
+                session_id=SESSION_ID, workspace_version=1,
+                target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+            )
+            pv_id = result.plan_version.id
+            setup.commit()
+        finally:
+            setup.close()
+
+        # ── Fresh session post-snapshot ───────────────────────────────────
         fresh = db_session_factory()
         try:
             # PlanVersion increased by exactly 1
@@ -2586,60 +2670,70 @@ class TestFreshSessionFullReadback:
             assert readback.status == PlanVersionStatus.PENDING_CONFIRMATION
             assert readback.confirmed_at is None
 
-            # Session unchanged
+            # Session unchanged — full snapshot comparison
             sess_repo = ProjectDirectorSessionRepository(fresh)
-            sess = sess_repo.get_by_id(SESSION_ID)
-            assert sess is not None
-            assert sess.goal_text == "测试目标：构建一个系统"
-            assert sess.goal_summary == "测试目标摘要"
-            assert sess.constraints == ""
-            assert sess.status == ProjectDirectorSessionStatus.CONFIRMED
-            assert sess.project_id == PROJECT_ID
+            post_sess = sess_repo.get_by_id(SESSION_ID)
+            assert post_sess is not None
+            assert post_sess.id == pre_sess_snapshot["id"]
+            assert post_sess.project_id == pre_sess_snapshot["project_id"]
+            assert post_sess.goal_text == pre_sess_snapshot["goal_text"]
+            assert post_sess.goal_summary == pre_sess_snapshot["goal_summary"]
+            assert post_sess.constraints == pre_sess_snapshot["constraints"]
+            assert post_sess.status == pre_sess_snapshot["status"]
+            assert post_sess.confirmed_at == pre_sess_snapshot["confirmed_at"]
 
-            # Workspace unchanged
+            # Workspace unchanged — full model_dump comparison
             ws_repo = ProjectDirectorDiscussionWorkspaceRepository(fresh)
-            ws = ws_repo.get_by_session_id(session_id=SESSION_ID)
-            assert ws is not None
-            assert ws.version_no == 1
-            assert ws.last_event_sequence_no == 1
+            post_ws = ws_repo.get_by_session_id(session_id=SESSION_ID)
+            assert post_ws is not None
+            post_ws_dump = post_ws.model_dump()
+            # Compare all non-timestamp fields
+            for key in ["session_id", "project_id", "topic", "discussion_status",
+                        "active_option_ids", "preferred_option_id", "active_constraint_ids",
+                        "open_question_ids", "temporary_conclusion_ids", "confirmed_decision_ids",
+                        "latest_user_correction_event_id", "version_no", "last_event_sequence_no"]:
+                assert post_ws_dump[key] == pre_ws_dump[key], f"Workspace.{key} changed"
 
-            # Event count unchanged
-            event_count = fresh.execute(
+            # Event count and content unchanged
+            post_evt_count = fresh.execute(
                 select(func.count()).select_from(ProjectDirectorDiscussionEventTable)
             ).scalar_one()
-            assert event_count == 1
+            assert post_evt_count == pre_evt_count
 
             # Message count unchanged
-            msg_count = fresh.execute(
+            post_msg_count = fresh.execute(
                 select(func.count()).select_from(ProjectDirectorMessageTable)
             ).scalar_one()
-            assert msg_count == 1
+            assert post_msg_count == pre_msg_count
 
-            # No Tasks, Runs, or AgentSessions created
+            # Task/Run counts unchanged
             from app.core.db_tables import TaskTable, RunTable
-            task_count = fresh.execute(
-                select(func.count()).select_from(TaskTable)
-            ).scalar_one()
-            assert task_count == 0
-            run_count = fresh.execute(
-                select(func.count()).select_from(RunTable)
-            ).scalar_one()
-            assert run_count == 0
+            post_task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
+            assert post_task_count == pre_task_count
+            post_run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
+            assert post_run_count == pre_run_count
         finally:
             fresh.close()
 
-    def test_gate_failure_no_half_persisted_plan_version(self, db_session, db_session_factory):
+    def test_gate_failure_no_half_persisted_plan_version(self, db_session_factory):
         """After a gate failure, fresh session confirms no PlanVersion was created."""
-        _seed_ready_to_formalize(db_session)
-        db_session.commit()
+        setup = db_session_factory()
+        try:
+            _seed_ready_to_formalize(setup)
+            setup.commit()
+        finally:
+            setup.close()
 
-        svc = _build_formalization_service(db_session, provider_configured=False)
-        with pytest.raises(ValueError, match="workspace_version_mismatch"):
-            svc.formalize_discussion(
-                session_id=SESSION_ID, workspace_version=999,
-                target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
-            )
-        db_session.rollback()
+        svc_session = db_session_factory()
+        try:
+            svc = _build_formalization_service(svc_session, provider_configured=False)
+            with pytest.raises(ValueError, match="workspace_version_mismatch"):
+                svc.formalize_discussion(
+                    session_id=SESSION_ID, workspace_version=999,
+                    target=FormalizationTarget.PLAN_REVISION, user_confirmed=True,
+                )
+        finally:
+            svc_session.close()
 
         fresh = db_session_factory()
         try:
@@ -3002,12 +3096,15 @@ class TestApiErrorMapping:
         assert isinstance(detail, list)
         assert any("workspace_version" in str(err.get("loc", [])) for err in detail)
 
-    def test_provider_generation_failure_422(self, db_session, client):
-        _seed_ready_to_formalize(db_session)
-        db_session.commit()
+    def test_provider_generation_failure_422(self, db_session_factory, client):
+        # Setup in one session
+        setup = db_session_factory()
+        try:
+            _seed_ready_to_formalize(setup)
+            setup.commit()
+        finally:
+            setup.close()
 
-        # Monkeypatch ProviderConfigService to return a configured API key
-        # and _call_provider_text to raise
         configured_config = SimpleNamespace(
             api_key="test-key",
             base_url="https://provider.invalid/v1",
@@ -3016,18 +3113,15 @@ class TestApiErrorMapping:
             model_names={"balanced": "test-model"},
         )
 
-        def failing_provider_call(**kwargs):
-            raise RuntimeError("provider exploded")
-
         with (
             patch(
                 "app.services.provider_config_service.ProviderConfigService.resolve_openai_runtime_config",
                 return_value=configured_config,
-            ),
+            ) as resolve_mock,
             patch(
                 "app.services.project_director_plan_service.ProjectDirectorPlanService._call_provider_text",
-                staticmethod(failing_provider_call),
-            ),
+                side_effect=RuntimeError("provider exploded"),
+            ) as provider_mock,
         ):
             resp = client.post(
                 f"/project-director/sessions/{SESSION_ID}/discussion/formalize",
@@ -3037,58 +3131,90 @@ class TestApiErrorMapping:
                     "user_confirmed": True,
                 },
             )
+
         assert resp.status_code == 422
-        assert "provider" in resp.json()["detail"].lower() or "generation" in resp.json()["detail"].lower()
-        # Fresh session: no PlanVersion created
-        count = db_session.execute(
-            select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-        ).scalar_one()
-        assert count == 0
+        assert "provider_generation_failed" in resp.json()["detail"]
+        assert resolve_mock.call_count == 1
+        assert provider_mock.call_count == 1
+
+        # Fresh session: no PlanVersion, Task, Run, AgentSession
+        fresh = db_session_factory()
+        try:
+            pv_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
+            assert pv_count == 0
+            from app.core.db_tables import TaskTable, RunTable
+            task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
+            assert task_count == 0
+            run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
+            assert run_count == 0
+            # Workspace/Event/Session unchanged
+            ws_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorDiscussionWorkspaceTable)
+            ).scalar_one()
+            assert ws_count == 1
+            evt_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorDiscussionEventTable)
+            ).scalar_one()
+            assert evt_count == 1
+        finally:
+            fresh.close()
 
 
 class TestApiNormalMessageNoAutoFormalize:
     """§13.4 Normal message API does not auto-formalize."""
 
-    def test_normal_message_no_plan_version_created(self, db_session, client):
-        _seed_session(db_session)
-        msg_id = _seed_message(db_session)
-        evt = _make_event(
-            sequence_no=1,
-            event_type=DiscussionEventType.TOPIC_SET,
-            content="主题",
-            source_message_ids=[msg_id],
-        )
-        _persist_event(db_session, evt)
-        ws = _make_workspace(
-            topic="主题",
-            discussion_status=DiscussionStatus.EXPLORING,
-            version_no=1,
-            last_event_sequence_no=1,
-        )
-        _persist_workspace(db_session, ws)
-        db_session.commit()
+    def test_normal_message_no_plan_version_created(self, db_session_factory, client):
+        # Setup
+        setup = db_session_factory()
+        try:
+            _seed_session(setup)
+            msg_id = _seed_message(setup)
+            evt = _make_event(
+                sequence_no=1,
+                event_type=DiscussionEventType.TOPIC_SET,
+                content="主题",
+                source_message_ids=[msg_id],
+            )
+            _persist_event(setup, evt)
+            ws = _make_workspace(
+                topic="主题",
+                discussion_status=DiscussionStatus.EXPLORING,
+                version_no=1,
+                last_event_sequence_no=1,
+            )
+            _persist_workspace(setup, ws)
+            setup.commit()
 
-        # Submit a normal message (not formalization)
+            pre_pv_count = setup.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
+        finally:
+            setup.close()
+
+        # Submit a normal message — expect 201 (existing contract)
         resp = client.post(
             f"/project-director/sessions/{SESSION_ID}/messages",
             json={"content": "请帮我正式化"},
         )
-        # Must NOT create a PlanVersion regardless of response status
-        count = db_session.execute(
-            select(func.count()).select_from(ProjectDirectorPlanVersionTable)
-        ).scalar_one()
-        assert count == 0
+        assert resp.status_code == 201
 
-        # Also verify no Tasks or Runs
-        from app.core.db_tables import TaskTable, RunTable
-        task_count = db_session.execute(
-            select(func.count()).select_from(TaskTable)
-        ).scalar_one()
-        assert task_count == 0
-        run_count = db_session.execute(
-            select(func.count()).select_from(RunTable)
-        ).scalar_one()
-        assert run_count == 0
+        # Fresh session: PlanVersion count unchanged
+        fresh = db_session_factory()
+        try:
+            post_pv_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
+            assert post_pv_count == pre_pv_count
+
+            from app.core.db_tables import TaskTable, RunTable
+            task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
+            assert task_count == 0
+            run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
+            assert run_count == 0
+        finally:
+            fresh.close()
 
 
 # ===========================================================================
@@ -3218,3 +3344,72 @@ class TestExistingApiCompatibility:
         assert data["formalization_target"] == "plan_revision"
         assert data["formalization_source_message_ids"] == original_msg_ids
         assert data["formalization_source_event_ids"] == original_evt_ids
+
+    def test_request_changes_api_creates_replacement(self, db_session_factory, client):
+        """POST /plan-versions/{id}/review request_changes: original rejected with
+        provenance, replacement is a plain plan version with no provenance."""
+        # Setup
+        setup = db_session_factory()
+        try:
+            _seed_ready_to_formalize(setup)
+            setup.commit()
+            pre_pv_count = setup.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
+        finally:
+            setup.close()
+
+        # Create formalized plan version
+        resp_create = client.post(
+            f"/project-director/sessions/{SESSION_ID}/discussion/formalize",
+            json={
+                "workspace_version": 1,
+                "target": "plan_revision",
+                "user_confirmed": True,
+            },
+        )
+        assert resp_create.status_code == 201
+        pv_id = resp_create.json()["plan_version"]["id"]
+        original_msg_ids = resp_create.json()["source_message_ids"]
+        original_evt_ids = resp_create.json()["source_event_ids"]
+
+        # Request changes
+        resp = client.post(
+            f"/project-director/plan-versions/{pv_id}/review",
+            json={"action": "request_changes", "feedback": "需要调整范围"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "request_changes"
+
+        # Original: rejected, provenance unchanged
+        reviewed = data["reviewed_plan_version"]
+        assert reviewed["status"] == "rejected"
+        assert reviewed["formalization_target"] == "plan_revision"
+        assert reviewed["formalization_source_message_ids"] == original_msg_ids
+        assert reviewed["formalization_source_event_ids"] == original_evt_ids
+
+        # Replacement: plain plan version, no provenance
+        replacement = data["replacement_plan_version"]
+        assert replacement is not None
+        assert replacement["status"] == "pending_confirmation"
+        assert replacement["formalization_target"] is None
+        assert replacement["formalization_workspace_version"] is None
+        assert replacement["formalization_source_message_ids"] == []
+        assert replacement["formalization_source_event_ids"] == []
+
+        # Fresh session: PlanVersion count increased by 2 (original + replacement)
+        fresh = db_session_factory()
+        try:
+            post_pv_count = fresh.execute(
+                select(func.count()).select_from(ProjectDirectorPlanVersionTable)
+            ).scalar_one()
+            assert post_pv_count == pre_pv_count + 2
+
+            from app.core.db_tables import TaskTable, RunTable
+            task_count = fresh.execute(select(func.count()).select_from(TaskTable)).scalar_one()
+            assert task_count == 0
+            run_count = fresh.execute(select(func.count()).select_from(RunTable)).scalar_one()
+            assert run_count == 0
+        finally:
+            fresh.close()
