@@ -5119,6 +5119,9 @@ class WorkbenchResumeResponse(BaseModel):
     task_creation: TaskCreationResponse | None = None
     recent_messages: list[ProjectDirectorMessageResponse] = Field(default_factory=list)
     discussion_workspace: DiscussionWorkspaceResponse | None = None
+    existing_formalization_workspace_versions: list[int] = Field(
+        default_factory=list
+    )
     source: str = Field(default="none")
     next_action: str = Field(default="暂无可恢复的 Project Director 流程。")
 
@@ -5186,6 +5189,19 @@ def _latest_resumable_plan_for_session(
     return None
 
 
+def _existing_formalization_workspace_versions(
+    *,
+    plan_repo: ProjectDirectorPlanVersionRepository,
+    session_id: UUID,
+) -> list[int]:
+    return sorted(
+        {
+            plan_version.formalization_workspace_version
+            for plan_version in plan_repo.list_by_session_id(session_id)
+            if plan_version.formalization_target == FormalizationTarget.PLAN_REVISION
+            and plan_version.formalization_workspace_version is not None
+        }
+    )
 
 
 def _recent_message_responses(
@@ -5201,6 +5217,8 @@ def _recent_message_responses(
         limit=limit,
     )
     return [ProjectDirectorMessageResponse.from_domain(m) for m in messages]
+
+
 
 def _build_workbench_resume_for_session(
     *,
@@ -5240,6 +5258,12 @@ def _build_workbench_resume_for_session(
             DiscussionWorkspaceResponse.from_domain(workspace)
             if workspace is not None
             else None
+        ),
+        existing_formalization_workspace_versions=(
+            _existing_formalization_workspace_versions(
+                plan_repo=plan_repo,
+                session_id=session_obj.id,
+            )
         ),
         source=(
             "backend_recent_task_creation"
@@ -5420,6 +5444,12 @@ def get_workbench_resume(
                 DiscussionWorkspaceResponse.from_domain(workspace)
                 if workspace is not None
                 else None
+            ),
+            existing_formalization_workspace_versions=(
+                _existing_formalization_workspace_versions(
+                    plan_repo=plan_repo,
+                    session_id=session_obj.id,
+                )
             ),
             source=(
                 "backend_recent_task_creation"

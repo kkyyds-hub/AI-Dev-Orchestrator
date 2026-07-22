@@ -43,6 +43,37 @@ type ProjectDirectorWorkbenchSurfaceProps = {
   mode: "new-project" | "project";
 };
 
+function canOfferDiscussionFormalization(input: {
+  workspace: ProjectDirectorDiscussionWorkspace | null;
+  proposal: ProjectDirectorFormalizationProposal | null;
+  existingWorkspaceVersions: number[];
+  planVersion: ProjectDirectorPlanVersion | null;
+}): boolean {
+  const { workspace, proposal, existingWorkspaceVersions, planVersion } = input;
+  if (!workspace) {
+    return false;
+  }
+  if (existingWorkspaceVersions.includes(workspace.version_no)) {
+    return false;
+  }
+  return Boolean(
+    (proposal?.requires_confirmation &&
+      proposal.workspace_version === workspace.version_no) ||
+      (workspace.discussion_status === "ready_to_formalize" &&
+        (!planVersion ||
+          planVersion.formalization_workspace_version !== workspace.version_no)),
+  );
+}
+
+function mergeFormalizationWorkspaceVersions(
+  existingVersions: number[],
+  workspaceVersion: number,
+): number[] {
+  return [...new Set([...existingVersions, workspaceVersion])].sort(
+    (left, right) => left - right,
+  );
+}
+
 export function ProjectDirectorWorkbenchSurface({
   context,
   fallbackProjectId,
@@ -114,6 +145,10 @@ function useProjectDirectorWorkbenchAdapter(input: {
   const [formalizationProposal, setFormalizationProposal] =
     useState<ProjectDirectorFormalizationProposal | null>(null);
   const [formalizationError, setFormalizationError] = useState<string | null>(null);
+  const [
+    existingFormalizationWorkspaceVersions,
+    setExistingFormalizationWorkspaceVersions,
+  ] = useState<number[]>([]);
   const contextKey = `${input.mode}:${input.projectId ?? "none"}:${input.resumeSessionId ?? "none"}`;
   const contextKeyRef = useRef(contextKey);
 
@@ -149,6 +184,7 @@ function useProjectDirectorWorkbenchAdapter(input: {
     setDiscussionWorkspace(null);
     setFormalizationProposal(null);
     setFormalizationError(null);
+    setExistingFormalizationWorkspaceVersions([]);
   }, [input.mode, input.projectId, input.resumeSessionId]);
 
   useEffect(() => {
@@ -165,6 +201,9 @@ function useProjectDirectorWorkbenchAdapter(input: {
     setTaskCreation(resume.task_creation);
     setMessageTimeline(resume.recent_messages ?? []);
     setDiscussionWorkspace(resume.discussion_workspace);
+    setExistingFormalizationWorkspaceVersions(
+      resume.existing_formalization_workspace_versions ?? [],
+    );
     setFormalizationProposal((current) =>
       current?.workspace_version === resume.discussion_workspace?.version_no
         ? current
@@ -224,6 +263,9 @@ function useProjectDirectorWorkbenchAdapter(input: {
         setDiscussionWorkspace(resumeResult.data.discussion_workspace);
         setPlanVersion(resumeResult.data.plan_version);
         setTaskCreation(resumeResult.data.task_creation);
+        setExistingFormalizationWorkspaceVersions(
+          resumeResult.data.existing_formalization_workspace_versions ?? [],
+        );
       }
       return;
     }
@@ -243,6 +285,7 @@ function useProjectDirectorWorkbenchAdapter(input: {
     setDiscussionWorkspace(null);
     setFormalizationProposal(null);
     setFormalizationError(null);
+    setExistingFormalizationWorkspaceVersions([]);
     setStatusMessage(createdSession.next_action);
   }
 
@@ -321,6 +364,10 @@ function useProjectDirectorWorkbenchAdapter(input: {
     setPlanVersion(nextPlan);
     setPlanFeedback("");
     setTaskCreation(null);
+    if (action === "request_changes") {
+      setFormalizationProposal(null);
+      setFormalizationError(null);
+    }
     setStatusMessage(result.next_action);
   }
 
@@ -344,6 +391,25 @@ function useProjectDirectorWorkbenchAdapter(input: {
     if (!session || !discussionWorkspace || formalizeDiscussionMutation.isPending) {
       return;
     }
+    if (
+      existingFormalizationWorkspaceVersions.includes(
+        discussionWorkspace.version_no,
+      )
+    ) {
+      setFormalizationProposal(null);
+      setFormalizationError("当前讨论版本已生成过计划草案，请继续审核现有计划。");
+      return;
+    }
+    if (
+      !canOfferDiscussionFormalization({
+        workspace: discussionWorkspace,
+        proposal: formalizationProposal,
+        existingWorkspaceVersions: existingFormalizationWorkspaceVersions,
+        planVersion,
+      })
+    ) {
+      return;
+    }
 
     const requestContextKey = contextKeyRef.current;
     setFormalizationError(null);
@@ -359,6 +425,9 @@ function useProjectDirectorWorkbenchAdapter(input: {
       setTaskCreation(null);
       setFormalizationProposal(null);
       setFormalizationError(null);
+      setExistingFormalizationWorkspaceVersions((current) =>
+        mergeFormalizationWorkspaceVersions(current, result.workspace_version),
+      );
       setStatusMessage(result.plan_version.next_action);
     } catch (error) {
       if (contextKeyRef.current !== requestContextKey) {
@@ -374,10 +443,13 @@ function useProjectDirectorWorkbenchAdapter(input: {
           setPlanVersion(resumeResult.data.plan_version);
           setTaskCreation(resumeResult.data.task_creation);
           setMessageTimeline(resumeResult.data.recent_messages ?? []);
-        setDiscussionWorkspace(resumeResult.data.discussion_workspace);
-      }
-      setStatusMessage("讨论状态已更新，请重新确认");
-      return;
+          setDiscussionWorkspace(resumeResult.data.discussion_workspace);
+          setExistingFormalizationWorkspaceVersions(
+            resumeResult.data.existing_formalization_workspace_versions ?? [],
+          );
+        }
+        setStatusMessage("讨论状态已更新，请重新确认");
+        return;
       }
       setFormalizationError(message);
     }
@@ -441,15 +513,12 @@ function useProjectDirectorWorkbenchAdapter(input: {
     />
   ) : null;
 
-  const shouldShowFormalizationCard = Boolean(
-    discussionWorkspace &&
-      (
-        (formalizationProposal?.requires_confirmation &&
-          formalizationProposal.workspace_version === discussionWorkspace.version_no) ||
-        (discussionWorkspace.discussion_status === "ready_to_formalize" &&
-          (!planVersion || planVersion.formalization_workspace_version !== discussionWorkspace.version_no))
-      ),
-  );
+  const shouldShowFormalizationCard = canOfferDiscussionFormalization({
+    workspace: discussionWorkspace,
+    proposal: formalizationProposal,
+    existingWorkspaceVersions: existingFormalizationWorkspaceVersions,
+    planVersion,
+  });
 
   const topSurface = workflowSurface || discussionWorkspace || shouldShowFormalizationCard ? (
     <div className="grid gap-5">

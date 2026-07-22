@@ -643,6 +643,7 @@ export interface ProjectDirectorWorkbenchResume {
   task_creation: ProjectDirectorTaskCreationResponse | null;
   recent_messages: ProjectDirectorMessage[];
   discussion_workspace: ProjectDirectorDiscussionWorkspace | null;
+  existing_formalization_workspace_versions: number[];
   source:
     | "backend_recent_plan"
     | "backend_recent_session"
