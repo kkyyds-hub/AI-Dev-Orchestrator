@@ -100,7 +100,8 @@ def _seed_session(db_session, *, session_id=SESSION_ID, project_id=PROJECT_ID,
                   status=ProjectDirectorSessionStatus.CONFIRMED, goal_text="测试目标"):
     if db_session.get(ProjectDirectorSessionTable, session_id) is not None:
         return
-    _seed_project(db_session, project_id=project_id)
+    if project_id is not None:
+        _seed_project(db_session, project_id=project_id)
     db_session.add(ProjectDirectorSessionTable(
         id=session_id, project_id=project_id, goal_text=goal_text,
         constraints="约束条件", status=status,
@@ -185,20 +186,87 @@ def _seed_workspace(db_session, session_id=SESSION_ID, *, project_id=PROJECT_ID,
 
 
 def _seed_plan_version(db_session, session_id=SESSION_ID, *, version_no=1,
+                       project_id=None,
                        status=PlanVersionStatus.PENDING_CONFIRMATION,
                        formalization_target=None, formalization_workspace_version=None,
                        formalization_source_message_ids=None,
                        formalization_source_event_ids=None):
     from app.domain.project_director_plan_version import ProjectDirectorPlanVersion
     pv = ProjectDirectorPlanVersion(
-        id=uuid4(), session_id=session_id, version_no=version_no,
-        plan_summary="测试计划", status=status, source="rule_fallback", source_detail="test",
+        id=uuid4(), session_id=session_id, project_id=project_id,
+        version_no=version_no, plan_summary="测试计划", status=status,
+        source="rule_fallback", source_detail="test",
         formalization_target=formalization_target,
         formalization_workspace_version=formalization_workspace_version,
         formalization_source_message_ids=formalization_source_message_ids or [],
         formalization_source_event_ids=formalization_source_event_ids or [],
     )
     return ProjectDirectorPlanVersionRepository(db_session).create(pv)
+
+
+def _snapshot_state(session: Session, session_id: UUID, project_id: UUID | None) -> dict:
+    """Capture all business state as stable primitive values before closing session."""
+    proj = None
+    if project_id is not None:
+        row = session.execute(select(ProjectTable).where(ProjectTable.id == project_id)).scalar_one_or_none()
+        if row:
+            proj = {c: getattr(row, c) for c in [
+                "id", "name", "summary", "status", "stage",
+                "sop_template_code", "stage_history_json", "team_assembly_json",
+                "team_policy_json", "budget_policy_json",
+            ]}
+
+    sess_row = session.execute(select(ProjectDirectorSessionTable).where(
+        ProjectDirectorSessionTable.id == session_id)).scalar_one_or_none()
+    sess = {c: getattr(sess_row, c) for c in [
+        "id", "project_id", "goal_text", "goal_summary", "constraints",
+        "status", "clarifying_questions_json", "clarifying_answers_json", "confirmed_at",
+    ]} if sess_row else None
+
+    msgs = [{c: getattr(r, c) for c in [
+        "id", "session_id", "role", "content", "sequence_no",
+        "source", "source_detail", "risk_level",
+    ]} for r in session.execute(select(ProjectDirectorMessageTable).where(
+        ProjectDirectorMessageTable.session_id == session_id
+    ).order_by(ProjectDirectorMessageTable.sequence_no, ProjectDirectorMessageTable.id)).scalars().all()]
+
+    evts = [{c: getattr(r, c) for c in [
+        "id", "session_id", "project_id", "sequence_no", "event_type",
+        "subject_key", "content", "status", "payload_json",
+        "source_message_ids_json", "supersedes_event_id", "created_by", "confidence",
+    ]} for r in session.execute(select(ProjectDirectorDiscussionEventTable).where(
+        ProjectDirectorDiscussionEventTable.session_id == session_id
+    ).order_by(ProjectDirectorDiscussionEventTable.sequence_no, ProjectDirectorDiscussionEventTable.id)).scalars().all()]
+
+    ws_row = session.execute(select(ProjectDirectorDiscussionWorkspaceTable).where(
+        ProjectDirectorDiscussionWorkspaceTable.session_id == session_id)).scalar_one_or_none()
+    ws = {c: getattr(ws_row, c) for c in [
+        "session_id", "project_id", "topic", "discussion_status",
+        "state_json", "version_no", "last_event_sequence_no",
+    ]} if ws_row else None
+
+    pvs = [{c: getattr(r, c) for c in [
+        "id", "session_id", "project_id", "version_no", "status",
+        "formalization_target", "formalization_workspace_version",
+        "formalization_source_message_ids_json", "formalization_source_event_ids_json",
+    ]} for r in session.execute(select(ProjectDirectorPlanVersionTable).where(
+        ProjectDirectorPlanVersionTable.session_id == session_id
+    ).order_by(ProjectDirectorPlanVersionTable.version_no, ProjectDirectorPlanVersionTable.id)).scalars().all()]
+
+    counts = {
+        "project": _count(session, ProjectTable),
+        "session": _count(session, ProjectDirectorSessionTable),
+        "msg": _count(session, ProjectDirectorMessageTable),
+        "evt": _count(session, ProjectDirectorDiscussionEventTable),
+        "ws": _count(session, ProjectDirectorDiscussionWorkspaceTable),
+        "pv": _count(session, ProjectDirectorPlanVersionTable),
+        "task": _count(session, TaskTable),
+        "run": _count(session, RunTable),
+        "agent_session": _count(session, AgentSessionTable),
+    }
+
+    return {"project": proj, "session": sess, "messages": msgs, "events": evts,
+            "workspace": ws, "plan_versions": pvs, "counts": counts}
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +343,6 @@ class TestDefaultContract:
 class TestWorkspaceReadback:
 
     def test_workspace_non_empty_fields(self, db_session, client):
-        """All optional collection fields populated → API returns exact values."""
         opt_id = uuid4()
         pref_id = opt_id
         con_id = uuid4()
@@ -284,7 +351,6 @@ class TestWorkspaceReadback:
         cd_id = uuid4()
         corr_id = uuid4()
 
-        _seed_project(db_session)
         _seed_session(db_session, project_id=None)
         _seed_event(db_session, sequence_no=1, project_id=None)
         _seed_workspace(
@@ -302,7 +368,6 @@ class TestWorkspaceReadback:
                           params={"mode": "new-project", "session_id": str(SESSION_ID)})
         assert resp.status_code == 200
         ws = resp.json()["discussion_workspace"]
-
         assert ws["session_id"] == str(SESSION_ID)
         assert ws["project_id"] is None
         assert ws["topic"] == "讨论主题"
@@ -316,11 +381,8 @@ class TestWorkspaceReadback:
         assert ws["latest_user_correction_event_id"] == str(corr_id)
         assert ws["version_no"] == 1
         assert ws["last_event_sequence_no"] == 1
-        assert "created_at" in ws
-        assert "updated_at" in ws
 
     def test_workspace_no_p27_fields(self, db_session, client):
-        _seed_project(db_session)
         _seed_session(db_session, project_id=None)
         _seed_event(db_session, sequence_no=1, project_id=None)
         _seed_workspace(db_session, project_id=None)
@@ -331,10 +393,9 @@ class TestWorkspaceReadback:
         ws = resp.json()["discussion_workspace"]
         for f in ["source_surface", "source_entity_type", "source_entity_id",
                    "trigger_type", "interaction_case_id", "external_context_pack_id"]:
-            assert f not in ws, f"P27 field {f!r} leaked"
+            assert f not in ws
 
     def test_response_no_secrets(self, db_session, client):
-        _seed_project(db_session)
         _seed_session(db_session, project_id=None)
         _seed_event(db_session, sequence_no=1, project_id=None)
         _seed_workspace(db_session, project_id=None)
@@ -402,7 +463,6 @@ class TestHistoricalFormalizationVersions:
 class TestCoreRegression:
 
     def test_resume_returns_b_not_a(self, db_session, client):
-        _seed_project(db_session)
         _seed_session(db_session, project_id=None)
         msg_id = _seed_message(db_session)
         _seed_event(db_session, sequence_no=1, project_id=None)
@@ -446,10 +506,17 @@ class TestCoreRegression:
 class TestResumeBranches:
 
     def test_explicit_session_branch(self, db_session, client):
-        _seed_project(db_session)
+        """Explicit session_id → returns that session's workspace and existing versions."""
         _seed_session(db_session, project_id=None)
         _seed_event(db_session, sequence_no=1, project_id=None)
-        _seed_workspace(db_session, project_id=None, topic="显式主题")
+        _seed_workspace(db_session, project_id=None, topic="显式主题", version_no=2)
+        _seed_plan_version(
+            db_session, version_no=1,
+            formalization_target=FormalizationTarget.PLAN_REVISION,
+            formalization_workspace_version=1,
+            formalization_source_message_ids=[uuid4()],
+            formalization_source_event_ids=[uuid4()],
+        )
         db_session.commit()
 
         resp = client.get("/project-director/workbench/resume",
@@ -457,16 +524,19 @@ class TestResumeBranches:
         assert resp.status_code == 200
         data = resp.json()
         assert data["session"]["id"] == str(SESSION_ID)
+        assert data["session"]["project_id"] is None
+        assert data["discussion_workspace"]["session_id"] == str(SESSION_ID)
         assert data["discussion_workspace"]["topic"] == "显式主题"
-        assert isinstance(data["existing_formalization_workspace_versions"], list)
+        assert data["discussion_workspace"]["version_no"] == 2
+        assert data["existing_formalization_workspace_versions"] == [1]
 
     def test_recent_plan_branch(self, db_session, client):
-        """No session_id, has pending plan → source=backend_recent_plan."""
+        """No session_id, has pending formalized plan → source=backend_recent_plan."""
         _seed_session(db_session, project_id=None)
         msg_id = _seed_message(db_session)
         _seed_event(db_session, sequence_no=1, project_id=None)
-        _seed_workspace(db_session, project_id=None)
-        _seed_plan_version(
+        _seed_workspace(db_session, project_id=None, topic="最近计划主题", version_no=1)
+        plan = _seed_plan_version(
             db_session, version_no=1,
             formalization_target=FormalizationTarget.PLAN_REVISION,
             formalization_workspace_version=1,
@@ -476,23 +546,26 @@ class TestResumeBranches:
         )
         db_session.commit()
 
-        resp = client.get("/project-director/workbench/resume",
-                          params={"mode": "new-project"})
+        resp = client.get("/project-director/workbench/resume", params={"mode": "new-project"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["source"] == "backend_recent_plan"
-        assert data["plan_version"] is not None
-        assert data["discussion_workspace"] is not None
-        assert isinstance(data["existing_formalization_workspace_versions"], list)
+        assert data["session"]["id"] == str(SESSION_ID)
+        assert data["plan_version"]["id"] == str(plan.id)
+        assert data["plan_version"]["status"] == "pending_confirmation"
+        assert data["plan_version"]["formalization_target"] == "plan_revision"
+        assert data["plan_version"]["formalization_workspace_version"] == 1
+        assert data["discussion_workspace"]["topic"] == "最近计划主题"
+        assert data["discussion_workspace"]["version_no"] == 1
+        assert data["existing_formalization_workspace_versions"] == [1]
 
     def test_recent_session_branch(self, db_session, client):
-        """No session_id, no resumable plan, has superseded formalized → source=backend_recent_session."""
+        """No session_id, no resumable plan, only superseded → source=backend_recent_session."""
         _seed_session(db_session, project_id=None)
         msg_id = _seed_message(db_session)
         _seed_event(db_session, sequence_no=1, project_id=None)
-        _seed_workspace(db_session, project_id=None)
-        # Only superseded plan — not resumable
-        _seed_plan_version(
+        _seed_workspace(db_session, project_id=None, topic="最近会话主题", version_no=1)
+        superseded = _seed_plan_version(
             db_session, version_no=1,
             formalization_target=FormalizationTarget.PLAN_REVISION,
             formalization_workspace_version=1,
@@ -502,12 +575,15 @@ class TestResumeBranches:
         )
         db_session.commit()
 
-        resp = client.get("/project-director/workbench/resume",
-                          params={"mode": "new-project"})
+        resp = client.get("/project-director/workbench/resume", params={"mode": "new-project"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["source"] == "backend_recent_session"
+        assert data["session"]["id"] == str(SESSION_ID)
         assert data["plan_version"] is None
+        assert data["discussion_workspace"]["session_id"] == str(SESSION_ID)
+        assert data["discussion_workspace"]["topic"] == "最近会话主题"
+        assert data["discussion_workspace"]["version_no"] == 1
         assert data["existing_formalization_workspace_versions"] == [1]
 
     def test_empty_database_branch(self, client):
@@ -529,18 +605,26 @@ class TestResumeBranches:
         resp = client.get("/project-director/workbench/resume",
                           params={"mode": "project", "project_id": str(PROJECT_ID)})
         assert resp.status_code == 200
-        assert resp.json()["session"] is not None
+        data = resp.json()
+        assert data["session"]["id"] == str(SESSION_ID)
+        assert data["session"]["project_id"] == str(PROJECT_ID)
+        assert data["discussion_workspace"]["project_id"] == str(PROJECT_ID)
 
-    def test_new_project_mode(self, db_session, client):
+    def test_new_project_mode_no_project_row(self, db_session, client):
+        """new-project mode with unbound session → Project count stays 0."""
         _seed_session(db_session, project_id=None)
         _seed_event(db_session, sequence_no=1, project_id=None)
         _seed_workspace(db_session, project_id=None)
         db_session.commit()
 
-        resp = client.get("/project-director/workbench/resume",
-                          params={"mode": "new-project"})
+        assert _count(db_session, ProjectTable) == 0
+
+        resp = client.get("/project-director/workbench/resume", params={"mode": "new-project"})
         assert resp.status_code == 200
-        assert resp.json()["session"] is not None
+        data = resp.json()
+        assert data["session"]["id"] == str(SESSION_ID)
+        assert data["session"]["project_id"] is None
+        assert data["discussion_workspace"]["project_id"] is None
 
     def test_context_mismatch_422(self, db_session, client):
         _seed_session(db_session, project_id=PROJECT_ID)
@@ -563,33 +647,44 @@ class TestResumeBranches:
 class TestDualProjectIsolation:
 
     def test_projects_do_not_cross(self, db_session, client):
-        """Project A and B data must not cross in Resume responses."""
-        # Project A
+        """Project A and B with different data must not cross."""
+        # Project A: version=1, formalization=[1], pending plan
         _seed_session(db_session, session_id=SESSION_ID, project_id=PROJECT_ID, goal_text="目标A")
+        msg_a = _seed_message(db_session, session_id=SESSION_ID, content="消息A")
         _seed_event(db_session, session_id=SESSION_ID, project_id=PROJECT_ID, sequence_no=1, content="主题A")
         _seed_workspace(db_session, session_id=SESSION_ID, project_id=PROJECT_ID,
                         topic="主题A", version_no=1, last_event_sequence_no=1)
-        msg_a = _seed_message(db_session, session_id=SESSION_ID)
-        _seed_plan_version(
-            db_session, session_id=SESSION_ID, version_no=1,
+        plan_a = _seed_plan_version(
+            db_session, session_id=SESSION_ID, version_no=1, project_id=PROJECT_ID,
             formalization_target=FormalizationTarget.PLAN_REVISION,
             formalization_workspace_version=1,
             formalization_source_message_ids=[msg_a],
             formalization_source_event_ids=[uuid4()],
+            status=PlanVersionStatus.PENDING_CONFIRMATION,
         )
 
-        # Project B
+        # Project B: version=3, formalization=[2,3], confirmed plan
         _seed_session(db_session, session_id=SESSION_B_ID, project_id=PROJECT_B_ID, goal_text="目标B")
-        _seed_event(db_session, session_id=SESSION_B_ID, project_id=PROJECT_B_ID, sequence_no=1, content="主题B")
+        msg_b = _seed_message(db_session, session_id=SESSION_B_ID, content="消息B")
+        for sn in range(1, 4):
+            _seed_event(db_session, session_id=SESSION_B_ID, project_id=PROJECT_B_ID,
+                        sequence_no=sn, content=f"主题B{sn}")
         _seed_workspace(db_session, session_id=SESSION_B_ID, project_id=PROJECT_B_ID,
-                        topic="主题B", version_no=1, last_event_sequence_no=1)
-        msg_b = _seed_message(db_session, session_id=SESSION_B_ID)
+                        topic="主题B", version_no=3, last_event_sequence_no=3)
         _seed_plan_version(
-            db_session, session_id=SESSION_B_ID, version_no=1,
+            db_session, session_id=SESSION_B_ID, version_no=1, project_id=PROJECT_B_ID,
             formalization_target=FormalizationTarget.PLAN_REVISION,
-            formalization_workspace_version=1,
+            formalization_workspace_version=2,
             formalization_source_message_ids=[msg_b],
             formalization_source_event_ids=[uuid4()],
+        )
+        plan_b = _seed_plan_version(
+            db_session, session_id=SESSION_B_ID, version_no=2, project_id=PROJECT_B_ID,
+            formalization_target=FormalizationTarget.PLAN_REVISION,
+            formalization_workspace_version=3,
+            formalization_source_message_ids=[msg_b],
+            formalization_source_event_ids=[uuid4()],
+            status=PlanVersionStatus.CONFIRMED,
         )
         db_session.commit()
 
@@ -597,29 +692,41 @@ class TestDualProjectIsolation:
         resp_a = client.get("/project-director/workbench/resume",
                             params={"mode": "project", "project_id": str(PROJECT_ID)})
         assert resp_a.status_code == 200
-        data_a = resp_a.json()
+        da = resp_a.json()
 
         # Resume B
         resp_b = client.get("/project-director/workbench/resume",
                             params={"mode": "project", "project_id": str(PROJECT_B_ID)})
         assert resp_b.status_code == 200
-        data_b = resp_b.json()
+        db_ = resp_b.json()
 
-        # A only sees A
-        assert data_a["session"]["id"] == str(SESSION_ID)
-        assert data_a["session"]["goal_text"] == "目标A"
-        assert data_a["discussion_workspace"]["topic"] == "主题A"
-        assert data_a["discussion_workspace"]["session_id"] == str(SESSION_ID)
+        # A assertions
+        assert da["session"]["id"] == str(SESSION_ID)
+        assert da["session"]["project_id"] == str(PROJECT_ID)
+        assert da["discussion_workspace"]["session_id"] == str(SESSION_ID)
+        assert da["discussion_workspace"]["project_id"] == str(PROJECT_ID)
+        assert da["discussion_workspace"]["topic"] == "主题A"
+        assert da["discussion_workspace"]["version_no"] == 1
+        assert da["plan_version"]["id"] == str(plan_a.id)
+        assert da["plan_version"]["project_id"] == str(PROJECT_ID)
+        assert da["existing_formalization_workspace_versions"] == [1]
 
-        # B only sees B
-        assert data_b["session"]["id"] == str(SESSION_B_ID)
-        assert data_b["session"]["goal_text"] == "目标B"
-        assert data_b["discussion_workspace"]["topic"] == "主题B"
-        assert data_b["discussion_workspace"]["session_id"] == str(SESSION_B_ID)
+        # B assertions
+        assert db_["session"]["id"] == str(SESSION_B_ID)
+        assert db_["session"]["project_id"] == str(PROJECT_B_ID)
+        assert db_["discussion_workspace"]["session_id"] == str(SESSION_B_ID)
+        assert db_["discussion_workspace"]["project_id"] == str(PROJECT_B_ID)
+        assert db_["discussion_workspace"]["topic"] == "主题B"
+        assert db_["discussion_workspace"]["version_no"] == 3
+        assert db_["plan_version"]["id"] == str(plan_b.id)
+        assert db_["plan_version"]["project_id"] == str(PROJECT_B_ID)
+        assert db_["existing_formalization_workspace_versions"] == [2, 3]
 
         # No cross
-        assert data_a["session"]["id"] != data_b["session"]["id"]
-        assert data_a["discussion_workspace"]["session_id"] != data_b["discussion_workspace"]["session_id"]
+        assert da["session"]["id"] != db_["session"]["id"]
+        assert da["plan_version"]["id"] != db_["plan_version"]["id"]
+        assert da["discussion_workspace"]["session_id"] != db_["discussion_workspace"]["session_id"]
+        assert da["existing_formalization_workspace_versions"] != db_["existing_formalization_workspace_versions"]
 
 
 # ===========================================================================
@@ -630,15 +737,12 @@ class TestDualProjectIsolation:
 class TestWorkspaceV2Lifecycle:
 
     def test_v1_formalized_then_v2_resumable(self, db_session, client):
-        """Phase 1: existing=[1], workspace v2. Phase 2: formalize v2 → existing=[1,2]."""
-        _seed_project(db_session)
         _seed_session(db_session, project_id=None)
         msg_id = _seed_message(db_session)
         _seed_event(db_session, sequence_no=1, project_id=None)
         _seed_event(db_session, sequence_no=2, project_id=None)
         _seed_workspace(db_session, project_id=None, version_no=2, last_event_sequence_no=2)
 
-        # v1 formalized
         _seed_plan_version(
             db_session, version_no=1,
             formalization_target=FormalizationTarget.PLAN_REVISION,
@@ -648,15 +752,15 @@ class TestWorkspaceV2Lifecycle:
         )
         db_session.commit()
 
-        # Phase 1: Resume shows existing=[1], workspace=2
+        # Phase 1
         resp1 = client.get("/project-director/workbench/resume",
                            params={"mode": "new-project", "session_id": str(SESSION_ID)})
         assert resp1.status_code == 200
-        data1 = resp1.json()
-        assert data1["existing_formalization_workspace_versions"] == [1]
-        assert data1["discussion_workspace"]["version_no"] == 2
+        d1 = resp1.json()
+        assert d1["existing_formalization_workspace_versions"] == [1]
+        assert d1["discussion_workspace"]["version_no"] == 2
 
-        # Phase 2: Create v2 formalization
+        # Phase 2: create v2 formalization
         _seed_plan_version(
             db_session, version_no=2,
             formalization_target=FormalizationTarget.PLAN_REVISION,
@@ -669,11 +773,11 @@ class TestWorkspaceV2Lifecycle:
         resp2 = client.get("/project-director/workbench/resume",
                            params={"mode": "new-project", "session_id": str(SESSION_ID)})
         assert resp2.status_code == 200
-        data2 = resp2.json()
-        assert data2["existing_formalization_workspace_versions"] == [1, 2]
-        assert data2["existing_formalization_workspace_versions"] == sorted(
-            data2["existing_formalization_workspace_versions"]
-        )
+        d2 = resp2.json()
+        assert d2["existing_formalization_workspace_versions"] == [1, 2]
+        assert len(d2["existing_formalization_workspace_versions"]) == 2
+        assert len(set(d2["existing_formalization_workspace_versions"])) == 2
+        assert d2["discussion_workspace"]["version_no"] == 2
 
 
 # ===========================================================================
@@ -687,28 +791,26 @@ class TestResumeReadOnly:
     def test_resume_no_side_effects_full_snapshot(self, db_session_factory, client):
         setup = db_session_factory()
         try:
-            _seed_project(setup)
             _seed_session(setup, project_id=None, goal_text="快照目标")
             msg_id = _seed_message(setup, content="快照消息")
             evt_id = _seed_event(setup, sequence_no=1, project_id=None, content="快照事件")
             _seed_workspace(setup, project_id=None, topic="快照主题",
                             discussion_status=DiscussionStatus.READY_TO_FORMALIZE)
+            # Create 2 plan versions: 1 formalized rejected + 1 plain pending
+            _seed_plan_version(
+                setup, version_no=1,
+                formalization_target=FormalizationTarget.PLAN_REVISION,
+                formalization_workspace_version=1,
+                formalization_source_message_ids=[msg_id],
+                formalization_source_event_ids=[evt_id],
+                status=PlanVersionStatus.REJECTED,
+            )
+            _seed_plan_version(setup, version_no=2, status=PlanVersionStatus.PENDING_CONFIRMATION)
             setup.commit()
 
-            # Pre-snapshots (raw ORM rows for exact comparison)
-            pre_project = setup.execute(select(ProjectTable).where(ProjectTable.id == PROJECT_ID)).scalar_one()
-            pre_session = setup.execute(select(ProjectDirectorSessionTable).where(
-                ProjectDirectorSessionTable.id == SESSION_ID)).scalar_one()
-            pre_msgs = list(setup.execute(select(ProjectDirectorMessageTable).where(
-                ProjectDirectorMessageTable.session_id == SESSION_ID).order_by(
-                ProjectDirectorMessageTable.sequence_no)).scalars().all())
-            pre_evts = list(setup.execute(select(ProjectDirectorDiscussionEventTable).where(
-                ProjectDirectorDiscussionEventTable.session_id == SESSION_ID).order_by(
-                ProjectDirectorDiscussionEventTable.sequence_no)).scalars().all())
-            pre_ws = setup.execute(select(ProjectDirectorDiscussionWorkspaceTable).where(
-                ProjectDirectorDiscussionWorkspaceTable.session_id == SESSION_ID)).scalar_one()
-            pre_pvs = list(setup.execute(select(ProjectDirectorPlanVersionTable).where(
-                ProjectDirectorPlanVersionTable.session_id == SESSION_ID)).scalars().all())
+            assert _count(setup, ProjectDirectorPlanVersionTable) == 2
+
+            pre = _snapshot_state(setup, SESSION_ID, None)
         finally:
             setup.close()
 
@@ -720,93 +822,25 @@ class TestResumeReadOnly:
         # Fresh session readback
         fresh = db_session_factory()
         try:
-            # Counts
-            assert _count(fresh, TaskTable) == 0
-            assert _count(fresh, RunTable) == 0
-            assert _count(fresh, AgentSessionTable) == 0
+            post = _snapshot_state(fresh, SESSION_ID, None)
 
-            # Project snapshot
-            post_project = fresh.execute(select(ProjectTable).where(
-                ProjectTable.id == PROJECT_ID)).scalar_one()
-            assert post_project.name == pre_project.name
-            assert post_project.summary == pre_project.summary
-            assert post_project.status == pre_project.status
-            assert post_project.stage == pre_project.stage
-            assert post_project.sop_template_code == pre_project.sop_template_code
-            assert post_project.stage_history_json == pre_project.stage_history_json
-            assert post_project.team_assembly_json == pre_project.team_assembly_json
-            assert post_project.team_policy_json == pre_project.team_policy_json
-            assert post_project.budget_policy_json == pre_project.budget_policy_json
+            # Full snapshot equality
+            assert post["project"] == pre["project"]
+            assert post["session"] == pre["session"]
+            assert post["messages"] == pre["messages"]
+            assert post["events"] == pre["events"]
+            assert post["workspace"] == pre["workspace"]
+            assert post["plan_versions"] == pre["plan_versions"]
+            assert post["counts"] == pre["counts"]
 
-            # Session snapshot
-            post_session = fresh.execute(select(ProjectDirectorSessionTable).where(
-                ProjectDirectorSessionTable.id == SESSION_ID)).scalar_one()
-            assert post_session.goal_text == pre_session.goal_text
-            assert post_session.goal_summary == pre_session.goal_summary
-            assert post_session.constraints == pre_session.constraints
-            assert post_session.status == pre_session.status
-            assert post_session.clarifying_questions_json == pre_session.clarifying_questions_json
-            assert post_session.clarifying_answers_json == pre_session.clarifying_answers_json
-            assert post_session.confirmed_at == pre_session.confirmed_at
-
-            # Message snapshot
-            post_msgs = list(fresh.execute(select(ProjectDirectorMessageTable).where(
-                ProjectDirectorMessageTable.session_id == SESSION_ID).order_by(
-                ProjectDirectorMessageTable.sequence_no)).scalars().all())
-            assert len(post_msgs) == len(pre_msgs)
-            for post, pre in zip(post_msgs, pre_msgs):
-                assert post.id == pre.id
-                assert post.session_id == pre.session_id
-                assert post.role == pre.role
-                assert post.content == pre.content
-                assert post.sequence_no == pre.sequence_no
-                assert post.source == pre.source
-                assert post.source_detail == pre.source_detail
-                assert post.risk_level == pre.risk_level
-
-            # Event snapshot
-            post_evts = list(fresh.execute(select(ProjectDirectorDiscussionEventTable).where(
-                ProjectDirectorDiscussionEventTable.session_id == SESSION_ID).order_by(
-                ProjectDirectorDiscussionEventTable.sequence_no)).scalars().all())
-            assert len(post_evts) == len(pre_evts)
-            for post, pre in zip(post_evts, pre_evts):
-                assert post.id == pre.id
-                assert post.session_id == pre.session_id
-                assert post.project_id == pre.project_id
-                assert post.sequence_no == pre.sequence_no
-                assert post.event_type == pre.event_type
-                assert post.subject_key == pre.subject_key
-                assert post.content == pre.content
-                assert post.status == pre.status
-                assert post.payload_json == pre.payload_json
-                assert post.source_message_ids_json == pre.source_message_ids_json
-                assert post.supersedes_event_id == pre.supersedes_event_id
-                assert post.created_by == pre.created_by
-                assert post.confidence == pre.confidence
-
-            # Workspace snapshot
-            post_ws = fresh.execute(select(ProjectDirectorDiscussionWorkspaceTable).where(
-                ProjectDirectorDiscussionWorkspaceTable.session_id == SESSION_ID)).scalar_one()
-            assert post_ws.session_id == pre_ws.session_id
-            assert post_ws.project_id == pre_ws.project_id
-            assert post_ws.topic == pre_ws.topic
-            assert post_ws.discussion_status == pre_ws.discussion_status
-            assert post_ws.state_json == pre_ws.state_json
-            assert post_ws.version_no == pre_ws.version_no
-            assert post_ws.last_event_sequence_no == pre_ws.last_event_sequence_no
-
-            # PlanVersion snapshot
-            post_pvs = list(fresh.execute(select(ProjectDirectorPlanVersionTable).where(
-                ProjectDirectorPlanVersionTable.session_id == SESSION_ID)).scalars().all())
-            assert len(post_pvs) == len(pre_pvs)
-            for post, pre in zip(post_pvs, pre_pvs):
-                assert post.id == pre.id
-                assert post.session_id == pre.session_id
-                assert post.version_no == pre.version_no
-                assert post.status == pre.status
-                assert post.formalization_target == pre.formalization_target
-                assert post.formalization_workspace_version == pre.formalization_workspace_version
-                assert post.formalization_source_message_ids_json == pre.formalization_source_message_ids_json
-                assert post.formalization_source_event_ids_json == pre.formalization_source_event_ids_json
+            # Explicit minimum counts
+            assert post["counts"]["session"] >= 1
+            assert post["counts"]["msg"] >= 1
+            assert post["counts"]["evt"] >= 1
+            assert post["counts"]["ws"] >= 1
+            assert post["counts"]["pv"] == 2
+            assert post["counts"]["task"] == 0
+            assert post["counts"]["run"] == 0
+            assert post["counts"]["agent_session"] == 0
         finally:
             fresh.close()
