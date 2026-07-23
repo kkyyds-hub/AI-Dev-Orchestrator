@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   useConfirmProjectDirectorGoal,
-  useCreateProjectDirectorPlanVersion,
   useCreateProjectDirectorSession,
   useCreateProjectDirectorTaskQueue,
   useFormalizeProjectDirectorDiscussion,
@@ -44,6 +43,7 @@ type ProjectDirectorWorkbenchSurfaceProps = {
 };
 
 type PendingPrompt = {
+  id: string;
   content: string;
   kind: "create_session" | "post_message";
 };
@@ -102,7 +102,12 @@ export function ProjectDirectorWorkbenchSurface({
     resumeSessionId,
   });
 
-  const promptBox = <WorkbenchPromptBox onSend={adapter.handlePromptSend} />;
+  const promptBox = (
+    <WorkbenchPromptBox
+      key={adapter.promptContextKey}
+      onSend={adapter.handlePromptSend}
+    />
+  );
 
   if (adapter.showWelcome) {
     return (
@@ -158,12 +163,12 @@ function useProjectDirectorWorkbenchAdapter(input: {
   ] = useState<number[]>([]);
   const contextKey = `${input.mode}:${input.projectId ?? "none"}:${input.resumeSessionId ?? "none"}`;
   const contextKeyRef = useRef(contextKey);
+  const pendingPromptIdRef = useRef(0);
 
   const createSessionMutation = useCreateProjectDirectorSession();
   const postMessageMutation = usePostProjectDirectorSessionMessage();
   const submitAnswersMutation = useSubmitProjectDirectorAnswers();
   const confirmGoalMutation = useConfirmProjectDirectorGoal();
-  const createPlanVersionMutation = useCreateProjectDirectorPlanVersion();
   const reviewPlanVersionMutation = useReviewProjectDirectorPlanVersion();
   const createTaskQueueMutation = useCreateProjectDirectorTaskQueue();
   const formalizeDiscussionMutation = useFormalizeProjectDirectorDiscussion();
@@ -238,7 +243,6 @@ function useProjectDirectorWorkbenchAdapter(input: {
     postMessageMutation.isPending ||
     submitAnswersMutation.isPending ||
     confirmGoalMutation.isPending ||
-    createPlanVersionMutation.isPending ||
     reviewPlanVersionMutation.isPending ||
     createTaskQueueMutation.isPending ||
     formalizeDiscussionMutation.isPending;
@@ -257,7 +261,11 @@ function useProjectDirectorWorkbenchAdapter(input: {
 
     if (session) {
       const requestContextKey = contextKeyRef.current;
-      setPendingPrompt({ content: trimmed, kind: "post_message" });
+      setPendingPrompt({
+        id: `pending-${++pendingPromptIdRef.current}`,
+        content: trimmed,
+        kind: "post_message",
+      });
       setPromptError(null);
       try {
         const result = await postMessageMutation.mutateAsync({
@@ -294,7 +302,11 @@ function useProjectDirectorWorkbenchAdapter(input: {
     }
 
     const requestContextKey = contextKeyRef.current;
-    setPendingPrompt({ content: trimmed, kind: "create_session" });
+    setPendingPrompt({
+      id: `pending-${++pendingPromptIdRef.current}`,
+      content: trimmed,
+      kind: "create_session",
+    });
     setPromptError(null);
     try {
       const createdSession = await createSessionMutation.mutateAsync({
@@ -362,23 +374,6 @@ function useProjectDirectorWorkbenchAdapter(input: {
     }
     setSession(updatedSession);
     setStatusMessage(updatedSession.next_action);
-  }
-
-  async function handleCreatePlanVersion() {
-    if (!session || session.status !== "confirmed") {
-      return;
-    }
-
-    const requestContextKey = contextKeyRef.current;
-    const createdPlanVersion = await createPlanVersionMutation.mutateAsync({
-      sessionId: session.id,
-    });
-    if (contextKeyRef.current !== requestContextKey) {
-      return;
-    }
-    setPlanVersion(createdPlanVersion);
-    setPlanFeedback("");
-    setStatusMessage(createdPlanVersion.next_action);
   }
 
   async function handleReviewPlanVersion(action: ProjectDirectorPlanReviewAction) {
@@ -499,18 +494,12 @@ function useProjectDirectorWorkbenchAdapter(input: {
         isLoading: resumeQuery.isLoading && Boolean(input.resumeSessionId),
         pendingPrompt,
         promptError,
-        errorMessage:
-          createSessionMutation.error?.message ??
-          postMessageMutation.error?.message ??
-          messagesQuery.error?.message ??
-          null,
+        loadErrorMessage: messagesQuery.error?.message ?? null,
       }),
     [
-      createSessionMutation.error?.message,
       input.resumeSessionId,
       messageTimeline,
       messagesQuery.error?.message,
-      postMessageMutation.error?.message,
       pendingPrompt,
       promptError,
       resumeQuery.isLoading,
@@ -539,15 +528,6 @@ function useProjectDirectorWorkbenchAdapter(input: {
       disabled={confirmGoalMutation.isPending}
       onConfirm={() => {
         void handleConfirmGoal();
-      }}
-    />
-  ) : session?.status === "confirmed" && !planVersion && !discussionWorkspace ? (
-    <GoalConfirmationPanel
-      summary={session.goal_summary || session.goal_text}
-      disabled={createPlanVersionMutation.isPending}
-      confirmLabel={createPlanVersionMutation.isPending ? "生成中..." : "生成计划草案"}
-      onConfirm={() => {
-        void handleCreatePlanVersion();
       }}
     />
   ) : null;
@@ -602,6 +582,7 @@ function useProjectDirectorWorkbenchAdapter(input: {
 
   return {
     handlePromptSend,
+    promptContextKey: contextKey,
     showWelcome:
       !session &&
       messageTimeline.length === 0 &&
@@ -659,16 +640,16 @@ function buildDirectorMessages(input: {
   isLoading: boolean;
   pendingPrompt: PendingPrompt | null;
   promptError: string | null;
-  errorMessage: string | null;
+  loadErrorMessage: string | null;
 }): MockMessage[] {
-  let result: MockMessage[];
+  let result: MockMessage[] = [];
   if (input.messages.length > 0) {
     result = input.messages.map(mapProjectDirectorMessage);
-  } else if (input.errorMessage) {
+  } else if (input.loadErrorMessage) {
     result = [
       {
         role: "assistant",
-        content: `读取 AI 主管会话失败：${input.errorMessage}`,
+        content: `读取 AI 主管会话失败：${input.loadErrorMessage}`,
         time: "刚刚",
       },
     ];
@@ -696,7 +677,7 @@ function buildDirectorMessages(input: {
         time: formatTime(input.session.updated_at),
       },
     ];
-  } else {
+  } else if (input.pendingPrompt?.kind !== "create_session") {
     result = [
       {
         role: "assistant",
@@ -707,17 +688,11 @@ function buildDirectorMessages(input: {
   }
 
   if (input.pendingPrompt) {
-    const hasPersistedUserMessage = input.messages.some(
-      (message) =>
-        message.role === "user" && message.content === input.pendingPrompt?.content,
-    );
-    if (!hasPersistedUserMessage) {
-      result.push({
-        role: "user",
-        content: input.pendingPrompt.content,
-        time: "刚刚",
-      });
-    }
+    result.push({
+      role: "user",
+      content: input.pendingPrompt.content,
+      time: "刚刚",
+    });
     result.push({
       role: "assistant",
       content:

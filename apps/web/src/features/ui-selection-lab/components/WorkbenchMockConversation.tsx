@@ -1,4 +1,5 @@
 import { Bot } from "lucide-react";
+import { useLayoutEffect, useRef } from "react";
 import type * as React from "react";
 
 import type { MessageCard, MessageCardType, MockMessage } from "../mockInteractions";
@@ -69,8 +70,27 @@ export function ConversationMessages({
   topSurface?: React.ReactNode;
   planFlowCard?: React.ReactNode;
 }) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !isNearBottomRef.current) {
+      return;
+    }
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [messages, planFlowCard, topSurface]);
+
   return (
-    <div className="ui-lab-page-enter flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-4 pt-6 md:px-8">
+    <div
+      ref={scrollContainerRef}
+      className="ui-lab-page-enter flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-60 pt-6 md:px-8"
+      onScroll={(event) => {
+        const container = event.currentTarget;
+        isNearBottomRef.current =
+          container.scrollHeight - container.scrollTop - container.clientHeight < 160;
+      }}
+    >
       {topSurface ? <div className="mb-6">{topSurface}</div> : null}
 
       {messages.map((msg, i) => {

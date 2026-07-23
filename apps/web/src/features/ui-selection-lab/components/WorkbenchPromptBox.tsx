@@ -54,7 +54,7 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
   return (
     <div
       data-testid="ui-lab-promptbox"
-      className="absolute bottom-5 left-1/2 max-w-[calc(100%-40px)] -translate-x-1/2 md:bottom-7 lg:bottom-9"
+      className="pointer-events-auto absolute bottom-5 left-1/2 z-20 max-w-[calc(100%-40px)] -translate-x-1/2 md:bottom-7 lg:bottom-9"
       style={{ width: "min(760px, calc(100vw - var(--lab-sidebar-width) - 64px))" }}
     >
       <div
