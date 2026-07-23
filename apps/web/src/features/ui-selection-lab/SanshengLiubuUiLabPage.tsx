@@ -280,6 +280,7 @@ export type WorkbenchMainPageKey =
 export type WorkbenchInitialModal = "settings" | "account";
 
 export type WorkbenchDirectorSurfaceContext = {
+  workbenchMode: "new-project" | "project";
   activeConversationId: string | null;
   activeProjectId: string | null;
   activeProjectName: string | null;
@@ -294,6 +295,8 @@ export interface WorkbenchExperienceProps {
   mode?: WorkbenchExperienceMode;
   projectGroups?: ProjectGroup[];
   initialMainPage?: WorkbenchMainPageKey | null;
+  initialProjectId?: string | null;
+  initialSelectionMode?: "new-project" | "project";
   initialModal?: WorkbenchInitialModal | null;
   pageAdapterMode?: WorkbenchPageAdapterMode;
   surfaceData?: WorkbenchPageSurfaceData;
@@ -314,6 +317,8 @@ export function WorkbenchPreview({
   mode = "lab",
   projectGroups,
   initialMainPage = null,
+  initialProjectId = null,
+  initialSelectionMode = "new-project",
   initialModal = null,
   pageAdapterMode,
   surfaceData,
@@ -332,6 +337,10 @@ export function WorkbenchPreview({
     initialMainPage,
   );
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(
+    initialSelectionMode === "project" ? initialProjectId : null,
+  );
+  const [workbenchMode, setWorkbenchMode] = useState(initialSelectionMode);
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ message: string; status: ToastStatus } | null>(null);
@@ -379,6 +388,12 @@ export function WorkbenchPreview({
   }, [initialMainPage]);
 
   useEffect(() => {
+    setWorkbenchMode(initialSelectionMode);
+    setActiveProjectId(initialSelectionMode === "project" ? initialProjectId : null);
+    setActiveConversationId(null);
+  }, [initialProjectId, initialSelectionMode]);
+
+  useEffect(() => {
     if (initialModal === "settings") {
       setSettingsOpen(true);
     } else if (initialModal === "account") {
@@ -406,6 +421,10 @@ export function WorkbenchPreview({
     }
     return null;
   }, [activeConversationId, projectGroupsState]);
+  const activeProject = useMemo(
+    () => projectGroupsState.find((group) => group.id === activeProjectId) ?? null,
+    [activeProjectId, projectGroupsState],
+  );
 
   const messages = useMemo(() => {
     if (activeConversationId) {
@@ -419,9 +438,10 @@ export function WorkbenchPreview({
     [welcomeMessages],
   );
   const directorContext: WorkbenchDirectorSurfaceContext = {
+    workbenchMode,
     activeConversationId,
-    activeProjectId: activeConversation?.project.id ?? null,
-    activeProjectName: activeConversation?.project.name ?? null,
+    activeProjectId,
+    activeProjectName: activeProject?.name ?? null,
     topContext,
   };
 
@@ -450,6 +470,8 @@ export function WorkbenchPreview({
       }
 
       setActiveMainPage(null);
+      setWorkbenchMode("new-project");
+      setActiveProjectId(null);
       setActiveConversationId(null);
       setTopContext({
         title: "工作台讨论",
@@ -462,14 +484,16 @@ export function WorkbenchPreview({
 
   const handleNewProjectSession = useCallback(() => {
     if (onNewProjectSession) {
-      onNewProjectSession();
       setActiveMainPage(null);
+      setWorkbenchMode("new-project");
+      setActiveProjectId(null);
       setActiveConversationId(null);
       setTopContext({
         title: "新项目会话",
         subtitle: "未绑定项目 · 准备构建",
         status: "ready",
       });
+      onNewProjectSession();
       return;
     }
     setCreateProjectOpen(true);
@@ -490,6 +514,8 @@ export function WorkbenchPreview({
       );
       setConversationMessages((prev) => ({ ...prev, [newConv.id]: getNewConversationWelcome() }));
       setActiveMainPage(null);
+      setWorkbenchMode("project");
+      setActiveProjectId(projectGroup.id);
       setActiveConversationId(newConv.id);
       setTopContext({
         title: "新的 AI 主管对话",
@@ -524,6 +550,8 @@ export function WorkbenchPreview({
       setProjectGroupsState((prev) => [...prev, newGroup]);
       setConversationMessages((prev) => ({ ...prev, [convId]: getNewConversationWelcome() }));
       setActiveMainPage(null);
+      setWorkbenchMode("project");
+      setActiveProjectId(projectId);
       setActiveConversationId(convId);
       setTopContext({
         title: "新的 AI 主管对话",
@@ -605,7 +633,10 @@ export function WorkbenchPreview({
           },
         ],
       }));
+    const existingProject = projectGroupsState.find((group) => group.name === projectName);
     setActiveMainPage(null);
+    setWorkbenchMode("project");
+    setActiveProjectId(existingProject?.id ?? projectId);
     setActiveConversationId(convId);
       setTopContext({
         title: "正式项目启动",
@@ -618,8 +649,7 @@ export function WorkbenchPreview({
         if (group.name !== projectName) next.add(group.id);
       });
       next.delete(projectId);
-      const existing = projectGroupsState.find((group) => group.name === projectName);
-      if (existing) next.delete(existing.id);
+      if (existingProject) next.delete(existingProject.id);
       return next;
     });
       showToast("已创建正式项目");
@@ -629,13 +659,22 @@ export function WorkbenchPreview({
     setSearchQuery(e.target.value);
   }, []);
 
-  const toggleProject = useCallback((projectId: string) => {
+  const toggleProject = useCallback((projectGroup: ProjectGroup) => {
+    setActiveMainPage(null);
+    setWorkbenchMode("project");
+    setActiveProjectId(projectGroup.id);
+    setActiveConversationId(null);
+    setTopContext({
+      title: projectGroup.name,
+      subtitle: "项目上下文 · 准备开始新讨论",
+      status: "ready",
+    });
     setCollapsedProjects((prev) => {
       const next = new Set(prev);
-      if (next.has(projectId)) {
-        next.delete(projectId);
+      if (next.has(projectGroup.id)) {
+        next.delete(projectGroup.id);
       } else {
-        next.add(projectId);
+        next.add(projectGroup.id);
       }
       return next;
     });
@@ -644,6 +683,8 @@ export function WorkbenchPreview({
   const handleSelectConversation = useCallback(
     (conv: Conversation, projectGroup: ProjectGroup) => {
       setActiveMainPage(null);
+      setWorkbenchMode("project");
+      setActiveProjectId(projectGroup.id);
       setActiveConversationId(conv.id);
       setTopContext({
         title: conv.title,
@@ -908,7 +949,7 @@ export function WorkbenchPreview({
                           <div className="group flex w-full items-center gap-1">
                             <button
                               className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left text-sm font-semibold text-white transition-colors hover:text-white"
-                              onClick={() => toggleProject(group.id)}
+                              onClick={() => toggleProject(group)}
                             >
                               <span
                                 className="shrink-0 transition-transform duration-200"

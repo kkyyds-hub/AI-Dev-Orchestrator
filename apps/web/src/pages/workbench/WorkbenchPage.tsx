@@ -351,6 +351,10 @@ export function WorkbenchPage({
         mode="real"
         projectGroups={projectGroups}
         initialMainPage={routeSurface ?? initialMainPage}
+        initialProjectId={urlMode === "new-project" ? null : formalProjectId}
+        initialSelectionMode={
+          urlMode === "new-project" || !formalProjectId ? "new-project" : "project"
+        }
         initialModal={initialModal}
         pageAdapterMode="real"
         surfaceData={surfaceData}
@@ -374,9 +378,11 @@ export function WorkbenchPage({
         renderDirectorSurface={(context) => (
           <ProjectDirectorWorkbenchSurface
             context={context}
-            fallbackProjectId={resolveProjectId(context)}
+            fallbackProjectId={
+              context.workbenchMode === "new-project" ? null : resolveProjectId(context)
+            }
             fallbackProjectName={resolveProjectName(context)}
-            mode={urlMode === "new-project" || !resolveProjectId(context) ? "new-project" : "project"}
+            mode={context.workbenchMode}
           />
         )}
       />
