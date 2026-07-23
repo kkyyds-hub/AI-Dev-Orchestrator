@@ -531,17 +531,18 @@ class TestResumeBranches:
         assert data["existing_formalization_workspace_versions"] == [1]
 
     def test_recent_plan_branch(self, db_session, client):
-        """No session_id, has pending formalized plan → source=backend_recent_plan."""
+        """No session_id, has pending formalized plan → source=backend_recent_plan.
+        Full provenance assertion with real saved IDs."""
         _seed_session(db_session, project_id=None)
         msg_id = _seed_message(db_session)
-        _seed_event(db_session, sequence_no=1, project_id=None)
+        evt_id = _seed_event(db_session, sequence_no=1, project_id=None)
         _seed_workspace(db_session, project_id=None, topic="最近计划主题", version_no=1)
         plan = _seed_plan_version(
             db_session, version_no=1,
             formalization_target=FormalizationTarget.PLAN_REVISION,
             formalization_workspace_version=1,
             formalization_source_message_ids=[msg_id],
-            formalization_source_event_ids=[uuid4()],
+            formalization_source_event_ids=[evt_id],
             status=PlanVersionStatus.PENDING_CONFIRMATION,
         )
         db_session.commit()
@@ -551,10 +552,15 @@ class TestResumeBranches:
         data = resp.json()
         assert data["source"] == "backend_recent_plan"
         assert data["session"]["id"] == str(SESSION_ID)
+        assert data["session"]["project_id"] is None
         assert data["plan_version"]["id"] == str(plan.id)
         assert data["plan_version"]["status"] == "pending_confirmation"
         assert data["plan_version"]["formalization_target"] == "plan_revision"
         assert data["plan_version"]["formalization_workspace_version"] == 1
+        assert data["plan_version"]["formalization_source_message_ids"] == [str(msg_id)]
+        assert data["plan_version"]["formalization_source_event_ids"] == [str(evt_id)]
+        assert data["discussion_workspace"]["session_id"] == str(SESSION_ID)
+        assert data["discussion_workspace"]["project_id"] is None
         assert data["discussion_workspace"]["topic"] == "最近计划主题"
         assert data["discussion_workspace"]["version_no"] == 1
         assert data["existing_formalization_workspace_versions"] == [1]
@@ -625,6 +631,98 @@ class TestResumeBranches:
         assert data["session"]["id"] == str(SESSION_ID)
         assert data["session"]["project_id"] is None
         assert data["discussion_workspace"]["project_id"] is None
+
+    def test_project_and_new_project_same_db_isolation(self, db_session, client):
+        """project and new-project modes in same DB must not cross."""
+        # Project-bound session (project mode)
+        _seed_session(db_session, session_id=SESSION_ID, project_id=PROJECT_ID, goal_text="项目目标")
+        msg_proj = _seed_message(db_session, session_id=SESSION_ID, content="项目消息")
+        _seed_event(db_session, session_id=SESSION_ID, project_id=PROJECT_ID, sequence_no=1, content="项目主题")
+        _seed_event(db_session, session_id=SESSION_ID, project_id=PROJECT_ID, sequence_no=2, content="项目主题2")
+        _seed_workspace(db_session, session_id=SESSION_ID, project_id=PROJECT_ID,
+                        topic="项目模式主题", version_no=2, last_event_sequence_no=2)
+        plan_proj = _seed_plan_version(
+            db_session, session_id=SESSION_ID, version_no=1, project_id=PROJECT_ID,
+            formalization_target=FormalizationTarget.PLAN_REVISION,
+            formalization_workspace_version=1,
+            formalization_source_message_ids=[msg_proj],
+            formalization_source_event_ids=[uuid4()],
+            status=PlanVersionStatus.PENDING_CONFIRMATION,
+        )
+
+        # Unbound session (new-project mode)
+        _seed_session(db_session, session_id=SESSION_B_ID, project_id=None, goal_text="新项目目标")
+        msg_new = _seed_message(db_session, session_id=SESSION_B_ID, content="新项目消息")
+        for sn in range(1, 5):
+            _seed_event(db_session, session_id=SESSION_B_ID, project_id=None,
+                        sequence_no=sn, content=f"新项目事件{sn}")
+        _seed_workspace(db_session, session_id=SESSION_B_ID, project_id=None,
+                        topic="新项目模式主题", version_no=4, last_event_sequence_no=4)
+        _seed_plan_version(
+            db_session, session_id=SESSION_B_ID, version_no=1,
+            formalization_target=FormalizationTarget.PLAN_REVISION,
+            formalization_workspace_version=2,
+            formalization_source_message_ids=[msg_new],
+            formalization_source_event_ids=[uuid4()],
+        )
+        plan_new = _seed_plan_version(
+            db_session, session_id=SESSION_B_ID, version_no=2,
+            formalization_target=FormalizationTarget.PLAN_REVISION,
+            formalization_workspace_version=4,
+            formalization_source_message_ids=[msg_new],
+            formalization_source_event_ids=[uuid4()],
+            status=PlanVersionStatus.CONFIRMED,
+        )
+        db_session.commit()
+
+        # Resume project mode (no session_id → recent-plan picks project session)
+        resp_proj = client.get("/project-director/workbench/resume",
+                               params={"mode": "project", "project_id": str(PROJECT_ID)})
+        assert resp_proj.status_code == 200
+        dp = resp_proj.json()
+
+        # Resume new-project mode (no session_id → recent-plan picks unbound session)
+        resp_new = client.get("/project-director/workbench/resume",
+                              params={"mode": "new-project"})
+        assert resp_new.status_code == 200
+        dn = resp_new.json()
+
+        # project mode assertions
+        assert dp["source"] == "backend_recent_plan"
+        assert dp["session"]["id"] == str(SESSION_ID)
+        assert dp["session"]["project_id"] == str(PROJECT_ID)
+        assert dp["discussion_workspace"]["session_id"] == str(SESSION_ID)
+        assert dp["discussion_workspace"]["project_id"] == str(PROJECT_ID)
+        assert dp["discussion_workspace"]["topic"] == "项目模式主题"
+        assert dp["discussion_workspace"]["version_no"] == 2
+        assert dp["plan_version"]["id"] == str(plan_proj.id)
+        assert dp["plan_version"]["project_id"] == str(PROJECT_ID)
+        assert dp["existing_formalization_workspace_versions"] == [1]
+
+        # new-project mode assertions
+        assert dn["source"] == "backend_recent_plan"
+        assert dn["session"]["id"] == str(SESSION_B_ID)
+        assert dn["session"]["project_id"] is None
+        assert dn["discussion_workspace"]["session_id"] == str(SESSION_B_ID)
+        assert dn["discussion_workspace"]["project_id"] is None
+        assert dn["discussion_workspace"]["topic"] == "新项目模式主题"
+        assert dn["discussion_workspace"]["version_no"] == 4
+        assert dn["plan_version"]["id"] == str(plan_new.id)
+        assert dn["plan_version"]["project_id"] is None
+        assert dn["existing_formalization_workspace_versions"] == [2, 4]
+
+        # No cross: project mode did not return unbound session data
+        assert dp["session"]["id"] != dn["session"]["id"]
+        assert dp["plan_version"]["id"] != dn["plan_version"]["id"]
+        assert dp["discussion_workspace"]["session_id"] != dn["discussion_workspace"]["session_id"]
+        assert dp["discussion_workspace"]["topic"] != dn["discussion_workspace"]["topic"]
+        assert dp["existing_formalization_workspace_versions"] != dn["existing_formalization_workspace_versions"]
+        # project mode must not return unbound session's identifiers
+        assert dp["session"]["id"] != str(SESSION_B_ID)
+        assert dp["plan_version"]["id"] != str(plan_new.id)
+        # new-project mode must not return project session's identifiers
+        assert dn["session"]["id"] != str(SESSION_ID)
+        assert dn["plan_version"]["id"] != str(plan_proj.id)
 
     def test_context_mismatch_422(self, db_session, client):
         _seed_session(db_session, project_id=PROJECT_ID)
@@ -791,49 +889,51 @@ class TestResumeReadOnly:
     def test_resume_no_side_effects_full_snapshot(self, db_session_factory, client):
         setup = db_session_factory()
         try:
-            _seed_session(setup, project_id=None, goal_text="快照目标")
+            _seed_project(setup, project_id=PROJECT_ID, name="快照项目")
+            _seed_session(setup, project_id=PROJECT_ID, goal_text="快照目标")
             msg_id = _seed_message(setup, content="快照消息")
-            evt_id = _seed_event(setup, sequence_no=1, project_id=None, content="快照事件")
-            _seed_workspace(setup, project_id=None, topic="快照主题",
+            evt_id = _seed_event(setup, sequence_no=1, content="快照事件")
+            _seed_workspace(setup, topic="快照主题",
                             discussion_status=DiscussionStatus.READY_TO_FORMALIZE)
-            # Create 2 plan versions: 1 formalized rejected + 1 plain pending
+            # 2 plan versions with project_id bound to real Project
             _seed_plan_version(
-                setup, version_no=1,
+                setup, version_no=1, project_id=PROJECT_ID,
                 formalization_target=FormalizationTarget.PLAN_REVISION,
                 formalization_workspace_version=1,
                 formalization_source_message_ids=[msg_id],
                 formalization_source_event_ids=[evt_id],
                 status=PlanVersionStatus.REJECTED,
             )
-            _seed_plan_version(setup, version_no=2, status=PlanVersionStatus.PENDING_CONFIRMATION)
+            _seed_plan_version(setup, version_no=2, project_id=PROJECT_ID,
+                               status=PlanVersionStatus.PENDING_CONFIRMATION)
             setup.commit()
 
-            assert _count(setup, ProjectDirectorPlanVersionTable) == 2
+            pre = _snapshot_state(setup, SESSION_ID, PROJECT_ID)
 
-            pre = _snapshot_state(setup, SESSION_ID, None)
+            # Pre-conditions: Project is non-empty, counts correct
+            assert pre["project"] is not None
+            assert pre["project"]["id"] == PROJECT_ID
+            assert pre["counts"]["project"] == 1
+            assert pre["counts"]["pv"] == 2
         finally:
             setup.close()
 
-        # Call Resume
+        # Call Resume via project mode (hits the bound session)
         resp = client.get("/project-director/workbench/resume",
-                          params={"mode": "new-project", "session_id": str(SESSION_ID)})
+                          params={"mode": "project", "project_id": str(PROJECT_ID),
+                                  "session_id": str(SESSION_ID)})
         assert resp.status_code == 200
 
         # Fresh session readback
         fresh = db_session_factory()
         try:
-            post = _snapshot_state(fresh, SESSION_ID, None)
+            post = _snapshot_state(fresh, SESSION_ID, PROJECT_ID)
 
             # Full snapshot equality
-            assert post["project"] == pre["project"]
-            assert post["session"] == pre["session"]
-            assert post["messages"] == pre["messages"]
-            assert post["events"] == pre["events"]
-            assert post["workspace"] == pre["workspace"]
-            assert post["plan_versions"] == pre["plan_versions"]
-            assert post["counts"] == pre["counts"]
+            assert post == pre
 
             # Explicit minimum counts
+            assert post["counts"]["project"] == 1
             assert post["counts"]["session"] >= 1
             assert post["counts"]["msg"] >= 1
             assert post["counts"]["evt"] >= 1
