@@ -150,11 +150,11 @@ assert.match(
 );
 assert.match(
   directorAdapterSurfaceSource,
-  /const promptBox = <WorkbenchPromptBox onSend=\{adapter\.handlePromptSend\} \/>;/,
+  /<WorkbenchPromptBox[\s\S]*?onSend=\{adapter\.handlePromptSend\}/,
   "Real project-director adapter should send through the experiment PromptBox",
 );
 assert.equal(
-  (directorAdapterSurfaceSource.match(/<WorkbenchPromptBox /g) ?? []).length,
+  (directorAdapterSurfaceSource.match(/<WorkbenchPromptBox/g) ?? []).length,
   1,
   "Real project-director adapter should render exactly one experiment PromptBox",
 );

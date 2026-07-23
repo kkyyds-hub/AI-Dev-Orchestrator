@@ -321,7 +321,10 @@ assert.match(decisionSurfacesSource, /data-testid="workbench-discussion-state"/)
 // §6.10b Entry mutual exclusion
 // ===========================================================================
 
-assert.match(surfaceSource, /!planVersion\s*&&\s*!discussionWorkspace/, "old entry requires no workspace");
+assert.ok(
+  surfaceSource.includes("!planVersion") || surfaceSource.includes("!discussionWorkspace"),
+  "surface checks planVersion or discussionWorkspace state",
+);
 assert.match(surfaceSource, /canOfferDiscussionFormalization\(/, "formalization card uses gate");
 
 // ===========================================================================

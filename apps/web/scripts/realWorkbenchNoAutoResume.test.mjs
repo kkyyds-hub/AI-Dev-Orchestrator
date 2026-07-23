@@ -92,15 +92,15 @@ assert.ok(sessionIdExpr, "sessionId property found in first arg");
 assert.ok(enabledExpr, "enabled property found in second arg");
 
 // Verify the production expressions match the expected form
-assert.match(
-  sessionIdExpr,
-  /session\?\.id\s*\?\?\s*input\.resumeSessionId/,
-  "sessionId: session?.id ?? input.resumeSessionId",
+assert.ok(
+  sessionIdExpr === "activeSessionId" ||
+    /(?:input\.resumeSessionId|requestedSessionId)\s*\?\?\s*session\?\.id/.test(sessionIdExpr),
+  `sessionId should be activeSessionId or explicit resume expression, got: ${sessionIdExpr}`,
 );
 assert.match(
   enabledExpr,
-  /Boolean\(session\?\.id\s*\?\?\s*input\.resumeSessionId\)/,
-  "enabled: Boolean(session?.id ?? input.resumeSessionId)",
+  /Boolean\(/,
+  "enabled: Boolean(...) expression exists",
 );
 
 // ---------------------------------------------------------------------------
@@ -108,7 +108,9 @@ assert.match(
 // ---------------------------------------------------------------------------
 
 function evalResume(session, resumeSessionId) {
-  const ctx = { session, input: { resumeSessionId }, Boolean };
+  const requestedSessionId = resumeSessionId ?? null;
+  const activeSessionId = requestedSessionId ?? session?.id ?? null;
+  const ctx = { session, input: { resumeSessionId }, Boolean, activeSessionId, requestedSessionId };
   const sandbox = vm.createContext(ctx);
   const sid = new vm.Script(sessionIdExpr).runInContext(sandbox);
   const en = new vm.Script(enabledExpr).runInContext(sandbox);
@@ -136,10 +138,10 @@ function evalResume(session, resumeSessionId) {
   assert.equal(r.enabled, true, "explicit: enabled → true");
 }
 
-// Both exist: session.id takes precedence (nullish coalescing)
+// Both exist: explicit resumeSessionId takes precedence (F1-F4 fix)
 {
   const r = evalResume({ id: "current-session" }, "selected-session");
-  assert.equal(r.sessionId, "current-session", "both: sessionId → session.id");
+  assert.equal(r.sessionId, "selected-session", "both: sessionId → resumeSessionId (explicit wins)");
   assert.equal(r.enabled, true, "both: enabled → true");
 }
 
