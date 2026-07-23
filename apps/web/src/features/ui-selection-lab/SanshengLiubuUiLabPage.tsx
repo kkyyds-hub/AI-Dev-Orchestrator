@@ -660,13 +660,16 @@ export function WorkbenchPreview({
   }, []);
 
   const toggleProject = useCallback((projectGroup: ProjectGroup) => {
+    const isUnboundSessionGroup = projectGroup.id === "new-project";
     setActiveMainPage(null);
-    setWorkbenchMode("project");
-    setActiveProjectId(projectGroup.id);
+    setWorkbenchMode(isUnboundSessionGroup ? "new-project" : "project");
+    setActiveProjectId(isUnboundSessionGroup ? null : projectGroup.id);
     setActiveConversationId(null);
     setTopContext({
       title: projectGroup.name,
-      subtitle: "项目上下文 · 准备开始新讨论",
+      subtitle: isUnboundSessionGroup
+        ? "未绑定项目 · 准备开始新讨论"
+        : "项目上下文 · 准备开始新讨论",
       status: "ready",
     });
     setCollapsedProjects((prev) => {
@@ -682,13 +685,14 @@ export function WorkbenchPreview({
 
   const handleSelectConversation = useCallback(
     (conv: Conversation, projectGroup: ProjectGroup) => {
+      const isUnboundSession = projectGroup.id === "new-project";
       setActiveMainPage(null);
-      setWorkbenchMode("project");
-      setActiveProjectId(projectGroup.id);
+      setWorkbenchMode(isUnboundSession ? "new-project" : "project");
+      setActiveProjectId(isUnboundSession ? null : projectGroup.id);
       setActiveConversationId(conv.id);
       setTopContext({
         title: conv.title,
-        subtitle: `${projectGroup.name} · 对话中 · ${conv.status}`,
+        subtitle: `${isUnboundSession ? "未绑定项目" : projectGroup.name} · 对话中 · ${conv.status}`,
         status: conv.status,
       });
     },

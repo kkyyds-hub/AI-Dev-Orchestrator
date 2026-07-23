@@ -86,20 +86,40 @@ export function ProjectDirectorWorkbenchSurface({
   mode,
 }: ProjectDirectorWorkbenchSurfaceProps) {
   const selectedProjectId =
-    context.activeProjectId && !context.activeProjectId.startsWith("project:")
-      ? context.activeProjectId
-      : fallbackProjectId;
+    mode === "project"
+      ? context.activeProjectId && !context.activeProjectId.startsWith("project:")
+        ? context.activeProjectId
+        : fallbackProjectId
+      : null;
   const selectedProjectName = context.activeProjectName ?? fallbackProjectName;
   const resumeSessionId =
     context.activeConversationId && !context.activeConversationId.startsWith("project:")
       ? context.activeConversationId
       : null;
+  const selectionKey = `${mode}:${selectedProjectId ?? "none"}:${resumeSessionId ?? "none"}`;
 
+  return (
+    <ProjectDirectorWorkbenchSelection
+      key={selectionKey}
+      mode={mode}
+      projectId={selectedProjectId}
+      projectName={selectedProjectName}
+      resumeSessionId={resumeSessionId}
+    />
+  );
+}
+
+function ProjectDirectorWorkbenchSelection(input: {
+  mode: "new-project" | "project";
+  projectId: string | null;
+  projectName: string;
+  resumeSessionId: string | null;
+}) {
   const adapter = useProjectDirectorWorkbenchAdapter({
-    mode,
-    projectId: selectedProjectId,
-    projectName: selectedProjectName,
-    resumeSessionId,
+    mode: input.mode,
+    projectId: input.projectId,
+    projectName: input.projectName,
+    resumeSessionId: input.resumeSessionId,
   });
 
   const promptBox = (
@@ -164,6 +184,10 @@ function useProjectDirectorWorkbenchAdapter(input: {
   const contextKey = `${input.mode}:${input.projectId ?? "none"}:${input.resumeSessionId ?? "none"}`;
   const contextKeyRef = useRef(contextKey);
   const pendingPromptIdRef = useRef(0);
+  const requestedMode = input.mode;
+  const requestedProjectId = requestedMode === "project" ? input.projectId : null;
+  const requestedSessionId = input.resumeSessionId;
+  const activeSessionId = requestedSessionId ?? session?.id ?? null;
 
   const createSessionMutation = useCreateProjectDirectorSession();
   const postMessageMutation = usePostProjectDirectorSessionMessage();
@@ -173,13 +197,13 @@ function useProjectDirectorWorkbenchAdapter(input: {
   const createTaskQueueMutation = useCreateProjectDirectorTaskQueue();
   const formalizeDiscussionMutation = useFormalizeProjectDirectorDiscussion();
   const resumeQuery = useProjectDirectorWorkbenchResume({
-    mode: input.mode,
-    projectId: input.mode === "project" ? input.projectId : null,
-    sessionId: session?.id ?? input.resumeSessionId,
+    mode: requestedMode,
+    projectId: requestedProjectId,
+    sessionId: activeSessionId,
   }, {
-    enabled: Boolean(session?.id ?? input.resumeSessionId),
+    enabled: Boolean(activeSessionId),
   });
-  const messagesQuery = useProjectDirectorSessionMessages(session?.id ?? null);
+  const messagesQuery = useProjectDirectorSessionMessages(activeSessionId);
 
   useEffect(() => {
     contextKeyRef.current = contextKey;
@@ -206,10 +230,17 @@ function useProjectDirectorWorkbenchAdapter(input: {
 
   useEffect(() => {
     const resume = resumeQuery.data;
-    if (!resume?.session) {
-      return;
-    }
-    if (contextKeyRef.current !== contextKey) {
+    if (
+      !resume?.session ||
+      contextKeyRef.current !== contextKey ||
+      !isSessionForSelection(
+        resume.session,
+        requestedMode,
+        requestedProjectId,
+        activeSessionId,
+      ) ||
+      !areMessagesForSession(resume.recent_messages ?? [], resume.session.id)
+    ) {
       return;
     }
 
@@ -227,16 +258,27 @@ function useProjectDirectorWorkbenchAdapter(input: {
         : null,
     );
     setStatusMessage(resume.next_action || null);
-  }, [contextKey, resumeQuery.data]);
+  }, [
+    activeSessionId,
+    contextKey,
+    requestedMode,
+    requestedProjectId,
+    resumeQuery.data,
+  ]);
 
   useEffect(() => {
-    if (messagesQuery.data?.messages) {
-      if (contextKeyRef.current !== contextKey) {
-        return;
-      }
-      setMessageTimeline(messagesQuery.data.messages);
+    const response = messagesQuery.data;
+    if (
+      !response ||
+      !activeSessionId ||
+      contextKeyRef.current !== contextKey ||
+      response.session_id !== activeSessionId ||
+      !areMessagesForSession(response.messages, activeSessionId)
+    ) {
+      return;
     }
-  }, [contextKey, messagesQuery.data]);
+    setMessageTimeline(response.messages);
+  }, [activeSessionId, contextKey, messagesQuery.data]);
 
   const isMutating =
     createSessionMutation.isPending ||
@@ -261,6 +303,7 @@ function useProjectDirectorWorkbenchAdapter(input: {
 
     if (session) {
       const requestContextKey = contextKeyRef.current;
+      const requestSessionId = session.id;
       setPendingPrompt({
         id: `pending-${++pendingPromptIdRef.current}`,
         content: trimmed,
@@ -269,10 +312,17 @@ function useProjectDirectorWorkbenchAdapter(input: {
       setPromptError(null);
       try {
         const result = await postMessageMutation.mutateAsync({
-          sessionId: session.id,
+          sessionId: requestSessionId,
           content: trimmed,
         });
-        if (contextKeyRef.current !== requestContextKey) {
+        if (
+          contextKeyRef.current !== requestContextKey ||
+          result.session_id !== requestSessionId ||
+          !areMessagesForSession(
+            [result.user_message, result.assistant_message],
+            requestSessionId,
+          )
+        ) {
           return false;
         }
         setMessageTimeline((current) =>
@@ -283,7 +333,16 @@ function useProjectDirectorWorkbenchAdapter(input: {
         setFormalizationError(null);
         setStatusMessage("AI 项目主管已回复。");
         const resumeResult = await resumeQuery.refetch();
-        if (contextKeyRef.current === requestContextKey && resumeResult.data?.session) {
+        if (
+          contextKeyRef.current === requestContextKey &&
+          resumeResult.data?.session &&
+          isSessionForSelection(
+            resumeResult.data.session,
+            requestedMode,
+            requestedProjectId,
+            requestSessionId,
+          )
+        ) {
           setDiscussionWorkspace(resumeResult.data.discussion_workspace);
           setPlanVersion(resumeResult.data.plan_version);
           setTaskCreation(resumeResult.data.task_creation);
@@ -315,6 +374,16 @@ function useProjectDirectorWorkbenchAdapter(input: {
         constraints: "",
       });
       if (contextKeyRef.current !== requestContextKey) {
+        return false;
+      }
+      if (
+        !isSessionForSelection(
+          createdSession,
+          requestedMode,
+          requestedProjectId,
+          createdSession.id,
+        )
+      ) {
         return false;
       }
       setPendingPrompt(null);
@@ -356,6 +425,16 @@ function useProjectDirectorWorkbenchAdapter(input: {
     if (contextKeyRef.current !== requestContextKey) {
       return;
     }
+    if (
+      !isSessionForSelection(
+        updatedSession,
+        requestedMode,
+        requestedProjectId,
+        session.id,
+      )
+    ) {
+      return;
+    }
     setSession(updatedSession);
     setStatusMessage(updatedSession.next_action);
   }
@@ -370,6 +449,16 @@ function useProjectDirectorWorkbenchAdapter(input: {
       sessionId: session.id,
     });
     if (contextKeyRef.current !== requestContextKey) {
+      return;
+    }
+    if (
+      !isSessionForSelection(
+        updatedSession,
+        requestedMode,
+        requestedProjectId,
+        session.id,
+      )
+    ) {
       return;
     }
     setSession(updatedSession);
@@ -448,7 +537,10 @@ function useProjectDirectorWorkbenchAdapter(input: {
         sessionId: session.id,
         workspaceVersion: discussionWorkspace.version_no,
       });
-      if (contextKeyRef.current !== requestContextKey) {
+      if (
+        contextKeyRef.current !== requestContextKey ||
+        result.session_id !== session.id
+      ) {
         return;
       }
       setPlanVersion(result.plan_version);
@@ -468,7 +560,20 @@ function useProjectDirectorWorkbenchAdapter(input: {
         setFormalizationProposal(null);
         setFormalizationError("讨论状态已更新，请重新确认");
         const resumeResult = await resumeQuery.refetch();
-        if (contextKeyRef.current === requestContextKey && resumeResult.data?.session) {
+        if (
+          contextKeyRef.current === requestContextKey &&
+          resumeResult.data?.session &&
+          isSessionForSelection(
+            resumeResult.data.session,
+            requestedMode,
+            requestedProjectId,
+            session.id,
+          ) &&
+          areMessagesForSession(
+            resumeResult.data.recent_messages ?? [],
+            session.id,
+          )
+        ) {
           setSession(resumeResult.data.session);
           setPlanVersion(resumeResult.data.plan_version);
           setTaskCreation(resumeResult.data.task_creation);
@@ -712,6 +817,27 @@ function buildDirectorMessages(input: {
   }
 
   return result;
+}
+
+function isSessionForSelection(
+  session: ProjectDirectorSession,
+  mode: "new-project" | "project",
+  projectId: string | null,
+  sessionId: string | null,
+): boolean {
+  if (!sessionId || session.id !== sessionId) {
+    return false;
+  }
+  return mode === "project"
+    ? session.project_id === projectId
+    : session.project_id === null;
+}
+
+function areMessagesForSession(
+  messages: ProjectDirectorMessage[],
+  sessionId: string,
+): boolean {
+  return messages.every((message) => message.session_id === sessionId);
 }
 
 function mapProjectDirectorMessage(message: ProjectDirectorMessage): MockMessage {
