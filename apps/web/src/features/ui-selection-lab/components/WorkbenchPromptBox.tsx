@@ -2,31 +2,41 @@ import { ArrowUp } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
 interface WorkbenchPromptBoxProps {
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<boolean> | boolean | void;
 }
 
 export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasText = text.trim().length > 0;
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    onSend(trimmed);
-    setText("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+    if (!trimmed || isSending) return;
+    setIsSending(true);
+    try {
+      const succeeded = await onSend(trimmed);
+      if (succeeded !== false) {
+        setText("");
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto";
+        }
+      }
+    } catch {
+      // Keep the draft intact when an unexpected sender error escapes.
+    } finally {
+      setIsSending(false);
     }
-  }, [text, onSend]);
+  }, [isSending, onSend, text]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        handleSend();
+        void handleSend();
       }
     },
     [handleSend],
@@ -69,8 +79,11 @@ export function WorkbenchPromptBox({ onSend }: WorkbenchPromptBoxProps) {
               ? "bg-white text-black hover:bg-[#E7E7E7]"
               : "bg-[#2C2C2C] text-[#5F5F5F]"
           }`}
-          onClick={handleSend}
-          disabled={!hasText}
+          onClick={() => {
+            void handleSend();
+          }}
+          disabled={!hasText || isSending}
+          aria-busy={isSending}
           aria-label="发送"
         >
           <ArrowUp className="h-4 w-4" />

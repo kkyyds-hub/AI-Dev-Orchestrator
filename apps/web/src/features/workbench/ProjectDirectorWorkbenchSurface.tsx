@@ -43,6 +43,11 @@ type ProjectDirectorWorkbenchSurfaceProps = {
   mode: "new-project" | "project";
 };
 
+type PendingPrompt = {
+  content: string;
+  kind: "create_session" | "post_message";
+};
+
 function canOfferDiscussionFormalization(input: {
   workspace: ProjectDirectorDiscussionWorkspace | null;
   proposal: ProjectDirectorFormalizationProposal | null;
@@ -137,6 +142,8 @@ function useProjectDirectorWorkbenchAdapter(input: {
   const [taskCreation, setTaskCreation] =
     useState<ProjectDirectorTaskCreationResponse | null>(null);
   const [messageTimeline, setMessageTimeline] = useState<ProjectDirectorMessage[]>([]);
+  const [pendingPrompt, setPendingPrompt] = useState<PendingPrompt | null>(null);
+  const [promptError, setPromptError] = useState<string | null>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [planFeedback, setPlanFeedback] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -171,6 +178,11 @@ function useProjectDirectorWorkbenchAdapter(input: {
 
   useEffect(() => {
     contextKeyRef.current = contextKey;
+  }, [contextKey]);
+
+  useEffect(() => {
+    setPendingPrompt(null);
+    setPromptError(null);
   }, [contextKey]);
 
   useEffect(() => {
@@ -237,56 +249,79 @@ function useProjectDirectorWorkbenchAdapter(input: {
     (question) => (answerDrafts[question.id] ?? "").trim().length > 0,
   );
 
-  async function handlePromptSend(text: string) {
+  async function handlePromptSend(text: string): Promise<boolean> {
     const trimmed = text.trim();
     if (!trimmed || isMutating) {
-      return;
+      return false;
     }
 
     if (session) {
       const requestContextKey = contextKeyRef.current;
-      const result = await postMessageMutation.mutateAsync({
-        sessionId: session.id,
-        content: trimmed,
-      });
-      if (contextKeyRef.current !== requestContextKey) {
-        return;
-      }
-      setMessageTimeline((current) =>
-        mergeProjectDirectorMessages(current, [result.user_message, result.assistant_message]),
-      );
-      setFormalizationProposal(result.formalization_proposal);
-      setFormalizationError(null);
-      setStatusMessage("AI 项目主管已回复。");
-      const resumeResult = await resumeQuery.refetch();
-      if (contextKeyRef.current === requestContextKey && resumeResult.data?.session) {
-        setDiscussionWorkspace(resumeResult.data.discussion_workspace);
-        setPlanVersion(resumeResult.data.plan_version);
-        setTaskCreation(resumeResult.data.task_creation);
-        setExistingFormalizationWorkspaceVersions(
-          resumeResult.data.existing_formalization_workspace_versions ?? [],
+      setPendingPrompt({ content: trimmed, kind: "post_message" });
+      setPromptError(null);
+      try {
+        const result = await postMessageMutation.mutateAsync({
+          sessionId: session.id,
+          content: trimmed,
+        });
+        if (contextKeyRef.current !== requestContextKey) {
+          return false;
+        }
+        setMessageTimeline((current) =>
+          mergeProjectDirectorMessages(current, [result.user_message, result.assistant_message]),
         );
+        setPendingPrompt(null);
+        setFormalizationProposal(result.formalization_proposal);
+        setFormalizationError(null);
+        setStatusMessage("AI 项目主管已回复。");
+        const resumeResult = await resumeQuery.refetch();
+        if (contextKeyRef.current === requestContextKey && resumeResult.data?.session) {
+          setDiscussionWorkspace(resumeResult.data.discussion_workspace);
+          setPlanVersion(resumeResult.data.plan_version);
+          setTaskCreation(resumeResult.data.task_creation);
+          setExistingFormalizationWorkspaceVersions(
+            resumeResult.data.existing_formalization_workspace_versions ?? [],
+          );
+        }
+        return true;
+      } catch {
+        if (contextKeyRef.current === requestContextKey) {
+          setPendingPrompt(null);
+          setPromptError("消息发送失败，请重试。");
+        }
+        return false;
       }
-      return;
     }
 
     const requestContextKey = contextKeyRef.current;
-    const createdSession = await createSessionMutation.mutateAsync({
-      goal_text: trimmed,
-      project_id: input.mode === "project" ? input.projectId : null,
-      constraints: "",
-    });
-    if (contextKeyRef.current !== requestContextKey) {
-      return;
+    setPendingPrompt({ content: trimmed, kind: "create_session" });
+    setPromptError(null);
+    try {
+      const createdSession = await createSessionMutation.mutateAsync({
+        goal_text: trimmed,
+        project_id: input.mode === "project" ? input.projectId : null,
+        constraints: "",
+      });
+      if (contextKeyRef.current !== requestContextKey) {
+        return false;
+      }
+      setPendingPrompt(null);
+      setSession(createdSession);
+      setPlanVersion(null);
+      setTaskCreation(null);
+      setDiscussionWorkspace(null);
+      setFormalizationProposal(null);
+      setFormalizationError(null);
+      setExistingFormalizationWorkspaceVersions([]);
+      setStatusMessage(createdSession.next_action);
+      return true;
+    } catch {
+      if (contextKeyRef.current === requestContextKey) {
+        setPendingPrompt(null);
+        setPromptError("消息发送失败，请重试。");
+      }
+      return false;
     }
-    setSession(createdSession);
-    setPlanVersion(null);
-    setTaskCreation(null);
-    setDiscussionWorkspace(null);
-    setFormalizationProposal(null);
-    setFormalizationError(null);
-    setExistingFormalizationWorkspaceVersions([]);
-    setStatusMessage(createdSession.next_action);
   }
 
   async function handleSubmitAnswers() {
@@ -462,6 +497,8 @@ function useProjectDirectorWorkbenchAdapter(input: {
         messages: messageTimeline,
         statusMessage,
         isLoading: resumeQuery.isLoading && Boolean(input.resumeSessionId),
+        pendingPrompt,
+        promptError,
         errorMessage:
           createSessionMutation.error?.message ??
           postMessageMutation.error?.message ??
@@ -474,6 +511,8 @@ function useProjectDirectorWorkbenchAdapter(input: {
       messageTimeline,
       messagesQuery.error?.message,
       postMessageMutation.error?.message,
+      pendingPrompt,
+      promptError,
       resumeQuery.isLoading,
       session,
       statusMessage,
@@ -566,6 +605,7 @@ function useProjectDirectorWorkbenchAdapter(input: {
     showWelcome:
       !session &&
       messageTimeline.length === 0 &&
+      !pendingPrompt &&
       !resumeQuery.isLoading &&
       !createSessionMutation.isError &&
       !postMessageMutation.isError &&
@@ -617,34 +657,31 @@ function buildDirectorMessages(input: {
   messages: ProjectDirectorMessage[];
   statusMessage: string | null;
   isLoading: boolean;
+  pendingPrompt: PendingPrompt | null;
+  promptError: string | null;
   errorMessage: string | null;
 }): MockMessage[] {
+  let result: MockMessage[];
   if (input.messages.length > 0) {
-    return input.messages.map(mapProjectDirectorMessage);
-  }
-
-  if (input.errorMessage) {
-    return [
+    result = input.messages.map(mapProjectDirectorMessage);
+  } else if (input.errorMessage) {
+    result = [
       {
         role: "assistant",
         content: `读取 AI 主管会话失败：${input.errorMessage}`,
         time: "刚刚",
       },
     ];
-  }
-
-  if (input.isLoading) {
-    return [
+  } else if (input.isLoading) {
+    result = [
       {
         role: "assistant",
         content: "正在恢复 AI 主管会话...",
         time: "刚刚",
       },
     ];
-  }
-
-  if (input.session) {
-    return [
+  } else if (input.session) {
+    result = [
       {
         role: "user",
         content: input.session.goal_text,
@@ -659,15 +696,47 @@ function buildDirectorMessages(input: {
         time: formatTime(input.session.updated_at),
       },
     ];
+  } else {
+    result = [
+      {
+        role: "assistant",
+        content: "创建一个项目或选择一个已有项目来开始。",
+        time: "刚刚",
+      },
+    ];
   }
 
-  return [
-    {
+  if (input.pendingPrompt) {
+    const hasPersistedUserMessage = input.messages.some(
+      (message) =>
+        message.role === "user" && message.content === input.pendingPrompt?.content,
+    );
+    if (!hasPersistedUserMessage) {
+      result.push({
+        role: "user",
+        content: input.pendingPrompt.content,
+        time: "刚刚",
+      });
+    }
+    result.push({
       role: "assistant",
-      content: "创建一个项目或选择一个已有项目来开始。",
+      content:
+        input.pendingPrompt.kind === "create_session"
+          ? "正在创建会话并准备澄清问题..."
+          : "正在发送消息...",
       time: "刚刚",
-    },
-  ];
+    });
+  }
+
+  if (input.promptError) {
+    result.push({
+      role: "assistant",
+      content: input.promptError,
+      time: "刚刚",
+    });
+  }
+
+  return result;
 }
 
 function mapProjectDirectorMessage(message: ProjectDirectorMessage): MockMessage {

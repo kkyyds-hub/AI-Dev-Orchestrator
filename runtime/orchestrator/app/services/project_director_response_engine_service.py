@@ -237,10 +237,13 @@ class ProjectDirectorResponseEngineService:
                 "DiscussionDelta is only a proposal and must not be described as written.",
                 "Only an explicit formalization request may include FormalizationProposal.",
                 "Return exactly one JSON object and no Markdown code fence.",
+                "turn_interpretation must be an exact copy of caller_interpretation.",
+                "Do not wrap caller_interpretation under an interpretation key.",
+                "For ordinary discussion, use discussion_delta={\"operations\": []} and formalization_proposal=null.",
             ],
             "output_schema": {
                 "answer": "user-visible natural response",
-                "turn_interpretation": {},
+                "turn_interpretation": interpretation.model_dump(mode="json"),
                 "discussion_delta": {"operations": []},
                 "formalization_proposal": None,
                 "requires_confirmation": False,
@@ -422,11 +425,20 @@ class ProjectDirectorResponseEngineService:
     ) -> tuple[DirectorResponseEnvelope | None, str]:
         text = output_text.strip()
         fence = chr(96) * 3
-        if text.startswith(f"{fence}json") and text.endswith(fence):
-            text = text[7:-3].strip()
+        if text.startswith(fence):
+            lines = text.splitlines()
+            if (
+                len(lines) < 2
+                or lines[0].strip().lower() not in {fence, f"{fence}json"}
+                or lines[-1].strip() != fence
+            ):
+                return None, "provider_response_not_json"
+            text = "\n".join(lines[1:-1]).strip()
         try:
-            raw = json.loads(text)
+            raw, end = json.JSONDecoder().raw_decode(text)
         except (TypeError, ValueError, json.JSONDecodeError):
+            return None, "provider_response_not_json"
+        if text[end:].strip():
             return None, "provider_response_not_json"
         if not isinstance(raw, dict):
             return None, "provider_response_not_object"

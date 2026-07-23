@@ -189,18 +189,37 @@ class OpenAIProviderExecutorService:
         request_id: str,
         prompt_key: str = "run_ai_summary",
         provider_key: str = "openai",
+        response_format: dict[str, Any] | None = None,
     ) -> OpenAIProviderExecutionResponse:
         """按 V1 兼容签名生成纯文本结果。"""
 
         normalized_provider_key = self._normalize_provider_key(provider_key)
-        response_payload, api_family, endpoint = self._execute_compat_request(
-            request_id=request_id,
-            model_name=model_name,
-            prompt_text=prompt_text,
-            prompt_key=prompt_key,
-            preferred_api_family=None,
-            tools=None,
-        )
+        try:
+            response_payload, api_family, endpoint = self._execute_compat_request(
+                request_id=request_id,
+                model_name=model_name,
+                prompt_text=prompt_text,
+                prompt_key=prompt_key,
+                preferred_api_family=None,
+                tools=None,
+                response_format=response_format,
+            )
+        except OpenAIProviderExecutionError as exc:
+            if not (
+                response_format is not None
+                and exc.category == "bad_request"
+                and "response_format" in exc.message.lower()
+            ):
+                raise
+            response_payload, api_family, endpoint = self._execute_compat_request(
+                request_id=request_id,
+                model_name=model_name,
+                prompt_text=prompt_text,
+                prompt_key=prompt_key,
+                preferred_api_family=None,
+                tools=None,
+                response_format=None,
+            )
         return self._build_execution_response(
             response_payload=response_payload,
             api_family=api_family,
@@ -274,6 +293,7 @@ class OpenAIProviderExecutorService:
         prompt_key: str,
         preferred_api_family: str | None,
         tools: list[dict[str, Any]] | None,
+        response_format: dict[str, Any] | None = None,
     ) -> tuple[object, str, str]:
         """按 API family 顺序尝试 SDK 调用，并保留 compatible gateway fallback。"""
 
@@ -302,6 +322,7 @@ class OpenAIProviderExecutorService:
                     request_id=request_id,
                     prompt_key=prompt_key,
                     tools=tools,
+                    response_format=response_format,
                 )
                 self._extract_output_text(response_payload, api_family=attempt.api_family)
                 logger.info(
@@ -341,6 +362,7 @@ class OpenAIProviderExecutorService:
         request_id: str,
         prompt_key: str,
         tools: list[dict[str, Any]] | None,
+        response_format: dict[str, Any] | None,
     ) -> object:
         """执行一次官方 SDK 调用；网络细节交给 SDK 处理。"""
 
@@ -357,6 +379,7 @@ class OpenAIProviderExecutorService:
                     request_id=request_id,
                     prompt_key=prompt_key,
                     tools=tools,
+                    response_format=response_format,
                 )
                 return client.chat.completions.create(**kwargs)
 
@@ -366,6 +389,7 @@ class OpenAIProviderExecutorService:
                 request_id=request_id,
                 prompt_key=prompt_key,
                 tools=tools,
+                response_format=response_format,
             )
             return client.responses.create(**kwargs)
         except OpenAIProviderExecutionError:
@@ -541,6 +565,7 @@ class OpenAIProviderExecutorService:
         request_id: str,
         prompt_key: str,
         tools: list[dict[str, Any]] | None,
+        response_format: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """把内部 prompt 文本适配成 Responses API 输入。"""
 
@@ -559,6 +584,8 @@ class OpenAIProviderExecutorService:
         }
         if tools:
             kwargs["tools"] = tools
+        if response_format:
+            kwargs["text"] = {"format": response_format}
         return kwargs
 
     @staticmethod
@@ -569,6 +596,7 @@ class OpenAIProviderExecutorService:
         request_id: str,
         prompt_key: str,
         tools: list[dict[str, Any]] | None,
+        response_format: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """把内部 prompt 文本适配成 Chat Completions messages。"""
 
@@ -582,6 +610,8 @@ class OpenAIProviderExecutorService:
         }
         if tools:
             kwargs["tools"] = tools
+        if response_format:
+            kwargs["response_format"] = response_format
         return kwargs
 
     def _extract_output_text(self, payload: object, *, api_family: str) -> str:

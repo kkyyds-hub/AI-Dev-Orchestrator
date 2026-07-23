@@ -543,6 +543,7 @@ class ProjectDirectorMessageService:
             model_name=model,
             prompt_text=prompt,
             request_id=request_id,
+            structured_output=True,
         )
 
     @staticmethod
@@ -2340,6 +2341,7 @@ class ProjectDirectorMessageService:
         model_name: str,
         prompt_text: str,
         request_id: str,
+        structured_output: bool = False,
     ) -> tuple[str, str | None]:
         from app.services.openai_provider_executor_service import (
             OpenAIProviderExecutorService,
@@ -2356,6 +2358,7 @@ class ProjectDirectorMessageService:
             request_id=request_id,
             prompt_key="project_director_chat_response",
             provider_key=runtime_config.detected_provider_type,
+            response_format={"type": "json_object"} if structured_output else None,
         )
         receipt_id = None
         if response.provider_usage_receipt is not None:
