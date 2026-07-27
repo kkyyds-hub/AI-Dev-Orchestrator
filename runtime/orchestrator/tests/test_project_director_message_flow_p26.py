@@ -300,7 +300,7 @@ def _make_route_app(db, *, provider_config_cls=None, fake_provider_func=None):
         msg_mod.ProviderConfigService = provider_config_cls
 
     if fake_provider_func is not None:
-        def _patched_ct(*, runtime_config, model_name, prompt_text, request_id):
+        def _patched_ct(*, runtime_config, model_name, prompt_text, request_id, structured_output=False):
             call_records.append(request_id)
             app_provider_models.append(model_name)
             return fake_provider_func(model_name, prompt_text, request_id)

@@ -321,10 +321,31 @@ assert.match(decisionSurfacesSource, /data-testid="workbench-discussion-state"/)
 // §6.10b Entry mutual exclusion
 // ===========================================================================
 
-assert.ok(
-  surfaceSource.includes("!planVersion") || surfaceSource.includes("!discussionWorkspace"),
-  "surface checks planVersion or discussionWorkspace state",
-);
+// Tightened: AST proof that workflowSurface does NOT render plan for confirmed sessions
+{
+  const workflowDecl = (() => {
+    let found = null;
+    function walk(node) {
+      if (ts.isVariableDeclaration(node) && node.name.getText(sf) === "workflowSurface") {
+        found = node;
+        return;
+      }
+      ts.forEachChild(node, walk);
+    }
+    walk(sf);
+    return found;
+  })();
+  assert.ok(workflowDecl, "workflowSurface declaration found");
+  const initText = workflowDecl.initializer.getText(sf);
+
+  // 1. confirmed status should NOT have an auto-generate plan branch
+  // The ternary should end with null (no plan rendering for confirmed)
+  assert.doesNotMatch(initText, /confirmed.*PlanVersion|confirmed.*planVersion/i,
+    "confirmed status should not auto-render plan");
+  // 2. No direct create-plan handler call in workflowSurface
+  assert.doesNotMatch(initText, /create.*plan|handleCreate/i,
+    "workflowSurface should not directly call create-plan handler");
+}
 assert.match(surfaceSource, /canOfferDiscussionFormalization\(/, "formalization card uses gate");
 
 // ===========================================================================
