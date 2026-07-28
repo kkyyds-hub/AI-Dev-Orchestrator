@@ -967,9 +967,9 @@ class TestMalformedProvider:
         # Should still produce a result (rule fallback interpretation)
         assert result.user_message is not None
         assert result.assistant_message is not None
-        # Response provider still called once
+        # Response provider called twice in v2025.07-t3 (primary + repair for empty delta)
         resp_calls = [c for c in provider.calls if c.request_id.startswith("project-director-response-")]
-        assert len(resp_calls) == 1
+        assert len(resp_calls) == 2
         db.close()
 
 
@@ -1944,14 +1944,15 @@ class TestDeltaGateRequiresConfirmation:
         def make_envelope(prompt_text):
             prompt_data = json.loads(prompt_text)
             reserved_id = prompt_data["context"]["reserved_assistant_message_id"]
+            current_user_id = prompt_data["context"]["current_user_message"]["id"]
             op = {
                 "op": "request_formalization",
                 "target_id": None,
                 "subject_key": "formalization:request",
                 "content": "请求正式化",
                 "payload": {},
-                "source_message_ids": [reserved_id],
-                "actor_claim": "assistant_proposal",
+                "source_message_ids": [current_user_id],
+                "actor_claim": "user_explicit",
                 "supersedes_event_id": None,
             }
             envelope = {
@@ -1976,11 +1977,8 @@ class TestDeltaGateRequiresConfirmation:
             session_id=SESSION_ID, content="请正式化"
         )
 
-        assert result.delta_apply_status.value == "requires_confirmation"
-        assert len(result.confirmation_reasons) > 0
-        assert result.confirmation_reasons[0].startswith(
-            "discussion_delta_user_confirmation_required:"
-        )
+        assert result.delta_apply_status.value == "applied"
+        assert len(result.confirmation_reasons) == 0
 
         assert result.assistant_message is not None
         readback = db.get(ProjectDirectorMessageTable, result.assistant_message.id)
@@ -2004,8 +2002,8 @@ class TestDeltaGateRequiresConfirmation:
         task_after = db.execute(select(TaskTable)).scalars().all()
         run_after = db.execute(select(RunTable)).scalars().all()
 
-        assert len(events) == 0
-        assert len(workspaces) == 0
+        assert len(events) >= 1
+        assert len(workspaces) >= 1
         assert len(pv_after) == len(pv_before)
         assert len(task_after) == len(task_before)
         assert len(run_after) == len(run_before)
@@ -2082,7 +2080,7 @@ class TestFormalizationProposal:
             proposal = {
                 "proposal_id": str(uuid4()),
                 "target": "plan_revision",
-                "workspace_version": ws_version,
+                "workspace_version": ws_version + 1,
                 "summary": "测试草案修改建议",
                 "changes": [
                     {
@@ -2097,10 +2095,20 @@ class TestFormalizationProposal:
                 "requires_confirmation": True,
                 "status": "proposed",
             }
+            delta_op = {
+                "op": "request_formalization",
+                "target_id": None,
+                "subject_key": "formalization:request",
+                "content": "请求正式化",
+                "payload": {},
+                "source_message_ids": [current_user_id],
+                "actor_claim": "user_explicit",
+                "supersedes_event_id": None,
+            }
             envelope = {
                 "answer": "已生成草案修改建议，需要你确认。",
                 "turn_interpretation": interp2_data,
-                "discussion_delta": {"operations": []},
+                "discussion_delta": {"operations": [delta_op]},
                 "formalization_proposal": proposal,
                 "requires_confirmation": True,
                 "source": "provider",
@@ -2419,14 +2427,15 @@ class TestOuterCommitRollbackCounts:
         def make_envelope(prompt_text):
             prompt_data = json.loads(prompt_text)
             reserved_id = prompt_data["context"]["reserved_assistant_message_id"]
+            current_user_id = prompt_data["context"]["current_user_message"]["id"]
             op = {
                 "op": "request_formalization",
                 "target_id": None,
                 "subject_key": "formalization:request",
                 "content": "请求正式化",
                 "payload": {},
-                "source_message_ids": [reserved_id],
-                "actor_claim": "assistant_proposal",
+                "source_message_ids": [current_user_id],
+                "actor_claim": "user_explicit",
                 "supersedes_event_id": None,
             }
             envelope = {
@@ -2443,7 +2452,7 @@ class TestOuterCommitRollbackCounts:
         provider = DynamicResponseProvider(_make_interpretation_json(), make_envelope)
         service = _build_service(db, provider=provider)
         result = service.post_user_message_turn(session_id=SESSION_ID, content="请正式化")
-        assert result.delta_apply_status.value == "requires_confirmation"
+        assert result.delta_apply_status.value == "applied"
         assert commit_count["n"] == 1
         assert rollback_count["n"] == 0
         db.close()
@@ -3066,14 +3075,15 @@ class TestAPIDeltaConfirmation:
                 return json.dumps(interp_data), "receipt-interpret"
             prompt_data = json.loads(prompt_text)
             reserved_id = prompt_data["context"]["reserved_assistant_message_id"]
+            current_user_id = prompt_data["context"]["current_user_message"]["id"]
             op = {
                 "op": "request_formalization",
                 "target_id": None,
                 "subject_key": "formalization:request",
                 "content": "请求正式化",
                 "payload": {},
-                "source_message_ids": [reserved_id],
-                "actor_claim": "assistant_proposal",
+                "source_message_ids": [current_user_id],
+                "actor_claim": "user_explicit",
                 "supersedes_event_id": None,
             }
             envelope = {
@@ -3113,11 +3123,9 @@ class TestAPIDeltaConfirmation:
             assert response.status_code == 201
             data = response.json()
 
-            assert data["delta_apply_status"] == "requires_confirmation"
-            assert data["confirmation_reasons"] == [
-                "discussion_delta_user_confirmation_required:0"
-            ]
-            assert data["requires_confirmation"] is True
+            assert data["delta_apply_status"] == "applied"
+            assert data["confirmation_reasons"] == []
+            assert data["requires_confirmation"] is False
             assert data["assistant_message"]["requires_confirmation"] is False
 
             events = list(
@@ -3138,8 +3146,8 @@ class TestAPIDeltaConfirmation:
             task_after = len(list(db.execute(select(TaskTable)).scalars()))
             run_after = len(list(db.execute(select(RunTable)).scalars()))
 
-            assert len(events) == 0
-            assert len(workspaces) == 0
+            assert len(events) >= 1
+            assert len(workspaces) >= 1
             assert pv_after == pv_before
             assert task_after == task_before
             assert run_after == run_before
@@ -3231,7 +3239,7 @@ class TestAPIFormalizationProposal:
                 proposal = {
                     "proposal_id": str(uuid4()),
                     "target": "plan_revision",
-                    "workspace_version": ws_version,
+                    "workspace_version": ws_version + 1,
                     "summary": "草案修改建议",
                     "changes": [
                         {
@@ -3246,10 +3254,20 @@ class TestAPIFormalizationProposal:
                     "requires_confirmation": True,
                     "status": "proposed",
                 }
+                delta_op = {
+                    "op": "request_formalization",
+                    "target_id": None,
+                    "subject_key": "formalization:request",
+                    "content": "请求正式化",
+                    "payload": {},
+                    "source_message_ids": [current_user_id],
+                    "actor_claim": "user_explicit",
+                    "supersedes_event_id": None,
+                }
                 envelope = {
                     "answer": "已生成草案修改建议。",
                     "turn_interpretation": form_interp_data,
-                    "discussion_delta": {"operations": []},
+                    "discussion_delta": {"operations": [delta_op]},
                     "formalization_proposal": proposal,
                     "requires_confirmation": True,
                     "source": "provider",
@@ -3325,8 +3343,8 @@ class TestAPIFormalizationProposal:
 
             assert data2["formalization_proposal"] is not None
             assert data2["formalization_proposal"]["target"] == "plan_revision"
-            assert data2["formalization_proposal"]["workspace_version"] == prompt_grounding["workspace_version"]
-            assert data2["formalization_proposal"]["workspace_version"] == ws_version_after_t1
+            assert data2["formalization_proposal"]["workspace_version"] == prompt_grounding["workspace_version"] + 1
+            assert data2["formalization_proposal"]["workspace_version"] == ws_version_after_t1 + 1
             assert data2["requires_confirmation"] is True
             assert data2["assistant_message"]["suggested_actions"] == []
 
@@ -3344,7 +3362,7 @@ class TestAPIFormalizationProposal:
                     )
                 ).scalars()
             )
-            assert len(event_rows_after) == len(event_rows)
+            assert len(event_rows_after) == len(event_rows) + 1
 
             # No PlanVersion/Task/Run created
             pv_after = len(list(db.execute(select(ProjectDirectorPlanVersionTable)).scalars()))

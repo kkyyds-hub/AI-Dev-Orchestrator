@@ -998,10 +998,18 @@ class TestCoreSemanticUseCases:
         assert result.interpretation.formal_action_requested is False
 
     def test_option_comparison_fallback(self):
-        content = "比较 A 和 B 两个方案，先不要修改计划。"
+        content = "比较 A 和 B 两个方案。"
         svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
         result = svc.interpret(content=content, model_name="m", request_id="r")
         assert result.interpretation.conversation_mode == ConversationMode.OPTION_COMPARISON
+        assert result.interpretation.formal_action_requested is False
+
+    def test_constraint_update_over_comparison_with_negation(self):
+        """“先不要”中的“不要”在新约束检测中优先级高于比较标记。"""
+        content = "比较 A 和 B 两个方案，先不要修改计划。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.CONSTRAINT_UPDATE
         assert result.interpretation.formal_action_requested is False
 
     def test_status_query(self):
@@ -1096,10 +1104,18 @@ class TestCoreSemanticUseCases:
         assert result.interpretation.formal_action_requested is False
 
     def test_preference_update_fallback(self):
-        content = "这个方向不错，但我还要再考虑一下。"
+        content = "优先选B方案，但我还要再考虑一下。"
         svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
         result = svc.interpret(content=content, model_name="m", request_id="r")
         assert result.interpretation.conversation_mode == ConversationMode.PREFERENCE_UPDATE
+        assert result.interpretation.formal_action_requested is False
+
+    def test_general_discussion_for_direction_is_good(self):
+        """“这个方向看起来不错”在 v2025.07-t3 中已降级为普通讨论。"""
+        content = "这个方向看起来不错。"
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+        assert result.interpretation.conversation_mode == ConversationMode.GENERAL_DISCUSSION
         assert result.interpretation.formal_action_requested is False
 
 
@@ -1542,7 +1558,7 @@ class TestPromptContent:
         assert "做到哪" in prompt
         assert "确认" in prompt or "生成" in prompt
         assert "立即创建" in prompt or "启动 Codex" in prompt
-        assert "这个方向不错" in prompt
+        assert "这个方向看起来不错" in prompt
 
     def test_prompt_contains_risk_signal_types(self):
         prompt = self._capture_prompt("启动 Codex")

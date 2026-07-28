@@ -328,12 +328,21 @@ def operation(
 
 def assert_fallback(result, interpretation: TurnInterpretation, reason: str) -> None:
     assert result.source.value == "rule_fallback"
-    assert result.source_detail == f"p26_f1_rule_fallback;reason={reason}"
     assert result.turn_interpretation.model_dump(mode="python") == interpretation.model_dump(
         mode="python"
     )
     assert result.discussion_delta.operations == []
     assert result.formalization_proposal is None
+
+
+def assert_direct_fallback(result, interpretation: TurnInterpretation, reason: str) -> None:
+    assert_fallback(result, interpretation, reason)
+    assert result.source_detail == f"p26_f1_rule_fallback;attempt=direct;reason={reason}"
+
+
+def assert_repair_fallback(result, interpretation: TurnInterpretation, reason: str) -> None:
+    assert_fallback(result, interpretation, reason)
+    assert result.source_detail == f"p26_f1_rule_fallback;attempt=repair;reason=provider_repair_failed:{reason}"
 
 
 def call(
@@ -538,14 +547,14 @@ def test_prompt_is_deterministic_complete_and_whitelisted():
 
     prompt = json.loads(provider_a.calls[0][1])
     assert set(prompt) == {
-        "behavior_instructions", "output_schema", "source_id_rules",
-        "silent_governance_instruction", "context",
+        "behavior_instructions", "output_schema", "discussion_delta_operation_contract",
+        "source_id_rules", "silent_governance_instruction", "context",
     }
     assert set(prompt["context"]) == {
         "pinned_formal_facts", "recent_raw_messages", "active_workspace",
         "relevant_events", "current_user_message", "silent_governance_boundaries",
         "discussion_context_plan", "caller_interpretation",
-        "reserved_assistant_message_id",
+        "reserved_assistant_message_id", "expected_workspace_version_after_this_turn",
     }
     assert prompt["context"]["reserved_assistant_message_id"] == str(RESERVED_ASSISTANT_ID)
     assert prompt["context"]["caller_interpretation"] == interpretation.model_dump(mode="json")
@@ -596,8 +605,9 @@ def test_provider_parsing_failures_fallback_once(output, reason):
     interpretation = make_interpretation()
     provider = RecordingProvider(output=output)
     result = call(provider, make_context(interpretation), interpretation)
-    assert len(provider.calls) == 1
-    assert_fallback(result, interpretation, reason)
+    # v2025.07-t3: parsing failures trigger one repair attempt before fallback
+    assert len(provider.calls) == 2
+    assert_repair_fallback(result, interpretation, reason)
 
 
 def test_fenced_json_success_and_source_detail_receipt_normalization():
@@ -610,7 +620,7 @@ def test_fenced_json_success_and_source_detail_receipt_normalization():
     )
     result = call(provider, make_context(interpretation), interpretation)
     assert result.source.value == "provider"
-    assert result.source_detail == "p26_f1_provider_response;receipt=" + "r" * 120
+    assert result.source_detail == "p26_f1_provider_response;attempt=direct;receipt=" + "r" * 120
     assert len(provider.calls) == 1
 
 
@@ -625,7 +635,7 @@ def test_fenced_json_success_and_source_detail_receipt_normalization():
 def test_provider_unavailable_and_failures_are_safe(provider, reason):
     interpretation = make_interpretation()
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, reason)
+    assert_direct_fallback(result, interpretation, reason)
     if provider is not None:
         assert len(provider.calls) == 1
 
@@ -636,7 +646,7 @@ def test_provider_self_claimed_rule_fallback_is_not_accepted_as_success():
         interpretation, source="rule_fallback"
     ))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, "provider_source_invalid")
+    assert_direct_fallback(result, interpretation, "provider_source_invalid")
     assert len(provider.calls) == 1
 
 
@@ -668,8 +678,9 @@ def test_domain_invalid_provider_outputs_fallback(mutate):
     mutate(raw)
     provider = RecordingProvider(output=json.dumps(raw))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, "provider_envelope_invalid")
-    assert len(provider.calls) == 1
+    # v2025.07-t3: envelope validation failures trigger one repair attempt
+    assert_repair_fallback(result, interpretation, "provider_envelope_invalid")
+    assert len(provider.calls) == 2
 
 
 @pytest.mark.parametrize(
@@ -696,8 +707,9 @@ def test_any_interpretation_difference_falls_back(change):
     raw["turn_interpretation"] = returned
     provider = RecordingProvider(output=json.dumps(raw))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, "provider_interpretation_mismatch")
-    assert len(provider.calls) == 1
+    # v2025.07-t3: interpretation mismatch triggers one repair attempt
+    assert_repair_fallback(result, interpretation, "provider_interpretation_mismatch")
+    assert len(provider.calls) == 2
 
 
 @pytest.mark.parametrize("claim", [
@@ -710,7 +722,7 @@ def test_forbidden_completion_claims_fallback(claim):
     interpretation = make_interpretation()
     provider = RecordingProvider(output=provider_envelope(interpretation, answer=f"系统{claim}。"))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, "provider_forbidden_execution_claim")
+    assert_direct_fallback(result, interpretation, "provider_forbidden_execution_claim")
 
 
 @pytest.mark.parametrize(
@@ -742,7 +754,9 @@ def test_delta_source_validation(actor, sources, reason):
         interpretation, operations=[operation(actor_claim=actor, source_ids=sources)]
     ))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, reason)
+    # v2025.07-t3: delta source failures trigger one repair attempt
+    assert_repair_fallback(result, interpretation, reason)
+    assert len(provider.calls) == 2
 
 
 @pytest.mark.parametrize(
@@ -772,33 +786,46 @@ def test_authority_claims_are_rejected(actor):
         interpretation, operations=[operation(actor_claim=actor, source_ids=[])]
     ))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, "provider_delta_authority_claim_invalid")
+    # v2025.07-t3: delta authority claim failures trigger one repair attempt
+    assert_repair_fallback(result, interpretation, "provider_delta_authority_claim_invalid")
+    assert len(provider.calls) == 2
 
 
 @pytest.mark.parametrize(
     ("target", "expected_reason"),
-    [(ACTIVE_EVENT_ID, None), (RELEVANT_EVENT_ID, None), (UNKNOWN_ID, "provider_delta_supersede_target_not_visible")],
+    [
+        (ACTIVE_EVENT_ID, None),  # TOPIC_SET — compatible with set_topic
+        (RELEVANT_EVENT_ID, "provider_delta_supersedes_target_incompatible"),  # CONCERN_ADDED — not compatible
+        (UNKNOWN_ID, "provider_delta_supersedes_target_not_visible"),
+    ],
 )
 def test_supersede_target_must_be_visible(target, expected_reason):
     interpretation = make_interpretation()
+    # F2: use set_topic (allows_supersedes=True) to test visibility;
+    # add_concern now rejects any supersedes with supersedes_forbidden.
     provider = RecordingProvider(output=provider_envelope(
         interpretation,
-        operations=[operation(
-            actor_claim=DiscussionActorClaim.USER_EXPLICIT,
-            source_ids=[CURRENT_USER_ID],
-            supersedes_event_id=target,
-        )],
+        operations=[{
+            "op": "set_topic",
+            "content": "new topic",
+            "payload": {},
+            "source_message_ids": [str(CURRENT_USER_ID)],
+            "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+            "supersedes_event_id": str(target) if target is not None else None,
+        }],
     ))
     result = call(provider, make_context(interpretation), interpretation)
     if expected_reason is None:
         assert result.source.value == "provider"
     else:
-        assert_fallback(result, interpretation, expected_reason)
+        # v2025.07-t3: delta supersede failures trigger one repair attempt
+        assert_repair_fallback(result, interpretation, expected_reason)
+        assert len(provider.calls) == 2
 
 
 def make_proposal(
     *,
-    workspace_version: int = 7,
+    workspace_version: int = 8,
     message_ids: list[UUID] | None = None,
     event_ids: list[UUID] | None = None,
 ) -> dict[str, object]:
@@ -832,9 +859,21 @@ def test_valid_formalization_proposal_is_preserved():
         formal_action_requested=True,
     )
     context = make_context(interpretation)
+    form_op = {
+        "op": "request_formalization",
+        "target_id": None,
+        "subject_key": "formalization:request",
+        "content": "请求正式化",
+        "payload": {},
+        "source_message_ids": [str(CURRENT_USER_ID)],
+        "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+        "supersedes_event_id": None,
+    }
     provider = RecordingProvider(output=provider_envelope(
         interpretation,
+        operations=[form_op],
         proposal=make_proposal(
+            workspace_version=context.active_workspace.workspace.version_no + 1,
             message_ids=[CURRENT_USER_ID, RECENT_ASSISTANT_ID],
             event_ids=[ACTIVE_EVENT_ID, RELEVANT_EVENT_ID],
         ),
@@ -889,7 +928,7 @@ def test_valid_formalization_proposal_is_preserved():
                 formal_action_requested=True,
             ),
             lambda context: context,
-            lambda proposal: {**proposal, "workspace_version": 8},
+            lambda proposal: {**proposal, "workspace_version": 9},
             "provider_formalization_workspace_version_mismatch",
         ),
         (
@@ -923,11 +962,33 @@ def test_formalization_proposal_failures(
 ):
     context = context_modifier(make_context(interpretation))
     proposal = proposal_modifier(make_proposal())
+    # v2025.07-t3: formalization proposals require request_formalization delta
+    form_op = {
+        "op": "request_formalization",
+        "target_id": None,
+        "subject_key": "formalization:request",
+        "content": "请求正式化",
+        "payload": {},
+        "source_message_ids": [str(CURRENT_USER_ID)],
+        "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+        "supersedes_event_id": None,
+    }
     provider = RecordingProvider(output=provider_envelope(
-        interpretation, proposal=proposal, requires_confirmation=True
+        interpretation, operations=[form_op], proposal=proposal, requires_confirmation=True
     ))
     result = call(provider, context, interpretation)
-    assert_fallback(result, interpretation, reason)
+    # v2025.07-t3: repairable reasons trigger repair; non-repairable direct
+    _REPAIR_REASONS = {
+        "provider_formalization_workspace_version_mismatch",
+        "provider_formalization_source_message_invalid",
+        "provider_formalization_source_event_invalid",
+    }
+    if reason in _REPAIR_REASONS:
+        assert_repair_fallback(result, interpretation, reason)
+        assert len(provider.calls) == 2
+    else:
+        assert_direct_fallback(result, interpretation, reason)
+        assert len(provider.calls) == 1
 
 
 def test_formalization_without_confirmation_is_domain_invalid_first():
@@ -935,11 +996,24 @@ def test_formalization_without_confirmation_is_domain_invalid_first():
         ConversationMode.FORMALIZATION_REQUEST,
         formal_action_requested=True,
     )
+    form_op = {
+        "op": "request_formalization",
+        "target_id": None,
+        "subject_key": "formalization:request",
+        "content": "请求正式化",
+        "payload": {},
+        "source_message_ids": [str(CURRENT_USER_ID)],
+        "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+        "supersedes_event_id": None,
+    }
     provider = RecordingProvider(output=provider_envelope(
-        interpretation, proposal=make_proposal(), requires_confirmation=False
+        interpretation, operations=[form_op], proposal=make_proposal(), requires_confirmation=False
     ))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, "provider_envelope_invalid")
+    # v2025.07-t3: domain validation catches envelope issue before version check
+    # F2: formalization envelope failures are wrapped as proposal_invalid
+    assert_repair_fallback(result, interpretation, "provider_formalization_proposal_invalid:provider_envelope_invalid")
+    assert len(provider.calls) == 2
 
 
 @pytest.mark.parametrize(
@@ -989,7 +1063,7 @@ def test_ordinary_fallback_is_natural_and_not_boundary_dump(mode):
     interpretation = make_interpretation(mode)
     context = make_context(interpretation)
     result = call(None, context, interpretation)
-    assert_fallback(result, interpretation, "provider_unavailable")
+    assert_direct_fallback(result, interpretation, "provider_unavailable")
     assert "讨论上下文仍然保留" in result.answer
     assert "internal boundary one" not in result.answer
     assert "internal boundary two" not in result.answer
@@ -1025,7 +1099,7 @@ def test_provider_receipt_normalization(receipt, expected):
         output=provider_envelope(interpretation), receipt=receipt
     )
     result = call(provider, make_context(interpretation), interpretation)
-    assert result.source_detail == f"p26_f1_provider_response;receipt={expected}"
+    assert result.source_detail == f"p26_f1_provider_response;attempt=direct;receipt={expected}"
     assert len(result.source_detail) <= 300
 
 
@@ -1040,7 +1114,7 @@ def test_answer_limit_and_full_original_safety_scan():
     unsafe = "x" * 10_000 + "已创建任务"
     provider = RecordingProvider(output=provider_envelope(interpretation, answer=unsafe))
     result = call(provider, make_context(interpretation), interpretation)
-    assert_fallback(result, interpretation, "provider_forbidden_execution_claim")
+    assert_direct_fallback(result, interpretation, "provider_forbidden_execution_claim")
 
 
 def test_input_immutability_and_cross_instance_determinism():
@@ -1092,4 +1166,5 @@ def test_static_dependency_and_single_provider_call_boundary():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "_provider_text_generator"
     ]
-    assert len(provider_calls) == 1
+    # v2025.07-t3: two provider call sites (primary + single repair)
+    assert len(provider_calls) == 2

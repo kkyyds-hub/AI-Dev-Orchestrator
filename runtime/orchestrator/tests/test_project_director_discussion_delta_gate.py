@@ -502,7 +502,7 @@ class TestOptionUpdateAuthority:
             evt = result.prepared_events[0].event
             assert evt.event_type is DiscussionEventType.OPTION_UPDATED
             assert evt.supersedes_event_id == _OPTION_ADDED_EVT_ID
-            assert evt.payload["option_id"] == _OPTION_ID
+            assert evt.payload["option_id"] == str(_OPTION_ID)
             assert _OPTION_ID in result.projected_workspace.active_option_ids
             assert result.confirmation_reasons == ()
         else:
@@ -804,14 +804,17 @@ class TestSupersedeTypeCompatibility:
         assert result.status is DiscussionDeltaGateStatus.PREPARED
 
     def test_update_option_rejects_topic_target(self):
-        topic = make_event(event_type=DiscussionEventType.TOPIC_SET, subject_key="topic", content="主题")
+        topic = make_event(event_type=DiscussionEventType.TOPIC_SET, subject_key="topic", content="主题", sequence_no=1)
+        # F2: need an active option so target validation passes before supersedes check
+        option_evt = make_event(event_type=DiscussionEventType.OPTION_ADDED, subject_key="option",
+                                payload={"option_id": _OPTION_ID}, sequence_no=2)
         assert_code("discussion_delta_supersedes_type_invalid",
                      lambda: evaluate(
                          make_operation(
                              op=DiscussionDeltaOperationType.UPDATE_OPTION,
                              target_id=_OPTION_ID, supersedes_event_id=topic.id,
                          ),
-                         current_events=[topic],
+                         current_events=[topic, option_evt],
                      ))
 
     def test_update_constraint_supersedes_constraint_added(self):
@@ -1094,7 +1097,7 @@ class TestExistingWorkspaceReplacement:
         evt = result.prepared_events[0].event
         assert evt.event_type is DiscussionEventType.OPTION_UPDATED
         assert evt.supersedes_event_id == _OPTION_ADDED_EVT_ID
-        assert evt.payload["option_id"] == _OPTION_ID
+        assert evt.payload["option_id"] == str(_OPTION_ID)
         assert _OPTION_ID in result.projected_workspace.active_option_ids
         assert result.projected_workspace.last_event_sequence_no == 2
         assert result.projected_workspace.version_no == 8
@@ -1148,7 +1151,7 @@ class TestNormalizationAndDeterminism:
             supersedes_event_id=old.id if op is DiscussionDeltaOperationType.UPDATE_OPTION else None,
         )
         result = evaluate(operation, current_events=[old] if op is not DiscussionDeltaOperationType.ADD_OPTION else [])
-        assert result.prepared_events[0].event.payload["option_id"] == option_id
+        assert result.prepared_events[0].event.payload["option_id"] == str(option_id)
         # Original payload not mutated
         assert payload["option_id"] == str(option_id)
 
@@ -1463,6 +1466,7 @@ class TestASTBoundary:
             "enum",
             "hashlib",
             "json",
+            "math",
             "typing",
             "uuid",
             "__future__",
