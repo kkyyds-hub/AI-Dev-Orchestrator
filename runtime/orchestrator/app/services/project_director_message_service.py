@@ -508,6 +508,10 @@ class ProjectDirectorMessageService:
                 occurred_at=assistant_message.created_at,
             )
             delta_apply_result = persisted_turn.delta_apply_result
+            envelope = self._normalize_formalization_proposal_workspace_version(
+                envelope=envelope,
+                workspace_version=delta_apply_result.workspace.version_no,
+            )
             shared_session.commit()
         except Exception:
             shared_session.rollback()
@@ -530,6 +534,27 @@ class ProjectDirectorMessageService:
         if message_session is not session_session:
             raise ValueError("project_director_message_shared_session_mismatch")
         return message_session
+
+    @staticmethod
+    def _normalize_formalization_proposal_workspace_version(
+        *,
+        envelope: DirectorResponseEnvelope,
+        workspace_version: int,
+    ) -> DirectorResponseEnvelope:
+        """Return the API proposal against the workspace version just persisted."""
+
+        proposal = envelope.formalization_proposal
+        if proposal is None:
+            return envelope
+        if workspace_version < 1:
+            raise ValueError("project_director_formalization_workspace_version_invalid")
+        if proposal.workspace_version == workspace_version:
+            return envelope
+        return envelope.model_copy(
+            update={"formalization_proposal": proposal.model_copy(
+                update={"workspace_version": workspace_version}
+            )}
+        )
 
     def _resolve_response_provider(
         self, runtime_config: object | None

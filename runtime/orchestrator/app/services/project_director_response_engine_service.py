@@ -18,6 +18,7 @@ from app.domain.project_director_conversation_intelligence import (
 from app.domain.project_director_discussion import (
     DiscussionActorClaim,
     DiscussionDelta,
+    DiscussionDeltaOperationType,
     DiscussionEvent,
 )
 from app.domain.project_director_message import (
@@ -106,69 +107,57 @@ class ProjectDirectorResponseEngineService:
                 interpretation=interpretation,
                 reason="provider_empty_output",
             )
-
-        parsed, parse_reason = self._parse_envelope(output_text)
-        if parsed is None:
-            return self._fallback(
-                context=context,
-                interpretation=interpretation,
-                reason=parse_reason,
-            )
-        if parsed.source != DirectorResponseSource.PROVIDER:
-            return self._fallback(
-                context=context,
-                interpretation=interpretation,
-                reason="provider_source_invalid",
-            )
-        if parsed.turn_interpretation.model_dump(mode="python") != interpretation.model_dump(
-            mode="python"
-        ):
-            return self._fallback(
-                context=context,
-                interpretation=interpretation,
-                reason="provider_interpretation_mismatch",
-            )
-        if self._has_forbidden_execution_claim(parsed.answer):
-            return self._fallback(
-                context=context,
-                interpretation=interpretation,
-                reason="provider_forbidden_execution_claim",
-            )
-
-        delta_reason = self._validate_delta_sources(
-            context=context,
-            delta=parsed.discussion_delta,
-            assistant_message_id=assistant_message_id,
-        )
-        if delta_reason is not None:
-            return self._fallback(
-                context=context, interpretation=interpretation, reason=delta_reason
-            )
-        proposal_reason = self._validate_formalization_proposal(
+        validated, validation_reason = self._validate_provider_envelope(
             context=context,
             interpretation=interpretation,
-            envelope=parsed,
             assistant_message_id=assistant_message_id,
+            output_text=output_text,
         )
-        if proposal_reason is not None:
+        if validated is not None:
+            return self._successful_provider_response(
+                envelope=validated, receipt_id=receipt_id, repaired=False
+            )
+        if not self._repairable_reason(validation_reason):
             return self._fallback(
-                context=context, interpretation=interpretation, reason=proposal_reason
+                context=context, interpretation=interpretation, reason=validation_reason
             )
 
-        requires_confirmation = (
-            parsed.requires_confirmation
-            or parsed.formalization_proposal is not None
-            or (
-                interpretation.formal_action_requested
-                and not interpretation.hypothetical_action
-            )
+        repair_prompt = self._build_provider_prompt(
+            context=context,
+            interpretation=interpretation,
+            assistant_message_id=assistant_message_id,
+            repair_reason=validation_reason,
         )
-        return parsed.model_copy(
-            update={
-                "answer": parsed.answer[:10_000],
-                "requires_confirmation": requires_confirmation,
-                "source_detail": self._provider_source_detail(receipt_id),
-            }
+        try:
+            repaired_text, repaired_receipt_id = self._provider_text_generator(
+                model_name, repair_prompt, request_id
+            )
+        except Exception:  # noqa: BLE001 - never retry a failed provider request again
+            return self._fallback(
+                context=context,
+                interpretation=interpretation,
+                reason=f"provider_repair_failed:{validation_reason}",
+            )
+        if not isinstance(repaired_text, str) or not repaired_text.strip():
+            return self._fallback(
+                context=context,
+                interpretation=interpretation,
+                reason=f"provider_repair_failed:{validation_reason}",
+            )
+        repaired, repair_reason = self._validate_provider_envelope(
+            context=context,
+            interpretation=interpretation,
+            assistant_message_id=assistant_message_id,
+            output_text=repaired_text,
+        )
+        if repaired is None:
+            return self._fallback(
+                context=context,
+                interpretation=interpretation,
+                reason=f"provider_repair_failed:{repair_reason}",
+            )
+        return self._successful_provider_response(
+            envelope=repaired, receipt_id=repaired_receipt_id, repaired=True
         )
 
     def _validate_caller_inputs(
@@ -225,7 +214,11 @@ class ProjectDirectorResponseEngineService:
         context: DiscussionContextAssembly,
         interpretation: TurnInterpretation,
         assistant_message_id: UUID,
+        repair_reason: str | None = None,
     ) -> str:
+        expected_workspace_version = cls._expected_workspace_version(
+            context=context, interpretation=interpretation
+        )
         payload = {
             "behavior_instructions": [
                 "Directly and naturally answer the user question.",
@@ -236,19 +229,63 @@ class ProjectDirectorResponseEngineService:
                 "Do not claim that any formal action has already been executed.",
                 "DiscussionDelta is only a proposal and must not be described as written.",
                 "Only an explicit formalization request may include FormalizationProposal.",
+                "For a non-hypothetical formalization request with workspace version at least 1, include both request_formalization and a FormalizationProposal.",
                 "Return exactly one JSON object and no Markdown code fence.",
                 "turn_interpretation must be an exact copy of caller_interpretation.",
                 "Do not wrap caller_interpretation under an interpretation key.",
-                "For ordinary discussion, use discussion_delta={\"operations\": []} and formalization_proposal=null.",
+                "An empty discussion_delta is allowed only when the user message does not change discussion state.",
+                "A topic, option, preference, rejection, explicit constraint, correction, decision, or formalization request must produce at least one operation.",
+                "USER_EXPLICIT operations must cite the current real user message ID or another visible real USER message ID.",
+                "Do not use USER_INFERRED to represent what the user explicitly said.",
+                "ASSISTANT_PROPOSAL operations must cite reserved_assistant_message_id.",
+                "Never invent message IDs or event IDs, and never use SYSTEM_FACT or FORMAL_PROJECT_FACT.",
+                "A new option must use a stable UUID target_id; changes to an existing option must reuse its visible option_id.",
+                "supersedes_event_id may only cite a visible effective event.",
             ],
-            "output_schema": {
-                "answer": "user-visible natural response",
-                "turn_interpretation": interpretation.model_dump(mode="json"),
-                "discussion_delta": {"operations": []},
-                "formalization_proposal": None,
-                "requires_confirmation": False,
-                "source": "provider",
-                "source_detail": "project_director_conversational_intelligence",
+            "output_schema": cls._output_schema(
+                interpretation=interpretation,
+                expected_workspace_version=expected_workspace_version,
+            ),
+            "discussion_delta_operation_contract": {
+                "required_fields": [
+                    "op",
+                    "target_id",
+                    "subject_key",
+                    "content",
+                    "payload",
+                    "source_message_ids",
+                    "actor_claim",
+                    "supersedes_event_id",
+                ],
+                "allowed_ops": [
+                    "set_topic",
+                    "add_option",
+                    "update_option",
+                    "prefer_option",
+                    "reject_option",
+                    "add_constraint",
+                    "update_constraint",
+                    "supersede_constraint",
+                    "add_concern",
+                    "add_assumption",
+                    "reject_assumption",
+                    "add_open_question",
+                    "resolve_open_question",
+                    "add_temporary_conclusion",
+                    "record_user_correction",
+                    "confirm_decision",
+                    "request_formalization",
+                    "cancel_formalization",
+                ],
+                "field_rules": {
+                    "target_id": "UUID for option operations and existing entities; null only when no target exists",
+                    "subject_key": "stable non-empty semantic key",
+                    "content": "the user claim, reason, or proposed discussion content",
+                    "payload": "structured operation details; option operations use payload.option_id equal to target_id",
+                    "source_message_ids": "visible real message IDs matching actor_claim",
+                    "actor_claim": "user_explicit, user_inferred, or assistant_proposal only",
+                    "supersedes_event_id": "visible effective event UUID or null",
+                },
             },
             "source_id_rules": {
                 "user_explicit_or_user_inferred": "source_message_ids must only use visible USER message IDs",
@@ -311,9 +348,64 @@ class ProjectDirectorResponseEngineService:
                 },
                 "caller_interpretation": interpretation.model_dump(mode="json"),
                 "reserved_assistant_message_id": str(assistant_message_id),
+                "expected_workspace_version_after_this_turn": expected_workspace_version,
             },
         }
+        if repair_reason is not None:
+            payload["repair_instruction"] = {
+                "previous_failure_reason": repair_reason,
+                "instruction": (
+                    "Repair the prior output without changing the user meaning. Output only "
+                    "one JSON object matching the complete schema. Do not claim execution."
+                ),
+            }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _output_schema(
+        *, interpretation: TurnInterpretation, expected_workspace_version: int | None
+    ) -> dict[str, Any]:
+        return {
+            "answer": "user-visible natural response",
+            "turn_interpretation": interpretation.model_dump(mode="json"),
+            "discussion_delta": {
+                "operations": [
+                    {
+                        "op": "one allowed operation",
+                        "target_id": "UUID or null",
+                        "subject_key": "stable semantic key or null",
+                        "content": "non-empty operation content",
+                        "payload": {},
+                        "source_message_ids": ["visible message UUID"],
+                        "actor_claim": "user_explicit",
+                        "supersedes_event_id": "visible event UUID or null",
+                    }
+                ]
+            },
+            "formalization_proposal": {
+                "proposal_id": "UUID",
+                "target": "plan_revision",
+                "workspace_version": expected_workspace_version,
+                "summary": "proposal summary",
+                "changes": [
+                    {
+                        "change_type": "add, update, or remove",
+                        "subject_key": "stable semantic key",
+                        "summary": "draft-only change",
+                        "source_event_ids": ["visible discussion event UUID"],
+                    }
+                ],
+                "source_message_ids": ["visible user message UUID"],
+                "risk_summary": "confirmation and implementation risks",
+                "requires_confirmation": True,
+                "status": "proposed",
+            }
+            if expected_workspace_version is not None
+            else None,
+            "requires_confirmation": expected_workspace_version is not None,
+            "source": "provider",
+            "source_detail": "project_director_conversational_intelligence",
+        }
 
     @staticmethod
     def _serialize_pinned_facts(context: DiscussionContextAssembly) -> dict[str, Any]:
@@ -447,6 +539,219 @@ class ProjectDirectorResponseEngineService:
         except ValidationError:
             return None, "provider_envelope_invalid"
 
+    def _validate_provider_envelope(
+        self,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+        assistant_message_id: UUID,
+        output_text: str,
+    ) -> tuple[DirectorResponseEnvelope | None, str]:
+        parsed, parse_reason = self._parse_envelope(output_text)
+        if parsed is None:
+            return None, parse_reason
+        if parsed.source != DirectorResponseSource.PROVIDER:
+            return None, "provider_source_invalid"
+        if parsed.turn_interpretation.model_dump(mode="python") != interpretation.model_dump(
+            mode="python"
+        ):
+            return None, "provider_interpretation_mismatch"
+        if self._has_forbidden_execution_claim(parsed.answer):
+            return None, "provider_forbidden_execution_claim"
+
+        delta_reason = self._validate_delta_sources(
+            context=context,
+            delta=parsed.discussion_delta,
+            assistant_message_id=assistant_message_id,
+        )
+        if delta_reason is not None:
+            return None, delta_reason
+        delta_contract_reason = self._validate_delta_operation_contract(
+            delta=parsed.discussion_delta
+        )
+        if delta_contract_reason is not None:
+            return None, delta_contract_reason
+        delta_requirement_reason = self._validate_delta_requirement(
+            context=context,
+            interpretation=interpretation,
+            delta=parsed.discussion_delta,
+        )
+        if delta_requirement_reason is not None:
+            return None, delta_requirement_reason
+        proposal_reason = self._validate_formalization_proposal(
+            context=context,
+            interpretation=interpretation,
+            envelope=parsed,
+            assistant_message_id=assistant_message_id,
+        )
+        if proposal_reason is not None:
+            return None, proposal_reason
+        return parsed, ""
+
+    @staticmethod
+    def _successful_provider_response(
+        *,
+        envelope: DirectorResponseEnvelope,
+        receipt_id: str | None,
+        repaired: bool,
+    ) -> DirectorResponseEnvelope:
+        interpretation = envelope.turn_interpretation
+        requires_confirmation = (
+            envelope.requires_confirmation
+            or envelope.formalization_proposal is not None
+            or (
+                interpretation.formal_action_requested
+                and not interpretation.hypothetical_action
+            )
+        )
+        return envelope.model_copy(
+            update={
+                "answer": envelope.answer[:10_000],
+                "requires_confirmation": requires_confirmation,
+                "source_detail": ProjectDirectorResponseEngineService._provider_source_detail(
+                    receipt_id, repaired=repaired
+                ),
+            }
+        )
+
+    @staticmethod
+    def _repairable_reason(reason: str) -> bool:
+        return reason in {
+            "provider_response_not_json",
+            "provider_response_not_object",
+            "provider_envelope_invalid",
+            "provider_interpretation_mismatch",
+            "provider_delta_required",
+            "provider_delta_operation_invalid",
+            "provider_delta_explicit_source_required",
+            "provider_formalization_request_delta_missing",
+            "provider_formalization_proposal_missing",
+            "provider_formalization_workspace_version_mismatch",
+            "provider_formalization_source_message_invalid",
+            "provider_formalization_source_event_invalid",
+        } or reason.startswith("provider_delta_")
+
+    @classmethod
+    def _validate_delta_operation_contract(cls, *, delta: DiscussionDelta) -> str | None:
+        option_operations = {
+            DiscussionDeltaOperationType.ADD_OPTION,
+            DiscussionDeltaOperationType.UPDATE_OPTION,
+            DiscussionDeltaOperationType.PREFER_OPTION,
+            DiscussionDeltaOperationType.REJECT_OPTION,
+        }
+        superseding_operations = {
+            DiscussionDeltaOperationType.UPDATE_CONSTRAINT,
+            DiscussionDeltaOperationType.SUPERSEDE_CONSTRAINT,
+            DiscussionDeltaOperationType.REJECT_ASSUMPTION,
+            DiscussionDeltaOperationType.RESOLVE_OPEN_QUESTION,
+            DiscussionDeltaOperationType.CANCEL_FORMALIZATION,
+        }
+        explicit_operations = {
+            DiscussionDeltaOperationType.PREFER_OPTION,
+            DiscussionDeltaOperationType.REJECT_OPTION,
+            DiscussionDeltaOperationType.RECORD_USER_CORRECTION,
+            DiscussionDeltaOperationType.CONFIRM_DECISION,
+            DiscussionDeltaOperationType.REQUEST_FORMALIZATION,
+            DiscussionDeltaOperationType.CANCEL_FORMALIZATION,
+        }
+        for operation in delta.operations:
+            if (
+                operation.op in option_operations and operation.target_id is None
+            ) or (
+                operation.op in superseding_operations
+                and operation.supersedes_event_id is None
+            ) or (
+                operation.op in explicit_operations
+                and operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
+            ):
+                return "provider_delta_operation_invalid"
+        return None
+
+    @classmethod
+    def _validate_delta_requirement(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+        delta: DiscussionDelta,
+    ) -> str | None:
+        state_change_mode = interpretation.conversation_mode in {
+            ConversationMode.CONSTRAINT_UPDATE,
+            ConversationMode.PREFERENCE_UPDATE,
+            ConversationMode.DECISION_CONFIRMATION,
+            ConversationMode.FORMALIZATION_REQUEST,
+        }
+        explicit_state_change = cls._has_explicit_state_change(
+            context.current_user_message.content
+        )
+        requires_delta = state_change_mode or explicit_state_change
+        if requires_delta and not delta.operations:
+            return "provider_delta_required"
+        if requires_delta and any(
+            operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
+            for operation in delta.operations
+        ):
+            return "provider_delta_explicit_source_required"
+        if cls._formalization_proposal_required(
+            context=context, interpretation=interpretation
+        ) and not any(
+            operation.op == DiscussionDeltaOperationType.REQUEST_FORMALIZATION
+            for operation in delta.operations
+        ):
+            return "provider_formalization_request_delta_missing"
+        return None
+
+    @staticmethod
+    def _has_explicit_state_change(content: str) -> bool:
+        normalized = content.lower()
+        direct_markers = (
+            "讨论主题",
+            "主题是",
+            "新增约束",
+            "约束",
+            "必须",
+            "不要",
+            "不允许",
+            "偏好",
+            "优先",
+            "拒绝",
+            "不选",
+            "纠正",
+            "确认",
+        )
+        if any(marker in normalized for marker in direct_markers):
+            return True
+        state_actions = ("新增", "添加", "加入", "提出", "设为", "选择")
+        state_entities = ("方案", "选项", "组合")
+        return any(action in normalized for action in state_actions) and any(
+            entity in normalized for entity in state_entities
+        )
+
+    @staticmethod
+    def _formalization_proposal_required(
+        *, context: DiscussionContextAssembly, interpretation: TurnInterpretation
+    ) -> bool:
+        return (
+            interpretation.conversation_mode == ConversationMode.FORMALIZATION_REQUEST
+            and interpretation.formal_action_requested
+            and not interpretation.hypothetical_action
+            and context.active_workspace is not None
+            and context.active_workspace.workspace.version_no >= 1
+        )
+
+    @classmethod
+    def _expected_workspace_version(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+    ) -> int | None:
+        if not cls._formalization_proposal_required(
+            context=context, interpretation=interpretation
+        ):
+            return None
+        return context.active_workspace.workspace.version_no + 1
+
     @staticmethod
     def _has_forbidden_execution_claim(answer: str) -> bool:
         return any(claim in answer for claim in _FORBIDDEN_EXECUTION_CLAIMS)
@@ -527,6 +832,10 @@ class ProjectDirectorResponseEngineService:
     ) -> str | None:
         proposal = envelope.formalization_proposal
         if proposal is None:
+            if cls._formalization_proposal_required(
+                context=context, interpretation=interpretation
+            ):
+                return "provider_formalization_proposal_missing"
             return None
         if (
             interpretation.conversation_mode
@@ -537,7 +846,10 @@ class ProjectDirectorResponseEngineService:
             return "provider_formalization_not_requested"
         if context.active_workspace is None:
             return "provider_formalization_workspace_missing"
-        if proposal.workspace_version != context.active_workspace.workspace.version_no:
+        expected_workspace_version = cls._expected_workspace_version(
+            context=context, interpretation=interpretation
+        )
+        if proposal.workspace_version != expected_workspace_version:
             return "provider_formalization_workspace_version_mismatch"
         visible_message_ids = set(
             cls._visible_message_roles(context, assistant_message_id)
@@ -560,9 +872,12 @@ class ProjectDirectorResponseEngineService:
         return None
 
     @staticmethod
-    def _provider_source_detail(receipt_id: str | None) -> str:
+    def _provider_source_detail(receipt_id: str | None, *, repaired: bool) -> str:
         receipt = receipt_id.strip()[:120] if isinstance(receipt_id, str) else ""
-        return f"p26_f1_provider_response;receipt={receipt or 'missing'}"[:300]
+        attempt = "repair" if repaired else "direct"
+        return (
+            f"p26_f1_provider_response;attempt={attempt};receipt={receipt or 'missing'}"
+        )[:300]
 
     @staticmethod
     def _fallback(
@@ -593,5 +908,9 @@ class ProjectDirectorResponseEngineService:
                 and not interpretation.hypothetical_action
             ),
             source=DirectorResponseSource.RULE_FALLBACK,
-            source_detail=f"p26_f1_rule_fallback;reason={reason}",
+            source_detail=(
+                "p26_f1_rule_fallback;attempt="
+                f"{'repair' if reason.startswith('provider_repair_failed:') else 'direct'};"
+                f"reason={reason}"
+            )[:300],
         )

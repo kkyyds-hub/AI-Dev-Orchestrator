@@ -253,7 +253,17 @@ class ProjectDirectorTurnInterpreterService:
     _NEGATED_ACTION_MARKERS = ("不要", "不需要", "不用", "无需", "不必", "别")
     _COMPARISON_MARKERS = ("比较", "对比", "哪个方案", "A 和 B", "A/B", "方案一", "方案二")
     _STATUS_MARKERS = ("当前状态", "现在进度", "做到哪", "项目情况", "当前进展")
-    _PREFERENCE_MARKERS = ("我更倾向", "我比较喜欢", "这个方向不错", "优先选", "暂时选")
+    _PREFERENCE_MARKERS = ("我更倾向", "我比较喜欢", "优先选", "暂时选")
+    _CONSTRAINT_MARKERS = (
+        "新增约束",
+        "约束",
+        "必须",
+        "不要",
+        "不允许",
+        "绝对不能",
+        "实施顺序",
+        "追溯到原始",
+    )
 
     def __init__(
         self,
@@ -368,7 +378,9 @@ Examples:
 - 当前 P26 做到哪了？ => status_query, false, false
 - 我确认，按这个结论生成新的计划草案。 => formalization_request, true, false
 - 立即创建任务并启动 Codex。 => action_request, true, false
-- 这个方向不错，但我还要再考虑一下。 => preference_update, false, false
+- 新增约束：不要大规模重构。 => constraint_update, false, false
+- 未来必须同时支持 Codex 和 Claude Code，但这一轮不要启动任何一个。 => constraint_update, false, false
+- 这个方向看起来不错。 => general_discussion, false, false
 
 deterministic_risk_signal_types={json.dumps(risk_types, ensure_ascii=False)}
 user_turn={json.dumps(content, ensure_ascii=False)}"""
@@ -457,6 +469,14 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 formal_action_requested=True,
                 reason="deterministic_fallback_plan_formalization",
                 needs_formal_fact_context=True,
+                needs_discussion_history=True,
+            )
+        if cls._contains_any(content, cls._CONSTRAINT_MARKERS):
+            return cls._interpretation(
+                mode=ConversationMode.CONSTRAINT_UPDATE,
+                intent="update_explicit_constraint",
+                confidence=0.6,
+                reason="deterministic_fallback_explicit_constraint",
                 needs_discussion_history=True,
             )
         if (
