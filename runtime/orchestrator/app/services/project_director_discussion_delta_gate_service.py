@@ -79,6 +79,22 @@ class GovernedDiscussionDeltaResult:
     confirmation_reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class DiscussionDeltaOperationAdmissionRule:
+    """Immutable operation-level admission contract shared with provider preflight."""
+
+    target_rule: str
+    supersedes_rule: str
+    actor_rule: str
+    requires_option_target: bool = False
+    requires_active_option_target: bool = False
+    requires_new_option_target: bool = False
+    requires_supersedes: bool = False
+    allows_supersedes: bool = False
+    supersedes_event_types: frozenset[DiscussionEventType] | None = None
+    supersedes_same_option: bool = False
+
+
 _OPERATION_EVENT_TYPES: dict[DiscussionDeltaOperationType, DiscussionEventType] = {
     DiscussionDeltaOperationType.SET_TOPIC: DiscussionEventType.TOPIC_SET,
     DiscussionDeltaOperationType.ADD_OPTION: DiscussionEventType.OPTION_ADDED,
@@ -159,21 +175,6 @@ _OPTION_OPERATIONS = frozenset(
         DiscussionDeltaOperationType.REJECT_OPTION,
     }
 )
-_OPTION_EVENT_TYPES = frozenset(
-    {
-        DiscussionEventType.OPTION_ADDED,
-        DiscussionEventType.OPTION_UPDATED,
-        DiscussionEventType.OPTION_PREFERRED,
-        DiscussionEventType.OPTION_REJECTED,
-    }
-)
-_CONSTRAINT_EVENT_TYPES = frozenset(
-    {
-        DiscussionEventType.CONSTRAINT_ADDED,
-        DiscussionEventType.CONSTRAINT_UPDATED,
-        DiscussionEventType.CONSTRAINT_SUPERSEDED,
-    }
-)
 _DEFAULT_SUBJECT_KEYS: dict[DiscussionDeltaOperationType, str] = {
     DiscussionDeltaOperationType.SET_TOPIC: "topic",
     DiscussionDeltaOperationType.ADD_OPTION: "option",
@@ -195,6 +196,229 @@ _DEFAULT_SUBJECT_KEYS: dict[DiscussionDeltaOperationType, str] = {
     DiscussionDeltaOperationType.CANCEL_FORMALIZATION: "formalization",
 }
 _EVENT_NAMESPACE = uuid5(NAMESPACE_URL, "p26-d1-governed-discussion-event")
+
+_OPERATION_ADMISSION_RULES: dict[
+    DiscussionDeltaOperationType, DiscussionDeltaOperationAdmissionRule
+] = {
+    DiscussionDeltaOperationType.SET_TOPIC: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="optional visible effective topic_set event",
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+        allows_supersedes=True,
+        supersedes_event_types=frozenset({DiscussionEventType.TOPIC_SET}),
+    ),
+    DiscussionDeltaOperationType.ADD_OPTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="new stable UUID",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+        requires_option_target=True,
+        requires_new_option_target=True,
+    ),
+    DiscussionDeltaOperationType.UPDATE_OPTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="visible active option_id",
+        supersedes_rule=(
+            "optional visible effective option_added or option_updated event for "
+            "the same option_id"
+        ),
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+        requires_option_target=True,
+        requires_active_option_target=True,
+        allows_supersedes=True,
+        supersedes_event_types=frozenset(
+            {DiscussionEventType.OPTION_ADDED, DiscussionEventType.OPTION_UPDATED}
+        ),
+        supersedes_same_option=True,
+    ),
+    DiscussionDeltaOperationType.PREFER_OPTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="visible active option_id to prefer",
+        supersedes_rule="must be null; reducer keeps the single preferred option",
+        actor_rule="user_explicit",
+        requires_option_target=True,
+        requires_active_option_target=True,
+    ),
+    DiscussionDeltaOperationType.REJECT_OPTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="visible active option_id to reject",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit",
+        requires_option_target=True,
+        requires_active_option_target=True,
+    ),
+    DiscussionDeltaOperationType.ADD_CONSTRAINT: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+    ),
+    DiscussionDeltaOperationType.UPDATE_CONSTRAINT: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="required visible effective constraint event",
+        actor_rule="user_explicit, system_fact, or formal_project_fact",
+        requires_supersedes=True,
+        allows_supersedes=True,
+        supersedes_event_types=frozenset(
+            {
+                DiscussionEventType.CONSTRAINT_ADDED,
+                DiscussionEventType.CONSTRAINT_UPDATED,
+                DiscussionEventType.CONSTRAINT_SUPERSEDED,
+            }
+        ),
+    ),
+    DiscussionDeltaOperationType.SUPERSEDE_CONSTRAINT: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="required visible effective constraint event",
+        actor_rule="user_explicit, system_fact, or formal_project_fact",
+        requires_supersedes=True,
+        allows_supersedes=True,
+        supersedes_event_types=frozenset(
+            {
+                DiscussionEventType.CONSTRAINT_ADDED,
+                DiscussionEventType.CONSTRAINT_UPDATED,
+                DiscussionEventType.CONSTRAINT_SUPERSEDED,
+            }
+        ),
+    ),
+    DiscussionDeltaOperationType.ADD_CONCERN: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+    ),
+    DiscussionDeltaOperationType.ADD_ASSUMPTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+    ),
+    DiscussionDeltaOperationType.REJECT_ASSUMPTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="required visible effective assumption_added event",
+        actor_rule="user_explicit, system_fact, or formal_project_fact",
+        requires_supersedes=True,
+        allows_supersedes=True,
+        supersedes_event_types=frozenset({DiscussionEventType.ASSUMPTION_ADDED}),
+    ),
+    DiscussionDeltaOperationType.ADD_OPEN_QUESTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+    ),
+    DiscussionDeltaOperationType.RESOLVE_OPEN_QUESTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="required visible effective open_question_added event",
+        actor_rule="user_explicit, system_fact, or formal_project_fact",
+        requires_supersedes=True,
+        allows_supersedes=True,
+        supersedes_event_types=frozenset({DiscussionEventType.OPEN_QUESTION_ADDED}),
+    ),
+    DiscussionDeltaOperationType.ADD_TEMPORARY_CONCLUSION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit, user_inferred, or assistant_proposal",
+    ),
+    DiscussionDeltaOperationType.RECORD_USER_CORRECTION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="optional visible effective DiscussionEvent",
+        actor_rule="user_explicit",
+        allows_supersedes=True,
+    ),
+    DiscussionDeltaOperationType.CONFIRM_DECISION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit",
+    ),
+    DiscussionDeltaOperationType.REQUEST_FORMALIZATION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="must be null",
+        actor_rule="user_explicit",
+    ),
+    DiscussionDeltaOperationType.CANCEL_FORMALIZATION: DiscussionDeltaOperationAdmissionRule(
+        target_rule="null",
+        supersedes_rule="required visible effective formalization_requested event",
+        actor_rule="user_explicit",
+        requires_supersedes=True,
+        allows_supersedes=True,
+        supersedes_event_types=frozenset(
+            {DiscussionEventType.FORMALIZATION_REQUESTED}
+        ),
+    ),
+}
+
+
+def discussion_delta_operation_contract_rows(
+    *, provider_preflight: bool = False
+) -> list[dict[str, str]]:
+    """Return deterministic provider-facing rows from the governing contract."""
+
+    return [
+        {
+            "operation": operation.value,
+            "target_id_rule": rule.target_rule,
+            "supersedes_event_id_rule": rule.supersedes_rule,
+            "actor_claim_rule": (
+                "user_explicit only; system_fact and formal_project_fact are forbidden "
+                "in provider output"
+                if provider_preflight
+                and rule.actor_rule
+                in {
+                    "user_explicit, system_fact, or formal_project_fact",
+                }
+                else rule.actor_rule
+            ),
+        }
+        for operation, rule in _OPERATION_ADMISSION_RULES.items()
+    ]
+
+
+def validate_discussion_operation_admission(
+    *,
+    operation: DiscussionDeltaOperation,
+    event_by_id: dict[UUID, DiscussionEvent],
+    effective_event_ids: set[UUID],
+    active_option_ids: set[UUID],
+) -> str | None:
+    """Validate Gate-level option and supersession rules without side effects."""
+
+    rule = _OPERATION_ADMISSION_RULES.get(operation.op)
+    if rule is None:
+        return "discussion_delta_operation_not_supported"
+
+    if rule.requires_option_target and operation.target_id is None:
+        return "discussion_delta_option_target_required"
+    if (
+        rule.requires_new_option_target
+        and operation.target_id is not None
+        and operation.target_id in active_option_ids
+    ):
+        return "discussion_delta_option_target_not_new"
+    if (
+        rule.requires_active_option_target
+        and operation.target_id not in active_option_ids
+    ):
+        return "discussion_delta_option_target_not_active"
+    if not rule.requires_option_target and operation.target_id is not None:
+        return "discussion_delta_target_id_forbidden"
+
+    supersedes_event_id = operation.supersedes_event_id
+    if supersedes_event_id is None:
+        if rule.requires_supersedes:
+            return "discussion_delta_supersedes_required"
+        return None
+    if not rule.allows_supersedes:
+        return "discussion_delta_supersedes_forbidden"
+
+    target = event_by_id.get(supersedes_event_id)
+    if target is None:
+        return "discussion_delta_supersedes_target_not_found"
+    if target.id not in effective_event_ids:
+        return "discussion_delta_supersedes_target_not_effective"
+    if (
+        rule.supersedes_event_types is not None
+        and target.event_type not in rule.supersedes_event_types
+    ):
+        return "discussion_delta_supersedes_type_invalid"
+    if rule.supersedes_same_option and (
+        operation.target_id is None
+        or not _payload_uuid_equals(target.payload, "option_id", operation.target_id)
+    ):
+        return "discussion_delta_supersedes_type_invalid"
+    return None
 
 
 def canonicalize_discussion_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -335,6 +559,7 @@ class ProjectDirectorDiscussionDeltaGateService:
                 operation=operation,
                 event_by_id=event_by_id,
                 effective_event_ids=effective_event_ids,
+                active_option_ids=set(baseline_workspace.active_option_ids),
             )
             self._append_confirmation_reasons(
                 operation=operation,
@@ -656,52 +881,19 @@ class ProjectDirectorDiscussionDeltaGateService:
         operation: DiscussionDeltaOperation,
         event_by_id: dict[UUID, DiscussionEvent],
         effective_event_ids: set[UUID],
+        active_option_ids: set[UUID],
     ) -> DiscussionEvent | None:
+        reason = validate_discussion_operation_admission(
+            operation=operation,
+            event_by_id=event_by_id,
+            effective_event_ids=effective_event_ids,
+            active_option_ids=active_option_ids,
+        )
+        if reason is not None:
+            raise ValueError(reason)
         if operation.supersedes_event_id is None:
-            if operation.op in {
-                DiscussionDeltaOperationType.UPDATE_CONSTRAINT,
-                DiscussionDeltaOperationType.SUPERSEDE_CONSTRAINT,
-                DiscussionDeltaOperationType.REJECT_ASSUMPTION,
-                DiscussionDeltaOperationType.RESOLVE_OPEN_QUESTION,
-                DiscussionDeltaOperationType.CANCEL_FORMALIZATION,
-            }:
-                raise ValueError("discussion_delta_supersedes_type_invalid")
             return None
-        target = event_by_id.get(operation.supersedes_event_id)
-        if target is None:
-            raise ValueError("discussion_delta_supersedes_target_not_found")
-        if target.id not in effective_event_ids:
-            raise ValueError("discussion_delta_supersedes_target_not_effective")
-
-        if operation.op == DiscussionDeltaOperationType.SET_TOPIC:
-            valid = target.event_type == DiscussionEventType.TOPIC_SET
-        elif operation.op == DiscussionDeltaOperationType.UPDATE_OPTION:
-            valid = (
-                target.event_type in _OPTION_EVENT_TYPES
-                and operation.target_id is not None
-                and _payload_uuid_equals(target.payload, "option_id", operation.target_id)
-            )
-        elif operation.op in {
-            DiscussionDeltaOperationType.UPDATE_CONSTRAINT,
-            DiscussionDeltaOperationType.SUPERSEDE_CONSTRAINT,
-        }:
-            valid = target.event_type in _CONSTRAINT_EVENT_TYPES
-        elif operation.op == DiscussionDeltaOperationType.REJECT_ASSUMPTION:
-            valid = target.event_type == DiscussionEventType.ASSUMPTION_ADDED
-        elif operation.op == DiscussionDeltaOperationType.RESOLVE_OPEN_QUESTION:
-            valid = target.event_type == DiscussionEventType.OPEN_QUESTION_ADDED
-        elif operation.op == DiscussionDeltaOperationType.CANCEL_FORMALIZATION:
-            valid = target.event_type == DiscussionEventType.FORMALIZATION_REQUESTED
-        elif operation.op == DiscussionDeltaOperationType.RECORD_USER_CORRECTION:
-            # A correction may target any effective discussion event.  Formal
-            # project facts are rejected by the dedicated governance conflict
-            # check below so callers receive its precise error code.
-            valid = True
-        else:
-            valid = False
-        if not valid:
-            raise ValueError("discussion_delta_supersedes_type_invalid")
-        return target
+        return event_by_id[operation.supersedes_event_id]
 
     @staticmethod
     def _append_confirmation_reasons(

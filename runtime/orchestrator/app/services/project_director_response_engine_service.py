@@ -20,6 +20,7 @@ from app.domain.project_director_discussion import (
     DiscussionDelta,
     DiscussionDeltaOperationType,
     DiscussionEvent,
+    DiscussionEventStatus,
 )
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
@@ -27,6 +28,10 @@ from app.domain.project_director_message import (
 )
 from app.services.project_director_discussion_context_builder_service import (
     DiscussionContextAssembly,
+)
+from app.services.project_director_discussion_delta_gate_service import (
+    discussion_delta_operation_contract_rows,
+    validate_discussion_operation_admission,
 )
 
 
@@ -113,6 +118,11 @@ class ProjectDirectorResponseEngineService:
             assistant_message_id=assistant_message_id,
             output_text=output_text,
         )
+        validation_reason = self._repair_reason_for_context(
+            context=context,
+            interpretation=interpretation,
+            reason=validation_reason,
+        )
         if validated is not None:
             return self._successful_provider_response(
                 envelope=validated, receipt_id=receipt_id, repaired=False
@@ -149,6 +159,11 @@ class ProjectDirectorResponseEngineService:
             interpretation=interpretation,
             assistant_message_id=assistant_message_id,
             output_text=repaired_text,
+        )
+        repair_reason = self._repair_reason_for_context(
+            context=context,
+            interpretation=interpretation,
+            reason=repair_reason,
         )
         if repaired is None:
             return self._fallback(
@@ -241,6 +256,20 @@ class ProjectDirectorResponseEngineService:
                 "Never invent message IDs or event IDs, and never use SYSTEM_FACT or FORMAL_PROJECT_FACT.",
                 "A new option must use a stable UUID target_id; changes to an existing option must reuse its visible option_id.",
                 "supersedes_event_id may only cite a visible effective event.",
+                (
+                    "For prefer_option, use the existing option_id to prefer, set "
+                    "supersedes_event_id to null, do not manually supersede the old "
+                    "preferred event, rely on the reducer to keep one preferred option, "
+                    "use actor_claim=user_explicit, and cite the current user message ID."
+                ),
+                (
+                    "For a required formalization, include request_formalization and a "
+                    "FormalizationProposal together; request_formalization uses "
+                    "actor_claim=user_explicit, the current user message ID, and "
+                    "supersedes_event_id=null; the proposal uses "
+                    "expected_workspace_version_after_this_turn and only visible pre-turn "
+                    "event IDs, does not create a PlanVersion, and does not claim execution."
+                ),
             ],
             "output_schema": cls._output_schema(
                 interpretation=interpretation,
@@ -278,7 +307,7 @@ class ProjectDirectorResponseEngineService:
                     "cancel_formalization",
                 ],
                 "field_rules": {
-                    "target_id": "UUID for option operations and existing entities; null only when no target exists",
+                    "target_id": "new or visible active option UUID according to operation_rules; otherwise null",
                     "subject_key": "stable non-empty semantic key",
                     "content": "the user claim, reason, or proposed discussion content",
                     "payload": "structured operation details; option operations use payload.option_id equal to target_id",
@@ -286,6 +315,9 @@ class ProjectDirectorResponseEngineService:
                     "actor_claim": "user_explicit, user_inferred, or assistant_proposal only",
                     "supersedes_event_id": "visible effective event UUID or null",
                 },
+                "operation_rules": discussion_delta_operation_contract_rows(
+                    provider_preflight=True
+                ),
             },
             "source_id_rules": {
                 "user_explicit_or_user_inferred": "source_message_ids must only use visible USER message IDs",
@@ -297,7 +329,7 @@ class ProjectDirectorResponseEngineService:
                     DiscussionActorClaim.SYSTEM_FACT.value,
                     DiscussionActorClaim.FORMAL_PROJECT_FACT.value,
                 ],
-                "supersedes_event_id": "must use only visible discussion event IDs",
+                "supersedes_event_id": "must use only visible effective discussion event IDs",
             },
             "silent_governance_instruction": (
                 "silent_governance_boundaries are internal behavior boundaries; do not "
@@ -356,7 +388,8 @@ class ProjectDirectorResponseEngineService:
                 "previous_failure_reason": repair_reason,
                 "instruction": (
                     "Repair the prior output without changing the user meaning. Output only "
-                    "one JSON object matching the complete schema. Do not claim execution."
+                    "one JSON object matching the complete schema. Do not claim execution. "
+                    + cls._repair_requirement(repair_reason)
                 ),
             }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -559,6 +592,12 @@ class ProjectDirectorResponseEngineService:
         if self._has_forbidden_execution_claim(parsed.answer):
             return None, "provider_forbidden_execution_claim"
 
+        delta_contract_reason = self._validate_delta_operation_contract(
+            context=context,
+            delta=parsed.discussion_delta,
+        )
+        if delta_contract_reason is not None:
+            return None, delta_contract_reason
         delta_reason = self._validate_delta_sources(
             context=context,
             delta=parsed.discussion_delta,
@@ -566,11 +605,6 @@ class ProjectDirectorResponseEngineService:
         )
         if delta_reason is not None:
             return None, delta_reason
-        delta_contract_reason = self._validate_delta_operation_contract(
-            delta=parsed.discussion_delta
-        )
-        if delta_contract_reason is not None:
-            return None, delta_contract_reason
         delta_requirement_reason = self._validate_delta_requirement(
             context=context,
             interpretation=interpretation,
@@ -629,23 +663,98 @@ class ProjectDirectorResponseEngineService:
             "provider_formalization_workspace_version_mismatch",
             "provider_formalization_source_message_invalid",
             "provider_formalization_source_event_invalid",
-        } or reason.startswith("provider_delta_")
+        } or reason.startswith(("provider_delta_", "provider_formalization_proposal_invalid:"))
 
     @classmethod
-    def _validate_delta_operation_contract(cls, *, delta: DiscussionDelta) -> str | None:
-        option_operations = {
-            DiscussionDeltaOperationType.ADD_OPTION,
-            DiscussionDeltaOperationType.UPDATE_OPTION,
-            DiscussionDeltaOperationType.PREFER_OPTION,
-            DiscussionDeltaOperationType.REJECT_OPTION,
+    def _repair_reason_for_context(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+        reason: str,
+    ) -> str:
+        if (
+            reason == "provider_envelope_invalid"
+            and cls._formalization_proposal_required(
+                context=context, interpretation=interpretation
+            )
+        ):
+            return "provider_formalization_proposal_invalid:provider_envelope_invalid"
+        return reason
+
+    @staticmethod
+    def _repair_requirement(reason: str) -> str:
+        if reason.startswith("provider_formalization_proposal_invalid:"):
+            return (
+                "Return a complete FormalizationProposal with proposal_id, "
+                "target=plan_revision, expected workspace_version, summary, changes, "
+                "source_message_ids, risk_summary, requires_confirmation=true, and "
+                "status=proposed. Each change needs change_type, subject_key, summary, "
+                "and source_event_ids drawn only from visible pre-turn events."
+            )
+        requirements = {
+            "provider_delta_supersedes_forbidden": (
+                "For the named operation, set supersedes_event_id to null, retain its "
+                "target_id, preserve the user preference meaning, and do not add a "
+                "separate supersede operation."
+            ),
+            "provider_delta_supersedes_required": (
+                "Use only a visible effective event with the operation-compatible type "
+                "for supersedes_event_id. Do not invent an event ID; if none exists, "
+                "regenerate a legal delta that does not depend on this operation."
+            ),
+            "provider_delta_supersedes_target_incompatible": (
+                "Replace supersedes_event_id with a visible effective event of the "
+                "required type, or regenerate a legal delta that does not depend on "
+                "the incompatible operation."
+            ),
+            "provider_delta_supersedes_target_not_visible": (
+                "Use only a visible event ID. Do not invent an event ID or cite a "
+                "previously unseen event."
+            ),
+            "provider_delta_supersedes_target_not_effective": (
+                "Use a visible effective event rather than a rejected, superseded, or "
+                "historical event."
+            ),
+            "provider_formalization_request_delta_missing": (
+                "Include request_formalization with actor_claim=user_explicit, the "
+                "current user message ID in source_message_ids, and "
+                "supersedes_event_id=null. Do not create a PlanVersion or claim "
+                "execution."
+            ),
+            "provider_formalization_proposal_missing": (
+                "Include a complete FormalizationProposal with proposal_id, "
+                "target=plan_revision, expected workspace_version, summary, changes, "
+                "source_message_ids, risk_summary, requires_confirmation=true, and "
+                "status=proposed. Each change needs change_type, subject_key, summary, "
+                "and source_event_ids drawn only from visible pre-turn events."
+            ),
+            "provider_formalization_workspace_version_mismatch": (
+                "Use expected_workspace_version_after_this_turn for the proposal "
+                "workspace_version."
+            ),
+            "provider_formalization_source_message_invalid": (
+                "Use visible source message IDs and include the current user message "
+                "ID in the FormalizationProposal."
+            ),
+            "provider_formalization_source_event_invalid": (
+                "Use only visible pre-turn event IDs in every proposal change; never "
+                "cite the request_formalization event from this unpersisted turn."
+            ),
         }
-        superseding_operations = {
-            DiscussionDeltaOperationType.UPDATE_CONSTRAINT,
-            DiscussionDeltaOperationType.SUPERSEDE_CONSTRAINT,
-            DiscussionDeltaOperationType.REJECT_ASSUMPTION,
-            DiscussionDeltaOperationType.RESOLVE_OPEN_QUESTION,
-            DiscussionDeltaOperationType.CANCEL_FORMALIZATION,
-        }
+        return requirements.get(
+            reason,
+            "Correct the stated contract failure using only IDs and facts visible in "
+            "the supplied context.",
+        )
+
+    @classmethod
+    def _validate_delta_operation_contract(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        delta: DiscussionDelta,
+    ) -> str | None:
         explicit_operations = {
             DiscussionDeltaOperationType.PREFER_OPTION,
             DiscussionDeltaOperationType.REJECT_OPTION,
@@ -654,18 +763,66 @@ class ProjectDirectorResponseEngineService:
             DiscussionDeltaOperationType.REQUEST_FORMALIZATION,
             DiscussionDeltaOperationType.CANCEL_FORMALIZATION,
         }
+        event_by_id, effective_event_ids = cls._visible_event_admission_catalog(context)
+        active_option_ids = (
+            set(context.active_workspace.workspace.active_option_ids)
+            if context.active_workspace is not None
+            else set()
+        )
         for operation in delta.operations:
             if (
-                operation.op in option_operations and operation.target_id is None
-            ) or (
-                operation.op in superseding_operations
-                and operation.supersedes_event_id is None
-            ) or (
                 operation.op in explicit_operations
                 and operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
             ):
-                return "provider_delta_operation_invalid"
+                return "provider_delta_operation_actor_not_authorized"
+            reason = validate_discussion_operation_admission(
+                operation=operation,
+                event_by_id=event_by_id,
+                effective_event_ids=effective_event_ids,
+                active_option_ids=active_option_ids,
+            )
+            if reason is not None:
+                return cls._provider_admission_reason(reason)
         return None
+
+    @staticmethod
+    def _provider_admission_reason(reason: str) -> str:
+        return {
+            "discussion_delta_option_target_required": "provider_delta_option_target_required",
+            "discussion_delta_option_target_not_new": "provider_delta_option_target_not_new",
+            "discussion_delta_option_target_not_active": "provider_delta_option_target_not_active",
+            "discussion_delta_target_id_forbidden": "provider_delta_target_id_forbidden",
+            "discussion_delta_supersedes_required": "provider_delta_supersedes_required",
+            "discussion_delta_supersedes_forbidden": "provider_delta_supersedes_forbidden",
+            "discussion_delta_supersedes_target_not_found": (
+                "provider_delta_supersedes_target_not_visible"
+            ),
+            "discussion_delta_supersedes_target_not_effective": (
+                "provider_delta_supersedes_target_not_effective"
+            ),
+            "discussion_delta_supersedes_type_invalid": (
+                "provider_delta_supersedes_target_incompatible"
+            ),
+        }.get(reason, "provider_delta_operation_invalid")
+
+    @staticmethod
+    def _visible_event_admission_catalog(
+        context: DiscussionContextAssembly,
+    ) -> tuple[dict[UUID, DiscussionEvent], set[UUID]]:
+        event_by_id: dict[UUID, DiscussionEvent] = {}
+        effective_event_ids: set[UUID] = set()
+        if context.active_workspace is not None:
+            for event in context.active_workspace.active_events:
+                event_by_id[event.id] = event
+                effective_event_ids.add(event.id)
+        for item in context.relevant_events:
+            event_by_id[item.event.id] = item.event
+            if item.resolved_status in {
+                DiscussionEventStatus.ACTIVE,
+                DiscussionEventStatus.CONFIRMED,
+            }:
+                effective_event_ids.add(item.event.id)
+        return event_by_id, effective_event_ids
 
     @classmethod
     def _validate_delta_requirement(
