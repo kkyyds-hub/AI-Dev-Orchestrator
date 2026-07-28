@@ -103,6 +103,7 @@ _PROJECT_DIRECTOR_PLAN_VERSION_TABLE_COLUMN_UPGRADES = {
     "complexity_assessment_json": "ALTER TABLE project_director_plan_versions ADD COLUMN complexity_assessment_json TEXT NOT NULL DEFAULT '{}'",
     "source": "ALTER TABLE project_director_plan_versions ADD COLUMN source TEXT NOT NULL DEFAULT 'rule_fallback'",
     "source_detail": "ALTER TABLE project_director_plan_versions ADD COLUMN source_detail TEXT NOT NULL DEFAULT 'deterministic_plan_generation'",
+    "formalization_proposal_id": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_proposal_id CHAR(32)",
     "formalization_target": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_target VARCHAR(40)",
     "formalization_workspace_version": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_workspace_version INTEGER",
     "formalization_source_message_ids_json": "ALTER TABLE project_director_plan_versions ADD COLUMN formalization_source_message_ids_json TEXT NOT NULL DEFAULT '[]'",
@@ -114,6 +115,9 @@ _PROJECT_DIRECTOR_PLAN_VERSION_INDEXES = (
     "ON project_director_plan_versions("
     "session_id, formalization_target, formalization_workspace_version"
     ")",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_pd_plan_formalization_proposal "
+    "ON project_director_plan_versions(formalization_proposal_id) "
+    "WHERE formalization_proposal_id IS NOT NULL",
 )
 
 _PROJECT_DIRECTOR_MESSAGES_TABLE_CREATE = """

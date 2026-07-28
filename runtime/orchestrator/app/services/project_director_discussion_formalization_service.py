@@ -11,8 +11,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.project_director_conversation_intelligence import FormalizationTarget
+from app.domain.project_director_formalization_proposal import (
+    FormalizationProposalStatus,
+    ProjectDirectorFormalizationProposal,
+)
 from app.domain.project_director_discussion import DiscussionEvent, DiscussionWorkspace
 from app.domain.project_director_discussion import (
+    DiscussionEventStatus,
     DiscussionEventType,
     DiscussionStatus,
 )
@@ -29,6 +34,9 @@ from app.repositories.project_director_discussion_workspace_repository import (
 )
 from app.repositories.project_director_message_repository import (
     ProjectDirectorMessageRepository,
+)
+from app.repositories.project_director_formalization_proposal_repository import (
+    ProjectDirectorFormalizationProposalRepository,
 )
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
@@ -76,6 +84,7 @@ class DiscussionFormalizationResult:
     """The review-only plan draft created from a confirmed discussion state."""
 
     plan_version: ProjectDirectorPlanVersion
+    proposal_id: UUID
     workspace_version: int
     target: FormalizationTarget
     source_message_ids: tuple[UUID, ...]
@@ -93,6 +102,7 @@ class ProjectDirectorDiscussionFormalizationService:
         discussion_workspace_repository: ProjectDirectorDiscussionWorkspaceRepository,
         discussion_event_repository: ProjectDirectorDiscussionEventRepository,
         message_repository: ProjectDirectorMessageRepository,
+        formalization_proposal_repository: ProjectDirectorFormalizationProposalRepository,
         plan_version_repository: ProjectDirectorPlanVersionRepository,
         plan_service: ProjectDirectorPlanService,
     ) -> None:
@@ -100,6 +110,7 @@ class ProjectDirectorDiscussionFormalizationService:
         self._workspace_repository = discussion_workspace_repository
         self._event_repository = discussion_event_repository
         self._message_repository = message_repository
+        self._proposal_repository = formalization_proposal_repository
         self._plan_version_repository = plan_version_repository
         self._plan_service = plan_service
 
@@ -107,11 +118,12 @@ class ProjectDirectorDiscussionFormalizationService:
         self,
         *,
         session_id: UUID,
+        proposal_id: UUID,
         workspace_version: int,
         target: FormalizationTarget,
         user_confirmed: bool,
     ) -> DiscussionFormalizationResult:
-        """Create or read back the plan draft for one confirmed workspace version."""
+        """Create or read back the draft for one persisted exact proposal."""
 
         shared_session = self._require_shared_session()
         try:
@@ -122,12 +134,32 @@ class ProjectDirectorDiscussionFormalizationService:
             if target != FormalizationTarget.PLAN_REVISION:
                 raise ValueError("project_director_formalization_target_invalid")
 
+            proposal = self._proposal_repository.get_by_id(proposal_id)
+            if proposal is None:
+                raise ValueError("project_director_formalization_proposal_not_found")
+            if proposal.session_id != session_id:
+                raise ValueError(
+                    "project_director_formalization_proposal_session_mismatch"
+                )
+
             session_obj = self._session_repository.get_by_id(session_id)
             if session_obj is None:
                 raise ValueError(f"Session {session_id} not found")
             if session_obj.status != ProjectDirectorSessionStatus.CONFIRMED:
                 raise ValueError(
                     "project_director_formalization_session_not_confirmed"
+                )
+            if proposal.project_id != session_obj.project_id:
+                raise ValueError(
+                    "project_director_formalization_proposal_project_mismatch"
+                )
+            if proposal.workspace_version != workspace_version:
+                raise ValueError(
+                    "project_director_formalization_proposal_workspace_mismatch"
+                )
+            if proposal.target != target:
+                raise ValueError(
+                    "project_director_formalization_proposal_target_mismatch"
                 )
 
             workspace = self._workspace_repository.get_by_session_id(
@@ -142,28 +174,40 @@ class ProjectDirectorDiscussionFormalizationService:
             if workspace.version_no < 1:
                 raise ValueError("project_director_formalization_workspace_not_ready")
 
-            source_events = self._resolve_workspace_source_events(
+            if proposal.status == FormalizationProposalStatus.CONFIRMED:
+                return self._confirmed_replay_result(
+                    proposal=proposal,
+                    session_id=session_id,
+                    workspace=workspace,
+                )
+            if proposal.status != FormalizationProposalStatus.PROPOSED:
+                raise ValueError("project_director_formalization_proposal_not_active")
+
+            workspace_events = self._resolve_workspace_source_events(
                 workspace=workspace,
             )
-            source_event_ids = tuple(event.id for event in source_events)
-            source_message_ids = self._collect_source_message_ids(
-                source_events,
+            source_events = self._validate_proposal_lineage(
+                proposal=proposal,
                 session_id=session_id,
+                workspace=workspace,
+                workspace_events=workspace_events,
             )
+            source_event_ids = tuple(proposal.source_event_ids)
+            source_message_ids = tuple(proposal.source_message_ids)
 
-            existing = self._plan_version_repository.get_by_formalization_source(
-                session_id=session_id,
-                target=target,
-                workspace_version=workspace_version,
+            existing = self._plan_version_repository.get_by_formalization_proposal_id(
+                proposal_id
             )
             if existing is not None:
-                self._ensure_existing_provenance(
+                self._ensure_existing_proposal_provenance(
                     existing,
+                    proposal_id=proposal_id,
                     source_event_ids=source_event_ids,
                     source_message_ids=source_message_ids,
                 )
                 return self._result(
                     existing,
+                    proposal_id=proposal_id,
                     workspace_version=workspace_version,
                     target=target,
                     source_event_ids=source_event_ids,
@@ -172,7 +216,7 @@ class ProjectDirectorDiscussionFormalizationService:
                 )
 
             revision_notes = self._revision_notes(
-                target=target,
+                proposal=proposal,
                 workspace=workspace,
                 events=source_events,
             )
@@ -183,8 +227,7 @@ class ProjectDirectorDiscussionFormalizationService:
             plan_version = self._new_plan_version(
                 session_id=session_id,
                 project_id=session_obj.project_id,
-                workspace_version=workspace_version,
-                target=target,
+                proposal=proposal,
                 source_event_ids=source_event_ids,
                 source_message_ids=source_message_ids,
                 plan_draft=plan_draft,
@@ -197,23 +240,34 @@ class ProjectDirectorDiscussionFormalizationService:
             persisted_plan_version = self._plan_version_repository.create_no_commit(
                 plan_version
             )
+            self._proposal_repository.mark_confirmed_no_commit(
+                proposal_id=proposal_id,
+                confirmed_plan_version_id=persisted_plan_version.id,
+            )
             shared_session.commit()
         except IntegrityError:
             shared_session.rollback()
-            existing = self._plan_version_repository.get_by_formalization_source(
-                session_id=session_id,
-                target=target,
-                workspace_version=workspace_version,
+            persisted_proposal = self._proposal_repository.get_by_id(proposal_id)
+            existing = self._plan_version_repository.get_by_formalization_proposal_id(
+                proposal_id
             )
-            if existing is None:
-                raise
-            self._ensure_existing_provenance(
+            if (
+                persisted_proposal is None
+                or persisted_proposal.status != FormalizationProposalStatus.CONFIRMED
+                or existing is None
+            ):
+                raise ValueError(
+                    "project_director_formalization_proposal_already_confirmed_conflict"
+                )
+            self._ensure_existing_proposal_provenance(
                 existing,
+                proposal_id=proposal_id,
                 source_event_ids=source_event_ids,
                 source_message_ids=source_message_ids,
             )
             return self._result(
                 existing,
+                proposal_id=proposal_id,
                 workspace_version=workspace_version,
                 target=target,
                 source_event_ids=source_event_ids,
@@ -226,6 +280,7 @@ class ProjectDirectorDiscussionFormalizationService:
 
         return self._result(
             persisted_plan_version,
+            proposal_id=proposal_id,
             workspace_version=workspace_version,
             target=target,
             source_event_ids=source_event_ids,
@@ -239,6 +294,7 @@ class ProjectDirectorDiscussionFormalizationService:
             self._workspace_repository,
             self._event_repository,
             self._message_repository,
+            self._proposal_repository,
             self._plan_version_repository,
             getattr(self._plan_service, "_session_repo", None),
             getattr(self._plan_service, "_plan_repo", None),
@@ -490,16 +546,122 @@ class ProjectDirectorDiscussionFormalizationService:
             raise ValueError("project_director_formalization_source_messages_missing")
         return tuple(message_ids)
 
+    def _validate_proposal_lineage(
+        self,
+        *,
+        proposal: ProjectDirectorFormalizationProposal,
+        session_id: UUID,
+        workspace: DiscussionWorkspace,
+        workspace_events: tuple[DiscussionEvent, ...],
+    ) -> tuple[DiscussionEvent, ...]:
+        """Validate that a persisted Proposal still names visible prior evidence."""
+
+        assistant_message = self._message_repository.get_by_id(
+            proposal.assistant_message_id
+        )
+        if assistant_message is None:
+            raise ValueError(
+                "project_director_formalization_proposal_lineage_invalid"
+            )
+        if assistant_message.session_id != session_id:
+            raise ValueError(
+                "project_director_formalization_proposal_session_mismatch"
+            )
+
+        for message_id in proposal.source_message_ids:
+            message = self._message_repository.get_by_id(message_id)
+            if message is None:
+                raise ValueError("project_director_formalization_source_message_not_found")
+            if message.session_id != session_id:
+                raise ValueError(
+                    "project_director_formalization_source_message_session_mismatch"
+                )
+
+        valid_workspace_event_ids = {event.id for event in workspace_events}
+        source_events: list[DiscussionEvent] = []
+        for event_id in proposal.source_event_ids:
+            event = self._event_repository.get_by_id(event_id=event_id)
+            if event is None:
+                raise ValueError("project_director_formalization_proposal_lineage_invalid")
+            if (
+                event.session_id != session_id
+                or event.project_id != workspace.project_id
+                or event.id not in valid_workspace_event_ids
+                or event.event_type == DiscussionEventType.FORMALIZATION_REQUESTED
+                or event.status
+                in {DiscussionEventStatus.REJECTED, DiscussionEventStatus.HISTORICAL}
+                or event.created_at >= proposal.created_at
+                or proposal.assistant_message_id in event.source_message_ids
+            ):
+                raise ValueError(
+                    "project_director_formalization_proposal_lineage_invalid"
+                )
+            source_events.append(event)
+        if not source_events:
+            raise ValueError("project_director_formalization_proposal_lineage_invalid")
+        return tuple(source_events)
+
+    def _confirmed_replay_result(
+        self,
+        *,
+        proposal: ProjectDirectorFormalizationProposal,
+        session_id: UUID,
+        workspace: DiscussionWorkspace,
+    ) -> DiscussionFormalizationResult:
+        if proposal.confirmed_plan_version_id is None:
+            raise ValueError(
+                "project_director_formalization_proposal_already_confirmed_conflict"
+            )
+        existing = self._plan_version_repository.get_by_id(
+            proposal.confirmed_plan_version_id
+        )
+        if existing is None or existing.session_id != session_id:
+            raise ValueError(
+                "project_director_formalization_proposal_already_confirmed_conflict"
+            )
+        workspace_events = self._resolve_workspace_source_events(workspace=workspace)
+        self._validate_proposal_lineage(
+            proposal=proposal,
+            session_id=session_id,
+            workspace=workspace,
+            workspace_events=workspace_events,
+        )
+        source_event_ids = tuple(proposal.source_event_ids)
+        source_message_ids = tuple(proposal.source_message_ids)
+        self._ensure_existing_proposal_provenance(
+            existing,
+            proposal_id=proposal.proposal_id,
+            source_event_ids=source_event_ids,
+            source_message_ids=source_message_ids,
+        )
+        return self._result(
+            existing,
+            proposal_id=proposal.proposal_id,
+            workspace_version=proposal.workspace_version,
+            target=proposal.target,
+            source_event_ids=source_event_ids,
+            source_message_ids=source_message_ids,
+            idempotent_replay=True,
+        )
+
     @staticmethod
     def _revision_notes(
         *,
-        target: FormalizationTarget,
+        proposal: ProjectDirectorFormalizationProposal,
         workspace: DiscussionWorkspace,
         events: tuple[DiscussionEvent, ...],
     ) -> str:
         payload = {
-            "formalization_target": target.value,
-            "workspace_version": workspace.version_no,
+            "formalization_proposal_id": proposal.proposal_id,
+            "formalization_target": proposal.target.value,
+            "workspace_version": proposal.workspace_version,
+            "proposal_summary": proposal.summary,
+            "proposal_risk_summary": proposal.risk_summary,
+            "proposal_changes": [
+                change.model_dump(mode="json") for change in proposal.changes
+            ],
+            "proposal_source_message_ids": proposal.source_message_ids,
+            "proposal_source_event_ids": proposal.source_event_ids,
             "workspace_topic": workspace.topic,
             "workspace_discussion_status": workspace.discussion_status.value,
             "events": [
@@ -528,15 +690,15 @@ class ProjectDirectorDiscussionFormalizationService:
         *,
         session_id: UUID,
         project_id: UUID | None,
-        workspace_version: int,
-        target: FormalizationTarget,
+        proposal: ProjectDirectorFormalizationProposal,
         source_event_ids: tuple[UUID, ...],
         source_message_ids: tuple[UUID, ...],
         plan_draft: PlanGenerationResult,
     ) -> ProjectDirectorPlanVersion:
         provenance_suffix = (
-            f"; formalization_target={target.value}; "
-            f"formalization_workspace_version={workspace_version}"
+            f"; formalization_proposal_id={proposal.proposal_id}; "
+            f"formalization_target={proposal.target.value}; "
+            f"formalization_workspace_version={proposal.workspace_version}"
         )
         source_detail = (
             plan_draft.source_detail[: 1000 - len(provenance_suffix)]
@@ -564,8 +726,9 @@ class ProjectDirectorDiscussionFormalizationService:
             source=plan_draft.source,
             source_detail=source_detail,
             forbidden_actions=list(_DEFAULT_FORBIDDEN_ACTIONS),
-            formalization_target=target,
-            formalization_workspace_version=workspace_version,
+            formalization_proposal_id=proposal.proposal_id,
+            formalization_target=proposal.target,
+            formalization_workspace_version=proposal.workspace_version,
             formalization_source_message_ids=list(source_message_ids),
             formalization_source_event_ids=list(source_event_ids),
             confirmed_at=None,
@@ -574,14 +737,16 @@ class ProjectDirectorDiscussionFormalizationService:
         )
 
     @staticmethod
-    def _ensure_existing_provenance(
+    def _ensure_existing_proposal_provenance(
         existing: ProjectDirectorPlanVersion,
         *,
+        proposal_id: UUID,
         source_event_ids: tuple[UUID, ...],
         source_message_ids: tuple[UUID, ...],
     ) -> None:
         if (
-            tuple(existing.formalization_source_event_ids) != source_event_ids
+            existing.formalization_proposal_id != proposal_id
+            or tuple(existing.formalization_source_event_ids) != source_event_ids
             or tuple(existing.formalization_source_message_ids) != source_message_ids
         ):
             raise ValueError("project_director_formalization_idempotency_conflict")
@@ -590,6 +755,7 @@ class ProjectDirectorDiscussionFormalizationService:
     def _result(
         plan_version: ProjectDirectorPlanVersion,
         *,
+        proposal_id: UUID,
         workspace_version: int,
         target: FormalizationTarget,
         source_event_ids: tuple[UUID, ...],
@@ -598,6 +764,7 @@ class ProjectDirectorDiscussionFormalizationService:
     ) -> DiscussionFormalizationResult:
         return DiscussionFormalizationResult(
             plan_version=plan_version,
+            proposal_id=proposal_id,
             workspace_version=workspace_version,
             target=target,
             source_message_ids=source_message_ids,

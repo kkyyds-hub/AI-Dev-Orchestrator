@@ -1980,6 +1980,78 @@ class ProjectDirectorDiscussionWorkspaceTable(ORMBase):
     )
 
 
+class ProjectDirectorFormalizationProposalTable(ORMBase):
+    """Durable Provider formalization proposals bound to one assistant message."""
+
+    __tablename__ = "project_director_formalization_proposals"
+    __table_args__ = (
+        CheckConstraint(
+            "workspace_version >= 1",
+            name="ck_pd_formalization_proposals_workspace_version",
+        ),
+        CheckConstraint(
+            "target = 'plan_revision'",
+            name="ck_pd_formalization_proposals_target",
+        ),
+        CheckConstraint(
+            "status IN ('proposed', 'confirmed', 'superseded')",
+            name="ck_pd_formalization_proposals_status",
+        ),
+        Index(
+            "ix_pd_formalization_proposals_session_active",
+            "session_id",
+            "status",
+            "workspace_version",
+        ),
+        UniqueConstraint(
+            "assistant_message_id",
+            name="uq_pd_formalization_proposals_assistant_message",
+        ),
+    )
+
+    proposal_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    assistant_message_id: Mapped[UUID] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    target: Mapped[str] = mapped_column(String(40), nullable=False)
+    proposal_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source_message_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source_event_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="proposed")
+    confirmed_plan_version_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey("project_director_plan_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class ProjectDirectorPlanVersionTable(ORMBase):
     """AI Project Director plan version rows — reviewable drafts, not real tasks."""
 
@@ -1990,6 +2062,11 @@ class ProjectDirectorPlanVersionTable(ORMBase):
             "session_id",
             "formalization_target",
             "formalization_workspace_version",
+            unique=True,
+        ),
+        Index(
+            "uq_pd_plan_formalization_proposal",
+            "formalization_proposal_id",
             unique=True,
         ),
     )
@@ -2050,6 +2127,14 @@ class ProjectDirectorPlanVersionTable(ORMBase):
     )
     forbidden_actions_json: Mapped[str] = mapped_column(
         Text, nullable=False, default="[]"
+    )
+    formalization_proposal_id: Mapped[UUID | None] = mapped_column(
+        SqlUuid(as_uuid=True),
+        ForeignKey(
+            "project_director_formalization_proposals.proposal_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
     )
     formalization_target: Mapped[str | None] = mapped_column(String(40), nullable=True)
     formalization_workspace_version: Mapped[int | None] = mapped_column(

@@ -315,6 +315,7 @@ export interface ProjectDirectorPlanVersion {
   source_detail?: string;
   normalization_warnings?: string[];
   forbidden_actions: string[];
+  formalization_proposal_id: string | null;
   formalization_target: ProjectDirectorFormalizationTarget | null;
   formalization_workspace_version: number | null;
   formalization_source_message_ids: string[];
@@ -643,6 +644,7 @@ export interface ProjectDirectorWorkbenchResume {
   task_creation: ProjectDirectorTaskCreationResponse | null;
   recent_messages: ProjectDirectorMessage[];
   discussion_workspace: ProjectDirectorDiscussionWorkspace | null;
+  formalization_proposal: ProjectDirectorFormalizationProposal | null;
   existing_formalization_workspace_versions: number[];
   source:
     | "backend_recent_plan"
@@ -735,11 +737,14 @@ export interface CreateProjectDirectorPlanVersionInput {
 
 export interface FormalizeProjectDirectorDiscussionInput {
   sessionId: string;
+  proposalId: string;
   workspaceVersion: number;
+  target: ProjectDirectorFormalizationTarget;
 }
 
 export interface FormalizeProjectDirectorDiscussionResponse {
   session_id: string;
+  proposal_id: string;
   workspace_version: number;
   target: "plan_revision";
   source_message_ids: string[];

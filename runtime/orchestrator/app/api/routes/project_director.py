@@ -56,7 +56,10 @@ from app.domain.project_director_plan_version import (
     PlanVersionStatus,
     ProjectDirectorPlanVersion,
 )
-from app.domain.project_director_conversation_intelligence import FormalizationTarget
+from app.domain.project_director_conversation_intelligence import (
+    FormalizationProposal,
+    FormalizationTarget,
+)
 from app.domain.project_director_agent_team_config import (
     AgentTeamConfigStatus,
     ProjectDirectorAgentTeamConfig,
@@ -85,6 +88,9 @@ from app.external_executors.readonly_reviewer_transport_resolver_factory import 
 )
 from app.repositories.project_director_plan_version_repository import (
     ProjectDirectorPlanVersionRepository,
+)
+from app.repositories.project_director_formalization_proposal_repository import (
+    ProjectDirectorFormalizationProposalRepository,
 )
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
@@ -1605,6 +1611,9 @@ def _get_discussion_formalization_service(
         ),
         discussion_event_repository=ProjectDirectorDiscussionEventRepository(session),
         message_repository=ProjectDirectorMessageRepository(session),
+        formalization_proposal_repository=(
+            ProjectDirectorFormalizationProposalRepository(session)
+        ),
         plan_version_repository=plan_version_repository,
         plan_service=ProjectDirectorPlanService(
             plan_version_repository=plan_version_repository,
@@ -4000,6 +4009,7 @@ def formalize_discussion(
     try:
         result = formalization_service.formalize_discussion(
             session_id=session_id,
+            proposal_id=request.proposal_id,
             workspace_version=request.workspace_version,
             target=FormalizationTarget(request.target),
             user_confirmed=request.user_confirmed,
@@ -4028,6 +4038,7 @@ def formalize_discussion(
 
     return FormalizeDiscussionResponse(
         session_id=session_id,
+        proposal_id=result.proposal_id,
         workspace_version=result.workspace_version,
         target=result.target.value,
         source_message_ids=list(result.source_message_ids),
@@ -5119,6 +5130,7 @@ class WorkbenchResumeResponse(BaseModel):
     task_creation: TaskCreationResponse | None = None
     recent_messages: list[ProjectDirectorMessageResponse] = Field(default_factory=list)
     discussion_workspace: DiscussionWorkspaceResponse | None = None
+    formalization_proposal: FormalizationProposal | None = None
     existing_formalization_workspace_versions: list[int] = Field(
         default_factory=list
     )
@@ -5204,6 +5216,33 @@ def _existing_formalization_workspace_versions(
     )
 
 
+def _active_formalization_proposal_for_workspace(
+    *,
+    db_session: Session,
+    plan_repo: ProjectDirectorPlanVersionRepository,
+    workspace,
+):
+    if workspace is None or workspace.version_no < 1:
+        return None
+    proposal = ProjectDirectorFormalizationProposalRepository(
+        db_session
+    ).get_active_for_session(session_id=workspace.session_id)
+    if (
+        proposal is None
+        or proposal.workspace_version != workspace.version_no
+        or proposal.target != FormalizationTarget.PLAN_REVISION
+        or plan_repo.get_by_formalization_proposal_id(proposal.proposal_id) is not None
+        or plan_repo.get_by_formalization_source(
+            session_id=workspace.session_id,
+            target=FormalizationTarget.PLAN_REVISION,
+            workspace_version=workspace.version_no,
+        )
+        is not None
+    ):
+        return None
+    return proposal.to_response_proposal()
+
+
 def _recent_message_responses(
     *,
     db_session: Session,
@@ -5229,6 +5268,11 @@ def _build_workbench_resume_for_session(
     workspace = ProjectDirectorDiscussionWorkspaceRepository(
         db_session
     ).get_by_session_id(session_id=session_obj.id)
+    formalization_proposal = _active_formalization_proposal_for_workspace(
+        db_session=db_session,
+        plan_repo=plan_repo,
+        workspace=workspace,
+    )
     latest_plan_version = _latest_resumable_plan_for_session(
         plan_repo=plan_repo,
         session_id=session_obj.id,
@@ -5259,6 +5303,7 @@ def _build_workbench_resume_for_session(
             if workspace is not None
             else None
         ),
+        formalization_proposal=formalization_proposal,
         existing_formalization_workspace_versions=(
             _existing_formalization_workspace_versions(
                 plan_repo=plan_repo,
@@ -5432,6 +5477,11 @@ def get_workbench_resume(
         workspace = ProjectDirectorDiscussionWorkspaceRepository(
             db_session
         ).get_by_session_id(session_id=session_obj.id)
+        formalization_proposal = _active_formalization_proposal_for_workspace(
+            db_session=db_session,
+            plan_repo=plan_repo,
+            workspace=workspace,
+        )
         return WorkbenchResumeResponse(
             session=SessionResponse.from_domain(session_obj),
             plan_version=PlanVersionResponse.from_domain(plan_version),
@@ -5445,6 +5495,7 @@ def get_workbench_resume(
                 if workspace is not None
                 else None
             ),
+            formalization_proposal=formalization_proposal,
             existing_formalization_workspace_versions=(
                 _existing_formalization_workspace_versions(
                     plan_repo=plan_repo,

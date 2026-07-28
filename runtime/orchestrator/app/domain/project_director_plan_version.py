@@ -145,6 +145,7 @@ class ProjectDirectorPlanVersion(DomainModel):
     source: str = Field(default="rule_fallback", max_length=40)
     source_detail: str = Field(default="deterministic_plan_generation", max_length=1000)
     forbidden_actions: list[str] = Field(default_factory=list)
+    formalization_proposal_id: UUID | None = None
     formalization_target: FormalizationTarget | None = None
     formalization_workspace_version: int | None = None
     formalization_source_message_ids: list[UUID] = Field(default_factory=list)
@@ -175,7 +176,11 @@ class ProjectDirectorPlanVersion(DomainModel):
         )
 
         if not has_target:
-            if self.formalization_workspace_version is not None or source_ids_present:
+            if (
+                self.formalization_proposal_id is not None
+                or self.formalization_workspace_version is not None
+                or source_ids_present
+            ):
                 raise ValueError(
                     "Non-formalized plan versions cannot retain formalization provenance."
                 )

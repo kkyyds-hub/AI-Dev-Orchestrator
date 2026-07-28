@@ -178,8 +178,9 @@ export function formalizeProjectDirectorDiscussion(
     {
       method: "POST",
       body: JSON.stringify({
+        proposal_id: input.proposalId,
         workspace_version: input.workspaceVersion,
-        target: "plan_revision",
+        target: input.target,
         user_confirmed: true,
       }),
     },

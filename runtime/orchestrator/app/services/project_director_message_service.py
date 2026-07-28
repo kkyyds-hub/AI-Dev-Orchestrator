@@ -24,6 +24,14 @@ from app.domain.project_director_conversation_intelligence import (
     DirectorResponseEnvelope,
     DirectorResponseSource,
 )
+from app.domain.project_director_formalization_proposal import (
+    FormalizationProposalStatus,
+    ProjectDirectorFormalizationProposal,
+)
+from app.domain.project_director_discussion import (
+    DiscussionEventStatus,
+    DiscussionEventType,
+)
 from app.domain.project_director_semantic_turn import TurnInterpretationOutcome
 from app.domain.project_director_action_proposal import (
     DirectorActionProposal,
@@ -59,6 +67,12 @@ from app.repositories.project_director_message_repository import (
 )
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
+)
+from app.repositories.project_director_discussion_event_repository import (
+    ProjectDirectorDiscussionEventRepository,
+)
+from app.repositories.project_director_formalization_proposal_repository import (
+    ProjectDirectorFormalizationProposalRepository,
 )
 from app.services.project_director_context_builder_service import (
     ProjectDirectorContextBuilderService,
@@ -512,6 +526,23 @@ class ProjectDirectorMessageService:
                 envelope=envelope,
                 workspace_version=delta_apply_result.workspace.version_no,
             )
+            persisted_proposal = self._persist_formalization_proposal(
+                session_id=session_id,
+                project_id=session_obj.project_id,
+                user_message_id=user_message.id,
+                assistant_message_id=persisted_turn.assistant_message.id,
+                envelope=envelope,
+                workspace=delta_apply_result.workspace,
+                session=shared_session,
+            )
+            if persisted_proposal is not None:
+                envelope = envelope.model_copy(
+                    update={
+                        "formalization_proposal": (
+                            persisted_proposal.to_response_proposal()
+                        )
+                    }
+                )
             shared_session.commit()
         except Exception:
             shared_session.rollback()
@@ -555,6 +586,91 @@ class ProjectDirectorMessageService:
                 update={"workspace_version": workspace_version}
             )}
         )
+
+    def _persist_formalization_proposal(
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID | None,
+        user_message_id: UUID,
+        assistant_message_id: UUID,
+        envelope: DirectorResponseEnvelope,
+        workspace,
+        session,
+    ) -> ProjectDirectorFormalizationProposal | None:
+        """Persist a validated Provider proposal inside the message-turn transaction."""
+
+        proposal = envelope.formalization_proposal
+        if proposal is None:
+            return None
+        if (
+            envelope.source == DirectorResponseSource.RULE_FALLBACK
+            or not envelope.requires_confirmation
+            or proposal.target.value != "plan_revision"
+            or proposal.workspace_version != workspace.version_no
+            or workspace.version_no < 1
+            or not proposal.source_message_ids
+            or user_message_id not in proposal.source_message_ids
+        ):
+            raise ValueError("project_director_formalization_proposal_lineage_invalid")
+
+        source_event_ids: list[UUID] = []
+        for change in proposal.changes:
+            if not change.source_event_ids:
+                raise ValueError("project_director_formalization_proposal_lineage_invalid")
+            for event_id in change.source_event_ids:
+                if event_id not in source_event_ids:
+                    source_event_ids.append(event_id)
+        if not source_event_ids:
+            raise ValueError("project_director_formalization_proposal_lineage_invalid")
+
+        event_repository = ProjectDirectorDiscussionEventRepository(session)
+        assistant_message = self._message_repository.get_by_id(assistant_message_id)
+        if assistant_message is None or assistant_message.session_id != session_id:
+            raise ValueError("project_director_formalization_proposal_lineage_invalid")
+        for message_id in proposal.source_message_ids:
+            message = self._message_repository.get_by_id(message_id)
+            if message is None or message.session_id != session_id:
+                raise ValueError("project_director_formalization_proposal_lineage_invalid")
+        for event_id in source_event_ids:
+            event = event_repository.get_by_id(event_id=event_id)
+            if (
+                event is None
+                or event.session_id != session_id
+                or event.project_id != project_id
+                or event.sequence_no > workspace.last_event_sequence_no
+                or event.event_type == DiscussionEventType.FORMALIZATION_REQUESTED
+                or event.status
+                in {DiscussionEventStatus.REJECTED, DiscussionEventStatus.HISTORICAL}
+                or user_message_id in event.source_message_ids
+                or assistant_message_id in event.source_message_ids
+            ):
+                raise ValueError("project_director_formalization_proposal_lineage_invalid")
+
+        persisted = ProjectDirectorFormalizationProposal(
+            proposal_id=proposal.proposal_id,
+            session_id=session_id,
+            project_id=project_id,
+            assistant_message_id=assistant_message_id,
+            workspace_version=workspace.version_no,
+            target=proposal.target,
+            summary=proposal.summary,
+            changes=proposal.changes,
+            source_message_ids=proposal.source_message_ids,
+            source_event_ids=source_event_ids,
+            risk_summary=proposal.risk_summary,
+            requires_confirmation=True,
+            status=FormalizationProposalStatus.PROPOSED,
+        )
+        repository = ProjectDirectorFormalizationProposalRepository(session)
+        stored = repository.create_no_commit(persisted)
+        repository.mark_superseded_no_commit(
+            session_id=session_id,
+            workspace_version=workspace.version_no,
+            target=proposal.target,
+            except_proposal_id=stored.proposal_id,
+        )
+        return stored
 
     def _resolve_response_provider(
         self, runtime_config: object | None

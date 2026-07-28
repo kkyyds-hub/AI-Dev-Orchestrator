@@ -94,6 +94,7 @@ class ProjectDirectorPlanVersionRepository:
             source=plan_version.source,
             source_detail=plan_version.source_detail,
             forbidden_actions_json=json.dumps(plan_version.forbidden_actions),
+            formalization_proposal_id=plan_version.formalization_proposal_id,
             formalization_target=(
                 plan_version.formalization_target.value
                 if plan_version.formalization_target is not None
@@ -231,6 +232,17 @@ class ProjectDirectorPlanVersionRepository:
         ).scalar_one_or_none()
         return self._to_domain(row) if row is not None else None
 
+    def get_by_formalization_proposal_id(
+        self,
+        proposal_id: UUID,
+    ) -> ProjectDirectorPlanVersion | None:
+        row = self._session.execute(
+            select(ProjectDirectorPlanVersionTable).where(
+                ProjectDirectorPlanVersionTable.formalization_proposal_id == proposal_id
+            )
+        ).scalar_one_or_none()
+        return self._to_domain(row) if row is not None else None
+
     def update(
         self, plan_version: ProjectDirectorPlanVersion
     ) -> ProjectDirectorPlanVersion:
@@ -274,6 +286,7 @@ class ProjectDirectorPlanVersionRepository:
         row.source = plan_version.source
         row.source_detail = plan_version.source_detail
         row.forbidden_actions_json = json.dumps(plan_version.forbidden_actions)
+        row.formalization_proposal_id = plan_version.formalization_proposal_id
         row.formalization_target = (
             plan_version.formalization_target.value
             if plan_version.formalization_target is not None
@@ -473,6 +486,11 @@ class ProjectDirectorPlanVersionRepository:
                 or "deterministic_plan_generation"
             ),
             forbidden_actions=forbidden,
+            formalization_proposal_id=getattr(
+                row,
+                "formalization_proposal_id",
+                None,
+            ),
             formalization_target=formalization_target,
             formalization_workspace_version=getattr(
                 row,

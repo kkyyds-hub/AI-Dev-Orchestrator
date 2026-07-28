@@ -20,7 +20,10 @@ from app.domain.project_director_plan_version import (
     SkillBindingSuggestion as SkillBindingSuggestionDomain,
     VerificationMechanismSuggestion as VerificationMechanismSuggestionDomain,
 )
-from app.domain.project_director_conversation_intelligence import FormalizationTarget
+from app.domain.project_director_conversation_intelligence import (
+    FormalizationProposal,
+    FormalizationTarget,
+)
 
 
 class PlanPhaseResponse(BaseModel):
@@ -225,6 +228,7 @@ class PlanVersionResponse(BaseModel):
     source_detail: str = Field(default="")
     normalization_warnings: list[str] = Field(default_factory=list)
     forbidden_actions: list[str] = Field(default_factory=list)
+    formalization_proposal_id: UUID | None = None
     formalization_target: FormalizationTarget | None = None
     formalization_workspace_version: int | None = None
     formalization_source_message_ids: list[UUID] = Field(default_factory=list)
@@ -286,6 +290,7 @@ class PlanVersionResponse(BaseModel):
                 pv.source_detail
             ),
             forbidden_actions=pv.forbidden_actions,
+            formalization_proposal_id=pv.formalization_proposal_id,
             formalization_target=pv.formalization_target,
             formalization_workspace_version=pv.formalization_workspace_version,
             formalization_source_message_ids=pv.formalization_source_message_ids,
@@ -301,13 +306,15 @@ class PlanVersionResponse(BaseModel):
 
 
 class FormalizeDiscussionRequest(BaseModel):
+    proposal_id: UUID
     workspace_version: int = Field(ge=1)
     target: Literal["plan_revision"]
-    user_confirmed: bool = False
+    user_confirmed: Literal[True]
 
 
 class FormalizeDiscussionResponse(BaseModel):
     session_id: UUID
+    proposal_id: UUID
     workspace_version: int
     target: Literal["plan_revision"]
     source_message_ids: list[UUID]
