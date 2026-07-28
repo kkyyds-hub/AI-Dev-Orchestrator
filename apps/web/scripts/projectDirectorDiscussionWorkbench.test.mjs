@@ -128,8 +128,8 @@ assert.equal(canOffer({ workspace: { version_no: 1, discussion_status: "ready_to
 assert.equal(canOffer({ workspace: { version_no: 1, discussion_status: "ready_to_formalize" }, proposal: null, existingWorkspaceVersions: [1], planVersion: null }), false);
 assert.equal(canOffer({ workspace: { version_no: 1, discussion_status: "ready_to_formalize" }, proposal: null, existingWorkspaceVersions: [1], planVersion: { formalization_workspace_version: null } }), false);
 assert.equal(canOffer({ workspace: { version_no: 1, discussion_status: "ready_to_formalize" }, proposal: null, existingWorkspaceVersions: [1], planVersion: { formalization_workspace_version: 1, status: "rejected" } }), false);
-assert.equal(canOffer({ workspace: { version_no: 2, discussion_status: "ready_to_formalize" }, proposal: { requires_confirmation: true, workspace_version: 2 }, existingWorkspaceVersions: [1], planVersion: null }), true);
-assert.equal(canOffer({ workspace: { version_no: 2, discussion_status: "ready_to_formalize" }, proposal: null, existingWorkspaceVersions: [1], planVersion: null }), true);
+assert.equal(canOffer({ workspace: { version_no: 2, discussion_status: "ready_to_formalize" }, proposal: { requires_confirmation: true, workspace_version: 2, status: "proposed", target: "plan_revision" }, existingWorkspaceVersions: [1], planVersion: null }), true);
+assert.equal(canOffer({ workspace: { version_no: 2, discussion_status: "ready_to_formalize" }, proposal: null, existingWorkspaceVersions: [1], planVersion: null }), false);
 assert.equal(canOffer({ workspace: { version_no: 2, discussion_status: "exploring" }, proposal: { requires_confirmation: true, workspace_version: 1 }, existingWorkspaceVersions: [1], planVersion: null }), false);
 
 // ===========================================================================
@@ -170,9 +170,9 @@ assert.equal(updated[0].content, "updated");
 
 assert.match(apiSource, /\/project-director\/sessions\/\$\{input\.sessionId\}\/discussion\/formalize/);
 assert.match(apiSource, /workspace_version:\s*input\.workspaceVersion/);
-assert.match(apiSource, /target:\s*"plan_revision"/);
+assert.match(apiSource, /target:\s*input\.target/);
 assert.match(apiSource, /user_confirmed:\s*true/);
-assert.doesNotMatch(apiSource, /proposal_id/);
+assert.match(apiSource, /proposal_id:\s*input\.proposalId/);
 assert.doesNotMatch(apiSource, /source_message_ids/);
 assert.doesNotMatch(apiSource, /source_event_ids/);
 
