@@ -6,9 +6,10 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum, StrEnum
 from hashlib import sha256
 import json
+import math
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -194,6 +195,49 @@ _DEFAULT_SUBJECT_KEYS: dict[DiscussionDeltaOperationType, str] = {
     DiscussionDeltaOperationType.CANCEL_FORMALIZATION: "formalization",
 }
 _EVENT_NAMESPACE = uuid5(NAMESPACE_URL, "p26-d1-governed-discussion-event")
+
+
+def canonicalize_discussion_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the deterministic JSON-native payload persisted for one event."""
+
+    normalized = _canonicalize_discussion_json_value(payload)
+    if not isinstance(normalized, dict):
+        raise ValueError("discussion_delta_payload_not_object")
+    return normalized
+
+
+def _canonicalize_discussion_json_value(value: Any) -> Any:
+    """Normalize supported JSON-boundary values without changing their meaning."""
+
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("discussion_delta_payload_float_not_finite")
+        return value
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Enum):
+        return _canonicalize_discussion_json_value(value.value)
+    if isinstance(value, datetime):
+        return ensure_utc_datetime(value).isoformat()
+    if isinstance(value, (list, tuple)):
+        return [_canonicalize_discussion_json_value(item) for item in value]
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for raw_key, raw_item in sorted(value.items(), key=lambda item: str(item[0])):
+            key = str(raw_key)
+            if key in normalized:
+                raise ValueError("discussion_delta_payload_key_collision")
+            normalized[key] = _canonicalize_discussion_json_value(raw_item)
+        return normalized
+    raise ValueError("discussion_delta_payload_value_not_json_serializable")
+
+
+def _canonical_json_dump(value: Any) -> str:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
 
 
 class ProjectDirectorDiscussionDeltaGateService:
@@ -566,7 +610,7 @@ class ProjectDirectorDiscussionDeltaGateService:
             ):
                 raise ValueError("discussion_delta_target_id_conflict")
             payload["target_id"] = operation.target_id
-        return payload
+        return canonicalize_discussion_payload(payload)
 
     @staticmethod
     def _subject_key(operation: DiscussionDeltaOperation) -> str:
@@ -603,13 +647,7 @@ class ProjectDirectorDiscussionDeltaGateService:
                 else None
             ),
         }
-        encoded = json.dumps(
-            canonical_operation,
-            ensure_ascii=False,
-            sort_keys=True,
-            default=str,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        encoded = _canonical_json_dump(canonical_operation).encode("utf-8")
         return sha256(encoded).hexdigest()
 
     @staticmethod

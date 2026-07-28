@@ -243,8 +243,10 @@ class ProjectDirectorDiscussionEventRepository:
         incoming: DiscussionEvent,
     ) -> None:
         fields = (
+            "id",
             "session_id",
             "project_id",
+            "sequence_no",
             "event_type",
             "subject_key",
             "content",
@@ -253,6 +255,7 @@ class ProjectDirectorDiscussionEventRepository:
             "supersedes_event_id",
             "created_by",
             "confidence",
+            "created_at",
             "source_surface",
             "source_entity_type",
             "source_entity_id",

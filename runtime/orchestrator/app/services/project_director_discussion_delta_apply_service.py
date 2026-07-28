@@ -32,6 +32,7 @@ from app.services.project_director_discussion_delta_gate_service import (
     DiscussionDeltaGateStatus,
     PreparedDiscussionEvent,
     ProjectDirectorDiscussionDeltaGateService,
+    canonicalize_discussion_payload,
 )
 from app.services.project_director_discussion_workspace_reducer_service import (
     ProjectDirectorDiscussionWorkspaceReducerService,
@@ -257,7 +258,7 @@ class ProjectDirectorDiscussionDeltaApplyService:
             event, inserted = self._events.append_if_absent(
                 event=prepared.event, idempotency_key=prepared.idempotency_key
             )
-            if event.model_dump(mode="python") != prepared.event.model_dump(mode="python"):
+            if not self._events_persistence_equivalent(event, prepared.event):
                 raise ValueError("discussion_delta_apply_persisted_event_mismatch")
             persisted.append(
                 AppliedDiscussionEvent(
@@ -268,6 +269,54 @@ class ProjectDirectorDiscussionDeltaApplyService:
                 )
             )
         return tuple(persisted)
+
+    @staticmethod
+    def _events_persistence_equivalent(
+        persisted: DiscussionEvent, prepared: DiscussionEvent
+    ) -> bool:
+        """Compare every Event field using the repository's JSON-boundary semantics."""
+
+        def record(event: DiscussionEvent) -> dict[str, object]:
+            return {
+                "id": str(event.id),
+                "session_id": str(event.session_id),
+                "project_id": str(event.project_id) if event.project_id else None,
+                "sequence_no": event.sequence_no,
+                "event_type": event.event_type.value,
+                "subject_key": event.subject_key,
+                "content": event.content,
+                "status": event.status.value,
+                "payload": canonicalize_discussion_payload(event.payload),
+                "source_message_ids": [str(item) for item in event.source_message_ids],
+                "supersedes_event_id": (
+                    str(event.supersedes_event_id)
+                    if event.supersedes_event_id is not None
+                    else None
+                ),
+                "created_by": event.created_by.value,
+                "confidence": event.confidence,
+                "created_at": event.created_at.isoformat(),
+                "source_surface": event.source_surface,
+                "source_entity_type": event.source_entity_type,
+                "source_entity_id": (
+                    str(event.source_entity_id)
+                    if event.source_entity_id is not None
+                    else None
+                ),
+                "trigger_type": event.trigger_type,
+                "interaction_case_id": (
+                    str(event.interaction_case_id)
+                    if event.interaction_case_id is not None
+                    else None
+                ),
+                "external_context_pack_id": (
+                    str(event.external_context_pack_id)
+                    if event.external_context_pack_id is not None
+                    else None
+                ),
+            }
+
+        return record(persisted) == record(prepared)
 
     def _persist_workspace(
         self,
