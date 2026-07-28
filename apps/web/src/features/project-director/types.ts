@@ -447,6 +447,7 @@ export interface ProjectDirectorFormalizationProposal {
   summary: string;
   changes: ProjectDirectorFormalizationChange[];
   source_message_ids: string[];
+  source_event_ids: string[];
   risk_summary: string;
   requires_confirmation: true;
   status: "proposed";

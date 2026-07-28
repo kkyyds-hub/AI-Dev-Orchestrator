@@ -7,13 +7,14 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.domain._base import DomainModel, utc_now
 from app.domain.project_director_conversation_intelligence import (
     FormalizationChange,
     FormalizationProposal,
     FormalizationTarget,
+    ordered_unique_formalization_source_event_ids,
 )
 
 
@@ -53,6 +54,16 @@ class ProjectDirectorFormalizationProposal(DomainModel):
             raise ValueError("Formalization proposal source IDs cannot contain duplicates.")
         return value
 
+    @model_validator(mode="after")
+    def validate_source_event_ids(self) -> "ProjectDirectorFormalizationProposal":
+        if self.source_event_ids != ordered_unique_formalization_source_event_ids(
+            self.changes
+        ):
+            raise ValueError(
+                "Persisted formalization proposal source event lineage must match changes."
+            )
+        return self
+
     def to_response_proposal(self) -> FormalizationProposal:
         """Expose only the Provider proposal contract to API consumers."""
 
@@ -63,6 +74,7 @@ class ProjectDirectorFormalizationProposal(DomainModel):
             summary=self.summary,
             changes=self.changes,
             source_message_ids=self.source_message_ids,
+            source_event_ids=self.source_event_ids,
             risk_summary=self.risk_summary,
             requires_confirmation=True,
             status="proposed",

@@ -111,6 +111,19 @@ class FormalizationChange(DomainModel):
         return _reject_duplicate_ids(value)
 
 
+def ordered_unique_formalization_source_event_ids(
+    changes: list[FormalizationChange],
+) -> list[UUID]:
+    """Aggregate change lineage without losing the Provider's source order."""
+
+    event_ids: list[UUID] = []
+    for change in changes:
+        for event_id in change.source_event_ids:
+            if event_id not in event_ids:
+                event_ids.append(event_id)
+    return event_ids
+
+
 class FormalizationProposal(DomainModel):
     """A proposed plan revision that remains pending user confirmation."""
 
@@ -120,14 +133,32 @@ class FormalizationProposal(DomainModel):
     summary: str
     changes: list[FormalizationChange] = Field(min_length=1)
     source_message_ids: list[UUID] = Field(min_length=1)
+    source_event_ids: list[UUID] = Field(default_factory=list)
     risk_summary: str
     requires_confirmation: Literal[True] = True
     status: Literal["proposed"] = "proposed"
 
-    @field_validator("source_message_ids")
+    @field_validator("source_message_ids", "source_event_ids")
     @classmethod
-    def reject_duplicate_source_message_ids(cls, value: list[UUID]) -> list[UUID]:
+    def reject_duplicate_source_ids(cls, value: list[UUID]) -> list[UUID]:
         return _reject_duplicate_ids(value)
+
+    @model_validator(mode="after")
+    def derive_or_validate_source_event_ids(self) -> "FormalizationProposal":
+        """Keep top-level lineage canonical while accepting legacy Provider output."""
+
+        derived_event_ids = ordered_unique_formalization_source_event_ids(
+            self.changes
+        )
+        if not derived_event_ids:
+            raise ValueError("Formalization proposal source event lineage is required.")
+        if "source_event_ids" not in self.model_fields_set:
+            object.__setattr__(self, "source_event_ids", derived_event_ids)
+        elif self.source_event_ids != derived_event_ids:
+            raise ValueError(
+                "Formalization proposal source event lineage must match changes."
+            )
+        return self
 
 
 class DirectorResponseEnvelope(DomainModel):
