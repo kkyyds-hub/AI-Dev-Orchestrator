@@ -16,7 +16,10 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.db_tables import (
+    AgentSessionTable,
     ORMBase,
+    ProjectDirectorDiscussionEventTable,
+    ProjectDirectorDiscussionWorkspaceTable,
     ProjectDirectorMessageTable,
     ProjectDirectorSessionTable,
     RunTable,
@@ -384,6 +387,33 @@ def _make_message_service(
     )
 
 
+def _assert_single_repair_fallback(provider, assistant_msg, db_session) -> None:
+    interpretation_calls = [
+        call
+        for call in provider.calls
+        if call.request_id.startswith("project-director-interpretation-")
+    ]
+    response_calls = [
+        call
+        for call in provider.calls
+        if call.request_id.startswith("project-director-response-")
+    ]
+
+    assert len(provider.calls) == 3
+    assert len(interpretation_calls) == 1
+    assert len(response_calls) == 2
+    assert provider.calls[0] is interpretation_calls[0]
+    assert provider.calls[1] is response_calls[0]
+    assert provider.calls[2] is response_calls[1]
+    assert assistant_msg.source == "rule_fallback"
+    assert "provider_repair_failed:provider_interpretation_mismatch" in assistant_msg.source_detail
+    assert _count_rows(db_session, ProjectDirectorDiscussionEventTable) == 0
+    assert _count_rows(db_session, ProjectDirectorDiscussionWorkspaceTable) == 0
+    assert _count_rows(db_session, TaskTable) == 0
+    assert _count_rows(db_session, RunTable) == 0
+    assert _count_rows(db_session, AgentSessionTable) == 0
+
+
 # ===========================================================================
 # 9. Router build_decision_for_intent
 # ===========================================================================
@@ -552,7 +582,7 @@ class TestProviderDualCall:
         assert "p26_f1_" in assistant_msg.source_detail
         assert "p26_f1_" in assistant_msg.source_detail
 
-    def test_max_two_provider_calls(self, db_session):
+    def test_direct_success_has_two_provider_calls(self, db_session):
         session_obj = _create_session(db_session)
         provider = SequenceProvider()
         svc = _make_message_service(
@@ -563,7 +593,15 @@ class TestProviderDualCall:
 
         svc.post_user_message(session_id=session_obj.id, content="测试调用上限")
 
-        assert len(provider.calls) <= 2
+        assert len(provider.calls) == 2
+        assert sum(
+            call.request_id.startswith("project-director-interpretation-")
+            for call in provider.calls
+        ) == 1
+        assert sum(
+            call.request_id.startswith("project-director-response-")
+            for call in provider.calls
+        ) == 1
 
 
 # ===========================================================================
@@ -653,13 +691,7 @@ class TestSemanticProviderFailure:
             session_id=session_obj.id, content="语义 Provider 异常测试"
         )
 
-        # F2 chain: interpretation call + response call (2 total)
-        assert len(provider.calls) == 2
-        assert provider.calls[0].request_id.startswith("project-director-interpretation-")
-        assert provider.calls[1].request_id.startswith("project-director-response-")
-        assert "p26_f1_rule_fallback" in assistant_msg.source_detail
-        assert "provider_" in assistant_msg.source_detail
-        assert assistant_msg.source == "rule_fallback"
+        _assert_single_repair_fallback(provider, assistant_msg, db_session)
         assert len(_message_rows_for_session(db_session, session_obj.id)) == 2
 
 
@@ -682,11 +714,7 @@ class TestSemanticProviderEmpty:
             session_id=session_obj.id, content="空输出测试"
         )
 
-        # F2 chain: interpretation call + response call (2 total)
-        # Empty interpretation → rule-based fallback → interpretation mismatch
-        assert len(provider.calls) == 2
-        assert "provider_" in assistant_msg.source_detail
-        assert assistant_msg.source == "rule_fallback"
+        _assert_single_repair_fallback(provider, assistant_msg, db_session)
 
 
 # ===========================================================================
@@ -712,12 +740,7 @@ class TestSemanticProviderInvalidContract:
             session_id=session_obj.id, content="非法合同测试"
         )
 
-        # F2 chain: interpretation call + response call (2 total)
-        # Invalid interpretation → rule-based fallback → interpretation mismatch
-        assert len(provider.calls) == 2
-        assert "provider_" in assistant_msg.source_detail
-        assert assistant_msg.source == "rule_fallback"
-        assert _count_rows(db_session, RunTable) == 0
+        _assert_single_repair_fallback(provider, assistant_msg, db_session)
 
 
 # ===========================================================================

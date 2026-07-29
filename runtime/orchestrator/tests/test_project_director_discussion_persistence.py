@@ -6,8 +6,10 @@ payload idempotency, strict JSON, foreign keys, and message chain isolation.
 
 from __future__ import annotations
 
+import ast
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -526,16 +528,20 @@ class TestPayloadIdempotency:
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
         payload = {"name": "方案A", "count": 2}
+        original_event = _make_event(session_obj.id, payload=payload)
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload), idempotency_key="k-p1",
+            event=original_event, idempotency_key="k-p1",
+        )
+        replay_event = original_event.model_copy(
+            update={"payload": {"count": 2, "name": "方案A"}}
         )
         e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload, event_id=uuid4(), sequence_no=2),
-            idempotency_key="k-p1",
+            event=replay_event, idempotency_key="k-p1",
         )
         assert c1 is True
         assert c2 is False
         assert e2.id == e1.id
+        assert e2.payload == payload
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_top_level_uuid_payload_replay(self, db_session):
@@ -543,15 +549,20 @@ class TestPayloadIdempotency:
         repo = ProjectDirectorDiscussionEventRepository(db_session)
         option_id = uuid4()
         payload = {"option_id": option_id}
+        original_event = _make_event(session_obj.id, payload=payload)
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload), idempotency_key="k-uuid",
+            event=original_event, idempotency_key="k-uuid",
         )
         assert c1 is True
+        replay_event = original_event.model_copy(
+            update={"payload": {"option_id": str(option_id)}}
+        )
         e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload, event_id=uuid4()), idempotency_key="k-uuid",
+            event=replay_event, idempotency_key="k-uuid",
         )
         assert c2 is False
         assert e2.id == e1.id
+        assert e2.payload == {"option_id": str(option_id)}
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_nested_uuid_payload_replay(self, db_session):
@@ -560,71 +571,92 @@ class TestPayloadIdempotency:
         oid = uuid4()
         rid = uuid4()
         payload = {"options": [{"option_id": oid, "related_ids": [rid]}]}
+        original_event = _make_event(session_obj.id, payload=payload)
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload), idempotency_key="k-nested",
+            event=original_event, idempotency_key="k-nested",
         )
         assert c1 is True
+        expected_payload = {
+            "options": [{"option_id": str(oid), "related_ids": [str(rid)]}]
+        }
+        replay_event = original_event.model_copy(update={"payload": expected_payload})
         e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload, event_id=uuid4()), idempotency_key="k-nested",
+            event=replay_event, idempotency_key="k-nested",
         )
         assert c2 is False
         assert e2.id == e1.id
+        assert e2.payload == expected_payload
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_deeply_nested_uuid_payload_replay(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
         payload = {"groups": {"primary": {"ids": [uuid4(), uuid4()]}}}
+        original_event = _make_event(session_obj.id, payload=payload)
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload), idempotency_key="k-deep",
+            event=original_event, idempotency_key="k-deep",
         )
         assert c1 is True
+        expected_payload = {
+            "groups": {"primary": {"ids": [str(value) for value in payload["groups"]["primary"]["ids"]]}}
+        }
+        replay_event = original_event.model_copy(update={"payload": expected_payload})
         e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload=payload, event_id=uuid4()), idempotency_key="k-deep",
+            event=replay_event, idempotency_key="k-deep",
         )
         assert c2 is False
+        assert e2.id == e1.id
+        assert e2.payload == expected_payload
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_dict_key_order_equivalence(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
+        original_event = _make_event(session_obj.id, payload={"a": 1, "b": 2})
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"a": 1, "b": 2}), idempotency_key="k-order",
+            event=original_event, idempotency_key="k-order",
         )
+        replay_event = original_event.model_copy(update={"payload": {"b": 2, "a": 1}})
         e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"b": 2, "a": 1}, event_id=uuid4()),
-            idempotency_key="k-order",
+            event=replay_event, idempotency_key="k-order",
         )
         assert c1 is True
         assert c2 is False
+        assert e2.id == e1.id
+        assert e2.payload == {"a": 1, "b": 2}
 
     def test_tuple_first_then_list_equivalent(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
+        original_event = _make_event(session_obj.id, payload={"items": (1, 2, 3)})
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"items": (1, 2, 3)}), idempotency_key="k-tuple-1",
+            event=original_event, idempotency_key="k-tuple-1",
         )
         assert c1 is True
+        replay_event = original_event.model_copy(update={"payload": {"items": [1, 2, 3]}})
         e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"items": [1, 2, 3]}, event_id=uuid4()),
-            idempotency_key="k-tuple-1",
+            event=replay_event, idempotency_key="k-tuple-1",
         )
         assert c2 is False
         assert e2.id == e1.id
+        assert e2.payload == {"items": [1, 2, 3]}
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_list_first_then_tuple_equivalent(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
+        original_event = _make_event(session_obj.id, payload={"items": [1, 2, 3]})
         e1, c1 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"items": [1, 2, 3]}), idempotency_key="k-tuple-2",
+            event=original_event, idempotency_key="k-tuple-2",
         )
         assert c1 is True
+        replay_event = original_event.model_copy(update={"payload": {"items": (1, 2, 3)}})
         e2, c2 = repo.append_if_absent(
-            event=_make_event(session_obj.id, payload={"items": (1, 2, 3)}, event_id=uuid4()),
-            idempotency_key="k-tuple-2",
+            event=replay_event, idempotency_key="k-tuple-2",
         )
         assert c2 is False
+        assert e2.id == e1.id
+        assert e2.payload == {"items": [1, 2, 3]}
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_chinese_payload_roundtrip(self, db_session):
@@ -662,19 +694,28 @@ class TestPayloadIdempotency:
         e1 = _make_event(session_obj.id, source_message_ids=[msg.id])
         repo.append_if_absent(event=e1, idempotency_key="k-change")
 
-        kwargs = dict(
-            session_id=session_obj.id, sequence_no=2, event_id=uuid4(),
-            source_message_ids=[msg.id],
-        )
-        kwargs[field] = value
-        if field == "source_message_ids":
-            kwargs["source_message_ids"] = value
-        if field == "created_by" and value == DiscussionActorClaim.USER_EXPLICIT:
-            kwargs["confidence"] = 1.0
-            kwargs["source_message_ids"] = [msg.id]
-        e2 = _make_event(**kwargs)
+        e2 = e1.model_copy(update={field: value})
         with pytest.raises(ValueError, match="discussion_event_idempotency_conflict"):
             repo.append_if_absent(event=e2, idempotency_key="k-change")
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
+
+    @pytest.mark.parametrize(
+        "field,value_factory",
+        [
+            ("id", uuid4),
+            ("sequence_no", lambda: 2),
+            ("created_at", lambda: datetime.now(timezone.utc) + timedelta(seconds=1)),
+        ],
+    )
+    def test_strict_identity_change_produces_conflict(self, db_session, field, value_factory):
+        session_obj = _create_session_row(db_session)
+        repo = ProjectDirectorDiscussionEventRepository(db_session)
+        original_event = _make_event(session_obj.id)
+        repo.append_if_absent(event=original_event, idempotency_key=f"k-strict-{field}")
+
+        replay_event = original_event.model_copy(update={field: value_factory()})
+        with pytest.raises(ValueError, match="discussion_event_idempotency_conflict"):
+            repo.append_if_absent(event=replay_event, idempotency_key=f"k-strict-{field}")
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
 
@@ -881,8 +922,8 @@ class TestRaceRecovery:
     def test_equivalent_race_recovery(self, db_session, monkeypatch):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
-        e1 = _make_event(session_obj.id, sequence_no=1)
-        repo.append_if_absent(event=e1, idempotency_key="k-race")
+        original_event = _make_event(session_obj.id, sequence_no=1)
+        repo.append_if_absent(event=original_event, idempotency_key="k-race")
 
         call_count = {"n": 0}
         original = ProjectDirectorDiscussionEventRepository.get_by_idempotency_key
@@ -895,10 +936,10 @@ class TestRaceRecovery:
 
         monkeypatch.setattr(ProjectDirectorDiscussionEventRepository, "get_by_idempotency_key", patched)
 
-        e2 = _make_event(session_obj.id, sequence_no=2, event_id=uuid4())
-        result, created = repo.append_if_absent(event=e2, idempotency_key="k-race")
+        replay_event = original_event.model_copy(update={"payload": {}})
+        result, created = repo.append_if_absent(event=replay_event, idempotency_key="k-race")
         assert created is False
-        assert result.id == e1.id
+        assert result.id == original_event.id
         assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_conflict_race_preserves_error(self, db_session, monkeypatch):
@@ -936,8 +977,8 @@ class TestRaceRecovery:
     def test_equivalent_race_session_still_usable(self, db_session, monkeypatch):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
-        e1 = _make_event(session_obj.id, sequence_no=1)
-        repo.append_if_absent(event=e1, idempotency_key="k-usable")
+        original_event = _make_event(session_obj.id, sequence_no=1)
+        repo.append_if_absent(event=original_event, idempotency_key="k-usable")
 
         call_count = {"n": 0}
         original = ProjectDirectorDiscussionEventRepository.get_by_idempotency_key
@@ -950,8 +991,11 @@ class TestRaceRecovery:
 
         monkeypatch.setattr(ProjectDirectorDiscussionEventRepository, "get_by_idempotency_key", patched)
 
-        e2 = _make_event(session_obj.id, sequence_no=2, event_id=uuid4())
-        repo.append_if_absent(event=e2, idempotency_key="k-usable")
+        replay_event = original_event.model_copy(update={"payload": {}})
+        replayed, created = repo.append_if_absent(event=replay_event, idempotency_key="k-usable")
+        assert created is False
+        assert replayed.id == original_event.id
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
         # Session should still be usable after race recovery
         e3 = _make_event(session_obj.id, sequence_no=3)
@@ -1097,11 +1141,13 @@ class TestP27FieldsRoundTrip:
     def test_p27_same_values_idempotent(self, db_session):
         session_obj = _create_session_row(db_session)
         repo = ProjectDirectorDiscussionEventRepository(db_session)
-        e1 = _make_event(session_obj.id, source_surface="surf", trigger_type="trig")
-        repo.append_if_absent(event=e1, idempotency_key="k-p27-idem")
-        e2 = _make_event(session_obj.id, source_surface="surf", trigger_type="trig", event_id=uuid4(), sequence_no=2)
-        _, created = repo.append_if_absent(event=e2, idempotency_key="k-p27-idem")
+        original_event = _make_event(session_obj.id, source_surface="surf", trigger_type="trig")
+        repo.append_if_absent(event=original_event, idempotency_key="k-p27-idem")
+        replay_event = original_event.model_copy(update={"payload": {}})
+        replayed, created = repo.append_if_absent(event=replay_event, idempotency_key="k-p27-idem")
         assert created is False
+        assert replayed.id == original_event.id
+        assert _count(db_session, ProjectDirectorDiscussionEventTable) == 1
 
     def test_p27_field_change_conflict(self, db_session):
         session_obj = _create_session_row(db_session)
@@ -1857,15 +1903,62 @@ class TestMessageChainIsolation:
         assert user_msg.role.value == "user"
         assert assistant_msg.role.value == "assistant"
 
-    def test_message_service_does_not_import_event_repo(self):
-        import os
-        path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "app/services/project_director_message_service.py",
+    def test_message_service_event_repository_access_is_read_only(self):
+        path = Path(__file__).parents[1] / "app/services/project_director_message_service.py"
+        tree = ast.parse(path.read_text())
+        imports = [node for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+        event_imports = [
+            node
+            for node in imports
+            if node.module == "app.repositories.project_director_discussion_event_repository"
+        ]
+        assert len(event_imports) == 1
+        assert [alias.name for alias in event_imports[0].names] == [
+            "ProjectDirectorDiscussionEventRepository"
+        ]
+        assert all(
+            node.module != "app.repositories.project_director_discussion_workspace_repository"
+            for node in imports
         )
-        with open(path) as f:
-            tree = __import__("ast").parse(f.read())
-        for node in __import__("ast").walk(tree):
-            if isinstance(node, __import__("ast").ImportFrom) and node.module:
-                assert "discussion_event" not in node.module
-                assert "discussion_workspace" not in node.module
+
+        event_repository_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "ProjectDirectorDiscussionEventRepository"
+        ]
+        assert len(event_repository_calls) == 1
+        event_repository_methods = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "event_repository"
+        }
+        assert event_repository_methods == {"get_by_id"}
+
+        forbidden_event_repository_methods = {
+            "append_if_absent",
+            "create",
+            "create_no_commit",
+            "update",
+            "update_if_version",
+            "delete",
+            "replace",
+            "commit",
+            "flush",
+        }
+        assert not event_repository_methods & forbidden_event_repository_methods
+        names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        assert "ProjectDirectorDiscussionEventTable" not in names
+        assert "ProjectDirectorDiscussionWorkspaceTable" not in names
+        assert "ProjectDirectorDiscussionDeltaApplyService" not in names
+        assert {"TaskRepository", "RunRepository", "AgentSessionRepository"}.isdisjoint(names)
+        assert any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "persist_assistant_turn"
+            for node in ast.walk(tree)
+        )
