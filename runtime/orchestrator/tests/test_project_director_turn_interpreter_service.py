@@ -1433,6 +1433,178 @@ class TestFallbackConfidence:
 
 
 # ===========================================================================
+# F6 formalization semantic normalization
+# ===========================================================================
+
+
+class TestF6FormalizationSemanticNormalization:
+    @pytest.mark.parametrize(
+        "content",
+        [
+            (
+                "我确认按当前结论生成新的计划草案，"
+                "请先给出正式化提案，等我确认后再创建计划版本。"
+            ),
+            (
+                "我确认按当前结论生成新的计划草案，"
+                "请先给出正式化提案，并在提案中说明主要风险，"
+                "等我确认后再创建计划版本。"
+            ),
+            "按这个结论生成计划草案，同时评估实施风险和主要影响。",
+            "请生成新的计划草案，并说明每项修改的原因。",
+            (
+                "不要直接创建计划版本，先按当前结论生成新的计划草案，"
+                "等我确认后再继续。"
+            ),
+        ],
+    )
+    def test_explicit_formalization_with_secondary_clauses_remains_formalization(
+        self, content: str
+    ):
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+
+        assert result.interpretation.conversation_mode == ConversationMode.FORMALIZATION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+        assert result.interpretation.hypothetical_action is False
+
+    def test_formalization_request_with_risk_explanation_remains_formalization(self):
+        content = (
+            "我确认按当前结论生成新的计划草案，"
+            "请先给出正式化提案，并在提案中说明主要风险，"
+            "等我确认后再创建计划版本。"
+        )
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+
+        assert result.interpretation.conversation_mode == ConversationMode.FORMALIZATION_REQUEST
+        assert result.interpretation.formal_action_requested is True
+        assert result.interpretation.hypothetical_action is False
+
+    def test_inconsistent_provider_f5_is_normalized_by_fallback(self):
+        provider = _make_provider(
+            json.dumps(
+                _valid_interpretation_dict(
+                    primary_intent="formalization_request",
+                    formal_action_requested=True,
+                )
+            )
+        )
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=provider)
+
+        result = svc.interpret(
+            content=(
+                "我确认按当前结论生成新的计划草案，"
+                "请先给出正式化提案，等我确认后再创建计划版本。"
+            ),
+            model_name="m",
+            request_id="r",
+        )
+
+        assert result.source == DirectorResponseSource.RULE_FALLBACK
+        assert result.fallback_reason == "provider_semantic_inconsistent"
+        assert result.provider_attempted is True
+        assert result.interpretation.conversation_mode == ConversationMode.FORMALIZATION_REQUEST
+        assert result.interpretation.primary_intent == "request_plan_formalization"
+        assert result.interpretation.formal_action_requested is True
+        assert result.interpretation.hypothetical_action is False
+        assert result.interpretation.needs_formal_fact_context is True
+        assert result.interpretation.needs_discussion_history is True
+
+    @pytest.mark.parametrize(
+        ("content", "provider_overrides"),
+        [
+            (
+                "我确认按当前结论生成新的计划草案。",
+                {"conversation_mode": "general_discussion", "formal_action_requested": True},
+            ),
+            (
+                "我确认按当前结论生成新的计划草案。",
+                {"conversation_mode": "formalization_request", "formal_action_requested": False},
+            ),
+            (
+                "我确认按当前结论生成新的计划草案。",
+                {"conversation_mode": "formalization_request", "hypothetical_action": True},
+            ),
+            (
+                "这个方向看起来不错。",
+                {"conversation_mode": "formalization_request", "formal_action_requested": False},
+            ),
+            (
+                "这个方向看起来不错。",
+                {"conversation_mode": "formalization_request", "hypothetical_action": True},
+            ),
+        ],
+    )
+    def test_provider_semantic_contract_inconsistencies_use_exact_fallback(
+        self, content: str, provider_overrides: dict
+    ):
+        provider = _make_provider(json.dumps(_valid_interpretation_dict(**provider_overrides)))
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=provider)
+
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+
+        assert result.source == DirectorResponseSource.RULE_FALLBACK
+        assert result.fallback_reason == "provider_semantic_inconsistent"
+        assert result.provider_attempted is True
+
+    def test_consistent_provider_formalization_preserves_provider_receipt(self):
+        provider = _make_provider(
+            json.dumps(
+                _valid_interpretation_dict(
+                    conversation_mode="formalization_request",
+                    primary_intent="request_plan_formalization",
+                    formal_action_requested=True,
+                    needs_formal_fact_context=True,
+                    needs_discussion_history=True,
+                )
+            ),
+            return_receipt="provider-receipt-f6",
+        )
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=provider)
+
+        result = svc.interpret(
+            content="我确认按当前结论生成新的计划草案。",
+            model_name="m",
+            request_id="r",
+        )
+
+        assert result.source == DirectorResponseSource.PROVIDER
+        assert result.receipt_id == "provider-receipt-f6"
+        assert result.fallback_reason is None
+
+    @pytest.mark.parametrize(
+        ("content", "expected_formal_action"),
+        [
+            ("讨论生成计划草案可能带来的风险。", False),
+            ("请分析现在生成计划草案是否合适。", False),
+            ("请解释正式化为计划草案是什么意思。", False),
+            ("假如未来生成计划草案，会有什么风险？", False),
+            ("不要生成新的计划草案。", False),
+            (
+                "比较现在生成计划草案和继续讨论哪个更合适，暂时不要生成草案。",
+                False,
+            ),
+            ("立即创建任务并启动Codex。", True),
+            ("这个方向看起来不错。", False),
+        ],
+    )
+    def test_nonformalization_boundaries_are_not_rule_promoted(
+        self,
+        content: str,
+        expected_formal_action: bool,
+    ):
+        svc = ProjectDirectorTurnInterpreterService(provider_text_generator=None)
+
+        result = svc.interpret(content=content, model_name="m", request_id="r")
+
+        assert result.interpretation.conversation_mode != ConversationMode.FORMALIZATION_REQUEST
+        assert result.interpretation.formal_action_requested is expected_formal_action
+
+
+# ===========================================================================
 # 14. risk_semantic_conflict matrix
 # ===========================================================================
 
@@ -1550,6 +1722,22 @@ class TestPromptContent:
     def test_prompt_contains_comparison_rule(self):
         prompt = self._capture_prompt()
         assert "comparison" in prompt.lower() or "Option" in prompt
+
+    def test_prompt_preserves_formalization_for_secondary_risk_clauses(self):
+        prompt = self._capture_prompt(
+            "我确认按当前结论生成新的计划草案，并在提案中说明主要风险。"
+        )
+
+        assert "explicit, current, non-hypothetical" in prompt
+        assert "formalization_request" in prompt
+        assert "formal_action_requested must be true" in prompt
+        assert "hypothetical_action must be false" in prompt
+        assert "general_discussion with formal_action_requested=true" in prompt
+        assert "explain, assess, compare impacts, or describe risks" in prompt
+        assert "并在提案中说明主要风险" in prompt
+        assert "FormalizationProposal" not in prompt
+        assert "DiscussionDelta" not in prompt
+        assert "PlanVersion" not in prompt
 
     def test_prompt_contains_six_semantic_examples(self):
         prompt = self._capture_prompt()
