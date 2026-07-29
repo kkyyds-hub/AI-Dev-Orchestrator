@@ -112,7 +112,12 @@ class ProjectDirectorResponseEngineService:
                 interpretation=interpretation,
                 reason="provider_empty_output",
             )
-        validated, validation_reason = self._validate_provider_envelope(
+        (
+            validated,
+            validation_reason,
+            initial_raw_envelope,
+            validation_diagnostics,
+        ) = self._validate_provider_envelope(
             context=context,
             interpretation=interpretation,
             assistant_message_id=assistant_message_id,
@@ -132,15 +137,31 @@ class ProjectDirectorResponseEngineService:
                 context=context, interpretation=interpretation, reason=validation_reason
             )
 
-        repair_prompt = self._build_provider_prompt(
-            context=context,
-            interpretation=interpretation,
-            assistant_message_id=assistant_message_id,
-            repair_reason=validation_reason,
-        )
+        if (
+            validation_reason
+            == "provider_formalization_proposal_invalid:provider_envelope_invalid"
+            and initial_raw_envelope is not None
+        ):
+            repair_prompt = self._build_formalization_envelope_repair_prompt(
+                context=context,
+                interpretation=interpretation,
+                assistant_message_id=assistant_message_id,
+                repair_reason=validation_reason,
+                initial_raw_envelope=initial_raw_envelope,
+                validation_diagnostics=validation_diagnostics,
+            )
+            repair_request_id = f"{request_id}-repair"
+        else:
+            repair_prompt = self._build_provider_prompt(
+                context=context,
+                interpretation=interpretation,
+                assistant_message_id=assistant_message_id,
+                repair_reason=validation_reason,
+            )
+            repair_request_id = request_id
         try:
             repaired_text, repaired_receipt_id = self._provider_text_generator(
-                model_name, repair_prompt, request_id
+                model_name, repair_prompt, repair_request_id
             )
         except Exception:  # noqa: BLE001 - never retry a failed provider request again
             return self._fallback(
@@ -154,7 +175,7 @@ class ProjectDirectorResponseEngineService:
                 interpretation=interpretation,
                 reason=f"provider_repair_failed:{validation_reason}",
             )
-        repaired, repair_reason = self._validate_provider_envelope(
+        repaired, repair_reason, _, _ = self._validate_provider_envelope(
             context=context,
             interpretation=interpretation,
             assistant_message_id=assistant_message_id,
@@ -392,7 +413,164 @@ class ProjectDirectorResponseEngineService:
                     + cls._repair_requirement(repair_reason)
                 ),
             }
+        if cls._formalization_proposal_required(
+            context=context, interpretation=interpretation
+        ):
+            payload["behavior_instructions"].extend(
+                [
+                    "For this formalization request, return the complete canonical Envelope, not a FormalizationProposal fragment.",
+                    "Use exactly these Envelope top-level fields: answer, turn_interpretation, discussion_delta, formalization_proposal, requires_confirmation, source, and source_detail.",
+                    "Do not use aliases or wrapper fields such as proposalId, proposal_target, target_type, workspaceVersion, proposal_summary, required_confirmation, linked_pre_turn_event_ids, visible_pre_turn_event_ids, proposal, formalizationProposal, or data.",
+                    "formalization_proposal must use canonical proposal_id, target, workspace_version, summary, changes, source_message_ids, risk_summary, requires_confirmation, and status fields; every change must use change_type, subject_key, summary, and source_event_ids.",
+                ]
+            )
+            payload["formalization_envelope_contract"] = (
+                cls._formalization_envelope_contract(
+                    context=context,
+                    interpretation=interpretation,
+                    assistant_message_id=assistant_message_id,
+                )
+            )
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    @classmethod
+    def _build_formalization_envelope_repair_prompt(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+        assistant_message_id: UUID,
+        repair_reason: str,
+        initial_raw_envelope: dict[str, Any],
+        validation_diagnostics: list[dict[str, Any]],
+    ) -> str:
+        """Request one canonical Envelope repair for a formalization Pydantic failure."""
+
+        payload = {
+            "repair_instruction": {
+                "previous_failure_reason": repair_reason,
+                "instructions": [
+                    "Return exactly one complete canonical Envelope JSON object and no Markdown.",
+                    "Do not return only a formalization_proposal fragment.",
+                    "Preserve the user intent plus the legal answer and DiscussionDelta semantics from the first response; repair only the Envelope and FormalizationProposal structure.",
+                    "Do not invent message IDs or event IDs, and do not reference the unpersisted request_formalization Event from this turn.",
+                    "Do not claim that a PlanVersion was created or that any task was executed.",
+                ],
+            },
+            "initial_provider_envelope_json": initial_raw_envelope,
+            "safe_pydantic_validation_errors": validation_diagnostics,
+            "formalization_envelope_contract": cls._formalization_envelope_contract(
+                context=context,
+                interpretation=interpretation,
+                assistant_message_id=assistant_message_id,
+            ),
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    @classmethod
+    def _formalization_envelope_contract(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+        assistant_message_id: UUID,
+    ) -> dict[str, Any]:
+        """Describe the canonical formalization Envelope without manufacturing data."""
+
+        expected_workspace_version = cls._expected_workspace_version(
+            context=context, interpretation=interpretation
+        )
+        visible_user_message_ids = sorted(
+            str(message_id)
+            for message_id, role in cls._visible_message_roles(
+                context, assistant_message_id
+            ).items()
+            if role == ProjectDirectorMessageRole.USER
+        )
+        visible_pre_turn_event_ids = sorted(
+            str(event_id) for event_id in cls._visible_event_ids(context)
+        )
+        return {
+            "canonical_envelope_schema": {
+                "answer": "non-empty user-visible natural response",
+                "turn_interpretation": interpretation.model_dump(mode="json"),
+                "discussion_delta": {
+                    "operations": [
+                        {
+                            "op": "request_formalization",
+                            "target_id": None,
+                            "subject_key": "formalization:request",
+                            "content": "user formalization request",
+                            "payload": {},
+                            "source_message_ids": [
+                                str(context.current_user_message.id)
+                            ],
+                            "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+                            "supersedes_event_id": None,
+                        }
+                    ]
+                },
+                "formalization_proposal": {
+                    "proposal_id": "provider-generated UUID",
+                    "target": "plan_revision",
+                    "workspace_version": expected_workspace_version,
+                    "summary": "proposal summary",
+                    "changes": [
+                        {
+                            "change_type": "add, update, or remove",
+                            "subject_key": "stable semantic key",
+                            "summary": "draft-only change",
+                            "source_event_ids": [
+                                "visible pre-turn discussion event UUID"
+                            ],
+                        }
+                    ],
+                    "source_message_ids": ["visible USER message UUID"],
+                    "source_event_ids": (
+                        "optional; if present, the deterministic ordered union of "
+                        "changes.source_event_ids"
+                    ),
+                    "risk_summary": "confirmation and implementation risks",
+                    "requires_confirmation": True,
+                    "status": "proposed",
+                },
+                "requires_confirmation": True,
+                "source": "provider",
+                "source_detail": "non-empty provider description",
+            },
+            "top_level_field_rule": {
+                "required": [
+                    "answer",
+                    "turn_interpretation",
+                    "discussion_delta",
+                    "formalization_proposal",
+                    "requires_confirmation",
+                    "source",
+                    "source_detail",
+                ],
+                "forbidden_aliases_or_wrappers": [
+                    "proposalId",
+                    "proposal_target",
+                    "target_type",
+                    "workspaceVersion",
+                    "proposal_summary",
+                    "required_confirmation",
+                    "linked_pre_turn_event_ids",
+                    "visible_pre_turn_event_ids",
+                    "proposal",
+                    "formalizationProposal",
+                    "data",
+                ],
+            },
+            "identity_context": {
+                "caller_interpretation": interpretation.model_dump(mode="json"),
+                "current_user_message_id": str(context.current_user_message.id),
+                "reserved_assistant_message_id": str(assistant_message_id),
+                "expected_workspace_version_after_this_turn": expected_workspace_version,
+                "visible_user_message_ids": visible_user_message_ids,
+                "visible_pre_turn_event_ids": visible_pre_turn_event_ids,
+            },
+        }
 
     @staticmethod
     def _output_schema(
@@ -547,7 +725,12 @@ class ProjectDirectorResponseEngineService:
     @staticmethod
     def _parse_envelope(
         output_text: str,
-    ) -> tuple[DirectorResponseEnvelope | None, str]:
+    ) -> tuple[
+        DirectorResponseEnvelope | None,
+        str,
+        dict[str, Any] | None,
+        list[dict[str, Any]],
+    ]:
         text = output_text.strip()
         fence = chr(96) * 3
         if text.startswith(fence):
@@ -557,20 +740,48 @@ class ProjectDirectorResponseEngineService:
                 or lines[0].strip().lower() not in {fence, f"{fence}json"}
                 or lines[-1].strip() != fence
             ):
-                return None, "provider_response_not_json"
+                return None, "provider_response_not_json", None, []
             text = "\n".join(lines[1:-1]).strip()
         try:
             raw, end = json.JSONDecoder().raw_decode(text)
         except (TypeError, ValueError, json.JSONDecodeError):
-            return None, "provider_response_not_json"
+            return None, "provider_response_not_json", None, []
         if text[end:].strip():
-            return None, "provider_response_not_json"
+            return None, "provider_response_not_json", None, []
         if not isinstance(raw, dict):
-            return None, "provider_response_not_object"
+            return None, "provider_response_not_object", None, []
         try:
-            return DirectorResponseEnvelope.model_validate(raw), ""
-        except ValidationError:
-            return None, "provider_envelope_invalid"
+            return DirectorResponseEnvelope.model_validate(raw), "", None, []
+        except ValidationError as exc:
+            return (
+                None,
+                "provider_envelope_invalid",
+                raw,
+                ProjectDirectorResponseEngineService._safe_pydantic_diagnostics(exc),
+            )
+
+    @staticmethod
+    def _safe_pydantic_diagnostics(
+        error: ValidationError,
+    ) -> list[dict[str, Any]]:
+        """Keep only structural Pydantic diagnostics for an in-memory repair prompt."""
+
+        diagnostics: list[dict[str, Any]] = []
+        for item in error.errors():
+            raw_loc = item.get("loc", ())
+            loc = (
+                [str(part) for part in raw_loc]
+                if isinstance(raw_loc, (tuple, list))
+                else []
+            )
+            diagnostics.append(
+                {
+                    "loc": loc,
+                    "type": str(item.get("type", "")),
+                    "msg": str(item.get("msg", "")),
+                }
+            )
+        return diagnostics
 
     def _validate_provider_envelope(
         self,
@@ -579,39 +790,46 @@ class ProjectDirectorResponseEngineService:
         interpretation: TurnInterpretation,
         assistant_message_id: UUID,
         output_text: str,
-    ) -> tuple[DirectorResponseEnvelope | None, str]:
-        parsed, parse_reason = self._parse_envelope(output_text)
+    ) -> tuple[
+        DirectorResponseEnvelope | None,
+        str,
+        dict[str, Any] | None,
+        list[dict[str, Any]],
+    ]:
+        parsed, parse_reason, raw_envelope, validation_diagnostics = self._parse_envelope(
+            output_text
+        )
         if parsed is None:
-            return None, parse_reason
+            return None, parse_reason, raw_envelope, validation_diagnostics
         if parsed.source != DirectorResponseSource.PROVIDER:
-            return None, "provider_source_invalid"
+            return None, "provider_source_invalid", None, []
         if parsed.turn_interpretation.model_dump(mode="python") != interpretation.model_dump(
             mode="python"
         ):
-            return None, "provider_interpretation_mismatch"
+            return None, "provider_interpretation_mismatch", None, []
         if self._has_forbidden_execution_claim(parsed.answer):
-            return None, "provider_forbidden_execution_claim"
+            return None, "provider_forbidden_execution_claim", None, []
 
         delta_contract_reason = self._validate_delta_operation_contract(
             context=context,
             delta=parsed.discussion_delta,
         )
         if delta_contract_reason is not None:
-            return None, delta_contract_reason
+            return None, delta_contract_reason, None, []
         delta_reason = self._validate_delta_sources(
             context=context,
             delta=parsed.discussion_delta,
             assistant_message_id=assistant_message_id,
         )
         if delta_reason is not None:
-            return None, delta_reason
+            return None, delta_reason, None, []
         delta_requirement_reason = self._validate_delta_requirement(
             context=context,
             interpretation=interpretation,
             delta=parsed.discussion_delta,
         )
         if delta_requirement_reason is not None:
-            return None, delta_requirement_reason
+            return None, delta_requirement_reason, None, []
         proposal_reason = self._validate_formalization_proposal(
             context=context,
             interpretation=interpretation,
@@ -619,8 +837,8 @@ class ProjectDirectorResponseEngineService:
             assistant_message_id=assistant_message_id,
         )
         if proposal_reason is not None:
-            return None, proposal_reason
-        return parsed, ""
+            return None, proposal_reason, None, []
+        return parsed, "", None, []
 
     @staticmethod
     def _successful_provider_response(
