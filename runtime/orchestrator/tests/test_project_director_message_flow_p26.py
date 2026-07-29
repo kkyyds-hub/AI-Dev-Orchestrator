@@ -775,10 +775,14 @@ class TestIntentMapping:
         db = db_session_factory()
         _seed_session(db)
         db.commit()
-        interp = json.loads(_make_interpretation_json(mode))
+        interpretation_text = _make_interpretation_json(
+            mode,
+            formal_action_requested=(mode == "formalization_request"),
+        )
+        interp = json.loads(interpretation_text)
         response_text = _make_envelope_json(interpretation=interp)
         provider = _make_provider(
-            interpretation_text=_make_interpretation_json(mode),
+            interpretation_text=interpretation_text,
             response_text=response_text,
         )
         service = _build_service(db, provider=provider)
