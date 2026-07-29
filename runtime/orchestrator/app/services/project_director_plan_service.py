@@ -574,7 +574,7 @@ def _build_plan_prompt(
         [
             "你是 AI-Dev-Orchestrator 的 AI 项目主管。",
             "请基于已确认目标、约束和澄清回答生成一份“可审核的项目作战计划草案”。",
-            "草案只用于用户审核，不得承诺自动创建任务、调用 Worker、调用 planning/apply、写仓库或提交代码。",
+            "草案只用于用户审核；不得声称已执行任何动作，也不得承诺自动创建任务、调用或启动 Worker、调用 planning/apply 或 apply-local、写仓库、提交或推送代码。",
             "只返回 JSON，不要 Markdown，不要解释。",
             "JSON 结构必须包含：",
             "{",
@@ -594,7 +594,8 @@ def _build_plan_prompt(
             "",
             "硬性要求：",
             "- suggested_role_code / role_code / owner_role_code 只能使用 product_manager、architect、engineer、reviewer。",
-            "- 必须明确保留用户确认闸门，并在 out_of_scope 或 assumptions 里说明草案不会自动执行。",
+            "- project_scope.out_of_scope 或 project_scope.assumptions 必须包含清晰、直接且不含歧义的 review-only 执行边界：不自动创建任务；不自动调用或启动 Worker；不写仓库、不提交或推送代码；不调用 planning/apply 或 apply-local；草案不会自动执行；任何后续执行必须由用户单独确认并通过独立入口触发。",
+            "- 合法 project_scope 示例：{\"in_scope\":[\"...\"],\"out_of_scope\":[\"不自动创建任务\",\"不自动调用 Worker\",\"不写仓库\",\"不调用 planning/apply\"],\"assumptions\":[\"草案不会自动执行；后续执行必须由用户单独确认并通过独立入口触发\"]}。",
             "- plan_summary 应结合用户目标和澄清回答，不要套用固定模板。",
             "",
             "用户目标：",
@@ -608,6 +609,32 @@ def _build_plan_prompt(
             "",
             "整改反馈：",
             revision_block,
+        ]
+    )
+
+
+def _build_plan_safety_boundary_repair_prompt(
+    *,
+    original_plan_prompt: str,
+    initial_plan_payload: dict,
+) -> str:
+    """Request one complete provider-authored repair for a missing plan boundary."""
+
+    return "\n".join(
+        [
+            "你先前返回的完整 Plan JSON 未通过安全边界校验。",
+            "精确失败原因：plan_execution_boundary_missing。",
+            "请仅修正 project_scope 中的 review-only 执行边界表达，并返回一份完整的 Plan JSON。",
+            "不得只返回 project_scope 片段，不得返回 Markdown 或解释，只能返回一个 JSON object。",
+            "必须保留原有 plan_summary、phases、proposed_tasks、acceptance_criteria、risks 以及所有建议字段的语义和内容；不要删除或改写已有计划。",
+            "在 project_scope.out_of_scope 或 project_scope.assumptions 中明确表达：不自动创建任务；不自动调用或启动 Worker；不写仓库、不提交或推送代码；不调用 planning/apply 或 apply-local；草案不会自动执行；后续执行必须由用户单独确认并通过独立入口触发。",
+            "合法 project_scope 示例：{\"in_scope\":[\"...\"],\"out_of_scope\":[\"不自动创建任务\",\"不自动调用 Worker\",\"不写仓库\",\"不调用 planning/apply\"],\"assumptions\":[\"草案不会自动执行；后续执行必须由用户单独确认并通过独立入口触发\"]}。",
+            "",
+            "首次 Provider 返回的完整 JSON：",
+            json.dumps(initial_plan_payload, ensure_ascii=False),
+            "",
+            "原始 Plan 请求（用于保持用户目标、约束和澄清上下文）：",
+            original_plan_prompt,
         ]
     )
 
@@ -1259,35 +1286,40 @@ class ProjectDirectorPlanService:
         )
         prompt_text = _build_plan_prompt(session_obj, revision_notes=revision_notes)
         request_id = f"project-director-plan-{uuid4().hex[:12]}"
+        normalization_template = _generate_rule_fallback_plan(
+            session_obj,
+            revision_notes=revision_notes,
+            reason="provider_schema_normalization_template",
+        )
 
-        try:
+        def generate_provider_text(
+            *,
+            provider_prompt: str,
+            provider_request_id: str,
+        ) -> tuple[str, str | None]:
             if self._provider_text_generator is not None:
-                output_text, receipt_id = self._provider_text_generator(
+                return self._provider_text_generator(
                     model_name,
-                    prompt_text,
-                    request_id,
+                    provider_prompt,
+                    provider_request_id,
                 )
-            else:
-                output_text, receipt_id = self._call_provider_text(
-                    runtime_config=runtime_config,
-                    model_name=model_name,
-                    prompt_text=prompt_text,
-                    request_id=request_id,
-                )
+            return self._call_provider_text(
+                runtime_config=runtime_config,
+                model_name=model_name,
+                prompt_text=provider_prompt,
+                request_id=provider_request_id,
+            )
 
-            source_detail = (
-                f"provider={runtime_config.detected_provider_type}; "
-                f"model={model_name}; receipt={receipt_id or 'missing'}"
-            )
-            normalization_template = _generate_rule_fallback_plan(
-                session_obj,
-                revision_notes=revision_notes,
-                reason="provider_schema_normalization_template",
-            )
+        def parse_and_validate_provider_draft(
+            *,
+            provider_output_text: str,
+            provider_source_detail: str,
+            provider_receipt_id: str | None,
+        ) -> PlanGenerationResult:
             plan_draft = _parse_provider_plan_output(
-                output_text,
-                source_detail=source_detail,
-                provider_receipt_id=receipt_id,
+                provider_output_text,
+                source_detail=provider_source_detail,
+                provider_receipt_id=provider_receipt_id,
                 normalization_template=normalization_template,
             )
             validate_plan_output(
@@ -1307,7 +1339,58 @@ class ProjectDirectorPlanService:
                 complexity_assessment=plan_draft.complexity_assessment,
             )
             return plan_draft
+
+        try:
+            output_text, receipt_id = generate_provider_text(
+                provider_prompt=prompt_text,
+                provider_request_id=request_id,
+            )
+
+            source_detail = (
+                f"provider={runtime_config.detected_provider_type}; "
+                f"model={model_name}; receipt={receipt_id or 'missing'}"
+            )
+            return parse_and_validate_provider_draft(
+                provider_output_text=output_text,
+                provider_source_detail=source_detail,
+                provider_receipt_id=receipt_id,
+            )
         except ProjectDirectorOutputGuardrailError as exc:
+            if str(exc) == "plan_execution_boundary_missing":
+                try:
+                    repair_prompt = _build_plan_safety_boundary_repair_prompt(
+                        original_plan_prompt=prompt_text,
+                        initial_plan_payload=_extract_json_object(output_text),
+                    )
+                    repair_output_text, repair_receipt_id = generate_provider_text(
+                        provider_prompt=repair_prompt,
+                        provider_request_id=f"{request_id}-repair",
+                    )
+                    repair_source_detail = (
+                        f"provider={runtime_config.detected_provider_type}; "
+                        f"model={model_name}; attempt=repair; "
+                        f"initial_receipt={'present' if receipt_id else 'missing'}; "
+                        f"repair_receipt={'present' if repair_receipt_id else 'missing'}"
+                    )
+                    return parse_and_validate_provider_draft(
+                        provider_output_text=repair_output_text,
+                        provider_source_detail=repair_source_detail,
+                        provider_receipt_id=repair_receipt_id,
+                    )
+                except ProjectDirectorOutputGuardrailError as repair_exc:
+                    raise ProjectDirectorPlanGenerationError(
+                        "AI 项目主管计划草案执行边界修复失败，未创建系统规则模板草案；"
+                        "原因：initial_guardrail_reason=plan_execution_boundary_missing; "
+                        "provider_repair_failed:provider_guardrail_blocked:"
+                        f"{repair_exc}"
+                    ) from repair_exc
+                except Exception as repair_exc:  # noqa: BLE001 - repair must fail closed
+                    raise ProjectDirectorPlanGenerationError(
+                        "AI 项目主管计划草案执行边界修复失败，未创建系统规则模板草案；"
+                        "原因：initial_guardrail_reason=plan_execution_boundary_missing; "
+                        "provider_repair_failed:provider_generation_failed:"
+                        f"{repair_exc}"
+                    ) from repair_exc
             raise ProjectDirectorPlanGenerationError(
                 "AI 项目主管已返回计划草案，但未通过安全边界校验；"
                 f"请调整目标/约束后重试。原因：provider_guardrail_blocked:{exc}"
